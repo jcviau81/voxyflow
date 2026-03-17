@@ -41,6 +41,34 @@ backend/
         └── tts_service.py       # Text-to-speech
 ```
 
+## 🔐 API Key Setup
+
+Voxyflow stores API keys securely using your OS keyring (cross-platform).
+
+### First-time setup:
+```bash
+cd backend
+source venv/bin/activate
+python setup_keys.py
+```
+
+### Check stored keys:
+```bash
+python setup_keys.py show
+```
+
+### Clear stored keys:
+```bash
+python setup_keys.py clear
+```
+
+### Key lookup order:
+1. **OS Keyring** (GNOME Keyring / macOS Keychain / Windows Credential Manager)
+2. **Environment variable** (`ANTHROPIC_API_KEY`)
+3. **`.env` file** (local fallback, not committed to git)
+
+For Docker/headless environments, use environment variables.
+
 ## Quick Start
 
 ```bash
