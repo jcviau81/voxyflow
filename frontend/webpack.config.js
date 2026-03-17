@@ -78,9 +78,16 @@ module.exports = (env, argv) => {
         },
       ],
       client: {
+        // Use /hmr path for webpack HMR WebSocket to avoid conflict with /ws proxy
+        webSocketURL: 'ws://localhost:3000/hmr',
         overlay: {
           errors: true,
           warnings: false,
+        },
+      },
+      webSocketServer: {
+        options: {
+          path: '/hmr',
         },
       },
     },

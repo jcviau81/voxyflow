@@ -1,5 +1,10 @@
 // API & WebSocket
-export const WS_URL = process.env.VOXYFLOW_WS_URL || 'ws://localhost:8000';
+// In dev, connect via webpack proxy at /ws (proxied to ws://localhost:8000/ws)
+// In prod, use env var or default to the same origin's /ws
+export const WS_URL = process.env.VOXYFLOW_WS_URL || 
+  (typeof window !== 'undefined' 
+    ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
+    : 'ws://localhost:8000/ws');
 export const API_URL = process.env.VOXYFLOW_API_URL || 'http://localhost:8000';
 
 // Reconnection

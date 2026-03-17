@@ -1,9 +1,10 @@
 """Voxyflow — Voice-first project management assistant."""
 
+import json
 import logging
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -65,6 +66,33 @@ app.include_router(voice.router, prefix="/api")
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "voxyflow"}
+
+
+@app.websocket("/ws")
+async def general_websocket(websocket: WebSocket):
+    """
+    General-purpose WebSocket endpoint for the frontend ApiClient.
+    Handles ping/pong, broadcasts, and command dispatch.
+    """
+    await websocket.accept()
+    logger.info("General WebSocket client connected")
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                data = json.loads(raw)
+                msg_type = data.get("type")
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong", "payload": {}, "timestamp": data.get("timestamp")})
+                else:
+                    # Echo back with ack for now
+                    await websocket.send_json({"type": "ack", "payload": {"received": msg_type}, "timestamp": data.get("timestamp")})
+            except Exception as e:
+                logger.warning(f"WS message parse error: {e}")
+    except WebSocketDisconnect:
+        logger.info("General WebSocket client disconnected")
+    except Exception as e:
+        logger.exception(f"General WebSocket error: {e}")
 
 
 # ---------------------------------------------------------------------------
