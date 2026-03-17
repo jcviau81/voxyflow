@@ -1,0 +1,81 @@
+"""Card/Task schemas — with agent assignment support."""
+
+from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel, Field
+
+
+class CardCreate(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    status: str = Field(default="idea", pattern="^(idea|todo|in_progress|done|archived)$")
+    priority: int = Field(default=0, ge=0, le=4)
+    source_message_id: Optional[str] = None
+    auto_generated: bool = False
+    dependency_ids: list[str] = []
+    # Agent assignment
+    agent_type: Optional[str] = Field(
+        None,
+        pattern="^(ember|researcher|coder|designer|architect|writer|qa)$",
+        description="Specialized agent type assigned to this card",
+    )
+    agent_context: Optional[str] = Field(
+        None,
+        description="Relevant docs/requirements context for the assigned agent",
+    )
+
+
+class CardUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = Field(None, pattern="^(idea|todo|in_progress|done|archived)$")
+    priority: Optional[int] = Field(None, ge=0, le=4)
+    position: Optional[int] = None
+    agent_assigned: Optional[str] = None
+    agent_type: Optional[str] = Field(
+        None,
+        pattern="^(ember|researcher|coder|designer|architect|writer|qa)$",
+    )
+    agent_context: Optional[str] = None
+
+
+class CardResponse(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    description: str
+    status: str
+    priority: int
+    position: int
+    source_message_id: Optional[str] = None
+    auto_generated: bool
+    agent_assigned: Optional[str] = None
+    agent_type: Optional[str] = None
+    agent_context: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    dependency_ids: list[str] = []
+
+    model_config = {"from_attributes": True}
+
+
+class CardSuggestion(BaseModel):
+    """Pushed to client via WebSocket when analyzer detects a potential card."""
+    title: str
+    description: str
+    priority: int = 0
+    source_message_id: str
+    suggested_dependencies: list[str] = []
+    confidence: float = Field(ge=0.0, le=1.0)
+    # Agent routing
+    agent_type: str = "ember"
+    agent_name: str = "🔥 Ember"
+
+
+class AgentAssignment(BaseModel):
+    """Request to assign/reassign a card to a specific agent."""
+    agent_type: str = Field(
+        ...,
+        pattern="^(ember|researcher|coder|designer|architect|writer|qa)$",
+    )
+    agent_context: Optional[str] = None

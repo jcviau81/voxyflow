@@ -1,0 +1,255 @@
+/* Voxyflow - Responsive Styles */
+
+/* Tablet: 768px - 1024px */
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-width: 200px;
+  }
+
+  .kanban-columns {
+    gap: 12px;
+  }
+
+  .kanban-column {
+    min-width: 220px;
+  }
+
+  .modal {
+    width: 95%;
+    max-width: 550px;
+  }
+}
+
+/* Mobile: < 768px */
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 100%;
+    --top-bar-height: 48px;
+  }
+
+  .app-layout {
+    flex-direction: column;
+  }
+
+  /* Sidebar becomes overlay on mobile */
+  .sidebar-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 280px;
+    height: 100vh;
+    z-index: 900;
+    transform: translateX(-100%);
+    transition: transform var(--transition);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar-container.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-collapsed .sidebar-container {
+    width: 280px;
+  }
+
+  /* Show menu button on mobile */
+  .top-bar-menu-btn {
+    display: flex;
+  }
+
+  /* Chat adjustments */
+  .chat-messages {
+    padding: 12px;
+  }
+
+  .message-bubble {
+    max-width: 90%;
+  }
+
+  .chat-input-area {
+    padding: 8px 12px;
+  }
+
+  .chat-input {
+    font-size: 16px; /* Prevent zoom on iOS */
+  }
+
+  /* Voice input */
+  .voice-input-container {
+    flex-shrink: 0;
+  }
+
+  /* Kanban - horizontal scroll */
+  .kanban-board {
+    padding: 12px;
+  }
+
+  .kanban-columns {
+    gap: 8px;
+  }
+
+  .kanban-column {
+    min-width: 280px;
+  }
+
+  .kanban-column-cards {
+    padding: 8px;
+  }
+
+  /* Projects */
+  .project-list {
+    padding: 12px;
+  }
+
+  .project-item {
+    padding: 12px;
+  }
+
+  .project-item-actions {
+    opacity: 1; /* Always show on mobile */
+  }
+
+  /* Modal */
+  .modal {
+    width: 100%;
+    max-width: none;
+    max-height: 100vh;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .modal-overlay {
+    align-items: flex-end;
+  }
+
+  .modal-status-row {
+    flex-wrap: wrap;
+  }
+
+  .status-btn {
+    flex: 0 0 calc(50% - 4px);
+  }
+
+  /* Toast */
+  .toast-container {
+    bottom: 12px;
+    right: 12px;
+    left: 12px;
+    max-width: none;
+  }
+
+  /* Settings */
+  .settings-view {
+    padding: 12px;
+  }
+}
+
+/* Small mobile: < 375px */
+@media (max-width: 375px) {
+  .chat-header {
+    padding: 8px 12px;
+  }
+
+  .chat-title {
+    font-size: 14px;
+  }
+
+  .message-content {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  .kanban-card {
+    padding: 10px;
+  }
+
+  .kanban-card-title {
+    font-size: 13px;
+  }
+}
+
+/* Landscape mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+  .chat-messages {
+    padding: 8px;
+  }
+
+  .message-bubble {
+    max-width: 70%;
+  }
+
+  .chat-input-area {
+    padding: 6px 12px;
+  }
+
+  .kanban-board {
+    padding: 8px;
+  }
+}
+
+/* Desktop large: > 1440px */
+@media (min-width: 1440px) {
+  :root {
+    --sidebar-width: 280px;
+  }
+
+  .chat-messages {
+    padding: 20px 40px;
+  }
+
+  .message-bubble {
+    max-width: 70%;
+  }
+
+  .kanban-column {
+    min-width: 300px;
+  }
+
+  .project-list {
+    padding: 24px 40px;
+    max-width: 1000px;
+  }
+}
+
+/* Print */
+@media print {
+  .sidebar-container,
+  .top-bar-container,
+  .chat-input-area,
+  .voice-input,
+  .toast-container,
+  .modal-overlay {
+    display: none !important;
+  }
+
+  .main-area {
+    width: 100%;
+  }
+
+  .app-layout {
+    display: block;
+  }
+
+  body {
+    background: white;
+    color: black;
+    overflow: visible;
+    height: auto;
+  }
+}
+
+/* Prefers reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Dark/Light mode - future support */
+@media (prefers-color-scheme: light) {
+  /* Light theme overrides would go here if theme: 'light' is selected */
+}
