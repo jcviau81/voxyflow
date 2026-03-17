@@ -1,5 +1,6 @@
 """Claude API integration — Haiku (fast) and Opus (deep) layers, personality-infused."""
 
+import json
 import logging
 from typing import Optional
 
@@ -75,6 +76,74 @@ class ClaudeService:
 
         history.append({"role": "assistant", "content": response_text})
         return response_text
+
+    async def chat_opus_supervisor(
+        self,
+        chat_id: str,
+        user_message: str,
+        project_name: Optional[str] = None,
+    ) -> dict:
+        """
+        Layer 2: Opus supervisor — decides whether to enrich or correct Haiku's response.
+
+        Runs in parallel with Haiku. Analyzes the full conversation context and returns:
+        { "action": "enrich"|"correct"|"none", "content": "..." }
+        """
+        history = self._get_history(chat_id)
+
+        settings = get_settings()
+        recent = history[-settings.opus_context_messages:]
+
+        # Build full memory context for Opus
+        memory_context = self.memory.build_memory_context(
+            project_name=project_name,
+            include_long_term=True,
+            include_daily=True,
+        )
+
+        # Supervisor-specific system prompt
+        supervisor_base = (
+            "You are the deep-thinking supervisor layer of Voxyflow.\n"
+            "A fast layer (Haiku) is responding to the user simultaneously.\n"
+            "Your job: analyze the conversation and decide if a follow-up is needed.\n\n"
+            "Decide one of:\n"
+            '- "enrich": Add valuable context, deeper insight, or important nuance\n'
+            '- "correct": Fix a factual error or significant oversight the fast layer likely made\n'
+            '- "none": The fast response was probably fine, no need to add anything\n\n'
+            "IMPORTANT: Bias toward 'none'. Only enrich/correct when it genuinely adds value.\n"
+            "Simple greetings, acknowledgments, small talk → always 'none'.\n"
+            "Complex questions, technical topics, nuanced advice → consider enriching.\n\n"
+            "If action is 'enrich' or 'correct', write a natural follow-up message.\n"
+            "Make it sound like the same person thinking deeper:\n"
+            '- "Actually, now that I think about it..."\n'
+            '- "Oh wait, I should also mention..."\n'
+            '- "Hmm, let me nuance that..."\n\n'
+            "Respond ONLY with valid JSON (no markdown, no code blocks):\n"
+            '{"action": "enrich"|"correct"|"none", "content": "..."}\n'
+            'If "none", content can be empty string.\n'
+            "Respond in the same language the user used."
+        )
+
+        system_prompt = self.personality.build_system_prompt(
+            base_prompt=supervisor_base,
+            include_memory_context=memory_context,
+        )
+
+        try:
+            response_text = await self._call_api(
+                model=self.opus_model,
+                system=system_prompt,
+                messages=[*recent, {"role": "user", "content": user_message}],
+            )
+
+            # Parse JSON response
+            result = json.loads(response_text.strip())
+            if result.get("action") in ("enrich", "correct", "none"):
+                return result
+            return {"action": "none", "content": ""}
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning(f"Opus supervisor failed to parse response: {e}")
+            return {"action": "none", "content": ""}
 
     async def chat_opus(
         self,

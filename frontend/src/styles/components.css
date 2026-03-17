@@ -269,6 +269,39 @@
   text-align: right;
 }
 
+/* Enrichment messages (Layer 2 — Opus deep thinking) */
+.message-enrichment {
+  opacity: 0;
+  animation: enrichment-fade-in 0.5s ease 0.3s forwards;
+}
+
+.message-enrichment .message-content {
+  background: var(--color-bg-tertiary);
+  border-left: 3px solid var(--color-primary);
+  border-color: var(--color-primary);
+  font-style: italic;
+}
+
+.message-enrichment .message-avatar {
+  background: transparent;
+  font-size: 18px;
+}
+
+.message-correction .message-content {
+  border-left-color: var(--color-warning, #f59e0b);
+}
+
+@keyframes enrichment-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .streaming-cursor {
   animation: blink 0.8s step-end infinite;
   color: var(--color-accent);

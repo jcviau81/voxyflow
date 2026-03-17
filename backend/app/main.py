@@ -1,8 +1,10 @@
 """Voxyflow — Voice-first project management assistant."""
 
+import asyncio
 import json
 import logging
 import time
+from uuid import uuid4
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -12,6 +14,7 @@ from app.config import get_settings
 from app.database import init_db
 from app.routes import chats, projects, cards, voice
 from app.services.claude_service import ClaudeService
+from app.services.analyzer_service import AnalyzerService
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -71,13 +74,123 @@ async def health():
 
 
 _claude_service = ClaudeService()
+_analyzer_service = AnalyzerService()
+
+
+async def _handle_chat_3layer(
+    websocket: WebSocket,
+    content: str,
+    message_id: str,
+    chat_id: str,
+    project_id: str | None,
+) -> None:
+    """
+    3-Layer Multi-Model Chat Orchestration.
+
+    Layer 1 — Haiku (fast, <1s): Immediate conversational response.
+    Layer 2 — Opus (deep, 2-5s): Enriches/corrects if needed, runs in parallel.
+    Layer 3 — Analyzer (background): Detects actionable items → card suggestions.
+    """
+    project_name = None  # TODO: resolve from project_id
+
+    # Launch all three layers in parallel
+    haiku_task = asyncio.create_task(
+        _claude_service.chat_haiku(chat_id=chat_id, user_message=content, project_name=project_name)
+    )
+    opus_task = asyncio.create_task(
+        _claude_service.chat_opus_supervisor(chat_id=chat_id, user_message=content, project_name=project_name)
+    )
+    analyzer_task = asyncio.create_task(
+        _analyzer_service.analyze_for_cards(chat_id=chat_id, message=content, project_context="")
+    )
+
+    # --- Layer 1: Send Haiku response ASAP ---
+    start = time.time()
+    try:
+        haiku_response = await haiku_task
+        latency = int((time.time() - start) * 1000)
+        logger.info(f"[Layer1-Haiku] responded in {latency}ms")
+
+        await websocket.send_json({
+            "type": "chat:response",
+            "payload": {
+                "messageId": message_id,
+                "content": haiku_response,
+                "model": "haiku",
+                "streaming": False,
+                "done": True,
+                "latency_ms": latency,
+            },
+            "timestamp": int(time.time() * 1000),
+        })
+    except Exception as e:
+        logger.error(f"[Layer1-Haiku] error: {e}")
+        await websocket.send_json({
+            "type": "chat:error",
+            "payload": {"messageId": message_id, "error": str(e)},
+            "timestamp": int(time.time() * 1000),
+        })
+        # Cancel background tasks on Haiku failure
+        opus_task.cancel()
+        analyzer_task.cancel()
+        return
+
+    # --- Layer 2: Opus enrichment/correction ---
+    try:
+        opus_result = await asyncio.wait_for(opus_task, timeout=15.0)
+        if opus_result and opus_result.get("action") in ("enrich", "correct"):
+            enrichment_id = str(uuid4())
+            logger.info(f"[Layer2-Opus] action={opus_result['action']}, sending enrichment")
+            await websocket.send_json({
+                "type": "chat:enrichment",
+                "payload": {
+                    "messageId": enrichment_id,
+                    "content": opus_result["content"],
+                    "model": "opus",
+                    "action": opus_result["action"],
+                    "done": True,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
+        else:
+            logger.debug("[Layer2-Opus] no enrichment needed")
+    except asyncio.TimeoutError:
+        logger.warning("[Layer2-Opus] timed out after 15s, skipping")
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error(f"[Layer2-Opus] error: {e}")
+
+    # --- Layer 3: Analyzer card suggestions ---
+    try:
+        cards = await asyncio.wait_for(analyzer_task, timeout=15.0)
+        if cards:
+            for card in cards:
+                logger.info(f"[Layer3-Analyzer] card suggestion: {card['title']}")
+                await websocket.send_json({
+                    "type": "card:suggestion",
+                    "payload": {
+                        "title": card["title"],
+                        "description": card.get("description", ""),
+                        "agentType": card.get("agent_type", "ember"),
+                        "agentName": card.get("agent_name", "Ember"),
+                        "projectId": project_id or "",
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
+    except asyncio.TimeoutError:
+        logger.warning("[Layer3-Analyzer] timed out after 15s, skipping")
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error(f"[Layer3-Analyzer] error: {e}")
 
 
 @app.websocket("/ws")
 async def general_websocket(websocket: WebSocket):
     """
     General-purpose WebSocket endpoint for the frontend ApiClient.
-    Handles ping/pong, chat messages (routed to Claude), and command dispatch.
+    Handles ping/pong, chat messages (3-layer orchestration), and command dispatch.
     """
     await websocket.accept()
     logger.info("General WebSocket client connected")
@@ -98,46 +211,21 @@ async def general_websocket(websocket: WebSocket):
                     })
 
                 elif msg_type == "chat:message":
-                    # Route to Claude
                     content = payload.get("content", "")
                     message_id = payload.get("messageId", msg_id)
                     project_id = payload.get("projectId")
-
-                    # Use projectId as chat_id, or fall back to a default
                     chat_id = str(project_id) if project_id else "default"
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}: {content[:80]!r}")
 
-                    start = time.time()
-                    try:
-                        response_text = await _claude_service.chat_haiku(
-                            chat_id=chat_id,
-                            user_message=content,
-                        )
-                        latency = int((time.time() - start) * 1000)
-                        logger.info(f"[WS] Claude responded in {latency}ms")
-
-                        await websocket.send_json({
-                            "type": "chat:response",
-                            "payload": {
-                                "messageId": message_id,
-                                "content": response_text,
-                                "streaming": False,
-                                "done": True,
-                                "latency_ms": latency,
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        })
-                    except Exception as e:
-                        logger.error(f"[WS] Claude error: {e}")
-                        await websocket.send_json({
-                            "type": "chat:error",
-                            "payload": {
-                                "messageId": message_id,
-                                "error": str(e),
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        })
+                    # 3-Layer orchestration (Haiku + Opus + Analyzer in parallel)
+                    await _handle_chat_3layer(
+                        websocket=websocket,
+                        content=content,
+                        message_id=message_id,
+                        chat_id=chat_id,
+                        project_id=project_id,
+                    )
 
                 else:
                     # Ack unknown message types

@@ -184,6 +184,38 @@ class AnalyzerService:
             agent_name=self._get_agent_display(agent_type),
         )
 
+    async def analyze_for_cards(
+        self,
+        chat_id: str,
+        message: str,
+        project_context: str = "",
+    ) -> list[dict]:
+        """
+        Layer 3: Analyze a message for actionable items and return card suggestions.
+
+        Returns a list of card suggestion dicts:
+        [{"title": "...", "description": "...", "agent_type": "...", "agent_name": "..."}]
+
+        Uses heuristic analysis first. If LLM-based analysis is available via
+        ClaudeService, it enriches the result. Returns empty list if nothing detected.
+        """
+        # Step 1: Heuristic analysis (fast, no API call)
+        card = await self.analyze(chat_id, message, project_context)
+
+        if not card:
+            return []
+
+        return [
+            {
+                "title": card.title,
+                "description": card.description,
+                "agent_type": card.agent_type,
+                "agent_name": card.agent_name,
+                "priority": card.priority,
+                "confidence": card.confidence,
+            }
+        ]
+
     def _get_agent_display(self, agent_type: AgentType) -> str:
         """Get display name with emoji for an agent type."""
         from app.services.agent_personas import get_persona

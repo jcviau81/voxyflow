@@ -16,9 +16,17 @@ export class MessageBubble {
   render(): void {
     this.element.innerHTML = '';
 
+    // Add enrichment class if applicable
+    if (this.message.enrichment) {
+      this.element.classList.add('message-enrichment');
+      if (this.message.enrichmentAction === 'correct') {
+        this.element.classList.add('message-correction');
+      }
+    }
+
     // Avatar
     const avatar = createElement('div', { className: 'message-avatar' });
-    avatar.textContent = this.message.role === 'user' ? '👤' : '🔥';
+    avatar.textContent = this.message.role === 'user' ? '👤' : this.message.enrichment ? '💭' : '🔥';
 
     // Content wrapper
     const wrapper = createElement('div', { className: 'message-content-wrapper' });

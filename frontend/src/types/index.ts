@@ -15,6 +15,12 @@ export interface Message {
   cardId?: string;
   streaming?: boolean;
   audioBuffer?: ArrayBuffer;
+  /** True if this is an Opus enrichment/correction follow-up */
+  enrichment?: boolean;
+  /** The type of enrichment: deeper thought or correction */
+  enrichmentAction?: 'enrich' | 'correct';
+  /** Which model produced this message */
+  model?: string;
 }
 
 export interface Project {

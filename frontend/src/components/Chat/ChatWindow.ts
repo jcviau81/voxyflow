@@ -98,6 +98,13 @@ export class ChatWindow {
       })
     );
 
+    // Enrichment messages (Layer 2 — Opus deep thinking)
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.MESSAGE_ENRICHMENT, (message: unknown) => {
+        this.renderMessage(message as Message);
+      })
+    );
+
     // Streaming updates
     this.unsubscribers.push(
       eventBus.on(EVENTS.MESSAGE_STREAMING, (data: unknown) => {

@@ -70,6 +70,7 @@ export const EVENTS = {
   MESSAGE_RECEIVED: 'chat:message:received',
   MESSAGE_STREAMING: 'chat:message:streaming',
   MESSAGE_STREAM_END: 'chat:message:stream-end',
+  MESSAGE_ENRICHMENT: 'chat:message:enrichment',
 
   // Voice
   VOICE_START: 'voice:start',

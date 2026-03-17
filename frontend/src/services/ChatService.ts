@@ -37,18 +37,42 @@ export class ChatService {
       })
     );
 
-    // Handle card suggestions
+    // Handle enrichment messages (Layer 2 — Opus deep thinking)
     this.unsubscribers.push(
-      apiClient.on('chat:card-suggestion', (payload) => {
-        const { title, description, projectId } = payload as {
+      apiClient.on('chat:enrichment', (payload) => {
+        const { messageId, content, model, action } = payload as {
+          messageId: string;
+          content: string;
+          model: string;
+          action: string;
+          done: boolean;
+        };
+
+        const message = appState.addMessage({
+          role: 'assistant',
+          content,
+          enrichment: true,
+          enrichmentAction: action as 'enrich' | 'correct',
+          model,
+        });
+        eventBus.emit(EVENTS.MESSAGE_ENRICHMENT, message);
+      })
+    );
+
+    // Handle card suggestions (Layer 3 — Analyzer)
+    this.unsubscribers.push(
+      apiClient.on('card:suggestion', (payload) => {
+        const { title, description, projectId, agentType, agentName } = payload as {
           title: string;
           description: string;
           projectId: string;
+          agentType: string;
+          agentName: string;
         };
         eventBus.emit(EVENTS.TOAST_SHOW, {
-          message: `Card suggestion: "${title}"`,
+          message: `💡 Card suggestion: "${title}" — ${agentName || agentType}`,
           type: 'info',
-          duration: 8000,
+          duration: 10000,
           action: {
             label: 'Create Card',
             callback: () => {
@@ -56,7 +80,7 @@ export class ChatService {
                 title,
                 description,
                 status: 'idea',
-                projectId,
+                projectId: projectId || appState.get('currentProjectId') || '',
                 dependencies: [],
                 tags: [],
                 priority: 0,
