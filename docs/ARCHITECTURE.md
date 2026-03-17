@@ -393,3 +393,56 @@ backend/app/services/
 5. **Card UI** — Kanban board with drag-drop + agent badges
 6. **Agent assignment UI** — Agent picker on cards, routing transparency
 7. **Memory write-back** — Daily log entries from Voxyflow conversations
+
+---
+
+## Model Responsibility Rules (CRITICAL)
+
+### Haiku = Voice Only
+- **NEVER** uses tools
+- **NEVER** does deep thinking
+- **ONLY** conversational responses (fast, personality-infused)
+- Response target: < 1s
+- Role: The **mouth** — speaks to the user
+
+### Sonnet = Worker
+- Executes tools (file ops, web, exec, code generation)
+- Handles mechanical/repetitive tasks
+- Used as sub-agent when Haiku detects work is needed
+- Medium complexity tasks
+
+### Opus = Brain
+- Deep thinking, analysis, architecture
+- Supervisor layer (enriches/corrects Haiku in background)
+- Complex reasoning, design decisions
+- Used as sub-agent for high-complexity work
+
+### Tool Delegation Pattern
+```
+User speaks
+  ↓
+Haiku responds (conversation only, NO tools)
+  ↓
+If tool/work needed:
+  ↓
+Haiku delegates → Sonnet sub-agent (simple tools)
+              OR → Opus sub-agent (complex work)
+  ↓
+Sub-agent executes (tools, code, analysis)
+  ↓
+Result returns to Haiku
+  ↓
+Haiku delivers result naturally to user
+```
+
+### Key Principle
+Haiku is the **interface layer**. It NEVER touches tools directly.
+All tool use goes through Sonnet/Opus sub-agents based on complexity:
+- Simple/mechanical → Sonnet
+- Complex/architectural → Opus
+- Conversation/voice → Haiku (always)
+
+This separation ensures:
+1. Voice responses are always fast (Haiku never blocked by tools)
+2. Tool work is done by capable models (not Haiku)
+3. User experience is seamless (Haiku delivers results naturally)
