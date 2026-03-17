@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import init_db
 from app.routes import chats, projects, cards, voice
+from app.services.claude_service import ClaudeService
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -68,11 +70,14 @@ async def health():
     return {"status": "ok", "service": "voxyflow"}
 
 
+_claude_service = ClaudeService()
+
+
 @app.websocket("/ws")
 async def general_websocket(websocket: WebSocket):
     """
     General-purpose WebSocket endpoint for the frontend ApiClient.
-    Handles ping/pong, broadcasts, and command dispatch.
+    Handles ping/pong, chat messages (routed to Claude), and command dispatch.
     """
     await websocket.accept()
     logger.info("General WebSocket client connected")
@@ -82,11 +87,66 @@ async def general_websocket(websocket: WebSocket):
             try:
                 data = json.loads(raw)
                 msg_type = data.get("type")
+                payload = data.get("payload", {})
+                msg_id = data.get("id", "")
+
                 if msg_type == "ping":
-                    await websocket.send_json({"type": "pong", "payload": {}, "timestamp": data.get("timestamp")})
+                    await websocket.send_json({
+                        "type": "pong",
+                        "payload": {},
+                        "timestamp": data.get("timestamp"),
+                    })
+
+                elif msg_type == "chat:message":
+                    # Route to Claude
+                    content = payload.get("content", "")
+                    message_id = payload.get("messageId", msg_id)
+                    project_id = payload.get("projectId")
+
+                    # Use projectId as chat_id, or fall back to a default
+                    chat_id = str(project_id) if project_id else "default"
+
+                    logger.info(f"[WS] chat:message → chat_id={chat_id}: {content[:80]!r}")
+
+                    start = time.time()
+                    try:
+                        response_text = await _claude_service.chat_haiku(
+                            chat_id=chat_id,
+                            user_message=content,
+                        )
+                        latency = int((time.time() - start) * 1000)
+                        logger.info(f"[WS] Claude responded in {latency}ms")
+
+                        await websocket.send_json({
+                            "type": "chat:response",
+                            "payload": {
+                                "messageId": message_id,
+                                "content": response_text,
+                                "streaming": False,
+                                "done": True,
+                                "latency_ms": latency,
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        })
+                    except Exception as e:
+                        logger.error(f"[WS] Claude error: {e}")
+                        await websocket.send_json({
+                            "type": "chat:error",
+                            "payload": {
+                                "messageId": message_id,
+                                "error": str(e),
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        })
+
                 else:
-                    # Echo back with ack for now
-                    await websocket.send_json({"type": "ack", "payload": {"received": msg_type}, "timestamp": data.get("timestamp")})
+                    # Ack unknown message types
+                    await websocket.send_json({
+                        "type": "ack",
+                        "payload": {"received": msg_type},
+                        "timestamp": data.get("timestamp"),
+                    })
+
             except Exception as e:
                 logger.warning(f"WS message parse error: {e}")
     except WebSocketDisconnect:

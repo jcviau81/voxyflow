@@ -41,8 +41,8 @@ class Settings(BaseSettings):
 
     # Claude API — loaded from keyring → env → .env
     claude_api_key: str = ""
-    claude_haiku_model: str = "claude-haiku-4-5-20250315"
-    claude_opus_model: str = "claude-opus-4-20250514"
+    claude_haiku_model: str = "claude-haiku-4-5"
+    claude_opus_model: str = "claude-opus-4-5"
     claude_max_tokens: int = 1024
 
     # TTS

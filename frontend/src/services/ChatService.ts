@@ -25,10 +25,13 @@ export class ChatService {
         };
 
         if (streaming && !done) {
+          // Streaming chunk — accumulate
           this.handleStreamingChunk(messageId, content);
-        } else if (done) {
+        } else if (done && this.streamingMessages.has(messageId)) {
+          // Final chunk of an in-progress stream
           this.handleStreamComplete(messageId, content as string);
         } else {
+          // Non-streaming full response (or done without prior stream state)
           this.handleFullResponse(content);
         }
       })
