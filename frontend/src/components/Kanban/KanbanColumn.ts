@@ -16,6 +16,7 @@ export class KanbanColumn {
     this.element = createElement('div', {
       className: 'kanban-column',
       'data-status': status,
+      'data-testid': 'kanban-column',
     });
 
     const header = createElement('div', { className: 'kanban-column-header' });

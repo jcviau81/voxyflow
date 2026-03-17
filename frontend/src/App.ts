@@ -201,7 +201,7 @@ export class App {
   }
 
   private setupPWA(): void {
-    let deferredPrompt: Event | null = null;
+    let deferredPrompt: unknown = null;
 
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();

@@ -99,7 +99,7 @@ export class StorageService {
       const request = store.getAll();
 
       request.onsuccess = () => {
-        let results = request.result.map((r: { value: unknown }) => r.value);
+        let results = request.result.map((r: { value: unknown }) => r.value) as Record<string, unknown>[];
 
         if (criteria) {
           // Filter by field/value
@@ -113,8 +113,8 @@ export class StorageService {
           if (criteria.orderBy) {
             const order = criteria.order || 'asc';
             results.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
-              const aVal = a[criteria.orderBy!];
-              const bVal = b[criteria.orderBy!];
+              const aVal = a[criteria.orderBy!] as string | number;
+              const bVal = b[criteria.orderBy!] as string | number;
               if (aVal < bVal) return order === 'asc' ? -1 : 1;
               if (aVal > bVal) return order === 'asc' ? 1 : -1;
               return 0;

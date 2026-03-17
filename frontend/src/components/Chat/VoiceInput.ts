@@ -15,7 +15,7 @@ export class VoiceInput {
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(private parentElement: HTMLElement) {
-    this.container = createElement('div', { className: 'voice-input' });
+    this.container = createElement('div', { className: 'voice-input', 'data-testid': 'voice-input-btn' });
     this.render();
     this.setupListeners();
     this.setupKeyboardShortcut();

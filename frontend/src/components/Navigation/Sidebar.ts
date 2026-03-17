@@ -23,7 +23,7 @@ export class Sidebar {
   private unsubscribers: (() => void)[] = [];
 
   constructor(private parentElement: HTMLElement) {
-    this.container = createElement('nav', { className: 'sidebar' });
+    this.container = createElement('nav', { className: 'sidebar', 'data-testid': 'sidebar' });
     this.render();
     this.setupListeners();
   }

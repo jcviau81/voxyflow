@@ -12,7 +12,7 @@ export class KanbanBoard {
   private unsubscribers: (() => void)[] = [];
 
   constructor(private parentElement: HTMLElement) {
-    this.container = createElement('div', { className: 'kanban-board' });
+    this.container = createElement('div', { className: 'kanban-board', 'data-testid': 'kanban-board' });
     this.render();
     this.setupListeners();
   }

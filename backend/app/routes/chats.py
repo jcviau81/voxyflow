@@ -26,8 +26,11 @@ async def create_chat(body: ChatCreate, db: AsyncSession = Depends(get_db)):
     chat = Chat(id=new_uuid(), title=body.title, project_id=body.project_id)
     db.add(chat)
     await db.commit()
-    await db.refresh(chat)
-    return chat
+
+    # Eager-load messages to prevent MissingGreenlet on serialization
+    stmt = select(Chat).options(selectinload(Chat.messages)).where(Chat.id == chat.id)
+    result = await db.execute(stmt)
+    return result.scalar_one()
 
 
 @router.get("", response_model=list[ChatListItem])

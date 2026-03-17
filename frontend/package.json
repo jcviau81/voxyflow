@@ -13,13 +13,20 @@
     "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts' 'tests/**/*.ts'",
     "type-check": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test:e2e": "playwright test tests/e2e",
+    "test:e2e:ui": "playwright test tests/e2e --ui",
+    "test:e2e:debug": "playwright test tests/e2e --debug"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/jest": "^29.5.12",
+    "@types/node": "^25.5.0",
+    "@types/webpack-env": "^1.18.8",
+    "copy-webpack-plugin": "^12.0.2",
     "css-loader": "^7.1.2",
     "css-minimizer-webpack-plugin": "^7.0.0",
     "eslint": "^9.9.0",
@@ -38,8 +45,7 @@
     "webpack": "^5.93.0",
     "webpack-cli": "^5.1.4",
     "webpack-dev-server": "^5.0.4",
-    "workbox-webpack-plugin": "^7.1.0",
-    "copy-webpack-plugin": "^12.0.2"
+    "workbox-webpack-plugin": "^7.1.0"
   },
   "browserslist": [
     ">0.2%",

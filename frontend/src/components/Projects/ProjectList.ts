@@ -11,7 +11,7 @@ export class ProjectList {
   private unsubscribers: (() => void)[] = [];
 
   constructor(private parentElement: HTMLElement) {
-    this.container = createElement('div', { className: 'project-list' });
+    this.container = createElement('div', { className: 'project-list', 'data-testid': 'project-list' });
     this.render();
     this.setupListeners();
   }

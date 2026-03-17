@@ -18,7 +18,7 @@ export class ChatWindow {
   private autoScroll = true;
 
   constructor(private parentElement: HTMLElement) {
-    this.container = createElement('div', { className: 'chat-window' });
+    this.container = createElement('div', { className: 'chat-window', 'data-testid': 'chat-window' });
     this.render();
     this.setupListeners();
   }
@@ -48,6 +48,7 @@ export class ChatWindow {
       className: 'chat-input',
       placeholder: 'Type a message or press Alt+V for voice...',
       'data-maxlength': MAX_MESSAGE_LENGTH.toString(),
+      'data-testid': 'chat-input',
     }) as HTMLTextAreaElement;
     this.textInput.rows = 1;
     this.textInput.addEventListener('keydown', this.handleKeyDown.bind(this));

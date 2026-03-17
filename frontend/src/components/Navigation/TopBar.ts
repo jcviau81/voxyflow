@@ -23,7 +23,7 @@ export class TopBar {
     });
 
     // Title / breadcrumb
-    const title = createElement('div', { className: 'top-bar-title' });
+    const title = createElement('div', { className: 'top-bar-title', 'data-testid': 'breadcrumbs' });
     const view = appState.get('currentView');
     const projectId = appState.get('currentProjectId');
     const project = projectId ? appState.getProject(projectId) : null;

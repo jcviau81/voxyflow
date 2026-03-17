@@ -4,6 +4,7 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
+const webpack = require('webpack');
 
 module.exports = (env, argv) => {
   const isProduction = argv.mode === 'production';
@@ -39,6 +40,11 @@ module.exports = (env, argv) => {
       ],
     },
     plugins: [
+      new webpack.DefinePlugin({
+        'process.env.NODE_ENV': JSON.stringify(isProduction ? 'production' : 'development'),
+        'process.env.VOXYFLOW_WS_URL': JSON.stringify(process.env.VOXYFLOW_WS_URL || ''),
+        'process.env.VOXYFLOW_API_URL': JSON.stringify(process.env.VOXYFLOW_API_URL || ''),
+      }),
       new HtmlWebpackPlugin({
         template: './public/index.html',
         favicon: false,
