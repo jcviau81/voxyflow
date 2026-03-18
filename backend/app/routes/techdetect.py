@@ -84,62 +84,73 @@ async def detect_tech(project_path: str):
     techs: list[dict] = []
     seen: set[str] = set()
 
-    # Scan for signature files
-    for filename, tech_info in TECH_SIGNATURES.items():
-        check_path = path / filename
-        if check_path.exists():
-            key = tech_info["name"]
-            if key not in seen:
-                techs.append({**tech_info, "source": filename})
-                seen.add(key)
+    # Directories to scan: root + immediate subdirectories (monorepo support)
+    scan_dirs = [path]
+    for child in path.iterdir():
+        if child.is_dir() and child.name not in (
+            "node_modules", ".git", "__pycache__", "venv", "dist", ".venv"
+        ):
+            scan_dirs.append(child)
 
-    # Deep scan package.json
-    pkg_path = path / "package.json"
-    if pkg_path.exists():
-        try:
-            pkg = json.loads(pkg_path.read_text())
-            all_deps = {
-                **pkg.get("dependencies", {}),
-                **pkg.get("devDependencies", {}),
-            }
-            for dep, tech_info in NPM_FRAMEWORKS.items():
-                if dep in all_deps:
-                    key = tech_info["name"]
-                    if key not in seen:
-                        version = all_deps[dep].lstrip("^~>=")
-                        techs.append(
-                            {**tech_info, "version": version, "source": "package.json"}
-                        )
-                        seen.add(key)
-        except Exception:
-            pass
+    for scan_dir in scan_dirs:
+        prefix = "" if scan_dir == path else f"{scan_dir.name}/"
 
-    # Deep scan requirements.txt
-    req_path = path / "requirements.txt"
-    if req_path.exists():
-        try:
-            lines = req_path.read_text().strip().split("\n")
-            for line in lines:
-                pkg_name = (
-                    line.split(">=")[0].split("==")[0].split("[")[0].strip().lower()
-                )
-                if pkg_name in PIP_FRAMEWORKS:
-                    tech_info = PIP_FRAMEWORKS[pkg_name]
-                    key = tech_info["name"]
-                    if key not in seen:
-                        version = (
-                            line.split(">=")[-1].strip() if ">=" in line else ""
-                        )
-                        techs.append(
-                            {
-                                **tech_info,
-                                "version": version,
-                                "source": "requirements.txt",
-                            }
-                        )
-                        seen.add(key)
-        except Exception:
-            pass
+        # Scan for signature files
+        for filename, tech_info in TECH_SIGNATURES.items():
+            check_path = scan_dir / filename
+            if check_path.exists():
+                key = tech_info["name"]
+                if key not in seen:
+                    techs.append({**tech_info, "source": f"{prefix}{filename}"})
+                    seen.add(key)
+
+        # Deep scan package.json
+        pkg_path = scan_dir / "package.json"
+        if pkg_path.exists():
+            try:
+                pkg = json.loads(pkg_path.read_text())
+                all_deps = {
+                    **pkg.get("dependencies", {}),
+                    **pkg.get("devDependencies", {}),
+                }
+                for dep, tech_info in NPM_FRAMEWORKS.items():
+                    if dep in all_deps:
+                        key = tech_info["name"]
+                        if key not in seen:
+                            version = all_deps[dep].lstrip("^~>=")
+                            techs.append(
+                                {**tech_info, "version": version, "source": f"{prefix}package.json"}
+                            )
+                            seen.add(key)
+            except Exception:
+                pass
+
+        # Deep scan requirements.txt
+        req_path = scan_dir / "requirements.txt"
+        if req_path.exists():
+            try:
+                lines = req_path.read_text().strip().split("\n")
+                for line in lines:
+                    pkg_name = (
+                        line.split(">=")[0].split("==")[0].split("[")[0].strip().lower()
+                    )
+                    if pkg_name in PIP_FRAMEWORKS:
+                        tech_info = PIP_FRAMEWORKS[pkg_name]
+                        key = tech_info["name"]
+                        if key not in seen:
+                            version = (
+                                line.split(">=")[-1].strip() if ">=" in line else ""
+                            )
+                            techs.append(
+                                {
+                                    **tech_info,
+                                    "version": version,
+                                    "source": f"{prefix}requirements.txt",
+                                }
+                            )
+                            seen.add(key)
+            except Exception:
+                pass
 
     # Count files by extension
     file_counts: dict[str, int] = {}
