@@ -96,7 +96,7 @@ export class Sidebar {
         title: tooltipText,
       });
       item.appendChild(createElement('span', {}, proj.emoji || '📁'));
-      item.appendChild(createElement('span', { className: 'sidebar-project-name-text' }, proj.name));
+      item.appendChild(createElement('span', { className: 'sidebar-project-name-text' }, proj.name || (proj as unknown as Record<string, string>).title || 'Untitled'));
 
       // Progress dot (replaces plain active/tab dot)
       const progressDot = createElement('span', {
@@ -106,7 +106,7 @@ export class Sidebar {
       item.appendChild(progressDot);
 
       item.addEventListener('click', () => {
-        appState.openProjectTab(proj.id, proj.name, proj.emoji);
+        appState.openProjectTab(proj.id, proj.name || (proj as unknown as Record<string, string>).title || 'Untitled', proj.emoji);
         appState.setView('chat');
       });
       projectSection.appendChild(item);

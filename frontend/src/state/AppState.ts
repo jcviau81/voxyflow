@@ -98,7 +98,15 @@ class AppState {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        return JSON.parse(stored) as AppStateData;
+        const data = JSON.parse(stored) as AppStateData;
+        // Normalize projects: backend uses 'title', frontend type uses 'name'
+        if (data.projects) {
+          data.projects = data.projects.map((p) => ({
+            ...p,
+            name: p.name || (p as unknown as Record<string, string>).title || 'Untitled',
+          })) as AppStateData['projects'];
+        }
+        return data;
       }
     } catch (e) {
       console.warn('[AppState] Failed to load from localStorage:', e);
