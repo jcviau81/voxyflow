@@ -67,10 +67,15 @@ export class KanbanColumn {
     this.countEl.textContent = cards.length.toString();
   }
 
-  applyFilter(query: string, priorityFilter: number | null, agentFilter: string | null): number {
+  applyFilter(
+    query: string,
+    priorityFilter: number | null,
+    agentFilter: string | null,
+    tagFilter: string | null = null,
+  ): number {
     let visibleCount = 0;
     this.cardComponents.forEach((card) => {
-      if (card.applyFilter(query, priorityFilter, agentFilter)) {
+      if (card.applyFilter(query, priorityFilter, agentFilter, tagFilter)) {
         visibleCount++;
       }
     });

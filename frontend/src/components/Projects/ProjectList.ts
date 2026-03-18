@@ -5,9 +5,14 @@ import { createElement, formatTime } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { projectService } from '../../services/ProjectService';
 
+type FilterMode = 'all' | 'active' | 'completed';
+
 export class ProjectList {
   private container: HTMLElement;
   private listEl: HTMLElement | null = null;
+  private summaryEl: HTMLElement | null = null;
+  private filterEl: HTMLElement | null = null;
+  private currentFilter: FilterMode = 'all';
   private unsubscribers: (() => void)[] = [];
 
   constructor(private parentElement: HTMLElement) {
@@ -19,7 +24,7 @@ export class ProjectList {
   render(): void {
     this.container.innerHTML = '';
 
-    // Header
+    // ── Header ──────────────────────────────────────────────────────────
     const header = createElement('div', { className: 'project-list-header' });
     const title = createElement('h2', {}, 'Projects');
     const addBtn = createElement('button', {
@@ -32,13 +37,47 @@ export class ProjectList {
     header.appendChild(title);
     header.appendChild(addBtn);
 
-    // List
-    this.listEl = createElement('div', { className: 'project-items' });
+    // ── Summary bar ─────────────────────────────────────────────────────
+    this.summaryEl = createElement('div', { className: 'project-summary-bar' });
+
+    // ── Filter chips ────────────────────────────────────────────────────
+    this.filterEl = createElement('div', { className: 'project-filter-chips' });
+    this.renderFilterChips(this.filterEl);
+
+    // ── Grid ────────────────────────────────────────────────────────────
+    this.listEl = createElement('div', { className: 'project-list-grid' });
+
     this.refreshProjects();
 
     this.container.appendChild(header);
+    this.container.appendChild(this.summaryEl);
+    this.container.appendChild(this.filterEl);
     this.container.appendChild(this.listEl);
     this.parentElement.appendChild(this.container);
+  }
+
+  private renderFilterChips(container: HTMLElement): void {
+    container.innerHTML = '';
+    const filters: { key: FilterMode; label: string }[] = [
+      { key: 'all', label: 'All' },
+      { key: 'active', label: 'Active' },
+      { key: 'completed', label: 'Completed' },
+    ];
+    filters.forEach(({ key, label }) => {
+      const chip = createElement('button', {
+        className: `project-filter-chip ${this.currentFilter === key ? 'active' : ''}`,
+        'data-filter': key,
+      }, label);
+      chip.addEventListener('click', () => {
+        this.currentFilter = key;
+        this.refreshProjects();
+        // Update chip active states
+        container.querySelectorAll('.project-filter-chip').forEach((el) => {
+          el.classList.toggle('active', (el as HTMLElement).dataset.filter === key);
+        });
+      });
+      container.appendChild(chip);
+    });
   }
 
   private setupListeners(): void {
@@ -51,78 +90,295 @@ export class ProjectList {
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_DELETED, () => this.refreshProjects())
     );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_CREATED, () => this.refreshProjects())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_UPDATED, () => this.refreshProjects())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_DELETED, () => this.refreshProjects())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_MOVED, () => this.refreshProjects())
+    );
+  }
+
+  private getProjectStats(project: Project): {
+    total: number;
+    done: number;
+    inProgress: number;
+    todo: number;
+    ideas: number;
+    pct: number;
+  } {
+    const cards = appState.getCardsByProject(project.id);
+    const total = cards.length;
+    const done = cards.filter((c) => c.status === 'done').length;
+    const inProgress = cards.filter((c) => c.status === 'in-progress').length;
+    const todo = cards.filter((c) => c.status === 'todo').length;
+    const ideas = cards.filter((c) => c.status === 'idea').length;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    return { total, done, inProgress, todo, ideas, pct };
+  }
+
+  private isProjectCompleted(project: Project): boolean {
+    const { total, done, pct } = this.getProjectStats(project);
+    return total > 0 && pct === 100;
   }
 
   private refreshProjects(): void {
-    if (!this.listEl) return;
+    if (!this.listEl || !this.summaryEl) return;
     this.listEl.innerHTML = '';
 
-    const projects = projectService.list();
-    const currentId = appState.get('currentProjectId');
+    const allProjects = projectService.list(); // non-archived only
+
+    // ── Summary stats ───────────────────────────────────────────────────
+    const totalCards = allProjects.reduce((sum, p) => {
+      return sum + appState.getCardsByProject(p.id).length;
+    }, 0);
+    const totalDone = allProjects.reduce((sum, p) => {
+      return sum + appState.getCardsByProject(p.id).filter((c) => c.status === 'done').length;
+    }, 0);
+
+    this.summaryEl.innerHTML = '';
+    const stats = [
+      { label: 'Projects', value: String(allProjects.length), icon: '📁' },
+      { label: 'Total cards', value: String(totalCards), icon: '🃏' },
+      { label: 'Done', value: String(totalDone), icon: '✅' },
+      { label: 'Completion', value: totalCards > 0 ? `${Math.round((totalDone / totalCards) * 100)}%` : '—', icon: '📊' },
+    ];
+    stats.forEach(({ label, value, icon }) => {
+      const stat = createElement('div', { className: 'project-summary-stat' });
+      stat.appendChild(createElement('span', { className: 'project-summary-icon' }, icon));
+      stat.appendChild(createElement('span', { className: 'project-summary-value' }, value));
+      stat.appendChild(createElement('span', { className: 'project-summary-label' }, label));
+      this.summaryEl!.appendChild(stat);
+    });
+
+    // ── Filter ──────────────────────────────────────────────────────────
+    let projects = allProjects;
+    if (this.currentFilter === 'active') {
+      projects = allProjects.filter((p) => !this.isProjectCompleted(p));
+    } else if (this.currentFilter === 'completed') {
+      projects = allProjects.filter((p) => this.isProjectCompleted(p));
+    }
 
     if (projects.length === 0) {
       const empty = createElement(
         'div',
         { className: 'empty-state' },
-        'No projects yet. Create one to get started!'
+        allProjects.length === 0
+          ? 'No projects yet. Create one to get started!'
+          : 'No projects match this filter.'
       );
       this.listEl.appendChild(empty);
       return;
     }
 
+    const currentId = appState.get('currentProjectId');
     projects.forEach((project) => {
-      const item = this.renderProjectItem(project, project.id === currentId);
-      this.listEl!.appendChild(item);
+      const card = this.renderProjectCard(project, project.id === currentId);
+      this.listEl!.appendChild(card);
     });
   }
 
-  private renderProjectItem(project: Project, isActive: boolean): HTMLElement {
-    const item = createElement('div', {
-      className: `project-item ${isActive ? 'active' : ''}`,
+  private renderProjectCard(project: Project, isActive: boolean): HTMLElement {
+    const stats = this.getProjectStats(project);
+
+    const card = createElement('div', {
+      className: `project-card-overview ${isActive ? 'active' : ''}`,
       'data-project-id': project.id,
     });
 
-    const info = createElement('div', { className: 'project-item-info' });
-    const name = createElement('div', { className: 'project-item-name' }, project.name);
-    const desc = createElement('div', { className: 'project-item-desc' }, project.description || 'No description');
-    const meta = createElement('div', { className: 'project-item-meta' });
-    const cardCount = createElement('span', {}, `${project.cards.length} cards`);
-    const updated = createElement('span', {}, formatTime(project.updatedAt));
-    meta.appendChild(cardCount);
-    meta.appendChild(updated);
+    // ── Card header ─────────────────────────────────────────────────────
+    const cardHeader = createElement('div', { className: 'project-card-header' });
+    const emojiEl = createElement('span', { className: 'project-card-emoji' }, project.emoji || '📁');
+    const titleWrap = createElement('div', { className: 'project-card-title-wrap' });
+    const nameEl = createElement('div', { className: 'project-card-name' }, project.name);
+    titleWrap.appendChild(nameEl);
 
-    info.appendChild(name);
-    info.appendChild(desc);
-    info.appendChild(meta);
+    // GitHub link
+    if (project.githubUrl) {
+      const ghLink = createElement('a', {
+        className: 'project-card-gh-link',
+        href: project.githubUrl,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        title: project.githubUrl,
+      }, '🔗 GitHub');
+      ghLink.addEventListener('click', (e) => e.stopPropagation());
+      titleWrap.appendChild(ghLink);
+    }
 
-    const actions = createElement('div', { className: 'project-item-actions' });
+    cardHeader.appendChild(emojiEl);
+    cardHeader.appendChild(titleWrap);
+
+    // ── Description ─────────────────────────────────────────────────────
+    const descEl = createElement('div', { className: 'project-card-desc' }, project.description || 'No description');
+
+    // ── Tech stack badges ────────────────────────────────────────────────
+    let techEl: HTMLElement | null = null;
+    if (project.techStack && project.techStack.technologies && project.techStack.technologies.length > 0) {
+      techEl = createElement('div', { className: 'project-card-tech' });
+      const techs = project.techStack.technologies.slice(0, 6);
+      techs.forEach((tech) => {
+        const badge = createElement('span', { className: 'project-tech-badge' }, `${tech.icon || ''} ${tech.name}`.trim());
+        techEl!.appendChild(badge);
+      });
+      if (project.techStack.technologies.length > 6) {
+        const more = createElement('span', { className: 'project-tech-badge project-tech-more' },
+          `+${project.techStack.technologies.length - 6}`);
+        techEl.appendChild(more);
+      }
+    } else if (project.githubLanguage) {
+      techEl = createElement('div', { className: 'project-card-tech' });
+      const badge = createElement('span', { className: 'project-tech-badge' }, project.githubLanguage);
+      techEl.appendChild(badge);
+    }
+
+    // ── Progress bar ─────────────────────────────────────────────────────
+    const progressWrap = createElement('div', { className: 'project-mini-progress' });
+    const progressBar = createElement('div', {
+      className: 'project-mini-progress-bar',
+      style: `width: ${stats.pct}%`,
+      title: `${stats.pct}% done`,
+    });
+    // Color based on progress
+    if (stats.pct === 100) {
+      progressBar.classList.add('done');
+    } else if (stats.pct >= 50) {
+      progressBar.classList.add('halfway');
+    } else if (stats.pct > 0) {
+      progressBar.classList.add('started');
+    }
+    progressWrap.appendChild(progressBar);
+
+    const progressLabel = createElement('div', { className: 'project-mini-progress-label' }, `${stats.pct}% done`);
+
+    // ── Card count stats ──────────────────────────────────────────────────
+    const statsRow = createElement('div', { className: 'project-card-stats' });
+    const statItems = [
+      { label: `${stats.total} cards`, cls: '' },
+      { label: `${stats.done} done`, cls: 'done' },
+      { label: `${stats.inProgress} in progress`, cls: 'in-progress' },
+    ];
+    statItems.forEach(({ label, cls }, i) => {
+      if (i > 0) {
+        statsRow.appendChild(createElement('span', { className: 'project-card-stat-sep' }, '|'));
+      }
+      const span = createElement('span', { className: `project-card-stat ${cls}` }, label);
+      statsRow.appendChild(span);
+    });
+
+    // ── Recent activity ───────────────────────────────────────────────────
+    const activities = appState.getActivities(project.id, 1);
+    const activityEl = createElement('div', { className: 'project-card-activity' });
+    if (activities.length > 0) {
+      activityEl.textContent = `Last activity: ${formatTime(activities[0].timestamp)}`;
+    } else {
+      activityEl.textContent = `Updated ${formatTime(project.updatedAt)}`;
+    }
+
+    // ── Quick actions ─────────────────────────────────────────────────────
+    const actions = createElement('div', { className: 'project-card-actions' });
+
+    const openBtn = createElement('button', {
+      className: 'project-card-action-btn primary',
+      'data-testid': `project-open-${project.id}`,
+      title: 'Open project',
+    }, '▶ Open');
+    openBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      projectService.select(project.id);
+      appState.setView('kanban');
+    });
+
+    const exportBtn = createElement('button', {
+      className: 'project-card-action-btn',
+      title: 'Export project',
+    }, '⬇ Export');
+    exportBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.exportProject(project);
+    });
+
     const editBtn = createElement('button', {
-      className: 'project-edit-btn',
+      className: 'project-card-action-btn',
       'data-testid': `project-edit-${project.id}`,
-    }, '✏️');
+      title: 'Edit project',
+    }, '✏️ Edit');
     editBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'edit', project });
     });
-    const deleteBtn = createElement('button', { className: 'project-delete-btn' }, '🗑️');
+
+    const deleteBtn = createElement('button', {
+      className: 'project-card-action-btn danger',
+      title: 'Delete project',
+    }, '🗑️');
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (confirm(`Delete project "${project.name}"?`)) {
         projectService.delete(project.id);
       }
     });
+
+    actions.appendChild(openBtn);
+    actions.appendChild(exportBtn);
     actions.appendChild(editBtn);
     actions.appendChild(deleteBtn);
 
-    item.appendChild(info);
-    item.appendChild(actions);
+    // ── Assemble card ─────────────────────────────────────────────────────
+    card.appendChild(cardHeader);
+    card.appendChild(descEl);
+    if (techEl) card.appendChild(techEl);
+    card.appendChild(progressWrap);
+    card.appendChild(progressLabel);
+    card.appendChild(statsRow);
+    card.appendChild(activityEl);
+    card.appendChild(actions);
 
-    item.addEventListener('click', () => {
+    // Click whole card → open project
+    card.addEventListener('click', () => {
       projectService.select(project.id);
       appState.setView('kanban');
     });
 
-    return item;
+    return card;
+  }
+
+  private exportProject(project: Project): void {
+    const cards = appState.getCardsByProject(project.id);
+    const data = {
+      project: {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        emoji: project.emoji,
+        githubUrl: project.githubUrl,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+      },
+      cards: cards.map((c) => ({
+        id: c.id,
+        title: c.title,
+        description: c.description,
+        status: c.status,
+        priority: c.priority,
+        tags: c.tags,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+      })),
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-export.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   update(): void {

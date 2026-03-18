@@ -70,17 +70,33 @@ export class Sidebar {
     projects.forEach((proj) => {
       const isTabOpen = openTabs.some(t => t.id === proj.id);
       const isActive = activeTabId === proj.id;
+
+      // Compute progress for this project
+      const cards = appState.getCardsByProject(proj.id);
+      const total = cards.length;
+      const done = cards.filter((c) => c.status === 'done').length;
+      const inProgress = cards.filter((c) => c.status === 'in-progress').length;
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      const dotColor = pct === 100 ? 'done' : pct >= 50 ? 'halfway' : pct > 0 ? 'started' : 'empty';
+      const tooltipText = total > 0
+        ? `${total} cards · ${done} done · ${inProgress} in progress · ${pct}%`
+        : 'No cards yet';
+
       const item = createElement('div', {
         className: cn('sidebar-project-item', isActive && 'active', isTabOpen && 'has-tab'),
         'data-testid': `sidebar-project-${proj.id}`,
+        title: tooltipText,
       });
       item.appendChild(createElement('span', {}, proj.emoji || '📁'));
-      item.appendChild(createElement('span', {}, proj.name));
-      if (isActive) {
-        item.appendChild(createElement('span', { className: 'sidebar-active-dot' }, '●'));
-      } else if (isTabOpen) {
-        item.appendChild(createElement('span', { className: 'sidebar-tab-dot' }, '●'));
-      }
+      item.appendChild(createElement('span', { className: 'sidebar-project-name-text' }, proj.name));
+
+      // Progress dot (replaces plain active/tab dot)
+      const progressDot = createElement('span', {
+        className: `sidebar-progress-dot ${dotColor}`,
+        title: tooltipText,
+      });
+      item.appendChild(progressDot);
+
       item.addEventListener('click', () => {
         appState.openProjectTab(proj.id, proj.name, proj.emoji);
         appState.setView('chat');

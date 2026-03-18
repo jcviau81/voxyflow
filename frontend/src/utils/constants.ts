@@ -183,4 +183,7 @@ export const EVENTS = {
   // Focus Mode
   FOCUS_MODE_ENTER: 'focus:enter',
   FOCUS_MODE_EXIT: 'focus:exit',
+
+  // Tag filter (emitted by KanbanCard tag click)
+  KANBAN_TAG_FILTER: 'kanban:tag:filter',
 } as const;

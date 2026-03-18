@@ -37,11 +37,13 @@ export class KanbanBoard {
   private searchQuery: string = '';
   private priorityFilter: number | null = null;
   private agentFilter: string | null = null;
+  private tagFilter: string | null = null;
 
   // UI refs
   private matchCountEl: HTMLElement | null = null;
   private searchInput: HTMLInputElement | null = null;
   private clearBtn: HTMLElement | null = null;
+  private tagFilterGroup: HTMLElement | null = null;
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'kanban-board', 'data-testid': 'kanban-board' });
