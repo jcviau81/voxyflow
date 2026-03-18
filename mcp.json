@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "voxyflow": {
+      "command": "python",
+      "args": ["backend/mcp_stdio.py"],
+      "cwd": "/home/jcviau/.openclaw/workspace/voxyflow",
+      "env": {
+        "VOXYFLOW_API_BASE": "http://localhost:8000"
+      }
+    }
+  }
+}
