@@ -208,10 +208,12 @@ export class ChatWindow {
 
     headerRow.appendChild(titleSection);
 
-    // CENTER: Session tabs (general only) or View toggle (project only)
+    // CENTER: Session tabs (general) + view toggle (general = chat/freeboard, project = chat/kanban)
     if (chatLevel === 'general') {
       const sessionTabs = this.renderSessionTabs();
       headerRow.appendChild(sessionTabs);
+      const generalToggle = this.renderGeneralViewToggle();
+      headerRow.appendChild(generalToggle);
     } else if (chatLevel === 'project') {
       const viewToggle = this.renderViewToggle();
       headerRow.appendChild(viewToggle);
@@ -323,6 +325,27 @@ export class ChatWindow {
     viewToggle.appendChild(chatBtn);
     viewToggle.appendChild(kanbanBtn);
 
+    return viewToggle;
+  }
+
+  private renderGeneralViewToggle(): HTMLElement {
+    const currentView = appState.get('currentView');
+    const viewToggle = createElement('div', { className: 'view-toggle', 'data-testid': 'general-view-toggle' });
+
+    const chatBtn = createElement('button', {
+      className: `view-btn ${currentView !== 'freeboard' ? 'active' : ''}`,
+      'data-view': 'chat',
+    }, '💬 Chat');
+    chatBtn.addEventListener('click', () => appState.setView('chat'));
+
+    const boardBtn = createElement('button', {
+      className: `view-btn ${currentView === 'freeboard' ? 'active' : ''}`,
+      'data-view': 'freeboard',
+    }, '📝 Board');
+    boardBtn.addEventListener('click', () => appState.setView('freeboard'));
+
+    viewToggle.appendChild(chatBtn);
+    viewToggle.appendChild(boardBtn);
     return viewToggle;
   }
 

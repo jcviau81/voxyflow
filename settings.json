@@ -10,5 +10,25 @@
     "environment_notes": "",
     "tone": "casual",
     "warmth": "warm"
+  },
+  "models": {
+    "fast": {
+      "provider_url": "http://localhost:3456/v1",
+      "api_key": "",
+      "model": "claude-test-model",
+      "enabled": true
+    },
+    "deep": {
+      "provider_url": "http://localhost:3456/v1",
+      "api_key": "",
+      "model": "claude-opus-4",
+      "enabled": true
+    },
+    "analyzer": {
+      "provider_url": "http://localhost:3456/v1",
+      "api_key": "",
+      "model": "claude-haiku-4",
+      "enabled": true
+    }
   }
 }

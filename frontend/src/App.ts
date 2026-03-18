@@ -29,7 +29,7 @@ export class App {
   private toast: Toast | null = null;
   private cardModal: CardDetailModal | null = null;
   private opportunitiesPanel: OpportunitiesPanel | null = null;
-  private ideaBoard: FreeBoard | null = null;
+  // FreeBoard is now a full-view via switchView('freeboard'), not a sidebar
   private currentView: { component: { destroy(): void } | null; view: ViewMode | null } = {
     component: null,
     view: null,
@@ -76,14 +76,9 @@ export class App {
     const opportunitiesContainer = createElement('aside', { className: 'opportunities-container' });
     this.opportunitiesPanel = new OpportunitiesPanel(opportunitiesContainer);
 
-    // Idea board (right sidebar - general mode)
-    const ideaBoardContainer = createElement('aside', { className: 'idea-board-container' });
-    this.ideaBoard = new FreeBoard(ideaBoardContainer);
-
     layout.appendChild(sidebarContainer);
     layout.appendChild(mainArea);
     layout.appendChild(opportunitiesContainer);
-    layout.appendChild(ideaBoardContainer);
 
     // Set initial layout mode based on active tab
     this.updateLayoutMode(layout);
@@ -368,6 +363,9 @@ export class App {
       case 'kanban':
         component = new KanbanBoard(this.mainContent);
         break;
+      case 'freeboard':
+        component = new FreeBoard(this.mainContent);
+        break;
       case 'projects':
         component = new ProjectList(this.mainContent);
         break;
@@ -425,7 +423,7 @@ export class App {
     this.toast?.destroy();
     this.cardModal?.destroy();
     this.opportunitiesPanel?.destroy();
-    this.ideaBoard?.destroy();
+    // FreeBoard destroyed via switchView cycle
     this.currentView.component?.destroy();
     this.projectForm?.destroy();
     this.cardForm?.destroy();

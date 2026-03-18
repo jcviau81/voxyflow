@@ -23,7 +23,10 @@ export class KanbanBoard {
 
     // Header
     const header = createElement('div', { className: 'kanban-header' });
-    const title = createElement('h2', { className: 'kanban-title' }, 'Kanban Board');
+    const projectId = appState.get('currentProjectId');
+    const project = projectId ? appState.getProject(projectId) : null;
+    const projectName = project?.name || 'Kanban Board';
+    const title = createElement('h2', { className: 'kanban-title' }, projectName);
 
     const addBtn = createElement('button', { className: 'kanban-add-btn' }, '+ New Card');
     addBtn.addEventListener('click', () => this.promptNewCard());

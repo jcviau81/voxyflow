@@ -1,0 +1,87 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - navigation [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]: 🔥
+        - generic [ref=e8]: Voxyflow
+      - generic [ref=e9]:
+        - generic [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: 💬
+          - generic [ref=e13]: Main Chat
+        - generic [ref=e14]:
+          - generic [ref=e15]: PROJECTS
+          - generic [ref=e16] [cursor=pointer]:
+            - generic [ref=e17]: 📁
+            - generic [ref=e18]: Card Form Test
+            - generic [ref=e19]: ●
+          - generic [ref=e20] [cursor=pointer]:
+            - generic [ref=e21]: +
+            - generic [ref=e22]: New Project
+        - generic [ref=e25]: connected
+      - generic [ref=e26]:
+        - button "⚙️" [ref=e27] [cursor=pointer]
+        - button "📖" [ref=e28] [cursor=pointer]
+        - button "❓" [ref=e29] [cursor=pointer]
+  - generic [ref=e30]:
+    - generic [ref=e32]:
+      - button "💬 Main" [ref=e33] [cursor=pointer]:
+        - generic [ref=e34]: 💬
+        - generic [ref=e35]: Main
+      - button "📁 Card Form Test ×" [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: 📁
+        - generic [ref=e38]: Card Form Test
+        - generic [ref=e39]: ×
+      - button "+" [ref=e40] [cursor=pointer]
+    - banner [ref=e41]
+    - main [ref=e44]:
+      - generic [ref=e46]:
+        - heading "Create Card" [level=3] [ref=e47]
+        - generic [ref=e48]:
+          - generic [ref=e49]: Title *
+          - textbox "What needs to be done?" [active] [ref=e50]
+        - generic [ref=e52]:
+          - generic [ref=e53]: Description
+          - textbox "Details, requirements, notes..." [ref=e54]
+        - generic [ref=e55]:
+          - generic [ref=e56]: Agent
+          - generic [ref=e57]:
+            - button "🔥 Ember" [ref=e58] [cursor=pointer]
+            - button "🔍 Recherchiste" [ref=e59] [cursor=pointer]
+            - button "💻 Codeuse" [ref=e60] [cursor=pointer]
+            - button "🎨 Designer" [ref=e61] [cursor=pointer]
+            - button "🏗️ Architecte" [ref=e62] [cursor=pointer]
+            - button "✍️ Rédactrice" [ref=e63] [cursor=pointer]
+            - button "🧪 QA" [ref=e64] [cursor=pointer]
+        - generic [ref=e66]:
+          - generic [ref=e67]: Priority
+          - combobox [ref=e68] [cursor=pointer]:
+            - option "🟢 Low" [selected]
+            - option "🟡 Medium"
+            - option "🟠 High"
+            - option "🔴 Critical"
+        - generic [ref=e69]:
+          - generic [ref=e70]: Status
+          - generic [ref=e71]:
+            - button "💡 Idea" [ref=e72] [cursor=pointer]
+            - button "📋 Todo" [ref=e73] [cursor=pointer]
+            - button "🏃 In Progress" [ref=e74] [cursor=pointer]
+            - button "✅ Done" [ref=e75] [cursor=pointer]
+        - generic [ref=e76]:
+          - generic [ref=e77]: Dependencies
+          - generic [ref=e79]: No other cards in this project
+        - generic [ref=e80]:
+          - generic [ref=e81]: Tags
+          - 'textbox "Comma-separated: frontend, bug, urgent" [ref=e82]'
+        - generic [ref=e83]:
+          - button "Create Card" [ref=e84] [cursor=pointer]
+          - button "Cancel" [ref=e85] [cursor=pointer]
+  - complementary [ref=e86]:
+    - generic [ref=e87]:
+      - generic [ref=e88]:
+        - heading "💡 Opportunities" [level=3] [ref=e89]
+        - generic [ref=e90]: "0"
+      - generic [ref=e92]: 💡 No suggestions yet. Start chatting!
+```

@@ -1,0 +1,80 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - navigation [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]: 🔥
+        - generic [ref=e8]: Voxyflow
+      - generic [ref=e9]:
+        - generic [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: 💬
+          - generic [ref=e13]: Main Chat
+        - generic [ref=e14]:
+          - generic [ref=e15]: PROJECTS
+          - generic [ref=e16] [cursor=pointer]:
+            - generic [ref=e17]: +
+            - generic [ref=e18]: New Project
+        - generic [ref=e21]: connected
+      - generic [ref=e22]:
+        - button "⚙️" [ref=e23] [cursor=pointer]
+        - button "📖" [ref=e24] [cursor=pointer]
+        - button "❓" [ref=e25] [cursor=pointer]
+  - generic [ref=e26]:
+    - generic [ref=e28]:
+      - button "💬 Main" [ref=e29] [cursor=pointer]:
+        - generic [ref=e30]: 💬
+        - generic [ref=e31]: Main
+      - button "+" [ref=e32] [cursor=pointer]
+    - banner [ref=e33]
+    - main [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e39]:
+          - button "+ New" [ref=e40] [cursor=pointer]
+          - button "🗑️ Clear" [ref=e41] [cursor=pointer]
+          - generic [ref=e43]:
+            - generic [ref=e44]:
+              - generic [ref=e46]: ⚡ Fast
+              - generic [ref=e47]: idle
+            - generic [ref=e48]:
+              - checkbox "Enable/disable Deep layer" [checked] [ref=e49] [cursor=pointer]
+              - generic [ref=e51]: 🧠 Deep
+              - generic [ref=e52]: idle
+            - generic [ref=e53]:
+              - checkbox "Enable/disable Analyzer layer" [checked] [ref=e54] [cursor=pointer]
+              - generic [ref=e56]: 🔍 Analyzer
+              - generic [ref=e57]: idle
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - generic [ref=e62]: 🔥
+            - heading "Hey! Qu'est-ce qu'on fait?" [level=2] [ref=e63]
+          - generic [ref=e64]:
+            - button "💬 Just chatting Conversation libre avec Ember" [ref=e65] [cursor=pointer]:
+              - generic [ref=e66]: 💬
+              - generic [ref=e67]:
+                - generic [ref=e68]: Just chatting
+                - generic [ref=e69]: Conversation libre avec Ember
+            - button "🏗️ Work on an existing project Ouvre un projet existant" [ref=e70] [cursor=pointer]:
+              - generic [ref=e71]: 🏗️
+              - generic [ref=e72]:
+                - generic [ref=e73]: Work on an existing project
+                - generic [ref=e74]: Ouvre un projet existant
+            - button "💡 Brainstorm a new project Commençons quelque chose de nouveau" [ref=e75] [cursor=pointer]:
+              - generic [ref=e76]: 💡
+              - generic [ref=e77]:
+                - generic [ref=e78]: Brainstorm a new project
+                - generic [ref=e79]: Commençons quelque chose de nouveau
+            - button "📋 Review my tasks Vue d'ensemble de toutes les cartes" [ref=e80] [cursor=pointer]:
+              - generic [ref=e81]: 📋
+              - generic [ref=e82]:
+                - generic [ref=e83]: Review my tasks
+                - generic [ref=e84]: Vue d'ensemble de toutes les cartes
+          - paragraph [ref=e85]: Or just start typing...
+        - generic [ref=e86]:
+          - button "😀" [ref=e88] [cursor=pointer]
+          - textbox "Type a message or press Alt+V for voice..." [ref=e89]
+          - button "🎤" [ref=e92] [cursor=pointer]
+          - button "→" [ref=e93] [cursor=pointer]
+  - text: 💡
+```

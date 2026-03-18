@@ -2,7 +2,7 @@
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 export type CardStatus = 'idea' | 'todo' | 'in-progress' | 'done';
-export type ViewMode = 'chat' | 'kanban' | 'projects' | 'settings';
+export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'codeuse' | 'architecte' | 'designer' | 'devops' | 'analyste' | 'testeur' | 'documenteur';
 export type ModelName = 'fast' | 'deep' | 'analyzer';

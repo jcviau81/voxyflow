@@ -1,0 +1,63 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - navigation [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]: 🔥
+        - generic [ref=e8]: Voxyflow
+      - generic [ref=e9]:
+        - generic [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: 💬
+          - generic [ref=e13]: Main Chat
+        - generic [ref=e14]:
+          - generic [ref=e15]: PROJECTS
+          - generic [ref=e16] [cursor=pointer]:
+            - generic [ref=e17]: 📁
+            - generic [ref=e18]: Session Tab Test Project
+            - generic [ref=e19]: ●
+          - generic [ref=e20] [cursor=pointer]:
+            - generic [ref=e21]: +
+            - generic [ref=e22]: New Project
+        - generic [ref=e25]: connected
+      - generic [ref=e26]:
+        - button "⚙️" [ref=e27] [cursor=pointer]
+        - button "📖" [ref=e28] [cursor=pointer]
+        - button "❓" [ref=e29] [cursor=pointer]
+  - generic [ref=e30]:
+    - generic [ref=e32]:
+      - button "💬 Main" [ref=e33] [cursor=pointer]:
+        - generic [ref=e34]: 💬
+        - generic [ref=e35]: Main
+      - button "📁 Session Tab Test Project ×" [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: 📁
+        - generic [ref=e38]: Session Tab Test Project
+        - generic [ref=e39]: ×
+      - button "+" [ref=e40] [cursor=pointer]
+    - banner [ref=e41]
+    - main [ref=e44]:
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - heading "Session Tab Test Project" [level=2] [ref=e47]
+          - button "+ New Card" [ref=e48] [cursor=pointer]
+        - generic [ref=e49]:
+          - generic [ref=e51]:
+            - generic [ref=e52]: 💡 Idea
+            - generic [ref=e53]: "0"
+          - generic [ref=e56]:
+            - generic [ref=e57]: 📋 Todo
+            - generic [ref=e58]: "0"
+          - generic [ref=e61]:
+            - generic [ref=e62]: 🔨 In Progress
+            - generic [ref=e63]: "0"
+          - generic [ref=e66]:
+            - generic [ref=e67]: ✅ Done
+            - generic [ref=e68]: "0"
+  - complementary [ref=e70]:
+    - generic [ref=e71]:
+      - generic [ref=e72]:
+        - heading "💡 Opportunities" [level=3] [ref=e73]
+        - generic [ref=e74]: "0"
+      - generic [ref=e76]: 💡 No suggestions yet. Start chatting!
+```
