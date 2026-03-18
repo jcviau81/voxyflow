@@ -5,7 +5,7 @@ export const WS_URL = process.env.VOXYFLOW_WS_URL ||
   (typeof window !== 'undefined' 
     ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
     : 'ws://localhost:8000/ws');
-export const API_URL = process.env.VOXYFLOW_API_URL || 'http://localhost:8000';
+export const API_URL = process.env.VOXYFLOW_API_URL || '';
 
 // Reconnection
 export const RECONNECT_MAX_ATTEMPTS = 10;
