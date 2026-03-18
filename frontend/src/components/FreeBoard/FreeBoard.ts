@@ -62,8 +62,8 @@ export class FreeBoard {
 
     // Header
     const header = createElement('div', { className: 'freeboard-header' });
-    const title = createElement('h3', {}, '📌 Notes');
-    const addBtn = createElement('button', { className: 'freeboard-add-btn' }, '+ Add');
+    const title = createElement('h3', {}, '📝 Notes & Reminders');
+    const addBtn = createElement('button', { className: 'freeboard-add-btn' }, '+ Add Note');
     addBtn.setAttribute('data-testid', 'freeboard-add-btn');
     addBtn.addEventListener('click', () => this.toggleForm());
     header.appendChild(title);

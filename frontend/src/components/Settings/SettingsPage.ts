@@ -7,6 +7,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS, API_URL } from '../../utils/constants';
 import { appState } from '../../state/AppState';
 import { apiClient } from '../../services/ApiClient';
+import { ttsService } from '../../services/TtsService';
 
 interface PersonalitySettings {
   bot_name: string;
@@ -174,6 +175,7 @@ export class SettingsPage {
     this.root.insertAdjacentHTML('beforeend', this.renderModelsSection());
     this.root.insertAdjacentHTML('beforeend', this.renderGitHubSection());
     this.root.insertAdjacentHTML('beforeend', this.renderVolumeSection());
+    this.root.insertAdjacentHTML('beforeend', this.renderTtsSection());
     this.root.insertAdjacentHTML('beforeend', this.renderConnectionSection());
     this.root.insertAdjacentHTML('beforeend', this.renderDataSection());
     this.root.insertAdjacentHTML('beforeend', this.renderAboutSection());
@@ -408,6 +410,43 @@ export class SettingsPage {
     `;
   }
 
+  private renderTtsSection(): string {
+    const enabled = ttsService.isEnabled;
+    const storedUrl = localStorage.getItem('tts_service_url') || 'http://192.168.1.59:5500';
+    return `
+      <div class="settings-section" data-testid="settings-tts">
+        <h3>🔊 Voice Output</h3>
+        <p style="color: var(--color-text-secondary); font-size: 13px; margin-bottom: 16px;">
+          Uses the XTTS server to read assistant messages aloud. Click the 🔊 button on any message to speak it.
+        </p>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Enable TTS</div>
+            <div class="setting-description">Allow text-to-speech on assistant messages</div>
+          </div>
+          <input type="checkbox" class="setting-checkbox" id="tts-enabled-toggle" ${enabled ? 'checked' : ''} />
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">TTS Service URL</div>
+            <div class="setting-description">Base URL of the XTTS server (without /speak)</div>
+          </div>
+          <input type="text" class="setting-input" id="tts-service-url"
+            value="${this.escapeHtml(storedUrl)}"
+            placeholder="http://192.168.1.59:5500" />
+        </div>
+
+        <div style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
+          <button class="btn-secondary" id="tts-save-btn">Save TTS Settings</button>
+          <button class="btn-ghost" id="tts-test-btn">🔊 Test</button>
+          <span id="tts-test-result" style="font-size: 13px; color: var(--color-text-secondary);"></span>
+        </div>
+      </div>
+    `;
+  }
+
   private renderConnectionSection(): string {
     const state = appState.get('connectionState');
     const stateEmoji = state === 'connected' ? '\uD83D\uDFE2' : state === 'connecting' ? '\uD83D\uDFE1' : '\uD83D\uDD34';
@@ -551,6 +590,17 @@ export class SettingsPage {
 
     // Auto-check GitHub status on load
     this.checkGitHubStatus(false);
+
+    // TTS settings
+    const ttsSaveBtn = this.root.querySelector('#tts-save-btn');
+    if (ttsSaveBtn) {
+      ttsSaveBtn.addEventListener('click', () => this.saveTtsSettings());
+    }
+
+    const ttsTestBtn = this.root.querySelector('#tts-test-btn');
+    if (ttsTestBtn) {
+      ttsTestBtn.addEventListener('click', () => this.testTts());
+    }
   }
 
   private async checkGitHubStatus(showToast: boolean): Promise<void> {
@@ -645,6 +695,34 @@ export class SettingsPage {
     } catch (e) {
       console.error('Failed to save GitHub token:', e);
       eventBus.emit(EVENTS.TOAST_SHOW, { message: `Failed to save token: ${e}`, type: 'error', duration: 4000 });
+    }
+  }
+
+  private saveTtsSettings(): void {
+    const enabledEl = this.root.querySelector('#tts-enabled-toggle') as HTMLInputElement | null;
+    const urlEl = this.root.querySelector('#tts-service-url') as HTMLInputElement | null;
+
+    if (enabledEl) {
+      ttsService.setEnabled(enabledEl.checked);
+    }
+
+    if (urlEl && urlEl.value.trim()) {
+      localStorage.setItem('tts_service_url', urlEl.value.trim());
+    }
+
+    eventBus.emit(EVENTS.TOAST_SHOW, { message: 'TTS settings saved', type: 'success', duration: 2000 });
+  }
+
+  private async testTts(): Promise<void> {
+    const resultEl = this.root.querySelector('#tts-test-result') as HTMLElement | null;
+    if (resultEl) resultEl.textContent = 'Testing…';
+
+    try {
+      await ttsService.speak('Voxyflow TTS test. Hello!');
+      if (resultEl) resultEl.textContent = '✓ Playing';
+      setTimeout(() => { if (resultEl) resultEl.textContent = ''; }, 3000);
+    } catch (e) {
+      if (resultEl) resultEl.textContent = '✗ Failed (server may be down)';
     }
   }
 

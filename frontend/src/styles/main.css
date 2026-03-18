@@ -288,8 +288,9 @@ body {
   opacity: 1;
 }
 
+/* General mode: view toggle is rendered by ChatWindow directly in the header — allow it */
 .app-layout.general-mode .view-toggle {
-  display: none !important;
+  display: flex;
 }
 
 /* Project mode: 3-column (sidebar + main + opportunities) */

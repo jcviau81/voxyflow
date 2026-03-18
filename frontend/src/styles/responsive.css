@@ -19,6 +19,11 @@
     max-width: 550px;
   }
 
+  /* FreeBoard: 2 columns on tablet */
+  .freeboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   /* Opportunities panel: slide-in drawer on tablet/mobile */
   .opportunities-container {
     position: fixed;
@@ -184,6 +189,14 @@
     gap: 8px;
   }
 
+  .unified-header .header-spacer {
+    display: none; /* On mobile, natural wrapping handles layout */
+  }
+
+  .unified-header .header-actions {
+    margin-left: auto;
+  }
+
   .unified-header .model-status-bar {
     flex-wrap: wrap;
     gap: 6px;
@@ -192,6 +205,22 @@
   /* Hide model status labels on small screens, keep dots */
   .unified-header .model-status .status-label {
     display: none;
+  }
+
+  /* Session tabs: full width on mobile, own row */
+  .session-tabs {
+    max-width: 100%;
+    flex-basis: 100%;
+    order: 3; /* Below title and actions */
+  }
+
+  /* FreeBoard on mobile: single column */
+  .freeboard-container {
+    padding: 12px;
+  }
+
+  .freeboard-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -260,6 +289,11 @@
   .project-list {
     padding: 24px 40px;
     max-width: 1000px;
+  }
+
+  /* FreeBoard: up to 4 columns on large screens */
+  .freeboard-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   }
 }
 
