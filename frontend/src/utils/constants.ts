@@ -197,4 +197,7 @@ export const EVENTS = {
 
   // Tag filter (emitted by KanbanCard tag click)
   KANBAN_TAG_FILTER: 'kanban:tag:filter',
+
+  // Tool execution (from backend tool:executed WS event)
+  TOOL_EXECUTED: 'tool:executed',
 } as const;

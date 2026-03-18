@@ -6269,3 +6269,11 @@ pre:hover .code-review-btn,
 .chat-conn-status.disconnected .chat-conn-dot { background: #d63031; }
 .chat-conn-status.disconnected { color: #d63031; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* Tool execution messages in chat */
+.tool-execution-message {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 4px 12px;
+  font-style: italic;
+}

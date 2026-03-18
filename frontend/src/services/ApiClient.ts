@@ -41,6 +41,62 @@ export class ApiClient {
     };
 
     this.loadOfflineQueue();
+    this.registerBuiltinHandlers();
+  }
+
+  private registerBuiltinHandlers(): void {
+    // Handle tool:executed messages from the backend
+    this.on('tool:executed', (payload: Record<string, unknown>) => {
+      const { tool, arguments: args, result } = payload as {
+        tool: string;
+        arguments: Record<string, unknown>;
+        result: Record<string, unknown>;
+      };
+      this.handleToolExecuted(tool, args ?? {}, result ?? {});
+    });
+  }
+
+  handleToolExecuted(tool: string, args: Record<string, unknown>, result: Record<string, unknown>): void {
+    // Emit generic event so ChatWindow can inject a system message
+    eventBus.emit(EVENTS.TOOL_EXECUTED, { tool, args, result });
+
+    if (!result?.success) return; // Skip failed tools
+
+    switch (tool) {
+      case 'voxyflow.note.add': {
+        const note = result.note as { content: string; color?: string } | undefined;
+        if (note) {
+          appState.addIdea(note.content, 'analyzer');
+          eventBus.emit(EVENTS.TOAST_SHOW, {
+            message: `📝 Note added: ${note.content.substring(0, 30)}...`,
+            type: 'success',
+          });
+        }
+        break;
+      }
+
+      case 'voxyflow.project.create':
+        eventBus.emit(EVENTS.PROJECT_SELECTED, null);
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Project created`, type: 'success' });
+        break;
+
+      case 'voxyflow.card.create':
+        eventBus.emit(EVENTS.CARD_CREATED, null);
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created`, type: 'success' });
+        break;
+
+      case 'voxyflow.card.move':
+        eventBus.emit(EVENTS.CARD_MOVED, { cardId: args.card_id, newStatus: args.status });
+        break;
+
+      case 'voxyflow.card.delete':
+        eventBus.emit(EVENTS.CARD_DELETED, { cardId: args.card_id });
+        break;
+
+      default:
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: `🔧 Action: ${tool}`, type: 'info' });
+        break;
+    }
   }
 
   connect(): void {

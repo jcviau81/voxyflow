@@ -764,6 +764,35 @@ export class ChatWindow {
       })
     );
 
+    // Tool execution system messages
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TOOL_EXECUTED, (data: unknown) => {
+        const { tool, result } = data as { tool: string; args: Record<string, unknown>; result: Record<string, unknown> };
+        if (!this.messageList) return;
+
+        // Build a human-readable label for the tool
+        const toolLabels: Record<string, string> = {
+          'voxyflow.note.add': 'Note added to Main Board',
+          'voxyflow.project.create': 'Project created',
+          'voxyflow.card.create': 'Card created',
+          'voxyflow.card.move': 'Card moved',
+          'voxyflow.card.delete': 'Card deleted',
+        };
+        const status = result?.success ? '' : ' (failed)';
+        const label = toolLabels[tool] || tool;
+        const text = `🔧 *Executed ${tool}*${status} — ${label}`;
+
+        const msgEl = document.createElement('div');
+        msgEl.className = 'tool-execution-message';
+        msgEl.textContent = text;
+        this.messageList.appendChild(msgEl);
+
+        if (this.autoScroll) {
+          this.scrollToBottom();
+        }
+      })
+    );
+
     // Welcome action handler
     this.unsubscribers.push(
       eventBus.on(EVENTS.WELCOME_ACTION, (data: unknown) => {
