@@ -87,6 +87,9 @@ class ClaudeService:
         chat_id: str,
         user_message: str,
         project_name: Optional[str] = None,
+        chat_level: str = "general",
+        project_context: Optional[dict] = None,
+        card_context: Optional[dict] = None,
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from Haiku."""
         history = self._get_history(chat_id)
@@ -103,6 +106,9 @@ class ClaudeService:
 
         system_prompt = self.personality.build_haiku_prompt(
             memory_context=memory_context,
+            chat_level=chat_level,
+            project=project_context,
+            card=card_context,
         )
 
         full_response = ""
@@ -121,6 +127,9 @@ class ClaudeService:
         chat_id: str,
         user_message: str,
         project_name: Optional[str] = None,
+        chat_level: str = "general",
+        project_context: Optional[dict] = None,
+        card_context: Optional[dict] = None,
     ) -> dict:
         """
         Layer 2: Opus supervisor — decides whether to enrich or correct Haiku's response.

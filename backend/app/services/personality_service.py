@@ -1,7 +1,10 @@
-"""Personality Service — loads SOUL/USER/IDENTITY and injects Ember's persona into all Claude calls.
+"""Personality Service — loads personality files and builds context-isolated system prompts.
 
 Reads personality configuration from settings.json (saved via Settings UI) and
 applies custom_instructions, environment_notes, tone, and warmth to system prompts.
+
+IMPORTANT: Personality files are loaded from voxyflow/personality/ by default,
+NOT from the OpenClaw workspace. This prevents context leakage between systems.
 """
 
 import json
@@ -12,16 +15,18 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Default workspace path (OpenClaw convention)
-WORKSPACE_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace")))
+# Voxyflow's own personality directory (NOT OpenClaw workspace)
+VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.openclaw/workspace/voxyflow")))
+PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
-# Personality files (defaults — can be overridden via settings.json)
-SOUL_FILE = WORKSPACE_DIR / "SOUL.md"
-USER_FILE = WORKSPACE_DIR / "USER.md"
-IDENTITY_FILE = WORKSPACE_DIR / "IDENTITY.md"
+# Personality files — isolated to Voxyflow
+SOUL_FILE = PERSONALITY_DIR / "SOUL.md"
+USER_FILE = PERSONALITY_DIR / "USER.md"
+IDENTITY_FILE = PERSONALITY_DIR / "IDENTITY.md"
+AGENTS_FILE = PERSONALITY_DIR / "AGENTS.md"
 
 # Settings file (written by the Settings UI)
-SETTINGS_FILE = os.path.expanduser("~/.openclaw/workspace/voxyflow/settings.json")
+SETTINGS_FILE = VOXYFLOW_DIR / "settings.json"
 
 _CACHE_TTL = 300  # 5 minutes
 
@@ -61,10 +66,10 @@ class PersonalityService:
             return ""
 
     def _load_settings(self) -> dict:
-        if not os.path.exists(SETTINGS_FILE):
+        if not SETTINGS_FILE.exists():
             return {}
         try:
-            mtime = os.path.getmtime(SETTINGS_FILE)
+            mtime = SETTINGS_FILE.stat().st_mtime
             if self._settings_cache and self._settings_cache[0] == mtime:
                 return self._settings_cache[1]
             with open(SETTINGS_FILE) as f:
@@ -101,7 +106,98 @@ class PersonalityService:
         agents_path = ps.get("agents_file")
         if agents_path:
             return self._read_if_changed(Path(os.path.expanduser(agents_path)))
-        return ""
+        return self._read_if_changed(AGENTS_FILE)
+
+    # ------------------------------------------------------------------
+    # Context-isolated prompt builders (general / project / card)
+    # ------------------------------------------------------------------
+
+    def build_general_prompt(self) -> str:
+        """Build system prompt for General Chat — no project context."""
+        soul = self.load_soul()
+        user = self.load_user()
+        identity = self.load_identity()
+        agents = self.load_agents()
+
+        sections = []
+        if identity:
+            sections.append(identity)
+        if soul:
+            sections.append(soul)
+        if agents:
+            sections.append(agents)
+        if user:
+            sections.append(user)
+
+        sections.append(
+            "## Context: General Chat\n"
+            "You are in the General Chat. This is a free conversation space.\n"
+            "Help the user brainstorm, chat, or start new projects.\n"
+            "Do NOT reference specific projects unless the user brings them up.\n"
+            "Do NOT assume you know the user's projects or history unless they tell you."
+        )
+
+        return "\n\n".join(sections)
+
+    def build_project_prompt(self, project: dict) -> str:
+        """Build system prompt for Project Chat — scoped to one project."""
+        soul = self.load_soul()
+        user = self.load_user()
+        agents = self.load_agents()
+
+        sections = []
+        if soul:
+            sections.append(soul)
+        if agents:
+            sections.append(agents)
+        if user:
+            sections.append(user)
+
+        project_ctx = (
+            f"## Context: Project Chat\n"
+            f"CURRENT PROJECT: {project.get('title', 'Untitled')}\n"
+            f"Description: {project.get('description', 'No description')}\n"
+            f"Technologies: {project.get('tech_stack', 'Not detected')}\n"
+            f"GitHub: {project.get('github_url', 'Not linked')}\n\n"
+            f"You are working within this project. Keep all responses relevant to this project.\n"
+            f"Do NOT reference other projects or unrelated topics.\n"
+            f"Do NOT bring up information from other conversations or contexts."
+        )
+        sections.append(project_ctx)
+
+        return "\n\n".join(sections)
+
+    def build_card_prompt(self, project: dict, card: dict, agent_persona: Optional[dict] = None) -> str:
+        """Build system prompt for Card Chat — scoped to a specific task."""
+        soul = self.load_soul()
+
+        sections = []
+
+        # Agent persona first (if provided)
+        if agent_persona and agent_persona.get("system_prompt"):
+            sections.append(agent_persona["system_prompt"])
+
+        if soul:
+            sections.append(soul)
+
+        card_ctx = (
+            f"## Context: Card/Task Chat\n"
+            f"PROJECT: {project.get('title', 'Untitled')}\n"
+            f"CARD: {card.get('title', 'Untitled')}\n"
+            f"Description: {card.get('description', '')}\n"
+            f"Status: {card.get('status', 'idea')}\n"
+            f"Priority: {card.get('priority', 'medium')}\n"
+            f"Dependencies: {card.get('dependencies', 'None')}\n\n"
+            f"You are focused on this specific task. Stay on topic.\n"
+            f"Do NOT reference other projects, other cards, or unrelated topics."
+        )
+        sections.append(card_ctx)
+
+        return "\n\n".join(sections)
+
+    # ------------------------------------------------------------------
+    # Legacy/generic prompt builder (used by existing layer methods)
+    # ------------------------------------------------------------------
 
     def build_system_prompt(
         self,
@@ -175,7 +271,7 @@ class PersonalityService:
 
         return "\n".join(sections)
 
-    def build_haiku_prompt(self, memory_context: Optional[str] = None) -> str:
+    def build_haiku_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None) -> str:
         from app.tools import get_tool_definitions
 
         tool_defs = get_tool_definitions()
@@ -194,8 +290,8 @@ class PersonalityService:
                 + _json.dumps(tool_defs, indent=2)
             )
 
-        base = (
-            "You are the fast voice layer of Voxyflow -- a voice-first project management assistant.\n"
+        voice_instructions = (
+            "\n\n## Voice Instructions\n"
             "You speak naturally and concisely -- this is a voice conversation, not a text chat.\n"
             "Keep responses short (1-3 sentences for voice). Be helpful, direct, and friendly.\n"
             "You help manage projects, tasks, and ideas through conversation.\n"
@@ -203,12 +299,29 @@ class PersonalityService:
             "Respond in the same language the user speaks (French or English).\n"
             "Your personality comes through in HOW you say things -- tone, word choice, energy.\n"
             "Be yourself. Not a corporate bot."
-            + tool_section
         )
-        return self.build_system_prompt(base_prompt=base, include_memory_context=memory_context)
 
-    def build_opus_prompt(self, memory_context: Optional[str] = None) -> str:
-        base = (
+        # Build context-appropriate base prompt
+        if chat_level == "card" and card and project:
+            base = self.build_card_prompt(project, card, agent_persona)
+        elif chat_level == "project" and project:
+            base = self.build_project_prompt(project)
+        else:
+            base = self.build_general_prompt()
+
+        return base + voice_instructions + tool_section
+
+    def build_opus_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None) -> str:
+        # Build context-appropriate base
+        if chat_level == "card" and card and project:
+            base = self.build_card_prompt(project, card)
+        elif chat_level == "project" and project:
+            base = self.build_project_prompt(project)
+        else:
+            base = self.build_general_prompt()
+
+        opus_instructions = (
+            "\n\n## Deep Thinking Layer\n"
             "You are the deep-thinking layer of Voxyflow, a voice PM assistant.\n"
             "You receive the full conversation context and the fast response already given (by Haiku).\n"
             "Your job: only speak if you have something substantively better or different to add.\n"
@@ -218,7 +331,8 @@ class PersonalityService:
             "Keep it concise (2-4 sentences max). Respond in the user's language.\n"
             "Your personality is the same as Haiku's -- you're one being, thinking deeper."
         )
-        return self.build_system_prompt(base_prompt=base, include_memory_context=memory_context)
+
+        return base + opus_instructions
 
     def build_analyzer_prompt(self, memory_context: Optional[str] = None) -> str:
         base = (

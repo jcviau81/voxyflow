@@ -179,11 +179,22 @@ export class ChatService {
     // Include layer toggle state so backend can skip disabled layers
     const layers = ModelStatusBar.getStoredLayerState();
 
+    // Determine chat context level for backend isolation
+    const currentProjectId = message.projectId || appState.get('currentProjectId');
+    const currentCardId = message.cardId || appState.get('selectedCardId');
+    let chatLevel: 'general' | 'project' | 'card' = 'general';
+    if (currentCardId) {
+      chatLevel = 'card';
+    } else if (currentProjectId) {
+      chatLevel = 'project';
+    }
+
     apiClient.send('chat:message', {
       content,
-      projectId: message.projectId,
-      cardId: message.cardId,
+      projectId: currentProjectId,
+      cardId: currentCardId,
       messageId: message.id,
+      chatLevel,
       layers,
     });
 

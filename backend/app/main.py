@@ -111,6 +111,8 @@ async def _handle_chat_3layer(
     chat_id: str,
     project_id: str | None,
     layers: dict[str, bool] | None = None,
+    chat_level: str = "general",
+    card_id: str | None = None,
 ) -> None:
     """
     3-Layer Multi-Model Chat Orchestration.
@@ -119,7 +121,38 @@ async def _handle_chat_3layer(
     Layer 2 — Opus (deep, 2-5s): Enriches/corrects if needed, runs in parallel.
     Layer 3 — Analyzer (background): Detects actionable items → card suggestions.
     """
-    project_name = None  # TODO: resolve from project_id
+    # Resolve project context from project_id
+    project_context = None
+    card_context = None
+    if project_id:
+        try:
+            from app.database import async_session, Project, Card
+            from sqlalchemy import select
+            async with async_session() as db:
+                result = await db.execute(select(Project).where(Project.id == project_id))
+                proj = result.scalar_one_or_none()
+                if proj:
+                    project_context = {
+                        "title": proj.title,
+                        "description": proj.description or "",
+                        "tech_stack": getattr(proj, "tech_stack", "") or "",
+                        "github_url": proj.github_url or "",
+                    }
+                if card_id:
+                    result = await db.execute(select(Card).where(Card.id == card_id))
+                    c = result.scalar_one_or_none()
+                    if c:
+                        card_context = {
+                            "title": c.title,
+                            "description": c.description or "",
+                            "status": c.status or "idea",
+                            "priority": str(c.priority) if c.priority is not None else "medium",
+                            "dependencies": "",
+                        }
+        except Exception as e:
+            logger.warning(f"Failed to resolve project/card context: {e}")
+
+    project_name = project_context.get("title") if project_context else None
 
     # Resolve layer toggles (default: all enabled)
     if layers is None:
@@ -142,7 +175,10 @@ async def _handle_chat_3layer(
     if opus_enabled:
         await _send_model_status("opus", "thinking")
         opus_task = asyncio.create_task(
-            _claude_service.chat_opus_supervisor(chat_id=chat_id, user_message=content, project_name=project_name)
+            _claude_service.chat_opus_supervisor(
+                chat_id=chat_id, user_message=content, project_name=project_name,
+                chat_level=chat_level, project_context=project_context, card_context=card_context,
+            )
         )
 
     if analyzer_enabled:
@@ -158,7 +194,8 @@ async def _handle_chat_3layer(
     try:
         first_token_sent = False
         async for token in _claude_service.chat_haiku_stream(
-            chat_id=chat_id, user_message=content, project_name=project_name
+            chat_id=chat_id, user_message=content, project_name=project_name,
+            chat_level=chat_level, project_context=project_context, card_context=card_context,
         ):
             haiku_full_response += token
             if not first_token_sent:
@@ -322,10 +359,23 @@ async def general_websocket(websocket: WebSocket):
                     content = payload.get("content", "")
                     message_id = payload.get("messageId", msg_id)
                     project_id = payload.get("projectId")
-                    chat_id = str(project_id) if project_id else "default"
+                    card_id = payload.get("cardId")
+                    chat_level = payload.get("chatLevel", "general")
                     msg_layers = payload.get("layers")  # {opus: bool, analyzer: bool}
 
-                    logger.info(f"[WS] chat:message → chat_id={chat_id}, layers={msg_layers}: {content[:80]!r}")
+                    # Derive chat_id from context for conversation isolation
+                    if card_id:
+                        chat_id = f"card:{card_id}"
+                        chat_level = "card"
+                    elif project_id:
+                        chat_id = f"project:{project_id}"
+                        if chat_level == "general":
+                            chat_level = "project"
+                    else:
+                        chat_id = "general"
+                        chat_level = "general"
+
+                    logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
 
                     # 3-Layer orchestration (Haiku + Opus + Analyzer in parallel)
                     await _handle_chat_3layer(
@@ -335,6 +385,8 @@ async def general_websocket(websocket: WebSocket):
                         chat_id=chat_id,
                         project_id=project_id,
                         layers=msg_layers,
+                        chat_level=chat_level,
+                        card_id=card_id,
                     )
 
                 else:
