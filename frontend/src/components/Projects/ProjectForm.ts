@@ -208,6 +208,20 @@ export class ProjectForm {
     const group = createElement('div', { className: 'form-group' });
     const label = createElement('label', {}, '🔗 GitHub Repository');
 
+    // GitHub setup hint (hidden by default, shown if not connected)
+    const setupHint = createElement('div', {
+      className: 'github-setup-hint',
+      'data-testid': 'github-setup-hint',
+    });
+    setupHint.style.display = 'none';
+    setupHint.innerHTML = `
+      <span style="color: var(--color-warning, #feca57); font-size: 13px;">
+        ⚠️ GitHub not configured.
+        <a href="#" data-testid="github-settings-link" style="color: var(--color-primary, #54a0ff); text-decoration: underline;">Go to Settings → GitHub</a>
+        to connect.
+      </span>
+    `;
+
     const row = createElement('div', { className: 'github-input-row' });
 
     this.githubInput = document.createElement('input');
@@ -261,9 +275,38 @@ export class ProjectForm {
     }
 
     group.appendChild(label);
+    group.appendChild(setupHint);
     group.appendChild(row);
     group.appendChild(this.githubStatusEl);
+
+    // Check GitHub status and show/hide hint
+    this.checkGitHubSetup(setupHint, row, connectBtn);
+
+    // Navigate to settings when hint link is clicked
+    const settingsLink = setupHint.querySelector('[data-testid="github-settings-link"]');
+    if (settingsLink) {
+      settingsLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        eventBus.emit(EVENTS.PROJECT_FORM_CANCEL);
+        eventBus.emit(EVENTS.TAB_SWITCH, { tab: 'settings' });
+      });
+    }
+
     return group;
+  }
+
+  private async checkGitHubSetup(hintEl: HTMLElement, _rowEl: HTMLElement, _connectBtn: HTMLElement): Promise<void> {
+    try {
+      const response = await fetch(`${API_URL}/api/github/status`);
+      if (!response.ok) return;
+      const data = await response.json();
+
+      if (!data.gh_authenticated) {
+        hintEl.style.display = 'block';
+      }
+    } catch {
+      // Silent fail — don't block form
+    }
   }
 
   private parseGitHubInput(input: string): { owner: string; repo: string } | null {
@@ -313,7 +356,7 @@ export class ProjectForm {
       this.githubInfo = info;
       this.showGitHubConnected(info);
     } catch (e) {
-      this.showGitHubError('Failed to connect to GitHub API');
+      this.showGitHubError('Failed to connect to GitHub API. Check Settings → GitHub.');
     }
   }
 

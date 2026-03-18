@@ -12,9 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db
-from app.routes import chats, projects, cards, voice, techdetect, github, settings
+from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
+from app.tools import execute_tool, get_tool_definitions
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -69,6 +70,7 @@ app.include_router(voice.router, prefix="/api")
 app.include_router(techdetect.router)
 app.include_router(github.router, prefix="/api")
 app.include_router(settings.router)
+app.include_router(tools.router, prefix="/api")
 
 
 @app.get("/health")
@@ -78,6 +80,28 @@ async def health():
 
 _claude_service = ClaudeService()
 _analyzer_service = AnalyzerService()
+
+
+import re
+
+def _parse_tool_calls(text: str) -> list[dict]:
+    """Extract <tool_call>...</tool_call> blocks from Claude's response."""
+    pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
+    matches = re.findall(pattern, text, re.DOTALL)
+    calls = []
+    for match in matches:
+        try:
+            parsed = json.loads(match)
+            if "name" in parsed:
+                calls.append(parsed)
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse tool call JSON: {match[:100]}")
+    return calls
+
+
+def _strip_tool_calls(text: str) -> str:
+    """Remove <tool_call> blocks from text, leaving the conversational part."""
+    return re.sub(r'<tool_call>\s*\{.*?\}\s*</tool_call>', '', text, flags=re.DOTALL).strip()
 
 
 async def _handle_chat_3layer(
@@ -130,11 +154,13 @@ async def _handle_chat_3layer(
     # --- Layer 1: Stream Haiku response token-by-token ---
     await _send_model_status("haiku", "active")
     start = time.time()
+    haiku_full_response = ""
     try:
         first_token_sent = False
         async for token in _claude_service.chat_haiku_stream(
             chat_id=chat_id, user_message=content, project_name=project_name
         ):
+            haiku_full_response += token
             if not first_token_sent:
                 first_token_latency = int((time.time() - start) * 1000)
                 logger.info(f"[Layer1-Haiku] first token in {first_token_latency}ms")
@@ -182,6 +208,28 @@ async def _handle_chat_3layer(
         if analyzer_task:
             analyzer_task.cancel()
         return
+
+    # --- Tool execution: parse <tool_call> blocks from Haiku response ---
+    tool_calls = _parse_tool_calls(haiku_full_response)
+    if tool_calls:
+        from app.database import async_session
+        async with async_session() as db:
+            for tc in tool_calls:
+                tool_name = tc["name"]
+                tool_params = tc.get("params", tc.get("parameters", {}))
+                logger.info(f"[Tools] executing: {tool_name}({tool_params})")
+                result = await execute_tool(tool_name, tool_params, db=db)
+                await websocket.send_json({
+                    "type": "tool:result",
+                    "payload": {
+                        "tool": tool_name,
+                        "success": result.success,
+                        "data": result.data,
+                        "error": result.error,
+                        "ui_action": result.ui_action,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
 
     # --- Layer 2: Opus enrichment/correction ---
     if not opus_enabled or opus_task is None:

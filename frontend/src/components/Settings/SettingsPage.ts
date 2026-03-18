@@ -129,6 +129,7 @@ export class SettingsPage {
     this.root.appendChild(title);
 
     this.root.insertAdjacentHTML('beforeend', this.renderPersonalitySection());
+    this.root.insertAdjacentHTML('beforeend', this.renderGitHubSection());
     this.root.insertAdjacentHTML('beforeend', this.renderVolumeSection());
     this.root.insertAdjacentHTML('beforeend', this.renderConnectionSection());
     this.root.insertAdjacentHTML('beforeend', this.renderDataSection());
@@ -237,6 +238,47 @@ export class SettingsPage {
             <option value="warm" ${p.warmth === 'warm' ? 'selected' : ''}>Warm</option>
             <option value="hot" ${p.warmth === 'hot' ? 'selected' : ''}>Hot \uD83D\uDD25</option>
           </select>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderGitHubSection(): string {
+    return `
+      <div class="settings-section" data-testid="settings-github">
+        <h3>🔗 GitHub Integration</h3>
+
+        <div class="github-connection-status" id="github-connection-status">
+          <span class="github-loading">Checking GitHub status...</span>
+        </div>
+
+        <!-- Option 1: GitHub CLI -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">GitHub CLI (gh)</div>
+            <div class="setting-description">Recommended: uses your existing gh authentication</div>
+          </div>
+          <div class="github-cli-status" id="github-cli-status">
+            <span class="github-loading">Checking...</span>
+          </div>
+        </div>
+
+        <!-- Option 2: Personal Access Token -->
+        <div class="setting-row full-width">
+          <div class="setting-info">
+            <div class="setting-label">Personal Access Token (alternative)</div>
+            <div class="setting-description">Create at <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a></div>
+          </div>
+          <div class="token-input-row" style="display: flex; gap: 8px; align-items: center;">
+            <input type="password" class="setting-input" placeholder="ghp_..." id="github-token-input" style="flex: 1;" />
+            <button class="btn-secondary" id="github-save-token-btn">Save Token</button>
+          </div>
+        </div>
+
+        <!-- Test Connection -->
+        <div style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
+          <button class="btn-primary" data-testid="github-test-btn" id="github-test-btn">Test Connection</button>
+          <div class="github-test-result" id="github-test-result"></div>
         </div>
       </div>
     `;
@@ -352,6 +394,115 @@ export class SettingsPage {
     const resetBtn = this.root.querySelector('#reset-btn');
     if (resetBtn) {
       resetBtn.addEventListener('click', () => this.resetSettings());
+    }
+
+    // GitHub events
+    const githubTestBtn = this.root.querySelector('#github-test-btn');
+    if (githubTestBtn) {
+      githubTestBtn.addEventListener('click', () => this.checkGitHubStatus(true));
+    }
+
+    const githubSaveTokenBtn = this.root.querySelector('#github-save-token-btn');
+    if (githubSaveTokenBtn) {
+      githubSaveTokenBtn.addEventListener('click', () => this.saveGitHubToken());
+    }
+
+    // Auto-check GitHub status on load
+    this.checkGitHubStatus(false);
+  }
+
+  private async checkGitHubStatus(showToast: boolean): Promise<void> {
+    const statusEl = this.root.querySelector('#github-connection-status');
+    const cliStatusEl = this.root.querySelector('#github-cli-status');
+    const testResult = this.root.querySelector('#github-test-result');
+
+    try {
+      const response = await fetch(`${API_URL}/api/github/status`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      // Connection status banner
+      if (statusEl) {
+        if (data.gh_authenticated) {
+          statusEl.innerHTML = `<span style="color: var(--color-success, #4ecdc4);">✅ Connected as <strong>@${data.username || 'unknown'}</strong> via ${data.method === 'pat' ? 'Personal Access Token' : 'GitHub CLI'}</span>`;
+        } else if (data.token_configured) {
+          statusEl.innerHTML = `<span style="color: var(--color-warning, #feca57);">⚠️ Token configured but authentication failed</span>`;
+        } else {
+          statusEl.innerHTML = `<span style="color: var(--color-error, #ff6b6b);">❌ Not connected — configure below</span>`;
+        }
+      }
+
+      // CLI status
+      if (cliStatusEl) {
+        if (!data.gh_installed) {
+          cliStatusEl.innerHTML = `<span style="color: var(--color-text-secondary);">❌ Not installed</span>`;
+        } else if (data.gh_authenticated && data.method === 'gh_cli') {
+          cliStatusEl.innerHTML = `<span style="color: var(--color-success, #4ecdc4);">✅ Authenticated as @${data.username}</span>`;
+        } else {
+          cliStatusEl.innerHTML = `<span style="color: var(--color-warning, #feca57);">⚠️ Installed but not authenticated</span>`;
+        }
+      }
+
+      // Test result
+      if (testResult && showToast) {
+        if (data.gh_authenticated) {
+          testResult.innerHTML = `<span style="color: var(--color-success, #4ecdc4);">✅ Connection successful!</span>`;
+          eventBus.emit(EVENTS.TOAST_SHOW, { message: `GitHub connected as @${data.username}`, type: 'success', duration: 3000 });
+        } else {
+          testResult.innerHTML = `<span style="color: var(--color-error, #ff6b6b);">❌ Not authenticated</span>`;
+          eventBus.emit(EVENTS.TOAST_SHOW, { message: 'GitHub not connected', type: 'error', duration: 3000 });
+        }
+      }
+    } catch (e) {
+      console.error('GitHub status check failed:', e);
+      if (statusEl) {
+        statusEl.innerHTML = `<span style="color: var(--color-error, #ff6b6b);">❌ Failed to check status</span>`;
+      }
+      if (cliStatusEl) {
+        cliStatusEl.innerHTML = `<span style="color: var(--color-text-secondary);">Unknown</span>`;
+      }
+      if (testResult && showToast) {
+        testResult.innerHTML = `<span style="color: var(--color-error, #ff6b6b);">❌ Connection check failed</span>`;
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to check GitHub status', type: 'error', duration: 3000 });
+      }
+    }
+  }
+
+  private async saveGitHubToken(): Promise<void> {
+    const input = this.root.querySelector('#github-token-input') as HTMLInputElement;
+    if (!input) return;
+
+    const token = input.value.trim();
+    if (!token) {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Enter a token first', type: 'error', duration: 2000 });
+      return;
+    }
+
+    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Token must start with ghp_ or github_pat_', type: 'error', duration: 3000 });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/github/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Save failed' }));
+        throw new Error(err.detail || 'Save failed');
+      }
+
+      input.value = '';
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Token saved! Testing connection...', type: 'success', duration: 2000 });
+
+      // Re-check status
+      setTimeout(() => this.checkGitHubStatus(true), 500);
+    } catch (e) {
+      console.error('Failed to save GitHub token:', e);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `Failed to save token: ${e}`, type: 'error', duration: 4000 });
     }
   }
 

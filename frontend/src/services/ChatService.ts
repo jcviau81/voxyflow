@@ -68,6 +68,37 @@ export class ChatService {
       })
     );
 
+    // Handle tool execution results from AI
+    this.unsubscribers.push(
+      apiClient.on('tool:result', (payload) => {
+        const { tool, success, data, error, ui_action } = payload as {
+          tool: string;
+          success: boolean;
+          data: any;
+          error: string | null;
+          ui_action: string | null;
+        };
+
+        if (success && ui_action) {
+          this.handleToolUiAction(ui_action, data);
+        }
+
+        if (success) {
+          eventBus.emit(EVENTS.TOAST_SHOW, {
+            message: `🔧 ${tool}: Done`,
+            type: 'success',
+            duration: 3000,
+          });
+        } else {
+          eventBus.emit(EVENTS.TOAST_SHOW, {
+            message: `🔧 ${tool} failed: ${error}`,
+            type: 'error',
+            duration: 5000,
+          });
+        }
+      })
+    );
+
     // Handle card suggestions (Layer 3 — Analyzer) → route to Opportunities Panel
     this.unsubscribers.push(
       apiClient.on('card:suggestion', (payload) => {
@@ -237,6 +268,39 @@ export class ChatService {
 
   clearHistory(): void {
     appState.clearMessages();
+  }
+
+  private handleToolUiAction(uiAction: string, data: any): void {
+    switch (uiAction) {
+      case 'open_project_tab':
+        if (data?.id || data?.project_id) {
+          eventBus.emit(EVENTS.TAB_OPEN, { projectId: data.id || data.project_id });
+        }
+        break;
+      case 'refresh_project':
+        eventBus.emit(EVENTS.PROJECT_UPDATED, data);
+        break;
+      case 'close_project_tab':
+        if (data?.deleted_id) {
+          eventBus.emit(EVENTS.TAB_CLOSE, { projectId: data.deleted_id });
+          eventBus.emit(EVENTS.PROJECT_DELETED, data);
+        }
+        break;
+      case 'refresh_kanban':
+        eventBus.emit(EVENTS.CARD_UPDATED, data);
+        break;
+      case 'open_card':
+        if (data?.card_id) {
+          eventBus.emit(EVENTS.CARD_SELECTED, { cardId: data.card_id });
+        }
+        break;
+      case 'show_kanban':
+        eventBus.emit(EVENTS.VIEW_CHANGE, { view: 'kanban' });
+        break;
+      case 'show_chat':
+        eventBus.emit(EVENTS.VIEW_CHANGE, { view: 'chat' });
+        break;
+    }
   }
 
   private getAgentEmoji(agentType?: string): string {

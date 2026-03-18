@@ -1,5 +1,77 @@
 import { test, expect } from '@playwright/test';
 
+// Helper to navigate to settings
+async function navigateToSettings(page: import('@playwright/test').Page) {
+  await page.goto('/');
+  const settingsNav = page.locator('.sidebar-item:has-text("Settings"), .sidebar-item:has-text("⚙")');
+  if (await settingsNav.count() > 0) {
+    await settingsNav.first().click();
+  }
+}
+
+test.describe('Settings - GitHub Integration', () => {
+  test('GitHub settings section shows status', async ({ page }) => {
+    await navigateToSettings(page);
+
+    // Verify GitHub section exists
+    const githubSection = page.locator('[data-testid="settings-github"]');
+    await expect(githubSection).toBeVisible({ timeout: 5000 });
+
+    // Check that status elements are present
+    await expect(page.locator('#github-connection-status')).toBeVisible();
+    await expect(page.locator('#github-cli-status')).toBeVisible();
+
+    // Verify token input exists
+    await expect(page.locator('#github-token-input')).toBeVisible();
+
+    // Verify test button exists
+    await expect(page.locator('[data-testid="github-test-btn"]')).toBeVisible();
+  });
+
+  test('GitHub test button triggers status check', async ({ page }) => {
+    await navigateToSettings(page);
+
+    const githubSection = page.locator('[data-testid="settings-github"]');
+    await expect(githubSection).toBeVisible({ timeout: 5000 });
+
+    // Click test connection
+    await page.locator('[data-testid="github-test-btn"]').click();
+
+    // Should show some result (either success or error)
+    const testResult = page.locator('#github-test-result');
+    await expect(testResult).not.toBeEmpty({ timeout: 5000 });
+  });
+});
+
+test.describe('Settings - Project Form GitHub Hint', () => {
+  test('Project form shows GitHub setup hint when not connected', async ({ page }) => {
+    await page.goto('/');
+
+    // Navigate to projects
+    const projectsNav = page.locator('.sidebar-item:has-text("Projects"), .sidebar-item:has-text("📁")');
+    if (await projectsNav.count() > 0) {
+      await projectsNav.first().click();
+    }
+
+    // Open create project form
+    const createBtn = page.locator('[data-testid="create-project-btn"], button:has-text("New Project"), button:has-text("Create")');
+    if (await createBtn.count() > 0) {
+      await createBtn.first().click();
+    }
+
+    // Wait for form
+    const form = page.locator('[data-testid="project-form"]');
+    await expect(form).toBeVisible({ timeout: 5000 });
+
+    // The GitHub setup hint should exist in the DOM
+    const hint = page.locator('[data-testid="github-setup-hint"]');
+    await expect(hint).toBeAttached({ timeout: 5000 });
+
+    // GitHub input should still be visible regardless
+    await expect(page.locator('[data-testid="project-github-input"]')).toBeVisible();
+  });
+});
+
 test.describe('Settings - Personality Configuration', () => {
   test('Personality section renders with all fields', async ({ page }) => {
     await page.goto('/');
