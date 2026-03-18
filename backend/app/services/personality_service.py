@@ -420,12 +420,34 @@ class PersonalityService:
 
         return base + deep_instructions
 
-    def build_analyzer_prompt(self, memory_context: Optional[str] = None) -> str:
+    def build_analyzer_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project_names: Optional[list] = None) -> str:
+        context_note = ""
+        if chat_level == "general":
+            projs = ", ".join(project_names or []) or "none"
+            context_note = (
+                f"\n\nCurrent context: MAIN CHAT (no project selected).\n"
+                f"User's projects: {projs}\n"
+                "In Main Chat, suggest NOTES (sticky notes for the Main Board) for reminders/quick thoughts.\n"
+                "If the user mentions something that belongs in a project, suggest a CARD with the project name.\n"
+                "If the project doesn't exist yet, suggest creating it.\n"
+            )
+        elif chat_level == "project":
+            context_note = "\n\nCurrent context: PROJECT CHAT. Suggest CARDS for this project.\n"
+
         base = (
             "You are the analyzer layer of Voxyflow.\n"
-            "Your job: detect actionable items in conversation and suggest project cards.\n"
-            "You also determine which specialized agent should handle each card.\n"
-            "Output structured JSON. No personality in output -- just analysis."
+            "Your job: detect actionable items, ideas, tasks, feedback, and decisions in the conversation.\n"
+            "Be AGGRESSIVE about detecting opportunities — even casual mentions of things to do should trigger suggestions.\n"
+            "You determine which specialized agent should handle each item.\n\n"
+            "Types of suggestions:\n"
+            "- NOTE: a sticky note for the Main Board (quick reminder, idea, feedback point)\n"
+            "- CARD: a structured task for a project kanban (has status, priority, agent)\n"
+            "- PROJECT: suggest creating a new project if the user mentions a new initiative\n\n"
+            "Output structured JSON array. No personality — just analysis.\n"
+            "Format: [{\"type\": \"note|card|project\", \"title\": \"...\", \"description\": \"...\", "
+            "\"project\": \"project_name or null\", \"priority\": \"low|medium|high\", "
+            "\"agentType\": \"coder|architect|designer|researcher|writer|qa|ember\"}]"
+            + context_note
         )
         return self.build_system_prompt(base_prompt=base, include_user=True, include_memory_context=memory_context)
 
