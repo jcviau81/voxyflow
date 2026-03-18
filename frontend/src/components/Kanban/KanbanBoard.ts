@@ -136,6 +136,14 @@ export class KanbanBoard {
     }, '☑ Select');
     this.selectToggleBtn.addEventListener('click', () => this.toggleSelectMode());
 
+    // View toggle — same pattern as FreeBoard
+    const viewToggle = createElement('div', { className: 'view-toggle' });
+    const chatBtn = createElement('button', { className: 'view-btn', 'data-view': 'chat' }, '💬 Chat');
+    chatBtn.addEventListener('click', () => appState.setView('chat'));
+    const kanbanBtn = createElement('button', { className: 'view-btn active', 'data-view': 'kanban' }, '📋 Kanban');
+    viewToggle.appendChild(chatBtn);
+    viewToggle.appendChild(kanbanBtn);
+    header.appendChild(viewToggle);
     header.appendChild(title);
     header.appendChild(searchBar);
     header.appendChild(exportBtn);
