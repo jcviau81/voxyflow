@@ -26,6 +26,7 @@ import { ProjectStats } from './components/Projects/ProjectStats';
 import { ProjectRoadmap } from './components/Projects/ProjectRoadmap';
 import { ProjectWiki } from './components/Projects/ProjectWiki';
 import { SprintPlanner } from './components/Projects/SprintPlanner';
+import { ProjectDocuments } from './components/Projects/ProjectDocuments';
 
 export class App {
   private root: HTMLElement;
@@ -163,7 +164,7 @@ export class App {
         const activeTab = appState.getActiveTab();
         if (activeTab === 'main') {
           const currentView = appState.get('currentView');
-          if (currentView === 'kanban' || currentView === 'projects' || currentView === 'stats' || currentView === 'roadmap' || currentView === 'wiki' || currentView === 'sprint') {
+          if (currentView === 'kanban' || currentView === 'projects' || currentView === 'stats' || currentView === 'roadmap' || currentView === 'wiki' || currentView === 'sprint' || currentView === 'docs') {
             this.switchView('chat');
             appState.set('currentView', 'chat');
           }
@@ -643,6 +644,9 @@ export class App {
         break;
       case 'sprint':
         component = new SprintPlanner(this.mainContent);
+        break;
+      case 'docs':
+        component = new ProjectDocuments(this.mainContent);
         break;
     }
 
