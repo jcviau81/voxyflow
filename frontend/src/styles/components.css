@@ -1008,6 +1008,95 @@
   opacity: 1;
 }
 
+/* ============= MODEL STATUS BAR ============= */
+.model-status-bar {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--color-bg-secondary, #1a1a2e);
+  border-bottom: 1px solid var(--color-border, #333);
+  font-size: 12px;
+  align-items: center;
+}
+
+.model-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.model-status .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.model-status .status-dot.active {
+  background: #4caf50;
+  animation: model-pulse 1s infinite;
+}
+
+.model-status .status-dot.thinking {
+  background: #ff9800;
+  animation: model-pulse 1.5s infinite;
+}
+
+.model-status .status-dot.idle {
+  background: #666;
+}
+
+.model-status .status-dot.error {
+  background: #f44336;
+}
+
+@keyframes model-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.model-status .status-label {
+  color: #888;
+  font-style: italic;
+}
+
+/* ============= MODEL BADGES ============= */
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.model-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0.7;
+  font-family: monospace;
+}
+
+.model-haiku {
+  background: #2d2d3d;
+  color: #7ecfff;
+}
+
+.model-opus {
+  background: #2d3d2d;
+  color: #ff9f7e;
+}
+
+.model-sonnet {
+  background: #3d2d3d;
+  color: #c47eff;
+}
+
+.model-analyzer {
+  background: #3d3d2d;
+  color: #7eff7e;
+}
+
 /* ============= SPINNER ============= */
 .spinner {
   display: flex;

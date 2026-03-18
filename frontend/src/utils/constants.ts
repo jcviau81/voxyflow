@@ -71,6 +71,7 @@ export const EVENTS = {
   MESSAGE_STREAMING: 'chat:message:streaming',
   MESSAGE_STREAM_END: 'chat:message:stream-end',
   MESSAGE_ENRICHMENT: 'chat:message:enrichment',
+  MODEL_STATUS: 'chat:model:status',
 
   // Voice
   VOICE_START: 'voice:start',

@@ -6,6 +6,7 @@ import { appState } from '../../state/AppState';
 import { chatService } from '../../services/ChatService';
 import { VoiceInput } from './VoiceInput';
 import { MessageBubble } from './MessageBubble';
+import { ModelStatusBar } from '../Navigation/ModelStatusBar';
 
 export class ChatWindow {
   private container: HTMLElement;
@@ -13,6 +14,7 @@ export class ChatWindow {
   private inputArea: HTMLElement | null = null;
   private textInput: HTMLTextAreaElement | null = null;
   private voiceInput: VoiceInput | null = null;
+  private modelStatusBar: ModelStatusBar | null = null;
   private messageBubbles: Map<string, MessageBubble> = new Map();
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
@@ -65,7 +67,12 @@ export class ChatWindow {
     this.inputArea.appendChild(voiceContainer);
     this.inputArea.appendChild(sendBtn);
 
+    // Model status bar
+    const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
+    this.modelStatusBar = new ModelStatusBar(statusBarContainer);
+
     this.container.appendChild(header);
+    this.container.appendChild(statusBarContainer);
     this.container.appendChild(this.messageList);
     this.container.appendChild(this.inputArea);
 
@@ -204,6 +211,7 @@ export class ChatWindow {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
     this.voiceInput?.destroy();
+    this.modelStatusBar?.destroy();
     this.messageBubbles.forEach((bubble) => bubble.destroy());
     this.messageBubbles.clear();
     this.container.remove();

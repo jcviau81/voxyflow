@@ -93,15 +93,26 @@ async def _handle_chat_3layer(
     """
     project_name = None  # TODO: resolve from project_id
 
+    # Helper to send model status updates
+    async def _send_model_status(model: str, state: str) -> None:
+        await websocket.send_json({
+            "type": "model:status",
+            "payload": {"model": model, "state": state},
+            "timestamp": int(time.time() * 1000),
+        })
+
     # Launch Opus + Analyzer in parallel (they run independently)
+    await _send_model_status("opus", "thinking")
     opus_task = asyncio.create_task(
         _claude_service.chat_opus_supervisor(chat_id=chat_id, user_message=content, project_name=project_name)
     )
+    await _send_model_status("analyzer", "thinking")
     analyzer_task = asyncio.create_task(
         _analyzer_service.analyze_for_cards(chat_id=chat_id, message=content, project_context="")
     )
 
     # --- Layer 1: Stream Haiku response token-by-token ---
+    await _send_model_status("haiku", "active")
     start = time.time()
     try:
         first_token_sent = False
@@ -140,8 +151,10 @@ async def _handle_chat_3layer(
             },
             "timestamp": int(time.time() * 1000),
         })
+        await _send_model_status("haiku", "idle")
     except Exception as e:
         logger.error(f"[Layer1-Haiku] error: {e}")
+        await _send_model_status("haiku", "error")
         await websocket.send_json({
             "type": "chat:error",
             "payload": {"messageId": message_id, "error": str(e)},
@@ -171,12 +184,15 @@ async def _handle_chat_3layer(
             })
         else:
             logger.debug("[Layer2-Opus] no enrichment needed")
+        await _send_model_status("opus", "idle")
     except asyncio.TimeoutError:
         logger.warning("[Layer2-Opus] timed out after 15s, skipping")
+        await _send_model_status("opus", "idle")
     except asyncio.CancelledError:
-        pass
+        await _send_model_status("opus", "idle")
     except Exception as e:
         logger.error(f"[Layer2-Opus] error: {e}")
+        await _send_model_status("opus", "error")
 
     # --- Layer 3: Analyzer card suggestions ---
     try:
@@ -195,12 +211,15 @@ async def _handle_chat_3layer(
                     },
                     "timestamp": int(time.time() * 1000),
                 })
+        await _send_model_status("analyzer", "idle")
     except asyncio.TimeoutError:
         logger.warning("[Layer3-Analyzer] timed out after 15s, skipping")
+        await _send_model_status("analyzer", "idle")
     except asyncio.CancelledError:
-        pass
+        await _send_model_status("analyzer", "idle")
     except Exception as e:
         logger.error(f"[Layer3-Analyzer] error: {e}")
+        await _send_model_status("analyzer", "error")
 
 
 @app.websocket("/ws")

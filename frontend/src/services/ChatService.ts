@@ -59,6 +59,14 @@ export class ChatService {
       })
     );
 
+    // Handle model status updates
+    this.unsubscribers.push(
+      apiClient.on('model:status', (payload) => {
+        const { model, state } = payload as { model: string; state: string };
+        eventBus.emit(EVENTS.MODEL_STATUS, { model, state });
+      })
+    );
+
     // Handle card suggestions (Layer 3 — Analyzer)
     this.unsubscribers.push(
       apiClient.on('card:suggestion', (payload) => {

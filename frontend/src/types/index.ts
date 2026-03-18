@@ -5,6 +5,13 @@ export type CardStatus = 'idea' | 'todo' | 'in-progress' | 'done';
 export type ViewMode = 'chat' | 'kanban' | 'projects' | 'settings';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'codeuse' | 'architecte' | 'designer' | 'devops' | 'analyste' | 'testeur' | 'documenteur';
+export type ModelName = 'haiku' | 'opus' | 'analyzer';
+export type ModelState = 'active' | 'thinking' | 'idle' | 'error';
+
+export interface ModelStatusEvent {
+  model: ModelName;
+  state: ModelState;
+}
 
 export interface Message {
   id: string;

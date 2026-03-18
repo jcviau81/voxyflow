@@ -45,16 +45,38 @@ export class MessageBubble {
       this.contentEl.appendChild(cursor);
     }
 
-    // Timestamp
+    // Message meta (model badge + timestamp)
+    const meta = createElement('div', { className: 'message-meta' });
+
+    // Model badge (assistant messages only)
+    if (this.message.role === 'assistant' && this.message.model) {
+      const badgeInfo = this.getModelBadge(this.message.model);
+      const badge = createElement('span', {
+        className: `model-badge model-${this.message.model}`,
+      }, badgeInfo);
+      meta.appendChild(badge);
+    }
+
     const time = createElement('span', { className: 'message-time' }, formatTime(this.message.timestamp));
+    meta.appendChild(time);
 
     wrapper.appendChild(this.contentEl);
-    wrapper.appendChild(time);
+    wrapper.appendChild(meta);
 
     this.element.appendChild(avatar);
     this.element.appendChild(wrapper);
 
     this.parentElement.appendChild(this.element);
+  }
+
+  private getModelBadge(model: string): string {
+    switch (model) {
+      case 'haiku': return '⚡ haiku';
+      case 'opus': return '🧠 opus';
+      case 'sonnet': return '✨ sonnet';
+      case 'analyzer': return '🔍 analyzer';
+      default: return model;
+    }
   }
 
   updateContent(content: string, streaming: boolean): void {
