@@ -123,10 +123,116 @@ class PersonalityService:
         return self._read_if_changed(AGENTS_FILE)
 
     # ------------------------------------------------------------------
+    # Chat Init block builders (injected FIRST in all system prompts)
+    # ------------------------------------------------------------------
+
+    def build_general_chat_init(self, project_names: Optional[list] = None) -> str:
+        """Build the Chat Init block for General/Main Chat mode."""
+        projects_list = (
+            "\n".join(f"- {name}" for name in project_names)
+            if project_names
+            else "  (no projects yet)"
+        )
+        return (
+            "## Chat Init — Main Chat\n"
+            "Mode: Main Chat (General)\n"
+            "You are in the Main Chat. This is a free conversation space for brainstorming, casual chat, and quick notes.\n\n"
+            "Available actions in this context:\n"
+            "- Add notes to the Main Board (sticky notes / reminders)\n"
+            "- Create new projects\n"
+            "- Brainstorm ideas\n"
+            "- Chat casually\n\n"
+            "You have NO project context. Do NOT reference specific projects, cards, kanban, or sprints unless the user explicitly mentions them. "
+            "If the user asks to create a card without specifying a project, ask which project or suggest adding a Note to the Main Board instead.\n\n"
+            f"User's projects:\n{projects_list}"
+        )
+
+    def build_project_chat_init(self, project: dict) -> str:
+        """Build the Chat Init block for Project Chat mode."""
+        name = project.get("title", "Untitled")
+        project_id = project.get("id", "")
+        description = project.get("description") or "No description"
+        tech_stack = project.get("tech_stack") or "Not specified"
+        github_url = project.get("github_url") or "Not linked"
+
+        # Card counts by status
+        cards = project.get("cards", [])
+        total = len(cards)
+        done = sum(1 for c in cards if c.get("status") == "done")
+        in_progress = sum(1 for c in cards if c.get("status") == "in_progress")
+        todo = sum(1 for c in cards if c.get("status") == "todo")
+        ideas = sum(1 for c in cards if c.get("status") == "idea")
+
+        # Active sprint
+        sprint_name = project.get("active_sprint_name") or "None"
+
+        # Recent activity (last 3 updated cards as proxy)
+        recent_cards = sorted(cards, key=lambda c: c.get("updated_at", ""), reverse=True)[:3]
+        if recent_cards:
+            activity_lines = "\n".join(
+                f"  - [{c.get('status', '?')}] {c.get('title', 'Untitled')}"
+                for c in recent_cards
+            )
+        else:
+            activity_lines = "  (no recent activity)"
+
+        id_part = f" ({project_id})" if project_id else ""
+
+        return (
+            f"## Chat Init — Project: {name}\n"
+            f"Mode: Project Chat\n"
+            f"Project: {name}{id_part}\n"
+            f"Description: {description}\n"
+            f"Tech Stack: {tech_stack}\n"
+            f"GitHub: {github_url}\n\n"
+            f"Project state:\n"
+            f"- Cards: {total} total ({done} done, {in_progress} in progress, {todo} todo, {ideas} ideas)\n"
+            f"- Active sprint: {sprint_name}\n"
+            f"- Recent activity:\n{activity_lines}\n\n"
+            f"Available actions in this context:\n"
+            f"- Create, update, move, delete cards\n"
+            f"- Manage checklists, comments, attachments\n"
+            f"- Assign agents to cards\n"
+            f"- Generate standup, brief, health check\n"
+            f"- Manage wiki pages, documents, sprints\n\n"
+            f"Stay focused on this project. Do not reference other projects unless the user asks."
+        )
+
+    def build_card_chat_init(self, project: dict, card: dict) -> str:
+        """Build the Chat Init block for Card Chat mode."""
+        project_name = project.get("title", "Untitled")
+        card_title = card.get("title", "Untitled")
+        card_id = card.get("id", "")
+        status = card.get("status", "idea")
+        priority = card.get("priority", "medium")
+        agent_type = card.get("agent_type") or "ember"
+        description = card.get("description") or "No description"
+        assignee = card.get("assignee") or "Unassigned"
+
+        # Checklist counts
+        checklist = card.get("checklist_items", [])
+        total_items = len(checklist)
+        completed_items = sum(1 for item in checklist if item.get("done") or item.get("completed"))
+
+        id_part = f" ({card_id})" if card_id else ""
+
+        return (
+            f"## Chat Init — Card: {card_title}\n"
+            f"Mode: Card Chat\n"
+            f"Project: {project_name}\n"
+            f"Card: {card_title}{id_part}\n"
+            f"Status: {status} | Priority: {priority} | Agent: {agent_type}\n"
+            f"Description: {description}\n"
+            f"Checklist: {completed_items}/{total_items} items\n"
+            f"Assignee: {assignee}\n\n"
+            f"You are focused on this specific task. Help the user implement, debug, research, or write about this task depending on the assigned agent role."
+        )
+
+    # ------------------------------------------------------------------
     # Context-isolated prompt builders (general / project / card)
     # ------------------------------------------------------------------
 
-    def build_general_prompt(self) -> str:
+    def build_general_prompt(self, project_names: Optional[list] = None) -> str:
         """Build system prompt for General Chat — no project context."""
         soul = self.load_soul()
         user = self.load_user()
@@ -134,6 +240,10 @@ class PersonalityService:
         agents = self.load_agents()
 
         sections = []
+
+        # Chat Init FIRST — before personality files
+        sections.append(self.build_general_chat_init(project_names=project_names))
+
         if identity:
             sections.append(identity)
         if soul:
@@ -142,14 +252,6 @@ class PersonalityService:
             sections.append(agents)
         if user:
             sections.append(user)
-
-        sections.append(
-            "## Context: General Chat\n"
-            "You are in the General Chat. This is a free conversation space.\n"
-            "Help the user brainstorm, chat, or start new projects.\n"
-            "Do NOT reference specific projects unless the user brings them up.\n"
-            "Do NOT assume you know the user's projects or history unless they tell you."
-        )
 
         return "\n\n".join(sections)
 
@@ -160,24 +262,16 @@ class PersonalityService:
         agents = self.load_agents()
 
         sections = []
+
+        # Chat Init FIRST — before personality files
+        sections.append(self.build_project_chat_init(project))
+
         if soul:
             sections.append(soul)
         if agents:
             sections.append(agents)
         if user:
             sections.append(user)
-
-        project_ctx = (
-            f"## Context: Project Chat\n"
-            f"CURRENT PROJECT: {project.get('title', 'Untitled')}\n"
-            f"Description: {project.get('description', 'No description')}\n"
-            f"Technologies: {project.get('tech_stack', 'Not detected')}\n"
-            f"GitHub: {project.get('github_url', 'Not linked')}\n\n"
-            f"You are working within this project. Keep all responses relevant to this project.\n"
-            f"Do NOT reference other projects or unrelated topics.\n"
-            f"Do NOT bring up information from other conversations or contexts."
-        )
-        sections.append(project_ctx)
 
         return "\n\n".join(sections)
 
@@ -187,25 +281,15 @@ class PersonalityService:
 
         sections = []
 
-        # Agent persona first (if provided)
+        # Chat Init FIRST — before agent persona and personality
+        sections.append(self.build_card_chat_init(project, card))
+
+        # Agent persona after Chat Init (if provided)
         if agent_persona and agent_persona.get("system_prompt"):
             sections.append(agent_persona["system_prompt"])
 
         if soul:
             sections.append(soul)
-
-        card_ctx = (
-            f"## Context: Card/Task Chat\n"
-            f"PROJECT: {project.get('title', 'Untitled')}\n"
-            f"CARD: {card.get('title', 'Untitled')}\n"
-            f"Description: {card.get('description', '')}\n"
-            f"Status: {card.get('status', 'idea')}\n"
-            f"Priority: {card.get('priority', 'medium')}\n"
-            f"Dependencies: {card.get('dependencies', 'None')}\n\n"
-            f"You are focused on this specific task. Stay on topic.\n"
-            f"Do NOT reference other projects, other cards, or unrelated topics."
-        )
-        sections.append(card_ctx)
 
         return "\n\n".join(sections)
 
@@ -285,7 +369,7 @@ class PersonalityService:
 
         return "\n".join(sections)
 
-    def build_fast_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None) -> str:
+    def build_fast_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None, project_names: Optional[list] = None) -> str:
         voice_instructions = (
             "\n\n## Voice Instructions\n"
             "You speak naturally and concisely -- this is a voice conversation, not a text chat.\n"
@@ -303,18 +387,18 @@ class PersonalityService:
         elif chat_level == "project" and project:
             base = self.build_project_prompt(project)
         else:
-            base = self.build_general_prompt()
+            base = self.build_general_prompt(project_names=project_names)
 
         return base + voice_instructions
 
-    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None) -> str:
+    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None) -> str:
         # Build context-appropriate base
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card)
         elif chat_level == "project" and project:
             base = self.build_project_prompt(project)
         else:
-            base = self.build_general_prompt()
+            base = self.build_general_prompt(project_names=project_names)
 
         deep_instructions = (
             "\n\n## Deep Thinking Layer\n"

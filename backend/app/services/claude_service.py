@@ -22,21 +22,49 @@ logger = logging.getLogger(__name__)
 # MCP Tool bridge — converts Voxyflow MCP tools to Claude native tool_use
 # ---------------------------------------------------------------------------
 
-def get_claude_tools() -> list[dict]:
+def get_claude_tools(chat_level: str = "general", project_id: Optional[str] = None) -> list[dict]:
     """Convert Voxyflow MCP tool definitions to Claude API tool_use format.
+
+    Filters tools based on chat_level to prevent the LLM from offering
+    actions that are not applicable in the current context:
+      - general: only note and project management tools
+      - project: all tools except note tools (use cards instead)
+      - card:    all tools (full access)
 
     Returns an empty list (graceful degradation) if the MCP module is
     unavailable or the tool list cannot be loaded.
     """
     try:
         from app.mcp_server import get_tool_list
+        all_tools = get_tool_list()
+
+        if chat_level == "general":
+            # General chat: only note board + project creation + health check
+            allowed = {
+                "voxyflow.note.add",
+                "voxyflow.note.list",
+                "voxyflow.project.create",
+                "voxyflow.project.list",
+                "voxyflow.health",
+            }
+        elif chat_level == "project":
+            # Project chat: all tools except note board tools
+            allowed = {t["name"] for t in all_tools} - {
+                "voxyflow.note.add",
+                "voxyflow.note.list",
+            }
+        else:
+            # Card chat or fallback: full access
+            allowed = {t["name"] for t in all_tools}
+
         tools = []
-        for tool in get_tool_list():
-            tools.append({
-                "name": tool["name"].replace(".", "_"),  # Claude forbids dots in tool names
-                "description": tool["description"],
-                "input_schema": tool["inputSchema"],
-            })
+        for tool in all_tools:
+            if tool["name"] in allowed:
+                tools.append({
+                    "name": tool["name"].replace(".", "_"),  # Claude forbids dots in tool names
+                    "description": tool["description"],
+                    "input_schema": tool["inputSchema"],
+                })
         return tools
     except Exception as e:
         logger.warning(f"Could not load MCP tools for Claude: {e}")
@@ -194,6 +222,9 @@ class ClaudeService:
         user_message: str,
         project_name: Optional[str] = None,
         project_id: Optional[str] = None,
+        chat_level: str = "general",
+        project_context: Optional[dict] = None,
+        card_context: Optional[dict] = None,
     ) -> str:
         """Layer 1: Fast conversational response, personality-infused."""
         self._append_and_persist(chat_id, "user", user_message, model="fast")
@@ -212,6 +243,9 @@ class ClaudeService:
         # Build personality-infused system prompt
         system_prompt = self.personality.build_fast_prompt(
             memory_context=memory_context,
+            chat_level=chat_level,
+            project=project_context,
+            card=card_context,
         )
 
         # Inject RAG context if project_id is provided (failure is non-fatal)
@@ -231,6 +265,7 @@ class ClaudeService:
             system=system_prompt,
             messages=recent,
             client=self.fast_client,
+            chat_level=chat_level,
         )
 
         self._append_and_persist(chat_id, "assistant", response_text, model="fast")
@@ -246,6 +281,7 @@ class ClaudeService:
         card_context: Optional[dict] = None,
         project_id: Optional[str] = None,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        project_names: Optional[list] = None,
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer."""
         self._append_and_persist(chat_id, "user", user_message, model="fast")
@@ -265,6 +301,7 @@ class ClaudeService:
             chat_level=chat_level,
             project=project_context,
             card=card_context,
+            project_names=project_names,
         )
 
         # Inject RAG context if project_id is provided (failure is non-fatal)
@@ -286,6 +323,7 @@ class ClaudeService:
             messages=recent,
             client=self.fast_client,
             tool_callback=tool_callback,
+            chat_level=chat_level,
         ):
             full_response += token
             yield token
@@ -662,6 +700,7 @@ class ClaudeService:
         client: Optional[OpenAI] = None,
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        chat_level: str = "general",
     ) -> str:
         """Make an API call via the OpenAI-compatible proxy.
 
@@ -677,7 +716,7 @@ class ClaudeService:
         api_messages = [{"role": "system", "content": system}]
         api_messages.extend(messages)
 
-        claude_tools = get_claude_tools() if use_tools else []
+        claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
 
         try:
             # Agentic tool-use loop (max 10 rounds to prevent runaway)
@@ -754,6 +793,7 @@ class ClaudeService:
         client: Optional[OpenAI] = None,
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        chat_level: str = "general",
     ) -> AsyncIterator[str]:
         """Make a streaming API call via the OpenAI-compatible proxy.
 
@@ -773,7 +813,7 @@ class ClaudeService:
         api_messages = [{"role": "system", "content": system}]
         api_messages.extend(messages)
 
-        claude_tools = get_claude_tools() if use_tools else []
+        claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
 
         # ---- Streaming first pass ------------------------------------------
         try:

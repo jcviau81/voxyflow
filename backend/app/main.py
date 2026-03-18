@@ -157,33 +157,86 @@ async def _handle_chat_3layer(
     # Resolve project context from project_id
     project_context = None
     card_context = None
+    project_names: list[str] = []
     if project_id:
         try:
-            from app.database import async_session, Project, Card
+            from app.database import async_session, Project, Card, Sprint
             from sqlalchemy import select
             async with async_session() as db:
                 result = await db.execute(select(Project).where(Project.id == project_id))
                 proj = result.scalar_one_or_none()
                 if proj:
+                    # Fetch cards for this project (for dynamic state counts)
+                    cards_result = await db.execute(
+                        select(Card).where(Card.project_id == project_id)
+                    )
+                    proj_cards = cards_result.scalars().all()
+                    cards_list = [
+                        {
+                            "title": c.title,
+                            "status": c.status or "idea",
+                            "updated_at": str(c.updated_at) if hasattr(c, "updated_at") and c.updated_at else "",
+                        }
+                        for c in proj_cards
+                    ]
+
+                    # Fetch active sprint
+                    sprint_result = await db.execute(
+                        select(Sprint).where(
+                            Sprint.project_id == project_id,
+                            Sprint.status == "active",
+                        )
+                    )
+                    active_sprint = sprint_result.scalar_one_or_none()
+                    sprint_name = active_sprint.name if active_sprint else None
+
                     project_context = {
+                        "id": proj.id,
                         "title": proj.title,
                         "description": proj.description or "",
                         "tech_stack": getattr(proj, "tech_stack", "") or "",
                         "github_url": proj.github_url or "",
+                        "cards": cards_list,
+                        "active_sprint_name": sprint_name,
                     }
                 if card_id:
                     result = await db.execute(select(Card).where(Card.id == card_id))
                     c = result.scalar_one_or_none()
                     if c:
+                        # Fetch checklist items for this card
+                        from app.database import ChecklistItem
+                        cl_result = await db.execute(
+                            select(ChecklistItem).where(ChecklistItem.card_id == card_id)
+                        )
+                        checklist_items = cl_result.scalars().all()
                         card_context = {
+                            "id": c.id,
                             "title": c.title,
                             "description": c.description or "",
                             "status": c.status or "idea",
                             "priority": str(c.priority) if c.priority is not None else "medium",
-                            "dependencies": "",
+                            "agent_type": getattr(c, "agent_type", None) or "ember",
+                            "assignee": getattr(c, "assignee", None),
+                            "checklist_items": [
+                                {"done": getattr(item, "done", False) or getattr(item, "completed", False)}
+                                for item in checklist_items
+                            ],
                         }
         except Exception as e:
             logger.warning(f"Failed to resolve project/card context: {e}")
+
+    # For general chat: fetch all project names for the Chat Init block
+    if chat_level == "general" or not project_id:
+        try:
+            from app.database import async_session, Project
+            from sqlalchemy import select
+            async with async_session() as db:
+                all_proj_result = await db.execute(
+                    select(Project.title).where(Project.status != "archived")
+                )
+                project_names = [row[0] for row in all_proj_result.fetchall()]
+        except Exception as e:
+            logger.warning(f"Failed to fetch project names for general chat init: {e}")
 
     project_name = project_context.get("title") if project_context else None
 
@@ -246,6 +299,7 @@ async def _handle_chat_3layer(
             chat_level=chat_level, project_context=project_context, card_context=card_context,
             project_id=project_id,
             tool_callback=_on_tool_executed,
+            project_names=project_names,
         ):
             fast_full_response += token
             if not first_token_sent:
