@@ -4,18 +4,6 @@ import { EVENTS } from '../../utils/constants';
 import { createElement, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 
-interface NavItem {
-  view: ViewMode;
-  icon: string;
-  label: string;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { view: 'chat', icon: '💬', label: 'Chat' },
-  { view: 'kanban', icon: '📋', label: 'Kanban' },
-  { view: 'projects', icon: '📁', label: 'Projects' },
-];
-
 interface FooterIcon {
   action: string;
   icon: string;
@@ -30,7 +18,6 @@ const FOOTER_ICONS: FooterIcon[] = [
 
 export class Sidebar {
   private container: HTMLElement;
-  private navItems: HTMLElement[] = [];
   private unsubscribers: (() => void)[] = [];
 
   constructor(private parentElement: HTMLElement) {
@@ -49,49 +36,37 @@ export class Sidebar {
     brand.appendChild(logo);
     brand.appendChild(name);
 
-    // Navigation items
-    const nav = createElement('div', { className: 'sidebar-nav' });
-    const currentView = appState.get('currentView');
-
-    this.navItems = NAV_ITEMS.map((item) => {
-      const el = createElement('div', {
-        className: cn('sidebar-item', item.view === currentView && 'active'),
-        'data-view': item.view,
-      });
-      const icon = createElement('span', { className: 'sidebar-item-icon' }, item.icon);
-      const label = createElement('span', { className: 'sidebar-item-label' }, item.label);
-      el.appendChild(icon);
-      el.appendChild(label);
-
-      el.addEventListener('click', () => {
-        appState.setView(item.view);
-      });
-
-      nav.appendChild(el);
-      return el;
-    });
-
-    // Project list section
-    const projectSection = createElement('div', { className: 'sidebar-projects' });
-    const projectsHeader = createElement('div', { className: 'sidebar-section-header' }, 'Projects');
-    projectSection.appendChild(projectsHeader);
-
-    // General / Main item
     const activeTabId = appState.getActiveTab();
+
+    // Sidebar content wrapper (scrollable)
+    const content = createElement('div', { className: 'sidebar-content' });
+
+    // General chat item (always at top)
+    const generalSection = createElement('div', { className: 'sidebar-nav' });
     const generalItem = createElement('div', {
-      className: cn('sidebar-project-item', activeTabId === 'main' && 'active'),
+      className: cn('sidebar-item', activeTabId === 'main' && 'active'),
       'data-testid': 'sidebar-general',
+      'data-tab': 'main',
     });
-    generalItem.appendChild(createElement('span', {}, '💬'));
-    generalItem.appendChild(createElement('span', {}, 'General'));
+    const generalIcon = createElement('span', { className: 'sidebar-item-icon' }, '💬');
+    const generalLabel = createElement('span', { className: 'sidebar-item-label' }, 'General');
+    generalItem.appendChild(generalIcon);
+    generalItem.appendChild(generalLabel);
     generalItem.addEventListener('click', () => {
       appState.switchTab('main');
+      appState.setView('chat');
     });
-    projectSection.appendChild(generalItem);
+    generalSection.appendChild(generalItem);
+    content.appendChild(generalSection);
 
-    // Project items
+    // Projects section
+    const projectSection = createElement('div', { className: 'sidebar-projects' });
+    const projectsHeader = createElement('div', { className: 'sidebar-section-header' }, 'PROJECTS');
+    projectSection.appendChild(projectsHeader);
+
     const projects = appState.get('projects').filter(p => !p.archived);
     const openTabs = appState.getOpenTabs();
+
     projects.forEach((proj) => {
       const isTabOpen = openTabs.some(t => t.id === proj.id);
       const isActive = activeTabId === proj.id;
@@ -99,16 +74,33 @@ export class Sidebar {
         className: cn('sidebar-project-item', isActive && 'active', isTabOpen && 'has-tab'),
         'data-testid': `sidebar-project-${proj.id}`,
       });
-      item.appendChild(createElement('span', {}, '📁'));
+      item.appendChild(createElement('span', {}, proj.emoji || '📁'));
       item.appendChild(createElement('span', {}, proj.name));
-      if (isTabOpen) {
+      if (isActive) {
+        item.appendChild(createElement('span', { className: 'sidebar-active-dot' }, '●'));
+      } else if (isTabOpen) {
         item.appendChild(createElement('span', { className: 'sidebar-tab-dot' }, '●'));
       }
       item.addEventListener('click', () => {
-        appState.openProjectTab(proj.id, proj.name);
+        appState.openProjectTab(proj.id, proj.name, proj.emoji);
+        appState.setView('chat');
       });
       projectSection.appendChild(item);
     });
+
+    // New project button
+    const newProjectItem = createElement('div', {
+      className: 'sidebar-project-item sidebar-new-project',
+      'data-testid': 'sidebar-new-project',
+    });
+    newProjectItem.appendChild(createElement('span', {}, '+'));
+    newProjectItem.appendChild(createElement('span', {}, 'New Project'));
+    newProjectItem.addEventListener('click', () => {
+      eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'create' });
+    });
+    projectSection.appendChild(newProjectItem);
+
+    content.appendChild(projectSection);
 
     // Connection status
     const status = createElement('div', { className: 'sidebar-status' });
@@ -117,11 +109,6 @@ export class Sidebar {
     const statusText = createElement('span', { className: 'status-text' }, connectionState);
     status.appendChild(statusDot);
     status.appendChild(statusText);
-
-    // Sidebar content wrapper (scrollable area)
-    const content = createElement('div', { className: 'sidebar-content' });
-    content.appendChild(nav);
-    content.appendChild(projectSection);
     content.appendChild(status);
 
     // Footer icons
@@ -153,16 +140,12 @@ export class Sidebar {
     this.container.appendChild(content);
     this.container.appendChild(footer);
 
-    this.parentElement.appendChild(this.container);
+    if (!this.container.parentElement) {
+      this.parentElement.appendChild(this.container);
+    }
   }
 
   private setupListeners(): void {
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.VIEW_CHANGE, (view: unknown) => {
-        this.updateActiveItem(view as ViewMode);
-      })
-    );
-
     this.unsubscribers.push(
       appState.subscribe('connectionState', (state) => {
         const dot = this.container.querySelector('.status-dot');
@@ -175,8 +158,6 @@ export class Sidebar {
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_SELECTED, () => this.render())
     );
-
-    // Re-render on tab changes
     this.unsubscribers.push(
       eventBus.on(EVENTS.TAB_SWITCH, () => this.render())
     );
@@ -186,8 +167,6 @@ export class Sidebar {
     this.unsubscribers.push(
       eventBus.on(EVENTS.TAB_CLOSE, () => this.render())
     );
-
-    // Re-render when projects change
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_CREATED, () => this.render())
     );
@@ -201,13 +180,6 @@ export class Sidebar {
         e.preventDefault();
         this.toggle();
       }
-    });
-  }
-
-  private updateActiveItem(view: ViewMode): void {
-    this.navItems.forEach((item) => {
-      const itemView = item.getAttribute('data-view');
-      item.classList.toggle('active', itemView === view);
     });
   }
 

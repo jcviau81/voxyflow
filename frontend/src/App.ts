@@ -78,6 +78,9 @@ export class App {
     layout.appendChild(mainArea);
     layout.appendChild(opportunitiesContainer);
 
+    // Set initial layout mode based on active tab
+    this.updateLayoutMode(layout);
+
     this.root.appendChild(layout);
 
     // Toast container
@@ -102,6 +105,20 @@ export class App {
     this.setupPWA();
   }
 
+  private updateLayoutMode(layout?: HTMLElement): void {
+    const el = layout || this.root.querySelector('.app-layout');
+    if (!el) return;
+    const activeTab = appState.getActiveTab();
+    const isProject = activeTab !== 'main';
+    if (isProject) {
+      el.classList.add('project-mode');
+      el.classList.remove('general-mode');
+    } else {
+      el.classList.add('general-mode');
+      el.classList.remove('project-mode');
+    }
+  }
+
   private setupListeners(): void {
     this.unsubscribers.push(
       eventBus.on(EVENTS.VIEW_CHANGE, (view: unknown) => {
@@ -112,6 +129,22 @@ export class App {
     this.unsubscribers.push(
       eventBus.on(EVENTS.SIDEBAR_TOGGLE, () => {
         this.root.classList.toggle('sidebar-collapsed');
+      })
+    );
+
+    // Update layout mode when tabs switch
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TAB_SWITCH, () => {
+        this.updateLayoutMode();
+        // When switching to general mode, ensure we're in chat view
+        const activeTab = appState.getActiveTab();
+        if (activeTab === 'main') {
+          const currentView = appState.get('currentView');
+          if (currentView === 'kanban' || currentView === 'projects') {
+            this.switchView('chat');
+            appState.set('currentView', 'chat');
+          }
+        }
       })
     );
 
@@ -336,10 +369,10 @@ export class App {
         appState.setView('chat');
       } else if (e.ctrlKey && e.key === '2') {
         e.preventDefault();
-        appState.setView('kanban');
-      } else if (e.ctrlKey && e.key === '3') {
-        e.preventDefault();
-        appState.setView('projects');
+        // Kanban only available in project mode
+        if (appState.getActiveTab() !== 'main') {
+          appState.setView('kanban');
+        }
       }
     });
   }

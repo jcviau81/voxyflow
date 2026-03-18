@@ -37,9 +37,13 @@
     transform: translateX(0);
   }
 
-  /* Show toggle button */
-  .top-bar-opp-toggle {
+  /* Show toggle button — only in project mode */
+  .app-layout.project-mode .top-bar-opp-toggle {
     display: flex;
+  }
+
+  .app-layout.general-mode .top-bar-opp-toggle {
+    display: none;
   }
 }
 

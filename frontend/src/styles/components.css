@@ -160,6 +160,21 @@
   opacity: 0.5;
 }
 
+.sidebar-active-dot {
+  font-size: 8px;
+  color: var(--color-primary);
+  margin-left: auto;
+}
+
+.sidebar-new-project {
+  color: var(--color-text-muted) !important;
+  font-style: italic;
+}
+
+.sidebar-new-project:hover {
+  color: var(--color-primary) !important;
+}
+
 .sidebar-status {
   display: flex;
   align-items: center;

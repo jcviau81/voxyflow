@@ -268,6 +268,107 @@ body {
   position: relative;
 }
 
+/* ============= CONTEXT-AWARE LAYOUT MODES ============= */
+
+/* General mode: 2-column (sidebar + chat) — no opportunities, no kanban toggle */
+.app-layout.general-mode .opportunities-container {
+  display: none;
+}
+
+.app-layout.general-mode .view-toggle {
+  display: none !important;
+}
+
+/* Project mode: 3-column (sidebar + main + opportunities) */
+.app-layout.project-mode .opportunities-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-layout.project-mode .view-toggle {
+  display: flex;
+}
+
+/* Smooth transition for layout mode changes */
+.app-layout {
+  transition: all 0.3s ease;
+}
+
+.opportunities-container {
+  transition: opacity 0.3s ease, width 0.3s ease;
+}
+
+.app-layout.general-mode .opportunities-container {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  border-left: none;
+  pointer-events: none;
+}
+
+.app-layout.project-mode .opportunities-container {
+  opacity: 1;
+  width: 280px;
+}
+
+/* View Toggle (Chat/Kanban) — only visible in project mode */
+.view-toggle {
+  display: none;
+  gap: 2px;
+  background: var(--color-bg);
+  border-radius: 8px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.view-btn {
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.view-btn.active {
+  background: var(--color-primary);
+  color: white;
+}
+
+.view-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Context indicator in chat header */
+.context-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.context-indicator .context-emoji {
+  font-size: 16px;
+}
+
+.context-indicator .context-sep {
+  color: var(--color-text-muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.context-indicator .context-view-label {
+  color: var(--color-text-secondary);
+  font-weight: 400;
+}
+
 /* Utility classes */
 .hidden {
   display: none !important;
