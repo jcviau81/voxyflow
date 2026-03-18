@@ -1,10 +1,10 @@
-"""Claude API integration — Haiku (fast) and Opus (deep) layers, personality-infused."""
+"""Claude API integration via claude-max-api-proxy (OpenAI-compatible)."""
 
 import json
 import logging
 from typing import Optional
 
-import httpx
+from openai import OpenAI
 
 from app.config import get_settings
 from app.services.personality_service import get_personality_service
@@ -18,6 +18,8 @@ class ClaudeService:
     """
     Handles Claude API calls for both conversation layers.
 
+    Uses claude-max-api-proxy (OpenAI-compatible) at localhost:3456.
+
     All calls are personality-infused via PersonalityService:
     - SOUL.md + USER.md + IDENTITY.md = consistent Ember personality
     - Memory context from MEMORY.md + daily logs = continuity
@@ -26,11 +28,14 @@ class ClaudeService:
 
     def __init__(self):
         settings = get_settings()
-        self.api_key = settings.claude_api_key
+        self.client = OpenAI(
+            base_url=settings.claude_proxy_url,
+            api_key=settings.claude_api_key,
+        )
         self.haiku_model = settings.claude_haiku_model
         self.opus_model = settings.claude_opus_model
+        self.analyzer_model = settings.claude_analyzer_model
         self.max_tokens = settings.claude_max_tokens
-        self.base_url = "https://api.anthropic.com/v1"
 
         self.personality = get_personality_service()
         self.memory = get_memory_service()
@@ -268,7 +273,7 @@ class ClaudeService:
         )
 
         response = await self._call_api(
-            model=self.haiku_model,  # Use Haiku for speed
+            model=self.analyzer_model,  # Use Haiku for speed
             system=system_prompt,
             messages=[{"role": "user", "content": analysis_prompt}],
         )
@@ -281,29 +286,18 @@ class ClaudeService:
         system: str,
         messages: list[dict],
     ) -> str:
-        """Make a Claude API call."""
-        if not self.api_key:
-            logger.warning("No Claude API key configured — returning placeholder")
-            return "[Claude API key not configured]"
+        """Make an API call via the OpenAI-compatible proxy."""
+        # Build messages list with system prompt as first message
+        api_messages = [{"role": "system", "content": system}]
+        api_messages.extend(messages)
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self.base_url}/messages",
-                headers={
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "max_tokens": self.max_tokens,
-                    "system": system,
-                    "messages": messages,
-                },
+        try:
+            response = self.client.chat.completions.create(
+                model=model,
+                max_tokens=self.max_tokens,
+                messages=api_messages,
             )
-            response.raise_for_status()
-            data = response.json()
-
-            content_blocks = data.get("content", [])
-            texts = [b["text"] for b in content_blocks if b.get("type") == "text"]
-            return " ".join(texts)
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.error(f"Claude proxy API call failed: {e}")
+            raise

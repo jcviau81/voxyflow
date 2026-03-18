@@ -12,9 +12,9 @@ test.describe('3-Layer Multi-Model Chat Orchestration', () => {
     await input.fill('Explain quantum computing in simple terms');
     await input.press('Enter');
 
-    // Haiku should respond within 5s
+    // Haiku should respond (proxy may add latency)
     const firstResponse = page.locator('.message-bubble.message-assistant').first();
-    await expect(firstResponse).toBeVisible({ timeout: 8000 });
+    await expect(firstResponse).toBeVisible({ timeout: 30000 });
 
     const responseText = await firstResponse.textContent();
     console.log('Haiku response:', responseText?.substring(0, 80));
@@ -58,9 +58,9 @@ test.describe('3-Layer Multi-Model Chat Orchestration', () => {
     await input.fill('Hey!');
     await input.press('Enter');
 
-    // Haiku responds
+    // Haiku responds (proxy may add latency)
     const firstResponse = page.locator('.message-bubble.message-assistant').first();
-    await expect(firstResponse).toBeVisible({ timeout: 8000 });
+    await expect(firstResponse).toBeVisible({ timeout: 30000 });
 
     // Wait for Opus to decide
     await page.waitForTimeout(10000);
@@ -85,9 +85,9 @@ test.describe('3-Layer Multi-Model Chat Orchestration', () => {
     await input.fill('We need to implement user authentication with OAuth2');
     await input.press('Enter');
 
-    // Haiku responds
+    // Haiku responds (proxy may add latency)
     const firstResponse = page.locator('.message-bubble.message-assistant').first();
-    await expect(firstResponse).toBeVisible({ timeout: 8000 });
+    await expect(firstResponse).toBeVisible({ timeout: 30000 });
 
     // Wait for analyzer to detect card
     await page.waitForTimeout(5000);

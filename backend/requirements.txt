@@ -26,4 +26,4 @@ keyrings.alt>=5.0.0
 
 # Dev
 python-dotenv>=1.0.0
-anthropic>=0.40.0
+openai>=1.0.0
