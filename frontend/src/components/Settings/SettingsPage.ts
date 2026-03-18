@@ -112,7 +112,7 @@ export class SettingsPage {
         fe.exists = false;
       }
 
-      const previewEl = this.root.querySelector(`#preview-${fe.filename}`) as HTMLElement;
+      const previewEl = document.getElementById(`preview-${fe.filename}`) as HTMLElement;
       if (previewEl) {
         if (fe.exists && fe.content) {
           const preview = fe.content.length > 300 ? fe.content.substring(0, 300) + '...' : fe.content;
@@ -628,9 +628,9 @@ export class SettingsPage {
     const fe = this.fileEditors.find((f) => f.filename === filename);
     if (!fe) return;
 
-    const editorEl = this.root.querySelector(`#editor-${filename}`) as HTMLElement;
-    const previewEl = this.root.querySelector(`#preview-${filename}`) as HTMLElement;
-    const textareaEl = this.root.querySelector(`#textarea-${filename}`) as HTMLTextAreaElement;
+    const editorEl = document.getElementById(`editor-${filename}`) as HTMLElement;
+    const previewEl = document.getElementById(`preview-${filename}`) as HTMLElement;
+    const textareaEl = document.getElementById(`textarea-${filename}`) as HTMLTextAreaElement;
 
     if (!editorEl || !previewEl || !textareaEl) return;
 
@@ -650,7 +650,7 @@ export class SettingsPage {
     const fe = this.fileEditors.find((f) => f.filename === filename);
     if (!fe) return;
 
-    const textareaEl = this.root.querySelector(`#textarea-${filename}`) as HTMLTextAreaElement;
+    const textareaEl = document.getElementById(`textarea-${filename}`) as HTMLTextAreaElement;
     if (!textareaEl) return;
 
     const content = textareaEl.value;
@@ -668,7 +668,7 @@ export class SettingsPage {
         this.toggleFileEditor(filename, false);
 
         // Refresh preview
-        const previewEl = this.root.querySelector(`#preview-${filename}`) as HTMLElement;
+        const previewEl = document.getElementById(`preview-${filename}`) as HTMLElement;
         if (previewEl) {
           const preview = content.length > 300 ? content.substring(0, 300) + '...' : content;
           const sizeKB = (content.length / 1024).toFixed(1);
@@ -708,7 +708,7 @@ export class SettingsPage {
             this.toggleFileEditor(filename, false);
 
             // Update preview
-            const previewEl = this.root.querySelector(`#preview-${filename}`) as HTMLElement;
+            const previewEl = document.getElementById(`preview-${filename}`) as HTMLElement;
             if (previewEl) {
               const preview = fe.content.length > 300 ? fe.content.substring(0, 300) + '...' : fe.content;
               const sizeKB = (fe.content.length / 1024).toFixed(1);

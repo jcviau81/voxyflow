@@ -86,16 +86,19 @@ test.describe('Settings - Personality Configuration', () => {
     const personalitySection = page.locator('[data-testid="settings-personality"]');
     await expect(personalitySection).toBeVisible({ timeout: 5000 });
 
-    // Verify all fields exist
+    // Verify core fields exist
     await expect(page.locator('[data-field="bot_name"]')).toBeVisible();
     await expect(page.locator('[data-field="preferred_language"]')).toBeVisible();
-    await expect(page.locator('[data-field="soul_file"]')).toBeVisible();
-    await expect(page.locator('[data-field="user_file"]')).toBeVisible();
-    await expect(page.locator('[data-field="agents_file"]')).toBeVisible();
     await expect(page.locator('[data-field="custom_instructions"]')).toBeVisible();
     await expect(page.locator('[data-field="environment_notes"]')).toBeVisible();
     await expect(page.locator('[data-field="tone"]')).toBeVisible();
     await expect(page.locator('[data-field="warmth"]')).toBeVisible();
+
+    // Verify file editors exist (replaced soul_file/user_file/agents_file inputs)
+    await expect(page.locator('[data-testid="editor-soul"]')).toBeVisible();
+    await expect(page.locator('[data-testid="editor-user"]')).toBeVisible();
+    await expect(page.locator('[data-testid="editor-agents"]')).toBeVisible();
+    await expect(page.locator('[data-testid="editor-identity"]')).toBeVisible();
 
     // Verify save bar
     await expect(page.locator('[data-testid="settings-save"]')).toBeVisible();
