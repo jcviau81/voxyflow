@@ -1,16 +1,18 @@
-import { ViewMode, ProjectFormShowEvent, ProjectFormData } from './types';
+import { ViewMode, ProjectFormShowEvent, ProjectFormData, CardStatus, AgentPersona } from './types';
 import { eventBus } from './utils/EventBus';
 import { EVENTS } from './utils/constants';
 import { createElement } from './utils/helpers';
 import { appState } from './state/AppState';
 import { apiClient } from './services/ApiClient';
 import { projectService } from './services/ProjectService';
+import { cardService } from './services/CardService';
 import { Sidebar } from './components/Navigation/Sidebar';
 import { TopBar } from './components/Navigation/TopBar';
 import { TabBar } from './components/Navigation/TabBar';
 import { ChatWindow } from './components/Chat/ChatWindow';
 import { KanbanBoard } from './components/Kanban/KanbanBoard';
 import { CardDetailModal } from './components/Kanban/CardDetailModal';
+import { CardForm, CardFormShowEvent, CardFormData } from './components/Kanban/CardForm';
 import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
 import { Toast } from './components/Shared/Toast';
@@ -31,6 +33,7 @@ export class App {
     view: null,
   };
   private projectForm: ProjectForm | null = null;
+  private cardForm: CardForm | null = null;
   private viewBeforeForm: ViewMode | null = null;
   private unsubscribers: (() => void)[] = [];
 
@@ -139,6 +142,32 @@ export class App {
         this.hideProjectForm();
       })
     );
+
+    // Card form events
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_FORM_SHOW, (event: unknown) => {
+        this.showCardForm(event as CardFormShowEvent);
+      })
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_FORM_SUBMIT, (payload: unknown) => {
+        this.handleCardFormSubmit(payload as {
+          mode: string; data: CardFormData; cardId?: string;
+          projectId: string; assignedAgent?: AgentPersona;
+        });
+      })
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_FORM_CANCEL, () => this.hideCardForm())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_FORM_DELETE, (payload: unknown) => {
+        const { cardId } = payload as { cardId: string };
+        cardService.delete(cardId);
+        this.hideCardForm();
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Card deleted', type: 'success' });
+      })
+    );
   }
 
   private showProjectForm(event: ProjectFormShowEvent): void {
@@ -215,6 +244,51 @@ export class App {
     }
   }
 
+
+  private showCardForm(event: CardFormShowEvent): void {
+    this.viewBeforeForm = this.currentView.view;
+    if (this.currentView.component) {
+      this.currentView.component.destroy();
+      this.currentView = { component: null, view: null };
+    }
+    this.mainContent.innerHTML = '';
+    if (this.cardForm) this.cardForm.destroy();
+    this.cardForm = new CardForm(this.mainContent, event);
+    if (event.prefillTitle) this.cardForm.prefillTitle(event.prefillTitle);
+  }
+
+  private hideCardForm(): void {
+    if (this.cardForm) { this.cardForm.destroy(); this.cardForm = null; }
+    const returnView = this.viewBeforeForm || 'kanban';
+    this.viewBeforeForm = null;
+    this.currentView = { component: null, view: null };
+    this.switchView(returnView);
+  }
+
+  private handleCardFormSubmit(payload: {
+    mode: string; data: CardFormData; cardId?: string;
+    projectId: string; assignedAgent?: AgentPersona;
+  }): void {
+    const { mode, data, cardId, projectId, assignedAgent } = payload;
+    if (mode === 'create') {
+      cardService.create({
+        title: data.title, description: data.description, projectId,
+        status: data.status as CardStatus, assignedAgent, tags: data.tags, priority: data.priority,
+      });
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created: "${data.title}"`, type: 'success', duration: 3000 });
+    } else if (mode === 'edit' && cardId) {
+      cardService.update(cardId, {
+        title: data.title, description: data.description, status: data.status as CardStatus,
+        assignedAgent, tags: data.tags, priority: data.priority, dependencies: data.dependencies,
+      });
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card updated: "${data.title}"`, type: 'success', duration: 3000 });
+    }
+    if (this.cardForm) { this.cardForm.destroy(); this.cardForm = null; }
+    this.viewBeforeForm = null;
+    this.currentView = { component: null, view: null };
+    this.switchView('kanban');
+  }
+
   private switchView(view: ViewMode): void {
     if (this.currentView.view === view) return;
 
@@ -224,10 +298,14 @@ export class App {
     }
     this.mainContent.innerHTML = '';
 
-    // Destroy form if showing
+    // Destroy forms if showing
     if (this.projectForm) {
       this.projectForm.destroy();
       this.projectForm = null;
+    }
+    if (this.cardForm) {
+      this.cardForm.destroy();
+      this.cardForm = null;
     }
 
     // Create new view
@@ -299,6 +377,7 @@ export class App {
     this.opportunitiesPanel?.destroy();
     this.currentView.component?.destroy();
     this.projectForm?.destroy();
+    this.cardForm?.destroy();
     apiClient.close();
     this.root.innerHTML = '';
   }

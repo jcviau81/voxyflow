@@ -128,22 +128,11 @@ export class SettingsPage {
     const title = createElement('h2', {}, '\u2699\uFE0F Settings');
     this.root.appendChild(title);
 
-    // Personality Section
     this.root.insertAdjacentHTML('beforeend', this.renderPersonalitySection());
-
-    // Volume Section
     this.root.insertAdjacentHTML('beforeend', this.renderVolumeSection());
-
-    // Connection Section
     this.root.insertAdjacentHTML('beforeend', this.renderConnectionSection());
-
-    // Data Section
     this.root.insertAdjacentHTML('beforeend', this.renderDataSection());
-
-    // About Section
     this.root.insertAdjacentHTML('beforeend', this.renderAboutSection());
-
-    // Sticky Save Bar
     this.root.insertAdjacentHTML('beforeend', this.renderSaveBar());
 
     this.bindEvents();
@@ -324,13 +313,11 @@ export class SettingsPage {
   }
 
   private bindEvents(): void {
-    // Track changes on all personality inputs
     this.root.querySelectorAll('[data-field]').forEach((el) => {
       el.addEventListener('input', () => this.markDirty());
       el.addEventListener('change', () => this.markDirty());
     });
 
-    // Volume slider
     const volumeSlider = this.root.querySelector('#volume-slider') as HTMLInputElement;
     if (volumeSlider) {
       volumeSlider.addEventListener('input', () => {
@@ -338,7 +325,6 @@ export class SettingsPage {
       });
     }
 
-    // Reconnect
     const reconnectBtn = this.root.querySelector('#reconnect-btn');
     if (reconnectBtn) {
       reconnectBtn.addEventListener('click', () => {
@@ -348,7 +334,6 @@ export class SettingsPage {
       });
     }
 
-    // Clear data
     const clearBtn = this.root.querySelector('#clear-data-btn');
     if (clearBtn) {
       clearBtn.addEventListener('click', () => {
@@ -359,13 +344,11 @@ export class SettingsPage {
       });
     }
 
-    // Save
     const saveBtn = this.root.querySelector('#save-btn');
     if (saveBtn) {
       saveBtn.addEventListener('click', () => this.saveSettings());
     }
 
-    // Reset
     const resetBtn = this.root.querySelector('#reset-btn');
     if (resetBtn) {
       resetBtn.addEventListener('click', () => this.resetSettings());
@@ -428,7 +411,6 @@ export class SettingsPage {
           }, 3000);
         }
         eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Settings saved!', type: 'success', duration: 2000 });
-        // Reload previews in case file paths changed
         this.loadPreviews();
       } else {
         throw new Error(`HTTP ${response.status}`);

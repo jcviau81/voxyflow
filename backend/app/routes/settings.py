@@ -13,9 +13,9 @@ SETTINGS_FILE = os.path.expanduser("~/.openclaw/workspace/voxyflow/settings.json
 class PersonalitySettings(BaseModel):
     bot_name: str = "Ember"
     preferred_language: str = "both"  # "en", "fr", "both"
-    soul_file: str = "~/.openclaw/workspace/voxyflow/personality/SOUL.md"
-    user_file: str = "~/.openclaw/workspace/voxyflow/personality/USER.md"
-    agents_file: str = "~/.openclaw/workspace/voxyflow/personality/AGENTS.md"
+    soul_file: str = "~/.openclaw/workspace/SOUL.md"
+    user_file: str = "~/.openclaw/workspace/USER.md"
+    agents_file: str = "~/.openclaw/workspace/AGENTS.md"
     custom_instructions: str = ""
     environment_notes: str = ""
     tone: str = "casual"  # "casual", "balanced", "formal"

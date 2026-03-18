@@ -114,14 +114,10 @@ export class KanbanBoard {
       return;
     }
 
-    const title = prompt('Card title:');
-    if (title?.trim()) {
-      cardService.create({
-        title: title.trim(),
-        projectId,
-        status: 'idea',
-      });
-    }
+    eventBus.emit(EVENTS.CARD_FORM_SHOW, {
+      mode: 'create',
+      projectId,
+    });
   }
 
   moveCard(cardId: string, newStatus: CardStatus): void {

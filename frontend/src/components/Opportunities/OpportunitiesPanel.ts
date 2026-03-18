@@ -2,6 +2,7 @@ import { CardSuggestion } from '../../types';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
+import { appState } from '../../state/AppState';
 
 export class OpportunitiesPanel {
   private container: HTMLElement;
@@ -89,12 +90,21 @@ export class OpportunitiesPanel {
   private acceptOpportunity(id: string): void {
     const opp = this.opportunities.find((o) => o.id === id);
     if (opp) {
-      eventBus.emit(EVENTS.CREATE_CARD_FROM_SUGGESTION, {
-        title: opp.title,
-        description: opp.description,
-        agentType: opp.agentType,
-        agentName: opp.agentName,
-      });
+      const projectId = appState.get('currentProjectId');
+      if (projectId) {
+        eventBus.emit(EVENTS.CARD_FORM_SHOW, {
+          mode: 'create',
+          projectId,
+          prefillTitle: opp.title,
+        });
+      } else {
+        eventBus.emit(EVENTS.CREATE_CARD_FROM_SUGGESTION, {
+          title: opp.title,
+          description: opp.description,
+          agentType: opp.agentType,
+          agentName: opp.agentName,
+        });
+      }
       this.removeOpportunity(id);
     }
   }
