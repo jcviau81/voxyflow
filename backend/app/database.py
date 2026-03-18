@@ -50,6 +50,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN assignee TEXT"))
         if "watchers" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN watchers TEXT NOT NULL DEFAULT ''"))
+        if "votes" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN votes INTEGER NOT NULL DEFAULT 0"))
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +171,7 @@ class Card(Base):
     agent_context = Column(Text, nullable=True)  # relevant docs/requirements for the agent
     assignee = Column(String, nullable=True)  # display name of assigned person
     watchers = Column(String, nullable=False, default="")  # comma-separated watcher names
+    votes = Column(Integer, nullable=False, default=0)  # upvote count
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

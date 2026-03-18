@@ -144,6 +144,7 @@ export interface Card {
   checklistProgress?: ChecklistProgress; // computed from checklist items
   assignee?: string | null;  // display name of person assigned
   watchers?: string;         // comma-separated watcher names
+  votes?: number;            // upvote count
 }
 
 export interface AppStateData {
@@ -169,6 +170,9 @@ export interface AppStateData {
   activities: Record<string, ActivityEntry[]>;
   // Unread opportunity badge count
   opportunityBadgeCount: number;
+  // Notification center
+  notifications: NotificationEntry[];
+  notificationUnreadCount: number;
 }
 
 // Session tabs (per project/card context)
@@ -315,4 +319,25 @@ export interface ActivityEntry {
   type: ActivityType;
   message: string;
   timestamp: number;
+}
+
+// Notification Center
+export type NotificationType =
+  | 'card_moved'
+  | 'card_created'
+  | 'card_deleted'
+  | 'card_enriched'
+  | 'opportunity'
+  | 'service_down'
+  | 'document_indexed'
+  | 'focus_completed'
+  | 'system';
+
+export interface NotificationEntry {
+  id: string;
+  type: NotificationType;
+  message: string;
+  timestamp: number;
+  read: boolean;
+  link?: string;
 }

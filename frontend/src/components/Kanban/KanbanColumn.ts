@@ -50,19 +50,24 @@ export class KanbanColumn {
     this.parentElement.appendChild(this.element);
   }
 
-  setCards(cards: Card[]): void {
+  setCards(cards: Card[], sortMode: 'default' | 'votes' = 'default'): void {
     // Clear existing
     this.cardComponents.forEach((c) => c.destroy());
     this.cardComponents.clear();
     this.cardContainer.innerHTML = '';
 
-    // Render new cards
-    cards
-      .sort((a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt)
-      .forEach((card) => {
-        const kanbanCard = new KanbanCard(this.cardContainer, card);
-        this.cardComponents.set(card.id, kanbanCard);
-      });
+    // Sort
+    const sorted = [...cards].sort((a, b) => {
+      if (sortMode === 'votes') {
+        return (b.votes ?? 0) - (a.votes ?? 0) || b.priority - a.priority || b.updatedAt - a.updatedAt;
+      }
+      return b.priority - a.priority || b.updatedAt - a.updatedAt;
+    });
+
+    sorted.forEach((card) => {
+      const kanbanCard = new KanbanCard(this.cardContainer, card);
+      this.cardComponents.set(card.id, kanbanCard);
+    });
 
     this.countEl.textContent = cards.length.toString();
   }

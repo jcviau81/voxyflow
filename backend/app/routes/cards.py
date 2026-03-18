@@ -221,6 +221,34 @@ async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
+# ---------------------------------------------------------------------------
+# Vote endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/cards/{card_id}/vote", response_model=dict)
+async def vote_card(card_id: str, db: AsyncSession = Depends(get_db)):
+    """Increment vote count on a card. Returns {"votes": <new_count>}."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+    card.votes = (card.votes or 0) + 1
+    card.updated_at = utcnow()
+    await db.commit()
+    return {"votes": card.votes}
+
+
+@router.delete("/cards/{card_id}/vote", response_model=dict)
+async def unvote_card(card_id: str, db: AsyncSession = Depends(get_db)):
+    """Decrement vote count on a card (min 0). Returns {"votes": <new_count>}."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+    card.votes = max(0, (card.votes or 0) - 1)
+    card.updated_at = utcnow()
+    await db.commit()
+    return {"votes": card.votes}
+
+
 def _card_to_response(card: Card) -> CardResponse:
     """Convert ORM Card to response, extracting dependency IDs, summing time, and computing checklist progress."""
     total_minutes = sum(e.duration_minutes for e in card.time_entries) if card.time_entries else 0
@@ -247,6 +275,7 @@ def _card_to_response(card: Card) -> CardResponse:
         checklist_progress=checklist_progress,
         assignee=card.assignee,
         watchers=card.watchers or "",
+        votes=card.votes or 0,
     )
 
 

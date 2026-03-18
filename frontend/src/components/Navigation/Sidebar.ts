@@ -3,6 +3,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { NotificationCenter } from '../Notifications/NotificationCenter';
 
 interface FooterIcon {
   action: string;
@@ -18,12 +19,15 @@ const FOOTER_ICONS: FooterIcon[] = [
 
 export class Sidebar {
   private container: HTMLElement;
+  private notificationCenter: NotificationCenter | null = null;
   private unsubscribers: (() => void)[] = [];
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('nav', { className: 'sidebar', 'data-testid': 'sidebar' });
     this.render();
     this.setupListeners();
+    // NotificationCenter panel — appended to parentElement so it overlays correctly
+    this.notificationCenter = new NotificationCenter(this.parentElement);
   }
 
   render(): void {
@@ -130,6 +134,26 @@ export class Sidebar {
     // Footer icons
     const footer = createElement('div', { className: 'sidebar-footer', 'data-testid': 'sidebar-footer' });
 
+    // Notification bell button
+    const unreadCount = appState.getNotificationUnreadCount();
+    const bellWrapper = createElement('div', { className: 'notification-bell-wrapper' });
+    const bellBtn = createElement('button', {
+      className: 'sidebar-icon notification-bell',
+      'data-action': 'notifications',
+      title: 'Notifications',
+    }, '🔔');
+    if (unreadCount > 0) {
+      const badge = createElement('span', { className: 'notification-badge' }, unreadCount > 99 ? '99+' : String(unreadCount));
+      bellWrapper.appendChild(badge);
+    }
+    bellBtn.addEventListener('click', () => {
+      eventBus.emit(EVENTS.NOTIFICATION_PANEL_TOGGLE, null);
+      // Re-render to clear badge
+      setTimeout(() => this.render(), 50);
+    });
+    bellWrapper.appendChild(bellBtn);
+    footer.appendChild(bellWrapper);
+
     // Theme toggle button
     const currentTheme = appState.get('theme') || 'dark';
     const themeBtn = createElement('button', {
@@ -208,6 +232,11 @@ export class Sidebar {
       appState.subscribe('theme', () => this.render())
     );
 
+    // Re-render on notification count change (to update badge)
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.NOTIFICATION_COUNT, () => this.render())
+    );
+
     // Toggle sidebar shortcut (Ctrl+B)
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'b') {
@@ -231,6 +260,8 @@ export class Sidebar {
   destroy(): void {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
+    this.notificationCenter?.destroy();
+    this.notificationCenter = null;
     this.container.remove();
   }
 }

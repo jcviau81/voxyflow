@@ -857,6 +857,51 @@ export class CardDetailModal {
     return section;
   }
 
+  private buildVoteSection(card: Card): HTMLElement {
+    const section = createElement('div', { className: 'modal-section vote-section' });
+    const label = createElement('label', { className: 'modal-label' }, '▲ Priority Votes');
+
+    const voteCount = card.votes ?? 0;
+    const voted = localStorage.getItem(`voxy_voted_${card.id}`) === 'true';
+
+    const countEl = createElement('span', { className: 'vote-count-display' }, `▲ ${voteCount} vote${voteCount !== 1 ? 's' : ''}`);
+
+    const voteBtn = createElement('button', {
+      className: 'vote-btn vote-btn-modal' + (voted ? ' voted' : ''),
+    }, voted ? 'Un-vote' : 'Vote ▲') as HTMLButtonElement;
+
+    voteBtn.addEventListener('click', async () => {
+      const currentlyVoted = localStorage.getItem(`voxy_voted_${card.id}`) === 'true';
+      voteBtn.disabled = true;
+      const newCount = currentlyVoted
+        ? await apiClient.unvoteCard(card.id)
+        : await apiClient.voteCard(card.id);
+      if (newCount !== null) {
+        const nowVoted = !currentlyVoted;
+        if (nowVoted) {
+          localStorage.setItem(`voxy_voted_${card.id}`, 'true');
+        } else {
+          localStorage.removeItem(`voxy_voted_${card.id}`);
+        }
+        countEl.textContent = `▲ ${newCount} vote${newCount !== 1 ? 's' : ''}`;
+        voteBtn.textContent = nowVoted ? 'Un-vote' : 'Vote ▲';
+        voteBtn.className = 'vote-btn vote-btn-modal' + (nowVoted ? ' voted' : '');
+        appState.updateCard(card.id, { votes: newCount });
+        // Update in-memory card reference
+        if (this.card) this.card = { ...this.card, votes: newCount };
+      }
+      voteBtn.disabled = false;
+    });
+
+    const row = createElement('div', { className: 'vote-row' });
+    row.appendChild(countEl);
+    row.appendChild(voteBtn);
+
+    section.appendChild(label);
+    section.appendChild(row);
+    return section;
+  }
+
   private async handleEnrich(cardId: string, descInput: HTMLTextAreaElement, checklistSection: HTMLElement): Promise<void> {
     const enrichBtn = this.modal.querySelector('.enrich-btn') as HTMLButtonElement | null;
     if (!enrichBtn) return;
@@ -1171,6 +1216,9 @@ export class CardDetailModal {
       this.handleEnrich(cardIdForEnrich, descInput, checklistSection);
     });
 
+    // Vote section
+    const voteSection = this.buildVoteSection(this.card);
+
     // Time tracking
     const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
 
@@ -1210,6 +1258,7 @@ export class CardDetailModal {
     // Assemble
     this.modal.appendChild(header);
     this.modal.appendChild(statusRow);
+    this.modal.appendChild(voteSection);
     this.modal.appendChild(descSection);
     this.modal.appendChild(agentSection);
     this.modal.appendChild(assigneeWatchersSection);

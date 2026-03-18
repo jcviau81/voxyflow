@@ -38,6 +38,7 @@ export class KanbanBoard {
   private priorityFilter: number | null = null;
   private agentFilter: string | null = null;
   private tagFilter: string | null = null;
+  private sortMode: 'default' | 'votes' = 'default';
 
   // UI refs
   private matchCountEl: HTMLElement | null = null;
@@ -60,6 +61,7 @@ export class KanbanBoard {
     this.priorityFilter = null;
     this.agentFilter = null;
     this.tagFilter = null;
+    this.sortMode = 'default';
 
     // Header row (title + search + add button)
     const header = createElement('div', { className: 'kanban-header' });
@@ -167,6 +169,28 @@ export class KanbanBoard {
       agentGroup.appendChild(chip);
     });
 
+    // Sort chips
+    const sortGroup = createElement('div', { className: 'kanban-filter-chips' });
+    const sortLabel = createElement('span', { className: 'kanban-filter-label' }, 'Sort:');
+    sortGroup.appendChild(sortLabel);
+    const sortOptions: Array<{ label: string; value: 'default' | 'votes' }> = [
+      { label: 'Default', value: 'default' },
+      { label: '▲ Votes', value: 'votes' },
+    ];
+    sortOptions.forEach((so) => {
+      const chip = createElement('button', {
+        className: 'kanban-filter-chip' + (this.sortMode === so.value ? ' active' : ''),
+      }, so.label);
+      chip.addEventListener('click', () => {
+        this.sortMode = so.value;
+        sortGroup.querySelectorAll('.kanban-filter-chip').forEach((c, i) => {
+          c.classList.toggle('active', sortOptions[i].value === this.sortMode);
+        });
+        this.refreshCards();
+      });
+      sortGroup.appendChild(chip);
+    });
+
     // Tag filter chips (built after cards are loaded — refreshed in refreshCards)
     this.tagFilterGroup = createElement('div', { className: 'kanban-filter-chips kanban-tag-filter-group' });
     const tagFilterLabel = createElement('span', { className: 'kanban-filter-label' }, '🏷️ Tags:');
@@ -175,6 +199,7 @@ export class KanbanBoard {
 
     filterRow.appendChild(priorityGroup);
     filterRow.appendChild(agentGroup);
+    filterRow.appendChild(sortGroup);
     filterRow.appendChild(this.tagFilterGroup);
     this.container.appendChild(filterRow);
 
@@ -286,7 +311,7 @@ export class KanbanBoard {
       const cards = appState.getCardsByStatus(projectId, status);
       const column = this.columns.get(status);
       if (column) {
-        column.setCards(cards);
+        column.setCards(cards, this.sortMode);
       }
     }
 

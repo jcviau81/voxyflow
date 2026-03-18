@@ -238,7 +238,7 @@ export class App {
       })
     );
 
-    // Card moved toast + activity
+    // Card moved toast + activity + notification
     this.unsubscribers.push(
       eventBus.on(EVENTS.CARD_MOVED, (data: unknown) => {
         const { cardId, newStatus } = data as { cardId: string; newStatus: string };
@@ -258,20 +258,28 @@ export class App {
         if (card && card.projectId) {
           appState.addActivity(card.projectId, 'card_moved', `📋 "${card.title}" moved to ${label}`);
         }
+        appState.addNotification({
+          type: 'card_moved',
+          message: `📋 ${card ? `"${card.title}"` : 'Card'} moved to ${label}`,
+        });
       })
     );
 
-    // Card created activity tracking
+    // Card created activity tracking + notification
     this.unsubscribers.push(
       eventBus.on(EVENTS.CARD_CREATED, (card: unknown) => {
         const c = card as Card;
         if (c && c.projectId) {
           appState.addActivity(c.projectId, 'card_created', `✅ Card created: "${c.title}"`);
         }
+        appState.addNotification({
+          type: 'card_created',
+          message: `✅ Card created: "${(card as Card).title}"`,
+        });
       })
     );
 
-    // Document uploaded toast + activity
+    // Document uploaded toast + activity + notification
     this.unsubscribers.push(
       eventBus.on(EVENTS.DOCUMENT_UPLOADED, (data: unknown) => {
         const { filename, projectId } = data as { filename: string; projectId?: string };
@@ -283,10 +291,14 @@ export class App {
         if (projectId) {
           appState.addActivity(projectId, 'document_uploaded', `📄 Document indexed: "${filename}"`);
         }
+        appState.addNotification({
+          type: 'document_indexed',
+          message: `📄 Document indexed: "${filename}"`,
+        });
       })
     );
 
-    // WS error toast
+    // WS error toast + notification
     this.unsubscribers.push(
       eventBus.on(EVENTS.WS_ERROR, () => {
         eventBus.emit(EVENTS.TOAST_SHOW, {
@@ -294,17 +306,26 @@ export class App {
           type: 'warning',
           duration: 5000,
         });
+        appState.addNotification({
+          type: 'service_down',
+          message: '⚠️ Connection lost — retrying...',
+        });
       })
     );
 
-    // Opportunity badge: increment when new suggestion arrives
+    // Opportunity badge + notification: increment when new suggestion arrives
     this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_SUGGESTION, () => {
+      eventBus.on(EVENTS.CARD_SUGGESTION, (data: unknown) => {
         const oppContainer = this.root.querySelector('.opportunities-container');
         const isOpen = oppContainer?.classList.contains('open');
         if (!isOpen) {
           appState.incrementOpportunityBadge();
         }
+        const suggestion = data as { title?: string };
+        appState.addNotification({
+          type: 'opportunity',
+          message: `🔔 Opportunity detected: ${suggestion?.title || 'new suggestion'}`,
+        });
       })
     );
 
@@ -312,6 +333,26 @@ export class App {
     this.unsubscribers.push(
       eventBus.on(EVENTS.OPPORTUNITIES_TOGGLE, () => {
         appState.clearOpportunityBadge();
+      })
+    );
+
+    // Card deleted notification
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_DELETED, () => {
+        appState.addNotification({
+          type: 'card_deleted',
+          message: '🗑️ Card deleted',
+        });
+      })
+    );
+
+    // Focus mode completed notification
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.FOCUS_MODE_EXIT, () => {
+        appState.addNotification({
+          type: 'focus_completed',
+          message: '🎯 Focus session completed',
+        });
       })
     );
   }
@@ -515,6 +556,11 @@ export class App {
             }
 
             eventBus.emit(EVENTS.TOAST_SHOW, { message: `✨ Card enriched!`, type: 'success', duration: 3500 });
+            const enrichedCard = appState.getCard(cardIdToEnrich);
+            appState.addNotification({
+              type: 'card_enriched',
+              message: `✨ Card enriched: "${enrichedCard?.title || 'card'}"`,
+            });
           } catch (err) {
             console.error('[App] enrichCard after create failed:', err);
           }

@@ -306,6 +306,7 @@ export class ApiClient {
         chatHistory: c.chat_history ?? [],
         assignee: c.assignee ?? null,
         watchers: c.watchers ?? '',
+        votes: (c.votes as number) ?? 0,
       }));
     } catch (error) {
       console.error('[ApiClient] fetchCards error:', error);
@@ -676,6 +677,34 @@ export class ApiClient {
       return await response.json();
     } catch (error) {
       console.error('[ApiClient] enrichCard error:', error);
+      return null;
+    }
+  }
+
+  // --- Voting ---
+
+  async voteCard(cardId: string): Promise<number | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/vote`, { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as { votes: number };
+      return data.votes;
+    } catch (error) {
+      console.error('[ApiClient] voteCard error:', error);
+      return null;
+    }
+  }
+
+  async unvoteCard(cardId: string): Promise<number | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/vote`, { method: 'DELETE' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as { votes: number };
+      return data.votes;
+    } catch (error) {
+      console.error('[ApiClient] unvoteCard error:', error);
       return null;
     }
   }

@@ -4,6 +4,20 @@ import { AGENT_PERSONAS, AGENT_TYPE_EMOJI } from '../../utils/constants';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { appState } from '../../state/AppState';
+import { apiClient } from '../../services/ApiClient';
+
+// ── Vote localStorage helpers ─────────────────────────────────────────────────
+function isVoted(cardId: string): boolean {
+  return localStorage.getItem(`voxy_voted_${cardId}`) === 'true';
+}
+
+function setVoted(cardId: string, voted: boolean): void {
+  if (voted) {
+    localStorage.setItem(`voxy_voted_${cardId}`, 'true');
+  } else {
+    localStorage.removeItem(`voxy_voted_${cardId}`);
+  }
+}
 
 // ── Assignee avatar helpers ───────────────────────────────────────────────────
 const ASSIGNEE_AVATAR_COLORS = [
@@ -197,6 +211,30 @@ export class KanbanCard {
     } else {
       this.element.classList.remove('card-blocked');
     }
+
+    // Vote button
+    const voteCount = this.card.votes ?? 0;
+    const voted = isVoted(this.card.id);
+    const voteBtn = createElement('button', {
+      className: 'vote-btn' + (voted ? ' voted' : ''),
+      title: voted ? 'Un-vote this card' : 'Vote for this card',
+    }, `▲ ${voteCount}`);
+    voteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const currentlyVoted = isVoted(this.card.id);
+      const newCount = currentlyVoted
+        ? await apiClient.unvoteCard(this.card.id)
+        : await apiClient.voteCard(this.card.id);
+      if (newCount !== null) {
+        setVoted(this.card.id, !currentlyVoted);
+        this.card = { ...this.card, votes: newCount };
+        voteBtn.textContent = `▲ ${newCount}`;
+        voteBtn.className = 'vote-btn' + (!currentlyVoted ? ' voted' : '');
+        voteBtn.title = !currentlyVoted ? 'Un-vote this card' : 'Vote for this card';
+        appState.updateCard(this.card.id, { votes: newCount });
+      }
+    });
+    footer.appendChild(voteBtn);
 
     // Assignee avatar badge (bottom-left)
     if (this.card.assignee) {

@@ -76,6 +76,7 @@ class CardResponse(BaseModel):
     checklist_progress: Optional["ChecklistProgress"] = None
     assignee: Optional[str] = None
     watchers: str = ""
+    votes: int = 0
 
     model_config = {"from_attributes": True}
 

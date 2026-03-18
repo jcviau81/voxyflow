@@ -180,6 +180,12 @@ export const EVENTS = {
   // Activity Feed
   ACTIVITY_ADDED: 'activity:added',
 
+  // Notification Center
+  NOTIFICATION_ADDED: 'notification:added',
+  NOTIFICATION_COUNT: 'notification:count',
+  NOTIFICATION_CLEARED: 'notification:cleared',
+  NOTIFICATION_PANEL_TOGGLE: 'notification:panel:toggle',
+
   // Focus Mode
   FOCUS_MODE_ENTER: 'focus:enter',
   FOCUS_MODE_EXIT: 'focus:exit',

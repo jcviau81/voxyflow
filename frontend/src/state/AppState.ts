@@ -1,9 +1,10 @@
-import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab, Idea, SessionInfo, ActivityEntry, ActivityType } from '../types';
+import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab, Idea, SessionInfo, ActivityEntry, ActivityType, NotificationEntry, NotificationType } from '../types';
 import { eventBus } from '../utils/EventBus';
 import { EVENTS } from '../utils/constants';
 import { generateId, deepClone } from '../utils/helpers';
 
 const MAX_ACTIVITIES_PER_PROJECT = 50;
+const MAX_NOTIFICATIONS = 100;
 
 const STORAGE_KEY = 'voxyflow_state';
 const TABS_STORAGE_KEY = 'voxyflow_open_tabs';
@@ -36,6 +37,8 @@ const defaultState: AppStateData = {
   activeSession: {},
   activities: {},
   opportunityBadgeCount: 0,
+  notifications: [],
+  notificationUnreadCount: 0,
 };
 
 class AppState {
@@ -77,6 +80,14 @@ class AppState {
     }
     if (this.state.opportunityBadgeCount === undefined) {
       this.state.opportunityBadgeCount = 0;
+    }
+
+    // Ensure notification center initialized (migration from old state)
+    if (!this.state.notifications) {
+      this.state.notifications = [];
+    }
+    if (this.state.notificationUnreadCount === undefined) {
+      this.state.notificationUnreadCount = 0;
     }
 
     // Restore persisted tabs
@@ -633,6 +644,49 @@ class AppState {
     };
     this.saveToStorage();
     eventBus.emit(EVENTS.SESSION_TAB_UPDATE, { tabId, sessionId, title });
+  }
+
+  // --- Notification Center ---
+
+  addNotification(entry: Omit<NotificationEntry, 'id' | 'timestamp' | 'read'>): NotificationEntry {
+    const notification: NotificationEntry = {
+      ...entry,
+      id: generateId(),
+      timestamp: Date.now(),
+      read: false,
+    };
+    const existing = this.state.notifications || [];
+    // Prepend and trim to max (FIFO: oldest are at the end)
+    const updated = [notification, ...existing].slice(0, MAX_NOTIFICATIONS);
+    this.state.notifications = updated;
+    this.state.notificationUnreadCount = (this.state.notificationUnreadCount || 0) + 1;
+    this.saveToStorage();
+    eventBus.emit(EVENTS.NOTIFICATION_ADDED, notification);
+    eventBus.emit(EVENTS.NOTIFICATION_COUNT, this.state.notificationUnreadCount);
+    return notification;
+  }
+
+  markAllNotificationsRead(): void {
+    this.state.notifications = (this.state.notifications || []).map(n => ({ ...n, read: true }));
+    this.state.notificationUnreadCount = 0;
+    this.saveToStorage();
+    eventBus.emit(EVENTS.NOTIFICATION_COUNT, 0);
+  }
+
+  clearNotifications(): void {
+    this.state.notifications = [];
+    this.state.notificationUnreadCount = 0;
+    this.saveToStorage();
+    eventBus.emit(EVENTS.NOTIFICATION_COUNT, 0);
+    eventBus.emit(EVENTS.NOTIFICATION_CLEARED, null);
+  }
+
+  getNotifications(): NotificationEntry[] {
+    return this.state.notifications || [];
+  }
+
+  getNotificationUnreadCount(): number {
+    return this.state.notificationUnreadCount || 0;
   }
 
   // --- Theme ---
