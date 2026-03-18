@@ -1,5 +1,10 @@
-"""Personality Service — loads SOUL/USER/IDENTITY and injects Ember's persona into all Claude calls."""
+"""Personality Service — loads SOUL/USER/IDENTITY and injects Ember's persona into all Claude calls.
 
+Reads personality configuration from settings.json (saved via Settings UI) and
+applies custom_instructions, environment_notes, tone, and warmth to system prompts.
+"""
+
+import json
 import logging
 import os
 from pathlib import Path
@@ -10,13 +15,34 @@ logger = logging.getLogger(__name__)
 # Default workspace path (OpenClaw convention)
 WORKSPACE_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace")))
 
-# Personality files
-SOUL_FILE = WORKSPACE_DIR / "SOUL.md"
-USER_FILE = WORKSPACE_DIR / "USER.md"
-IDENTITY_FILE = WORKSPACE_DIR / "IDENTITY.md"
+# Voxyflow's own personality files directory
+PERSONALITY_DIR = Path(os.environ.get("VOXYFLOW_PERSONALITY_DIR",
+    os.path.expanduser("~/.openclaw/workspace/voxyflow/personality")))
+
+# Personality files (defaults — Voxyflow's own copies, not dependent on OpenClaw)
+SOUL_FILE = PERSONALITY_DIR / "SOUL.md"
+USER_FILE = PERSONALITY_DIR / "USER.md"
+IDENTITY_FILE = PERSONALITY_DIR / "IDENTITY.md"
+AGENTS_FILE = PERSONALITY_DIR / "AGENTS.md"
+
+# Settings file (written by the Settings UI)
+SETTINGS_FILE = os.path.expanduser("~/.openclaw/workspace/voxyflow/settings.json")
 
 # Cache TTL: how often to re-read personality files (seconds)
 _CACHE_TTL = 300  # 5 minutes
+
+# Tone/warmth prompt modifiers
+TONE_MODIFIERS = {
+    "casual": "Use a casual, conversational tone. Be relaxed and natural.",
+    "balanced": "Use a balanced tone — professional but approachable.",
+    "formal": "Use a formal, polished tone. Be precise and structured.",
+}
+
+WARMTH_MODIFIERS = {
+    "cold": "Keep responses professional and objective. Minimal emotional language.",
+    "warm": "Be warm and friendly. Show genuine interest and care.",
+    "hot": "Be very warm, affectionate, and expressive. Full personality, maximum charm.",
+}
 
 
 class PersonalityService:
@@ -29,6 +55,7 @@ class PersonalityService:
 
     def __init__(self):
         self._cache: dict[str, tuple[float, str]] = {}  # path → (mtime, content)
+        self._settings_cache: tuple[float, dict] | None = None  # (mtime, data)
 
     def _read_if_changed(self, path: Path) -> str:
         """Read file, using mtime cache to avoid unnecessary I/O."""
@@ -46,17 +73,54 @@ class PersonalityService:
             logger.warning(f"Failed to read personality file {path}: {e}")
             return ""
 
+    def _load_settings(self) -> dict:
+        """Load settings.json with mtime caching."""
+        if not os.path.exists(SETTINGS_FILE):
+            return {}
+        try:
+            mtime = os.path.getmtime(SETTINGS_FILE)
+            if self._settings_cache and self._settings_cache[0] == mtime:
+                return self._settings_cache[1]
+            with open(SETTINGS_FILE) as f:
+                data = json.load(f)
+            self._settings_cache = (mtime, data)
+            return data
+        except Exception as e:
+            logger.warning(f"Failed to read settings.json: {e}")
+            return {}
+
+    def get_personality_settings(self) -> dict:
+        """Get the personality section from settings."""
+        settings = self._load_settings()
+        return settings.get("personality", {})
+
     def load_soul(self) -> str:
-        """Load SOUL.md — core personality, values, vibe."""
+        """Load SOUL.md — core personality, values, vibe. Respects settings override."""
+        ps = self.get_personality_settings()
+        soul_path = ps.get("soul_file")
+        if soul_path:
+            return self._read_if_changed(Path(os.path.expanduser(soul_path)))
         return self._read_if_changed(SOUL_FILE)
 
     def load_user(self) -> str:
-        """Load USER.md — who the human is, preferences, context."""
+        """Load USER.md — who the human is, preferences, context. Respects settings override."""
+        ps = self.get_personality_settings()
+        user_path = ps.get("user_file")
+        if user_path:
+            return self._read_if_changed(Path(os.path.expanduser(user_path)))
         return self._read_if_changed(USER_FILE)
 
     def load_identity(self) -> str:
         """Load IDENTITY.md — name, creature type, emoji, avatar."""
         return self._read_if_changed(IDENTITY_FILE)
+
+    def load_agents(self) -> str:
+        """Load AGENTS.md — operating directives. Respects settings override."""
+        ps = self.get_personality_settings()
+        agents_path = ps.get("agents_file")
+        if agents_path:
+            return self._read_if_changed(Path(os.path.expanduser(agents_path)))
+        return self._read_if_changed(AGENTS_FILE)
 
     def build_system_prompt(
         self,
@@ -68,7 +132,9 @@ class PersonalityService:
         """
         Build a complete system prompt by layering:
         1. Personality core (SOUL + IDENTITY)
+        1b. Operating directives (AGENTS.md)
         2. User context (USER.md)
+        2b. Custom instructions, environment notes, tone/warmth from settings
         3. Memory context (recent relevant memories)
         4. Agent persona overlay (if specialized agent)
         5. Base prompt (task-specific instructions)
@@ -87,12 +153,42 @@ class PersonalityService:
             if soul:
                 sections.append(soul + "\n")
 
+        # --- Layer 1b: Operating directives ---
+        agents = self.load_agents()
+        if agents:
+            sections.append("## Operating Directives\n")
+            sections.append(agents + "\n")
+
         # --- Layer 2: Who is the human? ---
         if include_user:
             user = self.load_user()
             if user:
                 sections.append("## About Your Human\n")
                 sections.append(user + "\n")
+
+        # --- Layer 2b: Custom instructions & environment from settings ---
+        ps = self.get_personality_settings()
+        custom = ps.get("custom_instructions", "").strip()
+        env_notes = ps.get("environment_notes", "").strip()
+        tone = ps.get("tone", "casual")
+        warmth = ps.get("warmth", "warm")
+
+        style_parts = []
+        if tone in TONE_MODIFIERS:
+            style_parts.append(TONE_MODIFIERS[tone])
+        if warmth in WARMTH_MODIFIERS:
+            style_parts.append(WARMTH_MODIFIERS[warmth])
+        if style_parts:
+            sections.append("## Communication Style\n")
+            sections.append("\n".join(style_parts) + "\n")
+
+        if custom:
+            sections.append("## Custom Instructions\n")
+            sections.append(custom + "\n")
+
+        if env_notes:
+            sections.append("## Environment Notes\n")
+            sections.append(env_notes + "\n")
 
         # --- Layer 3: Memory context ---
         if include_memory_context:

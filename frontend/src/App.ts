@@ -62,6 +62,8 @@ export class App {
     const topBarContainer = createElement('div', { className: 'top-bar-container' });
     this.topBar = new TopBar(topBarContainer);
 
+    // Tab bar goes inside main area (above top bar, not full width)
+    mainArea.appendChild(tabBarContainer);
     mainArea.appendChild(topBarContainer);
     mainArea.appendChild(this.mainContent);
 
@@ -73,7 +75,6 @@ export class App {
     layout.appendChild(mainArea);
     layout.appendChild(opportunitiesContainer);
 
-    this.root.appendChild(tabBarContainer);
     this.root.appendChild(layout);
 
     // Toast container
