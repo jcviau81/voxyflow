@@ -1,9 +1,11 @@
 """Claude API integration via claude-max-api-proxy (OpenAI-compatible)."""
 
+import asyncio
 import json
 import logging
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Callable, Optional
 
+import httpx
 from openai import OpenAI
 
 from app.config import get_settings
@@ -14,6 +16,60 @@ from app.services.session_store import session_store
 from app.services.rag_service import get_rag_service
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# MCP Tool bridge — converts Voxyflow MCP tools to Claude native tool_use
+# ---------------------------------------------------------------------------
+
+def get_claude_tools() -> list[dict]:
+    """Convert Voxyflow MCP tool definitions to Claude API tool_use format.
+
+    Returns an empty list (graceful degradation) if the MCP module is
+    unavailable or the tool list cannot be loaded.
+    """
+    try:
+        from app.mcp_server import get_tool_list
+        tools = []
+        for tool in get_tool_list():
+            tools.append({
+                "name": tool["name"].replace(".", "_"),  # Claude forbids dots in tool names
+                "description": tool["description"],
+                "input_schema": tool["inputSchema"],
+            })
+        return tools
+    except Exception as e:
+        logger.warning(f"Could not load MCP tools for Claude: {e}")
+        return []
+
+
+def _mcp_tool_name_from_claude(claude_name: str) -> str:
+    """Convert a Claude tool name back to its MCP equivalent.
+
+    voxyflow_card_create → voxyflow.card.create
+    Only the first underscore-separated segment is the namespace; subsequent
+    underscores are replaced with dots starting from index 1, e.g.:
+      voxyflow_ai_review_code → voxyflow.ai.review_code  (last part kept as-is)
+    """
+    # Strategy: split on "_", re-join keeping first segment as-is and joining
+    # the remainder with dots.  Since all voxyflow tools have exactly 3 parts
+    # (namespace.group.action), split into at most 3 pieces.
+    parts = claude_name.split("_", 2)  # ['voxyflow', 'card', 'create']
+    return ".".join(parts)
+
+
+async def _call_mcp_tool(tool_mcp_name: str, arguments: dict) -> dict:
+    """Call the Voxyflow REST API via the MCP _call_api helper."""
+    try:
+        from app.mcp_server import _find_tool, _call_api as mcp_call_api
+        tool_def = _find_tool(tool_mcp_name)
+        if tool_def is None:
+            return {"success": False, "error": f"Unknown MCP tool: {tool_mcp_name}"}
+        result = await mcp_call_api(tool_def, arguments or {})
+        return result
+    except Exception as e:
+        logger.error(f"MCP tool call failed: {tool_mcp_name} → {e}")
+        return {"success": False, "error": str(e)}
 
 
 def _load_model_overrides() -> dict:
@@ -189,6 +245,7 @@ class ClaudeService:
         project_context: Optional[dict] = None,
         card_context: Optional[dict] = None,
         project_id: Optional[str] = None,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer."""
         self._append_and_persist(chat_id, "user", user_message, model="fast")
@@ -228,6 +285,7 @@ class ClaudeService:
             system=system_prompt,
             messages=recent,
             client=self.fast_client,
+            tool_callback=tool_callback,
         ):
             full_response += token
             yield token
@@ -602,20 +660,88 @@ class ClaudeService:
         system: str,
         messages: list[dict],
         client: Optional[OpenAI] = None,
+        use_tools: bool = True,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
     ) -> str:
-        """Make an API call via the OpenAI-compatible proxy."""
+        """Make an API call via the OpenAI-compatible proxy.
+
+        When use_tools=True, Claude native tool_use is enabled.  Any tool_use
+        blocks are automatically dispatched to the MCP REST layer and the
+        results fed back to Claude in an agentic loop until Claude returns a
+        final text-only response.
+
+        tool_callback(tool_name, arguments, result) is called after each tool
+        execution — callers can use this to emit WebSocket events.
+        """
         api_client = client or self.client
-        # Build messages list with system prompt as first message
         api_messages = [{"role": "system", "content": system}]
         api_messages.extend(messages)
 
+        claude_tools = get_claude_tools() if use_tools else []
+
         try:
-            response = api_client.chat.completions.create(
-                model=model,
-                max_tokens=self.max_tokens,
-                messages=api_messages,
-            )
-            return response.choices[0].message.content or ""
+            # Agentic tool-use loop (max 10 rounds to prevent runaway)
+            for _ in range(10):
+                kwargs: dict = {
+                    "model": model,
+                    "max_tokens": self.max_tokens,
+                    "messages": api_messages,
+                }
+                if claude_tools:
+                    kwargs["tools"] = claude_tools
+
+                response = await asyncio.to_thread(
+                    lambda: api_client.chat.completions.create(**kwargs)
+                )
+
+                choice = response.choices[0]
+                finish_reason = choice.finish_reason
+
+                # OpenAI SDK flattens tool_calls into .message.tool_calls
+                # Check both content and tool_calls
+                tool_calls = getattr(choice.message, "tool_calls", None) or []
+
+                if finish_reason == "tool_calls" or (tool_calls and finish_reason in ("stop", "tool_calls", None)):
+                    # Append the assistant's tool_call message to history
+                    api_messages.append(choice.message.model_dump(exclude_unset=True))
+
+                    # Execute each tool call and collect results
+                    tool_results = []
+                    for tc in tool_calls:
+                        claude_tool_name = tc.function.name
+                        try:
+                            arguments = json.loads(tc.function.arguments or "{}")
+                        except json.JSONDecodeError:
+                            arguments = {}
+
+                        mcp_name = _mcp_tool_name_from_claude(claude_tool_name)
+                        logger.info(f"[MCP] tool_use: {claude_tool_name} → {mcp_name}({arguments})")
+
+                        result = await _call_mcp_tool(mcp_name, arguments)
+
+                        if tool_callback:
+                            try:
+                                tool_callback(mcp_name, arguments, result)
+                            except Exception:
+                                pass  # Callbacks must not crash the pipeline
+
+                        tool_results.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": json.dumps(result, default=str),
+                        })
+
+                    api_messages.extend(tool_results)
+                    # Continue loop — feed results back to Claude
+                    continue
+
+                # No tool calls — return final text
+                return choice.message.content or ""
+
+            # Exceeded loop limit — return whatever we have
+            logger.warning("_call_api: tool loop exceeded 10 rounds, returning empty")
+            return ""
+
         except Exception as e:
             logger.error(f"Claude proxy API call failed: {e}")
             raise
@@ -626,40 +752,82 @@ class ClaudeService:
         system: str,
         messages: list[dict],
         client: Optional[OpenAI] = None,
+        use_tools: bool = True,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
     ) -> AsyncIterator[str]:
         """Make a streaming API call via the OpenAI-compatible proxy.
 
         Yields content tokens as they arrive from the SSE stream.
-        The OpenAI client's streaming is synchronous, so we iterate
-        in a thread-safe manner via asyncio.to_thread for each chunk.
+        When Claude emits tool_use blocks mid-stream, they are buffered,
+        executed via MCP, and a second non-streaming call is made so Claude
+        can generate its final response (which is then yielded as tokens).
+
+        tool_callback(tool_name, arguments, result) is called after each tool
+        execution — callers can use this to emit WebSocket events.
         """
         import asyncio
+        import queue
+        import threading
 
         api_client = client or self.client
         api_messages = [{"role": "system", "content": system}]
         api_messages.extend(messages)
 
-        try:
-            # The OpenAI sync client returns a synchronous iterator for streaming
-            stream = api_client.chat.completions.create(
-                model=model,
-                max_tokens=self.max_tokens,
-                messages=api_messages,
-                stream=True,
-            )
+        claude_tools = get_claude_tools() if use_tools else []
 
-            # Iterate in a thread to avoid blocking the event loop
-            # (the sync OpenAI client does blocking HTTP reads)
-            import queue
-            import threading
+        # ---- Streaming first pass ------------------------------------------
+        try:
+            kwargs: dict = {
+                "model": model,
+                "max_tokens": self.max_tokens,
+                "messages": api_messages,
+                "stream": True,
+            }
+            if claude_tools:
+                kwargs["tools"] = claude_tools
+
+            stream = api_client.chat.completions.create(**kwargs)
 
             token_queue: queue.Queue[str | None] = queue.Queue()
+            # Accumulate tool_call data (streamed in fragments)
+            streamed_tool_calls: list[dict] = []
+            finish_reason_holder: list[str] = []
+            content_text_holder: list[str] = []
 
             def _consume_stream():
                 try:
                     for chunk in stream:
-                        if chunk.choices and chunk.choices[0].delta.content:
-                            token_queue.put(chunk.choices[0].delta.content)
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta
+                        finish_reason = chunk.choices[0].finish_reason
+
+                        # Accumulate regular text tokens
+                        if delta.content:
+                            content_text_holder.append(delta.content)
+                            token_queue.put(delta.content)
+
+                        # Accumulate tool call fragments
+                        if delta.tool_calls:
+                            for tc_delta in delta.tool_calls:
+                                idx = tc_delta.index
+                                while len(streamed_tool_calls) <= idx:
+                                    streamed_tool_calls.append({
+                                        "id": None,
+                                        "type": "function",
+                                        "function": {"name": "", "arguments": ""},
+                                    })
+                                if tc_delta.id:
+                                    streamed_tool_calls[idx]["id"] = tc_delta.id
+                                if tc_delta.function:
+                                    if tc_delta.function.name:
+                                        streamed_tool_calls[idx]["function"]["name"] += tc_delta.function.name
+                                    if tc_delta.function.arguments:
+                                        streamed_tool_calls[idx]["function"]["arguments"] += tc_delta.function.arguments
+
+                        if finish_reason:
+                            finish_reason_holder.append(finish_reason)
+
                 except Exception as e:
                     logger.error(f"Stream consumption error: {e}")
                 finally:
@@ -668,12 +836,71 @@ class ClaudeService:
             thread = threading.Thread(target=_consume_stream, daemon=True)
             thread.start()
 
+            # Yield text tokens as they arrive
             while True:
-                # Poll queue without blocking the event loop
                 token = await asyncio.to_thread(token_queue.get)
                 if token is None:
                     break
                 yield token
+
+            finish_reason = finish_reason_holder[0] if finish_reason_holder else "stop"
+
+            # ---- If Claude requested tool calls, handle them ----------------
+            if finish_reason == "tool_calls" or streamed_tool_calls:
+                # Build assistant message with tool_calls list
+                assistant_msg: dict = {"role": "assistant", "content": "".join(content_text_holder) or None}
+                if streamed_tool_calls:
+                    assistant_msg["tool_calls"] = [
+                        {
+                            "id": tc["id"] or f"call_{i}",
+                            "type": "function",
+                            "function": {
+                                "name": tc["function"]["name"],
+                                "arguments": tc["function"]["arguments"],
+                            },
+                        }
+                        for i, tc in enumerate(streamed_tool_calls)
+                    ]
+                api_messages.append(assistant_msg)
+
+                # Execute tools and collect results
+                tool_results = []
+                for tc in streamed_tool_calls:
+                    claude_tool_name = tc["function"]["name"]
+                    try:
+                        arguments = json.loads(tc["function"]["arguments"] or "{}")
+                    except json.JSONDecodeError:
+                        arguments = {}
+
+                    mcp_name = _mcp_tool_name_from_claude(claude_tool_name)
+                    logger.info(f"[MCP stream] tool_use: {claude_tool_name} → {mcp_name}({arguments})")
+
+                    result = await _call_mcp_tool(mcp_name, arguments)
+
+                    if tool_callback:
+                        try:
+                            tool_callback(mcp_name, arguments, result)
+                        except Exception:
+                            pass
+
+                    tool_results.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"] or f"call_0",
+                        "content": json.dumps(result, default=str),
+                    })
+
+                api_messages.extend(tool_results)
+
+                # Second call — non-streaming final response
+                final_text = await self._call_api(
+                    model=model,
+                    system=system,
+                    messages=api_messages[1:],  # drop system (re-added inside)
+                    client=api_client,
+                    use_tools=False,  # no further tool loops on final pass
+                )
+                if final_text:
+                    yield final_text
 
         except Exception as e:
             logger.error(f"Claude proxy streaming API call failed: {e}")

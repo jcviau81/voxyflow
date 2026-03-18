@@ -286,30 +286,12 @@ class PersonalityService:
         return "\n".join(sections)
 
     def build_fast_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None) -> str:
-        from app.tools import get_tool_definitions
-
-        tool_defs = get_tool_definitions()
-        tool_section = ""
-        if tool_defs:
-            import json as _json
-            tool_section = (
-                "\n\n## Available Tools\n"
-                "You can execute actions in Voxyflow using tools. To use a tool, include in your response:\n"
-                "<tool_call>\n"
-                '{"name": "tool_name", "params": {"key": "value"}}\n'
-                "</tool_call>\n\n"
-                "You can use multiple tools in one response. Write your conversational reply normally "
-                "AND include tool calls where appropriate.\n\n"
-                "Available tools:\n"
-                + _json.dumps(tool_defs, indent=2)
-            )
-
         voice_instructions = (
             "\n\n## Voice Instructions\n"
             "You speak naturally and concisely -- this is a voice conversation, not a text chat.\n"
             "Keep responses short (1-3 sentences for voice). Be helpful, direct, and friendly.\n"
             "You help manage projects, tasks, and ideas through conversation.\n"
-            "When the user describes work to do, acknowledge it naturally.\n"
+            "When the user describes work to do, use the available tools to act on it immediately.\n"
             "Respond in the same language the user speaks (French or English).\n"
             "Your personality comes through in HOW you say things -- tone, word choice, energy.\n"
             "Be yourself. Not a corporate bot."
@@ -323,7 +305,7 @@ class PersonalityService:
         else:
             base = self.build_general_prompt()
 
-        return base + voice_instructions + tool_section
+        return base + voice_instructions
 
     def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None) -> str:
         # Build context-appropriate base

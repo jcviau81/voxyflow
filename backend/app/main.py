@@ -18,7 +18,7 @@ from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
 from app.services.rag_service import get_rag_service
 from app.services.scheduler_service import get_scheduler_service
-from app.tools import execute_tool, get_tool_definitions
+from app.tools import execute_tool, get_tool_definitions  # kept for legacy REST tool routes
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -135,25 +135,6 @@ _analyzer_service = AnalyzerService()
 
 import re
 
-def _parse_tool_calls(text: str) -> list[dict]:
-    """Extract <tool_call>...</tool_call> blocks from Claude's response."""
-    pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
-    matches = re.findall(pattern, text, re.DOTALL)
-    calls = []
-    for match in matches:
-        try:
-            parsed = json.loads(match)
-            if "name" in parsed:
-                calls.append(parsed)
-        except json.JSONDecodeError:
-            logger.warning(f"Failed to parse tool call JSON: {match[:100]}")
-    return calls
-
-
-def _strip_tool_calls(text: str) -> str:
-    """Remove <tool_call> blocks from text, leaving the conversational part."""
-    return re.sub(r'<tool_call>\s*\{.*?\}\s*</tool_call>', '', text, flags=re.DOTALL).strip()
-
 
 async def _handle_chat_3layer(
     websocket: WebSocket,
@@ -240,6 +221,20 @@ async def _handle_chat_3layer(
             _analyzer_service.analyze_for_cards(chat_id=chat_id, message=content, project_context="")
         )
 
+    # --- Tool callback: emits tool:executed events over the WebSocket -------
+    # This is called by the MCP bridge inside _call_api_stream whenever Claude
+    # invokes a native tool_use block.  We schedule the send on the event loop
+    # from the sync thread that executes the callback.
+    _pending_tool_events: list[dict] = []
+
+    def _on_tool_executed(tool_name: str, arguments: dict, result: dict) -> None:
+        """Collect tool execution events; they are flushed after streaming ends."""
+        _pending_tool_events.append({
+            "tool": tool_name,
+            "arguments": arguments,
+            "result": result,
+        })
+
     # --- Layer 1: Stream fast response token-by-token ---
     await _send_model_status("fast", "active")
     start = time.time()
@@ -250,6 +245,7 @@ async def _handle_chat_3layer(
             chat_id=chat_id, user_message=content, project_name=project_name,
             chat_level=chat_level, project_context=project_context, card_context=card_context,
             project_id=project_id,
+            tool_callback=_on_tool_executed,
         ):
             fast_full_response += token
             if not first_token_sent:
@@ -302,28 +298,19 @@ async def _handle_chat_3layer(
             analyzer_task.cancel()
         return
 
-    # --- Tool execution: parse <tool_call> blocks from fast layer response ---
-    tool_calls = _parse_tool_calls(fast_full_response)
-    if tool_calls:
-        from app.database import async_session
-        async with async_session() as db:
-            for tc in tool_calls:
-                tool_name = tc["name"]
-                tool_params = tc.get("params", tc.get("parameters", {}))
-                logger.info(f"[Tools] executing: {tool_name}({tool_params})")
-                result = await execute_tool(tool_name, tool_params, db=db)
-                await websocket.send_json({
-                    "type": "tool:result",
-                    "payload": {
-                        "tool": tool_name,
-                        "success": result.success,
-                        "data": result.data,
-                        "error": result.error,
-                        "ui_action": result.ui_action,
-                        "sessionId": session_id,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                })
+    # --- Flush tool:executed events collected during streaming ---------------
+    for evt in _pending_tool_events:
+        logger.info(f"[MCP] emitting tool:executed: {evt['tool']}")
+        await websocket.send_json({
+            "type": "tool:executed",
+            "payload": {
+                "tool": evt["tool"],
+                "arguments": evt["arguments"],
+                "result": evt["result"],
+                "sessionId": session_id,
+            },
+            "timestamp": int(time.time() * 1000),
+        })
 
     # --- Layer 2: Deep enrichment/correction ---
     if not deep_enabled or deep_task is None:
