@@ -31,13 +31,22 @@ interface FilePreview {
   size?: number;
 }
 
+interface FileEditorState {
+  filename: string;
+  label: string;
+  emoji: string;
+  content: string;
+  editing: boolean;
+  exists: boolean;
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   personality: {
-    bot_name: 'Ember',
+    bot_name: 'Assistant',
     preferred_language: 'both',
-    soul_file: '~/.openclaw/workspace/SOUL.md',
-    user_file: '~/.openclaw/workspace/USER.md',
-    agents_file: '~/.openclaw/workspace/AGENTS.md',
+    soul_file: './personality/SOUL.md',
+    user_file: './personality/USER.md',
+    agents_file: './personality/AGENTS.md',
     custom_instructions: '',
     environment_notes: '',
     tone: 'casual',
@@ -50,6 +59,12 @@ export class SettingsPage {
   private root: HTMLElement;
   private settings: AppSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   private previews: Record<string, FilePreview> = {};
+  private fileEditors: FileEditorState[] = [
+    { filename: 'SOUL.md', label: 'Personality', emoji: '✨', content: '', editing: false, exists: false },
+    { filename: 'USER.md', label: 'User Profile', emoji: '👤', content: '', editing: false, exists: false },
+    { filename: 'AGENTS.md', label: 'Directives', emoji: '📋', content: '', editing: false, exists: false },
+    { filename: 'IDENTITY.md', label: 'Identity', emoji: '🪪', content: '', editing: false, exists: false },
+  ];
   private dirty = false;
   private saving = false;
 
@@ -79,39 +94,33 @@ export class SettingsPage {
   }
 
   private async loadPreviews(): Promise<void> {
-    try {
-      const response = await fetch(`${API_URL}/api/settings/personality/preview`);
-      if (response.ok) {
-        this.previews = await response.json();
-        this.updatePreviewElements();
-      }
-    } catch (e) {
-      console.warn('Failed to load file previews:', e);
-    }
+    await this.loadFileEditors();
   }
 
-  private updatePreviewElements(): void {
-    const mapping: Record<string, string> = {
-      soul_file: 'SOUL',
-      user_file: 'USER',
-      agents_file: 'AGENTS',
-    };
-
-    for (const [field, label] of Object.entries(mapping)) {
-      const previewEl = this.root.querySelector(`#preview-${field}`) as HTMLElement;
-      if (!previewEl) continue;
-
-      const info = this.previews[label];
-      if (!info) {
-        previewEl.textContent = 'No preview available';
-        continue;
+  private async loadFileEditors(): Promise<void> {
+    for (const fe of this.fileEditors) {
+      try {
+        const response = await fetch(`${API_URL}/api/settings/personality/files/${fe.filename}`);
+        if (response.ok) {
+          const data = await response.json();
+          fe.content = data.content || '';
+          fe.exists = data.exists !== false;
+        }
+      } catch (e) {
+        console.warn(`Failed to load ${fe.filename}:`, e);
+        fe.content = '';
+        fe.exists = false;
       }
 
-      if (info.exists) {
-        const sizeKB = ((info.size || 0) / 1024).toFixed(1);
-        previewEl.innerHTML = `<span class="file-exists">\u2713 Found</span> (${sizeKB} KB)<br>${this.escapeHtml(info.preview || '')}`;
-      } else {
-        previewEl.innerHTML = `<span class="file-missing">\u2717 Not found:</span> ${this.escapeHtml(info.path)}`;
+      const previewEl = this.root.querySelector(`#preview-${fe.filename}`) as HTMLElement;
+      if (previewEl) {
+        if (fe.exists && fe.content) {
+          const preview = fe.content.length > 300 ? fe.content.substring(0, 300) + '...' : fe.content;
+          const sizeKB = (fe.content.length / 1024).toFixed(1);
+          previewEl.innerHTML = `<span class="file-exists">✓ ${sizeKB} KB</span>\n${this.escapeHtml(preview)}`;
+        } else {
+          previewEl.innerHTML = `<span class="file-missing">✗ File not found</span>`;
+        }
       }
     }
   }
@@ -141,9 +150,31 @@ export class SettingsPage {
 
   private renderPersonalitySection(): string {
     const p = this.settings.personality;
+    const fileEditorsHtml = this.fileEditors.map((fe) => `
+      <div class="file-editor" data-testid="editor-${fe.filename.replace('.md', '').toLowerCase()}">
+        <div class="file-editor-header">
+          <div class="setting-label">${fe.emoji} ${fe.label} (${fe.filename})</div>
+          <div class="file-editor-actions">
+            <button class="btn-sm" data-action="edit-file" data-filename="${fe.filename}">✏️ Edit</button>
+            <button class="btn-sm btn-danger-sm" data-action="reset-file" data-filename="${fe.filename}">↩️ Reset</button>
+          </div>
+        </div>
+        <div class="file-preview-content" id="preview-${fe.filename}" data-filename="${fe.filename}">
+          Loading...
+        </div>
+        <div class="file-editor-area" id="editor-${fe.filename}" style="display:none">
+          <textarea class="file-textarea" id="textarea-${fe.filename}" rows="15"></textarea>
+          <div class="file-editor-footer">
+            <button class="btn-primary btn-sm" data-action="save-file" data-filename="${fe.filename}">💾 Save</button>
+            <button class="btn-ghost btn-sm" data-action="cancel-file" data-filename="${fe.filename}">Cancel</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+
     return `
       <div class="settings-section" data-testid="settings-personality">
-        <h3>\u2728 Personality</h3>
+        <h3>✨ Personality</h3>
 
         <div class="setting-row">
           <div class="setting-info">
@@ -165,37 +196,12 @@ export class SettingsPage {
           </select>
         </div>
 
-        <div class="setting-row file-setting">
-          <div class="setting-info">
-            <div class="setting-label">Personality (SOUL.md)</div>
-            <div class="setting-description">Defines personality traits and behavior</div>
+        <div class="file-editors-section">
+          <div class="setting-info" style="margin-bottom: 12px;">
+            <div class="setting-label">Personality Files</div>
+            <div class="setting-description">Edit the markdown files that define your assistant's personality</div>
           </div>
-          <div class="file-input-group">
-            <input type="text" class="setting-input file-path-input" data-field="soul_file" value="${this.escapeHtml(p.soul_file)}" />
-            <div class="file-preview" id="preview-soul_file">Loading...</div>
-          </div>
-        </div>
-
-        <div class="setting-row file-setting">
-          <div class="setting-info">
-            <div class="setting-label">User Profile (USER.md)</div>
-            <div class="setting-description">Information about you</div>
-          </div>
-          <div class="file-input-group">
-            <input type="text" class="setting-input file-path-input" data-field="user_file" value="${this.escapeHtml(p.user_file)}" />
-            <div class="file-preview" id="preview-user_file">Loading...</div>
-          </div>
-        </div>
-
-        <div class="setting-row file-setting">
-          <div class="setting-info">
-            <div class="setting-label">Directives (AGENTS.md)</div>
-            <div class="setting-description">Operating rules and behavior guidelines</div>
-          </div>
-          <div class="file-input-group">
-            <input type="text" class="setting-input file-path-input" data-field="agents_file" value="${this.escapeHtml(p.agents_file)}" />
-            <div class="file-preview" id="preview-agents_file">Loading...</div>
-          </div>
+          ${fileEditorsHtml}
         </div>
 
         <div class="setting-row full-width">
@@ -396,6 +402,35 @@ export class SettingsPage {
       resetBtn.addEventListener('click', () => this.resetSettings());
     }
 
+    // File editor buttons
+    this.root.querySelectorAll('[data-action="edit-file"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const filename = (btn as HTMLElement).dataset.filename!;
+        this.toggleFileEditor(filename, true);
+      });
+    });
+
+    this.root.querySelectorAll('[data-action="cancel-file"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const filename = (btn as HTMLElement).dataset.filename!;
+        this.toggleFileEditor(filename, false);
+      });
+    });
+
+    this.root.querySelectorAll('[data-action="save-file"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const filename = (btn as HTMLElement).dataset.filename!;
+        this.saveFile(filename);
+      });
+    });
+
+    this.root.querySelectorAll('[data-action="reset-file"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const filename = (btn as HTMLElement).dataset.filename!;
+        this.resetFile(filename);
+      });
+    });
+
     // GitHub events
     const githubTestBtn = this.root.querySelector('#github-test-btn');
     if (githubTestBtn) {
@@ -515,7 +550,7 @@ export class SettingsPage {
   private collectFormData(): AppSettings {
     const personality: Record<string, string> = {};
     const fields = [
-      'bot_name', 'preferred_language', 'soul_file', 'user_file', 'agents_file',
+      'bot_name', 'preferred_language',
       'custom_instructions', 'environment_notes', 'tone', 'warmth',
     ];
 
@@ -587,6 +622,107 @@ export class SettingsPage {
     this.loadPreviews();
     this.markDirty();
     eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Settings reset to defaults (save to persist)', type: 'info', duration: 3000 });
+  }
+
+  private toggleFileEditor(filename: string, open: boolean): void {
+    const fe = this.fileEditors.find((f) => f.filename === filename);
+    if (!fe) return;
+
+    const editorEl = this.root.querySelector(`#editor-${filename}`) as HTMLElement;
+    const previewEl = this.root.querySelector(`#preview-${filename}`) as HTMLElement;
+    const textareaEl = this.root.querySelector(`#textarea-${filename}`) as HTMLTextAreaElement;
+
+    if (!editorEl || !previewEl || !textareaEl) return;
+
+    fe.editing = open;
+    if (open) {
+      textareaEl.value = fe.content;
+      editorEl.style.display = 'block';
+      previewEl.style.display = 'none';
+      textareaEl.focus();
+    } else {
+      editorEl.style.display = 'none';
+      previewEl.style.display = 'block';
+    }
+  }
+
+  private async saveFile(filename: string): Promise<void> {
+    const fe = this.fileEditors.find((f) => f.filename === filename);
+    if (!fe) return;
+
+    const textareaEl = this.root.querySelector(`#textarea-${filename}`) as HTMLTextAreaElement;
+    if (!textareaEl) return;
+
+    const content = textareaEl.value;
+
+    try {
+      const response = await fetch(`${API_URL}/api/settings/personality/files/${filename}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+
+      if (response.ok) {
+        fe.content = content;
+        fe.exists = true;
+        this.toggleFileEditor(filename, false);
+
+        // Refresh preview
+        const previewEl = this.root.querySelector(`#preview-${filename}`) as HTMLElement;
+        if (previewEl) {
+          const preview = content.length > 300 ? content.substring(0, 300) + '...' : content;
+          const sizeKB = (content.length / 1024).toFixed(1);
+          previewEl.innerHTML = `<span class="file-exists">✓ ${sizeKB} KB</span>\n${this.escapeHtml(preview)}`;
+        }
+
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: `${filename} saved!`, type: 'success', duration: 2000 });
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (e) {
+      console.error(`Failed to save ${filename}:`, e);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `Failed to save ${filename}`, type: 'error', duration: 4000 });
+    }
+  }
+
+  private async resetFile(filename: string): Promise<void> {
+    if (!confirm(`Reset ${filename} to default template? This will overwrite current content.`)) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/settings/personality/files/${filename}/reset`, {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: `${filename} reset to default`, type: 'info', duration: 2000 });
+        // Reload the file content
+        const fe = this.fileEditors.find((f) => f.filename === filename);
+        if (fe) {
+          const fileResp = await fetch(`${API_URL}/api/settings/personality/files/${filename}`);
+          if (fileResp.ok) {
+            const data = await fileResp.json();
+            fe.content = data.content || '';
+            fe.exists = true;
+
+            // Close editor if open
+            this.toggleFileEditor(filename, false);
+
+            // Update preview
+            const previewEl = this.root.querySelector(`#preview-${filename}`) as HTMLElement;
+            if (previewEl) {
+              const preview = fe.content.length > 300 ? fe.content.substring(0, 300) + '...' : fe.content;
+              const sizeKB = (fe.content.length / 1024).toFixed(1);
+              previewEl.innerHTML = `<span class="file-exists">✓ ${sizeKB} KB</span>\n${this.escapeHtml(preview)}`;
+            }
+          }
+        }
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (e) {
+      console.error(`Failed to reset ${filename}:`, e);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `Failed to reset ${filename}`, type: 'error', duration: 4000 });
+    }
   }
 
   destroy(): void {

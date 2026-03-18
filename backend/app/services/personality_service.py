@@ -84,28 +84,42 @@ class PersonalityService:
         settings = self._load_settings()
         return settings.get("personality", {})
 
+    def _resolve_path(self, raw_path: str) -> Path:
+        """Resolve a personality file path, relative to VOXYFLOW_DIR."""
+        p = Path(raw_path)
+        if p.is_absolute():
+            return p
+        expanded = Path(os.path.expanduser(raw_path))
+        if expanded.is_absolute():
+            return expanded
+        return VOXYFLOW_DIR / raw_path
+
     def load_soul(self) -> str:
         ps = self.get_personality_settings()
         soul_path = ps.get("soul_file")
         if soul_path:
-            return self._read_if_changed(Path(os.path.expanduser(soul_path)))
+            return self._read_if_changed(self._resolve_path(soul_path))
         return self._read_if_changed(SOUL_FILE)
 
     def load_user(self) -> str:
         ps = self.get_personality_settings()
         user_path = ps.get("user_file")
         if user_path:
-            return self._read_if_changed(Path(os.path.expanduser(user_path)))
+            return self._read_if_changed(self._resolve_path(user_path))
         return self._read_if_changed(USER_FILE)
 
     def load_identity(self) -> str:
+        ps = self.get_personality_settings()
+        identity_path = ps.get("identity_file")
+        if identity_path:
+            return self._read_if_changed(self._resolve_path(identity_path))
         return self._read_if_changed(IDENTITY_FILE)
 
     def load_agents(self) -> str:
         ps = self.get_personality_settings()
         agents_path = ps.get("agents_file")
         if agents_path:
-            return self._read_if_changed(Path(os.path.expanduser(agents_path)))
+            return self._read_if_changed(self._resolve_path(agents_path))
         return self._read_if_changed(AGENTS_FILE)
 
     # ------------------------------------------------------------------
