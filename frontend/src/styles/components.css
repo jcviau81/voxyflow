@@ -2378,3 +2378,7 @@
   cursor: pointer;
   margin-right: 4px;
 }
+
+.header-title-section:empty {
+  display: none;
+}
