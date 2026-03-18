@@ -1,0 +1,366 @@
+/* ============================================================
+   MULTI-PROJECT OVERVIEW — projects-overview.css
+   ============================================================ */
+
+/* ── Summary bar ─────────────────────────────────────────── */
+.project-summary-bar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+
+.project-summary-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 60px;
+  padding: 6px 10px;
+  border-radius: var(--border-radius-sm);
+  background: var(--color-bg-primary, rgba(255,255,255,0.03));
+  transition: background var(--transition-fast);
+}
+
+.project-summary-stat:hover {
+  background: var(--color-bg-hover);
+}
+
+.project-summary-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.project-summary-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+.project-summary-label {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Filter chips ────────────────────────────────────────── */
+.project-filter-chips {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.project-filter-chip {
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.project-filter-chip:hover {
+  border-color: var(--color-border-light);
+  color: var(--color-text-primary);
+}
+
+.project-filter-chip.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(255, 107, 107, 0.25);
+}
+
+/* ── Grid layout ─────────────────────────────────────────── */
+.project-list-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+@media (max-width: 640px) {
+  .project-list-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Project card ────────────────────────────────────────── */
+.project-card-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.project-card-overview:hover {
+  border-color: var(--color-border-light);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.3));
+}
+
+.project-card-overview.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-glow);
+}
+
+/* ── Card header ─────────────────────────────────────────── */
+.project-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.project-card-emoji {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.project-card-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-card-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-gh-link {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: fit-content;
+  transition: color var(--transition-fast);
+}
+
+.project-card-gh-link:hover {
+  color: var(--color-primary);
+}
+
+/* ── Description ─────────────────────────────────────────── */
+.project-card-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* ── Tech stack badges ───────────────────────────────────── */
+.project-card-tech {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.project-tech-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--color-bg-tertiary, rgba(255,255,255,0.06));
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.project-tech-more {
+  background: transparent;
+  color: var(--color-text-muted);
+  border-color: transparent;
+}
+
+/* ── Mini progress bar ───────────────────────────────────── */
+.project-mini-progress {
+  height: 5px;
+  background: var(--color-bg-tertiary, rgba(255,255,255,0.08));
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.project-mini-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-text-muted);
+  transition: width 0.4s ease;
+  min-width: 0;
+}
+
+.project-mini-progress-bar.started {
+  background: var(--color-warning, #f59e0b);
+}
+
+.project-mini-progress-bar.halfway {
+  background: var(--color-info, #3b82f6);
+}
+
+.project-mini-progress-bar.done {
+  background: var(--color-success, #22c55e);
+}
+
+.project-mini-progress-label {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: right;
+  margin-top: 2px;
+}
+
+/* ── Card stats row ──────────────────────────────────────── */
+.project-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.project-card-stat-sep {
+  color: var(--color-border-light, rgba(255,255,255,0.15));
+  font-size: 10px;
+}
+
+.project-card-stat.done {
+  color: var(--color-success, #22c55e);
+}
+
+.project-card-stat.in-progress {
+  color: var(--color-info, #3b82f6);
+}
+
+/* ── Activity ────────────────────────────────────────────── */
+.project-card-activity {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-top: 1px solid var(--color-border);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+/* ── Quick actions ───────────────────────────────────────── */
+.project-card-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  margin-top: 2px;
+}
+
+.project-card-overview:hover .project-card-actions {
+  opacity: 1;
+}
+
+.project-card-action-btn {
+  padding: 4px 10px;
+  border-radius: var(--border-radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--color-bg-tertiary, rgba(255,255,255,0.06));
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.project-card-action-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-light);
+}
+
+.project-card-action-btn.primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.project-card-action-btn.primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.project-card-action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+
+/* ============================================================
+   SIDEBAR PROGRESS DOTS
+   ============================================================ */
+
+.sidebar-project-name-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-progress-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: auto;
+  transition: background var(--transition-fast);
+}
+
+.sidebar-progress-dot.empty {
+  background: var(--color-text-muted, rgba(255,255,255,0.2));
+}
+
+.sidebar-progress-dot.started {
+  background: var(--color-warning, #f59e0b);
+  box-shadow: 0 0 4px rgba(245,158,11,0.5);
+}
+
+.sidebar-progress-dot.halfway {
+  background: var(--color-info, #3b82f6);
+  box-shadow: 0 0 4px rgba(59,130,246,0.5);
+}
+
+.sidebar-progress-dot.done {
+  background: var(--color-success, #22c55e);
+  box-shadow: 0 0 4px rgba(34,197,94,0.5);
+}

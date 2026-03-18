@@ -1,4 +1,24 @@
 import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry } from '../../types';
+
+// ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
+const TAG_COLORS_MODAL: Array<[string, string]> = [
+  ['rgba(255, 107, 107, 0.18)', '#ff6b6b'],
+  ['rgba(78, 205, 196, 0.18)', '#4ecdc4'],
+  ['rgba(255, 183, 77, 0.18)', '#ffb74d'],
+  ['rgba(66, 165, 245, 0.18)', '#42a5f5'],
+  ['rgba(171, 145, 249, 0.18)', '#ab91f9'],
+  ['rgba(102, 187, 106, 0.18)', '#66bb6a'],
+  ['rgba(255, 138, 101, 0.18)', '#ff8a65'],
+  ['rgba(236, 64, 122, 0.18)', '#ec407a'],
+];
+
+function getTagColorModal(tag: string): [string, string] {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) {
+    hash = (hash * 31 + tag.charCodeAt(i)) >>> 0;
+  }
+  return TAG_COLORS_MODAL[hash % TAG_COLORS_MODAL.length];
+}
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO } from '../../utils/constants';
 import { createElement, formatTime } from '../../utils/helpers';
@@ -381,44 +401,72 @@ export class CardDetailModal {
     depsSection.appendChild(chipsContainer);
     depsSection.appendChild(addDepRow);
 
-    // Tags
+    // Tags — colored pills with × to remove + inline input (Enter or comma to add)
     const tagsSection = createElement('div', { className: 'modal-section' });
     const tagsLabel = createElement('label', { className: 'modal-label' }, 'Tags');
     const tagsContainer = createElement('div', { className: 'modal-tags' });
 
-    this.card.tags.forEach((tag) => {
-      const tagEl = createElement('span', { className: 'tag' }, tag);
-      const removeBtn = createElement('span', { className: 'tag-remove' }, '✕');
-      removeBtn.addEventListener('click', () => {
-        if (this.card) cardService.removeTag(this.card.id, tag);
-      });
-      tagEl.appendChild(removeBtn);
-      tagsContainer.appendChild(tagEl);
-    });
+    const renderTagPills = () => {
+      tagsContainer.innerHTML = '';
+      if (!this.card) return;
 
-    const addTagBtn = createElement('button', { className: 'add-tag-btn' }, '+ Tag');
-    addTagBtn.addEventListener('click', () => {
-      const tagInput = document.createElement('input');
-      tagInput.type = 'text';
-      tagInput.className = 'form-input tag-inline-input';
-      tagInput.placeholder = 'Tag name...';
-      tagInput.style.width = '120px';
-      tagInput.style.fontSize = '12px';
-      tagInput.style.padding = '3px 8px';
-      const commitTag = () => {
-        const tag = tagInput.value.trim();
-        if (tag && this.card) cardService.addTag(this.card.id, tag);
-        tagInput.remove();
-      };
-      tagInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') commitTag();
-        if (e.key === 'Escape') tagInput.remove();
+      this.card.tags.forEach((tag) => {
+        const [bg, color] = getTagColorModal(tag);
+        const tagEl = createElement('span', { className: 'card-tag modal-card-tag', title: tag });
+        tagEl.style.background = bg;
+        tagEl.style.color = color;
+        const labelSpan = createElement('span', {}, tag);
+        const removeBtn = createElement('span', { className: 'tag-remove', title: `Remove "${tag}"` }, '×');
+        removeBtn.addEventListener('click', () => {
+          if (this.card) cardService.removeTag(this.card.id, tag);
+        });
+        tagEl.appendChild(labelSpan);
+        tagEl.appendChild(removeBtn);
+        tagsContainer.appendChild(tagEl);
       });
-      tagInput.addEventListener('blur', commitTag);
-      tagsContainer.insertBefore(tagInput, addTagBtn);
-      tagInput.focus();
-    });
-    tagsContainer.appendChild(addTagBtn);
+
+      // Tag input wrapper
+      const inputWrapper = createElement('div', { className: 'tag-input-wrapper' });
+      const tagInput = createElement('input', {
+        type: 'text',
+        className: 'tag-input-field',
+        placeholder: 'Add tag…',
+      }) as HTMLInputElement;
+
+      const commitTags = (raw: string) => {
+        const tags = raw.split(',').map((t) => t.trim()).filter(Boolean);
+        tags.forEach((tag) => {
+          if (this.card && !this.card.tags.includes(tag)) {
+            cardService.addTag(this.card.id, tag);
+          }
+        });
+        tagInput.value = '';
+      };
+
+      tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitTags(tagInput.value);
+        } else if (e.key === ',') {
+          e.preventDefault();
+          commitTags(tagInput.value);
+        } else if (e.key === 'Escape') {
+          tagInput.value = '';
+        }
+      });
+
+      // Commit on comma typed mid-string too
+      tagInput.addEventListener('input', () => {
+        if (tagInput.value.includes(',')) {
+          commitTags(tagInput.value);
+        }
+      });
+
+      inputWrapper.appendChild(tagInput);
+      tagsContainer.appendChild(inputWrapper);
+    };
+
+    renderTagPills();
 
     tagsSection.appendChild(tagsLabel);
     tagsSection.appendChild(tagsContainer);

@@ -4,6 +4,7 @@ import { EVENTS } from '../../utils/constants';
 import { createElement, formatTime } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { projectService } from '../../services/ProjectService';
+import { apiClient } from '../../services/ApiClient';
 
 type FilterMode = 'all' | 'active' | 'completed';
 
@@ -240,7 +241,7 @@ export class ProjectList {
     // ── Progress bar ─────────────────────────────────────────────────────
     const progressWrap = createElement('div', { className: 'project-mini-progress' });
     const progressBar = createElement('div', {
-      className: 'project-mini-progress-bar',
+      className: 'project-mini-progress-fill',
       style: `width: ${stats.pct}%`,
       title: `${stats.pct}% done`,
     });
@@ -348,30 +349,12 @@ export class ProjectList {
     return card;
   }
 
-  private exportProject(project: Project): void {
-    const cards = appState.getCardsByProject(project.id);
-    const data = {
-      project: {
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        emoji: project.emoji,
-        githubUrl: project.githubUrl,
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt,
-      },
-      cards: cards.map((c) => ({
-        id: c.id,
-        title: c.title,
-        description: c.description,
-        status: c.status,
-        priority: c.priority,
-        tags: c.tags,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-      })),
-      exportedAt: new Date().toISOString(),
-    };
+  private async exportProject(project: Project): Promise<void> {
+    const data = await apiClient.exportProject(project.id);
+    if (!data) {
+      console.error('[ProjectList] Export failed for project', project.id);
+      return;
+    }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

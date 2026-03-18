@@ -7,6 +7,7 @@ import './styles/stats.css';
 import './styles/responsive.css';
 import './styles/rich-chat.css';
 import './styles/notifications.css';
+import './styles/projects-overview.css';
 import { App } from './App';
 
 // Initialize app when DOM is ready

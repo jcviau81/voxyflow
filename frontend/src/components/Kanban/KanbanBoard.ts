@@ -59,6 +59,7 @@ export class KanbanBoard {
     this.searchQuery = '';
     this.priorityFilter = null;
     this.agentFilter = null;
+    this.tagFilter = null;
 
     // Header row (title + search + add button)
     const header = createElement('div', { className: 'kanban-header' });
@@ -166,8 +167,15 @@ export class KanbanBoard {
       agentGroup.appendChild(chip);
     });
 
+    // Tag filter chips (built after cards are loaded — refreshed in refreshCards)
+    this.tagFilterGroup = createElement('div', { className: 'kanban-filter-chips kanban-tag-filter-group' });
+    const tagFilterLabel = createElement('span', { className: 'kanban-filter-label' }, '🏷️ Tags:');
+    this.tagFilterGroup.appendChild(tagFilterLabel);
+    // Placeholder — will be populated in refreshTagFilterChips()
+
     filterRow.appendChild(priorityGroup);
     filterRow.appendChild(agentGroup);
+    filterRow.appendChild(this.tagFilterGroup);
     this.container.appendChild(filterRow);
 
     // Board with columns
@@ -210,6 +218,16 @@ export class KanbanBoard {
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_SELECTED, () => this.render())
     );
+    // Tag click on a card → activate that tag filter
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.KANBAN_TAG_FILTER, (data: unknown) => {
+        const { tag } = data as { tag: string };
+        // Toggle: clicking same tag deselects it
+        this.tagFilter = this.tagFilter === tag ? null : tag;
+        this.refreshTagFilterChips();
+        this.applyFilters();
+      })
+    );
   }
 
   private updateClearBtn(): void {
@@ -223,13 +241,13 @@ export class KanbanBoard {
     let totalCount = 0;
 
     this.columns.forEach((column) => {
-      const columnVisible = column.applyFilter(this.searchQuery, this.priorityFilter, this.agentFilter);
+      const columnVisible = column.applyFilter(this.searchQuery, this.priorityFilter, this.agentFilter, this.tagFilter);
       visibleCount += columnVisible;
       column.getCardComponents().forEach(() => totalCount++);
     });
 
     if (this.matchCountEl) {
-      const isFiltered = this.searchQuery || this.priorityFilter !== null || this.agentFilter !== null;
+      const isFiltered = this.searchQuery || this.priorityFilter !== null || this.agentFilter !== null || this.tagFilter !== null;
       this.matchCountEl.textContent = isFiltered ? `Showing ${visibleCount} of ${totalCount} cards` : '';
     }
   }
@@ -259,6 +277,7 @@ export class KanbanBoard {
     const projectId = appState.get('currentProjectId');
     if (!projectId) {
       this.columns.forEach((col) => col.setCards([]));
+      this.refreshTagFilterChips();
       this.applyFilters();
       return;
     }
@@ -271,8 +290,49 @@ export class KanbanBoard {
       }
     }
 
+    // Rebuild tag filter chips with current project tags
+    this.refreshTagFilterChips();
+
     // Re-apply current filters after refresh
     this.applyFilters();
+  }
+
+  private refreshTagFilterChips(): void {
+    if (!this.tagFilterGroup) return;
+
+    const projectId = appState.get('currentProjectId');
+    // Collect all unique tags across the project
+    const allTags = new Set<string>();
+    if (projectId) {
+      appState.getCardsByProject(projectId).forEach((card) => {
+        card.tags.forEach((t) => { if (t) allTags.add(t); });
+      });
+    }
+
+    // Remove all chips (keep the label as first child)
+    const label = this.tagFilterGroup.firstChild;
+    this.tagFilterGroup.innerHTML = '';
+    if (label) this.tagFilterGroup.appendChild(label);
+
+    if (allTags.size === 0) {
+      this.tagFilterGroup.style.display = 'none';
+      return;
+    }
+    this.tagFilterGroup.style.display = '';
+
+    allTags.forEach((tag) => {
+      const isActive = this.tagFilter === tag;
+      const chip = createElement('button', {
+        className: 'tag-filter-chip' + (isActive ? ' active' : ''),
+        title: `Filter by "${tag}"`,
+      }, tag);
+      chip.addEventListener('click', () => {
+        this.tagFilter = this.tagFilter === tag ? null : tag;
+        this.refreshTagFilterChips();
+        this.applyFilters();
+      });
+      this.tagFilterGroup!.appendChild(chip);
+    });
   }
 
   private promptNewCard(): void {

@@ -745,9 +745,12 @@
 
 .kanban-card-tags {
   display: flex;
+  flex-wrap: wrap;
   gap: 3px;
+  margin-top: 4px;
 }
 
+/* Legacy class — kept for safety */
 .kanban-card-tag {
   font-size: 9px;
   background: rgba(78, 205, 196, 0.15);
@@ -755,6 +758,128 @@
   padding: 1px 6px;
   border-radius: 8px;
   font-weight: 500;
+}
+
+/* ── Card Tags (hash-colored pills) ─────────────────────────────────────── */
+
+.card-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: filter var(--transition-fast), opacity var(--transition-fast);
+  white-space: nowrap;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+
+.card-tag:hover {
+  filter: brightness(1.2);
+}
+
+.card-tag-more {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+/* Modal tag pills (slightly larger) */
+.modal-card-tag {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  max-width: 160px;
+  cursor: default;
+}
+
+.modal-card-tag .tag-remove {
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.55;
+  transition: opacity var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.modal-card-tag .tag-remove:hover {
+  opacity: 1;
+}
+
+/* ── Tag input (in modal) ──────────────────────────────────────────────── */
+
+.tag-input-wrapper {
+  display: inline-flex;
+  align-items: center;
+  background: var(--color-bg-tertiary);
+  border: 1px dashed var(--color-border-light);
+  border-radius: 12px;
+  padding: 2px 8px;
+  transition: border-color var(--transition-fast);
+}
+
+.tag-input-wrapper:focus-within {
+  border-color: var(--color-accent);
+  border-style: solid;
+}
+
+.tag-input-field {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text);
+  font-size: 12px;
+  width: 90px;
+  padding: 2px 0;
+}
+
+.tag-input-field::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* ── Tag filter chips (in kanban header) ───────────────────────────────── */
+
+.kanban-tag-filter-group {
+  flex-wrap: wrap;
+}
+
+.tag-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.tag-filter-chip:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.tag-filter-chip.active {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 700;
 }
 
 .kanban-card-deps {
@@ -4243,3 +4368,25 @@
   border-color: #ff6b6b;
   box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.2);
 }
+
+/* ── Project Overview Grid ─────────────────────────────────────────────── */
+.project-summary-bar { display: flex; align-items: center; gap: 16px; padding: 12px 0; margin-bottom: 16px; border-bottom: 1px solid var(--color-border); }
+.project-summary-stat { font-size: 13px; color: var(--color-text-muted); }
+.project-summary-stat strong { color: var(--color-text); }
+.project-filter-chips { display: flex; gap: 8px; margin-left: auto; }
+.project-filter-chip { padding: 4px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-muted); }
+.project-filter-chip.active { background: var(--color-accent); color: white; border-color: var(--color-accent); }
+.project-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.project-card-overview { background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: box-shadow 0.2s; }
+.project-card-overview:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+.project-card-header { display: flex; align-items: center; gap: 10px; }
+.project-card-emoji { font-size: 24px; }
+.project-card-name { font-size: 15px; font-weight: 600; color: var(--color-text); }
+.project-card-desc { font-size: 12px; color: var(--color-text-muted); line-height: 1.4; }
+.project-mini-progress { height: 4px; background: var(--color-bg-tertiary); border-radius: 2px; overflow: hidden; }
+.project-mini-progress-fill { height: 100%; background: var(--color-accent); border-radius: 2px; transition: width 0.3s; }
+.project-card-stats { font-size: 12px; color: var(--color-text-muted); }
+.project-card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--color-border); }
+.project-card-action-btn { flex: 1; padding: 6px; font-size: 12px; border-radius: 6px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-muted); cursor: pointer; }
+.project-card-action-btn:hover { background: var(--color-bg-secondary); color: var(--color-text); }
+.project-card-action-btn.primary { background: var(--color-accent); color: white; border-color: transparent; }
