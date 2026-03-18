@@ -49,7 +49,7 @@ export class Sidebar {
       'data-tab': 'main',
     });
     const generalIcon = createElement('span', { className: 'sidebar-item-icon' }, '💬');
-    const generalLabel = createElement('span', { className: 'sidebar-item-label' }, 'General');
+    const generalLabel = createElement('span', { className: 'sidebar-item-label' }, 'Main Chat');
     generalItem.appendChild(generalIcon);
     generalItem.appendChild(generalLabel);
     generalItem.addEventListener('click', () => {
