@@ -173,4 +173,10 @@ export const EVENTS = {
 
   // State
   STATE_CHANGED: 'state:changed',
+
+  // Documents
+  DOCUMENT_UPLOADED: 'document:uploaded',
+
+  // Activity Feed
+  ACTIVITY_ADDED: 'activity:added',
 } as const;

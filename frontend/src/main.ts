@@ -5,6 +5,7 @@ import './styles/ideas.css';
 import './styles/freeboard.css';
 import './styles/responsive.css';
 import './styles/rich-chat.css';
+import './styles/notifications.css';
 import { App } from './App';
 
 // Initialize app when DOM is ready

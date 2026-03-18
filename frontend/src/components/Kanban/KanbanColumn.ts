@@ -67,6 +67,20 @@ export class KanbanColumn {
     this.countEl.textContent = cards.length.toString();
   }
 
+  applyFilter(query: string, priorityFilter: number | null, agentFilter: string | null): number {
+    let visibleCount = 0;
+    this.cardComponents.forEach((card) => {
+      if (card.applyFilter(query, priorityFilter, agentFilter)) {
+        visibleCount++;
+      }
+    });
+    return visibleCount;
+  }
+
+  getCardComponents(): Map<string, KanbanCard> {
+    return this.cardComponents;
+  }
+
   destroy(): void {
     this.cardComponents.forEach((c) => c.destroy());
     this.cardComponents.clear();

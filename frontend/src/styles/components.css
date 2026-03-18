@@ -744,6 +744,117 @@
   color: var(--color-text-muted);
 }
 
+/* ============= KANBAN SEARCH & FILTER ============= */
+
+.kanban-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  max-width: 320px;
+  margin: 0 12px;
+}
+
+.kanban-search-input {
+  flex: 1;
+  padding: 5px 10px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  color: var(--color-text);
+  font-size: 12px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.kanban-search-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.kanban-search-input:focus {
+  border-color: var(--color-accent);
+}
+
+.kanban-search-clear {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+  transition: color var(--transition);
+  flex-shrink: 0;
+}
+
+.kanban-search-clear:hover {
+  color: var(--color-text);
+  background: var(--color-bg-secondary);
+}
+
+.kanban-match-count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.kanban-filter-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.kanban-filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.kanban-filter-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  margin-right: 2px;
+}
+
+.kanban-filter-chip {
+  padding: 3px 9px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition);
+  line-height: 1.4;
+}
+
+.kanban-filter-chip:hover {
+  border-color: var(--color-border-light);
+  color: var(--color-text);
+}
+
+.kanban-filter-chip.active {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.search-highlight {
+  background: rgba(255, 200, 0, 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* ============= MODAL ============= */
 .modal-overlay {
   position: fixed;

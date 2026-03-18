@@ -122,6 +122,10 @@ export interface AppStateData {
   sessions: Record<string, SessionInfo[]>;
   // Active session per context (tabId → sessionId)
   activeSession: Record<string, string>;
+  // Activity feed per project (projectId → ActivityEntry[])
+  activities: Record<string, ActivityEntry[]>;
+  // Unread opportunity badge count
+  opportunityBadgeCount: number;
 }
 
 // Session tabs (per project/card context)
@@ -242,4 +246,20 @@ export interface ModelsSettings {
   fast: ModelLayerConfig;
   deep: ModelLayerConfig;
   analyzer: ModelLayerConfig;
+}
+
+// Activity Feed
+export type ActivityType =
+  | 'card_created'
+  | 'card_moved'
+  | 'card_deleted'
+  | 'document_uploaded'
+  | 'chat_message';
+
+export interface ActivityEntry {
+  id: string;
+  projectId: string;
+  type: ActivityType;
+  message: string;
+  timestamp: number;
 }

@@ -57,9 +57,16 @@ class ModelsSettings(BaseModel):
     )
 
 
+class SchedulerSettings(BaseModel):
+    enabled: bool = True
+    heartbeat_interval_minutes: int = 2
+    rag_index_interval_minutes: int = 15
+
+
 class AppSettings(BaseModel):
     personality: PersonalitySettings = PersonalitySettings()
     models: ModelsSettings = ModelsSettings()
+    scheduler: SchedulerSettings = SchedulerSettings()
 
 
 def _resolve_personality_path(rel_path: str) -> Path:

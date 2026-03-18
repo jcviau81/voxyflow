@@ -6,7 +6,6 @@ import { appState } from '../../state/AppState';
 export class TopBar {
   private container: HTMLElement;
   private unsubscribers: (() => void)[] = [];
-  private opportunitiesCount: number = 0;
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('header', { className: 'top-bar' });
@@ -32,14 +31,16 @@ export class TopBar {
     voiceIndicator.appendChild(voiceDot);
     voiceIndicator.appendChild(voiceLabel);
 
-    // Opportunities toggle (mobile only)
+    // Opportunities toggle (mobile only) — shows badge from AppState
+    const badgeCount = appState.getOpportunityBadgeCount();
     const oppToggle = createElement('button', {
       className: 'top-bar-opp-toggle',
       'data-testid': 'opportunities-toggle',
     });
-    oppToggle.innerHTML = `💡${this.opportunitiesCount > 0 ? `<span class="opp-toggle-badge">${this.opportunitiesCount}</span>` : ''}`;
+    oppToggle.innerHTML = `💡${badgeCount > 0 ? `<span class="opp-toggle-badge notification-badge">${badgeCount}</span>` : ''}`;
     oppToggle.addEventListener('click', () => {
       eventBus.emit(EVENTS.OPPORTUNITIES_TOGGLE);
+      appState.clearOpportunityBadge();
     });
 
     this.container.appendChild(menuBtn);
@@ -54,8 +55,7 @@ export class TopBar {
       appState.subscribe('voiceActive', () => this.render())
     );
     this.unsubscribers.push(
-      eventBus.on(EVENTS.OPPORTUNITIES_COUNT, (count: unknown) => {
-        this.opportunitiesCount = count as number;
+      eventBus.on(EVENTS.OPPORTUNITIES_COUNT, () => {
         this.render();
       })
     );

@@ -1,7 +1,9 @@
-import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab, Idea, SessionInfo } from '../types';
+import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab, Idea, SessionInfo, ActivityEntry, ActivityType } from '../types';
 import { eventBus } from '../utils/EventBus';
 import { EVENTS } from '../utils/constants';
 import { generateId, deepClone } from '../utils/helpers';
+
+const MAX_ACTIVITIES_PER_PROJECT = 50;
 
 const STORAGE_KEY = 'voxyflow_state';
 const TABS_STORAGE_KEY = 'voxyflow_open_tabs';
@@ -32,6 +34,8 @@ const defaultState: AppStateData = {
   ideas: [],
   sessions: {},
   activeSession: {},
+  activities: {},
+  opportunityBadgeCount: 0,
 };
 
 class AppState {
@@ -65,6 +69,14 @@ class AppState {
     }
     if (!this.state.activeSession) {
       this.state.activeSession = {};
+    }
+
+    // Ensure activity feed initialized (migration from old state)
+    if (!this.state.activities) {
+      this.state.activities = {};
+    }
+    if (this.state.opportunityBadgeCount === undefined) {
+      this.state.opportunityBadgeCount = 0;
     }
 
     // Restore persisted tabs
@@ -137,6 +149,15 @@ class AppState {
     };
     const messages = [...this.state.messages, fullMessage];
     this.set('messages', messages);
+
+    // Track chat activity for project contexts
+    if (fullMessage.projectId && fullMessage.role === 'user' && !fullMessage.streaming) {
+      const snippet = fullMessage.content.length > 60
+        ? fullMessage.content.slice(0, 60) + '…'
+        : fullMessage.content;
+      this.addActivity(fullMessage.projectId, 'chat_message', `💬 ${snippet}`);
+    }
+
     return fullMessage;
   }
 
@@ -443,6 +464,58 @@ class AppState {
 
   getIdeas(): Idea[] {
     return this.state.ideas || [];
+  }
+
+  // --- Activity Feed ---
+
+  addActivity(projectId: string, type: ActivityType, message: string): ActivityEntry {
+    const entry: ActivityEntry = {
+      id: generateId(),
+      projectId,
+      type,
+      message,
+      timestamp: Date.now(),
+    };
+    const existing = this.state.activities[projectId] || [];
+    // Prepend new entry and trim to max
+    const updated = [entry, ...existing].slice(0, MAX_ACTIVITIES_PER_PROJECT);
+    this.state.activities = {
+      ...this.state.activities,
+      [projectId]: updated,
+    };
+    this.saveToStorage();
+    eventBus.emit(EVENTS.ACTIVITY_ADDED, entry);
+    return entry;
+  }
+
+  getActivities(projectId: string, limit = 10): ActivityEntry[] {
+    const all = this.state.activities[projectId] || [];
+    return all.slice(0, limit);
+  }
+
+  clearActivities(projectId: string): void {
+    const activities = { ...this.state.activities };
+    delete activities[projectId];
+    this.state.activities = activities;
+    this.saveToStorage();
+  }
+
+  // --- Opportunity Badge ---
+
+  incrementOpportunityBadge(): void {
+    this.state.opportunityBadgeCount = (this.state.opportunityBadgeCount || 0) + 1;
+    this.saveToStorage();
+    eventBus.emit(EVENTS.OPPORTUNITIES_COUNT, this.state.opportunityBadgeCount);
+  }
+
+  clearOpportunityBadge(): void {
+    this.state.opportunityBadgeCount = 0;
+    this.saveToStorage();
+    eventBus.emit(EVENTS.OPPORTUNITIES_COUNT, 0);
+  }
+
+  getOpportunityBadgeCount(): number {
+    return this.state.opportunityBadgeCount || 0;
   }
 
   // --- Session Tabs (per project/card context) ---

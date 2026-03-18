@@ -1,4 +1,4 @@
-import { ViewMode, ProjectFormShowEvent, ProjectFormData, CardStatus, AgentPersona } from './types';
+import { ViewMode, ProjectFormShowEvent, ProjectFormData, CardStatus, AgentPersona, Card, Project } from './types';
 import { eventBus } from './utils/EventBus';
 import { EVENTS } from './utils/constants';
 import { createElement } from './utils/helpers';
@@ -203,9 +203,103 @@ export class App {
     this.unsubscribers.push(
       eventBus.on(EVENTS.CARD_FORM_DELETE, (payload: unknown) => {
         const { cardId } = payload as { cardId: string };
+        // Track deletion activity before removing
+        const card = appState.getCard(cardId);
+        if (card && card.projectId) {
+          appState.addActivity(card.projectId, 'card_deleted', `🗑️ Card deleted: "${card.title}"`);
+        }
         cardService.delete(cardId);
         this.hideCardForm();
         eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Card deleted', type: 'success' });
+      })
+    );
+
+    // Project created toast
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.PROJECT_CREATED, (project: unknown) => {
+        const p = project as Project;
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `✅ Project '${p.name}' created`,
+          type: 'success',
+          duration: 3000,
+        });
+      })
+    );
+
+    // Card moved toast + activity
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_MOVED, (data: unknown) => {
+        const { cardId, newStatus } = data as { cardId: string; newStatus: string };
+        const card = appState.getCard(cardId);
+        const statusLabels: Record<string, string> = {
+          'idea': '💡 Idea',
+          'todo': '📋 Todo',
+          'in-progress': '🔨 In Progress',
+          'done': '✅ Done',
+        };
+        const label = statusLabels[newStatus] || newStatus;
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `📋 Moved to ${label}`,
+          type: 'info',
+          duration: 2500,
+        });
+        if (card && card.projectId) {
+          appState.addActivity(card.projectId, 'card_moved', `📋 "${card.title}" moved to ${label}`);
+        }
+      })
+    );
+
+    // Card created activity tracking
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_CREATED, (card: unknown) => {
+        const c = card as Card;
+        if (c && c.projectId) {
+          appState.addActivity(c.projectId, 'card_created', `✅ Card created: "${c.title}"`);
+        }
+      })
+    );
+
+    // Document uploaded toast + activity
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.DOCUMENT_UPLOADED, (data: unknown) => {
+        const { filename, projectId } = data as { filename: string; projectId?: string };
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `📄 ${filename} indexed`,
+          type: 'success',
+          duration: 3000,
+        });
+        if (projectId) {
+          appState.addActivity(projectId, 'document_uploaded', `📄 Document indexed: "${filename}"`);
+        }
+      })
+    );
+
+    // WS error toast
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.WS_ERROR, () => {
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: '⚠️ Connection lost — retrying...',
+          type: 'warning',
+          duration: 5000,
+        });
+      })
+    );
+
+    // Opportunity badge: increment when new suggestion arrives
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_SUGGESTION, () => {
+        const oppContainer = this.root.querySelector('.opportunities-container');
+        const isOpen = oppContainer?.classList.contains('open');
+        if (!isOpen) {
+          appState.incrementOpportunityBadge();
+        }
+      })
+    );
+
+    // Clear badge when opportunities panel is opened
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.OPPORTUNITIES_TOGGLE, () => {
+        appState.clearOpportunityBadge();
       })
     );
   }

@@ -1,15 +1,45 @@
 import { Card, CardStatus } from '../../types';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS } from '../../utils/constants';
+import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_TYPE_EMOJI, AGENT_TYPE_INFO } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { cardService } from '../../services/CardService';
 import { KanbanColumn } from './KanbanColumn';
+import { ActivityFeed } from './ActivityFeed';
+
+// Priority filter options
+const PRIORITY_FILTERS = [
+  { label: 'All', value: null },
+  { label: '🔴 Critical', value: 3 },
+  { label: '🟠 High', value: 2 },
+  { label: '🟡 Medium', value: 1 },
+  { label: '🟢 Low', value: 0 },
+];
+
+// Agent filter options
+const AGENT_FILTERS = [
+  { label: 'All', value: null },
+  ...Object.entries(AGENT_TYPE_INFO).map(([key, info]) => ({
+    label: `${info.emoji} ${info.name}`,
+    value: key,
+  })),
+];
 
 export class KanbanBoard {
   private container: HTMLElement;
   private columns: Map<string, KanbanColumn> = new Map();
+  private activityFeed: ActivityFeed | null = null;
   private unsubscribers: (() => void)[] = [];
+
+  // Filter state (ephemeral — not in AppState)
+  private searchQuery: string = '';
+  private priorityFilter: number | null = null;
+  private agentFilter: string | null = null;
+
+  // UI refs
+  private matchCountEl: HTMLElement | null = null;
+  private searchInput: HTMLInputElement | null = null;
+  private clearBtn: HTMLElement | null = null;
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'kanban-board', 'data-testid': 'kanban-board' });
@@ -21,19 +51,95 @@ export class KanbanBoard {
     this.container.innerHTML = '';
     this.columns.clear();
 
-    // Header
+    // Reset filter state on render (project change)
+    this.searchQuery = '';
+    this.priorityFilter = null;
+    this.agentFilter = null;
+
+    // Header row (title + search + add button)
     const header = createElement('div', { className: 'kanban-header' });
     const projectId = appState.get('currentProjectId');
     const project = projectId ? appState.getProject(projectId) : null;
     const projectName = project?.name || 'Kanban Board';
     const title = createElement('h2', { className: 'kanban-title' }, projectName);
 
+    // Search bar
+    const searchBar = createElement('div', { className: 'kanban-search-bar' });
+
+    this.searchInput = document.createElement('input');
+    this.searchInput.type = 'text';
+    this.searchInput.className = 'kanban-search-input';
+    this.searchInput.placeholder = 'Search cards...';
+    this.searchInput.addEventListener('input', () => {
+      this.searchQuery = this.searchInput!.value;
+      this.updateClearBtn();
+      this.applyFilters();
+    });
+
+    this.clearBtn = createElement('button', { className: 'kanban-search-clear' }, '×');
+    this.clearBtn.style.display = 'none';
+    this.clearBtn.addEventListener('click', () => {
+      this.searchQuery = '';
+      this.searchInput!.value = '';
+      this.updateClearBtn();
+      this.applyFilters();
+    });
+
+    this.matchCountEl = createElement('span', { className: 'kanban-match-count' });
+
+    searchBar.appendChild(this.searchInput);
+    searchBar.appendChild(this.clearBtn);
+    searchBar.appendChild(this.matchCountEl);
+
     const addBtn = createElement('button', { className: 'kanban-add-btn' }, '+ New Card');
     addBtn.addEventListener('click', () => this.promptNewCard());
 
     header.appendChild(title);
+    header.appendChild(searchBar);
     header.appendChild(addBtn);
     this.container.appendChild(header);
+
+    // Filter chips row
+    const filterRow = createElement('div', { className: 'kanban-filter-row' });
+
+    // Priority chips
+    const priorityGroup = createElement('div', { className: 'kanban-filter-chips' });
+    const priorityLabel = createElement('span', { className: 'kanban-filter-label' }, 'Priority:');
+    priorityGroup.appendChild(priorityLabel);
+    PRIORITY_FILTERS.forEach((pf) => {
+      const chip = createElement('button', { className: 'kanban-filter-chip' + (this.priorityFilter === pf.value ? ' active' : '') }, pf.label);
+      if (this.priorityFilter === pf.value) chip.classList.add('active');
+      chip.addEventListener('click', () => {
+        this.priorityFilter = pf.value;
+        // Update active state on all priority chips
+        priorityGroup.querySelectorAll('.kanban-filter-chip').forEach((c, i) => {
+          c.classList.toggle('active', PRIORITY_FILTERS[i].value === this.priorityFilter);
+        });
+        this.applyFilters();
+      });
+      priorityGroup.appendChild(chip);
+    });
+
+    // Agent chips
+    const agentGroup = createElement('div', { className: 'kanban-filter-chips' });
+    const agentLabel = createElement('span', { className: 'kanban-filter-label' }, 'Agent:');
+    agentGroup.appendChild(agentLabel);
+    AGENT_FILTERS.forEach((af) => {
+      const chip = createElement('button', { className: 'kanban-filter-chip' + (this.agentFilter === af.value ? ' active' : '') }, af.label);
+      if (this.agentFilter === af.value) chip.classList.add('active');
+      chip.addEventListener('click', () => {
+        this.agentFilter = af.value;
+        agentGroup.querySelectorAll('.kanban-filter-chip').forEach((c, i) => {
+          c.classList.toggle('active', AGENT_FILTERS[i].value === this.agentFilter);
+        });
+        this.applyFilters();
+      });
+      agentGroup.appendChild(chip);
+    });
+
+    filterRow.appendChild(priorityGroup);
+    filterRow.appendChild(agentGroup);
+    this.container.appendChild(filterRow);
 
     // Board with columns
     const board = createElement('div', { className: 'kanban-columns' });
@@ -47,6 +153,13 @@ export class KanbanBoard {
 
     // Setup drag & drop on board
     this.setupDragDrop(board);
+
+    // Activity Feed at the bottom
+    if (this.activityFeed) {
+      this.activityFeed.destroy();
+      this.activityFeed = null;
+    }
+    this.activityFeed = new ActivityFeed(this.container);
 
     this.parentElement.appendChild(this.container);
     this.refreshCards();
@@ -66,8 +179,30 @@ export class KanbanBoard {
       eventBus.on(EVENTS.CARD_MOVED, () => this.refreshCards())
     );
     this.unsubscribers.push(
-      eventBus.on(EVENTS.PROJECT_SELECTED, () => this.refreshCards())
+      eventBus.on(EVENTS.PROJECT_SELECTED, () => this.render())
     );
+  }
+
+  private updateClearBtn(): void {
+    if (this.clearBtn) {
+      this.clearBtn.style.display = this.searchQuery ? '' : 'none';
+    }
+  }
+
+  private applyFilters(): void {
+    let visibleCount = 0;
+    let totalCount = 0;
+
+    this.columns.forEach((column) => {
+      const columnVisible = column.applyFilter(this.searchQuery, this.priorityFilter, this.agentFilter);
+      visibleCount += columnVisible;
+      column.getCardComponents().forEach(() => totalCount++);
+    });
+
+    if (this.matchCountEl) {
+      const isFiltered = this.searchQuery || this.priorityFilter !== null || this.agentFilter !== null;
+      this.matchCountEl.textContent = isFiltered ? `Showing ${visibleCount} of ${totalCount} cards` : '';
+    }
   }
 
   private setupDragDrop(board: HTMLElement): void {
@@ -95,6 +230,7 @@ export class KanbanBoard {
     const projectId = appState.get('currentProjectId');
     if (!projectId) {
       this.columns.forEach((col) => col.setCards([]));
+      this.applyFilters();
       return;
     }
 
@@ -105,6 +241,9 @@ export class KanbanBoard {
         column.setCards(cards);
       }
     }
+
+    // Re-apply current filters after refresh
+    this.applyFilters();
   }
 
   private promptNewCard(): void {
@@ -136,6 +275,8 @@ export class KanbanBoard {
     this.unsubscribers = [];
     this.columns.forEach((col) => col.destroy());
     this.columns.clear();
+    this.activityFeed?.destroy();
+    this.activityFeed = null;
     this.container.remove();
   }
 }

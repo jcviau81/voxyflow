@@ -12,11 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db
-from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools, sessions, documents
+from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools, sessions, documents, health, jobs
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
 from app.services.rag_service import get_rag_service
+from app.services.scheduler_service import get_scheduler_service
 from app.tools import execute_tool, get_tool_definitions
 
 # ---------------------------------------------------------------------------
@@ -40,13 +41,48 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Voxyflow starting up...")
     await init_db()
     logger.info("✅ Database initialized")
+
     # Initialize RAGService singleton (chromadb + sentence-transformers)
     rag = get_rag_service()
     if rag.enabled:
         logger.info("✅ RAGService initialized (ChromaDB + all-MiniLM-L6-v2)")
     else:
         logger.warning("⚠️  RAGService disabled (chromadb not installed — install chromadb + sentence-transformers to enable)")
+
+    # Start scheduler (heartbeat + RAG indexer)
+    scheduler = get_scheduler_service()
+    _app_settings = get_settings()
+    # Load scheduler settings from settings.json if available
+    _sched_enabled = True
+    _heartbeat_interval = 2
+    _rag_interval = 15
+    try:
+        import json, os
+        from pathlib import Path
+        _voxyflow_dir = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.openclaw/workspace/voxyflow")))
+        _settings_file = _voxyflow_dir / "settings.json"
+        if _settings_file.exists():
+            with open(_settings_file) as _f:
+                _stored = json.load(_f)
+            _sched_cfg = _stored.get("scheduler", {})
+            _sched_enabled = _sched_cfg.get("enabled", True)
+            _heartbeat_interval = _sched_cfg.get("heartbeat_interval_minutes", 2)
+            _rag_interval = _sched_cfg.get("rag_index_interval_minutes", 15)
+    except Exception as _e:
+        logger.warning(f"Failed to load scheduler settings: {_e} — using defaults")
+
+    if _sched_enabled:
+        scheduler.start(
+            heartbeat_interval_minutes=_heartbeat_interval,
+            rag_index_interval_minutes=_rag_interval,
+        )
+    else:
+        logger.info("⏸️  Scheduler disabled via settings")
+
     yield
+
+    # Shutdown scheduler cleanly
+    scheduler.stop()
     logger.info("👋 Voxyflow shutting down")
 
 
@@ -81,6 +117,8 @@ app.include_router(settings.router)
 app.include_router(tools.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
+app.include_router(health.router)
+app.include_router(jobs.router)
 
 
 @app.get("/health")

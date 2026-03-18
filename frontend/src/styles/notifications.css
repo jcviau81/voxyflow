@@ -1,0 +1,136 @@
+/* Notification Badge — small red circle with count */
+.notification-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ef5350;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow: 0 1px 4px rgba(239, 83, 80, 0.4);
+  animation: badge-pop 0.2s ease;
+}
+
+@keyframes badge-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  80% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Activity Feed — collapsible panel at bottom of kanban */
+.activity-feed {
+  margin: 12px 0 0 0;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  border-radius: 0 0 var(--border-radius) var(--border-radius);
+}
+
+.activity-feed-header {
+  display: flex;
+  align-items: center;
+}
+
+.activity-feed-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  text-align: left;
+  transition: color var(--transition-fast);
+  border-radius: var(--border-radius-sm);
+}
+
+.activity-feed-toggle:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+.activity-feed-title {
+  font-weight: 600;
+  flex: 1;
+}
+
+.activity-feed-count {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.activity-feed-chevron {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.activity-feed-body {
+  padding: 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: feed-expand 0.2s ease;
+}
+
+@keyframes feed-expand {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.activity-feed-empty {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  padding: 8px 0;
+  text-align: center;
+}
+
+/* Activity Entry — single row */
+.activity-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--border-radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.activity-entry:hover {
+  background: var(--color-bg-hover);
+}
+
+.activity-entry-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.activity-entry-message {
+  flex: 1;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* Activity Time — muted relative timestamp */
+.activity-time {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
