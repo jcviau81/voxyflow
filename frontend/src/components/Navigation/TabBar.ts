@@ -99,8 +99,8 @@ export class TabBar {
   }
 
   private handleNewProject(): void {
-    // Switch to projects view to create a new project
-    appState.setView('projects');
+    // Show inline project creation form
+    eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'create' });
   }
 
   private setupListeners(): void {

@@ -34,6 +34,8 @@ export interface Project {
   id: string;
   name: string;
   description: string;
+  emoji?: string;
+  color?: string;
   createdAt: number;
   updatedAt: number;
   cards: string[];
@@ -130,6 +132,19 @@ export interface Tab {
   closable: boolean;    // Main = false, projects = true
   hasNotification: boolean;
   isActive: boolean;
+}
+
+export interface ProjectFormData {
+  title: string;
+  description?: string;
+  emoji?: string;
+  color?: string;
+  status?: 'active' | 'archived';
+}
+
+export interface ProjectFormShowEvent {
+  mode: 'create' | 'edit';
+  project?: Project;
 }
 
 export interface CardSuggestion {

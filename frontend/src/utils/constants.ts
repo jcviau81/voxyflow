@@ -100,6 +100,11 @@ export const EVENTS = {
   CARD_MOVED: 'card:moved',
   CARD_SELECTED: 'card:selected',
 
+  // Project Form
+  PROJECT_FORM_SHOW: 'project:form:show',
+  PROJECT_FORM_SUBMIT: 'project:form:submit',
+  PROJECT_FORM_CANCEL: 'project:form:cancel',
+
   // UI
   TOAST_SHOW: 'ui:toast:show',
   MODAL_OPEN: 'ui:modal:open',

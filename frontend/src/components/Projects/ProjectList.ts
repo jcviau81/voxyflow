@@ -22,8 +22,13 @@ export class ProjectList {
     // Header
     const header = createElement('div', { className: 'project-list-header' });
     const title = createElement('h2', {}, 'Projects');
-    const addBtn = createElement('button', { className: 'project-add-btn' }, '+ New Project');
-    addBtn.addEventListener('click', () => this.promptNewProject());
+    const addBtn = createElement('button', {
+      className: 'project-add-btn',
+      'data-testid': 'new-project-btn',
+    }, '+ New Project');
+    addBtn.addEventListener('click', () => {
+      eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'create' });
+    });
     header.appendChild(title);
     header.appendChild(addBtn);
 
@@ -91,10 +96,13 @@ export class ProjectList {
     info.appendChild(meta);
 
     const actions = createElement('div', { className: 'project-item-actions' });
-    const editBtn = createElement('button', { className: 'project-edit-btn' }, '✏️');
+    const editBtn = createElement('button', {
+      className: 'project-edit-btn',
+      'data-testid': `project-edit-${project.id}`,
+    }, '✏️');
     editBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.promptEditProject(project);
+      eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'edit', project });
     });
     const deleteBtn = createElement('button', { className: 'project-delete-btn' }, '🗑️');
     deleteBtn.addEventListener('click', (e) => {
@@ -115,22 +123,6 @@ export class ProjectList {
     });
 
     return item;
-  }
-
-  private promptNewProject(): void {
-    const name = prompt('Project name:');
-    if (name?.trim()) {
-      const desc = prompt('Description (optional):') || '';
-      projectService.create(name.trim(), desc);
-    }
-  }
-
-  private promptEditProject(project: Project): void {
-    const name = prompt('Project name:', project.name);
-    if (name?.trim()) {
-      const desc = prompt('Description:', project.description) || '';
-      projectService.update(project.id, { name: name.trim(), description: desc });
-    }
   }
 
   update(): void {
