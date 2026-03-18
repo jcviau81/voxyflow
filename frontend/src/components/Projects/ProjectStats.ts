@@ -1,0 +1,352 @@
+import { Card, ActivityEntry } from '../../types';
+import { appState } from '../../state/AppState';
+import { eventBus } from '../../utils/EventBus';
+import { EVENTS } from '../../utils/constants';
+import { createElement } from '../../utils/helpers';
+
+const STATUS_CONFIG: { key: Card['status']; label: string; color: string }[] = [
+  { key: 'idea',        label: '💡 Idea',        color: '#a78bfa' },
+  { key: 'todo',        label: '📋 Todo',         color: '#60a5fa' },
+  { key: 'in-progress', label: '🔨 In Progress',  color: '#fbbf24' },
+  { key: 'done',        label: '✅ Done',          color: '#4ade80' },
+];
+
+const PRIORITY_CONFIG: { value: number; label: string; color: string }[] = [
+  { value: 3, label: '🔴 Critical', color: '#ef4444' },
+  { value: 2, label: '🟠 High',     color: '#f97316' },
+  { value: 1, label: '🟡 Medium',   color: '#eab308' },
+  { value: 0, label: '🟢 Low',      color: '#22c55e' },
+];
+
+export class ProjectStats {
+  private container: HTMLElement;
+  private unsubscribers: (() => void)[] = [];
+
+  constructor(private parentElement: HTMLElement) {
+    this.container = createElement('div', { className: 'stats-view' });
+    this.render();
+    this.setupListeners();
+  }
+
+  private render(): void {
+    this.container.innerHTML = '';
+
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) {
+      const empty = createElement('div', { className: 'stats-empty' });
+      empty.textContent = 'No project selected.';
+      this.container.appendChild(empty);
+      this.parentElement.appendChild(this.container);
+      return;
+    }
+
+    const project = appState.getProject(projectId);
+    const cards = appState.getCardsByProject(projectId);
+    const activities = appState.getActivities(projectId, 50);
+
+    // ── Header ─────────────────────────────────────
+    const header = createElement('div', { className: 'stats-header' });
+    const title = createElement('h2', { className: 'stats-title' });
+    title.textContent = `📊 ${project?.name ?? 'Project'} — Stats`;
+    header.appendChild(title);
+    this.container.appendChild(header);
+
+    // ── Grid ───────────────────────────────────────
+    const grid = createElement('div', { className: 'stats-grid' });
+
+    // 1. Progress ring
+    grid.appendChild(this.buildProgressRing(cards));
+
+    // 2. Cards by status
+    grid.appendChild(this.buildStatusChart(cards));
+
+    // 3. Cards by priority
+    grid.appendChild(this.buildPriorityChart(cards));
+
+    // 4. Cards by agent
+    grid.appendChild(this.buildAgentChart(cards));
+
+    // 5. Velocity (last 7 days)
+    grid.appendChild(this.buildVelocityCard(activities));
+
+    // 6. Total time logged (placeholder — no time-tracking field yet)
+    grid.appendChild(this.buildTimeLoggedCard(cards));
+
+    this.container.appendChild(grid);
+    this.parentElement.appendChild(this.container);
+  }
+
+  // ── 1. Progress Ring ────────────────────────────
+  private buildProgressRing(cards: Card[]): HTMLElement {
+    const card = createElement('div', { className: 'stat-card progress-ring-card' });
+    const cardTitle = createElement('div', { className: 'stat-card-title' });
+    cardTitle.textContent = 'Progress';
+    card.appendChild(cardTitle);
+
+    const total = cards.length;
+    const done = cards.filter(c => c.status === 'done').length;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+    const radius = 52;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (pct / 100) * circumference;
+
+    const wrapper = createElement('div', { className: 'progress-ring' });
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('viewBox', '0 0 120 120');
+    svg.setAttribute('width', '120');
+    svg.setAttribute('height', '120');
+
+    const bg = document.createElementNS(svgNS, 'circle');
+    bg.setAttribute('cx', '60');
+    bg.setAttribute('cy', '60');
+    bg.setAttribute('r', String(radius));
+    bg.setAttribute('fill', 'none');
+    bg.setAttribute('stroke', 'rgba(255,255,255,0.08)');
+    bg.setAttribute('stroke-width', '10');
+
+    const fg = document.createElementNS(svgNS, 'circle');
+    fg.setAttribute('cx', '60');
+    fg.setAttribute('cy', '60');
+    fg.setAttribute('r', String(radius));
+    fg.setAttribute('fill', 'none');
+    fg.setAttribute('stroke', '#4ade80');
+    fg.setAttribute('stroke-width', '10');
+    fg.setAttribute('stroke-linecap', 'round');
+    fg.setAttribute('stroke-dasharray', String(circumference));
+    fg.setAttribute('stroke-dashoffset', String(offset));
+    fg.setAttribute('transform', 'rotate(-90 60 60)');
+    fg.style.transition = 'stroke-dashoffset 0.6s ease';
+
+    const text = document.createElementNS(svgNS, 'text');
+    text.setAttribute('x', '60');
+    text.setAttribute('y', '60');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dominant-baseline', 'middle');
+    text.setAttribute('fill', '#e8e8ed');
+    text.setAttribute('font-size', '20');
+    text.setAttribute('font-weight', '700');
+    text.textContent = `${pct}%`;
+
+    svg.appendChild(bg);
+    svg.appendChild(fg);
+    svg.appendChild(text);
+    wrapper.appendChild(svg);
+
+    const sub = createElement('div', { className: 'stat-card-sub' });
+    sub.textContent = `${done} of ${total} cards done`;
+
+    card.appendChild(wrapper);
+    card.appendChild(sub);
+    return card;
+  }
+
+  // ── 2. Cards by Status ──────────────────────────
+  private buildStatusChart(cards: Card[]): HTMLElement {
+    const card = createElement('div', { className: 'stat-card' });
+    const cardTitle = createElement('div', { className: 'stat-card-title' });
+    cardTitle.textContent = 'Cards by Status';
+    card.appendChild(cardTitle);
+
+    const total = cards.length || 1;
+    const chart = createElement('div', { className: 'bar-chart' });
+
+    for (const cfg of STATUS_CONFIG) {
+      const count = cards.filter(c => c.status === cfg.key).length;
+      const pct = Math.round((count / total) * 100);
+      const row = this.buildBarRow(cfg.label, count, pct, cfg.color);
+      chart.appendChild(row);
+    }
+
+    card.appendChild(chart);
+    return card;
+  }
+
+  // ── 3. Cards by Priority ─────────────────────────
+  private buildPriorityChart(cards: Card[]): HTMLElement {
+    const card = createElement('div', { className: 'stat-card' });
+    const cardTitle = createElement('div', { className: 'stat-card-title' });
+    cardTitle.textContent = 'Cards by Priority';
+    card.appendChild(cardTitle);
+
+    const total = cards.length || 1;
+    const chart = createElement('div', { className: 'bar-chart' });
+
+    for (const cfg of PRIORITY_CONFIG) {
+      const count = cards.filter(c => c.priority === cfg.value).length;
+      const pct = Math.round((count / total) * 100);
+      const row = this.buildBarRow(cfg.label, count, pct, cfg.color);
+      chart.appendChild(row);
+    }
+
+    card.appendChild(chart);
+    return card;
+  }
+
+  // ── 4. Cards by Agent ────────────────────────────
+  private buildAgentChart(cards: Card[]): HTMLElement {
+    const card = createElement('div', { className: 'stat-card' });
+    const cardTitle = createElement('div', { className: 'stat-card-title' });
+    cardTitle.textContent = 'Cards by Agent';
+    card.appendChild(cardTitle);
+
+    // Count per agent
+    const agentCounts: Record<string, number> = {};
+    for (const c of cards) {
+      const agent = c.agentType || c.assignedAgent || 'unassigned';
+      agentCounts[agent] = (agentCounts[agent] || 0) + 1;
+    }
+
+    const sorted = Object.entries(agentCounts).sort((a, b) => b[1] - a[1]);
+    const total = cards.length || 1;
+    const chart = createElement('div', { className: 'bar-chart' });
+
+    const AGENT_COLORS: Record<string, string> = {
+      ember: '#ff6b6b',
+      coder: '#60a5fa',
+      architect: '#a78bfa',
+      researcher: '#34d399',
+      designer: '#f472b6',
+      writer: '#fb923c',
+      qa: '#fbbf24',
+      unassigned: '#5c5c6b',
+    };
+
+    for (const [agent, count] of sorted) {
+      const pct = Math.round((count / total) * 100);
+      const color = AGENT_COLORS[agent] || '#9e9ea8';
+      const label = agent === 'unassigned' ? '— Unassigned' : `🤖 ${agent.charAt(0).toUpperCase() + agent.slice(1)}`;
+      const row = this.buildBarRow(label, count, pct, color);
+      chart.appendChild(row);
+    }
+
+    if (sorted.length === 0) {
+      const empty = createElement('div', { className: 'stat-empty-row' });
+      empty.textContent = 'No agents assigned yet.';
+      chart.appendChild(empty);
+    }
+
+    card.appendChild(chart);
+    return card;
+  }
+
+  // ── 5. Velocity (cards → done last 7 days) ───────
+  private buildVelocityCard(activities: ActivityEntry[]): HTMLElement {
+    const card = createElement('div', { className: 'stat-card' });
+    const cardTitle = createElement('div', { className: 'stat-card-title' });
+    cardTitle.textContent = 'Velocity (last 7 days)';
+    card.appendChild(cardTitle);
+
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const doneRecently = activities.filter(
+      a => a.type === 'card_moved' &&
+           a.message.includes('✅ Done') &&
+           a.timestamp >= sevenDaysAgo
+    );
+
+    const bigNum = createElement('div', { className: 'stat-big-number' });
+    bigNum.textContent = String(doneRecently.length);
+
+    const sub = createElement('div', { className: 'stat-card-sub' });
+    sub.textContent = doneRecently.length === 1 ? 'card completed' : 'cards completed';
+
+    card.appendChild(bigNum);
+    card.appendChild(sub);
+
+    // Mini daily sparkline — last 7 days
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const days: { label: string; count: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const dayStart = today.getTime() - i * 86400000;
+      const dayEnd = dayStart + 86400000;
+      const count = doneRecently.filter(a => a.timestamp >= dayStart && a.timestamp < dayEnd).length;
+      const d = new Date(dayStart);
+      const label = d.toLocaleDateString('en', { weekday: 'short' });
+      days.push({ label, count });
+    }
+
+    const maxCount = Math.max(...days.map(d => d.count), 1);
+    const sparkline = createElement('div', { className: 'sparkline' });
+    for (const day of days) {
+      const barWrap = createElement('div', { className: 'sparkline-bar-wrap' });
+      const bar = createElement('div', { className: 'sparkline-bar' });
+      bar.style.height = `${Math.round((day.count / maxCount) * 40)}px`;
+      bar.title = `${day.label}: ${day.count}`;
+      const lbl = createElement('div', { className: 'sparkline-label' });
+      lbl.textContent = day.label.slice(0, 1);
+      barWrap.appendChild(bar);
+      barWrap.appendChild(lbl);
+      sparkline.appendChild(barWrap);
+    }
+    card.appendChild(sparkline);
+    return card;
+  }
+
+  // ── 6. Time Logged ───────────────────────────────
+  private buildTimeLoggedCard(_cards: Card[]): HTMLElement {
+    const card = createElement('div', { className: 'stat-card' });
+    const cardTitle = createElement('div', { className: 'stat-card-title' });
+    cardTitle.textContent = 'Time Logged';
+    card.appendChild(cardTitle);
+
+    // No time-tracking field on Card yet — show placeholder
+    const bigNum = createElement('div', { className: 'stat-big-number stat-muted' });
+    bigNum.textContent = '—';
+    const sub = createElement('div', { className: 'stat-card-sub' });
+    sub.textContent = 'Time tracking coming soon';
+
+    card.appendChild(bigNum);
+    card.appendChild(sub);
+    return card;
+  }
+
+  // ── Helper: bar row ──────────────────────────────
+  private buildBarRow(label: string, count: number, pct: number, color: string): HTMLElement {
+    const row = createElement('div', { className: 'bar' });
+    const rowLabel = createElement('div', { className: 'bar-label' });
+    rowLabel.textContent = label;
+    const rowTrack = createElement('div', { className: 'bar-track' });
+    const fill = createElement('div', { className: 'bar-fill' });
+    fill.style.width = `${pct}%`;
+    fill.style.background = color;
+    rowTrack.appendChild(fill);
+    const countLabel = createElement('div', { className: 'bar-count' });
+    countLabel.textContent = String(count);
+    row.appendChild(rowLabel);
+    row.appendChild(rowTrack);
+    row.appendChild(countLabel);
+    return row;
+  }
+
+  private setupListeners(): void {
+    // Re-render on any card or project change
+    const rerender = () => {
+      const old = this.container;
+      this.container = createElement('div', { className: 'stats-view' });
+      this.render();
+      old.replaceWith(this.container);
+    };
+
+    this.unsubscribers.push(eventBus.on(EVENTS.CARD_CREATED, rerender));
+    this.unsubscribers.push(eventBus.on(EVENTS.CARD_UPDATED, rerender));
+    this.unsubscribers.push(eventBus.on(EVENTS.CARD_DELETED, rerender));
+    this.unsubscribers.push(eventBus.on(EVENTS.CARD_MOVED, rerender));
+    this.unsubscribers.push(eventBus.on(EVENTS.PROJECT_SELECTED, rerender));
+    this.unsubscribers.push(eventBus.on(EVENTS.ACTIVITY_ADDED, rerender));
+  }
+
+  update(): void {
+    const old = this.container;
+    this.container = createElement('div', { className: 'stats-view' });
+    this.render();
+    old.replaceWith(this.container);
+  }
+
+  destroy(): void {
+    this.unsubscribers.forEach(u => u());
+    this.unsubscribers = [];
+    this.container.remove();
+  }
+}

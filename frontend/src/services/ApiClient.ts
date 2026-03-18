@@ -1,4 +1,4 @@
-import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo } from '../types';
+import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry } from '../types';
 import { eventBus } from '../utils/EventBus';
 import { EVENTS, WS_URL, API_URL, RECONNECT_MAX_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, HEARTBEAT_INTERVAL } from '../utils/constants';
 import { generateId } from '../utils/helpers';
@@ -280,7 +280,21 @@ export class ApiClient {
       const baseUrl = API_URL || '';
       const response = await fetch(`${baseUrl}/api/projects/${projectId}/cards`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return await response.json() as unknown[];
+      const raw = await response.json() as Array<Record<string, unknown>>;
+      // Map snake_case backend fields to camelCase frontend fields
+      return raw.map((c) => ({
+        ...c,
+        projectId: c.project_id,
+        agentType: c.agent_type,
+        agentAssigned: c.agent_assigned,
+        agentContext: c.agent_context,
+        dependencies: c.dependency_ids ?? [],
+        totalMinutes: c.total_minutes ?? 0,
+        createdAt: c.created_at ? new Date(c.created_at as string).getTime() : Date.now(),
+        updatedAt: c.updated_at ? new Date(c.updated_at as string).getTime() : Date.now(),
+        tags: c.tags ?? [],
+        chatHistory: c.chat_history ?? [],
+      }));
     } catch (error) {
       console.error('[ApiClient] fetchCards error:', error);
       return [];
@@ -328,6 +342,65 @@ export class ApiClient {
     } catch (error) {
       console.error('[ApiClient] importProject error:', error);
       return null;
+    }
+  }
+
+  async fetchTimeEntries(cardId: string): Promise<TimeEntry[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/time`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as Array<{
+        id: string; card_id: string; duration_minutes: number; note?: string; logged_at: string;
+      }>;
+      return data.map((e) => ({
+        id: e.id,
+        cardId: e.card_id,
+        durationMinutes: e.duration_minutes,
+        note: e.note,
+        loggedAt: new Date(e.logged_at).getTime(),
+      }));
+    } catch (error) {
+      console.error('[ApiClient] fetchTimeEntries error:', error);
+      return [];
+    }
+  }
+
+  async logTime(cardId: string, durationMinutes: number, note?: string): Promise<TimeEntry | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/time`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration_minutes: durationMinutes, note: note || null }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const e = await response.json() as {
+        id: string; card_id: string; duration_minutes: number; note?: string; logged_at: string;
+      };
+      return {
+        id: e.id,
+        cardId: e.card_id,
+        durationMinutes: e.duration_minutes,
+        note: e.note,
+        loggedAt: new Date(e.logged_at).getTime(),
+      };
+    } catch (error) {
+      console.error('[ApiClient] logTime error:', error);
+      return null;
+    }
+  }
+
+  async deleteTimeEntry(cardId: string, entryId: string): Promise<boolean> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/time/${entryId}`, {
+        method: 'DELETE',
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('[ApiClient] deleteTimeEntry error:', error);
+      return false;
     }
   }
 

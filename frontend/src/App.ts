@@ -22,6 +22,7 @@ import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPane
 import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
 import { FocusMode } from './components/FocusMode/FocusMode';
+import { ProjectStats } from './components/Projects/ProjectStats';
 
 export class App {
   private root: HTMLElement;
@@ -156,7 +157,7 @@ export class App {
         const activeTab = appState.getActiveTab();
         if (activeTab === 'main') {
           const currentView = appState.get('currentView');
-          if (currentView === 'kanban' || currentView === 'projects') {
+          if (currentView === 'kanban' || currentView === 'projects' || currentView === 'stats') {
             this.switchView('chat');
             appState.set('currentView', 'chat');
           }
@@ -528,6 +529,9 @@ export class App {
         break;
       case 'settings':
         component = new SettingsPage(this.mainContent);
+        break;
+      case 'stats':
+        component = new ProjectStats(this.mainContent);
         break;
     }
 

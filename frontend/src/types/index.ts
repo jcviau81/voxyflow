@@ -2,7 +2,7 @@
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 export type CardStatus = 'idea' | 'todo' | 'in-progress' | 'done';
-export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings';
+export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings' | 'stats';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'codeuse' | 'architecte' | 'designer' | 'devops' | 'analyste' | 'testeur' | 'documenteur';
 export type ModelName = 'fast' | 'deep' | 'analyzer';
@@ -87,6 +87,14 @@ export interface AgentInfo {
   keywords: string[];
 }
 
+export interface TimeEntry {
+  id: string;
+  cardId: string;
+  durationMinutes: number;
+  note?: string;
+  loggedAt: number; // unix ms
+}
+
 export interface Card {
   id: string;
   title: string;
@@ -101,6 +109,7 @@ export interface Card {
   createdAt: number;
   updatedAt: number;
   chatHistory: string[];
+  totalMinutes?: number; // total time logged in minutes
 }
 
 export interface AppStateData {

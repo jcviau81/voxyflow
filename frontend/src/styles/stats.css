@@ -1,0 +1,181 @@
+/* ============================================================
+   Voxyflow — Project Stats Dashboard
+   ============================================================ */
+
+/* ── Container ─────────────────────────────────────────────── */
+.stats-view {
+  padding: 20px 24px;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.stats-header {
+  margin-bottom: 20px;
+}
+
+.stats-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.stats-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+}
+
+/* ── Grid ──────────────────────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 700px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Individual Stat Card ──────────────────────────────────── */
+.stat-card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color var(--transition);
+}
+
+.stat-card:hover {
+  border-color: var(--color-border-light);
+}
+
+.stat-card-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+}
+
+.stat-card-sub {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.stat-big-number {
+  font-size: 3rem;
+  font-weight: 800;
+  color: var(--color-text);
+  line-height: 1;
+  text-align: center;
+}
+
+.stat-big-number.stat-muted {
+  color: var(--color-text-muted);
+}
+
+/* ── Progress Ring ─────────────────────────────────────────── */
+.progress-ring-card {
+  align-items: center;
+}
+
+.progress-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-ring svg circle {
+  transition: stroke-dashoffset 0.6s ease;
+}
+
+/* ── Bar Chart ─────────────────────────────────────────────── */
+.bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: 130px 1fr 28px;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar-label {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-track {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  min-width: 2px;
+  transition: width 0.5s ease;
+}
+
+.bar-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-align: right;
+}
+
+.stat-empty-row {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  padding: 4px 0;
+}
+
+/* ── Velocity Sparkline ────────────────────────────────────── */
+.sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 56px;
+  padding-top: 8px;
+}
+
+.sparkline-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  gap: 4px;
+}
+
+.sparkline-bar {
+  width: 100%;
+  background: var(--color-accent);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+  transition: height 0.4s ease;
+}
+
+.sparkline-label {
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}

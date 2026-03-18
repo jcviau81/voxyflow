@@ -157,6 +157,19 @@ class Card(Base):
         secondaryjoin=(id == card_dependencies.c.depends_on_id),
         backref="dependents",
     )
+    time_entries = relationship("TimeEntry", back_populates="card", cascade="all, delete-orphan")
+
+
+class TimeEntry(Base):
+    __tablename__ = "time_entries"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    card_id = Column(String, ForeignKey("cards.id"), nullable=False)
+    duration_minutes = Column(Integer, nullable=False)
+    note = Column(Text, nullable=True)
+    logged_at = Column(DateTime, default=utcnow)
+
+    card = relationship("Card", back_populates="time_entries")
 
 
 class Document(Base):

@@ -1,9 +1,10 @@
-import { Card, AgentPersona, CardStatus, AgentInfo } from '../../types';
+import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry } from '../../types';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO } from '../../utils/constants';
 import { createElement, formatTime } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { cardService } from '../../services/CardService';
+import { apiClient } from '../../services/ApiClient';
 import { FocusMode } from '../FocusMode/FocusMode';
 
 export class CardDetailModal {
@@ -79,6 +80,152 @@ export class CardDetailModal {
   close(): void {
     this.overlay.classList.add('hidden');
     appState.selectCard(null);
+  }
+
+  private formatMinutes(minutes: number): string {
+    if (minutes <= 0) return '0m';
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h === 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${m}m`;
+  }
+
+  private buildTimeSection(cardId: string, totalMinutes: number): HTMLElement {
+    const section = createElement('div', { className: 'modal-section time-tracking-section' });
+    const label = createElement('label', { className: 'modal-label' }, '⏱ Time Tracking');
+
+    // Total summary
+    const totalEl = createElement(
+      'div',
+      { className: 'time-total' },
+      totalMinutes > 0 ? `⏱ ${this.formatMinutes(totalMinutes)} total` : '⏱ No time logged yet'
+    );
+
+    // Log time toggle button
+    let formVisible = false;
+    const logBtn = createElement('button', { className: 'log-time-btn' }, '+ Log Time');
+
+    // Inline form (hidden by default)
+    const form = createElement('div', { className: 'time-log-form hidden' });
+    const durationInput = createElement('input', {
+      type: 'number',
+      className: 'form-input time-duration-input',
+      placeholder: 'Minutes',
+      min: '1',
+      max: '9999',
+    }) as HTMLInputElement;
+    const noteInput = createElement('input', {
+      type: 'text',
+      className: 'form-input time-note-input',
+      placeholder: 'Note (optional)',
+    }) as HTMLInputElement;
+    const submitBtn = createElement('button', { className: 'time-submit-btn' }, 'Log');
+    const cancelBtn = createElement('button', { className: 'time-cancel-btn' }, 'Cancel');
+
+    const submitLog = async () => {
+      const mins = parseInt(durationInput.value, 10);
+      if (!mins || mins < 1) {
+        durationInput.classList.add('error');
+        return;
+      }
+      durationInput.classList.remove('error');
+      submitBtn.textContent = '…';
+      (submitBtn as HTMLButtonElement).disabled = true;
+
+      const note = noteInput.value.trim() || undefined;
+      const entry = await apiClient.logTime(cardId, mins, note);
+      if (entry) {
+        // Refresh the section
+        const updatedTotal = totalMinutes + mins;
+        const newSection = this.buildTimeSection(cardId, updatedTotal);
+        section.replaceWith(newSection);
+        // Update card totalMinutes in state
+        const card = appState.getCard(cardId);
+        if (card) appState.updateCard(cardId, { totalMinutes: updatedTotal });
+      } else {
+        submitBtn.textContent = 'Log';
+        (submitBtn as HTMLButtonElement).disabled = false;
+      }
+    };
+
+    logBtn.addEventListener('click', () => {
+      formVisible = !formVisible;
+      form.classList.toggle('hidden', !formVisible);
+      logBtn.textContent = formVisible ? '− Cancel' : '+ Log Time';
+      if (formVisible) durationInput.focus();
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      formVisible = false;
+      form.classList.add('hidden');
+      logBtn.textContent = '+ Log Time';
+    });
+
+    submitBtn.addEventListener('click', submitLog);
+    durationInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitLog();
+      if (e.key === 'Escape') cancelBtn.click();
+    });
+
+    form.appendChild(durationInput);
+    form.appendChild(noteInput);
+    form.appendChild(submitBtn);
+    form.appendChild(cancelBtn);
+
+    // Entry list (loaded async)
+    const listEl = createElement('div', { className: 'time-entry-list' });
+    listEl.textContent = 'Loading…';
+
+    apiClient.fetchTimeEntries(cardId).then((entries) => {
+      listEl.innerHTML = '';
+      if (entries.length === 0) {
+        listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No entries yet.'));
+        return;
+      }
+      // Recompute total from actual entries
+      const fetchedTotal = entries.reduce((sum, e) => sum + e.durationMinutes, 0);
+      if (fetchedTotal !== totalMinutes) {
+        totalEl.textContent = fetchedTotal > 0 ? `⏱ ${this.formatMinutes(fetchedTotal)} total` : '⏱ No time logged yet';
+        totalMinutes = fetchedTotal;
+      }
+      entries.forEach((entry) => {
+        const item = createElement('div', { className: 'time-entry-item' });
+        const dateStr = new Date(entry.loggedAt).toLocaleDateString(undefined, {
+          month: 'short', day: 'numeric',
+        });
+        const dur = createElement('span', { className: 'time-entry-duration' }, this.formatMinutes(entry.durationMinutes));
+        const date = createElement('span', { className: 'time-entry-date' }, dateStr);
+        const noteEl = entry.note
+          ? createElement('span', { className: 'time-entry-note' }, entry.note)
+          : null;
+        const delBtn = createElement('button', { className: 'time-entry-delete', title: 'Delete entry' }, '×');
+        delBtn.addEventListener('click', async () => {
+          const ok = await apiClient.deleteTimeEntry(cardId, entry.id);
+          if (ok) {
+            item.remove();
+            const newTotal = Math.max(0, totalMinutes - entry.durationMinutes);
+            totalEl.textContent = newTotal > 0 ? `⏱ ${this.formatMinutes(newTotal)} total` : '⏱ No time logged yet';
+            // Update state
+            const card = appState.getCard(cardId);
+            if (card) appState.updateCard(cardId, { totalMinutes: newTotal });
+          }
+        });
+
+        item.appendChild(dur);
+        item.appendChild(date);
+        if (noteEl) item.appendChild(noteEl);
+        item.appendChild(delBtn);
+        listEl.appendChild(item);
+      });
+    });
+
+    section.appendChild(label);
+    section.appendChild(totalEl);
+    section.appendChild(logBtn);
+    section.appendChild(form);
+    section.appendChild(listEl);
+    return section;
   }
 
   private renderContent(): void {
@@ -285,6 +432,9 @@ export class CardDetailModal {
       createElement('span', {}, `Updated: ${formatTime(this.card.updatedAt)}`)
     );
 
+    // Time tracking
+    const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
+
     // Card-specific chat placeholder
     const chatSection = createElement('div', { className: 'modal-section modal-chat' });
     const chatLabel = createElement('label', { className: 'modal-label' }, 'Card Discussion');
@@ -330,6 +480,7 @@ export class CardDetailModal {
     this.modal.appendChild(agentSection);
     this.modal.appendChild(depsSection);
     this.modal.appendChild(tagsSection);
+    this.modal.appendChild(timeSection);
     this.modal.appendChild(chatSection);
     this.modal.appendChild(focusSection);
     this.modal.appendChild(metaSection);

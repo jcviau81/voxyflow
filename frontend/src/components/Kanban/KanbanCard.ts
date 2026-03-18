@@ -80,6 +80,18 @@ export class KanbanCard {
       footer.appendChild(tagsEl);
     }
 
+    // Time tracking badge
+    if (this.card.totalMinutes && this.card.totalMinutes > 0) {
+      const hours = Math.floor(this.card.totalMinutes / 60);
+      const mins = this.card.totalMinutes % 60;
+      const timeLabel = hours > 0 ? `⏱ ${hours}h${mins > 0 ? ` ${mins}m` : ''}` : `⏱ ${mins}m`;
+      const timeBadge = createElement('span', {
+        className: 'time-badge',
+        title: `${this.card.totalMinutes} minutes logged`,
+      }, timeLabel);
+      footer.appendChild(timeBadge);
+    }
+
     // Dependencies indicator
     if (this.card.dependencies.length > 0) {
       const depCards = this.card.dependencies

@@ -39,6 +39,21 @@ class CardUpdate(BaseModel):
     agent_context: Optional[str] = None
 
 
+class TimeEntryCreate(BaseModel):
+    duration_minutes: int = Field(..., ge=1, description="Time logged in minutes")
+    note: Optional[str] = None
+
+
+class TimeEntryResponse(BaseModel):
+    id: str
+    card_id: str
+    duration_minutes: int
+    note: Optional[str] = None
+    logged_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class CardResponse(BaseModel):
     id: str
     project_id: str
@@ -55,6 +70,7 @@ class CardResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     dependency_ids: list[str] = []
+    total_minutes: int = 0
 
     model_config = {"from_attributes": True}
 

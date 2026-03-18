@@ -1,11 +1,12 @@
 """Card/Task endpoints — with agent assignment support."""
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, Card, Project, new_uuid, utcnow
-from app.models.card import CardCreate, CardUpdate, CardResponse, AgentAssignment
+from app.database import get_db, Card, Project, TimeEntry, new_uuid, utcnow
+from app.models.card import CardCreate, CardUpdate, CardResponse, AgentAssignment, TimeEntryCreate, TimeEntryResponse
 from app.services.agent_router import get_agent_router
 from app.services.agent_personas import AgentType, get_persona, get_all_personas
 
@@ -78,7 +79,10 @@ async def create_card(
 
     db.add(card)
     await db.commit()
-    await db.refresh(card)
+    # Reload with relationships
+    stmt = select(Card).where(Card.id == card.id).options(selectinload(Card.time_entries), selectinload(Card.dependencies))
+    result = await db.execute(stmt)
+    card = result.scalar_one()
 
     return _card_to_response(card)
 
@@ -90,7 +94,12 @@ async def list_cards(
     agent_type: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Card).where(Card.project_id == project_id).order_by(Card.position)
+    stmt = (
+        select(Card)
+        .where(Card.project_id == project_id)
+        .options(selectinload(Card.time_entries), selectinload(Card.dependencies))
+        .order_by(Card.position)
+    )
     if status:
         stmt = stmt.where(Card.status == status)
     if agent_type:
@@ -121,7 +130,10 @@ async def update_card(
     card.updated_at = utcnow()
 
     await db.commit()
-    await db.refresh(card)
+    # Reload with relationships
+    stmt = select(Card).where(Card.id == card_id).options(selectinload(Card.time_entries), selectinload(Card.dependencies))
+    result = await db.execute(stmt)
+    card = result.scalar_one()
     return _card_to_response(card)
 
 
@@ -146,7 +158,10 @@ async def assign_agent(
     card.updated_at = utcnow()
 
     await db.commit()
-    await db.refresh(card)
+    # Reload with relationships
+    stmt = select(Card).where(Card.id == card_id).options(selectinload(Card.time_entries), selectinload(Card.dependencies))
+    result = await db.execute(stmt)
+    card = result.scalar_one()
     return _card_to_response(card)
 
 
@@ -181,7 +196,8 @@ async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
 
 
 def _card_to_response(card: Card) -> CardResponse:
-    """Convert ORM Card to response, extracting dependency IDs."""
+    """Convert ORM Card to response, extracting dependency IDs and summing time."""
+    total_minutes = sum(e.duration_minutes for e in card.time_entries) if card.time_entries else 0
     return CardResponse(
         id=card.id,
         project_id=card.project_id,
@@ -198,4 +214,64 @@ def _card_to_response(card: Card) -> CardResponse:
         created_at=card.created_at,
         updated_at=card.updated_at,
         dependency_ids=[d.id for d in card.dependencies] if card.dependencies else [],
+        total_minutes=total_minutes,
     )
+
+
+# ---------------------------------------------------------------------------
+# Time tracking endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/cards/{card_id}/time", response_model=TimeEntryResponse, status_code=201)
+async def log_time(
+    card_id: str,
+    body: TimeEntryCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Log time spent on a card."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    entry = TimeEntry(
+        id=new_uuid(),
+        card_id=card_id,
+        duration_minutes=body.duration_minutes,
+        note=body.note,
+        logged_at=utcnow(),
+    )
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return entry
+
+
+@router.get("/cards/{card_id}/time", response_model=list[TimeEntryResponse])
+async def list_time_entries(
+    card_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """List all time entries for a card, newest first."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    stmt = select(TimeEntry).where(TimeEntry.card_id == card_id).order_by(TimeEntry.logged_at.desc())
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.delete("/cards/{card_id}/time/{entry_id}", status_code=204)
+async def delete_time_entry(
+    card_id: str,
+    entry_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a specific time entry."""
+    stmt = select(TimeEntry).where(TimeEntry.id == entry_id, TimeEntry.card_id == card_id)
+    result = await db.execute(stmt)
+    entry = result.scalar_one_or_none()
+    if not entry:
+        raise HTTPException(404, "Time entry not found")
+    await db.delete(entry)
+    await db.commit()
