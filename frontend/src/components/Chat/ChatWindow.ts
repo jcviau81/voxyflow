@@ -240,7 +240,7 @@ export class ChatWindow {
     } else {
       // General chat: show a small indicator
       const title = createElement('span', { className: 'header-title' });
-      title.textContent = '💬 General Chat';
+      title.textContent = '💬 Main Chat';
       titleSection.appendChild(title);
     }
 
