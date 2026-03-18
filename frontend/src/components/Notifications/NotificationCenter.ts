@@ -108,6 +108,79 @@ export class NotificationCenter {
     this.panel.appendChild(body);
   }
 
+  private renderItemActions(notif: NotificationEntry): HTMLElement | null {
+    const type = notif.type;
+
+    if (type === 'opportunity') {
+      const container = createElement('div', { className: 'notification-item-actions' });
+
+      // Extract suggestion text from message (e.g. "Suggestion: <text>")
+      const suggestionMatch = notif.message.match(/[Ss]uggestion[:\s]+(.+)/);
+      const suggestionText = suggestionMatch ? suggestionMatch[1].trim() : notif.message;
+
+      const createBtn = createElement('button', { className: 'notification-action-btn' }, '✅ Create Card');
+      createBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hide();
+        eventBus.emit(EVENTS.CARD_FORM_SHOW, { mode: 'create', prefillTitle: suggestionText });
+        this.markItemRead(notif.id);
+      });
+
+      const viewBtn = createElement('button', { className: 'notification-action-btn' }, '👁 View Panel');
+      viewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hide();
+        eventBus.emit(EVENTS.OPPORTUNITIES_TOGGLE);
+        this.markItemRead(notif.id);
+      });
+
+      container.appendChild(createBtn);
+      container.appendChild(viewBtn);
+      return container;
+    }
+
+    if ((type === 'card_created' || type === 'card_moved' || type === 'card_enriched') && notif.link) {
+      const container = createElement('div', { className: 'notification-item-actions' });
+      const openBtn = createElement('button', { className: 'notification-action-btn' }, '📋 Open Card');
+      openBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hide();
+        eventBus.emit(EVENTS.CARD_SELECTED, { cardId: notif.link });
+        this.markItemRead(notif.id);
+      });
+      container.appendChild(openBtn);
+      return container;
+    }
+
+    if (type === 'document_indexed') {
+      const container = createElement('div', { className: 'notification-item-actions' });
+      const docsBtn = createElement('button', { className: 'notification-action-btn' }, '📚 Open Docs');
+      docsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hide();
+        eventBus.emit(EVENTS.DOCS_OPEN);
+        this.markItemRead(notif.id);
+      });
+      container.appendChild(docsBtn);
+      return container;
+    }
+
+    if (type === 'service_down') {
+      const container = createElement('div', { className: 'notification-item-actions' });
+      const retryBtn = createElement('button', { className: 'notification-action-btn' }, '🔄 Retry');
+      retryBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hide();
+        eventBus.emit(EVENTS.SETTINGS_OPEN);
+        this.markItemRead(notif.id);
+      });
+      container.appendChild(retryBtn);
+      return container;
+    }
+
+    return null;
+  }
+
   private renderItem(notif: NotificationEntry): HTMLElement {
     const item = createElement('div', {
       className: `notification-item${notif.read ? '' : ' unread'}`,
@@ -125,25 +198,13 @@ export class NotificationCenter {
     content.appendChild(msg);
     content.appendChild(meta);
 
+    const actions = this.renderItemActions(notif);
+    if (actions) {
+      content.appendChild(actions);
+    }
+
     item.appendChild(icon);
     item.appendChild(content);
-
-    if (notif.type === 'opportunity') {
-      // Add "View" button that opens Opportunities panel
-      const viewBtn = createElement('button', { className: 'notification-action-btn' }, '👁 View');
-      viewBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.hide();
-        eventBus.emit(EVENTS.OPPORTUNITIES_TOGGLE);
-        this.markItemRead(notif.id);
-      });
-      content.appendChild(viewBtn);
-    } else if (notif.link) {
-      item.style.cursor = 'pointer';
-      item.addEventListener('click', () => {
-        this.markItemRead(notif.id);
-      });
-    }
 
     return item;
   }

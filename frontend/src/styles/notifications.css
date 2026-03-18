@@ -47,6 +47,13 @@
   gap: 8px;
 }
 
+.notification-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
 .notification-action-btn {
   padding: 4px 10px;
   border-radius: var(--border-radius-sm);
