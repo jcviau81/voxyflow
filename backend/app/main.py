@@ -93,10 +93,7 @@ async def _handle_chat_3layer(
     """
     project_name = None  # TODO: resolve from project_id
 
-    # Launch all three layers in parallel
-    haiku_task = asyncio.create_task(
-        _claude_service.chat_haiku(chat_id=chat_id, user_message=content, project_name=project_name)
-    )
+    # Launch Opus + Analyzer in parallel (they run independently)
     opus_task = asyncio.create_task(
         _claude_service.chat_opus_supervisor(chat_id=chat_id, user_message=content, project_name=project_name)
     )
@@ -104,20 +101,40 @@ async def _handle_chat_3layer(
         _analyzer_service.analyze_for_cards(chat_id=chat_id, message=content, project_context="")
     )
 
-    # --- Layer 1: Send Haiku response ASAP ---
+    # --- Layer 1: Stream Haiku response token-by-token ---
     start = time.time()
     try:
-        haiku_response = await haiku_task
-        latency = int((time.time() - start) * 1000)
-        logger.info(f"[Layer1-Haiku] responded in {latency}ms")
+        first_token_sent = False
+        async for token in _claude_service.chat_haiku_stream(
+            chat_id=chat_id, user_message=content, project_name=project_name
+        ):
+            if not first_token_sent:
+                first_token_latency = int((time.time() - start) * 1000)
+                logger.info(f"[Layer1-Haiku] first token in {first_token_latency}ms")
+                first_token_sent = True
 
+            await websocket.send_json({
+                "type": "chat:response",
+                "payload": {
+                    "messageId": message_id,
+                    "content": token,
+                    "model": "haiku",
+                    "streaming": True,
+                    "done": False,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
+
+        # Send stream-done signal
+        latency = int((time.time() - start) * 1000)
+        logger.info(f"[Layer1-Haiku] stream complete in {latency}ms")
         await websocket.send_json({
             "type": "chat:response",
             "payload": {
                 "messageId": message_id,
-                "content": haiku_response,
+                "content": "",
                 "model": "haiku",
-                "streaming": False,
+                "streaming": True,
                 "done": True,
                 "latency_ms": latency,
             },

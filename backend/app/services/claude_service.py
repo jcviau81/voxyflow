@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from openai import OpenAI
 
@@ -81,6 +81,40 @@ class ClaudeService:
 
         history.append({"role": "assistant", "content": response_text})
         return response_text
+
+    async def chat_haiku_stream(
+        self,
+        chat_id: str,
+        user_message: str,
+        project_name: Optional[str] = None,
+    ) -> AsyncIterator[str]:
+        """Layer 1 (streaming): Yield tokens as they arrive from Haiku."""
+        history = self._get_history(chat_id)
+        history.append({"role": "user", "content": user_message})
+
+        settings = get_settings()
+        recent = history[-settings.haiku_context_messages:]
+
+        memory_context = self.memory.build_memory_context(
+            project_name=project_name,
+            include_long_term=False,
+            include_daily=True,
+        )
+
+        system_prompt = self.personality.build_haiku_prompt(
+            memory_context=memory_context,
+        )
+
+        full_response = ""
+        async for token in self._call_api_stream(
+            model=self.haiku_model,
+            system=system_prompt,
+            messages=recent,
+        ):
+            full_response += token
+            yield token
+
+        history.append({"role": "assistant", "content": full_response})
 
     async def chat_opus_supervisor(
         self,
@@ -300,4 +334,61 @@ class ClaudeService:
             return response.choices[0].message.content or ""
         except Exception as e:
             logger.error(f"Claude proxy API call failed: {e}")
+            raise
+
+    async def _call_api_stream(
+        self,
+        model: str,
+        system: str,
+        messages: list[dict],
+    ) -> AsyncIterator[str]:
+        """Make a streaming API call via the OpenAI-compatible proxy.
+
+        Yields content tokens as they arrive from the SSE stream.
+        The OpenAI client's streaming is synchronous, so we iterate
+        in a thread-safe manner via asyncio.to_thread for each chunk.
+        """
+        import asyncio
+
+        api_messages = [{"role": "system", "content": system}]
+        api_messages.extend(messages)
+
+        try:
+            # The OpenAI sync client returns a synchronous iterator for streaming
+            stream = self.client.chat.completions.create(
+                model=model,
+                max_tokens=self.max_tokens,
+                messages=api_messages,
+                stream=True,
+            )
+
+            # Iterate in a thread to avoid blocking the event loop
+            # (the sync OpenAI client does blocking HTTP reads)
+            import queue
+            import threading
+
+            token_queue: queue.Queue[str | None] = queue.Queue()
+
+            def _consume_stream():
+                try:
+                    for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            token_queue.put(chunk.choices[0].delta.content)
+                except Exception as e:
+                    logger.error(f"Stream consumption error: {e}")
+                finally:
+                    token_queue.put(None)  # Sentinel
+
+            thread = threading.Thread(target=_consume_stream, daemon=True)
+            thread.start()
+
+            while True:
+                # Poll queue without blocking the event loop
+                token = await asyncio.to_thread(token_queue.get)
+                if token is None:
+                    break
+                yield token
+
+        except Exception as e:
+            logger.error(f"Claude proxy streaming API call failed: {e}")
             raise
