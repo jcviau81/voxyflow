@@ -68,6 +68,7 @@ module.exports = (env, argv) => {
       allowedHosts: 'all',
       hot: true,
       historyApiFallback: true,
+      server: 'https',
       proxy: [
         {
           context: ['/api'],
