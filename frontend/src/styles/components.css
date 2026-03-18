@@ -2087,13 +2087,17 @@
 .unified-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 8px 16px;
   border-bottom: 1px solid var(--color-border);
   min-height: 44px;
   gap: 12px;
   flex-shrink: 0;
   background: var(--color-bg-secondary);
+}
+
+.unified-header .header-actions {
+  margin-left: auto;
 }
 
 .unified-header .context-indicator {
