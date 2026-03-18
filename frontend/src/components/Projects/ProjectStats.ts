@@ -42,6 +42,17 @@ export class ProjectStats {
     summary: string;
   } | null = null;
 
+  // Focus Analytics state
+  private focusAnalytics: {
+    total_sessions: number;
+    total_minutes: number;
+    completed_sessions: number;
+    avg_session_minutes: number;
+    by_card: { card_id: string; title: string; sessions: number; minutes: number }[];
+    by_day: { date: string; sessions: number; minutes: number }[];
+  } | null = null;
+  private focusLoading = false;
+
   // Health Check state
   private healthLoading = false;
   private healthData: {
@@ -123,7 +134,16 @@ export class ProjectStats {
     const prioritySection = this._buildPrioritySection();
     this.container.appendChild(prioritySection);
 
+    // ── Focus Analytics ───────────────────────────────
+    const focusSection = this._buildFocusSection();
+    this.container.appendChild(focusSection);
+
     this.parentElement.appendChild(this.container);
+
+    // Auto-load focus analytics on render (non-blocking)
+    if (!this.focusAnalytics && !this.focusLoading) {
+      this._loadFocusAnalytics();
+    }
   }
 
   // ── 1. Progress Ring ────────────────────────────
@@ -334,21 +354,32 @@ export class ProjectStats {
     return card;
   }
 
-  // ── 6. Time Logged ───────────────────────────────
+  // ── 6. Time Logged (Focus) ───────────────────────
   private buildTimeLoggedCard(_cards: Card[]): HTMLElement {
     const card = createElement('div', { className: 'stat-card' });
     const cardTitle = createElement('div', { className: 'stat-card-title' });
-    cardTitle.textContent = 'Time Logged';
+    cardTitle.textContent = '⏱ Focus Time';
     card.appendChild(cardTitle);
 
-    // No time-tracking field on Card yet — show placeholder
-    const bigNum = createElement('div', { className: 'stat-big-number stat-muted' });
-    bigNum.textContent = '—';
-    const sub = createElement('div', { className: 'stat-card-sub' });
-    sub.textContent = 'Time tracking coming soon';
+    if (this.focusAnalytics) {
+      const totalMin = this.focusAnalytics.total_minutes;
+      const hours = Math.floor(totalMin / 60);
+      const mins = totalMin % 60;
+      const bigNum = createElement('div', { className: 'stat-big-number' });
+      bigNum.textContent = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+      const sub = createElement('div', { className: 'stat-card-sub' });
+      sub.textContent = `${this.focusAnalytics.total_sessions} sessions total`;
+      card.appendChild(bigNum);
+      card.appendChild(sub);
+    } else {
+      const bigNum = createElement('div', { className: 'stat-big-number stat-muted' });
+      bigNum.textContent = '—';
+      const sub = createElement('div', { className: 'stat-card-sub' });
+      sub.textContent = 'No focus sessions yet';
+      card.appendChild(bigNum);
+      card.appendChild(sub);
+    }
 
-    card.appendChild(bigNum);
-    card.appendChild(sub);
     return card;
   }
 
@@ -985,6 +1016,171 @@ export class ProjectStats {
     }
   }
 
+  // ── Focus Analytics ───────────────────────────────
+
+  private _buildFocusSection(): HTMLElement {
+    const section = createElement('div', { className: 'focus-analytics-section' });
+
+    const sectionTitle = createElement('h3', { className: 'focus-analytics-title' });
+    sectionTitle.textContent = '⏱ Focus Analytics';
+    section.appendChild(sectionTitle);
+
+    const controls = createElement('div', { className: 'focus-analytics-controls' });
+    const refreshBtn = createElement('button', {
+      className: `focus-analytics-btn${this.focusLoading ? ' loading' : ''}`,
+    }) as HTMLButtonElement;
+    refreshBtn.disabled = this.focusLoading;
+    refreshBtn.textContent = this.focusLoading ? '⏳ Loading…' : '🔄 Refresh';
+    refreshBtn.addEventListener('click', () => this._loadFocusAnalytics());
+    controls.appendChild(refreshBtn);
+    section.appendChild(controls);
+
+    if (!this.focusAnalytics) {
+      const hint = createElement('div', { className: 'focus-analytics-hint' });
+      hint.textContent = 'Start Focus Mode on a card to track your Pomodoro sessions.';
+      section.appendChild(hint);
+      return section;
+    }
+
+    const data = this.focusAnalytics;
+
+    // ── Summary row ──────────────────────────────────
+    const summaryRow = createElement('div', { className: 'focus-analytics-summary' });
+
+    const addStat = (value: string, label: string) => {
+      const box = createElement('div', { className: 'focus-stat-box' });
+      const val = createElement('div', { className: 'focus-stat-value' });
+      val.textContent = value;
+      const lbl = createElement('div', { className: 'focus-stat-label' });
+      lbl.textContent = label;
+      box.appendChild(val);
+      box.appendChild(lbl);
+      summaryRow.appendChild(box);
+    };
+
+    // Weekly time (last 7 days)
+    const weeklyMinutes = data.by_day.reduce((acc, d) => acc + d.minutes, 0);
+    const wHours = Math.floor(weeklyMinutes / 60);
+    const wMins = weeklyMinutes % 60;
+    addStat(wHours > 0 ? `${wHours}h ${wMins}m` : `${wMins}m`, 'This week');
+    addStat(String(data.completed_sessions), 'Completed');
+    addStat(String(data.total_sessions - data.completed_sessions), 'Interrupted');
+    addStat(`${data.avg_session_minutes}m`, 'Avg session');
+
+    section.appendChild(summaryRow);
+
+    // ── Most focused card ─────────────────────────────
+    if (data.by_card.length > 0) {
+      const topCard = data.by_card[0];
+      const topRow = createElement('div', { className: 'focus-top-card' });
+      const topIcon = createElement('span', { className: 'focus-top-card-icon' }, '🏆');
+      const topText = createElement('span', { className: 'focus-top-card-text' });
+      topText.textContent = `Most focused: "${topCard.title}" — ${topCard.minutes}m across ${topCard.sessions} session${topCard.sessions !== 1 ? 's' : ''}`;
+      topRow.appendChild(topIcon);
+      topRow.appendChild(topText);
+      section.appendChild(topRow);
+    }
+
+    // ── Day-by-day bar chart ──────────────────────────
+    if (data.by_day.length > 0) {
+      const chartLabel = createElement('div', { className: 'focus-chart-label' });
+      chartLabel.textContent = 'Last 7 days (minutes in focus)';
+      section.appendChild(chartLabel);
+
+      const chart = createElement('div', { className: 'focus-day-chart' });
+      const maxMinutes = Math.max(...data.by_day.map(d => d.minutes), 1);
+
+      for (const day of data.by_day) {
+        const barWrap = createElement('div', { className: 'focus-day-bar-wrap' });
+        const barContainer = createElement('div', { className: 'focus-day-bar-container' });
+        const bar = createElement('div', { className: 'focus-day-bar' });
+        const heightPct = Math.round((day.minutes / maxMinutes) * 100);
+        bar.style.height = `${Math.max(heightPct, day.minutes > 0 ? 4 : 0)}%`;
+        bar.title = `${day.minutes}m (${day.sessions} session${day.sessions !== 1 ? 's' : ''})`;
+        if (day.minutes > 0) bar.classList.add('focus-day-bar--active');
+
+        barContainer.appendChild(bar);
+
+        const dayLabel = createElement('div', { className: 'focus-day-label' });
+        const d = new Date(day.date + 'T00:00:00');
+        dayLabel.textContent = d.toLocaleDateString('en', { weekday: 'short' }).slice(0, 1);
+
+        const minLabel = createElement('div', { className: 'focus-day-min-label' });
+        minLabel.textContent = day.minutes > 0 ? `${day.minutes}m` : '';
+
+        barWrap.appendChild(minLabel);
+        barWrap.appendChild(barContainer);
+        barWrap.appendChild(dayLabel);
+        chart.appendChild(barWrap);
+      }
+
+      section.appendChild(chart);
+    }
+
+    // ── Per-card breakdown (top 5) ────────────────────
+    if (data.by_card.length > 0) {
+      const cardBreakdownTitle = createElement('div', { className: 'focus-card-breakdown-title' });
+      cardBreakdownTitle.textContent = 'Focus by card';
+      section.appendChild(cardBreakdownTitle);
+
+      const maxCardMin = Math.max(...data.by_card.map(c => c.minutes), 1);
+      const breakdown = createElement('div', { className: 'focus-card-breakdown' });
+
+      for (const c of data.by_card.slice(0, 5)) {
+        const row = createElement('div', { className: 'focus-card-row' });
+        const label = createElement('div', { className: 'focus-card-row-label' });
+        label.textContent = c.title;
+        label.title = c.title;
+        const track = createElement('div', { className: 'focus-card-row-track' });
+        const fill = createElement('div', { className: 'focus-card-row-fill' });
+        fill.style.width = `${Math.round((c.minutes / maxCardMin) * 100)}%`;
+        track.appendChild(fill);
+        const stat = createElement('div', { className: 'focus-card-row-stat' });
+        stat.textContent = `${c.minutes}m`;
+        row.appendChild(label);
+        row.appendChild(track);
+        row.appendChild(stat);
+        breakdown.appendChild(row);
+      }
+
+      section.appendChild(breakdown);
+    }
+
+    return section;
+  }
+
+  private async _loadFocusAnalytics(): Promise<void> {
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) return;
+
+    this.focusLoading = true;
+    this._refreshFocusSection();
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/focus`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      this.focusAnalytics = await response.json();
+    } catch (err) {
+      console.error('[FocusAnalytics] load failed:', err);
+    } finally {
+      this.focusLoading = false;
+      this._refreshFocusSection();
+    }
+  }
+
+  private _refreshFocusSection(): void {
+    const existing = this.container.querySelector('.focus-analytics-section');
+    if (existing) {
+      const newSection = this._buildFocusSection();
+      existing.replaceWith(newSection);
+    }
+    // Also refresh the time logged card in the grid
+    const timeCard = this.container.querySelector('.stat-card .stat-card-title');
+    if (timeCard?.textContent?.includes('⏱')) {
+      // Will be updated on next full re-render; acceptable
+    }
+  }
+
   update(): void {
     // Reset standup state when project changes
     this.standupSummary = null;
@@ -1001,11 +1197,15 @@ export class ProjectStats {
     // Reset priority state
     this.priorityData = null;
     this.priorityLoading = false;
+    // Reset focus analytics state
+    this.focusAnalytics = null;
+    this.focusLoading = false;
     const old = this.container;
     this.container = createElement('div', { className: 'stats-view' });
     this.render();
     old.replaceWith(this.container);
     this._checkStandupSchedule();
+    this._loadFocusAnalytics();
   }
 
   destroy(): void {

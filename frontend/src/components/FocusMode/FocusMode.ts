@@ -38,6 +38,11 @@ export class FocusMode {
   private focusChatId: string;
   private focusSessionId: string;
 
+  // Pomodoro tracking state
+  private pomodoroStartedAt: Date | null = null;
+  private pomodoroElapsedSeconds = 0;  // seconds elapsed before any pause
+  private sessionLogged = false;        // prevent double-logging
+
   constructor(private parentElement: HTMLElement, options: FocusModeOptions) {
     this.card = options.card;
     this.onExit = options.onExit;
@@ -202,8 +207,14 @@ export class FocusMode {
     this.isRunning = true;
     if (this.startPauseBtn) this.startPauseBtn.textContent = '⏸ Pause';
 
+    // Record start time for tracking (only on first start; resumes accumulate)
+    if (!this.pomodoroStartedAt) {
+      this.pomodoroStartedAt = new Date();
+    }
+
     this.timerInterval = setInterval(() => {
       this.remainingSeconds--;
+      this.pomodoroElapsedSeconds++;
       this.updateTimerDisplay();
 
       if (this.remainingSeconds <= 0) {
@@ -226,6 +237,10 @@ export class FocusMode {
     this.pauseTimer();
     const savedDuration = parseInt(localStorage.getItem('voxyflow_pomodoro_minutes') || '') || DEFAULT_DURATION_MINUTES;
     this.remainingSeconds = savedDuration * 60;
+    // Reset tracking state for the new session
+    this.pomodoroStartedAt = null;
+    this.pomodoroElapsedSeconds = 0;
+    this.sessionLogged = false;
     this.updateTimerDisplay();
     if (this.startPauseBtn) this.startPauseBtn.textContent = '▶ Start';
   }
@@ -234,6 +249,9 @@ export class FocusMode {
     this.pauseTimer();
     this.playAlertSound();
     this.showTimerNotification();
+
+    // Log completed focus session
+    this._logFocusSession(true);
 
     // Flash timer display
     if (this.timerDisplay) {
@@ -252,6 +270,34 @@ export class FocusMode {
         this.sessionLabel.textContent = '🎉 All 4 sessions complete!';
       }
     }
+  }
+
+  private _logFocusSession(completed: boolean): void {
+    // Only log if we actually started the timer and have >0 elapsed time
+    if (this.sessionLogged || !this.pomodoroStartedAt || this.pomodoroElapsedSeconds <= 0) return;
+    this.sessionLogged = true;
+
+    const startedAt = this.pomodoroStartedAt;
+    const endedAt = new Date();
+    const durationMinutes = Math.max(1, Math.round(this.pomodoroElapsedSeconds / 60));
+
+    const payload: Record<string, unknown> = {
+      duration_minutes: durationMinutes,
+      completed,
+      started_at: startedAt.toISOString(),
+      ended_at: endedAt.toISOString(),
+    };
+
+    if (this.card.id) payload.card_id = this.card.id;
+    if (this.card.projectId) payload.project_id = this.card.projectId;
+
+    fetch('/api/focus-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch((err) => {
+      console.warn('[FocusMode] Failed to log focus session:', err);
+    });
   }
 
   private updateTimerDisplay(): void {
@@ -393,6 +439,8 @@ export class FocusMode {
   // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
   exit(): void {
+    // Log interrupted session (completed=false) if timer was running and had progress
+    this._logFocusSession(false);
     this.pauseTimer();
     document.removeEventListener('keydown', this.boundKeydown);
     this.unsubscribers.forEach((fn) => fn());

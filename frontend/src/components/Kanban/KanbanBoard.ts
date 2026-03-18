@@ -7,6 +7,7 @@ import { cardService } from '../../services/CardService';
 import { apiClient } from '../../services/ApiClient';
 import { KanbanColumn } from './KanbanColumn';
 import { ActivityFeed } from './ActivityFeed';
+import { BulkActionToolbar } from './BulkActionToolbar';
 
 // Priority filter options
 const PRIORITY_FILTERS = [
@@ -39,6 +40,12 @@ export class KanbanBoard {
   private agentFilter: string | null = null;
   private tagFilter: string | null = null;
   private sortMode: 'default' | 'votes' = 'default';
+
+  // Multi-select state
+  private selectModeActive: boolean = false;
+  private selectedCardIds: Set<string> = new Set();
+  private bulkToolbar: BulkActionToolbar | null = null;
+  private selectToggleBtn: HTMLElement | null = null;
 
   // UI refs
   private matchCountEl: HTMLElement | null = null;
@@ -122,12 +129,20 @@ export class KanbanBoard {
     const depGraphBtn = createElement('button', { className: 'kanban-action-btn', title: 'View dependency map' }, '🔗 Dependencies');
     depGraphBtn.addEventListener('click', () => this.showDepGraph());
 
+    // Multi-select toggle button
+    this.selectToggleBtn = createElement('button', {
+      className: 'kanban-action-btn kanban-select-toggle',
+      title: 'Toggle multi-select mode',
+    }, '☑ Select');
+    this.selectToggleBtn.addEventListener('click', () => this.toggleSelectMode());
+
     header.appendChild(title);
     header.appendChild(searchBar);
     header.appendChild(exportBtn);
     header.appendChild(importBtn);
     header.appendChild(importInput);
     header.appendChild(depGraphBtn);
+    header.appendChild(this.selectToggleBtn);
     header.appendChild(addBtn);
     this.container.appendChild(header);
 
@@ -223,7 +238,21 @@ export class KanbanBoard {
     }
     this.activityFeed = new ActivityFeed(this.container);
 
+    // Bulk Action Toolbar (floating bottom bar)
+    if (this.bulkToolbar) {
+      this.bulkToolbar.destroy();
+      this.bulkToolbar = null;
+    }
+    this.bulkToolbar = new BulkActionToolbar(this.container, {
+      onClearSelection: () => this.clearSelection(),
+    });
+
     this.parentElement.appendChild(this.container);
+
+    // Reset multi-select state on project change
+    this.selectModeActive = false;
+    this.selectedCardIds.clear();
+
     this.refreshCards();
   }
 
@@ -311,7 +340,9 @@ export class KanbanBoard {
       const cards = appState.getCardsByStatus(projectId, status);
       const column = this.columns.get(status);
       if (column) {
-        column.setCards(cards, this.sortMode);
+        column.setCards(cards, this.sortMode, this.selectModeActive, (id, selected) => {
+          this.onCardSelectChange(id, selected);
+        });
       }
     }
 
@@ -320,6 +351,61 @@ export class KanbanBoard {
 
     // Re-apply current filters after refresh
     this.applyFilters();
+
+    // If in select mode, refresh toolbar count (selection may have changed after cards refreshed)
+    if (this.selectModeActive) {
+      // Re-apply selection state (cards are re-rendered so we need to restore)
+      this.restoreSelectionOnCards();
+      this.bulkToolbar?.setSelection(this.selectedCardIds);
+    }
+  }
+
+  private onCardSelectChange(cardId: string, selected: boolean): void {
+    if (selected) {
+      this.selectedCardIds.add(cardId);
+    } else {
+      this.selectedCardIds.delete(cardId);
+    }
+    this.bulkToolbar?.setSelection(this.selectedCardIds);
+  }
+
+  private restoreSelectionOnCards(): void {
+    this.columns.forEach((col) => {
+      col.getCardComponents().forEach((card, id) => {
+        card.setSelected(this.selectedCardIds.has(id));
+      });
+    });
+  }
+
+  private toggleSelectMode(): void {
+    this.selectModeActive = !this.selectModeActive;
+
+    // Update button state
+    if (this.selectToggleBtn) {
+      this.selectToggleBtn.classList.toggle('kanban-select-toggle--active', this.selectModeActive);
+      this.selectToggleBtn.textContent = this.selectModeActive ? '☑ Select (ON)' : '☑ Select';
+    }
+
+    if (!this.selectModeActive) {
+      // Exiting select mode: clear selection
+      this.clearSelection();
+    } else {
+      // Entering select mode: propagate to all cards
+      this.columns.forEach((col) => {
+        col.setSelectMode(true, (id, selected) => this.onCardSelectChange(id, selected));
+      });
+    }
+  }
+
+  private clearSelection(): void {
+    this.selectedCardIds.clear();
+    this.columns.forEach((col) => col.clearSelection());
+    this.bulkToolbar?.setSelection(this.selectedCardIds);
+
+    // If we're exiting select mode from a clear
+    if (this.selectModeActive) {
+      // Don't toggle mode off, just clear
+    }
   }
 
   private refreshTagFilterChips(): void {
@@ -544,6 +630,8 @@ export class KanbanBoard {
     this.activityFeed = null;
     this.depGraphOverlay?.remove();
     this.depGraphOverlay = null;
+    this.bulkToolbar?.destroy();
+    this.bulkToolbar = null;
     this.container.remove();
   }
 }

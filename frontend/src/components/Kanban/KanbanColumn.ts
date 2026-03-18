@@ -50,7 +50,12 @@ export class KanbanColumn {
     this.parentElement.appendChild(this.element);
   }
 
-  setCards(cards: Card[], sortMode: 'default' | 'votes' = 'default'): void {
+  setCards(
+    cards: Card[],
+    sortMode: 'default' | 'votes' = 'default',
+    selectMode: boolean = false,
+    onSelectChange?: (id: string, selected: boolean) => void,
+  ): void {
     // Clear existing
     this.cardComponents.forEach((c) => c.destroy());
     this.cardComponents.clear();
@@ -66,10 +71,35 @@ export class KanbanColumn {
 
     sorted.forEach((card) => {
       const kanbanCard = new KanbanCard(this.cardContainer, card);
+      if (selectMode) {
+        kanbanCard.setSelectMode(true);
+      }
+      if (onSelectChange) {
+        kanbanCard.setOnSelectChange(onSelectChange);
+      }
       this.cardComponents.set(card.id, kanbanCard);
     });
 
     this.countEl.textContent = cards.length.toString();
+  }
+
+  /**
+   * Toggle multi-select mode on all cards in this column.
+   */
+  setSelectMode(active: boolean, onSelectChange?: (id: string, selected: boolean) => void): void {
+    this.cardComponents.forEach((card) => {
+      card.setSelectMode(active);
+      if (onSelectChange) {
+        card.setOnSelectChange(onSelectChange);
+      }
+    });
+  }
+
+  /**
+   * Deselect all cards in this column.
+   */
+  clearSelection(): void {
+    this.cardComponents.forEach((card) => card.setSelected(false));
   }
 
   applyFilter(

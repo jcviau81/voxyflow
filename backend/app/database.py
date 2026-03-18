@@ -80,6 +80,18 @@ async def init_db():
                 changed_by TEXT NOT NULL DEFAULT 'User'
             )
         """))
+        # Ensure focus_sessions table exists
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS focus_sessions (
+                id TEXT PRIMARY KEY,
+                card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
+                project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                duration_minutes INTEGER NOT NULL,
+                completed BOOLEAN NOT NULL DEFAULT 0,
+                started_at DATETIME NOT NULL,
+                ended_at DATETIME NOT NULL
+            )
+        """))
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +330,21 @@ class CardHistory(Base):
     changed_by = Column(String, nullable=False, default="User")
 
     card = relationship("Card", back_populates="history_entries")
+
+
+class FocusSession(Base):
+    __tablename__ = "focus_sessions"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    card_id = Column(String, ForeignKey("cards.id", ondelete="SET NULL"), nullable=True)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    duration_minutes = Column(Integer, nullable=False)
+    completed = Column(Boolean, nullable=False, default=False)  # True if ran to completion, False if interrupted
+    started_at = Column(DateTime, nullable=False)
+    ended_at = Column(DateTime, nullable=False)
+
+    card = relationship("Card", foreign_keys=[card_id])
+    project = relationship("Project", foreign_keys=[project_id])
 
 
 class Document(Base):

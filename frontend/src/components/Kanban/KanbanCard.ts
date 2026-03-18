@@ -68,6 +68,10 @@ export class KanbanCard {
   private element: HTMLElement;
   private titleEl: HTMLElement | null = null;
   private contextMenu: HTMLElement | null = null;
+  private checkboxEl: HTMLInputElement | null = null;
+  private selectMode: boolean = false;
+  private selected: boolean = false;
+  private onSelectChange: ((id: string, selected: boolean) => void) | null = null;
 
   constructor(private parentElement: HTMLElement, private card: Card) {
     this.element = createElement('div', {
@@ -354,6 +358,29 @@ export class KanbanCard {
 
   render(): void {
     this.element.innerHTML = '';
+    this.checkboxEl = null;
+
+    // Selection checkbox (visible in select mode)
+    const checkboxWrapper = createElement('div', { className: 'card-select-checkbox-wrapper' });
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'card-select-checkbox';
+    checkbox.checked = this.selected;
+    checkbox.setAttribute('aria-label', `Select card: ${this.card.title}`);
+    checkbox.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.selected = checkbox.checked;
+      this.updateSelectedVisual();
+      this.onSelectChange?.(this.card.id, this.selected);
+    });
+    checkboxWrapper.appendChild(checkbox);
+    this.checkboxEl = checkbox;
+    this.element.appendChild(checkboxWrapper);
+
+    // Apply select mode visibility
+    if (this.selectMode) {
+      checkboxWrapper.classList.add('card-select-checkbox-wrapper--visible');
+    }
 
     // Header row: title + actions button
     const headerRow = createElement('div', { className: 'kanban-card-header' });
@@ -525,8 +552,17 @@ export class KanbanCard {
     }
     this.element.appendChild(footer);
 
-    // Click to edit via inline form
-    this.element.addEventListener('click', () => {
+    // Click to edit via inline form (unless in select mode)
+    this.element.addEventListener('click', (e) => {
+      if (this.selectMode) {
+        // In select mode: toggle selection on card click (but not on checkbox itself)
+        if ((e.target as HTMLElement).closest('.card-select-checkbox-wrapper')) return;
+        this.selected = !this.selected;
+        if (this.checkboxEl) this.checkboxEl.checked = this.selected;
+        this.updateSelectedVisual();
+        this.onSelectChange?.(this.card.id, this.selected);
+        return;
+      }
       appState.selectCard(this.card.id);
       eventBus.emit(EVENTS.CARD_FORM_SHOW, {
         mode: 'edit',
@@ -540,6 +576,11 @@ export class KanbanCard {
 
   private setupDrag(): void {
     this.element.addEventListener('dragstart', (e: DragEvent) => {
+      // Prevent drag in select mode
+      if (this.selectMode) {
+        e.preventDefault();
+        return;
+      }
       if (e.dataTransfer) {
         e.dataTransfer.setData('text/plain', this.card.id);
         e.dataTransfer.effectAllowed = 'move';
@@ -550,6 +591,10 @@ export class KanbanCard {
     this.element.addEventListener('dragend', () => {
       this.element.classList.remove('dragging');
     });
+  }
+
+  private updateSelectedVisual(): void {
+    this.element.classList.toggle('selected', this.selected);
   }
 
   setHighlight(query: string): void {
@@ -599,6 +644,48 @@ export class KanbanCard {
   update(card: Card): void {
     this.card = card;
     this.render();
+  }
+
+  /**
+   * Enable or disable multi-select mode.
+   * When enabled, the checkbox is visible and drag is disabled.
+   */
+  setSelectMode(active: boolean): void {
+    this.selectMode = active;
+    // Update draggable attr
+    this.element.setAttribute('draggable', active ? 'false' : 'true');
+    // Update checkbox wrapper visibility
+    const wrapper = this.element.querySelector('.card-select-checkbox-wrapper');
+    if (wrapper) {
+      wrapper.classList.toggle('card-select-checkbox-wrapper--visible', active);
+    }
+    if (!active) {
+      // Deselect when exiting select mode
+      this.selected = false;
+      if (this.checkboxEl) this.checkboxEl.checked = false;
+      this.updateSelectedVisual();
+    }
+    this.element.classList.toggle('kanban-card--select-mode', active);
+  }
+
+  /**
+   * Set selection state from outside (e.g. clear all).
+   */
+  setSelected(selected: boolean): void {
+    this.selected = selected;
+    if (this.checkboxEl) this.checkboxEl.checked = selected;
+    this.updateSelectedVisual();
+  }
+
+  isSelected(): boolean {
+    return this.selected;
+  }
+
+  /**
+   * Register a callback for when this card's selection changes.
+   */
+  setOnSelectChange(cb: (id: string, selected: boolean) => void): void {
+    this.onSelectChange = cb;
   }
 
   destroy(): void {
