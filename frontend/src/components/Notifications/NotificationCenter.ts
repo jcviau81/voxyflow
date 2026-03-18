@@ -128,10 +128,19 @@ export class NotificationCenter {
     item.appendChild(icon);
     item.appendChild(content);
 
-    if (notif.link) {
+    if (notif.type === 'opportunity') {
+      // Add "View" button that opens Opportunities panel
+      const viewBtn = createElement('button', { className: 'notification-action-btn' }, '👁 View');
+      viewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hide();
+        eventBus.emit(EVENTS.OPPORTUNITIES_TOGGLE);
+        this.markItemRead(notif.id);
+      });
+      content.appendChild(viewBtn);
+    } else if (notif.link) {
       item.style.cursor = 'pointer';
       item.addEventListener('click', () => {
-        // Link navigation could be extended; for now, just mark as read
         this.markItemRead(notif.id);
       });
     }
