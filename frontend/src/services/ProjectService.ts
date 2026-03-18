@@ -90,8 +90,25 @@ export class ProjectService {
     try {
       const response = await fetch('/api/projects');
       if (!response.ok) return;
-      const projects = await response.json();
-      if (Array.isArray(projects)) {
+      const raw = await response.json();
+      const projects: Project[] = Array.isArray(raw) ? raw.map((p: Record<string, unknown>) => ({
+        id: p.id as string,
+        name: (p.name || p.title || 'Untitled') as string,
+        description: (p.description || '') as string,
+        emoji: p.emoji as string | undefined,
+        color: p.color as string | undefined,
+        localPath: p.local_path as string | undefined,
+        createdAt: p.created_at ? new Date(p.created_at as string).getTime() : Date.now(),
+        updatedAt: p.updated_at ? new Date(p.updated_at as string).getTime() : Date.now(),
+        cards: (p.cards as string[]) || [],
+        archived: (p.archived as boolean) || false,
+        techStack: p.tech_stack as import('../types').TechDetectResult | undefined,
+        githubRepo: p.github_repo as string | undefined,
+        githubUrl: p.github_url as string | undefined,
+        githubBranch: p.github_branch as string | undefined,
+        githubLanguage: p.github_language as string | undefined,
+      })) : [];
+      if (projects.length > 0) {
         appState.set('projects', projects);
         eventBus.emit(EVENTS.PROJECT_CREATED); // trigger sidebar re-render
       }
