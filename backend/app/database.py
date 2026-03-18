@@ -158,6 +158,19 @@ class Card(Base):
         backref="dependents",
     )
     time_entries = relationship("TimeEntry", back_populates="card", cascade="all, delete-orphan")
+    comments = relationship("CardComment", back_populates="card", cascade="all, delete-orphan")
+
+
+class CardComment(Base):
+    __tablename__ = "card_comments"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    card_id = Column(String, ForeignKey("cards.id"), nullable=False)
+    author = Column(String, nullable=False, default="User")
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utcnow)
+
+    card = relationship("Card", back_populates="comments")
 
 
 class TimeEntry(Base):

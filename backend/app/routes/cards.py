@@ -5,8 +5,8 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, Card, Project, TimeEntry, new_uuid, utcnow
-from app.models.card import CardCreate, CardUpdate, CardResponse, AgentAssignment, TimeEntryCreate, TimeEntryResponse
+from app.database import get_db, Card, Project, TimeEntry, CardComment, new_uuid, utcnow
+from app.models.card import CardCreate, CardUpdate, CardResponse, AgentAssignment, TimeEntryCreate, TimeEntryResponse, CommentCreate, CommentResponse
 from app.services.agent_router import get_agent_router
 from app.services.agent_personas import AgentType, get_persona, get_all_personas
 
@@ -274,4 +274,63 @@ async def delete_time_entry(
     if not entry:
         raise HTTPException(404, "Time entry not found")
     await db.delete(entry)
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Comments endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/cards/{card_id}/comments", response_model=CommentResponse, status_code=201)
+async def add_comment(
+    card_id: str,
+    body: CommentCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a comment to a card."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    comment = CardComment(
+        id=new_uuid(),
+        card_id=card_id,
+        author=body.author,
+        content=body.content,
+        created_at=utcnow(),
+    )
+    db.add(comment)
+    await db.commit()
+    await db.refresh(comment)
+    return comment
+
+
+@router.get("/cards/{card_id}/comments", response_model=list[CommentResponse])
+async def list_comments(
+    card_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """List all comments for a card, newest first."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    stmt = select(CardComment).where(CardComment.card_id == card_id).order_by(CardComment.created_at.desc())
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.delete("/cards/{card_id}/comments/{comment_id}", status_code=204)
+async def delete_comment(
+    card_id: str,
+    comment_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a specific comment."""
+    stmt = select(CardComment).where(CardComment.id == comment_id, CardComment.card_id == card_id)
+    result = await db.execute(stmt)
+    comment = result.scalar_one_or_none()
+    if not comment:
+        raise HTTPException(404, "Comment not found")
+    await db.delete(comment)
     await db.commit()

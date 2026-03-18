@@ -1,6 +1,10 @@
 """Project endpoints."""
 
+import json
+import os
+import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +17,30 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db, Project, Card, new_uuid, utcnow
 from app.models.project import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithCards
 from app.services.agent_personas import AgentType, get_persona
+
+# ---------------------------------------------------------------------------
+# Standup helpers
+# ---------------------------------------------------------------------------
+
+VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow")))
+JOBS_FILE = VOXYFLOW_DIR / "jobs.json"
+
+
+def _load_jobs() -> list[dict]:
+    if not JOBS_FILE.exists():
+        return []
+    try:
+        with open(JOBS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_jobs(jobs: list[dict]) -> None:
+    VOXYFLOW_DIR.mkdir(parents=True, exist_ok=True)
+    with open(JOBS_FILE, "w", encoding="utf-8") as f:
+        json.dump(jobs, f, indent=2)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -388,4 +416,142 @@ async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)
         project_id=project.id,
         project_title=project.title,
         cards_imported=len(body.cards),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Daily Standup
+# ---------------------------------------------------------------------------
+
+class StandupResponse(BaseModel):
+    summary: str
+    generated_at: str
+
+
+class StandupScheduleRequest(BaseModel):
+    enabled: bool = True
+    hour: int = 9    # 09:00 local time
+    minute: int = 0
+
+
+class StandupScheduleResponse(BaseModel):
+    job_id: str
+    project_id: str
+    schedule: str
+    enabled: bool
+
+
+@router.post("/{project_id}/standup", response_model=StandupResponse)
+async def generate_standup(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Generate a daily standup summary for a project using the fast AI model."""
+    # Fetch project + cards
+    stmt = (
+        select(Project)
+        .options(selectinload(Project.cards))
+        .where(Project.id == project_id)
+    )
+    result = await db.execute(stmt)
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    cards = project.cards
+
+    # Categorize cards
+    in_progress = [c for c in cards if c.status == "in-progress"]
+    done_cards = [c for c in cards if c.status == "done"]
+    blocked = [c for c in cards if c.priority == 3]  # critical priority = potential blocker
+    todo = [c for c in cards if c.status == "todo"]
+
+    def card_line(c: Card) -> str:
+        agent = f" [{c.agent_type}]" if c.agent_type else ""
+        return f"- {c.title}{agent}"
+
+    in_progress_text = "\n".join(card_line(c) for c in in_progress) or "None"
+    done_text = "\n".join(card_line(c) for c in done_cards) or "None"
+    blocked_text = "\n".join(card_line(c) for c in blocked) or "None"
+    todo_text = "\n".join(card_line(c) for c in todo[:5]) or "None"  # top 5 upcoming
+
+    prompt = (
+        f"Generate a concise daily standup for project: **{project.title}**\n\n"
+        f"Project description: {project.description or 'N/A'}\n\n"
+        f"Cards IN PROGRESS:\n{in_progress_text}\n\n"
+        f"Cards DONE:\n{done_text}\n\n"
+        f"BLOCKED / Critical priority:\n{blocked_text}\n\n"
+        f"Next TODO (upcoming):\n{todo_text}\n\n"
+        f"Total cards: {len(cards)} | Done: {len(done_cards)} | In Progress: {len(in_progress)} | Todo: {len(todo)}"
+    )
+
+    from app.services.claude_service import ClaudeService
+    svc = ClaudeService()
+    summary = await svc.generate_standup(prompt)
+
+    return StandupResponse(
+        summary=summary,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@router.get("/{project_id}/standup/schedule", response_model=StandupScheduleResponse | None)
+async def get_standup_schedule(project_id: str):
+    """Get the current standup schedule for a project, or null if not configured."""
+    jobs = _load_jobs()
+    for job in jobs:
+        if (
+            job.get("type") == "standup"
+            and job.get("payload", {}).get("project_id") == project_id
+        ):
+            return StandupScheduleResponse(
+                job_id=job["id"],
+                project_id=project_id,
+                schedule=job["schedule"],
+                enabled=job.get("enabled", True),
+            )
+    return None
+
+
+@router.post("/{project_id}/standup/schedule", response_model=StandupScheduleResponse, status_code=201)
+async def set_standup_schedule(
+    project_id: str,
+    body: StandupScheduleRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create or update the daily standup schedule for a project."""
+    # Verify project exists
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    schedule = f"0 {body.minute} {body.hour} * * *"  # cron: daily at HH:MM
+
+    jobs = _load_jobs()
+
+    # Remove existing standup job for this project if any
+    jobs = [
+        j for j in jobs
+        if not (j.get("type") == "standup" and j.get("payload", {}).get("project_id") == project_id)
+    ]
+
+    job_id = str(uuid.uuid4())
+    new_job = {
+        "id": job_id,
+        "name": f"Daily Standup — {project.title}",
+        "type": "standup",
+        "schedule": schedule,
+        "enabled": body.enabled,
+        "payload": {
+            "project_id": project_id,
+            "project_name": project.title,
+            "hour": body.hour,
+            "minute": body.minute,
+        },
+    }
+    jobs.append(new_job)
+    _save_jobs(jobs)
+
+    return StandupScheduleResponse(
+        job_id=job_id,
+        project_id=project_id,
+        schedule=schedule,
+        enabled=body.enabled,
     )

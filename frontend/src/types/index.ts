@@ -95,6 +95,14 @@ export interface TimeEntry {
   loggedAt: number; // unix ms
 }
 
+export interface CardComment {
+  id: string;
+  cardId: string;
+  author: string;
+  content: string;
+  createdAt: number; // unix ms
+}
+
 export interface Card {
   id: string;
   title: string;

@@ -1,4 +1,4 @@
-import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry } from '../../types';
+import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment } from '../../types';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -248,6 +248,144 @@ export class CardDetailModal {
     return section;
   }
 
+  private buildCommentsSection(cardId: string): HTMLElement {
+    const section = createElement('div', { className: 'modal-section comments-section' });
+
+    // Header with count placeholder
+    const headerEl = createElement('label', { className: 'modal-label comments-header' }, '💬 Comments');
+
+    // Comment list container
+    const listEl = createElement('div', { className: 'comments-list' });
+    listEl.textContent = 'Loading…';
+
+    // Optimistic local cache
+    let localComments: CardComment[] = [];
+
+    const updateHeader = () => {
+      headerEl.textContent = `💬 Comments (${localComments.length})`;
+    };
+
+    const renderComment = (comment: CardComment): HTMLElement => {
+      const item = createElement('div', { className: 'comment-item' });
+
+      // Avatar with initials
+      const initials = comment.author
+        .split(' ')
+        .map((w) => w[0] ?? '')
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
+      const avatar = createElement('div', { className: 'comment-avatar', title: comment.author }, initials);
+
+      const body = createElement('div', { className: 'comment-content' });
+      const meta = createElement('div', { className: 'comment-meta' });
+      const dateStr = new Date(comment.createdAt).toLocaleDateString(undefined, {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      });
+      meta.textContent = `${comment.author} · ${dateStr}`;
+
+      const text = createElement('div', { className: 'comment-text' }, comment.content);
+
+      const delBtn = createElement('button', { className: 'comment-delete', title: 'Delete comment' }, '×');
+      delBtn.addEventListener('click', async () => {
+        const ok = await apiClient.deleteComment(cardId, comment.id);
+        if (ok) {
+          item.remove();
+          localComments = localComments.filter((c) => c.id !== comment.id);
+          updateHeader();
+        }
+      });
+
+      body.appendChild(meta);
+      body.appendChild(text);
+      item.appendChild(avatar);
+      item.appendChild(body);
+      item.appendChild(delBtn);
+      return item;
+    };
+
+    // Load comments async
+    apiClient.fetchComments(cardId).then((comments) => {
+      localComments = [...comments];
+      listEl.innerHTML = '';
+      updateHeader();
+      if (comments.length === 0) {
+        listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No comments yet.'));
+        return;
+      }
+      comments.forEach((c) => listEl.appendChild(renderComment(c)));
+    });
+
+    // Input row
+    const inputRow = createElement('div', { className: 'comment-input-row' });
+    const textarea = createElement('textarea', {
+      className: 'comment-textarea',
+      placeholder: 'Add a comment…',
+      rows: '2',
+    }) as HTMLTextAreaElement;
+    const submitBtn = createElement('button', { className: 'comment-submit-btn' }, 'Post') as HTMLButtonElement;
+    submitBtn.type = 'button';
+
+    const submitComment = async () => {
+      const content = textarea.value.trim();
+      if (!content) return;
+
+      // Optimistic UI — add immediately
+      const optimisticComment: CardComment = {
+        id: `optimistic-${Date.now()}`,
+        cardId,
+        author: 'User',
+        content,
+        createdAt: Date.now(),
+      };
+      // Remove empty-text placeholder if present
+      const emptyEl = listEl.querySelector('.empty-text');
+      if (emptyEl) emptyEl.remove();
+
+      const optimisticEl = renderComment(optimisticComment);
+      optimisticEl.classList.add('comment-optimistic');
+      listEl.insertBefore(optimisticEl, listEl.firstChild);
+      localComments.unshift(optimisticComment);
+      updateHeader();
+      textarea.value = '';
+      submitBtn.disabled = true;
+
+      // Confirm with server
+      const saved = await apiClient.addComment(cardId, content);
+      if (saved) {
+        // Replace optimistic entry
+        optimisticEl.remove();
+        localComments = localComments.filter((c) => c.id !== optimisticComment.id);
+        const confirmedEl = renderComment(saved);
+        listEl.insertBefore(confirmedEl, listEl.firstChild);
+        localComments.unshift(saved);
+        updateHeader();
+      } else {
+        // Rollback on failure
+        optimisticEl.remove();
+        localComments = localComments.filter((c) => c.id !== optimisticComment.id);
+        updateHeader();
+      }
+      submitBtn.disabled = false;
+    };
+
+    submitBtn.addEventListener('click', submitComment);
+    textarea.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        submitComment();
+      }
+    });
+
+    inputRow.appendChild(textarea);
+    inputRow.appendChild(submitBtn);
+
+    section.appendChild(headerEl);
+    section.appendChild(listEl);
+    section.appendChild(inputRow);
+    return section;
+  }
+
   private renderContent(): void {
     if (!this.card) return;
     this.modal.innerHTML = '';
@@ -483,16 +621,8 @@ export class CardDetailModal {
     // Time tracking
     const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
 
-    // Card-specific chat placeholder
-    const chatSection = createElement('div', { className: 'modal-section modal-chat' });
-    const chatLabel = createElement('label', { className: 'modal-label' }, 'Card Discussion');
-    const chatPlaceholder = createElement(
-      'div',
-      { className: 'card-chat-placeholder' },
-      'Card-specific chat coming soon...'
-    );
-    chatSection.appendChild(chatLabel);
-    chatSection.appendChild(chatPlaceholder);
+    // Comments section
+    const commentsSection = this.buildCommentsSection(this.card.id);
 
     // Focus Mode button
     const focusSection = createElement('div', { className: 'modal-section modal-focus-section' });
@@ -529,7 +659,7 @@ export class CardDetailModal {
     this.modal.appendChild(depsSection);
     this.modal.appendChild(tagsSection);
     this.modal.appendChild(timeSection);
-    this.modal.appendChild(chatSection);
+    this.modal.appendChild(commentsSection);
     this.modal.appendChild(focusSection);
     this.modal.appendChild(metaSection);
     this.modal.appendChild(dangerZone);

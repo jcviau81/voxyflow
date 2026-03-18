@@ -434,6 +434,25 @@ class ClaudeService:
         self._append_and_persist(chat_id, "assistant", response_text, model="deep")
         return response_text
 
+    async def generate_standup(
+        self,
+        prompt: str,
+    ) -> str:
+        """One-shot standup generation using the fast model. No history, no persistence."""
+        system_prompt = (
+            "You are a project assistant generating a concise daily standup summary. "
+            "Be direct and brief. Use markdown bullet points. No filler words.\n"
+            "Format:\n"
+            "**✅ Done**\n- ...\n\n**🔨 In Progress**\n- ...\n\n**🚧 Blocked / Risks**\n- ...\n\n**📌 Today's Goals**\n- ..."
+        )
+        response = await self._call_api(
+            model=self.fast_model,
+            system=system_prompt,
+            messages=[{"role": "user", "content": prompt}],
+            client=self.fast_client,
+        )
+        return response
+
     async def analyze_for_cards(
         self,
         chat_id: str,

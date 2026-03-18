@@ -1,4 +1,4 @@
-import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry } from '../types';
+import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry, CardComment } from '../types';
 
 export interface SearchResult {
   message_id: string;
@@ -409,6 +409,65 @@ export class ApiClient {
       return response.ok;
     } catch (error) {
       console.error('[ApiClient] deleteTimeEntry error:', error);
+      return false;
+    }
+  }
+
+  async fetchComments(cardId: string): Promise<CardComment[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/comments`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as Array<{
+        id: string; card_id: string; author: string; content: string; created_at: string;
+      }>;
+      return data.map((c) => ({
+        id: c.id,
+        cardId: c.card_id,
+        author: c.author,
+        content: c.content,
+        createdAt: new Date(c.created_at).getTime(),
+      }));
+    } catch (error) {
+      console.error('[ApiClient] fetchComments error:', error);
+      return [];
+    }
+  }
+
+  async addComment(cardId: string, content: string, author = 'User'): Promise<CardComment | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, author }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const c = await response.json() as {
+        id: string; card_id: string; author: string; content: string; created_at: string;
+      };
+      return {
+        id: c.id,
+        cardId: c.card_id,
+        author: c.author,
+        content: c.content,
+        createdAt: new Date(c.created_at).getTime(),
+      };
+    } catch (error) {
+      console.error('[ApiClient] addComment error:', error);
+      return null;
+    }
+  }
+
+  async deleteComment(cardId: string, commentId: string): Promise<boolean> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/comments/${commentId}`, {
+        method: 'DELETE',
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('[ApiClient] deleteComment error:', error);
       return false;
     }
   }

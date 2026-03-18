@@ -3,6 +3,7 @@ import { appState } from '../../state/AppState';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
+import { apiClient } from '../../services/ApiClient';
 
 const STATUS_CONFIG: { key: Card['status']; label: string; color: string }[] = [
   { key: 'idea',        label: '💡 Idea',        color: '#a78bfa' },
@@ -22,10 +23,18 @@ export class ProjectStats {
   private container: HTMLElement;
   private unsubscribers: (() => void)[] = [];
 
+  // Standup state
+  private standupLoading = false;
+  private standupSummary: string | null = null;
+  private standupGeneratedAt: string | null = null;
+  private standupScheduled = false;
+  private standupCard: HTMLElement | null = null;
+
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'stats-view' });
     this.render();
     this.setupListeners();
+    this._checkStandupSchedule();
   }
 
   private render(): void {
@@ -73,6 +82,11 @@ export class ProjectStats {
     grid.appendChild(this.buildTimeLoggedCard(cards));
 
     this.container.appendChild(grid);
+
+    // ── Daily Standup ───────────────────────────────
+    const standupSection = this.buildStandupSection();
+    this.container.appendChild(standupSection);
+
     this.parentElement.appendChild(this.container);
   }
 
@@ -320,6 +334,155 @@ export class ProjectStats {
     return row;
   }
 
+  // ── Daily Standup ────────────────────────────────
+
+  private buildStandupSection(): HTMLElement {
+    const section = createElement('div', { className: 'standup-section' });
+
+    const sectionTitle = createElement('h3', { className: 'standup-section-title' });
+    sectionTitle.textContent = '📋 Daily Standup';
+    section.appendChild(sectionTitle);
+
+    const controls = createElement('div', { className: 'standup-controls' });
+
+    // Generate button
+    const genBtn = createElement('button', {
+      className: `standup-gen-btn${this.standupLoading ? ' loading' : ''}`,
+    });
+    genBtn.textContent = this.standupLoading ? '⏳ Generating…' : '✨ Generate Standup';
+    genBtn.disabled = this.standupLoading;
+    genBtn.addEventListener('click', () => this._generateStandup());
+    controls.appendChild(genBtn);
+
+    // Schedule toggle
+    const scheduleLabel = createElement('label', { className: 'standup-schedule-label' });
+    const scheduleToggle = createElement('input', { type: 'checkbox' }) as HTMLInputElement;
+    scheduleToggle.checked = this.standupScheduled;
+    scheduleToggle.addEventListener('change', () => this._toggleSchedule(scheduleToggle.checked));
+    const scheduleText = createElement('span');
+    scheduleText.textContent = '⏰ Schedule daily (09:00)';
+    scheduleLabel.appendChild(scheduleToggle);
+    scheduleLabel.appendChild(scheduleText);
+    controls.appendChild(scheduleLabel);
+
+    section.appendChild(controls);
+
+    // Summary card (shown after generation)
+    if (this.standupSummary) {
+      const card = this._buildStandupCard(this.standupSummary, this.standupGeneratedAt);
+      this.standupCard = card;
+      section.appendChild(card);
+    }
+
+    return section;
+  }
+
+  private _buildStandupCard(summary: string, generatedAt: string | null): HTMLElement {
+    const card = createElement('div', { className: 'standup-card' });
+
+    if (generatedAt) {
+      const meta = createElement('div', { className: 'standup-card-meta' });
+      const date = new Date(generatedAt);
+      meta.textContent = `Generated ${date.toLocaleString()}`;
+      card.appendChild(meta);
+    }
+
+    const content = createElement('div', { className: 'standup-card-content' });
+    // Render markdown-ish: bold lines, bullet points via simple parsing
+    content.innerHTML = this._renderMarkdown(summary);
+    card.appendChild(content);
+
+    const copyBtn = createElement('button', { className: 'standup-copy-btn' });
+    copyBtn.textContent = '📋 Copy to Clipboard';
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(summary).then(() => {
+        copyBtn.textContent = '✅ Copied!';
+        setTimeout(() => { copyBtn.textContent = '📋 Copy to Clipboard'; }, 2000);
+      });
+    });
+    card.appendChild(copyBtn);
+
+    return card;
+  }
+
+  private _renderMarkdown(text: string): string {
+    return text
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^(#{1,3})\s+(.+)$/gm, '<h4>$2</h4>')
+      .replace(/^- (.+)$/gm, '<li>$1</li>')
+      .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+      .replace(/\n{2,}/g, '</p><p>')
+      .replace(/\n/g, '<br>');
+  }
+
+  private async _generateStandup(): Promise<void> {
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) return;
+
+    this.standupLoading = true;
+    this._refreshStandupSection();
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/standup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      this.standupSummary = data.summary;
+      this.standupGeneratedAt = data.generated_at;
+    } catch (err) {
+      console.error('[Standup] generation failed:', err);
+      this.standupSummary = '⚠️ Failed to generate standup. Please try again.';
+      this.standupGeneratedAt = null;
+    } finally {
+      this.standupLoading = false;
+      this._refreshStandupSection();
+    }
+  }
+
+  private async _checkStandupSchedule(): Promise<void> {
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) return;
+    try {
+      const resp = await fetch(`/api/projects/${projectId}/standup/schedule`);
+      if (resp.ok) {
+        const data = await resp.json();
+        this.standupScheduled = !!(data && data.enabled);
+        this._refreshStandupSection();
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  private async _toggleSchedule(enabled: boolean): Promise<void> {
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) return;
+    try {
+      await fetch(`/api/projects/${projectId}/standup/schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, hour: 9, minute: 0 }),
+      });
+      this.standupScheduled = enabled;
+    } catch (err) {
+      console.error('[Standup] schedule toggle failed:', err);
+    }
+  }
+
+  private _refreshStandupSection(): void {
+    // Find and replace the standup section in the container
+    const existing = this.container.querySelector('.standup-section');
+    if (existing) {
+      const newSection = this.buildStandupSection();
+      existing.replaceWith(newSection);
+    }
+  }
+
   private setupListeners(): void {
     // Re-render on any card or project change
     const rerender = () => {
@@ -338,10 +501,16 @@ export class ProjectStats {
   }
 
   update(): void {
+    // Reset standup state when project changes
+    this.standupSummary = null;
+    this.standupGeneratedAt = null;
+    this.standupScheduled = false;
+    this.standupLoading = false;
     const old = this.container;
     this.container = createElement('div', { className: 'stats-view' });
     this.render();
     old.replaceWith(this.container);
+    this._checkStandupSchedule();
   }
 
   destroy(): void {

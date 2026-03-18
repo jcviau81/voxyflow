@@ -5,13 +5,17 @@ export interface SlashCommand {
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
-  { name: '/new',   description: 'Start a new session (clear chat history)' },
-  { name: '/clear', description: 'Clear chat messages visually' },
-  { name: '/help',  description: 'Show available commands' },
+  { name: '/new',     description: 'Start a new session (clear chat history)' },
+  { name: '/clear',   description: 'Clear chat messages visually' },
+  { name: '/help',    description: 'Show available commands' },
   {
     name: '/agent',
     args: '[name]',
     description: 'Switch agent persona: ember, coder, architect, researcher, designer, writer, qa',
+  },
+  {
+    name: '/standup',
+    description: 'Generate a daily standup summary for the current project',
   },
 ];
 

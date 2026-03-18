@@ -949,6 +949,48 @@ export class ChatWindow {
         break;
       }
 
+      case '/standup': {
+        const standupProjectId = appState.get('currentProjectId');
+        if (!standupProjectId) {
+          const noProjectMsg: Message = {
+            id: `slash-standup-err-${Date.now()}`,
+            role: 'assistant',
+            content: '⚠️ No project selected. Open a project to generate a standup.',
+            timestamp: Date.now(),
+            sessionId: this.activeSessionId,
+          };
+          this.hideWelcomeIfNeeded();
+          this.renderMessage(noProjectMsg);
+          break;
+        }
+        // Show loading message
+        const loadingMsg: Message = {
+          id: `slash-standup-loading-${Date.now()}`,
+          role: 'assistant',
+          content: '⏳ Generating daily standup…',
+          timestamp: Date.now(),
+          sessionId: this.activeSessionId,
+        };
+        this.hideWelcomeIfNeeded();
+        this.renderMessage(loadingMsg);
+        // Call API and show result
+        fetch(`/api/projects/${standupProjectId}/standup`, { method: 'POST' })
+          .then(r => r.json())
+          .then(data => {
+            const bubble = this.messageBubbles.get(loadingMsg.id);
+            if (bubble) {
+              bubble.updateContent(`📋 **Daily Standup**\n\n${data.summary}`, false);
+            }
+          })
+          .catch(() => {
+            const bubble = this.messageBubbles.get(loadingMsg.id);
+            if (bubble) {
+              bubble.updateContent('⚠️ Failed to generate standup. Try again.', false);
+            }
+          });
+        break;
+      }
+
       default:
         break;
     }
