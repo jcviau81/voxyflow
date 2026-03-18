@@ -1048,3 +1048,25 @@ pre code {
   border-color: var(--color-accent);
   color: #fff;
 }
+
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-all-projects-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.sidebar-all-projects-btn:hover {
+  opacity: 1;
+  color: var(--color-text);
+}

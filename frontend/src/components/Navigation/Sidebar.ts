@@ -65,7 +65,11 @@ export class Sidebar {
 
     // Projects section
     const projectSection = createElement('div', { className: 'sidebar-projects' });
-    const projectsHeader = createElement('div', { className: 'sidebar-section-header' }, 'PROJECTS');
+    const projectsHeader = createElement('div', { className: 'sidebar-section-header' });
+    projectsHeader.appendChild(createElement('span', {}, 'PROJECTS'));
+    const allProjectsBtn = createElement('button', { className: 'sidebar-all-projects-btn', title: 'All projects' }, '⊞');
+    allProjectsBtn.addEventListener('click', () => appState.setView('projects'));
+    projectsHeader.appendChild(allProjectsBtn);
     projectSection.appendChild(projectsHeader);
 
     const projects = appState.get('projects').filter(p => !p.archived);
