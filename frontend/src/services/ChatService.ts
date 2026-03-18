@@ -9,6 +9,8 @@ import { ModelStatusBar } from '../components/Navigation/ModelStatusBar';
 export class ChatService {
   private streamingMessages: Map<string, { content: string; messageId: string }> = new Map();
   private unsubscribers: (() => void)[] = [];
+  /** Active session ID for general chat, set by ChatWindow */
+  activeSessionId: string | undefined;
 
   constructor() {
     this.setupHandlers();
@@ -55,6 +57,7 @@ export class ChatService {
           enrichment: true,
           enrichmentAction: action as 'enrich' | 'correct',
           model,
+          sessionId: this.activeSessionId,
         });
         eventBus.emit(EVENTS.MESSAGE_ENRICHMENT, message);
       })
@@ -162,18 +165,19 @@ export class ChatService {
       eventBus.on(EVENTS.VOICE_TRANSCRIPT, (result: unknown) => {
         const { transcript, isFinal } = result as { transcript: string; isFinal: boolean };
         if (isFinal && transcript.trim()) {
-          this.sendMessage(transcript.trim());
+          this.sendMessage(transcript.trim(), undefined, undefined, this.activeSessionId);
         }
       })
     );
   }
 
-  sendMessage(content: string, projectId?: string, cardId?: string): Message {
+  sendMessage(content: string, projectId?: string, cardId?: string, sessionId?: string): Message {
     const message = appState.addMessage({
       role: 'user',
       content,
       projectId: projectId || appState.get('currentProjectId') || undefined,
       cardId,
+      sessionId,
     });
 
     // Include layer toggle state so backend can skip disabled layers
@@ -196,6 +200,7 @@ export class ChatService {
       messageId: message.id,
       chatLevel,
       layers,
+      sessionId: sessionId || undefined,
     });
 
     eventBus.emit(EVENTS.MESSAGE_SENT, message);
@@ -211,6 +216,7 @@ export class ChatService {
         role: 'assistant',
         content: '',
         streaming: true,
+        sessionId: this.activeSessionId,
       });
       stream = { content: '', messageId: message.id };
       this.streamingMessages.set(streamId, stream);
@@ -250,6 +256,7 @@ export class ChatService {
     const message = appState.addMessage({
       role: 'assistant',
       content: content as string,
+      sessionId: this.activeSessionId,
     });
     eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);
   }
@@ -273,8 +280,8 @@ export class ChatService {
     eventBus.emit(EVENTS.MESSAGE_STREAM_END, { messageId, content: fullContent });
   }
 
-  getHistory(projectId?: string): Message[] {
-    return appState.getMessages(projectId);
+  getHistory(projectId?: string, sessionId?: string): Message[] {
+    return appState.getMessages(projectId, sessionId);
   }
 
   clearHistory(): void {

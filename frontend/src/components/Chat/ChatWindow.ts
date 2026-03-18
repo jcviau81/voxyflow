@@ -32,6 +32,7 @@ export class ChatWindow {
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'chat-window', 'data-testid': 'chat-window' });
+    chatService.activeSessionId = this.activeSessionId;
     this.render();
     this.setupListeners();
   }
@@ -47,7 +48,12 @@ export class ChatWindow {
     this.messageList.addEventListener('scroll', this.handleScroll.bind(this));
 
     // Render existing messages or welcome prompt
-    const messages = chatService.getHistory(appState.get('currentProjectId') || undefined);
+    const chatLevel = this.getChatLevel();
+    const sessionIdForRender = chatLevel === 'general' ? this.activeSessionId : undefined;
+    const messages = chatService.getHistory(
+      appState.get('currentProjectId') || undefined,
+      sessionIdForRender
+    );
     if (messages.length === 0) {
       this.showWelcomePrompt();
     }
@@ -271,6 +277,7 @@ export class ChatWindow {
   private switchSession(sessionId: string): void {
     if (sessionId === this.activeSessionId) return;
     this.activeSessionId = sessionId;
+    chatService.activeSessionId = sessionId;
     this.reloadMessages();
     this.updateUnifiedHeader();
   }
@@ -291,10 +298,12 @@ export class ChatWindow {
         appState.get('messages').filter((m: Message) => m.projectId !== currentProjectId)
       );
     } else {
-      // General chat: clear messages without a projectId
+      // General chat: clear messages for the active session only
       appState.set(
         'messages',
-        appState.get('messages').filter((m: Message) => !!m.projectId)
+        appState.get('messages').filter((m: Message) =>
+          !!m.projectId || m.sessionId !== this.activeSessionId
+        )
       );
     }
 
@@ -498,7 +507,12 @@ export class ChatWindow {
     this.welcomePrompt?.destroy();
     this.welcomePrompt = null;
 
-    const messages = chatService.getHistory(appState.get('currentProjectId') || undefined);
+    const chatLevel = this.getChatLevel();
+    const sessionId = chatLevel === 'general' ? this.activeSessionId : undefined;
+    const messages = chatService.getHistory(
+      appState.get('currentProjectId') || undefined,
+      sessionId
+    );
     if (messages.length === 0) {
       this.showWelcomePrompt();
     }
@@ -568,6 +582,7 @@ export class ChatWindow {
     };
     this.sessions.push(newSession);
     this.activeSessionId = newSession.id;
+    chatService.activeSessionId = newSession.id;
 
     // Clear the message list UI for the new session
     if (this.messageList) {
@@ -618,7 +633,9 @@ export class ChatWindow {
     const content = this.textInput.value.trim();
     if (!content) return;
 
-    chatService.sendMessage(content);
+    const chatLevel = this.getChatLevel();
+    const sessionId = chatLevel === 'general' ? this.activeSessionId : undefined;
+    chatService.sendMessage(content, undefined, undefined, sessionId);
     this.textInput.value = '';
     this.textInput.style.height = 'auto';
     this.textInput.focus();

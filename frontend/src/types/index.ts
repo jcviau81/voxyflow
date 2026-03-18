@@ -19,6 +19,7 @@ export interface Message {
   content: string;
   timestamp: number;
   projectId?: string;
+  sessionId?: string;
   cardId?: string;
   streaming?: boolean;
   audioBuffer?: ArrayBuffer;

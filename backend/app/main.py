@@ -363,6 +363,8 @@ async def general_websocket(websocket: WebSocket):
                     chat_level = payload.get("chatLevel", "general")
                     msg_layers = payload.get("layers")  # {opus: bool, analyzer: bool}
 
+                    session_id = payload.get("sessionId")
+
                     # Derive chat_id from context for conversation isolation
                     if card_id:
                         chat_id = f"card:{card_id}"
@@ -372,7 +374,7 @@ async def general_websocket(websocket: WebSocket):
                         if chat_level == "general":
                             chat_level = "project"
                     else:
-                        chat_id = "general"
+                        chat_id = f"general:{session_id}" if session_id else "general"
                         chat_level = "general"
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
@@ -392,12 +394,13 @@ async def general_websocket(websocket: WebSocket):
                 elif msg_type == "session:reset":
                     chat_level = payload.get("chatLevel", "general")
                     project_id = payload.get("projectId")
+                    session_id = payload.get("sessionId")
 
                     # Derive chat_id matching the conversation isolation logic
                     if project_id:
                         chat_id = f"project:{project_id}"
                     else:
-                        chat_id = "general"
+                        chat_id = f"general:{session_id}" if session_id else "general"
 
                     # Clear conversation history for this chat
                     if chat_id in _claude_service._histories:

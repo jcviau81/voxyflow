@@ -129,11 +129,15 @@ class AppState {
     this.set('messages', messages);
   }
 
-  getMessages(projectId?: string): Message[] {
+  getMessages(projectId?: string, sessionId?: string): Message[] {
+    let messages = this.state.messages;
     if (projectId) {
-      return this.state.messages.filter((m) => m.projectId === projectId);
+      messages = messages.filter((m) => m.projectId === projectId);
     }
-    return this.state.messages;
+    if (sessionId) {
+      messages = messages.filter((m) => m.sessionId === sessionId);
+    }
+    return messages;
   }
 
   clearMessages(): void {
