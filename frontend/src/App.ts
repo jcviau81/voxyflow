@@ -513,10 +513,15 @@ export class App {
         title: data.title, description: data.description, projectId,
         status: data.status as CardStatus, assignedAgent, tags: data.tags, priority: data.priority,
       });
-      // Also persist agentType via REST if available
-      if (resolvedAgentType && resolvedAgentType !== 'ember') {
-        // We'll let the card get created first, then patch
-        // (the WebSocket create doesn't include agentType yet)
+      // Persist agentType and recurrence via REST after card is created
+      if ((resolvedAgentType && resolvedAgentType !== 'ember') || data.recurrence) {
+        // Small delay to let the card be persisted on the backend first
+        setTimeout(() => {
+          const patchData: Record<string, unknown> = {};
+          if (resolvedAgentType && resolvedAgentType !== 'ember') patchData.agent_type = resolvedAgentType;
+          if (data.recurrence) patchData.recurrence = data.recurrence;
+          if (Object.keys(patchData).length > 0) apiClient.patchCard(newCard.id, patchData);
+        }, 500);
       }
       eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created: "${data.title}"`, type: 'success', duration: 3000 });
 
@@ -571,11 +576,13 @@ export class App {
       cardService.update(cardId, {
         title: data.title, description: data.description, status: data.status as CardStatus,
         assignedAgent, agentType: resolvedAgentType, tags: data.tags, priority: data.priority, dependencies: data.dependencies,
+        recurrence: data.recurrence,
       });
-      // Also persist agentType to backend via REST
-      if (resolvedAgentType) {
-        apiClient.patchCard(cardId, { agent_type: resolvedAgentType });
-      }
+      // Also persist agentType and recurrence to backend via REST
+      const editPatch: Record<string, unknown> = {};
+      if (resolvedAgentType) editPatch.agent_type = resolvedAgentType;
+      if (data.recurrence !== undefined) editPatch.recurrence = data.recurrence ?? null;
+      if (Object.keys(editPatch).length > 0) apiClient.patchCard(cardId, editPatch);
       eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card updated: "${data.title}"`, type: 'success', duration: 3000 });
     }
     if (this.cardForm) { this.cardForm.destroy(); this.cardForm = null; }

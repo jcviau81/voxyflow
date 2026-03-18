@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, Card, CardAttachment, CardRelation, Project, TimeEntry, CardComment, ChecklistItem, new_uuid, utcnow
+from app.database import get_db, Card, CardAttachment, CardRelation, CardHistory, Project, TimeEntry, CardComment, ChecklistItem, new_uuid, utcnow
 from app.models.card import (
     CardCreate, CardUpdate, CardResponse, AgentAssignment,
     TimeEntryCreate, TimeEntryResponse,
@@ -88,6 +88,8 @@ async def create_card(
         agent_type=agent_type,
         agent_assigned=agent_display,
         agent_context=body.agent_context,
+        recurrence=body.recurrence,
+        recurrence_next=body.recurrence_next,
     )
 
     # Resolve dependencies
@@ -146,6 +148,25 @@ async def update_card(
     if "agent_type" in update_data and update_data["agent_type"]:
         persona = get_persona(AgentType(update_data["agent_type"]))
         update_data["agent_assigned"] = f"{persona.emoji} {persona.name}"
+
+    # Track history for meaningful field changes
+    TRACKED_FIELDS = {"status", "priority", "title", "description", "assignee", "agent_type"}
+    for field in TRACKED_FIELDS:
+        if field in update_data:
+            old_val = getattr(card, field, None)
+            new_val = update_data[field]
+            # Only record if value actually changed
+            if str(old_val) != str(new_val) and not (old_val is None and new_val is None):
+                history_entry = CardHistory(
+                    id=new_uuid(),
+                    card_id=card_id,
+                    field_changed=field,
+                    old_value=str(old_val) if old_val is not None else None,
+                    new_value=str(new_val) if new_val is not None else None,
+                    changed_at=utcnow(),
+                    changed_by="User",
+                )
+                db.add(history_entry)
 
     for field, value in update_data.items():
         setattr(card, field, value)
@@ -222,6 +243,52 @@ async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# History / Audit Log endpoint
+# ---------------------------------------------------------------------------
+
+class CardHistoryEntry(BaseModel):
+    id: str
+    card_id: str
+    field_changed: str
+    old_value: str | None
+    new_value: str | None
+    changed_at: str
+    changed_by: str
+
+
+@router.get("/cards/{card_id}/history", response_model=list[CardHistoryEntry])
+async def get_card_history(
+    card_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return card change history, newest first, max 50 entries."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    stmt = (
+        select(CardHistory)
+        .where(CardHistory.card_id == card_id)
+        .order_by(CardHistory.changed_at.desc())
+        .limit(50)
+    )
+    result = await db.execute(stmt)
+    entries = result.scalars().all()
+    return [
+        CardHistoryEntry(
+            id=e.id,
+            card_id=e.card_id,
+            field_changed=e.field_changed,
+            old_value=e.old_value,
+            new_value=e.new_value,
+            changed_at=e.changed_at.isoformat(),
+            changed_by=e.changed_by,
+        )
+        for e in entries
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Vote endpoints
 # ---------------------------------------------------------------------------
 
@@ -276,6 +343,8 @@ def _card_to_response(card: Card) -> CardResponse:
         assignee=card.assignee,
         watchers=card.watchers or "",
         votes=card.votes or 0,
+        recurrence=card.recurrence,
+        recurrence_next=card.recurrence_next,
     )
 
 

@@ -1,4 +1,4 @@
-import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType } from '../../types';
+import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType, CardHistoryEntry } from '../../types';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -1074,6 +1074,124 @@ export class CardDetailModal {
     return section;
   }
 
+  private buildHistorySection(cardId: string): HTMLElement {
+    const section = createElement('div', { className: 'modal-section history-section' });
+
+    // Collapsible header
+    const headerEl = createElement('div', { className: 'history-section-header' });
+    const titleEl = createElement('label', { className: 'modal-label history-label' }, '📜 History');
+    const toggleEl = createElement('span', { className: 'history-toggle' }, '▶');
+    headerEl.appendChild(titleEl);
+    headerEl.appendChild(toggleEl);
+
+    // Collapsible body (hidden by default)
+    const body = createElement('div', { className: 'history-section-body hidden' });
+    let expanded = false;
+
+    headerEl.style.cursor = 'pointer';
+    headerEl.addEventListener('click', () => {
+      expanded = !expanded;
+      body.classList.toggle('hidden', !expanded);
+      toggleEl.textContent = expanded ? '▼' : '▶';
+      if (expanded && body.dataset.loaded !== 'true') {
+        loadHistory();
+      }
+    });
+
+    const listEl = createElement('div', { className: 'history-list' });
+
+    const STATUS_COLORS: Record<string, string> = {
+      idea: '#94a3b8',
+      todo: '#60a5fa',
+      in_progress: '#f59e0b',
+      done: '#34d399',
+      archived: '#6b7280',
+    };
+
+    const FIELD_LABELS: Record<string, string> = {
+      status: 'Status',
+      priority: 'Priority',
+      title: 'Title',
+      description: 'Description',
+      assignee: 'Assignee',
+      agent_type: 'Agent',
+    };
+
+    const PRIORITY_LABELS: Record<string, string> = {
+      '0': 'None', '1': 'Low', '2': 'Medium', '3': 'High', '4': 'Critical',
+    };
+
+    const formatValue = (field: string, value: string | null): string => {
+      if (value === null || value === 'None' || value === 'null') return '—';
+      if (field === 'priority') return PRIORITY_LABELS[value] ?? value;
+      if (field === 'description') {
+        return value.length > 60 ? value.slice(0, 57) + '…' : value;
+      }
+      return value;
+    };
+
+    const renderEntry = (entry: CardHistoryEntry): HTMLElement => {
+      const item = createElement('div', { className: 'history-item' });
+
+      const fieldLabel = FIELD_LABELS[entry.fieldChanged] ?? entry.fieldChanged;
+
+      const fieldEl = createElement('span', { className: 'history-field' }, fieldLabel);
+
+      const changeEl = createElement('span', { className: 'history-change' });
+
+      if (entry.fieldChanged === 'status') {
+        const oldBadge = createElement('span', { className: 'history-status-badge' }, formatValue('status', entry.oldValue));
+        const newBadge = createElement('span', { className: 'history-status-badge history-status-badge--new' }, formatValue('status', entry.newValue));
+        if (entry.oldValue && STATUS_COLORS[entry.oldValue]) {
+          (oldBadge as HTMLElement).style.color = STATUS_COLORS[entry.oldValue];
+          (oldBadge as HTMLElement).style.borderColor = STATUS_COLORS[entry.oldValue];
+        }
+        if (entry.newValue && STATUS_COLORS[entry.newValue]) {
+          (newBadge as HTMLElement).style.color = STATUS_COLORS[entry.newValue];
+          (newBadge as HTMLElement).style.borderColor = STATUS_COLORS[entry.newValue];
+        }
+        const arrow = createElement('span', { className: 'history-arrow' }, ' → ');
+        changeEl.appendChild(oldBadge);
+        changeEl.appendChild(arrow);
+        changeEl.appendChild(newBadge);
+      } else {
+        const oldText = formatValue(entry.fieldChanged, entry.oldValue);
+        const newText = formatValue(entry.fieldChanged, entry.newValue);
+        changeEl.textContent = `${oldText} → ${newText}`;
+      }
+
+      const dateStr = new Date(entry.changedAt).toLocaleDateString(undefined, {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      });
+      const dateEl = createElement('span', { className: 'history-date' }, dateStr);
+
+      item.appendChild(fieldEl);
+      item.appendChild(changeEl);
+      item.appendChild(dateEl);
+      return item;
+    };
+
+    const loadHistory = () => {
+      listEl.innerHTML = '';
+      listEl.appendChild(createElement('div', { className: 'empty-text' }, 'Loading…'));
+      apiClient.fetchCardHistory(cardId).then((entries) => {
+        body.dataset.loaded = 'true';
+        listEl.innerHTML = '';
+        const shown = entries.slice(0, 20);
+        if (shown.length === 0) {
+          listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No changes recorded yet.'));
+        } else {
+          shown.forEach((e) => listEl.appendChild(renderEntry(e)));
+        }
+      });
+    };
+
+    body.appendChild(listEl);
+    section.appendChild(headerEl);
+    section.appendChild(body);
+    return section;
+  }
+
   private async handleEnrich(cardId: string, descInput: HTMLTextAreaElement, checklistSection: HTMLElement): Promise<void> {
     const enrichBtn = this.modal.querySelector('.enrich-btn') as HTMLButtonElement | null;
     if (!enrichBtn) return;
@@ -1403,6 +1521,9 @@ export class CardDetailModal {
     // Relations section
     const relationsSection = this.buildRelationsSection(this.card);
 
+    // History / Audit Log section
+    const historySection = this.buildHistorySection(this.card.id);
+
     // Focus Mode button
     const focusSection = createElement('div', { className: 'modal-section modal-focus-section' });
     const focusBtn = createElement('button', { className: 'focus-mode-btn' }, '🎯 Focus Mode');
@@ -1444,6 +1565,7 @@ export class CardDetailModal {
     this.modal.appendChild(attachmentsSection);
     this.modal.appendChild(timeSection);
     this.modal.appendChild(commentsSection);
+    this.modal.appendChild(historySection);
     this.modal.appendChild(focusSection);
     this.modal.appendChild(metaSection);
     this.modal.appendChild(dangerZone);

@@ -54,6 +54,10 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN votes INTEGER NOT NULL DEFAULT 0"))
         if "sprint_id" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN sprint_id TEXT REFERENCES sprints(id)"))
+        if "recurrence" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN recurrence TEXT"))
+        if "recurrence_next" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN recurrence_next DATETIME"))
         # Ensure card_relations table exists (created via create_all above, but explicit for safety)
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS card_relations (
@@ -62,6 +66,18 @@ async def init_db():
                 target_card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
                 relation_type TEXT NOT NULL,
                 created_at DATETIME NOT NULL
+            )
+        """))
+        # Ensure card_history table exists
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS card_history (
+                id TEXT PRIMARY KEY,
+                card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                field_changed TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT,
+                changed_at DATETIME NOT NULL,
+                changed_by TEXT NOT NULL DEFAULT 'User'
             )
         """))
 
@@ -202,6 +218,8 @@ class Card(Base):
     watchers = Column(String, nullable=False, default="")  # comma-separated watcher names
     votes = Column(Integer, nullable=False, default=0)  # upvote count
     sprint_id = Column(String, ForeignKey("sprints.id"), nullable=True)  # sprint assignment
+    recurrence = Column(String, nullable=True)  # "daily" | "weekly" | "monthly" | None
+    recurrence_next = Column(DateTime, nullable=True)  # next occurrence datetime
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -221,6 +239,7 @@ class Card(Base):
     attachments = relationship("CardAttachment", back_populates="card", cascade="all, delete-orphan", order_by="CardAttachment.created_at")
     relations_as_source = relationship("CardRelation", foreign_keys="[CardRelation.source_card_id]", back_populates="source_card", cascade="all, delete-orphan")
     relations_as_target = relationship("CardRelation", foreign_keys="[CardRelation.target_card_id]", back_populates="target_card", cascade="all, delete-orphan")
+    history_entries = relationship("CardHistory", back_populates="card", cascade="all, delete-orphan", order_by="CardHistory.changed_at.desc()")
 
 
 class CardComment(Base):
@@ -285,6 +304,20 @@ class CardRelation(Base):
 
     source_card = relationship("Card", foreign_keys=[source_card_id], back_populates="relations_as_source")
     target_card = relationship("Card", foreign_keys=[target_card_id], back_populates="relations_as_target")
+
+
+class CardHistory(Base):
+    __tablename__ = "card_history"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    card_id = Column(String, ForeignKey("cards.id", ondelete="CASCADE"), nullable=False)
+    field_changed = Column(String, nullable=False)  # "status", "priority", "title", "assignee", etc.
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    changed_at = Column(DateTime, default=utcnow)
+    changed_by = Column(String, nullable=False, default="User")
+
+    card = relationship("Card", back_populates="history_entries")
 
 
 class Document(Base):

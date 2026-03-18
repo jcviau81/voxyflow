@@ -24,6 +24,7 @@ export interface CardFormData {
   dependencies: string[];
   tags: string[];
   enrichAfterCreate?: boolean;
+  recurrence?: 'daily' | 'weekly' | 'monthly' | null;
 }
 
 // Fallback static agents if API isn't available yet
@@ -70,6 +71,7 @@ export class CardForm {
   private tagsInput: HTMLInputElement | null = null;
   private titleError: HTMLElement | null = null;
   private enrichCheckbox: HTMLInputElement | null = null;
+  private recurrenceSelect: HTMLSelectElement | null = null;
   private agents: AgentInfo[] = FALLBACK_AGENTS;
 
   constructor(private parentElement: HTMLElement, event: CardFormShowEvent) {
@@ -104,6 +106,7 @@ export class CardForm {
     form.appendChild(this.renderStatusPills());
     form.appendChild(this.renderDependencies());
     form.appendChild(this.renderTagsField());
+    form.appendChild(this.renderRecurrenceField());
     form.appendChild(this.renderActions());
     this.container.appendChild(form);
     this.parentElement.appendChild(this.container);
@@ -251,6 +254,32 @@ export class CardForm {
     return group;
   }
 
+  private renderRecurrenceField(): HTMLElement {
+    const group = createElement('div', { className: 'form-group' });
+    group.appendChild(createElement('label', {}, '🔁 Recurrence'));
+    this.recurrenceSelect = document.createElement('select');
+    this.recurrenceSelect.className = 'form-select';
+    this.recurrenceSelect.setAttribute('data-testid', 'card-recurrence-select');
+    const options: Array<{ value: string; label: string }> = [
+      { value: '', label: 'None' },
+      { value: 'daily', label: 'Daily' },
+      { value: 'weekly', label: 'Weekly' },
+      { value: 'monthly', label: 'Monthly' },
+    ];
+    options.forEach(({ value, label }) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      this.recurrenceSelect!.appendChild(opt);
+    });
+    // Pre-select when editing an existing card
+    if (this.card?.recurrence) {
+      this.recurrenceSelect.value = this.card.recurrence;
+    }
+    group.appendChild(this.recurrenceSelect);
+    return group;
+  }
+
   private renderActions(): HTMLElement {
     const actions = createElement('div', { className: 'form-actions' });
 
@@ -310,6 +339,7 @@ export class CardForm {
     }
     if (this.prioritySelect) this.prioritySelect.value = this.card.priority.toString();
     if (this.tagsInput && this.card.tags.length > 0) this.tagsInput.value = this.card.tags.join(', ');
+    if (this.recurrenceSelect) this.recurrenceSelect.value = this.card.recurrence || '';
   }
 
   prefillTitle(title: string): void {
@@ -337,6 +367,8 @@ export class CardForm {
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
     const agentType = this.selectedAgentType || 'ember';
     const enrichAfterCreate = this.mode === 'create' ? (this.enrichCheckbox?.checked ?? true) : undefined;
+    const recurrenceRaw = this.recurrenceSelect?.value || '';
+    const recurrence = (recurrenceRaw as 'daily' | 'weekly' | 'monthly') || null;
     const data: CardFormData = {
       title: this.titleInput!.value.trim(),
       description: this.descInput?.value.trim() || '',
@@ -347,6 +379,7 @@ export class CardForm {
       dependencies: Array.from(this.selectedDependencies),
       tags,
       enrichAfterCreate,
+      recurrence,
     };
     eventBus.emit(EVENTS.CARD_FORM_SUBMIT, {
       mode: this.mode, data, cardId: this.card?.id,

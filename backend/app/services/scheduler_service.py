@@ -98,11 +98,23 @@ class SchedulerService:
             misfire_grace_time=300,
         )
 
+        # Recurrence job — runs every hour
+        self._scheduler.add_job(
+            self._recurrence_job,
+            trigger="interval",
+            hours=1,
+            id="recurrence",
+            name="Recurring Card Generator",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+
         self._scheduler.start()
         logger.info(
             f"✅ SchedulerService started "
             f"(heartbeat every {heartbeat_interval_minutes}m, "
-            f"RAG index every {rag_index_interval_minutes}m)"
+            f"RAG index every {rag_index_interval_minutes}m, "
+            f"recurrence check every 1h)"
         )
 
     def stop(self) -> None:
@@ -196,6 +208,84 @@ class SchedulerService:
 
         except Exception as e:
             logger.error(f"[Heartbeat] unexpected error: {e}", exc_info=True)
+
+    async def _recurrence_job(self) -> None:
+        """
+        Recurring card generator — runs every hour.
+
+        Finds all cards with a recurrence schedule whose recurrence_next is in the past,
+        creates a fresh copy (status=idea, title/description/agent_type preserved),
+        and advances recurrence_next to the next occurrence.
+        """
+        try:
+            from datetime import timedelta
+
+            from sqlalchemy import select
+
+            from app.database import Card, async_session, new_uuid, utcnow
+
+            now = datetime.now(timezone.utc)
+
+            async with async_session() as db:
+                stmt = select(Card).where(
+                    Card.recurrence.isnot(None),
+                    Card.recurrence_next.isnot(None),
+                    Card.recurrence_next <= now,
+                )
+                result = await db.execute(stmt)
+                due_cards = result.scalars().all()
+
+                for card in due_cards:
+                    try:
+                        # Create a copy with status="idea"
+                        new_card = Card(
+                            id=new_uuid(),
+                            project_id=card.project_id,
+                            title=card.title,
+                            description=card.description,
+                            status="idea",
+                            priority=card.priority,
+                            auto_generated=True,
+                            agent_type=card.agent_type,
+                            agent_assigned=card.agent_assigned,
+                            recurrence=card.recurrence,
+                        )
+
+                        # Compute next recurrence_next for the new card
+                        base = card.recurrence_next or now
+                        if card.recurrence == "daily":
+                            new_next = base + timedelta(days=1)
+                        elif card.recurrence == "weekly":
+                            new_next = base + timedelta(weeks=1)
+                        elif card.recurrence == "monthly":
+                            # Add ~30 days (simple approach)
+                            new_next = base + timedelta(days=30)
+                        else:
+                            new_next = None
+
+                        new_card.recurrence_next = new_next
+
+                        # Advance the original card's recurrence_next so it won't re-fire
+                        card.recurrence_next = new_next
+                        card.updated_at = utcnow()
+
+                        db.add(new_card)
+                        logger.info(
+                            f"[Recurrence] Created card '{new_card.title}' "
+                            f"(id={new_card.id}) from template card={card.id}, "
+                            f"recurrence={card.recurrence}, next={new_next}"
+                        )
+
+                    except Exception as e:
+                        logger.error(
+                            f"[Recurrence] Failed to process card {card.id}: {e}",
+                            exc_info=True,
+                        )
+
+                await db.commit()
+
+        except Exception as e:
+            logger.error(f"[Recurrence] unexpected error: {e}", exc_info=True)
 
     async def _rag_index_job(self) -> None:
         """

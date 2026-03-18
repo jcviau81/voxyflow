@@ -159,6 +159,8 @@ export interface Card {
   watchers?: string;         // comma-separated watcher names
   votes?: number;            // upvote count
   sprintId?: string | null;  // sprint assignment
+  recurrence?: 'daily' | 'weekly' | 'monthly' | null;  // recurring schedule
+  recurrenceNext?: string | null;  // ISO datetime of next occurrence
 }
 
 export interface AppStateData {
@@ -354,6 +356,17 @@ export interface NotificationEntry {
   timestamp: number;
   read: boolean;
   link?: string;
+}
+
+// Card History / Audit Log
+export interface CardHistoryEntry {
+  id: string;
+  cardId: string;
+  fieldChanged: string;
+  oldValue: string | null;
+  newValue: string | null;
+  changedAt: string;
+  changedBy: string;
 }
 
 // Sprint Planning

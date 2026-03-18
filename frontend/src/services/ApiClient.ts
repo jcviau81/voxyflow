@@ -749,7 +749,34 @@ export class ApiClient {
     }
   }
 
-  // --- Voting ---
+  // --- History ---
+
+  async fetchCardHistory(cardId: string): Promise<import('../types').CardHistoryEntry[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/history`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as Array<{
+        id: string; card_id: string; field_changed: string;
+        old_value: string | null; new_value: string | null;
+        changed_at: string; changed_by: string;
+      }>;
+      return data.map((e) => ({
+        id: e.id,
+        cardId: e.card_id,
+        fieldChanged: e.field_changed,
+        oldValue: e.old_value,
+        newValue: e.new_value,
+        changedAt: e.changed_at,
+        changedBy: e.changed_by,
+      }));
+    } catch (error) {
+      console.error('[ApiClient] fetchCardHistory error:', error);
+      return [];
+    }
+  }
+
+// --- Voting ---
 
   async voteCard(cardId: string): Promise<number | null> {
     try {

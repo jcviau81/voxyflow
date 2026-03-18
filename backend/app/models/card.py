@@ -1,8 +1,10 @@
 """Card/Task schemas — with agent assignment support."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
+
+RecurrenceType = Optional[Literal["daily", "weekly", "monthly"]]
 
 
 class CardCreate(BaseModel):
@@ -23,6 +25,8 @@ class CardCreate(BaseModel):
         None,
         description="Relevant docs/requirements context for the assigned agent",
     )
+    recurrence: RecurrenceType = None
+    recurrence_next: Optional[datetime] = None
 
 
 class CardUpdate(BaseModel):
@@ -40,6 +44,8 @@ class CardUpdate(BaseModel):
     assignee: Optional[str] = None
     watchers: Optional[str] = None
     sprint_id: Optional[str] = None
+    recurrence: RecurrenceType = None
+    recurrence_next: Optional[datetime] = None
 
 
 class TimeEntryCreate(BaseModel):
@@ -79,6 +85,8 @@ class CardResponse(BaseModel):
     watchers: str = ""
     votes: int = 0
     sprint_id: Optional[str] = None
+    recurrence: RecurrenceType = None
+    recurrence_next: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
