@@ -183,20 +183,33 @@ export class ChatWindow {
       actions.appendChild(newBtn);
     }
 
-    // Clear button (all levels)
-    const clearBtn = createElement('button', {
-      className: 'header-btn',
-      title: 'Clear Chat',
-      'data-testid': 'clear-chat-btn',
-    });
-    clearBtn.textContent = '🗑️ Clear';
-    clearBtn.addEventListener('click', () => this.handleClearChat());
-    actions.appendChild(clearBtn);
+    if (chatLevel === 'project' && this.currentProjectView === 'kanban') {
+      // Kanban mode: only show New Card button
+      const newCardBtn = createElement('button', {
+        className: 'header-btn header-btn-primary',
+        'data-testid': 'new-card-btn',
+      });
+      newCardBtn.textContent = '+ New Card';
+      newCardBtn.addEventListener('click', () => {
+        eventBus.emit(EVENTS.CARD_FORM_SHOW, { mode: 'create', projectId: appState.get('currentProjectId') });
+      });
+      actions.appendChild(newCardBtn);
+    } else {
+      // Chat mode: show Clear + Model Status
+      const clearBtn = createElement('button', {
+        className: 'header-btn',
+        title: 'Clear Chat',
+        'data-testid': 'clear-chat-btn',
+      });
+      clearBtn.textContent = '🗑️ Clear';
+      clearBtn.addEventListener('click', () => this.handleClearChat());
+      actions.appendChild(clearBtn);
 
-    // Model status bar (inline)
-    const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
-    this.modelStatusBar = new ModelStatusBar(statusBarContainer);
-    actions.appendChild(statusBarContainer);
+      // Model status bar (inline)
+      const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
+      this.modelStatusBar = new ModelStatusBar(statusBarContainer);
+      actions.appendChild(statusBarContainer);
+    }
 
     headerRow.appendChild(actions);
 

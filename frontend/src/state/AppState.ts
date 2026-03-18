@@ -8,7 +8,7 @@ const TABS_STORAGE_KEY = 'voxyflow_open_tabs';
 
 const DEFAULT_MAIN_TAB: Tab = {
   id: 'main',
-  label: '💬 Main',
+  label: 'Main',
   emoji: '💬',
   closable: false,
   hasNotification: false,
