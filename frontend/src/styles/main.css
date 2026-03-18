@@ -326,7 +326,8 @@ body {
 
 /* General mode: 3-column (sidebar + chat + idea board) */
 .app-layout.general-mode .opportunities-container {
-  display: none;
+  display: flex;
+  flex-direction: column;
 }
 
 .app-layout.general-mode .idea-board-container {
@@ -366,11 +367,8 @@ body {
 }
 
 .app-layout.general-mode .opportunities-container {
-  opacity: 0;
-  width: 0;
-  overflow: hidden;
-  border-left: none;
-  pointer-events: none;
+  opacity: 1;
+  width: 280px;
 }
 
 .app-layout.project-mode .opportunities-container {
