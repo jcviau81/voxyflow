@@ -1277,11 +1277,33 @@ export class CardDetailModal {
     const enrichBtn = createElement('button', { className: 'enrich-btn', title: 'AI-generate description, checklist, effort & tags' }, '✨ AI Enrich') as HTMLButtonElement;
     enrichBtn.type = 'button';
 
+    // Duplicate button
+    const duplicateBtn = createElement('button', { className: 'duplicate-btn', title: 'Duplicate this card' }, '📋 Duplicate') as HTMLButtonElement;
+    duplicateBtn.type = 'button';
+    duplicateBtn.addEventListener('click', async () => {
+      if (!this.card) return;
+      duplicateBtn.disabled = true;
+      duplicateBtn.textContent = '⏳';
+      const newCard = await apiClient.duplicateCard(this.card.id);
+      if (newCard) {
+        const cards = appState.get('cards') as import('../../types').Card[];
+        appState.set('cards', [...cards, newCard]);
+        eventBus.emit(EVENTS.CARD_CREATED, newCard);
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: `📋 Duplicated: "${newCard.title}"`, type: 'success', duration: 3000 });
+        this.close();
+      } else {
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Duplication failed', type: 'error', duration: 3000 });
+      }
+      duplicateBtn.disabled = false;
+      duplicateBtn.textContent = '📋 Duplicate';
+    });
+
     const closeBtn = createElement('button', { className: 'modal-close-btn' }, '✕');
     closeBtn.addEventListener('click', () => this.close());
 
     header.appendChild(titleInput);
     header.appendChild(enrichBtn);
+    header.appendChild(duplicateBtn);
     header.appendChild(closeBtn);
 
     // Status buttons

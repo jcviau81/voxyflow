@@ -2,6 +2,7 @@ import { Message } from '../../types';
 import { createElement, formatTime } from '../../utils/helpers';
 import { renderMarkdown, addCodeCopyButtons, enhanceImages, replaceEmojiShortcodes } from '../../utils/markdown';
 import { ttsService } from '../../services/TtsService';
+import { codeReviewService } from '../../services/CodeReviewService';
 
 export class MessageBubble {
   private element: HTMLElement;
@@ -153,9 +154,64 @@ export class MessageBubble {
       this.contentEl.innerHTML = renderMarkdown(processed);
       addCodeCopyButtons(this.contentEl);
       enhanceImages(this.contentEl);
+      this.addCodeReviewButtons(this.contentEl);
     } else {
       this.contentEl.textContent = processed;
     }
+  }
+
+  /** Detect language from a <code> element's class (e.g. language-python → python). */
+  private detectLanguage(codeEl: HTMLElement): string {
+    const cls = Array.from(codeEl.classList).find((c) => c.startsWith('language-'));
+    return cls ? cls.replace('language-', '') : 'unknown';
+  }
+
+  /** Add "🔍 Review Code" buttons to each <pre><code> block in the content. */
+  private addCodeReviewButtons(container: HTMLElement): void {
+    const preBlocks = container.querySelectorAll<HTMLElement>('pre');
+    preBlocks.forEach((pre) => {
+      // Avoid double-adding
+      if (pre.querySelector('.code-review-btn')) return;
+
+      const codeEl = pre.querySelector('code') as HTMLElement | null;
+      if (!codeEl) return;
+
+      const language = this.detectLanguage(codeEl);
+      const code = codeEl.textContent || '';
+      if (!code.trim()) return;
+
+      const reviewBtn = createElement('button', {
+        className: 'code-review-btn',
+        title: 'AI Code Review',
+        type: 'button',
+      }, '🔍 Review Code');
+
+      reviewBtn.addEventListener('click', async () => {
+        reviewBtn.disabled = true;
+        reviewBtn.textContent = '⏳ Reviewing…';
+
+        // Remove any existing review result for this block
+        const existing = pre.nextElementSibling;
+        if (existing?.classList.contains('code-review-result')) {
+          existing.remove();
+        }
+
+        try {
+          const result = await codeReviewService.review(code, language);
+          const resultEl = codeReviewService.renderResult(result);
+          pre.insertAdjacentElement('afterend', resultEl);
+        } catch (err) {
+          const errEl = createElement('div', { className: 'code-review-result code-review-error' });
+          errEl.textContent = '⚠️ Code review failed. Please try again.';
+          pre.insertAdjacentElement('afterend', errEl);
+        } finally {
+          reviewBtn.disabled = false;
+          reviewBtn.textContent = '🔍 Review Code';
+        }
+      });
+
+      pre.appendChild(reviewBtn);
+    });
   }
 
   private getModelBadge(model: string): string {

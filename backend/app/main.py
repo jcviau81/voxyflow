@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db
-from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools, sessions, documents, health, jobs
+from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools, sessions, documents, health, jobs, code
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
@@ -119,6 +119,7 @@ app.include_router(sessions.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(health.router)
 app.include_router(jobs.router)
+app.include_router(code.router, prefix="/api")
 
 
 @app.get("/health")

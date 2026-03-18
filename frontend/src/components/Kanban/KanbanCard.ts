@@ -5,6 +5,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { appState } from '../../state/AppState';
 import { apiClient } from '../../services/ApiClient';
+import { cardService } from '../../services/CardService';
 
 // ── Vote localStorage helpers ─────────────────────────────────────────────────
 function isVoted(cardId: string): boolean {
@@ -66,6 +67,7 @@ function getTagColor(tag: string): [string, string] {
 export class KanbanCard {
   private element: HTMLElement;
   private titleEl: HTMLElement | null = null;
+  private contextMenu: HTMLElement | null = null;
 
   constructor(private parentElement: HTMLElement, private card: Card) {
     this.element = createElement('div', {
@@ -75,6 +77,131 @@ export class KanbanCard {
     });
     this.render();
     this.setupDrag();
+    this.setupContextMenu();
+  }
+
+  private setupContextMenu(): void {
+    // Close any open context menu
+    const closeMenu = () => {
+      if (this.contextMenu) {
+        this.contextMenu.remove();
+        this.contextMenu = null;
+      }
+    };
+
+    const openMenu = (x: number, y: number) => {
+      closeMenu();
+
+      const menu = createElement('div', { className: 'card-context-menu' });
+
+      const items: Array<{ icon: string; label: string; action: () => void; danger?: boolean }> = [
+        {
+          icon: '📋',
+          label: 'Duplicate',
+          action: () => this.handleDuplicate(),
+        },
+        {
+          icon: '✏️',
+          label: 'Edit',
+          action: () => {
+            appState.selectCard(this.card.id);
+            eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', cardId: this.card.id });
+          },
+        },
+        {
+          icon: '🎯',
+          label: 'Focus Mode',
+          action: () => {
+            eventBus.emit(EVENTS.FOCUS_MODE_ENTER, this.card.id);
+          },
+        },
+        {
+          icon: '🗑️',
+          label: 'Delete',
+          danger: true,
+          action: () => {
+            if (confirm(`Delete "${this.card.title}"?`)) {
+              cardService.delete(this.card.id);
+            }
+          },
+        },
+      ];
+
+      items.forEach((item) => {
+        const el = createElement('div', {
+          className: `card-context-item${item.danger ? ' card-context-item--danger' : ''}`,
+        });
+        el.innerHTML = `<span class="card-context-icon">${item.icon}</span><span>${item.label}</span>`;
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeMenu();
+          item.action();
+        });
+        menu.appendChild(el);
+      });
+
+      document.body.appendChild(menu);
+      this.contextMenu = menu;
+
+      // Position: keep within viewport
+      const menuW = 160;
+      const menuH = items.length * 36 + 8;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let left = x;
+      let top = y;
+      if (left + menuW > vw) left = vw - menuW - 8;
+      if (top + menuH > vh) top = vh - menuH - 8;
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+
+      // Close on outside click or Escape
+      const onDocClick = (e: MouseEvent) => {
+        if (!menu.contains(e.target as Node)) {
+          closeMenu();
+          document.removeEventListener('click', onDocClick);
+          document.removeEventListener('keydown', onEscape);
+        }
+      };
+      const onEscape = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          closeMenu();
+          document.removeEventListener('click', onDocClick);
+          document.removeEventListener('keydown', onEscape);
+        }
+      };
+      // Use setTimeout to avoid immediate close from the triggering click
+      setTimeout(() => {
+        document.addEventListener('click', onDocClick);
+        document.addEventListener('keydown', onEscape);
+      }, 0);
+    };
+
+    // Right-click context menu
+    this.element.addEventListener('contextmenu', (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMenu(e.clientX, e.clientY);
+    });
+
+    // The "..." button is appended in render(), and triggers this via a custom event
+    this.element.addEventListener('card:menu', (e: Event) => {
+      const ce = e as CustomEvent<{ x: number; y: number }>;
+      openMenu(ce.detail.x, ce.detail.y);
+    });
+  }
+
+  private async handleDuplicate(): Promise<void> {
+    const newCard = await apiClient.duplicateCard(this.card.id);
+    if (newCard) {
+      // Add to app state so it shows up in the kanban
+      const cards = appState.get('cards') as Card[];
+      appState.set('cards', [...cards, newCard]);
+      eventBus.emit(EVENTS.CARD_CREATED, newCard);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `📋 Duplicated: "${newCard.title}"`, type: 'success', duration: 3000 });
+    } else {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Duplication failed', type: 'error', duration: 3000 });
+    }
   }
 
   private escapeHtml(text: string): string {
@@ -97,9 +224,24 @@ export class KanbanCard {
   render(): void {
     this.element.innerHTML = '';
 
-    // Title
+    // Header row: title + actions button
+    const headerRow = createElement('div', { className: 'kanban-card-header' });
     const title = createElement('div', { className: 'kanban-card-title' }, this.card.title);
     this.titleEl = title;
+
+    // "..." actions button
+    const actionsBtn = createElement('button', {
+      className: 'card-actions-btn',
+      title: 'Card actions',
+    }, '···');
+    actionsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const event = new CustomEvent('card:menu', { detail: { x: rect.left, y: rect.bottom + 4 } });
+      this.element.dispatchEvent(event);
+    });
+    headerRow.appendChild(title);
+    headerRow.appendChild(actionsBtn);
 
     // Description preview
     const desc = createElement(
@@ -246,7 +388,7 @@ export class KanbanCard {
       this.element.appendChild(avatarEl);
     }
 
-    this.element.appendChild(title);
+    this.element.appendChild(headerRow);
     if (this.card.description) {
       this.element.appendChild(desc);
     }

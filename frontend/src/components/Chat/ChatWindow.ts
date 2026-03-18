@@ -15,6 +15,7 @@ import { GitHubPanel } from '../Projects/GitHubPanel';
 import { SessionTabBar } from './SessionTabBar';
 import { ChatSearch } from './ChatSearch';
 import { SmartSuggestions } from './SmartSuggestions';
+import { codeReviewService } from '../../services/CodeReviewService';
 
 export class ChatWindow {
   private container: HTMLElement;
@@ -39,6 +40,10 @@ export class ChatWindow {
   private sessions: { id: string; label: string }[] = [{ id: 'session-1', label: 'Session 1' }];
   private activeSessionId = 'session-1';
   private sessionCounter = 1;
+
+  // Code paste detection banner
+  private codePasteBanner: HTMLElement | null = null;
+  private pendingPastedCode = '';
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'chat-window', 'data-testid': 'chat-window' });
@@ -93,6 +98,7 @@ export class ChatWindow {
     this.textInput.rows = 1;
     this.textInput.addEventListener('keydown', this.handleKeyDown.bind(this));
     this.textInput.addEventListener('input', this.handleInputChange.bind(this));
+    this.textInput.addEventListener('paste', this.handlePaste.bind(this));
 
     const sendBtn = createElement('button', { className: 'chat-send-btn' }, '→');
     sendBtn.addEventListener('click', () => this.sendCurrentMessage());
@@ -130,7 +136,11 @@ export class ChatWindow {
       }
     });
 
+    // Code paste detection banner (hidden by default)
+    this.codePasteBanner = this.buildCodePasteBanner();
+
     this.inputArea.appendChild(suggestionsWrapper);
+    this.inputArea.appendChild(this.codePasteBanner);
     this.inputArea.appendChild(emojiContainer);
     this.inputArea.appendChild(this.textInput);
     this.inputArea.appendChild(voiceContainer);
@@ -1071,6 +1081,85 @@ export class ChatWindow {
     requestAnimationFrame(() => {
       this.messageList!.scrollTop = this.messageList!.scrollHeight;
     });
+  }
+
+  /** Build the code-paste detection banner element (hidden by default). */
+  private buildCodePasteBanner(): HTMLElement {
+    const banner = createElement('div', { className: 'code-paste-banner hidden' });
+
+    const label = createElement('span', { className: 'code-paste-banner-label' });
+    label.textContent = '💡 Looks like code! Want me to review it?';
+
+    const reviewBtn = createElement('button', {
+      className: 'code-paste-banner-btn code-paste-banner-review',
+      type: 'button',
+    }, '🔍 Review');
+
+    const dismissBtn = createElement('button', {
+      className: 'code-paste-banner-btn code-paste-banner-dismiss',
+      type: 'button',
+    }, '✕ Dismiss');
+
+    reviewBtn.addEventListener('click', async () => {
+      banner.classList.add('hidden');
+      const code = this.pendingPastedCode;
+      this.pendingPastedCode = '';
+      if (!code) return;
+
+      // Detect language (rough heuristic from the code itself)
+      const lang = codeReviewService.detectLanguageFromCode(code);
+
+      // Post a loading assistant message
+      const loadingMsg: Message = {
+        id: `code-review-${Date.now()}`,
+        role: 'assistant',
+        content: '⏳ Reviewing your code…',
+        timestamp: Date.now(),
+        sessionId: this.activeSessionId,
+      };
+      this.hideWelcomeIfNeeded();
+      this.renderMessage(loadingMsg);
+
+      try {
+        const result = await codeReviewService.review(code, lang);
+        const bubble = this.messageBubbles.get(loadingMsg.id);
+        if (bubble) {
+          bubble.updateContent(codeReviewService.formatResultAsMarkdown(result), false);
+        }
+      } catch {
+        const bubble = this.messageBubbles.get(loadingMsg.id);
+        if (bubble) {
+          bubble.updateContent('⚠️ Code review failed. Please try again.', false);
+        }
+      }
+    });
+
+    dismissBtn.addEventListener('click', () => {
+      banner.classList.add('hidden');
+      this.pendingPastedCode = '';
+    });
+
+    banner.appendChild(label);
+    banner.appendChild(reviewBtn);
+    banner.appendChild(dismissBtn);
+    return banner;
+  }
+
+  /** Handle paste events — detect if pasted content looks like code. */
+  private handlePaste(event: ClipboardEvent): void {
+    const pasted = event.clipboardData?.getData('text') || '';
+    if (!pasted || pasted.length < 20) return;
+
+    if (codeReviewService.looksLikeCode(pasted)) {
+      this.pendingPastedCode = pasted;
+      this.codePasteBanner?.classList.remove('hidden');
+
+      // Auto-dismiss after 10s
+      setTimeout(() => {
+        this.codePasteBanner?.classList.add('hidden');
+        this.pendingPastedCode = '';
+      }, 10000);
+    }
   }
 
   update(): void {

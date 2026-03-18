@@ -804,6 +804,36 @@ export class ApiClient {
     }
   }
 
+  async duplicateCard(cardId: string): Promise<import('../types').Card | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/duplicate`, { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const c = await response.json() as Record<string, unknown>;
+      return {
+        ...(c as unknown as import('../types').Card),
+        projectId: c.project_id as string,
+        agentType: c.agent_type as string | undefined,
+        agentAssigned: c.agent_assigned as string | undefined,
+        agentContext: c.agent_context as string | undefined,
+        dependencies: (c.dependency_ids as string[]) ?? [],
+        totalMinutes: (c.total_minutes as number) ?? 0,
+        checklistProgress: (c.checklist_progress as import('../types').ChecklistProgress) ?? undefined,
+        createdAt: c.created_at ? new Date(c.created_at as string).getTime() : Date.now(),
+        updatedAt: c.updated_at ? new Date(c.updated_at as string).getTime() : Date.now(),
+        tags: (c.tags as string[]) ?? [],
+        chatHistory: [],
+        assignee: (c.assignee as string) ?? null,
+        watchers: (c.watchers as string) ?? '',
+        votes: (c.votes as number) ?? 0,
+        sprintId: (c.sprint_id as string) ?? null,
+      } as import('../types').Card;
+    } catch (error) {
+      console.error('[ApiClient] duplicateCard error:', error);
+      return null;
+    }
+  }
+
   // --- Sprint API ---
 
   async listSprints(projectId: string): Promise<import('../types').Sprint[]> {

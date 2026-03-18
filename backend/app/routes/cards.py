@@ -233,6 +233,45 @@ async def get_routing_suggestion(
     return details
 
 
+@router.post("/cards/{card_id}/duplicate", response_model=CardResponse, status_code=201)
+async def duplicate_card(card_id: str, db: AsyncSession = Depends(get_db)):
+    """Duplicate a card: copies all fields except id/created_at. Title gets ' (copy)' appended."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    new_card = Card(
+        id=new_uuid(),
+        project_id=card.project_id,
+        title=f"{card.title} (copy)",
+        description=card.description or "",
+        status=card.status,
+        priority=card.priority,
+        position=card.position,
+        source_message_id=card.source_message_id,
+        auto_generated=card.auto_generated,
+        agent_type=card.agent_type,
+        agent_assigned=card.agent_assigned,
+        agent_context=card.agent_context,
+        assignee=card.assignee,
+        watchers=card.watchers,
+        votes=0,
+        recurrence=card.recurrence,
+        recurrence_next=card.recurrence_next,
+    )
+
+    db.add(new_card)
+    await db.commit()
+
+    # Reload with relationships
+    stmt = select(Card).where(Card.id == new_card.id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
+    result = await db.execute(stmt)
+    new_card = result.scalar_one()
+    return _card_to_response(new_card)
+
+
 @router.delete("/cards/{card_id}", status_code=204)
 async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
     card = await db.get(Card, card_id)
