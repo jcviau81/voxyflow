@@ -331,9 +331,13 @@ export class WelcomePrompt {
         break;
 
       case 'review':
-        // Switch to kanban view
+        // In main chat: show All Projects overview. In project: show kanban.
         this.hide();
-        appState.setView('kanban');
+        if (this.mode === 'general') {
+          appState.setView('projects');
+        } else {
+          appState.setView('kanban');
+        }
         eventBus.emit(EVENTS.WELCOME_ACTION, { action: 'review', mode: this.mode });
         break;
 
