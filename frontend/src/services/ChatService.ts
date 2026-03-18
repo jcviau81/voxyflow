@@ -45,12 +45,13 @@ export class ChatService {
     // Handle enrichment messages (Layer 2 — Opus deep thinking)
     this.unsubscribers.push(
       apiClient.on('chat:enrichment', (payload) => {
-        const { messageId, content, model, action } = payload as {
+        const { messageId, content, model, action, sessionId } = payload as {
           messageId: string;
           content: string;
           model: string;
           action: string;
           done: boolean;
+          sessionId?: string;
         };
 
         const message = appState.addMessage({
@@ -59,7 +60,7 @@ export class ChatService {
           enrichment: true,
           enrichmentAction: action as 'enrich' | 'correct',
           model,
-          sessionId: this.activeSessionId,
+          sessionId: sessionId || this.activeSessionId,
         });
         eventBus.emit(EVENTS.MESSAGE_ENRICHMENT, message);
       })
@@ -209,7 +210,7 @@ export class ChatService {
     return message;
   }
 
-  private handleStreamingChunk(streamId: string, chunk: string): void {
+  private handleStreamingChunk(streamId: string, chunk: string, sessionId?: string): void {
     let stream = this.streamingMessages.get(streamId);
 
     if (!stream) {
@@ -218,7 +219,7 @@ export class ChatService {
         role: 'assistant',
         content: '',
         streaming: true,
-        sessionId: this.activeSessionId,
+        sessionId: sessionId || this.activeSessionId,
       });
       stream = { content: '', messageId: message.id };
       this.streamingMessages.set(streamId, stream);
@@ -254,11 +255,11 @@ export class ChatService {
     }
   }
 
-  private handleFullResponse(content: string): void {
+  private handleFullResponse(content: string, sessionId?: string): void {
     const message = appState.addMessage({
       role: 'assistant',
       content: content as string,
-      sessionId: this.activeSessionId,
+      sessionId: sessionId || this.activeSessionId,
     });
     eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);
   }

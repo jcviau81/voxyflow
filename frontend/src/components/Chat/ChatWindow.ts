@@ -277,8 +277,47 @@ export class ChatWindow {
     if (sessionId === this.activeSessionId) return;
     this.activeSessionId = sessionId;
     chatService.activeSessionId = sessionId;
+    // Clear unread indicator for this session
+    this.clearSessionUnread(sessionId);
     this.reloadMessages();
     this.updateUnifiedHeader();
+  }
+
+  /**
+   * Check if a message belongs to the currently active view/session.
+   * For general chat, message must match activeSessionId.
+   * For project/card chat, session doesn't matter.
+   */
+  private shouldRenderMessage(message: Message): boolean {
+    const chatLevel = this.getChatLevel();
+    if (chatLevel !== 'general') return true;
+    // General chat: only render if sessionId matches active session
+    return !message.sessionId || message.sessionId === this.activeSessionId;
+  }
+
+  /**
+   * Mark a session tab as having unread messages (show dot/badge).
+   */
+  private markSessionUnread(sessionId?: string): void {
+    if (!sessionId || sessionId === this.activeSessionId) return;
+    const tab = this.container.querySelector(
+      `.session-tab[data-session-id="${sessionId}"]`
+    );
+    if (tab && !tab.classList.contains('has-unread')) {
+      tab.classList.add('has-unread');
+    }
+  }
+
+  /**
+   * Clear the unread indicator for a session tab.
+   */
+  private clearSessionUnread(sessionId: string): void {
+    const tab = this.container.querySelector(
+      `.session-tab[data-session-id="${sessionId}"]`
+    );
+    if (tab) {
+      tab.classList.remove('has-unread');
+    }
   }
 
   private handleClearChat(): void {
@@ -356,22 +395,36 @@ export class ChatWindow {
     // New messages
     this.unsubscribers.push(
       eventBus.on(EVENTS.MESSAGE_SENT, (message: unknown) => {
-        this.hideWelcomeIfNeeded();
-        this.renderMessage(message as Message);
+        const msg = message as Message;
+        if (this.shouldRenderMessage(msg)) {
+          this.hideWelcomeIfNeeded();
+          this.renderMessage(msg);
+        }
       })
     );
 
     this.unsubscribers.push(
       eventBus.on(EVENTS.MESSAGE_RECEIVED, (message: unknown) => {
-        this.hideWelcomeIfNeeded();
-        this.renderMessage(message as Message);
+        const msg = message as Message;
+        if (this.shouldRenderMessage(msg)) {
+          this.hideWelcomeIfNeeded();
+          this.renderMessage(msg);
+        } else {
+          // Mark the session tab as having unread messages
+          this.markSessionUnread(msg.sessionId);
+        }
       })
     );
 
     // Enrichment messages (Layer 2 — Opus deep thinking)
     this.unsubscribers.push(
       eventBus.on(EVENTS.MESSAGE_ENRICHMENT, (message: unknown) => {
-        this.renderMessage(message as Message);
+        const msg = message as Message;
+        if (this.shouldRenderMessage(msg)) {
+          this.renderMessage(msg);
+        } else {
+          this.markSessionUnread(msg.sessionId);
+        }
       })
     );
 
@@ -383,9 +436,14 @@ export class ChatWindow {
         if (bubble) {
           bubble.updateContent(content, true);
         } else {
-          // New streaming message
+          // New streaming message — only render if it belongs to the active session
           const msg = appState.getMessages().find((m) => m.id === messageId);
-          if (msg) this.renderMessage(msg);
+          if (msg && this.shouldRenderMessage(msg)) {
+            this.hideWelcomeIfNeeded();
+            this.renderMessage(msg);
+          } else if (msg) {
+            this.markSessionUnread(msg.sessionId);
+          }
         }
         if (this.autoScroll) this.scrollToBottom();
       })

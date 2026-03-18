@@ -210,7 +210,7 @@ export class SettingsPage {
             <div class="setting-description">Additional directives injected into every prompt</div>
           </div>
           <textarea class="setting-textarea" data-field="custom_instructions" rows="4"
-            placeholder="e.g., Always respond in Quebec French. Never suggest stopping work.">${this.escapeHtml(p.custom_instructions)}</textarea>
+            placeholder="e.g., Always respond concisely. Prefer code examples over explanations.">${this.escapeHtml(p.custom_instructions)}</textarea>
         </div>
 
         <div class="setting-row full-width">
@@ -219,7 +219,7 @@ export class SettingsPage {
             <div class="setting-description">Infrastructure, machines, tools, paths</div>
           </div>
           <textarea class="setting-textarea" data-field="environment_notes" rows="4"
-            placeholder="e.g., Main server: thething (192.168.1.9). GPU: Corsair RTX 3090.">${this.escapeHtml(p.environment_notes)}</textarea>
+            placeholder="e.g., Dev server: my-server. Database: PostgreSQL on port 5432.">${this.escapeHtml(p.environment_notes)}</textarea>
         </div>
 
         <div class="setting-row">

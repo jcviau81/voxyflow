@@ -2209,6 +2209,22 @@
   background: rgba(255, 255, 255, 0.05);
 }
 
+.session-tab.has-unread::after {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--color-primary, #6366f1);
+  border-radius: 50%;
+  margin-left: 6px;
+  animation: unread-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes unread-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .session-tab-add {
   padding: 4px 8px;
   background: transparent;
