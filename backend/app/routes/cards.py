@@ -1088,3 +1088,21 @@ async def enrich_card(
     except (json.JSONDecodeError, KeyError, Exception) as e:
         logger.error(f"enrich_card: failed for card_id={card_id!r}: {e}")
         raise HTTPException(500, f"Enrichment failed: {e}")
+
+
+# ── Note / FreeBoard endpoints (Main Board sticky notes) ──────────────────
+
+@router.post("/api/notes")
+async def create_note(body: dict):
+    """Create a note for the Main Board (FreeBoard).
+    Notes are client-side (localStorage) but this endpoint returns the data
+    so the WebSocket can emit a ui_event to add it."""
+    content = body.get("content", "")
+    color = body.get("color")
+    if not content:
+        raise HTTPException(400, "content is required")
+    return {
+        "success": True,
+        "note": {"content": content, "color": color},
+        "ui_event": "idea:add",
+    }

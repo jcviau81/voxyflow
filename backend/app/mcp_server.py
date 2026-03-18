@@ -55,7 +55,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 },
             },
         },
-        "_http": ("POST", "/api/tools/execute", lambda p: {"name": "add_note", "params": p}),
+        "_http": ("POST", "/api/notes", lambda p: p),
     },
     {
         "name": "voxyflow.note.list",
