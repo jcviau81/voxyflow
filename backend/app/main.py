@@ -382,8 +382,13 @@ async def _handle_chat_3layer(
                     # Call via MCP REST
                     import httpx
                     _mcp_name = _tool_name.replace("_", ".") if "_" in _tool_name else _tool_name
-                    from app.mcp_server import get_tool_list, _call_api as mcp_call
-                    _result = await mcp_call(_mcp_name, _tool_args)
+                    from app.mcp_server import _TOOL_DEFINITIONS, _call_api as mcp_call
+                    # Find the tool definition by name
+                    _tool_def = next((t for t in _TOOL_DEFINITIONS if t["name"] == _mcp_name), None)
+                    if _tool_def:
+                        _result = await mcp_call(_tool_def, _tool_args)
+                    else:
+                        _result = {"error": f"Unknown tool: {_mcp_name}"}
                     logger.info(f"[ToolCall-Fallback] Result: {str(_result)[:200]}")
                     await websocket.send_json({
                         "type": "tool:executed",
