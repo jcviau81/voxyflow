@@ -4744,3 +4744,177 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ============================================================
+   Checklist Section (Card Detail Modal)
+   ============================================================ */
+
+.checklist-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checklist-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Progress bar */
+.checklist-progress-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 16px;
+}
+
+.checklist-progress-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.checklist-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: #4ecdc4;
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+
+.checklist-progress-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  min-width: 30px;
+  text-align: right;
+}
+
+/* Checklist items list */
+.checklist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.1s;
+}
+
+.checklist-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.checklist-checkbox {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: #4ecdc4;
+}
+
+.checklist-item-text {
+  flex: 1;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  outline: none;
+  border-radius: 3px;
+  padding: 1px 3px;
+  cursor: text;
+  min-height: 18px;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.checklist-item-text:focus {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 1px rgba(78, 205, 196, 0.4);
+}
+
+.checklist-item.completed .checklist-item-text {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.checklist-item-delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.checklist-item:hover .checklist-item-delete {
+  opacity: 1;
+}
+
+.checklist-item-delete:hover {
+  color: #ff6b6b;
+}
+
+/* Add row */
+.checklist-add-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.checklist-add-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.checklist-add-input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+.checklist-add-input:focus {
+  border-color: rgba(78, 205, 196, 0.5);
+}
+
+/* ============================================================
+   Checklist badge on Kanban cards
+   ============================================================ */
+
+.checklist-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+  line-height: 1.6;
+  cursor: default;
+}
+
+.checklist-badge--done {
+  color: #4ecdc4;
+  background: rgba(78, 205, 196, 0.08);
+  border-color: rgba(78, 205, 196, 0.25);
+}

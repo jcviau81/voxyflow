@@ -1,4 +1,4 @@
-import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment } from '../../types';
+import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem } from '../../types';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -386,6 +386,147 @@ export class CardDetailModal {
     return section;
   }
 
+  private buildChecklistSection(cardId: string): HTMLElement {
+    const section = createElement('div', { className: 'modal-section checklist-section' });
+
+    // Header
+    const headerEl = createElement('label', { className: 'modal-label checklist-header' }, '☑️ Checklist');
+
+    // Progress bar container
+    const progressContainer = createElement('div', { className: 'checklist-progress-bar-container' });
+    const progressTrack = createElement('div', { className: 'checklist-progress-track' });
+    const progressBar = createElement('div', { className: 'checklist-progress-bar' });
+    const progressLabel = createElement('span', { className: 'checklist-progress-label' }, '');
+    progressTrack.appendChild(progressBar);
+    progressContainer.appendChild(progressTrack);
+    progressContainer.appendChild(progressLabel);
+
+    // List container
+    const listEl = createElement('div', { className: 'checklist-list' });
+    listEl.textContent = 'Loading…';
+
+    // Local items cache
+    let localItems: ChecklistItem[] = [];
+
+    const updateProgress = () => {
+      const total = localItems.length;
+      const done = localItems.filter((i) => i.completed).length;
+      if (total === 0) {
+        progressContainer.style.display = 'none';
+        progressLabel.textContent = '';
+      } else {
+        progressContainer.style.display = '';
+        const pct = Math.round((done / total) * 100);
+        (progressBar as HTMLElement).style.width = `${pct}%`;
+        progressLabel.textContent = `${done}/${total}`;
+      }
+    };
+
+    const renderItem = (item: ChecklistItem): HTMLElement => {
+      const row = createElement('div', { className: `checklist-item${item.completed ? ' completed' : ''}`, 'data-item-id': item.id });
+
+      const checkbox = createElement('input', {
+        type: 'checkbox',
+        className: 'checklist-checkbox',
+      }) as HTMLInputElement;
+      checkbox.checked = item.completed;
+
+      checkbox.addEventListener('change', async () => {
+        const newCompleted = checkbox.checked;
+        // Optimistic update
+        row.classList.toggle('completed', newCompleted);
+        item.completed = newCompleted;
+        updateProgress();
+        await apiClient.updateChecklistItem(cardId, item.id, { completed: newCompleted });
+      });
+
+      // Inline editable text
+      const textEl = createElement('span', { className: 'checklist-item-text' }, item.text);
+      textEl.contentEditable = 'true';
+      textEl.spellcheck = false;
+
+      textEl.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter') { e.preventDefault(); (textEl as HTMLElement).blur(); }
+        if (e.key === 'Escape') { textEl.textContent = item.text; (textEl as HTMLElement).blur(); }
+      });
+
+      textEl.addEventListener('blur', async () => {
+        const newText = (textEl.textContent || '').trim();
+        if (newText && newText !== item.text) {
+          item.text = newText;
+          await apiClient.updateChecklistItem(cardId, item.id, { text: newText });
+        } else {
+          textEl.textContent = item.text;
+        }
+      });
+
+      // Delete button
+      const delBtn = createElement('button', { className: 'checklist-item-delete', title: 'Remove item' }, '×');
+      delBtn.addEventListener('click', async () => {
+        const ok = await apiClient.deleteChecklistItem(cardId, item.id);
+        if (ok) {
+          row.remove();
+          localItems = localItems.filter((i) => i.id !== item.id);
+          updateProgress();
+          if (localItems.length === 0) {
+            listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No items yet.'));
+          }
+        }
+      });
+
+      row.appendChild(checkbox);
+      row.appendChild(textEl);
+      row.appendChild(delBtn);
+      return row;
+    };
+
+    // Load items async
+    apiClient.fetchChecklistItems(cardId).then((items) => {
+      localItems = [...items];
+      listEl.innerHTML = '';
+      updateProgress();
+      if (items.length === 0) {
+        listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No items yet.'));
+      } else {
+        items.forEach((item) => listEl.appendChild(renderItem(item)));
+      }
+    });
+
+    // Add item row
+    const addRow = createElement('div', { className: 'checklist-add-row' });
+    const addInput = createElement('input', {
+      type: 'text',
+      className: 'form-input checklist-add-input',
+      placeholder: 'Add item… (Enter to add)',
+    }) as HTMLInputElement;
+
+    const submitAdd = async () => {
+      const text = addInput.value.trim();
+      if (!text) return;
+      addInput.value = '';
+      const saved = await apiClient.addChecklistItem(cardId, text);
+      if (saved) {
+        // Remove empty placeholder
+        const emptyEl = listEl.querySelector('.empty-text');
+        if (emptyEl) emptyEl.remove();
+        localItems.push(saved);
+        listEl.appendChild(renderItem(saved));
+        updateProgress();
+      }
+    };
+
+    addInput.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') { e.preventDefault(); submitAdd(); }
+    });
+
+    addRow.appendChild(addInput);
+    section.appendChild(headerEl);
+    section.appendChild(progressContainer);
+    section.appendChild(listEl);
+    section.appendChild(addRow);
+    return section;
+  }
+
   private renderContent(): void {
     if (!this.card) return;
     this.modal.innerHTML = '';
@@ -618,6 +759,9 @@ export class CardDetailModal {
       createElement('span', {}, `Updated: ${formatTime(this.card.updatedAt)}`)
     );
 
+    // Checklist
+    const checklistSection = this.buildChecklistSection(this.card.id);
+
     // Time tracking
     const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
 
@@ -658,6 +802,7 @@ export class CardDetailModal {
     this.modal.appendChild(agentSection);
     this.modal.appendChild(depsSection);
     this.modal.appendChild(tagsSection);
+    this.modal.appendChild(checklistSection);
     this.modal.appendChild(timeSection);
     this.modal.appendChild(commentsSection);
     this.modal.appendChild(focusSection);

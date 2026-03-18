@@ -5,8 +5,13 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, Card, Project, TimeEntry, CardComment, new_uuid, utcnow
-from app.models.card import CardCreate, CardUpdate, CardResponse, AgentAssignment, TimeEntryCreate, TimeEntryResponse, CommentCreate, CommentResponse
+from app.database import get_db, Card, Project, TimeEntry, CardComment, ChecklistItem, new_uuid, utcnow
+from app.models.card import (
+    CardCreate, CardUpdate, CardResponse, AgentAssignment,
+    TimeEntryCreate, TimeEntryResponse,
+    CommentCreate, CommentResponse,
+    ChecklistItemCreate, ChecklistItemUpdate, ChecklistItemResponse, ChecklistProgress,
+)
 from app.services.agent_router import get_agent_router
 from app.services.agent_personas import AgentType, get_persona, get_all_personas
 
@@ -80,7 +85,9 @@ async def create_card(
     db.add(card)
     await db.commit()
     # Reload with relationships
-    stmt = select(Card).where(Card.id == card.id).options(selectinload(Card.time_entries), selectinload(Card.dependencies))
+    stmt = select(Card).where(Card.id == card.id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
     result = await db.execute(stmt)
     card = result.scalar_one()
 
@@ -97,7 +104,7 @@ async def list_cards(
     stmt = (
         select(Card)
         .where(Card.project_id == project_id)
-        .options(selectinload(Card.time_entries), selectinload(Card.dependencies))
+        .options(selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items))
         .order_by(Card.position)
     )
     if status:
@@ -131,7 +138,9 @@ async def update_card(
 
     await db.commit()
     # Reload with relationships
-    stmt = select(Card).where(Card.id == card_id).options(selectinload(Card.time_entries), selectinload(Card.dependencies))
+    stmt = select(Card).where(Card.id == card_id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
     result = await db.execute(stmt)
     card = result.scalar_one()
     return _card_to_response(card)
@@ -159,7 +168,9 @@ async def assign_agent(
 
     await db.commit()
     # Reload with relationships
-    stmt = select(Card).where(Card.id == card_id).options(selectinload(Card.time_entries), selectinload(Card.dependencies))
+    stmt = select(Card).where(Card.id == card_id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
     result = await db.execute(stmt)
     card = result.scalar_one()
     return _card_to_response(card)
@@ -196,8 +207,11 @@ async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
 
 
 def _card_to_response(card: Card) -> CardResponse:
-    """Convert ORM Card to response, extracting dependency IDs and summing time."""
+    """Convert ORM Card to response, extracting dependency IDs, summing time, and computing checklist progress."""
     total_minutes = sum(e.duration_minutes for e in card.time_entries) if card.time_entries else 0
+    checklist_total = len(card.checklist_items) if card.checklist_items else 0
+    checklist_completed = sum(1 for i in card.checklist_items if i.completed) if card.checklist_items else 0
+    checklist_progress = ChecklistProgress(total=checklist_total, completed=checklist_completed) if checklist_total > 0 else None
     return CardResponse(
         id=card.id,
         project_id=card.project_id,
@@ -215,6 +229,7 @@ def _card_to_response(card: Card) -> CardResponse:
         updated_at=card.updated_at,
         dependency_ids=[d.id for d in card.dependencies] if card.dependencies else [],
         total_minutes=total_minutes,
+        checklist_progress=checklist_progress,
     )
 
 
@@ -333,4 +348,92 @@ async def delete_comment(
     if not comment:
         raise HTTPException(404, "Comment not found")
     await db.delete(comment)
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Checklist endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/cards/{card_id}/checklist", response_model=ChecklistItemResponse, status_code=201)
+async def add_checklist_item(
+    card_id: str,
+    body: ChecklistItemCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a checklist item to a card."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    # Determine next position
+    stmt = select(func.max(ChecklistItem.position)).where(ChecklistItem.card_id == card_id)
+    result = await db.execute(stmt)
+    max_pos = result.scalar() or -1
+
+    item = ChecklistItem(
+        id=new_uuid(),
+        card_id=card_id,
+        text=body.text,
+        completed=False,
+        position=max_pos + 1,
+        created_at=utcnow(),
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.get("/cards/{card_id}/checklist", response_model=list[ChecklistItemResponse])
+async def list_checklist_items(
+    card_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """List all checklist items for a card, ordered by position."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    stmt = select(ChecklistItem).where(ChecklistItem.card_id == card_id).order_by(ChecklistItem.position)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.patch("/cards/{card_id}/checklist/{item_id}", response_model=ChecklistItemResponse)
+async def update_checklist_item(
+    card_id: str,
+    item_id: str,
+    body: ChecklistItemUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a checklist item (toggle completed or edit text)."""
+    stmt = select(ChecklistItem).where(ChecklistItem.id == item_id, ChecklistItem.card_id == card_id)
+    result = await db.execute(stmt)
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Checklist item not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(item, field, value)
+
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.delete("/cards/{card_id}/checklist/{item_id}", status_code=204)
+async def delete_checklist_item(
+    card_id: str,
+    item_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a checklist item."""
+    stmt = select(ChecklistItem).where(ChecklistItem.id == item_id, ChecklistItem.card_id == card_id)
+    result = await db.execute(stmt)
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Checklist item not found")
+    await db.delete(item)
     await db.commit()

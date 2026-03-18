@@ -159,6 +159,7 @@ class Card(Base):
     )
     time_entries = relationship("TimeEntry", back_populates="card", cascade="all, delete-orphan")
     comments = relationship("CardComment", back_populates="card", cascade="all, delete-orphan")
+    checklist_items = relationship("ChecklistItem", back_populates="card", cascade="all, delete-orphan", order_by="ChecklistItem.position")
 
 
 class CardComment(Base):
@@ -183,6 +184,19 @@ class TimeEntry(Base):
     logged_at = Column(DateTime, default=utcnow)
 
     card = relationship("Card", back_populates="time_entries")
+
+
+class ChecklistItem(Base):
+    __tablename__ = "checklist_items"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    card_id = Column(String, ForeignKey("cards.id", ondelete="CASCADE"), nullable=False)
+    text = Column(Text, nullable=False)
+    completed = Column(Boolean, default=False, nullable=False)
+    position = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow)
+
+    card = relationship("Card", back_populates="checklist_items")
 
 
 class Document(Base):

@@ -33,7 +33,7 @@ export class ChatWindow {
   private chatSearch: ChatSearch | null = null;
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
-  private currentProjectView: 'chat' | 'kanban' | 'stats' = 'chat';
+  private currentProjectView: 'chat' | 'kanban' | 'stats' | 'roadmap' = 'chat';
 
   // Session management (general chat only)
   private sessions: { id: string; label: string }[] = [{ id: 'session-1', label: 'Session 1' }];
@@ -362,9 +362,19 @@ export class ChatWindow {
       appState.setView('stats');
     });
 
+    const roadmapBtn = createElement('button', {
+      className: `view-btn ${this.currentProjectView === 'roadmap' ? 'active' : ''}`,
+      'data-view': 'roadmap',
+    }, '📅 Roadmap');
+    roadmapBtn.addEventListener('click', () => {
+      this.currentProjectView = 'roadmap';
+      appState.setView('roadmap');
+    });
+
     viewToggle.appendChild(chatBtn);
     viewToggle.appendChild(kanbanBtn);
     viewToggle.appendChild(statsBtn);
+    viewToggle.appendChild(roadmapBtn);
 
     return viewToggle;
   }
@@ -596,7 +606,7 @@ export class ChatWindow {
     this.unsubscribers.push(
       eventBus.on(EVENTS.VIEW_CHANGE, (view: unknown) => {
         const v = view as ViewMode;
-        if (v === 'chat' || v === 'kanban' || v === 'stats') {
+        if (v === 'chat' || v === 'kanban' || v === 'stats' || v === 'roadmap') {
           this.currentProjectView = v;
         }
         this.updateUnifiedHeader();

@@ -71,6 +71,7 @@ class CardResponse(BaseModel):
     updated_at: datetime
     dependency_ids: list[str] = []
     total_minutes: int = 0
+    checklist_progress: Optional["ChecklistProgress"] = None
 
     model_config = {"from_attributes": True}
 
@@ -110,3 +111,28 @@ class CommentResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ChecklistItemCreate(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+class ChecklistItemUpdate(BaseModel):
+    text: Optional[str] = None
+    completed: Optional[bool] = None
+
+
+class ChecklistItemResponse(BaseModel):
+    id: str
+    card_id: str
+    text: str
+    completed: bool
+    position: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChecklistProgress(BaseModel):
+    total: int
+    completed: int

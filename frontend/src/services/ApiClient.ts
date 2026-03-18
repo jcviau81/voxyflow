@@ -1,4 +1,4 @@
-import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry, CardComment } from '../types';
+import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry, CardComment, ChecklistItem } from '../types';
 
 export interface SearchResult {
   message_id: string;
@@ -299,6 +299,7 @@ export class ApiClient {
         agentContext: c.agent_context,
         dependencies: c.dependency_ids ?? [],
         totalMinutes: c.total_minutes ?? 0,
+        checklistProgress: c.checklist_progress ?? undefined,
         createdAt: c.created_at ? new Date(c.created_at as string).getTime() : Date.now(),
         updatedAt: c.updated_at ? new Date(c.updated_at as string).getTime() : Date.now(),
         tags: c.tags ?? [],
@@ -468,6 +469,77 @@ export class ApiClient {
       return response.ok;
     } catch (error) {
       console.error('[ApiClient] deleteComment error:', error);
+      return false;
+    }
+  }
+
+  async fetchChecklistItems(cardId: string): Promise<ChecklistItem[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/checklist`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as Array<{
+        id: string; card_id: string; text: string; completed: boolean; position: number; created_at: string;
+      }>;
+      return data.map((i) => ({
+        id: i.id,
+        cardId: i.card_id,
+        text: i.text,
+        completed: i.completed,
+        position: i.position,
+        createdAt: new Date(i.created_at).getTime(),
+      }));
+    } catch (error) {
+      console.error('[ApiClient] fetchChecklistItems error:', error);
+      return [];
+    }
+  }
+
+  async addChecklistItem(cardId: string, text: string): Promise<ChecklistItem | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/checklist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const i = await response.json() as {
+        id: string; card_id: string; text: string; completed: boolean; position: number; created_at: string;
+      };
+      return { id: i.id, cardId: i.card_id, text: i.text, completed: i.completed, position: i.position, createdAt: new Date(i.created_at).getTime() };
+    } catch (error) {
+      console.error('[ApiClient] addChecklistItem error:', error);
+      return null;
+    }
+  }
+
+  async updateChecklistItem(cardId: string, itemId: string, updates: { text?: string; completed?: boolean }): Promise<ChecklistItem | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/checklist/${itemId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const i = await response.json() as {
+        id: string; card_id: string; text: string; completed: boolean; position: number; created_at: string;
+      };
+      return { id: i.id, cardId: i.card_id, text: i.text, completed: i.completed, position: i.position, createdAt: new Date(i.created_at).getTime() };
+    } catch (error) {
+      console.error('[ApiClient] updateChecklistItem error:', error);
+      return null;
+    }
+  }
+
+  async deleteChecklistItem(cardId: string, itemId: string): Promise<boolean> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/checklist/${itemId}`, { method: 'DELETE' });
+      return response.ok;
+    } catch (error) {
+      console.error('[ApiClient] deleteChecklistItem error:', error);
       return false;
     }
   }

@@ -23,6 +23,7 @@ import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
 import { FocusMode } from './components/FocusMode/FocusMode';
 import { ProjectStats } from './components/Projects/ProjectStats';
+import { ProjectRoadmap } from './components/Projects/ProjectRoadmap';
 
 export class App {
   private root: HTMLElement;
@@ -157,7 +158,7 @@ export class App {
         const activeTab = appState.getActiveTab();
         if (activeTab === 'main') {
           const currentView = appState.get('currentView');
-          if (currentView === 'kanban' || currentView === 'projects' || currentView === 'stats') {
+          if (currentView === 'kanban' || currentView === 'projects' || currentView === 'stats' || currentView === 'roadmap') {
             this.switchView('chat');
             appState.set('currentView', 'chat');
           }
@@ -532,6 +533,9 @@ export class App {
         break;
       case 'stats':
         component = new ProjectStats(this.mainContent);
+        break;
+      case 'roadmap':
+        component = new ProjectRoadmap(this.mainContent);
         break;
     }
 

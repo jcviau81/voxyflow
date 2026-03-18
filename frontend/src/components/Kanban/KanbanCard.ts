@@ -1,4 +1,4 @@
-import { Card } from '../../types';
+import { Card, ChecklistProgress } from '../../types';
 import { createElement, truncate } from '../../utils/helpers';
 import { AGENT_PERSONAS, AGENT_TYPE_EMOJI } from '../../utils/constants';
 import { eventBus } from '../../utils/EventBus';
@@ -130,6 +130,17 @@ export class KanbanCard {
         title: `${this.card.totalMinutes} minutes logged`,
       }, timeLabel);
       footer.appendChild(timeBadge);
+    }
+
+    // Checklist progress badge
+    if (this.card.checklistProgress && this.card.checklistProgress.total > 0) {
+      const { total, completed } = this.card.checklistProgress;
+      const isDone = completed === total;
+      const checklistBadge = createElement('span', {
+        className: `checklist-badge${isDone ? ' checklist-badge--done' : ''}`,
+        title: `Checklist: ${completed}/${total} completed`,
+      }, `☑ ${completed}/${total}`);
+      footer.appendChild(checklistBadge);
     }
 
     // Dependencies indicator

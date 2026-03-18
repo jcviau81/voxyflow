@@ -4,6 +4,7 @@ import './styles/opportunities.css';
 import './styles/ideas.css';
 import './styles/freeboard.css';
 import './styles/stats.css';
+import './styles/roadmap.css';
 import './styles/responsive.css';
 import './styles/rich-chat.css';
 import './styles/notifications.css';
