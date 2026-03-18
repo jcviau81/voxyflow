@@ -530,6 +530,25 @@ class ClaudeService:
             data = {"cards": [], "summary": "Could not parse meeting notes."}
         return data
 
+    async def generate_priority_reasoning(
+        self,
+        prompt: str,
+    ) -> str:
+        """One-shot priority reasoning for top-3 cards using the fast model. Returns JSON string."""
+        system_prompt = (
+            "You are a project prioritization assistant. "
+            "Given the top prioritized cards with their scores and attributes, "
+            "write a short, specific one-sentence reasoning for why each card is ranked where it is. "
+            "Respond ONLY with valid JSON array — no markdown, no code blocks, no commentary."
+        )
+        response = await self._call_api(
+            model=self.fast_model,
+            system=system_prompt,
+            messages=[{"role": "user", "content": prompt}],
+            client=self.fast_client,
+        )
+        return response
+
     async def analyze_for_cards(
         self,
         chat_id: str,

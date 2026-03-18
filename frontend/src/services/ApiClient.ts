@@ -804,6 +804,66 @@ export class ApiClient {
     }
   }
 
+  async cloneCardToProject(cardId: string, targetProjectId: string): Promise<import('../types').Card | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/clone-to/${targetProjectId}`, { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const c = await response.json() as Record<string, unknown>;
+      return {
+        ...(c as unknown as import('../types').Card),
+        projectId: c.project_id as string,
+        agentType: c.agent_type as string | undefined,
+        agentAssigned: c.agent_assigned as string | undefined,
+        agentContext: c.agent_context as string | undefined,
+        dependencies: (c.dependency_ids as string[]) ?? [],
+        totalMinutes: (c.total_minutes as number) ?? 0,
+        checklistProgress: (c.checklist_progress as import('../types').ChecklistProgress) ?? undefined,
+        createdAt: c.created_at ? new Date(c.created_at as string).getTime() : Date.now(),
+        updatedAt: c.updated_at ? new Date(c.updated_at as string).getTime() : Date.now(),
+        tags: (c.tags as string[]) ?? [],
+        chatHistory: [],
+        assignee: (c.assignee as string) ?? null,
+        watchers: (c.watchers as string) ?? '',
+        votes: (c.votes as number) ?? 0,
+        sprintId: (c.sprint_id as string) ?? null,
+      } as import('../types').Card;
+    } catch (error) {
+      console.error('[ApiClient] cloneCardToProject error:', error);
+      return null;
+    }
+  }
+
+  async moveCardToProject(cardId: string, targetProjectId: string): Promise<import('../types').Card | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/move-to/${targetProjectId}`, { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const c = await response.json() as Record<string, unknown>;
+      return {
+        ...(c as unknown as import('../types').Card),
+        projectId: c.project_id as string,
+        agentType: c.agent_type as string | undefined,
+        agentAssigned: c.agent_assigned as string | undefined,
+        agentContext: c.agent_context as string | undefined,
+        dependencies: (c.dependency_ids as string[]) ?? [],
+        totalMinutes: (c.total_minutes as number) ?? 0,
+        checklistProgress: (c.checklist_progress as import('../types').ChecklistProgress) ?? undefined,
+        createdAt: c.created_at ? new Date(c.created_at as string).getTime() : Date.now(),
+        updatedAt: c.updated_at ? new Date(c.updated_at as string).getTime() : Date.now(),
+        tags: (c.tags as string[]) ?? [],
+        chatHistory: [],
+        assignee: (c.assignee as string) ?? null,
+        watchers: (c.watchers as string) ?? '',
+        votes: (c.votes as number) ?? 0,
+        sprintId: (c.sprint_id as string) ?? null,
+      } as import('../types').Card;
+    } catch (error) {
+      console.error('[ApiClient] moveCardToProject error:', error);
+      return null;
+    }
+  }
+
   async duplicateCard(cardId: string): Promise<import('../types').Card | null> {
     try {
       const baseUrl = API_URL || '';

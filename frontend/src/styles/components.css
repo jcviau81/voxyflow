@@ -5678,6 +5678,56 @@
   flex-shrink: 0;
 }
 
+.card-context-item--submenu {
+  position: relative;
+}
+
+.card-context-item--submenu .card-context-arrow {
+  margin-left: auto;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.card-context-item--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── Card Context Submenu ──────────────────────────────────────────────────── */
+
+.card-context-submenu {
+  position: fixed;
+  z-index: 10000;
+  background: var(--color-surface, #1e2030);
+  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  min-width: 180px;
+  padding: 4px 0;
+  animation: contextMenuFadeIn 0.1s ease;
+}
+
+.card-context-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--color-text, #e2e8f0);
+  cursor: pointer;
+  transition: background 0.1s;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-context-submenu-item:hover {
+  background: rgba(78, 205, 196, 0.12);
+  color: var(--color-accent, #4ecdc4);
+}
+
 /* ── Card Actions Button (...) ─────────────────────────────────────────────── */
 
 .kanban-card-header {

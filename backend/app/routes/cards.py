@@ -281,6 +281,114 @@ async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
+@router.post("/cards/{card_id}/clone-to/{target_project_id}", response_model=CardResponse, status_code=201)
+async def clone_card_to_project(
+    card_id: str,
+    target_project_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Clone a card to another project. Appends ' (cloned)' to title and creates a cloned_from relation."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    target_project = await db.get(Project, target_project_id)
+    if not target_project:
+        raise HTTPException(404, "Target project not found")
+
+    if card.project_id == target_project_id:
+        raise HTTPException(400, "Card is already in the target project")
+
+    new_card = Card(
+        id=new_uuid(),
+        project_id=target_project_id,
+        title=f"{card.title} (cloned)",
+        description=card.description or "",
+        status=card.status,
+        priority=card.priority,
+        position=card.position,
+        source_message_id=card.source_message_id,
+        auto_generated=card.auto_generated,
+        agent_type=card.agent_type,
+        agent_assigned=card.agent_assigned,
+        agent_context=card.agent_context,
+        assignee=card.assignee,
+        watchers=card.watchers,
+        votes=0,
+        recurrence=card.recurrence,
+        recurrence_next=card.recurrence_next,
+    )
+
+    db.add(new_card)
+    await db.flush()  # get new_card.id before adding relation
+
+    # Clone checklist items
+    stmt_items = select(ChecklistItem).where(ChecklistItem.card_id == card_id).order_by(ChecklistItem.position)
+    items_result = await db.execute(stmt_items)
+    for item in items_result.scalars().all():
+        new_item = ChecklistItem(
+            id=new_uuid(),
+            card_id=new_card.id,
+            text=item.text,
+            completed=False,
+            position=item.position,
+            created_at=utcnow(),
+        )
+        db.add(new_item)
+
+    # Create cloned_from relation
+    relation = CardRelation(
+        id=new_uuid(),
+        source_card_id=new_card.id,
+        target_card_id=card_id,
+        relation_type="cloned_from",
+        created_at=utcnow(),
+    )
+    db.add(relation)
+
+    await db.commit()
+
+    # Reload with relationships
+    stmt = select(Card).where(Card.id == new_card.id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
+    result = await db.execute(stmt)
+    new_card = result.scalar_one()
+    return _card_to_response(new_card)
+
+
+@router.post("/cards/{card_id}/move-to/{target_project_id}", response_model=CardResponse)
+async def move_card_to_project(
+    card_id: str,
+    target_project_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Move a card to another project. Moves all checklist items, comments, and attachments."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    target_project = await db.get(Project, target_project_id)
+    if not target_project:
+        raise HTTPException(404, "Target project not found")
+
+    if card.project_id == target_project_id:
+        raise HTTPException(400, "Card is already in the target project")
+
+    card.project_id = target_project_id
+    card.updated_at = utcnow()
+
+    await db.commit()
+
+    # Reload with relationships
+    stmt = select(Card).where(Card.id == card_id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
+    result = await db.execute(stmt)
+    card = result.scalar_one()
+    return _card_to_response(card)
+
+
 # ---------------------------------------------------------------------------
 # History / Audit Log endpoint
 # ---------------------------------------------------------------------------

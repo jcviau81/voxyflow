@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -1321,6 +1325,198 @@ async def start_sprint(
     )
     card_count = count_result.scalar() or 0
     return _sprint_to_response(sprint, card_count)
+
+
+# ---------------------------------------------------------------------------
+# Smart Card Prioritization
+# ---------------------------------------------------------------------------
+
+class PriorizedCard(BaseModel):
+    card_id: str
+    title: str
+    score: float
+    reasoning: str
+
+
+class PrioritizeResponse(BaseModel):
+    ordered_cards: list[PriorizedCard]
+    summary: str
+
+
+def _compute_priority_score(card: "Card", all_cards: list["Card"]) -> float:
+    """
+    Deterministic rule-based scoring (0-100).
+    Weights:
+      - priority field:      0-25 pts
+      - votes:               0-20 pts  (capped at 10 votes = max)
+      - unblocks others:     0-20 pts
+      - age (days):          0-10 pts  (capped at 30 days)
+      - checklist progress:  0-15 pts  (partially done = highest)
+      - status:              0-10 pts
+    Total max = 100
+    """
+    score = 0.0
+    now = datetime.now(timezone.utc)
+
+    # 1. Priority field (critical=4, high=3, medium=2, low=1, none=0)
+    # Map DB values: 3=critical, 2=high, 1=medium, 0=low
+    priority_map = {3: 25.0, 2: 18.75, 1: 12.5, 0: 6.25}
+    score += priority_map.get(card.priority or 0, 6.25)
+
+    # 2. Votes (more votes = higher) — capped at 10 votes for max score
+    votes = card.votes or 0
+    score += min(votes / 10.0, 1.0) * 20.0
+
+    # 3. Dependencies: cards that unblock others → higher priority
+    # Count how many OTHER cards depend on this card
+    dependents_count = 0
+    for other in all_cards:
+        if other.id == card.id:
+            continue
+        if hasattr(other, "dependencies"):
+            for dep in (other.dependencies or []):
+                if dep.id == card.id:
+                    dependents_count += 1
+    score += min(dependents_count / 3.0, 1.0) * 20.0
+
+    # 4. Age (older = slightly higher) — capped at 30 days
+    created_at = card.created_at
+    if created_at:
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        age_days = (now - created_at).total_seconds() / 86400
+        score += min(age_days / 30.0, 1.0) * 10.0
+
+    # 5. Checklist completion (partially done = highest: started but not finished)
+    checklist = list(card.checklist_items) if hasattr(card, "checklist_items") else []
+    if checklist:
+        total_items = len(checklist)
+        done_items = sum(1 for i in checklist if i.completed)
+        completion_ratio = done_items / total_items
+        # Partially done (0.1-0.9) = max points; fully done or not started = 0
+        if 0.0 < completion_ratio < 1.0:
+            # Peak at 50% completion
+            partial_score = 1.0 - abs(completion_ratio - 0.5) * 2  # 0.5 → 1.0, 0 or 1 → 0
+            score += partial_score * 15.0
+        # fully done = 0 extra (already done is done)
+    # No checklist = neutral (0 pts for this factor)
+
+    # 6. Status (in-progress > todo > idea; done cards get 0 = should not appear)
+    status_map = {"in-progress": 10.0, "todo": 6.0, "idea": 2.0, "done": 0.0}
+    score += status_map.get(card.status or "todo", 2.0)
+
+    return round(min(score, 100.0), 2)
+
+
+@router.post("/{project_id}/prioritize", response_model=PrioritizeResponse)
+async def smart_prioritize(project_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Analyze all non-done cards and return a suggested work order.
+    Score is deterministic (rule-based). AI generates brief reasoning for top 3.
+    """
+    from sqlalchemy.orm import selectinload as slo
+    from app.services.claude_service import ClaudeService
+
+    stmt = (
+        select(Project)
+        .options(
+            slo(Project.cards).selectinload(Card.checklist_items),
+            slo(Project.cards).selectinload(Card.dependencies),
+        )
+        .where(Project.id == project_id)
+    )
+    result = await db.execute(stmt)
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    all_cards = list(project.cards)
+
+    # Score only non-done cards (done cards have nothing left to prioritize)
+    active_cards = [c for c in all_cards if c.status != "done"]
+
+    if not active_cards:
+        return PrioritizeResponse(
+            ordered_cards=[],
+            summary="All cards are done — nothing left to prioritize! 🎉",
+        )
+
+    # Compute scores
+    scored = [(card, _compute_priority_score(card, all_cards)) for card in active_cards]
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Build top-3 AI reasoning prompt
+    top3 = scored[:3]
+    priority_label = {3: "critical", 2: "high", 1: "medium", 0: "low"}
+    status_label = {"in-progress": "in progress", "todo": "todo", "idea": "idea"}
+
+    top3_lines = []
+    for rank, (card, score) in enumerate(top3, 1):
+        votes = card.votes or 0
+        checklist = list(card.checklist_items) if hasattr(card, "checklist_items") else []
+        checklist_info = ""
+        if checklist:
+            done = sum(1 for i in checklist if i.completed)
+            checklist_info = f", {done}/{len(checklist)} checklist items done"
+        line = (
+            f"#{rank}: \"{card.title}\" — score {score}/100, "
+            f"priority={priority_label.get(card.priority or 0, 'low')}, "
+            f"status={status_label.get(card.status, card.status)}, "
+            f"votes={votes}{checklist_info}"
+        )
+        top3_lines.append(line)
+
+    reasoning_prompt = (
+        f"Project: {project.title}\n\n"
+        f"Top 3 prioritized cards:\n" + "\n".join(top3_lines) + "\n\n"
+        f"For each of the top 3 cards, write ONE short sentence (max 20 words) explaining WHY it should be done first. "
+        f"Be specific: mention priority, blocking others, partial progress, or votes. "
+        f"Respond ONLY with valid JSON: "
+        f'[{{"card_rank": 1, "reasoning": "..."}}, {{"card_rank": 2, "reasoning": "..."}}, {{"card_rank": 3, "reasoning": "..."}}]'
+    )
+
+    svc = ClaudeService()
+    reasoning_map: dict[int, str] = {}
+
+    try:
+        raw = await svc.generate_priority_reasoning(reasoning_prompt)
+        text = raw.strip()
+        if text.startswith("```"):
+            text = text.split("```", 2)[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.rsplit("```", 1)[0].strip()
+        parsed = json.loads(text)
+        for item in parsed:
+            reasoning_map[item["card_rank"]] = str(item["reasoning"])[:200]
+    except Exception as e:
+        logger.warning(f"[Prioritize] AI reasoning failed, using fallback: {e}")
+        # Fallback: deterministic reasoning
+        for rank, (card, score) in enumerate(top3, 1):
+            reasoning_map[rank] = f"Score {score}/100 based on priority, votes, and dependencies."
+
+    # Build response
+    ordered = []
+    for rank, (card, score) in enumerate(scored, 1):
+        reasoning = reasoning_map.get(rank, "")
+        ordered.append(PriorizedCard(
+            card_id=card.id,
+            title=card.title,
+            score=score,
+            reasoning=reasoning,
+        ))
+
+    # Summary
+    total = len(scored)
+    in_prog = sum(1 for c, _ in scored if c.status == "in-progress")
+    top_title = scored[0][0].title if scored else ""
+    summary = (
+        f"{total} card{'s' if total != 1 else ''} analyzed. "
+        f"{in_prog} in progress. "
+        f"Top priority: \"{top_title}\"."
+    )
+
+    return PrioritizeResponse(ordered_cards=ordered, summary=summary)
 
 
 @router.post("/{project_id}/sprints/{sprint_id}/complete", response_model=SprintResponse)

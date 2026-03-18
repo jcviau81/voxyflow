@@ -94,7 +94,90 @@ export class KanbanCard {
 
       const menu = createElement('div', { className: 'card-context-menu' });
 
-      const items: Array<{ icon: string; label: string; action: () => void; danger?: boolean }> = [
+      // Get other projects for clone/move submenus
+      const allProjects = (appState.get('projects') as import('../../types').Project[]) ?? [];
+      const otherProjects = allProjects.filter((p) => p.id !== this.card.projectId);
+
+      // Helper to build a submenu item with a nested project list
+      const buildSubmenuItem = (
+        icon: string,
+        label: string,
+        onSelect: (projectId: string, projectTitle: string) => void,
+      ): HTMLElement => {
+        const el = createElement('div', { className: 'card-context-item card-context-item--submenu' });
+        el.innerHTML = `<span class="card-context-icon">${icon}</span><span>${label}</span><span class="card-context-arrow">›</span>`;
+
+        if (otherProjects.length === 0) {
+          el.classList.add('card-context-item--disabled');
+          el.title = 'No other projects available';
+          return el;
+        }
+
+        let submenu: HTMLElement | null = null;
+
+        const openSubmenu = () => {
+          closeSubmenu();
+          submenu = createElement('div', { className: 'card-context-submenu' });
+
+          otherProjects.forEach((project) => {
+            const projectEl = createElement('div', { className: 'card-context-submenu-item' });
+            const emoji = project.emoji || '📁';
+            const projectName = project.name;
+            projectEl.innerHTML = `<span class="card-context-icon">${emoji}</span><span>${projectName}</span>`;
+            projectEl.addEventListener('click', (e) => {
+              e.stopPropagation();
+              closeMenu();
+              onSelect(project.id, projectName);
+            });
+            submenu!.appendChild(projectEl);
+          });
+
+          document.body.appendChild(submenu);
+
+          // Position submenu relative to parent item
+          const rect = el.getBoundingClientRect();
+          const submenuW = 180;
+          const submenuH = otherProjects.length * 36 + 8;
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+          let left = rect.right + 2;
+          let top = rect.top;
+          if (left + submenuW > vw) left = rect.left - submenuW - 2;
+          if (top + submenuH > vh) top = vh - submenuH - 8;
+          submenu.style.left = `${left}px`;
+          submenu.style.top = `${top}px`;
+        };
+
+        const closeSubmenu = () => {
+          if (submenu) {
+            submenu.remove();
+            submenu = null;
+          }
+        };
+
+        el.addEventListener('mouseenter', openSubmenu);
+        el.addEventListener('mouseleave', (e) => {
+          // Keep submenu open if cursor moves into it
+          const related = e.relatedTarget as Node | null;
+          if (submenu && submenu.contains(related)) return;
+          closeSubmenu();
+        });
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (submenu) {
+            closeSubmenu();
+          } else {
+            openSubmenu();
+          }
+        });
+
+        // Track submenu reference for cleanup
+        el.addEventListener('card:submenu-close', () => closeSubmenu());
+
+        return el;
+      };
+
+      const items: Array<{ icon: string; label: string; action: () => void; danger?: boolean } | HTMLElement> = [
         {
           icon: '📋',
           label: 'Duplicate',
@@ -115,6 +198,12 @@ export class KanbanCard {
             eventBus.emit(EVENTS.FOCUS_MODE_ENTER, this.card.id);
           },
         },
+        buildSubmenuItem('📤', 'Clone to Project', async (projectId, projectTitle) => {
+          await this.handleCloneTo(projectId, projectTitle);
+        }),
+        buildSubmenuItem('✈️', 'Move to Project', async (projectId, projectTitle) => {
+          await this.handleMoveTo(projectId, projectTitle);
+        }),
         {
           icon: '🗑️',
           label: 'Delete',
@@ -128,6 +217,10 @@ export class KanbanCard {
       ];
 
       items.forEach((item) => {
+        if (item instanceof HTMLElement) {
+          menu.appendChild(item);
+          return;
+        }
         const el = createElement('div', {
           className: `card-context-item${item.danger ? ' card-context-item--danger' : ''}`,
         });
@@ -144,7 +237,7 @@ export class KanbanCard {
       this.contextMenu = menu;
 
       // Position: keep within viewport
-      const menuW = 160;
+      const menuW = 180;
       const menuH = items.length * 36 + 8;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -201,6 +294,44 @@ export class KanbanCard {
       eventBus.emit(EVENTS.TOAST_SHOW, { message: `📋 Duplicated: "${newCard.title}"`, type: 'success', duration: 3000 });
     } else {
       eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Duplication failed', type: 'error', duration: 3000 });
+    }
+  }
+
+  private async handleCloneTo(targetProjectId: string, targetProjectTitle: string): Promise<void> {
+    const newCard = await apiClient.cloneCardToProject(this.card.id, targetProjectId);
+    if (newCard) {
+      // Only add to appState if the card belongs to current project view
+      const currentProjectId = appState.get('currentProjectId') as string | null;
+      if (newCard.projectId === currentProjectId) {
+        const cards = appState.get('cards') as Card[];
+        appState.set('cards', [...cards, newCard]);
+        eventBus.emit(EVENTS.CARD_CREATED, newCard);
+      }
+      eventBus.emit(EVENTS.TOAST_SHOW, {
+        message: `📤 Cloned to "${targetProjectTitle}"`,
+        type: 'success',
+        duration: 3000,
+      });
+    } else {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Clone failed', type: 'error', duration: 3000 });
+    }
+  }
+
+  private async handleMoveTo(targetProjectId: string, targetProjectTitle: string): Promise<void> {
+    const movedCard = await apiClient.moveCardToProject(this.card.id, targetProjectId);
+    if (movedCard) {
+      // Remove from current project's card list in appState
+      const cards = appState.get('cards') as Card[];
+      appState.set('cards', cards.filter((c) => c.id !== this.card.id));
+      // Destroy this card's DOM element
+      this.destroy();
+      eventBus.emit(EVENTS.TOAST_SHOW, {
+        message: `✈️ Moved to "${targetProjectTitle}"`,
+        type: 'success',
+        duration: 3000,
+      });
+    } else {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Move failed', type: 'error', duration: 3000 });
     }
   }
 

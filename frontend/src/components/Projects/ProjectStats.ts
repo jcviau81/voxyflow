@@ -35,6 +35,13 @@ export class ProjectStats {
   private briefContent: string | null = null;
   private briefGeneratedAt: string | null = null;
 
+  // Smart Priority state
+  private priorityLoading = false;
+  private priorityData: {
+    ordered_cards: { card_id: string; title: string; score: number; reasoning: string }[];
+    summary: string;
+  } | null = null;
+
   // Health Check state
   private healthLoading = false;
   private healthData: {
@@ -111,6 +118,10 @@ export class ProjectStats {
     // ── Health Check ─────────────────────────────────
     const healthSection = this._buildHealthSection();
     this.container.appendChild(healthSection);
+
+    // ── Smart Priority ────────────────────────────────
+    const prioritySection = this._buildPrioritySection();
+    this.container.appendChild(prioritySection);
 
     this.parentElement.appendChild(this.container);
   }
@@ -806,6 +817,174 @@ export class ProjectStats {
     }
   }
 
+  // ── Smart Priority ────────────────────────────────
+
+  private _buildPrioritySection(): HTMLElement {
+    const section = createElement('div', { className: 'priority-section' });
+
+    const sectionTitle = createElement('h3', { className: 'priority-section-title' });
+    sectionTitle.textContent = '🎯 Smart Priority';
+    section.appendChild(sectionTitle);
+
+    const controls = createElement('div', { className: 'priority-controls' });
+
+    const analyzeBtn = createElement('button', {
+      className: `priority-analyze-btn${this.priorityLoading ? ' loading' : ''}`,
+    });
+    analyzeBtn.disabled = this.priorityLoading;
+    analyzeBtn.textContent = this.priorityLoading ? '⏳ Analyzing…' : '🎯 Analyze Priority';
+    analyzeBtn.addEventListener('click', () => this._analyzePriority());
+    controls.appendChild(analyzeBtn);
+
+    if (this.priorityData && this.priorityData.ordered_cards.length > 0) {
+      const applyBtn = createElement('button', { className: 'priority-apply-btn' });
+      applyBtn.textContent = '✅ Apply to Kanban';
+      applyBtn.addEventListener('click', () => this._applyToKanban());
+      controls.appendChild(applyBtn);
+    }
+
+    section.appendChild(controls);
+
+    if (this.priorityData) {
+      const resultCard = this._buildPriorityCard(this.priorityData);
+      section.appendChild(resultCard);
+    }
+
+    return section;
+  }
+
+  private _buildPriorityCard(data: NonNullable<typeof this.priorityData>): HTMLElement {
+    const card = createElement('div', { className: 'priority-card' });
+
+    if (data.summary) {
+      const summary = createElement('div', { className: 'priority-summary' });
+      summary.textContent = data.summary;
+      card.appendChild(summary);
+    }
+
+    if (data.ordered_cards.length === 0) {
+      const empty = createElement('div', { className: 'priority-empty' });
+      empty.textContent = '🎉 All cards are done — nothing to prioritize!';
+      card.appendChild(empty);
+      return card;
+    }
+
+    const list = createElement('ol', { className: 'priority-list' });
+
+    for (let i = 0; i < data.ordered_cards.length; i++) {
+      const item = data.ordered_cards[i];
+      const li = createElement('li', { className: 'priority-item' });
+
+      const rank = createElement('span', { className: 'priority-rank' });
+      rank.textContent = String(i + 1);
+      li.appendChild(rank);
+
+      const info = createElement('div', { className: 'priority-info' });
+
+      const titleEl = createElement('div', { className: 'priority-title' });
+      titleEl.textContent = item.title;
+      info.appendChild(titleEl);
+
+      // Score bar
+      const barWrap = createElement('div', { className: 'priority-score-bar-wrap' });
+      const barLabel = createElement('span', { className: 'priority-score-label' });
+      barLabel.textContent = `${item.score}/100`;
+      const barTrack = createElement('div', { className: 'priority-score-bar' });
+      const barFill = createElement('div', { className: 'priority-score-bar-fill' });
+      barFill.style.width = `${item.score}%`;
+      // Color gradient: 0-40 = muted, 40-70 = yellow, 70+ = green
+      if (item.score >= 70) barFill.style.background = '#4ade80';
+      else if (item.score >= 40) barFill.style.background = '#fbbf24';
+      else barFill.style.background = '#60a5fa';
+
+      barTrack.appendChild(barFill);
+      barWrap.appendChild(barTrack);
+      barWrap.appendChild(barLabel);
+      info.appendChild(barWrap);
+
+      // Reasoning for top 3
+      if (item.reasoning && i < 3) {
+        const reasoning = createElement('div', { className: 'priority-reasoning' });
+        reasoning.textContent = `💬 ${item.reasoning}`;
+        info.appendChild(reasoning);
+      }
+
+      li.appendChild(info);
+      list.appendChild(li);
+    }
+
+    card.appendChild(list);
+    return card;
+  }
+
+  private async _analyzePriority(): Promise<void> {
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) return;
+
+    this.priorityLoading = true;
+    this._refreshPrioritySection();
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/prioritize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      this.priorityData = await response.json();
+    } catch (err) {
+      console.error('[Priority] analysis failed:', err);
+      this.priorityData = {
+        ordered_cards: [],
+        summary: '⚠️ Failed to analyze priorities. Please try again.',
+      };
+    } finally {
+      this.priorityLoading = false;
+      this._refreshPrioritySection();
+    }
+  }
+
+  private async _applyToKanban(): Promise<void> {
+    if (!this.priorityData || !this.priorityData.ordered_cards.length) return;
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) return;
+
+    // Group cards by status, preserving priority order within each column
+    const statusOrder: Record<string, string[]> = {};
+    for (const item of this.priorityData.ordered_cards) {
+      const card = appState.getCard(item.card_id);
+      if (!card) continue;
+      const status = card.status;
+      if (!statusOrder[status]) statusOrder[status] = [];
+      statusOrder[status].push(item.card_id);
+    }
+
+    // PATCH each card's position within its column
+    let success = 0;
+    for (const [_status, cardIds] of Object.entries(statusOrder)) {
+      for (let pos = 0; pos < cardIds.length; pos++) {
+        try {
+          await apiClient.patchCard(cardIds[pos], { position: pos });
+          success++;
+        } catch (err) {
+          console.warn(`[Priority] Failed to update position for card ${cardIds[pos]}:`, err);
+        }
+      }
+    }
+
+    if (success > 0) {
+      // Refresh cards state
+      eventBus.emit(EVENTS.CARD_UPDATED, {});
+    }
+  }
+
+  private _refreshPrioritySection(): void {
+    const existing = this.container.querySelector('.priority-section');
+    if (existing) {
+      const newSection = this._buildPrioritySection();
+      existing.replaceWith(newSection);
+    }
+  }
+
   update(): void {
     // Reset standup state when project changes
     this.standupSummary = null;
@@ -819,6 +998,9 @@ export class ProjectStats {
     // Reset health check state
     this.healthData = null;
     this.healthLoading = false;
+    // Reset priority state
+    this.priorityData = null;
+    this.priorityLoading = false;
     const old = this.container;
     this.container = createElement('div', { className: 'stats-view' });
     this.render();
