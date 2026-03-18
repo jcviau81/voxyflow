@@ -25,6 +25,11 @@ export class ChatWindow {
   private autoScroll = true;
   private currentProjectView: 'chat' | 'kanban' = 'chat';
 
+  // Session management (general chat only)
+  private sessions: { id: string; label: string }[] = [{ id: 'session-1', label: 'Session 1' }];
+  private activeSessionId = 'session-1';
+  private sessionCounter = 1;
+
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'chat-window', 'data-testid': 'chat-window' });
     this.render();
@@ -34,86 +39,8 @@ export class ChatWindow {
   render(): void {
     this.container.innerHTML = '';
 
-    // === Unified header row (replaces old top-bar content + chat-header + model status) ===
-    const headerRow = createElement('div', {
-      className: 'unified-header',
-      'data-testid': 'unified-header',
-    });
-
-    // Left: context indicator
-    const contextIndicator = createElement('div', {
-      className: 'context-indicator',
-      'data-testid': 'context-indicator',
-    });
-    const activeTab = appState.getActiveTab();
-    const isProject = activeTab !== 'main';
-    const projectId = appState.get('currentProjectId');
-    const project = projectId ? appState.getProject(projectId) : null;
-
-    if (isProject && project) {
-      const emoji = createElement('span', { className: 'context-emoji' }, project.emoji || '📁');
-      const name = createElement('span', {}, project.name);
-      contextIndicator.appendChild(emoji);
-      contextIndicator.appendChild(name);
-    } else {
-      const emoji = createElement('span', { className: 'context-emoji' }, '💬');
-      const label = createElement('span', {}, 'General Chat');
-      contextIndicator.appendChild(emoji);
-      contextIndicator.appendChild(label);
-    }
-
-    // Center: view toggle (Chat / Kanban) — only in project mode
-    const viewToggle = createElement('div', {
-      className: 'view-toggle',
-      'data-testid': 'view-toggle',
-    });
-
-    const chatBtn = createElement('button', {
-      className: `view-btn ${this.currentProjectView === 'chat' ? 'active' : ''}`,
-      'data-view': 'chat',
-    }, '💬 Chat');
-    chatBtn.addEventListener('click', () => {
-      this.currentProjectView = 'chat';
-      appState.setView('chat');
-    });
-
-    const kanbanBtn = createElement('button', {
-      className: `view-btn ${this.currentProjectView === 'kanban' ? 'active' : ''}`,
-      'data-view': 'kanban',
-    }, '📋 Kanban');
-    kanbanBtn.addEventListener('click', () => {
-      this.currentProjectView = 'kanban';
-      appState.setView('kanban');
-    });
-
-    viewToggle.appendChild(chatBtn);
-    viewToggle.appendChild(kanbanBtn);
-
-    // Right: actions group (new session + model status)
-    const headerActions = createElement('div', { className: 'header-actions' });
-
-    // Connection dot
-    const connectionDot = createElement('span', { className: 'connection-dot' });
-    headerActions.appendChild(connectionDot);
-
-    // New Session button
-    const newSessionBtn = createElement('button', {
-      className: 'new-session-btn',
-      title: 'New Session (Ctrl+Shift+N)',
-      'data-testid': 'new-session-btn',
-    });
-    newSessionBtn.textContent = '🔄 New';
-    newSessionBtn.addEventListener('click', () => this.handleNewSession());
-    headerActions.appendChild(newSessionBtn);
-
-    // Model status bar (inline)
-    const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
-    this.modelStatusBar = new ModelStatusBar(statusBarContainer);
-    headerActions.appendChild(statusBarContainer);
-
-    headerRow.appendChild(contextIndicator);
-    headerRow.appendChild(viewToggle);
-    headerRow.appendChild(headerActions);
+    // === Unified header row — adapts to 3 chat levels ===
+    const headerRow = this.renderUnifiedHeader();
 
     // === Message list ===
     this.messageList = createElement('div', { className: 'chat-messages' });
@@ -175,6 +102,217 @@ export class ChatWindow {
 
     this.parentElement.appendChild(this.container);
     this.scrollToBottom();
+  }
+
+  private getChatLevel(): 'general' | 'project' | 'card' {
+    const cardId = appState.get('selectedCardId');
+    if (cardId) return 'card';
+    const activeTab = appState.getActiveTab();
+    if (activeTab !== 'main') return 'project';
+    return 'general';
+  }
+
+  private renderUnifiedHeader(): HTMLElement {
+    const headerRow = createElement('div', {
+      className: 'unified-header',
+      'data-testid': 'unified-header',
+    });
+
+    const chatLevel = this.getChatLevel();
+    const projectId = appState.get('currentProjectId');
+    const project = projectId ? appState.getProject(projectId) : null;
+    const cardId = appState.get('selectedCardId');
+    const card = cardId ? appState.getCard(cardId) : null;
+
+    // LEFT: Context title
+    const titleSection = createElement('div', {
+      className: 'header-title-section',
+      'data-testid': 'context-indicator',
+    });
+
+    if (chatLevel === 'card' && card) {
+      const title = createElement('span', { className: 'header-title' });
+      title.textContent = card.title.length > 40
+        ? card.title.substring(0, 40) + '...'
+        : card.title;
+      titleSection.appendChild(title);
+    } else if (chatLevel === 'project' && project) {
+      const emoji = createElement('span', { className: 'context-emoji header-emoji' });
+      emoji.textContent = project.emoji || '📁';
+      const name = createElement('span', { className: 'header-title' });
+      name.textContent = project.name;
+      titleSection.appendChild(emoji);
+      titleSection.appendChild(name);
+    } else {
+      const emoji = createElement('span', { className: 'context-emoji header-emoji' });
+      emoji.textContent = '💬';
+      const name = createElement('span', { className: 'header-title' });
+      name.textContent = 'General Chat';
+      titleSection.appendChild(emoji);
+      titleSection.appendChild(name);
+    }
+
+    headerRow.appendChild(titleSection);
+
+    // CENTER: Session tabs (general only) or View toggle (project only)
+    if (chatLevel === 'general') {
+      const sessionTabs = this.renderSessionTabs();
+      headerRow.appendChild(sessionTabs);
+    } else if (chatLevel === 'project') {
+      const viewToggle = this.renderViewToggle();
+      headerRow.appendChild(viewToggle);
+    }
+    // Card: nothing in center
+
+    // RIGHT: Actions + Model status
+    const actions = createElement('div', { className: 'header-actions' });
+
+    // Connection dot
+    const connectionDot = createElement('span', { className: 'connection-dot' });
+    actions.appendChild(connectionDot);
+
+    // New Session button (general chat only)
+    if (chatLevel === 'general') {
+      const newBtn = createElement('button', {
+        className: 'header-btn new-session-btn',
+        title: 'New Session (Ctrl+Shift+N)',
+        'data-testid': 'new-session-btn',
+      });
+      newBtn.textContent = '+ New';
+      newBtn.addEventListener('click', () => this.handleNewSession());
+      actions.appendChild(newBtn);
+    }
+
+    // Clear button (all levels)
+    const clearBtn = createElement('button', {
+      className: 'header-btn',
+      title: 'Clear Chat',
+      'data-testid': 'clear-chat-btn',
+    });
+    clearBtn.textContent = '🗑️ Clear';
+    clearBtn.addEventListener('click', () => this.handleClearChat());
+    actions.appendChild(clearBtn);
+
+    // Model status bar (inline)
+    const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
+    this.modelStatusBar = new ModelStatusBar(statusBarContainer);
+    actions.appendChild(statusBarContainer);
+
+    headerRow.appendChild(actions);
+
+    return headerRow;
+  }
+
+  private renderSessionTabs(): HTMLElement {
+    const container = createElement('div', {
+      className: 'session-tabs',
+      'data-testid': 'session-tabs',
+    });
+
+    this.sessions.forEach((session) => {
+      const tab = createElement('button', {
+        className: `session-tab ${session.id === this.activeSessionId ? 'active' : ''}`,
+        'data-session-id': session.id,
+      });
+      tab.textContent = session.label;
+      tab.addEventListener('click', () => this.switchSession(session.id));
+      container.appendChild(tab);
+    });
+
+    const addBtn = createElement('button', {
+      className: 'session-tab-add',
+      title: 'New session tab',
+    });
+    addBtn.textContent = '+';
+    addBtn.addEventListener('click', () => this.handleNewSession());
+    container.appendChild(addBtn);
+
+    return container;
+  }
+
+  private renderViewToggle(): HTMLElement {
+    const viewToggle = createElement('div', {
+      className: 'view-toggle',
+      'data-testid': 'view-toggle',
+    });
+
+    const chatBtn = createElement('button', {
+      className: `view-btn ${this.currentProjectView === 'chat' ? 'active' : ''}`,
+      'data-view': 'chat',
+    }, '💬 Chat');
+    chatBtn.addEventListener('click', () => {
+      this.currentProjectView = 'chat';
+      appState.setView('chat');
+    });
+
+    const kanbanBtn = createElement('button', {
+      className: `view-btn ${this.currentProjectView === 'kanban' ? 'active' : ''}`,
+      'data-view': 'kanban',
+    }, '📋 Kanban');
+    kanbanBtn.addEventListener('click', () => {
+      this.currentProjectView = 'kanban';
+      appState.setView('kanban');
+    });
+
+    viewToggle.appendChild(chatBtn);
+    viewToggle.appendChild(kanbanBtn);
+
+    return viewToggle;
+  }
+
+  private switchSession(sessionId: string): void {
+    if (sessionId === this.activeSessionId) return;
+    this.activeSessionId = sessionId;
+    this.reloadMessages();
+    this.updateUnifiedHeader();
+  }
+
+  private handleClearChat(): void {
+    const currentProjectId = appState.get('currentProjectId');
+    const cardId = appState.get('selectedCardId');
+
+    // Clear messages for current context
+    if (cardId) {
+      appState.set(
+        'messages',
+        appState.get('messages').filter((m: Message) => m.cardId !== cardId)
+      );
+    } else if (currentProjectId) {
+      appState.set(
+        'messages',
+        appState.get('messages').filter((m: Message) => m.projectId !== currentProjectId)
+      );
+    } else {
+      // General chat: clear messages without a projectId
+      appState.set(
+        'messages',
+        appState.get('messages').filter((m: Message) => !!m.projectId)
+      );
+    }
+
+    // Clear the message list UI
+    if (this.messageList) {
+      this.messageList.innerHTML = '';
+    }
+    this.messageBubbles.clear();
+
+    // Show welcome prompt again
+    this.welcomePrompt?.destroy();
+    this.welcomePrompt = null;
+    this.showWelcomePrompt();
+
+    // Notify backend to reset conversation context
+    const chatLevel = this.getChatLevel();
+    apiClient.send('session:reset', {
+      chatLevel,
+      projectId: currentProjectId || undefined,
+      cardId: cardId || undefined,
+    });
+
+    // Focus input
+    if (this.textInput) {
+      this.textInput.focus();
+    }
   }
 
   private renderMessage(message: Message): void {
@@ -285,6 +423,14 @@ export class ChatWindow {
       })
     );
 
+    // Card selection — update header for card-level chat
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_SELECTED, () => {
+        this.reloadMessages();
+        this.updateUnifiedHeader();
+      })
+    );
+
     // Welcome action handler
     this.unsubscribers.push(
       eventBus.on(EVENTS.WELCOME_ACTION, (data: unknown) => {
@@ -353,38 +499,15 @@ export class ChatWindow {
   }
 
   private updateUnifiedHeader(): void {
-    const contextIndicator = this.container.querySelector('[data-testid="context-indicator"]');
-    if (contextIndicator) {
-      contextIndicator.innerHTML = '';
-      const activeTab = appState.getActiveTab();
-      const isProject = activeTab !== 'main';
-      const projectId = appState.get('currentProjectId');
-      const project = projectId ? appState.getProject(projectId) : null;
+    // Re-render the entire header to reflect current chat level
+    const oldHeader = this.container.querySelector('[data-testid="unified-header"]');
+    if (oldHeader) {
+      // Destroy old model status bar before replacing
+      this.modelStatusBar?.destroy();
+      this.modelStatusBar = null;
 
-      if (isProject && project) {
-        const emoji = createElement('span', { className: 'context-emoji' }, project.emoji || '📁');
-        const name = createElement('span', {}, project.name);
-        contextIndicator.appendChild(emoji);
-        contextIndicator.appendChild(name);
-      } else {
-        const emoji = createElement('span', { className: 'context-emoji' }, '💬');
-        const label = createElement('span', {}, 'General Chat');
-        contextIndicator.appendChild(emoji);
-        contextIndicator.appendChild(label);
-      }
-    }
-
-    // Update view toggle button active states
-    const viewToggle = this.container.querySelector('[data-testid="view-toggle"]');
-    if (viewToggle) {
-      viewToggle.querySelectorAll('.view-btn').forEach((btn) => {
-        const view = btn.getAttribute('data-view');
-        if (view === this.currentProjectView) {
-          btn.classList.add('active');
-        } else {
-          btn.classList.remove('active');
-        }
-      });
+      const newHeader = this.renderUnifiedHeader();
+      oldHeader.replaceWith(newHeader);
     }
   }
 
@@ -429,39 +552,34 @@ export class ChatWindow {
   }
 
   private handleNewSession(): void {
-    const currentProjectId = appState.get('currentProjectId');
+    // Create a new session tab (general chat only)
+    this.sessionCounter++;
+    const newSession = {
+      id: `session-${this.sessionCounter}`,
+      label: `Session ${this.sessionCounter}`,
+    };
+    this.sessions.push(newSession);
+    this.activeSessionId = newSession.id;
 
-    // Clear messages for this chat context from state
-    if (currentProjectId) {
-      appState.set(
-        'messages',
-        appState.get('messages').filter((m: Message) => m.projectId !== currentProjectId)
-      );
-    } else {
-      // General chat: clear messages without a projectId
-      appState.set(
-        'messages',
-        appState.get('messages').filter((m: Message) => !!m.projectId)
-      );
-    }
-
-    // Clear the message list UI
+    // Clear the message list UI for the new session
     if (this.messageList) {
       this.messageList.innerHTML = '';
     }
     this.messageBubbles.clear();
 
-    // Show welcome prompt again
+    // Show welcome prompt
     this.welcomePrompt?.destroy();
     this.welcomePrompt = null;
     this.showWelcomePrompt();
 
     // Notify backend to reset conversation context
-    const chatLevel = currentProjectId ? 'project' : 'general';
     apiClient.send('session:reset', {
-      chatLevel,
-      projectId: currentProjectId || undefined,
+      chatLevel: 'general',
+      sessionId: newSession.id,
     });
+
+    // Update header to show new tab
+    this.updateUnifiedHeader();
 
     // Focus input
     if (this.textInput) {

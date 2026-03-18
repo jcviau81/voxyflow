@@ -2129,23 +2129,103 @@
   display: none;
 }
 
-.new-session-btn {
-  padding: 4px 12px;
-  background: transparent;
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.07));
-  border-radius: 6px;
-  color: var(--color-text-secondary, #888);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
+/* Header title section */
+.header-title-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
-.new-session-btn:hover {
+.header-emoji {
+  font-size: 16px;
+}
+
+.header-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+/* Header action buttons (New, Clear) */
+.header-btn {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.07));
+  border-radius: 6px;
+  color: var(--color-text-secondary, #888);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.header-btn:hover {
   background: rgba(255, 255, 255, 0.05);
   border-color: var(--color-primary);
   color: var(--color-text);
+}
+
+/* Session tabs (general chat only) */
+.session-tabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  padding: 2px;
+  overflow-x: auto;
+  max-width: 300px;
+  flex-shrink: 1;
+}
+
+.session-tab {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.session-tab.active {
+  background: var(--color-primary);
+  color: white;
+}
+
+.session-tab:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.session-tab-add {
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.session-tab-add:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+}
+
+/* Legacy new-session-btn — now uses header-btn class too */
+.new-session-btn {
+  padding: 4px 12px;
+  font-size: 12px;
 }
 
 /* ============= WELCOME PROMPTS ============= */
