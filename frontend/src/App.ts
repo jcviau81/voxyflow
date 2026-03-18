@@ -1,20 +1,23 @@
-import { ViewMode, ProjectFormShowEvent, ProjectFormData } from './types';
+import { ViewMode, ProjectFormShowEvent, ProjectFormData, CardStatus, AgentPersona } from './types';
 import { eventBus } from './utils/EventBus';
 import { EVENTS } from './utils/constants';
 import { createElement } from './utils/helpers';
 import { appState } from './state/AppState';
 import { apiClient } from './services/ApiClient';
 import { projectService } from './services/ProjectService';
+import { cardService } from './services/CardService';
 import { Sidebar } from './components/Navigation/Sidebar';
 import { TopBar } from './components/Navigation/TopBar';
 import { TabBar } from './components/Navigation/TabBar';
 import { ChatWindow } from './components/Chat/ChatWindow';
 import { KanbanBoard } from './components/Kanban/KanbanBoard';
 import { CardDetailModal } from './components/Kanban/CardDetailModal';
+import { CardForm, CardFormShowEvent, CardFormData } from './components/Kanban/CardForm';
 import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
 import { Toast } from './components/Shared/Toast';
 import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPanel';
+import { SettingsPage } from './components/Settings/SettingsPage';
 
 export class App {
   private root: HTMLElement;
@@ -30,6 +33,7 @@ export class App {
     view: null,
   };
   private projectForm: ProjectForm | null = null;
+  private cardForm: CardForm | null = null;
   private viewBeforeForm: ViewMode | null = null;
   private unsubscribers: (() => void)[] = [];
 
@@ -137,6 +141,32 @@ export class App {
         this.hideProjectForm();
       })
     );
+
+    // Card form events
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_FORM_SHOW, (event: unknown) => {
+        this.showCardForm(event as CardFormShowEvent);
+      })
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_FORM_SUBMIT, (payload: unknown) => {
+        this.handleCardFormSubmit(payload as {
+          mode: string; data: CardFormData; cardId?: string;
+          projectId: string; assignedAgent?: AgentPersona;
+        });
+      })
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_FORM_CANCEL, () => this.hideCardForm())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_FORM_DELETE, (payload: unknown) => {
+        const { cardId } = payload as { cardId: string };
+        cardService.delete(cardId);
+        this.hideCardForm();
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Card deleted', type: 'success' });
+      })
+    );
   }
 
   private showProjectForm(event: ProjectFormShowEvent): void {
@@ -213,6 +243,51 @@ export class App {
     }
   }
 
+
+  private showCardForm(event: CardFormShowEvent): void {
+    this.viewBeforeForm = this.currentView.view;
+    if (this.currentView.component) {
+      this.currentView.component.destroy();
+      this.currentView = { component: null, view: null };
+    }
+    this.mainContent.innerHTML = '';
+    if (this.cardForm) this.cardForm.destroy();
+    this.cardForm = new CardForm(this.mainContent, event);
+    if (event.prefillTitle) this.cardForm.prefillTitle(event.prefillTitle);
+  }
+
+  private hideCardForm(): void {
+    if (this.cardForm) { this.cardForm.destroy(); this.cardForm = null; }
+    const returnView = this.viewBeforeForm || 'kanban';
+    this.viewBeforeForm = null;
+    this.currentView = { component: null, view: null };
+    this.switchView(returnView);
+  }
+
+  private handleCardFormSubmit(payload: {
+    mode: string; data: CardFormData; cardId?: string;
+    projectId: string; assignedAgent?: AgentPersona;
+  }): void {
+    const { mode, data, cardId, projectId, assignedAgent } = payload;
+    if (mode === 'create') {
+      cardService.create({
+        title: data.title, description: data.description, projectId,
+        status: data.status as CardStatus, assignedAgent, tags: data.tags, priority: data.priority,
+      });
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created: "${data.title}"`, type: 'success', duration: 3000 });
+    } else if (mode === 'edit' && cardId) {
+      cardService.update(cardId, {
+        title: data.title, description: data.description, status: data.status as CardStatus,
+        assignedAgent, tags: data.tags, priority: data.priority, dependencies: data.dependencies,
+      });
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card updated: "${data.title}"`, type: 'success', duration: 3000 });
+    }
+    if (this.cardForm) { this.cardForm.destroy(); this.cardForm = null; }
+    this.viewBeforeForm = null;
+    this.currentView = { component: null, view: null };
+    this.switchView('kanban');
+  }
+
   private switchView(view: ViewMode): void {
     if (this.currentView.view === view) return;
 
@@ -222,10 +297,14 @@ export class App {
     }
     this.mainContent.innerHTML = '';
 
-    // Destroy form if showing
+    // Destroy forms if showing
     if (this.projectForm) {
       this.projectForm.destroy();
       this.projectForm = null;
+    }
+    if (this.cardForm) {
+      this.cardForm.destroy();
+      this.cardForm = null;
     }
 
     // Create new view
@@ -242,73 +321,11 @@ export class App {
         component = new ProjectList(this.mainContent);
         break;
       case 'settings':
-        this.renderSettings();
-        component = { destroy: () => {} };
+        component = new SettingsPage(this.mainContent);
         break;
     }
 
     this.currentView = { component, view };
-  }
-
-  private renderSettings(): void {
-    const container = createElement('div', { className: 'settings-view' });
-    const title = createElement('h2', {}, '⚙️ Settings');
-
-    // Volume
-    const volumeSection = createElement('div', { className: 'settings-section' });
-    const volumeLabel = createElement('label', {}, 'Volume');
-    const volumeInput = createElement('input', {
-      type: 'range',
-      min: '0',
-      max: '100',
-      value: (appState.get('volume') * 100).toString(),
-    }) as HTMLInputElement;
-    volumeInput.addEventListener('input', () => {
-      appState.set('volume', parseInt(volumeInput.value) / 100);
-    });
-    volumeSection.appendChild(volumeLabel);
-    volumeSection.appendChild(volumeInput);
-
-    // Connection info
-    const connSection = createElement('div', { className: 'settings-section' });
-    const connLabel = createElement('label', {}, 'Connection');
-    const connStatus = createElement('div', {}, `Status: ${appState.get('connectionState')}`);
-    const reconnectBtn = createElement('button', { className: 'settings-btn' }, 'Reconnect');
-    reconnectBtn.addEventListener('click', () => {
-      apiClient.close();
-      apiClient.connect();
-    });
-    connSection.appendChild(connLabel);
-    connSection.appendChild(connStatus);
-    connSection.appendChild(reconnectBtn);
-
-    // Data management
-    const dataSection = createElement('div', { className: 'settings-section' });
-    const dataLabel = createElement('label', {}, 'Data');
-    const clearBtn = createElement('button', { className: 'settings-btn danger' }, 'Clear All Data');
-    clearBtn.addEventListener('click', () => {
-      if (confirm('This will delete all local data. Are you sure?')) {
-        appState.reset();
-        location.reload();
-      }
-    });
-    dataSection.appendChild(dataLabel);
-    dataSection.appendChild(clearBtn);
-
-    // About
-    const aboutSection = createElement('div', { className: 'settings-section' });
-    aboutSection.innerHTML = `
-      <h3>About Voxyflow</h3>
-      <p>Voice-first project assistant</p>
-      <p>Version: 1.0.0</p>
-    `;
-
-    container.appendChild(title);
-    container.appendChild(volumeSection);
-    container.appendChild(connSection);
-    container.appendChild(dataSection);
-    container.appendChild(aboutSection);
-    this.mainContent.appendChild(container);
   }
 
   private setupShortcuts(): void {
@@ -359,6 +376,7 @@ export class App {
     this.opportunitiesPanel?.destroy();
     this.currentView.component?.destroy();
     this.projectForm?.destroy();
+    this.cardForm?.destroy();
     apiClient.close();
     this.root.innerHTML = '';
   }

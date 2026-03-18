@@ -73,10 +73,14 @@ export class KanbanCard {
     }
     this.element.appendChild(footer);
 
-    // Click to select
+    // Click to edit via inline form
     this.element.addEventListener('click', () => {
       appState.selectCard(this.card.id);
-      eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', cardId: this.card.id });
+      eventBus.emit(EVENTS.CARD_FORM_SHOW, {
+        mode: 'edit',
+        card: this.card,
+        projectId: this.card.projectId,
+      });
     });
 
     this.parentElement.appendChild(this.element);

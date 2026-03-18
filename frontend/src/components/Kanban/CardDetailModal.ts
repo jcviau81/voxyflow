@@ -200,10 +200,25 @@ export class CardDetailModal {
 
     const addTagBtn = createElement('button', { className: 'add-tag-btn' }, '+ Tag');
     addTagBtn.addEventListener('click', () => {
-      const tag = prompt('Tag name:');
-      if (tag?.trim() && this.card) {
-        cardService.addTag(this.card.id, tag.trim());
-      }
+      const tagInput = document.createElement('input');
+      tagInput.type = 'text';
+      tagInput.className = 'form-input tag-inline-input';
+      tagInput.placeholder = 'Tag name...';
+      tagInput.style.width = '120px';
+      tagInput.style.fontSize = '12px';
+      tagInput.style.padding = '3px 8px';
+      const commitTag = () => {
+        const tag = tagInput.value.trim();
+        if (tag && this.card) cardService.addTag(this.card.id, tag);
+        tagInput.remove();
+      };
+      tagInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') commitTag();
+        if (e.key === 'Escape') tagInput.remove();
+      });
+      tagInput.addEventListener('blur', commitTag);
+      tagsContainer.insertBefore(tagInput, addTagBtn);
+      tagInput.focus();
     });
     tagsContainer.appendChild(addTagBtn);
 
