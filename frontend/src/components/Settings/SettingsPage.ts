@@ -703,8 +703,13 @@ export class SettingsPage {
     try {
       const response = await fetch(`${API_URL}/api/health/services`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json() as { services?: ServiceHealth[] };
-      this.serviceHealth = data.services || [];
+      const data = await response.json() as { services?: Record<string, { status: string; checked_at?: string }> };
+      // Convert dict to array
+      const svcDict = data.services || {};
+      this.serviceHealth = Object.entries(svcDict).map(([name, info]) => ({
+        name: name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        status: (info.status === 'ok' ? 'ok' : 'down') as 'ok' | 'down',
+      }));
     } catch {
       // If endpoint doesn't exist or fails, show defaults as unknown
       this.serviceHealth = [

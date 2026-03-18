@@ -17,7 +17,9 @@ class JobsService {
   async getJobs(): Promise<Job[]> {
     const response = await fetch(this.baseUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
+    const data = await response.json();
+    // Backend returns { jobs: [...], total: N }
+    return Array.isArray(data) ? data : (data.jobs || []);
   }
 
   async createJob(job: Partial<Job>): Promise<Job> {
