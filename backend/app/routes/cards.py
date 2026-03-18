@@ -1092,7 +1092,7 @@ async def enrich_card(
 
 # ── Note / FreeBoard endpoints (Main Board sticky notes) ──────────────────
 
-@router.post("/api/notes")
+@router.post("/notes")
 async def create_note(body: dict):
     """Create a note for the Main Board (FreeBoard).
     Notes are client-side (localStorage) but this endpoint returns the data
