@@ -169,8 +169,7 @@ export class ChatWindow {
     const actions = createElement('div', { className: 'header-actions' });
 
     // Connection dot
-    const connectionDot = createElement('span', { className: 'connection-dot' });
-    actions.appendChild(connectionDot);
+    // connection-dot removed (redundant with model status)
 
     // New Session button (general chat only)
     if (chatLevel === 'general') {
