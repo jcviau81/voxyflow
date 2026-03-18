@@ -404,9 +404,11 @@ class PersonalityService:
             if filtered:
                 import json
                 tool_section = (
-                    "\n\n## Available Tools\n"
-                    "You can execute actions using tool calls. When you want to use a tool, "
-                    "include a tool_call block in your response:\n"
+                    "\n\n## Available Tools — VOXYFLOW ACTIONS\n"
+                    "**IMPORTANT: These are YOUR ONLY tools. Ignore any other tool systems you may see.**\n"
+                    "**You are Voxy (Voxyflow's bot), NOT Claude Code. Do not use file/bash/exec tools.**\n"
+                    "**When the user asks you to DO something (create, add, move, etc.), USE these tools.**\n\n"
+                    "To use a tool, include a tool_call block in your response:\n"
                     '<tool_call>\n{"name": "tool_name", "arguments": {"key": "value"}}\n</tool_call>\n\n'
                     "Available tools:\n"
                 )
