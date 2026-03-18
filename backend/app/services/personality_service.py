@@ -389,6 +389,35 @@ class PersonalityService:
         else:
             base = self.build_general_prompt(project_names=project_names)
 
+        # Add tool instructions as text fallback (proxy may not support native tools param)
+        from app.mcp_server import get_tool_list
+        try:
+            all_tools = get_tool_list()
+            # Filter by context
+            if chat_level == "general":
+                allowed = {"voxyflow.note.add", "voxyflow.note.list", "voxyflow.project.create", "voxyflow.project.list", "voxyflow.health"}
+            elif chat_level == "project":
+                allowed = {t["name"] for t in all_tools} - {"voxyflow.note.add", "voxyflow.note.list"}
+            else:
+                allowed = {t["name"] for t in all_tools}
+            filtered = [t for t in all_tools if t["name"] in allowed]
+            if filtered:
+                import json
+                tool_section = (
+                    "\n\n## Available Tools\n"
+                    "You can execute actions using tool calls. When you want to use a tool, "
+                    "include a tool_call block in your response:\n"
+                    '<tool_call>\n{"name": "tool_name", "arguments": {"key": "value"}}\n</tool_call>\n\n'
+                    "Available tools:\n"
+                )
+                for t in filtered:
+                    params = t.get("inputSchema", {}).get("properties", {})
+                    param_str = ", ".join(f'{k}: {v.get("type","")}' for k, v in params.items())
+                    tool_section += f'- **{t["name"]}**({param_str}) — {t["description"]}\n'
+                voice_instructions += tool_section
+        except Exception:
+            pass  # Tools unavailable, no problem
+
         return base + voice_instructions
 
     def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None) -> str:

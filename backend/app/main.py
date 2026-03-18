@@ -366,6 +366,33 @@ async def _handle_chat_3layer(
             "timestamp": int(time.time() * 1000),
         })
 
+    # --- Fallback: parse <tool_call> blocks if proxy didn't support native tools ---
+    import re as _re
+    _tool_pattern = _re.compile(r'<tool_call>\s*(\{.*?\})\s*</tool_call>', _re.DOTALL)
+    _tool_matches = _tool_pattern.findall(fast_full_response)
+    if _tool_matches and not _pending_tool_events:
+        import json as _json
+        for _match in _tool_matches:
+            try:
+                _call = _json.loads(_match)
+                _tool_name = _call.get("name", "")
+                _tool_args = _call.get("arguments", _call.get("params", {}))
+                if _tool_name:
+                    logger.info(f"[ToolCall-Fallback] Executing: {_tool_name}")
+                    # Call via MCP REST
+                    import httpx
+                    _mcp_name = _tool_name.replace("_", ".") if "_" in _tool_name else _tool_name
+                    from app.mcp_server import get_tool_list, _call_api as mcp_call
+                    _result = await mcp_call(_mcp_name, _tool_args)
+                    logger.info(f"[ToolCall-Fallback] Result: {str(_result)[:200]}")
+                    await websocket.send_json({
+                        "type": "tool:executed",
+                        "payload": {"tool": _mcp_name, "arguments": _tool_args, "result": _result, "sessionId": session_id},
+                        "timestamp": int(time.time() * 1000),
+                    })
+            except Exception as _e:
+                logger.warning(f"[ToolCall-Fallback] Failed: {_e}")
+
     # --- Layer 2: Deep enrichment/correction ---
     if not deep_enabled or deep_task is None:
         logger.debug("[Layer2-Deep] skipped (disabled by user)")
