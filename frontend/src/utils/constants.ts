@@ -99,6 +99,12 @@ export const EVENTS = {
   MODAL_OPEN: 'ui:modal:open',
   MODAL_CLOSE: 'ui:modal:close',
 
+  // Opportunities
+  CARD_SUGGESTION: 'opportunities:card-suggestion',
+  CREATE_CARD_FROM_SUGGESTION: 'opportunities:create-card',
+  OPPORTUNITIES_COUNT: 'opportunities:count',
+  OPPORTUNITIES_TOGGLE: 'opportunities:toggle',
+
   // State
   STATE_CHANGED: 'state:changed',
 } as const;

@@ -1,0 +1,158 @@
+/* Opportunities Panel Styles */
+
+.opportunities-container {
+  width: 300px;
+  flex-shrink: 0;
+  transition: width var(--transition);
+  border-left: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.opportunities-panel {
+  background: var(--color-bg-secondary);
+  padding: 16px;
+  overflow-y: auto;
+  height: 100vh;
+}
+
+.opportunities-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.opportunities-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--color-text);
+}
+
+.opportunities-badge {
+  background: var(--color-primary);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+  min-width: 20px;
+  text-align: center;
+}
+
+.opportunities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.opportunities-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 32px 16px;
+}
+
+/* Opportunity Card */
+.opportunity-card {
+  background: var(--color-bg-tertiary);
+  border-radius: var(--border-radius);
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  animation: opp-slide-in 0.3s ease-out;
+}
+
+@keyframes opp-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.opp-agent {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.opp-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+
+.opp-description {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.opp-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.opp-accept {
+  flex: 1;
+  padding: 6px 12px;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background var(--transition);
+}
+
+.opp-accept:hover {
+  background: var(--color-primary-hover);
+}
+
+.opp-dismiss {
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.opp-dismiss:hover {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+/* TopBar toggle button */
+.top-bar-opp-toggle {
+  display: none; /* Hidden on desktop, shown on mobile via responsive.css */
+  position: relative;
+  padding: 6px 10px;
+  font-size: 18px;
+  align-items: center;
+  justify-content: center;
+}
+
+.opp-toggle-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: var(--color-primary);
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 1px 5px;
+  border-radius: 10px;
+  min-width: 16px;
+  text-align: center;
+  line-height: 1.4;
+}

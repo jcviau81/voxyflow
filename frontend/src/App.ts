@@ -11,6 +11,7 @@ import { KanbanBoard } from './components/Kanban/KanbanBoard';
 import { CardDetailModal } from './components/Kanban/CardDetailModal';
 import { ProjectList } from './components/Projects/ProjectList';
 import { Toast } from './components/Shared/Toast';
+import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPanel';
 
 export class App {
   private root: HTMLElement;
@@ -19,6 +20,7 @@ export class App {
   private topBar: TopBar | null = null;
   private toast: Toast | null = null;
   private cardModal: CardDetailModal | null = null;
+  private opportunitiesPanel: OpportunitiesPanel | null = null;
   private currentView: { component: { destroy(): void } | null; view: ViewMode | null } = {
     component: null,
     view: null,
@@ -52,8 +54,13 @@ export class App {
     mainArea.appendChild(topBarContainer);
     mainArea.appendChild(this.mainContent);
 
+    // Opportunities panel (right sidebar)
+    const opportunitiesContainer = createElement('aside', { className: 'opportunities-container' });
+    this.opportunitiesPanel = new OpportunitiesPanel(opportunitiesContainer);
+
     layout.appendChild(sidebarContainer);
     layout.appendChild(mainArea);
+    layout.appendChild(opportunitiesContainer);
 
     this.root.appendChild(layout);
 
@@ -89,6 +96,15 @@ export class App {
     this.unsubscribers.push(
       eventBus.on(EVENTS.SIDEBAR_TOGGLE, () => {
         this.root.classList.toggle('sidebar-collapsed');
+      })
+    );
+
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.OPPORTUNITIES_TOGGLE, () => {
+        const oppContainer = this.root.querySelector('.opportunities-container');
+        if (oppContainer) {
+          oppContainer.classList.toggle('open');
+        }
       })
     );
   }
@@ -229,6 +245,7 @@ export class App {
     this.topBar?.destroy();
     this.toast?.destroy();
     this.cardModal?.destroy();
+    this.opportunitiesPanel?.destroy();
     this.currentView.component?.destroy();
     apiClient.close();
     this.root.innerHTML = '';

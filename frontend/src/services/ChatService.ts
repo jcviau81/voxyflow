@@ -1,6 +1,6 @@
 import { Message } from '../types';
 import { eventBus } from '../utils/EventBus';
-import { EVENTS, STREAMING_CHAR_DELAY } from '../utils/constants';
+import { EVENTS, STREAMING_CHAR_DELAY, AGENT_PERSONAS } from '../utils/constants';
 import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
 import { generateId, sleep } from '../utils/helpers';
@@ -67,7 +67,7 @@ export class ChatService {
       })
     );
 
-    // Handle card suggestions (Layer 3 — Analyzer)
+    // Handle card suggestions (Layer 3 — Analyzer) → route to Opportunities Panel
     this.unsubscribers.push(
       apiClient.on('card:suggestion', (payload) => {
         const { title, description, projectId, agentType, agentName } = payload as {
@@ -77,25 +77,50 @@ export class ChatService {
           agentType: string;
           agentName: string;
         };
+
+        const suggestion = {
+          id: crypto.randomUUID(),
+          title,
+          description,
+          agentType,
+          agentName,
+          agentEmoji: this.getAgentEmoji(agentType),
+          timestamp: Date.now(),
+        };
+        eventBus.emit(EVENTS.CARD_SUGGESTION, suggestion);
+
+        // Brief toast notification as secondary alert
         eventBus.emit(EVENTS.TOAST_SHOW, {
-          message: `💡 Card suggestion: "${title}" — ${agentName || agentType}`,
+          message: `💡 New suggestion: "${title}"`,
           type: 'info',
-          duration: 10000,
-          action: {
-            label: 'Create Card',
-            callback: () => {
-              appState.addCard({
-                title,
-                description,
-                status: 'idea',
-                projectId: projectId || appState.get('currentProjectId') || '',
-                dependencies: [],
-                tags: [],
-                priority: 0,
-                assignedAgent: undefined,
-              });
-            },
-          },
+          duration: 3000,
+        });
+      })
+    );
+
+    // Handle CREATE_CARD_FROM_SUGGESTION from Opportunities Panel
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CREATE_CARD_FROM_SUGGESTION, (data: unknown) => {
+        const { title, description } = data as {
+          title: string;
+          description?: string;
+          agentType?: string;
+          agentName?: string;
+        };
+        appState.addCard({
+          title,
+          description: description || '',
+          status: 'idea',
+          projectId: appState.get('currentProjectId') || '',
+          dependencies: [],
+          tags: [],
+          priority: 0,
+          assignedAgent: undefined,
+        });
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `✅ Card created: "${title}"`,
+          type: 'success',
+          duration: 3000,
         });
       })
     );
@@ -207,6 +232,12 @@ export class ChatService {
 
   clearHistory(): void {
     appState.clearMessages();
+  }
+
+  private getAgentEmoji(agentType?: string): string {
+    if (!agentType) return '🤖';
+    const persona = AGENT_PERSONAS[agentType.toLowerCase()];
+    return persona?.emoji || '🤖';
   }
 
   destroy(): void {

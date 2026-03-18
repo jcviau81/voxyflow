@@ -120,3 +120,13 @@ export interface AudioQueueItem {
   buffer: ArrayBuffer;
   id: string;
 }
+
+export interface CardSuggestion {
+  id: string;
+  title: string;
+  description?: string;
+  agentType?: string;
+  agentName?: string;
+  agentEmoji?: string;
+  timestamp: number;
+}
