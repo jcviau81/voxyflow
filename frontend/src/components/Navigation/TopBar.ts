@@ -1,4 +1,3 @@
-import { ViewMode } from '../../types';
 import { createElement } from '../../utils/helpers';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
@@ -8,7 +7,6 @@ export class TopBar {
   private container: HTMLElement;
   private unsubscribers: (() => void)[] = [];
   private opportunitiesCount: number = 0;
-  private currentProjectView: 'chat' | 'kanban' = 'chat';
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('header', { className: 'top-bar' });
@@ -24,65 +22,6 @@ export class TopBar {
     menuBtn.addEventListener('click', () => {
       eventBus.emit(EVENTS.SIDEBAR_TOGGLE);
     });
-
-    // Context indicator — shows what you're in
-    const contextIndicator = createElement('div', {
-      className: 'context-indicator',
-      'data-testid': 'context-indicator',
-    });
-
-    const activeTab = appState.getActiveTab();
-    const isProject = activeTab !== 'main';
-    const projectId = appState.get('currentProjectId');
-    const project = projectId ? appState.getProject(projectId) : null;
-
-    if (isProject && project) {
-      // Project context: "🎙 Voxyflow — Chat" or "🎙 Voxyflow — Kanban"
-      const emoji = createElement('span', { className: 'context-emoji' }, project.emoji || '📁');
-      const name = createElement('span', {}, project.name);
-      const sep = createElement('span', { className: 'context-sep' }, '—');
-      const viewLabel = createElement('span', { className: 'context-view-label' },
-        this.currentProjectView === 'kanban' ? 'Kanban' : 'Chat');
-      contextIndicator.appendChild(emoji);
-      contextIndicator.appendChild(name);
-      contextIndicator.appendChild(sep);
-      contextIndicator.appendChild(viewLabel);
-    } else {
-      // General context
-      const emoji = createElement('span', { className: 'context-emoji' }, '💬');
-      const label = createElement('span', {}, 'General Chat');
-      contextIndicator.appendChild(emoji);
-      contextIndicator.appendChild(label);
-    }
-
-    // View toggle (Chat / Kanban) — only meaningful in project mode
-    const viewToggle = createElement('div', {
-      className: 'view-toggle',
-      'data-testid': 'view-toggle',
-    });
-
-    const chatBtn = createElement('button', {
-      className: `view-btn ${this.currentProjectView === 'chat' ? 'active' : ''}`,
-      'data-view': 'chat',
-    }, '💬 Chat');
-    chatBtn.addEventListener('click', () => {
-      this.currentProjectView = 'chat';
-      appState.setView('chat');
-      this.render();
-    });
-
-    const kanbanBtn = createElement('button', {
-      className: `view-btn ${this.currentProjectView === 'kanban' ? 'active' : ''}`,
-      'data-view': 'kanban',
-    }, '📋 Kanban');
-    kanbanBtn.addEventListener('click', () => {
-      this.currentProjectView = 'kanban';
-      appState.setView('kanban');
-      this.render();
-    });
-
-    viewToggle.appendChild(chatBtn);
-    viewToggle.appendChild(kanbanBtn);
 
     // Voice indicator
     const voiceIndicator = createElement('div', {
@@ -104,8 +43,6 @@ export class TopBar {
     });
 
     this.container.appendChild(menuBtn);
-    this.container.appendChild(contextIndicator);
-    this.container.appendChild(viewToggle);
     this.container.appendChild(voiceIndicator);
     this.container.appendChild(oppToggle);
 
@@ -113,29 +50,6 @@ export class TopBar {
   }
 
   private setupListeners(): void {
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.VIEW_CHANGE, (view: unknown) => {
-        const v = view as ViewMode;
-        if (v === 'chat' || v === 'kanban') {
-          this.currentProjectView = v;
-        }
-        this.render();
-      })
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.PROJECT_SELECTED, () => {
-        // Reset to chat view when switching projects
-        this.currentProjectView = 'chat';
-        this.render();
-      })
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.TAB_SWITCH, () => {
-        // Reset to chat view on tab switch
-        this.currentProjectView = 'chat';
-        this.render();
-      })
-    );
     this.unsubscribers.push(
       appState.subscribe('voiceActive', () => this.render())
     );

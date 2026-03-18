@@ -170,28 +170,40 @@
     padding: 12px;
   }
 
-  /* Model status bar - stack on mobile */
-  .chat-header-row {
-    flex-direction: column;
-    align-items: stretch;
+  /* Show top-bar on mobile for menu/voice/opp toggles */
+  .top-bar-container {
+    height: var(--top-bar-height);
+    overflow: visible;
   }
 
-  .model-status-bar {
-    padding: 6px 16px;
-    border-top: 1px solid var(--color-border);
-    gap: 10px;
+  /* Unified header: wrap on mobile */
+  .unified-header {
     flex-wrap: wrap;
+    padding: 6px 12px;
+    min-height: 40px;
+    gap: 8px;
+  }
+
+  .unified-header .model-status-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* Hide model status labels on small screens, keep dots */
+  .unified-header .model-status .status-label {
+    display: none;
   }
 }
 
 /* Small mobile: < 375px */
 @media (max-width: 375px) {
-  .chat-header {
-    padding: 8px 12px;
+  .unified-header {
+    padding: 6px 10px;
+    gap: 6px;
   }
 
-  .chat-title {
-    font-size: 14px;
+  .unified-header .context-indicator {
+    font-size: 13px;
   }
 
   .message-content {

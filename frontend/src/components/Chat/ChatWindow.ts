@@ -1,4 +1,4 @@
-import { Message } from '../../types';
+import { Message, ViewMode } from '../../types';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, STREAMING_CHAR_DELAY, MAX_MESSAGE_LENGTH, AGENT_PERSONAS } from '../../utils/constants';
 import { createElement, formatTime, cn } from '../../utils/helpers';
@@ -23,6 +23,7 @@ export class ChatWindow {
   private messageBubbles: Map<string, MessageBubble> = new Map();
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
+  private currentProjectView: 'chat' | 'kanban' = 'chat';
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'chat-window', 'data-testid': 'chat-window' });
@@ -33,14 +34,88 @@ export class ChatWindow {
   render(): void {
     this.container.innerHTML = '';
 
-    // Header
-    const header = createElement('div', { className: 'chat-header' });
-    const title = createElement('h2', { className: 'chat-title' }, 'Chat');
-    const connectionDot = createElement('span', { className: 'connection-dot' });
-    header.appendChild(title);
-    header.appendChild(connectionDot);
+    // === Unified header row (replaces old top-bar content + chat-header + model status) ===
+    const headerRow = createElement('div', {
+      className: 'unified-header',
+      'data-testid': 'unified-header',
+    });
 
-    // Message list
+    // Left: context indicator
+    const contextIndicator = createElement('div', {
+      className: 'context-indicator',
+      'data-testid': 'context-indicator',
+    });
+    const activeTab = appState.getActiveTab();
+    const isProject = activeTab !== 'main';
+    const projectId = appState.get('currentProjectId');
+    const project = projectId ? appState.getProject(projectId) : null;
+
+    if (isProject && project) {
+      const emoji = createElement('span', { className: 'context-emoji' }, project.emoji || '📁');
+      const name = createElement('span', {}, project.name);
+      contextIndicator.appendChild(emoji);
+      contextIndicator.appendChild(name);
+    } else {
+      const emoji = createElement('span', { className: 'context-emoji' }, '💬');
+      const label = createElement('span', {}, 'General Chat');
+      contextIndicator.appendChild(emoji);
+      contextIndicator.appendChild(label);
+    }
+
+    // Center: view toggle (Chat / Kanban) — only in project mode
+    const viewToggle = createElement('div', {
+      className: 'view-toggle',
+      'data-testid': 'view-toggle',
+    });
+
+    const chatBtn = createElement('button', {
+      className: `view-btn ${this.currentProjectView === 'chat' ? 'active' : ''}`,
+      'data-view': 'chat',
+    }, '💬 Chat');
+    chatBtn.addEventListener('click', () => {
+      this.currentProjectView = 'chat';
+      appState.setView('chat');
+    });
+
+    const kanbanBtn = createElement('button', {
+      className: `view-btn ${this.currentProjectView === 'kanban' ? 'active' : ''}`,
+      'data-view': 'kanban',
+    }, '📋 Kanban');
+    kanbanBtn.addEventListener('click', () => {
+      this.currentProjectView = 'kanban';
+      appState.setView('kanban');
+    });
+
+    viewToggle.appendChild(chatBtn);
+    viewToggle.appendChild(kanbanBtn);
+
+    // Right: actions group (new session + model status)
+    const headerActions = createElement('div', { className: 'header-actions' });
+
+    // Connection dot
+    const connectionDot = createElement('span', { className: 'connection-dot' });
+    headerActions.appendChild(connectionDot);
+
+    // New Session button
+    const newSessionBtn = createElement('button', {
+      className: 'new-session-btn',
+      title: 'New Session (Ctrl+Shift+N)',
+      'data-testid': 'new-session-btn',
+    });
+    newSessionBtn.textContent = '🔄 New';
+    newSessionBtn.addEventListener('click', () => this.handleNewSession());
+    headerActions.appendChild(newSessionBtn);
+
+    // Model status bar (inline)
+    const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
+    this.modelStatusBar = new ModelStatusBar(statusBarContainer);
+    headerActions.appendChild(statusBarContainer);
+
+    headerRow.appendChild(contextIndicator);
+    headerRow.appendChild(viewToggle);
+    headerRow.appendChild(headerActions);
+
+    // === Message list ===
     this.messageList = createElement('div', { className: 'chat-messages' });
     this.messageList.addEventListener('scroll', this.handleScroll.bind(this));
 
@@ -51,7 +126,7 @@ export class ChatWindow {
     }
     messages.forEach((msg) => this.renderMessage(msg));
 
-    // Input area
+    // === Input area ===
     this.inputArea = createElement('div', { className: 'chat-input-area' });
 
     this.textInput = createElement('textarea', {
@@ -93,25 +168,6 @@ export class ChatWindow {
     this.inputArea.appendChild(this.textInput);
     this.inputArea.appendChild(voiceContainer);
     this.inputArea.appendChild(sendBtn);
-
-    // Model status bar
-    const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
-    this.modelStatusBar = new ModelStatusBar(statusBarContainer);
-
-    // New Session button
-    const newSessionBtn = createElement('button', {
-      className: 'new-session-btn',
-      title: 'New Session (Ctrl+Shift+N)',
-      'data-testid': 'new-session-btn',
-    });
-    newSessionBtn.textContent = '🔄 New';
-    newSessionBtn.addEventListener('click', () => this.handleNewSession());
-
-    // Combine header + new session btn + model status bar on same row
-    const headerRow = createElement('div', { className: 'chat-header-row' });
-    headerRow.appendChild(header);
-    headerRow.appendChild(newSessionBtn);
-    headerRow.appendChild(statusBarContainer);
 
     this.container.appendChild(headerRow);
     this.container.appendChild(this.messageList);
@@ -201,10 +257,31 @@ export class ChatWindow {
       })
     );
 
+    // View change — update header toggle state
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.VIEW_CHANGE, (view: unknown) => {
+        const v = view as ViewMode;
+        if (v === 'chat' || v === 'kanban') {
+          this.currentProjectView = v;
+        }
+        this.updateUnifiedHeader();
+      })
+    );
+
+    // Tab switch — reset view and update header
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TAB_SWITCH, () => {
+        this.currentProjectView = 'chat';
+        this.updateUnifiedHeader();
+      })
+    );
+
     // Project change — reload messages
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_SELECTED, () => {
+        this.currentProjectView = 'chat';
         this.reloadMessages();
+        this.updateUnifiedHeader();
       })
     );
 
@@ -273,6 +350,42 @@ export class ChatWindow {
     }
     messages.forEach((msg) => this.renderMessage(msg));
     this.scrollToBottom();
+  }
+
+  private updateUnifiedHeader(): void {
+    const contextIndicator = this.container.querySelector('[data-testid="context-indicator"]');
+    if (contextIndicator) {
+      contextIndicator.innerHTML = '';
+      const activeTab = appState.getActiveTab();
+      const isProject = activeTab !== 'main';
+      const projectId = appState.get('currentProjectId');
+      const project = projectId ? appState.getProject(projectId) : null;
+
+      if (isProject && project) {
+        const emoji = createElement('span', { className: 'context-emoji' }, project.emoji || '📁');
+        const name = createElement('span', {}, project.name);
+        contextIndicator.appendChild(emoji);
+        contextIndicator.appendChild(name);
+      } else {
+        const emoji = createElement('span', { className: 'context-emoji' }, '💬');
+        const label = createElement('span', {}, 'General Chat');
+        contextIndicator.appendChild(emoji);
+        contextIndicator.appendChild(label);
+      }
+    }
+
+    // Update view toggle button active states
+    const viewToggle = this.container.querySelector('[data-testid="view-toggle"]');
+    if (viewToggle) {
+      viewToggle.querySelectorAll('.view-btn').forEach((btn) => {
+        const view = btn.getAttribute('data-view');
+        if (view === this.currentProjectView) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+    }
   }
 
   private showWelcomePrompt(): void {

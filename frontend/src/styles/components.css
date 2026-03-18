@@ -2083,22 +2083,50 @@
   padding: 8px 0;
 }
 
-/* Chat header row: header + model status bar on same line */
-.chat-header-row {
+/* ============= UNIFIED HEADER (single row: context + view toggle + actions) ============= */
+.unified-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--color-border);
-  padding: 0;
+  min-height: 44px;
+  gap: 12px;
+  flex-shrink: 0;
   background: var(--color-bg-secondary);
 }
 
-.chat-header-row .chat-header {
-  border-bottom: none;
+.unified-header .context-indicator {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
 }
 
-.chat-header-row .model-status-bar-container {
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
+}
+
+/* Make model status bar inline and compact inside unified header */
+.unified-header .model-status-bar {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.unified-header .model-status {
+  padding: 0;
+}
+
+/* Hide old separate headers — no longer rendered but just in case */
+.chat-header-row {
+  display: none;
 }
 
 .new-session-btn {

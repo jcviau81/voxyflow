@@ -258,8 +258,10 @@ body {
 }
 
 .top-bar-container {
-  height: var(--top-bar-height);
   flex-shrink: 0;
+  /* Only visible on mobile (menu btn + voice + opp toggle) */
+  height: 0;
+  overflow: hidden;
 }
 
 .main-content {
