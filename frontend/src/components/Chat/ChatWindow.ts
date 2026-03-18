@@ -92,8 +92,12 @@ export class ChatWindow {
     const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
     this.modelStatusBar = new ModelStatusBar(statusBarContainer);
 
-    this.container.appendChild(header);
-    this.container.appendChild(statusBarContainer);
+    // Combine header + model status bar on same row
+    const headerRow = createElement('div', { className: 'chat-header-row' });
+    headerRow.appendChild(header);
+    headerRow.appendChild(statusBarContainer);
+
+    this.container.appendChild(headerRow);
     this.container.appendChild(this.messageList);
     this.container.appendChild(this.inputArea);
 

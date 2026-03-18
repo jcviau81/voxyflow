@@ -1827,3 +1827,20 @@
   color: #888;
   padding: 8px 0;
 }
+
+/* Chat header row: header + model status bar on same line */
+.chat-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--color-border, #333);
+    padding: 0;
+}
+
+.chat-header-row .chat-header {
+    border-bottom: none;
+}
+
+.chat-header-row .model-status-bar-container {
+    flex-shrink: 0;
+}
