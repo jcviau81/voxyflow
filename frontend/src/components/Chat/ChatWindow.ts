@@ -140,12 +140,16 @@ export class ChatWindow {
     // Code paste detection banner (hidden by default)
     this.codePasteBanner = this.buildCodePasteBanner();
 
+    // Input row: emoji + textarea + voice + send
+    const inputRow = createElement('div', { className: 'chat-input-row' });
+    inputRow.appendChild(emojiContainer);
+    inputRow.appendChild(this.textInput);
+    inputRow.appendChild(voiceContainer);
+    inputRow.appendChild(sendBtn);
+
     this.inputArea.appendChild(suggestionsWrapper);
     this.inputArea.appendChild(this.codePasteBanner);
-    this.inputArea.appendChild(emojiContainer);
-    this.inputArea.appendChild(this.textInput);
-    this.inputArea.appendChild(voiceContainer);
-    this.inputArea.appendChild(sendBtn);
+    this.inputArea.appendChild(inputRow);
 
     this.container.appendChild(headerRow);
 
