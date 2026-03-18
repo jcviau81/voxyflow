@@ -320,7 +320,45 @@ async def _handle_chat_3layer(
                 "timestamp": int(time.time() * 1000),
             })
 
-        # Send stream-done signal
+        # --- Execute tool calls BEFORE done signal ---
+        # Fallback: parse <tool_call> blocks if proxy didn't support native tools
+        import re as _re_pre
+        _tool_pattern_pre = _re_pre.compile(r'<tool_call>\s*(\{.*?\})\s*</tool_call>', _re_pre.DOTALL)
+        _tool_matches_pre = _tool_pattern_pre.findall(fast_full_response)
+        if _tool_matches_pre and not _pending_tool_events:
+            import json as _json_pre
+            for _match_pre in _tool_matches_pre:
+                try:
+                    _call_pre = _json_pre.loads(_match_pre)
+                    _tool_name_pre = _call_pre.get("name", "")
+                    _tool_args_pre = _call_pre.get("arguments", _call_pre.get("params", {}))
+                    if _tool_name_pre:
+                        logger.info(f"[ToolCall-Fallback] Executing: {_tool_name_pre}")
+                        _mcp_name_pre = _tool_name_pre.replace("_", ".") if "_" in _tool_name_pre else _tool_name_pre
+                        from app.mcp_server import _TOOL_DEFINITIONS as _TD, _call_api as _mcp_exec
+                        _tool_def_pre = next((t for t in _TD if t["name"] == _mcp_name_pre), None)
+                        if _tool_def_pre:
+                            _result_pre = await _mcp_exec(_tool_def_pre, _tool_args_pre)
+                        else:
+                            _result_pre = {"error": f"Unknown tool: {_mcp_name_pre}"}
+                        logger.info(f"[ToolCall-Fallback] Result: {str(_result_pre)[:200]}")
+                        await websocket.send_json({
+                            "type": "tool:executed",
+                            "payload": {"tool": _mcp_name_pre, "arguments": _tool_args_pre, "result": _result_pre, "sessionId": session_id},
+                            "timestamp": int(time.time() * 1000),
+                        })
+                except Exception as _e_pre:
+                    logger.warning(f"[ToolCall-Fallback] Failed: {_e_pre}")
+
+        # Flush native tool events from streaming
+        for evt in _pending_tool_events:
+            await websocket.send_json({
+                "type": "tool:executed",
+                "payload": {"tool": evt["tool"], "arguments": evt["arguments"], "result": evt["result"], "sessionId": session_id},
+                "timestamp": int(time.time() * 1000),
+            })
+
+        # Send stream-done signal (AFTER tool events)
         latency = int((time.time() - start) * 1000)
         logger.info(f"[Layer1-Fast] stream complete in {latency}ms")
         await websocket.send_json({
@@ -351,52 +389,6 @@ async def _handle_chat_3layer(
         if analyzer_task:
             analyzer_task.cancel()
         return
-
-    # --- Flush tool:executed events collected during streaming ---------------
-    for evt in _pending_tool_events:
-        logger.info(f"[MCP] emitting tool:executed: {evt['tool']}")
-        await websocket.send_json({
-            "type": "tool:executed",
-            "payload": {
-                "tool": evt["tool"],
-                "arguments": evt["arguments"],
-                "result": evt["result"],
-                "sessionId": session_id,
-            },
-            "timestamp": int(time.time() * 1000),
-        })
-
-    # --- Fallback: parse <tool_call> blocks if proxy didn't support native tools ---
-    import re as _re
-    _tool_pattern = _re.compile(r'<tool_call>\s*(\{.*?\})\s*</tool_call>', _re.DOTALL)
-    _tool_matches = _tool_pattern.findall(fast_full_response)
-    if _tool_matches and not _pending_tool_events:
-        import json as _json
-        for _match in _tool_matches:
-            try:
-                _call = _json.loads(_match)
-                _tool_name = _call.get("name", "")
-                _tool_args = _call.get("arguments", _call.get("params", {}))
-                if _tool_name:
-                    logger.info(f"[ToolCall-Fallback] Executing: {_tool_name}")
-                    # Call via MCP REST
-                    import httpx
-                    _mcp_name = _tool_name.replace("_", ".") if "_" in _tool_name else _tool_name
-                    from app.mcp_server import _TOOL_DEFINITIONS, _call_api as mcp_call
-                    # Find the tool definition by name
-                    _tool_def = next((t for t in _TOOL_DEFINITIONS if t["name"] == _mcp_name), None)
-                    if _tool_def:
-                        _result = await mcp_call(_tool_def, _tool_args)
-                    else:
-                        _result = {"error": f"Unknown tool: {_mcp_name}"}
-                    logger.info(f"[ToolCall-Fallback] Result: {str(_result)[:200]}")
-                    await websocket.send_json({
-                        "type": "tool:executed",
-                        "payload": {"tool": _mcp_name, "arguments": _tool_args, "result": _result, "sessionId": session_id},
-                        "timestamp": int(time.time() * 1000),
-                    })
-            except Exception as _e:
-                logger.warning(f"[ToolCall-Fallback] Failed: {_e}")
 
     # --- Layer 2: Deep enrichment/correction ---
     if not deep_enabled or deep_task is None:
