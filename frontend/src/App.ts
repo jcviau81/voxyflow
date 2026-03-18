@@ -25,6 +25,7 @@ import { FocusMode } from './components/FocusMode/FocusMode';
 import { ProjectStats } from './components/Projects/ProjectStats';
 import { ProjectRoadmap } from './components/Projects/ProjectRoadmap';
 import { ProjectWiki } from './components/Projects/ProjectWiki';
+import { SprintPlanner } from './components/Projects/SprintPlanner';
 
 export class App {
   private root: HTMLElement;
@@ -159,7 +160,7 @@ export class App {
         const activeTab = appState.getActiveTab();
         if (activeTab === 'main') {
           const currentView = appState.get('currentView');
-          if (currentView === 'kanban' || currentView === 'projects' || currentView === 'stats' || currentView === 'roadmap' || currentView === 'wiki') {
+          if (currentView === 'kanban' || currentView === 'projects' || currentView === 'stats' || currentView === 'roadmap' || currentView === 'wiki' || currentView === 'sprint') {
             this.switchView('chat');
             appState.set('currentView', 'chat');
           }
@@ -629,6 +630,9 @@ export class App {
         break;
       case 'wiki':
         component = new ProjectWiki(this.mainContent);
+        break;
+      case 'sprint':
+        component = new SprintPlanner(this.mainContent);
         break;
     }
 

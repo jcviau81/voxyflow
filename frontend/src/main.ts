@@ -6,11 +6,15 @@ import './styles/freeboard.css';
 import './styles/stats.css';
 import './styles/roadmap.css';
 import './styles/wiki.css';
+import './styles/sprint.css';
 import './styles/responsive.css';
 import './styles/rich-chat.css';
 import './styles/notifications.css';
 import './styles/projects-overview.css';
 import { App } from './App';
+// Import ThemeService early so appearance settings are applied before first render
+import { themeService as _themeService } from './services/ThemeService';
+void _themeService; // ensure module is loaded and settings applied
 
 // Initialize app when DOM is ready
 const init = (): void => {

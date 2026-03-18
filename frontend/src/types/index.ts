@@ -2,7 +2,7 @@
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 export type CardStatus = 'idea' | 'todo' | 'in-progress' | 'done';
-export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings' | 'stats' | 'roadmap' | 'wiki';
+export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings' | 'stats' | 'roadmap' | 'wiki' | 'sprint';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'codeuse' | 'architecte' | 'designer' | 'devops' | 'analyste' | 'testeur' | 'documenteur';
 export type ModelName = 'fast' | 'deep' | 'analyzer';
@@ -145,6 +145,7 @@ export interface Card {
   assignee?: string | null;  // display name of person assigned
   watchers?: string;         // comma-separated watcher names
   votes?: number;            // upvote count
+  sprintId?: string | null;  // sprint assignment
 }
 
 export interface AppStateData {
@@ -340,4 +341,19 @@ export interface NotificationEntry {
   timestamp: number;
   read: boolean;
   link?: string;
+}
+
+// Sprint Planning
+export type SprintStatus = 'planning' | 'active' | 'completed';
+
+export interface Sprint {
+  id: string;
+  projectId: string;
+  name: string;
+  goal?: string | null;
+  startDate: string;   // ISO date string
+  endDate: string;     // ISO date string
+  status: SprintStatus;
+  createdAt: string;
+  cardCount: number;
 }

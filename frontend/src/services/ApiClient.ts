@@ -307,6 +307,7 @@ export class ApiClient {
         assignee: c.assignee ?? null,
         watchers: c.watchers ?? '',
         votes: (c.votes as number) ?? 0,
+        sprintId: c.sprint_id ?? null,
       }));
     } catch (error) {
       console.error('[ApiClient] fetchCards error:', error);
@@ -705,6 +706,99 @@ export class ApiClient {
       return data.votes;
     } catch (error) {
       console.error('[ApiClient] unvoteCard error:', error);
+      return null;
+    }
+  }
+
+  // --- Sprint API ---
+
+  async listSprints(projectId: string): Promise<import('../types').Sprint[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/sprints`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as Array<{
+        id: string; project_id: string; name: string; goal: string | null;
+        start_date: string; end_date: string; status: string; created_at: string; card_count: number;
+      }>;
+      return data.map((s) => ({
+        id: s.id, projectId: s.project_id, name: s.name, goal: s.goal,
+        startDate: s.start_date, endDate: s.end_date, status: s.status as import('../types').SprintStatus,
+        createdAt: s.created_at, cardCount: s.card_count,
+      }));
+    } catch (error) {
+      console.error('[ApiClient] listSprints error:', error);
+      return [];
+    }
+  }
+
+  async createSprint(projectId: string, data: { name: string; goal?: string; start_date: string; end_date: string }): Promise<import('../types').Sprint | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/sprints`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const s = await response.json() as { id: string; project_id: string; name: string; goal: string | null; start_date: string; end_date: string; status: string; created_at: string; card_count: number };
+      return { id: s.id, projectId: s.project_id, name: s.name, goal: s.goal, startDate: s.start_date, endDate: s.end_date, status: s.status as import('../types').SprintStatus, createdAt: s.created_at, cardCount: s.card_count };
+    } catch (error) {
+      console.error('[ApiClient] createSprint error:', error);
+      return null;
+    }
+  }
+
+  async updateSprint(projectId: string, sprintId: string, data: { name?: string; goal?: string; start_date?: string; end_date?: string }): Promise<import('../types').Sprint | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/sprints/${sprintId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const s = await response.json() as { id: string; project_id: string; name: string; goal: string | null; start_date: string; end_date: string; status: string; created_at: string; card_count: number };
+      return { id: s.id, projectId: s.project_id, name: s.name, goal: s.goal, startDate: s.start_date, endDate: s.end_date, status: s.status as import('../types').SprintStatus, createdAt: s.created_at, cardCount: s.card_count };
+    } catch (error) {
+      console.error('[ApiClient] updateSprint error:', error);
+      return null;
+    }
+  }
+
+  async deleteSprint(projectId: string, sprintId: string): Promise<boolean> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/sprints/${sprintId}`, { method: 'DELETE' });
+      return response.ok;
+    } catch (error) {
+      console.error('[ApiClient] deleteSprint error:', error);
+      return false;
+    }
+  }
+
+  async startSprint(projectId: string, sprintId: string): Promise<import('../types').Sprint | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/sprints/${sprintId}/start`, { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const s = await response.json() as { id: string; project_id: string; name: string; goal: string | null; start_date: string; end_date: string; status: string; created_at: string; card_count: number };
+      return { id: s.id, projectId: s.project_id, name: s.name, goal: s.goal, startDate: s.start_date, endDate: s.end_date, status: s.status as import('../types').SprintStatus, createdAt: s.created_at, cardCount: s.card_count };
+    } catch (error) {
+      console.error('[ApiClient] startSprint error:', error);
+      return null;
+    }
+  }
+
+  async completeSprint(projectId: string, sprintId: string): Promise<import('../types').Sprint | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/sprints/${sprintId}/complete`, { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const s = await response.json() as { id: string; project_id: string; name: string; goal: string | null; start_date: string; end_date: string; status: string; created_at: string; card_count: number };
+      return { id: s.id, projectId: s.project_id, name: s.name, goal: s.goal, startDate: s.start_date, endDate: s.end_date, status: s.status as import('../types').SprintStatus, createdAt: s.created_at, cardCount: s.card_count };
+    } catch (error) {
+      console.error('[ApiClient] completeSprint error:', error);
       return null;
     }
   }

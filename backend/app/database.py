@@ -52,6 +52,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN watchers TEXT NOT NULL DEFAULT ''"))
         if "votes" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN votes INTEGER NOT NULL DEFAULT 0"))
+        if "sprint_id" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN sprint_id TEXT REFERENCES sprints(id)"))
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +141,7 @@ class Project(Base):
     cards = relationship("Card", back_populates="project", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
     wiki_pages = relationship("WikiPage", back_populates="project", cascade="all, delete-orphan")
+    sprints = relationship("Sprint", back_populates="project", cascade="all, delete-orphan")
 
 
 class WikiPage(Base):
@@ -152,6 +155,22 @@ class WikiPage(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     project = relationship("Project", back_populates="wiki_pages")
+
+
+class Sprint(Base):
+    __tablename__ = "sprints"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)        # "Sprint 1", "Sprint 2", etc.
+    goal = Column(Text, nullable=True)           # Sprint goal description
+    start_date = Column(DateTime, nullable=False)
+    end_date = Column(DateTime, nullable=False)
+    status = Column(String, default="planning")  # planning | active | completed
+    created_at = Column(DateTime, default=utcnow)
+
+    project = relationship("Project", back_populates="sprints")
+    cards = relationship("Card", back_populates="sprint", foreign_keys="[Card.sprint_id]")
 
 
 class Card(Base):
@@ -172,11 +191,13 @@ class Card(Base):
     assignee = Column(String, nullable=True)  # display name of assigned person
     watchers = Column(String, nullable=False, default="")  # comma-separated watcher names
     votes = Column(Integer, nullable=False, default=0)  # upvote count
+    sprint_id = Column(String, ForeignKey("sprints.id"), nullable=True)  # sprint assignment
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     project = relationship("Project", back_populates="cards")
     source_message = relationship("Message", foreign_keys=[source_message_id])
+    sprint = relationship("Sprint", back_populates="cards", foreign_keys="[Card.sprint_id]")
     dependencies = relationship(
         "Card",
         secondary=card_dependencies,

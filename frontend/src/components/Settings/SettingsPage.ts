@@ -9,6 +9,14 @@ import { appState } from '../../state/AppState';
 import { apiClient } from '../../services/ApiClient';
 import { ttsService } from '../../services/TtsService';
 import { jobsService, Job, ServiceHealth } from '../../services/JobsService';
+import {
+  themeService,
+  ACCENT_PRESETS,
+  type FontSize,
+  type SidebarWidth,
+  type CardDensity,
+  type AnimationSpeed,
+} from '../../services/ThemeService';
 
 interface PersonalitySettings {
   bot_name: string;
@@ -186,6 +194,7 @@ export class SettingsPage {
     this.root.appendChild(title);
 
     this.root.insertAdjacentHTML('beforeend', this.renderHealthBar());
+    this.root.insertAdjacentHTML('beforeend', this.renderAppearanceSection());
     this.root.insertAdjacentHTML('beforeend', this.renderPersonalitySection());
     this.root.insertAdjacentHTML('beforeend', this.renderModelsSection());
     this.root.insertAdjacentHTML('beforeend', this.renderGitHubSection());
@@ -198,6 +207,181 @@ export class SettingsPage {
     this.root.insertAdjacentHTML('beforeend', this.renderSaveBar());
 
     this.bindEvents();
+  }
+
+  // ── Appearance Section ─────────────────────────────────────────────────────
+
+  private renderAppearanceSection(): string {
+    const currentTheme  = appState.get('theme') || 'dark';
+    const currentAccent = themeService.accentColor;
+    const currentFont   = themeService.fontSize;
+    const currentSidebar = themeService.sidebarWidth;
+    const currentDensity = themeService.cardDensity;
+    const currentAnim    = themeService.animationSpeed;
+
+    const swatchesHtml = ACCENT_PRESETS.map(({ name, value }) => `
+      <button
+        class="accent-swatch ${currentAccent.toLowerCase() === value ? 'active' : ''}"
+        style="background:${value};"
+        title="${name}"
+        data-accent="${value}"
+        aria-label="Accent color: ${name}"
+      ></button>
+    `).join('');
+
+    const fontPills   = (['small', 'medium', 'large'] as FontSize[]).map((v) =>
+      `<button class="appearance-pill ${currentFont === v ? 'active' : ''}" data-font-size="${v}">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`
+    ).join('');
+
+    const sidebarPills = (['compact', 'normal', 'wide'] as SidebarWidth[]).map((v) =>
+      `<button class="appearance-pill ${currentSidebar === v ? 'active' : ''}" data-sidebar-width="${v}">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`
+    ).join('');
+
+    const densityPills = (['comfortable', 'compact'] as CardDensity[]).map((v) =>
+      `<button class="appearance-pill ${currentDensity === v ? 'active' : ''}" data-card-density="${v}">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`
+    ).join('');
+
+    const animPills = (['off', 'normal', 'snappy'] as AnimationSpeed[]).map((v) =>
+      `<button class="appearance-pill ${currentAnim === v ? 'active' : ''}" data-anim-speed="${v}">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`
+    ).join('');
+
+    return `
+      <div class="settings-section" data-testid="settings-appearance">
+        <h3>🎨 Appearance</h3>
+        <div class="appearance-grid">
+
+          <!-- Theme -->
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Theme</div>
+              <div class="setting-description">Dark or Light interface</div>
+            </div>
+            <div class="appearance-pills">
+              <button class="appearance-pill ${currentTheme === 'dark'  ? 'active' : ''}" data-theme-toggle="dark">🌙 Dark</button>
+              <button class="appearance-pill ${currentTheme === 'light' ? 'active' : ''}" data-theme-toggle="light">☀️ Light</button>
+            </div>
+          </div>
+
+          <!-- Accent Color -->
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Accent Color</div>
+              <div class="setting-description">UI highlight color — changes live</div>
+            </div>
+            <div class="accent-swatches">${swatchesHtml}</div>
+          </div>
+
+          <!-- Font Size -->
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Font Size</div>
+              <div class="setting-description">Small (12px) · Medium (14px) · Large (16px)</div>
+            </div>
+            <div class="appearance-pills">${fontPills}</div>
+          </div>
+
+          <!-- Sidebar Width -->
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Sidebar Width</div>
+              <div class="setting-description">Compact (180px) · Normal (240px) · Wide (300px)</div>
+            </div>
+            <div class="appearance-pills">${sidebarPills}</div>
+          </div>
+
+          <!-- Card Density -->
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Card Density</div>
+              <div class="setting-description">Comfortable keeps full padding; Compact is tighter</div>
+            </div>
+            <div class="appearance-pills">${densityPills}</div>
+          </div>
+
+          <!-- Animation Speed -->
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Animation Speed</div>
+              <div class="setting-description">Off disables all transitions</div>
+            </div>
+            <div class="appearance-pills">${animPills}</div>
+          </div>
+
+        </div>
+      </div>
+    `;
+  }
+
+  private bindAppearanceEvents(): void {
+    const section = this.root.querySelector('[data-testid="settings-appearance"]');
+    if (!section) return;
+
+    // Theme toggle
+    section.querySelectorAll<HTMLButtonElement>('[data-theme-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const theme = btn.dataset.themeToggle as 'dark' | 'light';
+        appState.setTheme(theme);
+        // Update pill active states
+        section.querySelectorAll<HTMLButtonElement>('[data-theme-toggle]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.themeToggle === theme);
+        });
+      });
+    });
+
+    // Accent swatches
+    section.querySelectorAll<HTMLButtonElement>('[data-accent]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const hex = btn.dataset.accent!;
+        themeService.setAccentColor(hex);
+        section.querySelectorAll<HTMLButtonElement>('[data-accent]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.accent === hex);
+        });
+      });
+    });
+
+    // Font size pills
+    section.querySelectorAll<HTMLButtonElement>('[data-font-size]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const size = btn.dataset.fontSize as FontSize;
+        themeService.setFontSize(size);
+        section.querySelectorAll<HTMLButtonElement>('[data-font-size]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.fontSize === size);
+        });
+      });
+    });
+
+    // Sidebar width pills
+    section.querySelectorAll<HTMLButtonElement>('[data-sidebar-width]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const width = btn.dataset.sidebarWidth as SidebarWidth;
+        themeService.setSidebarWidth(width);
+        section.querySelectorAll<HTMLButtonElement>('[data-sidebar-width]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.sidebarWidth === width);
+        });
+      });
+    });
+
+    // Card density pills
+    section.querySelectorAll<HTMLButtonElement>('[data-card-density]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const density = btn.dataset.cardDensity as CardDensity;
+        themeService.setCardDensity(density);
+        section.querySelectorAll<HTMLButtonElement>('[data-card-density]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.cardDensity === density);
+        });
+      });
+    });
+
+    // Animation speed pills
+    section.querySelectorAll<HTMLButtonElement>('[data-anim-speed]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const speed = btn.dataset.animSpeed as AnimationSpeed;
+        themeService.setAnimationSpeed(speed);
+        section.querySelectorAll<HTMLButtonElement>('[data-anim-speed]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.animSpeed === speed);
+        });
+      });
+    });
   }
 
   private renderPersonalitySection(): string {
@@ -804,6 +988,8 @@ export class SettingsPage {
   }
 
   private bindEvents(): void {
+    this.bindAppearanceEvents();
+
     this.root.querySelectorAll('[data-field]').forEach((el) => {
       el.addEventListener('input', () => this.markDirty());
       el.addEventListener('change', () => this.markDirty());

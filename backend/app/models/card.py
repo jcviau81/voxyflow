@@ -39,6 +39,7 @@ class CardUpdate(BaseModel):
     agent_context: Optional[str] = None
     assignee: Optional[str] = None
     watchers: Optional[str] = None
+    sprint_id: Optional[str] = None
 
 
 class TimeEntryCreate(BaseModel):
@@ -77,6 +78,7 @@ class CardResponse(BaseModel):
     assignee: Optional[str] = None
     watchers: str = ""
     votes: int = 0
+    sprint_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

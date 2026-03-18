@@ -54,6 +54,11 @@
   --sidebar-width: 240px;
   --sidebar-collapsed-width: 60px;
   --top-bar-height: 52px;
+
+  /* Appearance — overridden by ThemeService at runtime */
+  --font-size-base: 14px;
+  --card-padding: 16px;
+  --card-font-size: 13px;
 }
 
 /* Light Theme */
@@ -957,3 +962,89 @@ pre code {
   }
 }
 
+
+/* ═══════════════════════════════════════════════════
+   APPEARANCE — Card Density
+   ═══════════════════════════════════════════════════ */
+
+/* Comfortable density (default) — uses --card-padding / --card-font-size vars */
+.kanban-card,
+.card-item,
+.message-bubble,
+.opportunity-item,
+.idea-item {
+  padding: var(--card-padding, 16px);
+  font-size: var(--card-font-size, 13px);
+}
+
+/* Compact density */
+.density-compact .kanban-card,
+.density-compact .card-item,
+.density-compact .message-bubble,
+.density-compact .opportunity-item,
+.density-compact .idea-item {
+  padding: calc(var(--card-padding, 16px) * 0.6);
+  font-size: calc(var(--card-font-size, 13px) * 0.92);
+}
+
+/* Settings Appearance section */
+.appearance-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.accent-swatches {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+
+.accent-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.accent-swatch:hover {
+  transform: scale(1.15);
+}
+
+.accent-swatch.active {
+  border-color: var(--color-text);
+  transform: scale(1.1);
+}
+
+.appearance-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.appearance-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.appearance-pill:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.appearance-pill.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
