@@ -908,10 +908,11 @@ export class ChatWindow {
     // Create a new session tab (general chat only)
     const MAX_GENERAL_SESSIONS = 5;
     if (this.sessions.length >= MAX_GENERAL_SESSIONS) return;
-    this.sessionCounter++;
+    // Label based on current count, not a global counter
+    const nextNum = this.sessions.length + 1;
     const newSession = {
-      id: `session-${this.sessionCounter}`,
-      label: `Session ${this.sessionCounter}`,
+      id: generateId(),
+      label: `Session ${nextNum}`,
     };
     this.sessions.push(newSession);
     this.activeSessionId = newSession.id;
