@@ -771,23 +771,22 @@ export class ChatWindow {
 
         switch (action) {
           case 'chat':
-            // Init the session with a greeting
-            chatService.sendMessage("Hey! Let's chat.");
+            // Hidden init — Voxy responds but no user bubble shown
+            chatService.sendSystemInit("User wants to start a casual conversation. Greet them warmly and ask what they'd like to do.");
             break;
           case 'chat-project':
-            chatService.sendMessage("Let's discuss this project. What's on your mind?");
+            chatService.sendSystemInit("User wants to discuss this project. Summarize the current state and ask what they want to work on.");
             break;
           case 'discuss':
-            chatService.sendMessage("Let's discuss this task.");
+            chatService.sendSystemInit("User wants to discuss this task. Summarize the card and ask how you can help.");
             break;
 
           case 'brainstorm':
-            // Send an opening brainstorm message from user
-            chatService.sendMessage("Let's brainstorm a new project! What should we build?");
+            chatService.sendSystemInit("User wants to brainstorm a new project idea. Ask them about their interests, suggest creative directions based on their existing projects.");
             break;
 
           case 'brainstorm-task':
-            chatService.sendMessage("Let's brainstorm a new task for this project.");
+            chatService.sendSystemInit("User wants to brainstorm a new task for this project. Suggest ideas based on the project context.");
             break;
 
           case 'start-work': {

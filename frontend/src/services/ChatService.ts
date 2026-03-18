@@ -210,6 +210,29 @@ export class ChatService {
     return message;
   }
 
+  /**
+   * Send a hidden system context message — triggers Voxy response but shows NO user bubble.
+   * Used by Welcome Flow quick actions.
+   */
+  sendSystemInit(contextHint: string, projectId?: string, cardId?: string, sessionId?: string): void {
+    const layers = ModelStatusBar.getStoredLayerState();
+    const currentProjectId = projectId || appState.get('currentProjectId') || undefined;
+    const currentCardId = cardId || appState.get('selectedCardId') || undefined;
+    let chatLevel: 'general' | 'project' | 'card' = 'general';
+    if (currentCardId) chatLevel = 'card';
+    else if (currentProjectId) chatLevel = 'project';
+
+    apiClient.send('chat:message', {
+      content: contextHint,
+      projectId: currentProjectId,
+      cardId: currentCardId,
+      chatLevel,
+      layers,
+      sessionId: sessionId || undefined,
+      systemInit: true,  // Backend knows not to persist this as a user message
+    });
+  }
+
   private handleStreamingChunk(streamId: string, chunk: string, sessionId?: string): void {
     let stream = this.streamingMessages.get(streamId);
 
