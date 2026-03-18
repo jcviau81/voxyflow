@@ -245,6 +245,8 @@ def _card_to_response(card: Card) -> CardResponse:
         dependency_ids=[d.id for d in card.dependencies] if card.dependencies else [],
         total_minutes=total_minutes,
         checklist_progress=checklist_progress,
+        assignee=card.assignee,
+        watchers=card.watchers or "",
     )
 
 

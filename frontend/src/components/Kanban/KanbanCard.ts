@@ -5,6 +5,29 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { appState } from '../../state/AppState';
 
+// ── Assignee avatar helpers ───────────────────────────────────────────────────
+const ASSIGNEE_AVATAR_COLORS = [
+  '#e53935', '#8e24aa', '#1e88e5', '#00897b',
+  '#43a047', '#fb8c00', '#f4511e', '#6d4c41',
+];
+
+function getAssigneeInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((w) => w[0] ?? '')
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function assigneeNameToColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  return ASSIGNEE_AVATAR_COLORS[hash % ASSIGNEE_AVATAR_COLORS.length];
+}
+
 // ── Tag color system ──────────────────────────────────────────────────────────
 // 8 muted pastel pairs: [background, text] for dark theme.
 const TAG_COLORS: Array<[string, string]> = [
@@ -173,6 +196,16 @@ export class KanbanCard {
       }
     } else {
       this.element.classList.remove('card-blocked');
+    }
+
+    // Assignee avatar badge (bottom-left)
+    if (this.card.assignee) {
+      const avatarEl = createElement('div', {
+        className: 'assignee-avatar',
+        title: `Assigned to: ${this.card.assignee}`,
+      }, getAssigneeInitials(this.card.assignee));
+      avatarEl.style.background = assigneeNameToColor(this.card.assignee);
+      this.element.appendChild(avatarEl);
     }
 
     this.element.appendChild(title);

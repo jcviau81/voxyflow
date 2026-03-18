@@ -27,6 +27,29 @@ import { cardService } from '../../services/CardService';
 import { apiClient } from '../../services/ApiClient';
 import { FocusMode } from '../FocusMode/FocusMode';
 
+// ── Assignee/Watcher helpers ─────────────────────────────────────────────────
+function getInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((w) => w[0] ?? '')
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+const AVATAR_COLORS = [
+  '#e53935', '#8e24aa', '#1e88e5', '#00897b',
+  '#43a047', '#fb8c00', '#f4511e', '#6d4c41',
+];
+
+function nameToColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
 export class CardDetailModal {
   private overlay: HTMLElement;
   private modal: HTMLElement;
@@ -696,6 +719,144 @@ export class CardDetailModal {
     return section;
   }
 
+  private buildAssigneeWatchersSection(card: Card): HTMLElement {
+    const section = createElement('div', { className: 'modal-section assignee-section' });
+    const sectionLabel = createElement('label', { className: 'modal-label' }, '👤 People');
+
+    // ── Assignee ──────────────────────────────────────────────────────────────
+    const assigneeRow = createElement('div', { className: 'assignee-row' });
+    const assigneeLabel = createElement('span', { className: 'assignee-field-label' }, '👤 Assigned to:');
+
+    let currentAssignee = card.assignee ?? null;
+
+    // Chip container (shows chip or input)
+    const assigneeInputArea = createElement('div', { className: 'assignee-input-area' });
+
+    const renderAssigneeChip = () => {
+      assigneeInputArea.innerHTML = '';
+      if (currentAssignee) {
+        const chip = createElement('span', { className: 'assignee-chip' });
+        const circle = createElement('span', { className: 'assignee-chip-avatar' }, getInitials(currentAssignee));
+        circle.style.background = nameToColor(currentAssignee);
+        const nameEl = createElement('span', { className: 'assignee-chip-name' }, currentAssignee);
+        const clearBtn = createElement('button', { className: 'assignee-chip-clear', title: 'Clear assignee' }, '×');
+        clearBtn.addEventListener('click', () => {
+          currentAssignee = null;
+          if (this.card) {
+            cardService.update(this.card.id, { assignee: null } as Partial<Card>);
+            apiClient.patchCard(this.card.id, { assignee: null });
+          }
+          renderAssigneeChip();
+        });
+        chip.appendChild(circle);
+        chip.appendChild(nameEl);
+        chip.appendChild(clearBtn);
+        assigneeInputArea.appendChild(chip);
+      } else {
+        const input = createElement('input', {
+          type: 'text',
+          className: 'form-input assignee-input',
+          placeholder: 'Type name and press Enter…',
+        }) as HTMLInputElement;
+        const saveAssignee = (name: string) => {
+          currentAssignee = name;
+          if (this.card) {
+            cardService.update(this.card.id, { assignee: name } as Partial<Card>);
+            apiClient.patchCard(this.card.id, { assignee: name });
+          }
+          renderAssigneeChip();
+        };
+        input.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (e.key === 'Enter') {
+            const name = input.value.trim();
+            if (name) saveAssignee(name);
+          } else if (e.key === 'Escape') {
+            input.value = '';
+          }
+        });
+        input.addEventListener('blur', () => {
+          const name = input.value.trim();
+          if (name) saveAssignee(name);
+        });
+        assigneeInputArea.appendChild(input);
+        setTimeout(() => input.focus(), 50);
+      }
+    };
+
+    renderAssigneeChip();
+    assigneeRow.appendChild(assigneeLabel);
+    assigneeRow.appendChild(assigneeInputArea);
+
+    // ── Watchers ──────────────────────────────────────────────────────────────
+    const watchersRow = createElement('div', { className: 'watchers-row' });
+    const watchersLabel = createElement('span', { className: 'assignee-field-label' }, '👁 Watchers:');
+
+    let watcherList: string[] = (card.watchers || '').split(',').map((w) => w.trim()).filter(Boolean);
+
+    const watcherChipsContainer = createElement('div', { className: 'watcher-chips-container' });
+
+    const renderWatcherChips = () => {
+      watcherChipsContainer.innerHTML = '';
+      watcherList.forEach((watcher) => {
+        const chip = createElement('span', { className: 'watcher-chip' });
+        const nameEl = createElement('span', {}, watcher);
+        const removeBtn = createElement('button', { className: 'watcher-chip-remove', title: `Remove ${watcher}` }, '×');
+        removeBtn.addEventListener('click', () => {
+          watcherList = watcherList.filter((w) => w !== watcher);
+          if (this.card) {
+            cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
+            apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
+          }
+          renderWatcherChips();
+        });
+        chip.appendChild(nameEl);
+        chip.appendChild(removeBtn);
+        watcherChipsContainer.appendChild(chip);
+      });
+
+      // Input for adding new watcher
+      const addInput = createElement('input', {
+        type: 'text',
+        className: 'form-input watcher-input',
+        placeholder: 'Add watcher…',
+      }) as HTMLInputElement;
+
+      const commitWatcher = () => {
+        const names = addInput.value.split(',').map((n) => n.trim()).filter(Boolean);
+        const newNames = names.filter((n) => !watcherList.includes(n));
+        if (newNames.length > 0) {
+          watcherList = [...watcherList, ...newNames];
+          if (this.card) {
+            cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
+            apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
+          }
+          renderWatcherChips();
+        } else {
+          addInput.value = '';
+        }
+      };
+
+      addInput.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter') { e.preventDefault(); commitWatcher(); }
+        else if (e.key === 'Escape') { addInput.value = ''; }
+      });
+      addInput.addEventListener('blur', () => {
+        if (addInput.value.trim()) commitWatcher();
+      });
+
+      watcherChipsContainer.appendChild(addInput);
+    };
+
+    renderWatcherChips();
+    watchersRow.appendChild(watchersLabel);
+    watchersRow.appendChild(watcherChipsContainer);
+
+    section.appendChild(sectionLabel);
+    section.appendChild(assigneeRow);
+    section.appendChild(watchersRow);
+    return section;
+  }
+
   private async handleEnrich(cardId: string, descInput: HTMLTextAreaElement, checklistSection: HTMLElement): Promise<void> {
     const enrichBtn = this.modal.querySelector('.enrich-btn') as HTMLButtonElement | null;
     if (!enrichBtn) return;
@@ -998,6 +1159,9 @@ export class CardDetailModal {
       createElement('span', {}, `Updated: ${formatTime(this.card.updatedAt)}`)
     );
 
+    // Assignee & Watchers
+    const assigneeWatchersSection = this.buildAssigneeWatchersSection(this.card);
+
     // Checklist
     const checklistSection = this.buildChecklistSection(this.card.id);
 
@@ -1048,6 +1212,7 @@ export class CardDetailModal {
     this.modal.appendChild(statusRow);
     this.modal.appendChild(descSection);
     this.modal.appendChild(agentSection);
+    this.modal.appendChild(assigneeWatchersSection);
     this.modal.appendChild(depsSection);
     this.modal.appendChild(tagsSection);
     this.modal.appendChild(checklistSection);

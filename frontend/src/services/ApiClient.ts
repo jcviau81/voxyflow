@@ -304,6 +304,8 @@ export class ApiClient {
         updatedAt: c.updated_at ? new Date(c.updated_at as string).getTime() : Date.now(),
         tags: c.tags ?? [],
         chatHistory: c.chat_history ?? [],
+        assignee: c.assignee ?? null,
+        watchers: c.watchers ?? '',
       }));
     } catch (error) {
       console.error('[ApiClient] fetchCards error:', error);

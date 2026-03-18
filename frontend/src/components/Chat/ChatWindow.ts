@@ -33,7 +33,7 @@ export class ChatWindow {
   private chatSearch: ChatSearch | null = null;
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
-  private currentProjectView: 'chat' | 'kanban' | 'stats' | 'roadmap' = 'chat';
+  private currentProjectView: 'chat' | 'kanban' | 'stats' | 'roadmap' | 'wiki' = 'chat';
 
   // Session management (general chat only)
   private sessions: { id: string; label: string }[] = [{ id: 'session-1', label: 'Session 1' }];
@@ -258,7 +258,7 @@ export class ChatWindow {
       actions.appendChild(newBtn);
     }
 
-    if (chatLevel === 'project' && (this.currentProjectView === 'kanban')) {
+    if (chatLevel === 'project' && this.currentProjectView === 'kanban') {
       // Kanban mode: only show New Card button
       const newCardBtn = createElement('button', {
         className: 'header-btn header-btn-primary',
@@ -371,10 +371,20 @@ export class ChatWindow {
       appState.setView('roadmap');
     });
 
+    const wikiBtn = createElement('button', {
+      className: `view-btn ${this.currentProjectView === 'wiki' ? 'active' : ''}`,
+      'data-view': 'wiki',
+    }, '📖 Wiki');
+    wikiBtn.addEventListener('click', () => {
+      this.currentProjectView = 'wiki';
+      appState.setView('wiki');
+    });
+
     viewToggle.appendChild(chatBtn);
     viewToggle.appendChild(kanbanBtn);
     viewToggle.appendChild(statsBtn);
     viewToggle.appendChild(roadmapBtn);
+    viewToggle.appendChild(wikiBtn);
 
     return viewToggle;
   }
@@ -606,7 +616,7 @@ export class ChatWindow {
     this.unsubscribers.push(
       eventBus.on(EVENTS.VIEW_CHANGE, (view: unknown) => {
         const v = view as ViewMode;
-        if (v === 'chat' || v === 'kanban' || v === 'stats' || v === 'roadmap') {
+        if (v === 'chat' || v === 'kanban' || v === 'stats' || v === 'roadmap' || v === 'wiki') {
           this.currentProjectView = v;
         }
         this.updateUnifiedHeader();

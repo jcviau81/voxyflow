@@ -2,7 +2,7 @@
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 export type CardStatus = 'idea' | 'todo' | 'in-progress' | 'done';
-export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings' | 'stats' | 'roadmap';
+export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings' | 'stats' | 'roadmap' | 'wiki';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'codeuse' | 'architecte' | 'designer' | 'devops' | 'analyste' | 'testeur' | 'documenteur';
 export type ModelName = 'fast' | 'deep' | 'analyzer';
@@ -142,6 +142,8 @@ export interface Card {
   chatHistory: string[];
   totalMinutes?: number; // total time logged in minutes
   checklistProgress?: ChecklistProgress; // computed from checklist items
+  assignee?: string | null;  // display name of person assigned
+  watchers?: string;         // comma-separated watcher names
 }
 
 export interface AppStateData {

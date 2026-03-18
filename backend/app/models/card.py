@@ -37,6 +37,8 @@ class CardUpdate(BaseModel):
         pattern="^(ember|researcher|coder|designer|architect|writer|qa)$",
     )
     agent_context: Optional[str] = None
+    assignee: Optional[str] = None
+    watchers: Optional[str] = None
 
 
 class TimeEntryCreate(BaseModel):
@@ -72,6 +74,8 @@ class CardResponse(BaseModel):
     dependency_ids: list[str] = []
     total_minutes: int = 0
     checklist_progress: Optional["ChecklistProgress"] = None
+    assignee: Optional[str] = None
+    watchers: str = ""
 
     model_config = {"from_attributes": True}
 

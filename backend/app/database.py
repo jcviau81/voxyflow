@@ -39,9 +39,17 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Create all tables (call once at startup)."""
+    """Create all tables (call once at startup) and apply lightweight migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migrate: add assignee / watchers columns if they don't exist yet
+        from sqlalchemy import text
+        result = await conn.execute(text("PRAGMA table_info(cards)"))
+        existing_columns = {row[1] for row in result.fetchall()}
+        if "assignee" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN assignee TEXT"))
+        if "watchers" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN watchers TEXT NOT NULL DEFAULT ''"))
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +136,20 @@ class Project(Base):
     chats = relationship("Chat", back_populates="project")
     cards = relationship("Card", back_populates="project", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
+    wiki_pages = relationship("WikiPage", back_populates="project", cascade="all, delete-orphan")
+
+
+class WikiPage(Base):
+    __tablename__ = "wiki_pages"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String, nullable=False, default="Untitled Page")
+    content = Column(Text, default="")  # markdown content
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    project = relationship("Project", back_populates="wiki_pages")
 
 
 class Card(Base):
@@ -145,6 +167,8 @@ class Card(Base):
     agent_assigned = Column(String, nullable=True)
     agent_type = Column(String, nullable=True)  # ember|researcher|coder|designer|architect|writer|qa
     agent_context = Column(Text, nullable=True)  # relevant docs/requirements for the agent
+    assignee = Column(String, nullable=True)  # display name of assigned person
+    watchers = Column(String, nullable=False, default="")  # comma-separated watcher names
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
