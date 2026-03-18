@@ -23,6 +23,7 @@ export interface CardFormData {
   priority: number;
   dependencies: string[];
   tags: string[];
+  enrichAfterCreate?: boolean;
 }
 
 // Fallback static agents if API isn't available yet
@@ -68,6 +69,7 @@ export class CardForm {
   private prioritySelect: HTMLSelectElement | null = null;
   private tagsInput: HTMLInputElement | null = null;
   private titleError: HTMLElement | null = null;
+  private enrichCheckbox: HTMLInputElement | null = null;
   private agents: AgentInfo[] = FALLBACK_AGENTS;
 
   constructor(private parentElement: HTMLElement, event: CardFormShowEvent) {
@@ -251,6 +253,24 @@ export class CardForm {
 
   private renderActions(): HTMLElement {
     const actions = createElement('div', { className: 'form-actions' });
+
+    // "AI Enrich after create" checkbox (only on create mode)
+    if (this.mode === 'create') {
+      const enrichRow = createElement('div', { className: 'enrich-checkbox-row' });
+      this.enrichCheckbox = document.createElement('input');
+      this.enrichCheckbox.type = 'checkbox';
+      this.enrichCheckbox.id = 'enrich-after-create';
+      this.enrichCheckbox.className = 'enrich-checkbox';
+      this.enrichCheckbox.checked = true; // default: opt-in
+      const enrichLabel = document.createElement('label');
+      enrichLabel.htmlFor = 'enrich-after-create';
+      enrichLabel.className = 'enrich-checkbox-label';
+      enrichLabel.textContent = '✨ AI Enrich after create';
+      enrichRow.appendChild(this.enrichCheckbox);
+      enrichRow.appendChild(enrichLabel);
+      actions.appendChild(enrichRow);
+    }
+
     const submitBtn = createElement('button', {
       className: 'btn-primary', 'data-testid': 'card-form-submit',
     }, this.mode === 'create' ? 'Create Card' : 'Save Changes');
@@ -316,6 +336,7 @@ export class CardForm {
     const tagsRaw = this.tagsInput?.value.trim() || '';
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
     const agentType = this.selectedAgentType || 'ember';
+    const enrichAfterCreate = this.mode === 'create' ? (this.enrichCheckbox?.checked ?? true) : undefined;
     const data: CardFormData = {
       title: this.titleInput!.value.trim(),
       description: this.descInput?.value.trim() || '',
@@ -325,6 +346,7 @@ export class CardForm {
       priority: parseInt(this.prioritySelect?.value || '0', 10),
       dependencies: Array.from(this.selectedDependencies),
       tags,
+      enrichAfterCreate,
     };
     eventBus.emit(EVENTS.CARD_FORM_SUBMIT, {
       mode: this.mode, data, cardId: this.card?.id,

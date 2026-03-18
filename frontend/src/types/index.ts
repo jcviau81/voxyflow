@@ -117,6 +117,15 @@ export interface ChecklistProgress {
   completed: number;
 }
 
+export interface CardAttachment {
+  id: string;
+  cardId: string;
+  filename: string;
+  fileSize: number;
+  mimeType: string;
+  createdAt: number; // unix ms
+}
+
 export interface Card {
   id: string;
   title: string;

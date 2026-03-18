@@ -136,3 +136,14 @@ class ChecklistItemResponse(BaseModel):
 class ChecklistProgress(BaseModel):
     total: int
     completed: int
+
+
+class AttachmentResponse(BaseModel):
+    id: str
+    card_id: str
+    filename: str
+    file_size: int
+    mime_type: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

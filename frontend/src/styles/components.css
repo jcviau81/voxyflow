@@ -4918,3 +4918,248 @@
   background: rgba(78, 205, 196, 0.08);
   border-color: rgba(78, 205, 196, 0.25);
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Card Attachments
+   ───────────────────────────────────────────────────────────────── */
+
+.attachments-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.attachments-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.attachment-drop-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 16px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+  text-align: center;
+  user-select: none;
+}
+
+.attachment-drop-zone:hover {
+  border-color: rgba(171, 145, 249, 0.5);
+  background: rgba(171, 145, 249, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.attachment-drop-zone.dragover {
+  border-color: #ab91f9;
+  background: rgba(171, 145, 249, 0.12);
+  color: #ab91f9;
+}
+
+.attachment-file-input {
+  display: none;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  transition: background 0.15s;
+  flex-wrap: wrap;
+}
+
+.attachment-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.attachment-uploading {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.attachment-error {
+  color: #ff6b6b;
+  font-size: 13px;
+}
+
+.attachment-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.attachment-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.attachment-name {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.attachment-size {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.attachment-preview {
+  width: 100%;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+  flex-basis: 100%;
+  order: -1;
+  margin-bottom: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.attachment-download-btn {
+  font-size: 15px;
+  text-decoration: none;
+  opacity: 0.6;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+  padding: 2px 4px;
+}
+
+.attachment-download-btn:hover {
+  opacity: 1;
+}
+
+.attachment-delete-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.attachment-delete-btn:hover {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
+
+/* ─── AI Card Enrichment ─────────────────────────────────────────────────── */
+
+.enrich-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(135deg, rgba(171, 145, 249, 0.18), rgba(66, 165, 245, 0.12));
+  border: 1px solid rgba(171, 145, 249, 0.35);
+  color: #ab91f9;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.enrich-btn:hover {
+  background: linear-gradient(135deg, rgba(171, 145, 249, 0.28), rgba(66, 165, 245, 0.2));
+  border-color: rgba(171, 145, 249, 0.6);
+  transform: translateY(-1px);
+}
+
+.enrich-btn:active {
+  transform: translateY(0);
+}
+
+.enrich-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+  transform: none;
+}
+
+.enrich-btn.enrich-loading {
+  animation: enrich-pulse 1s ease-in-out infinite;
+}
+
+@keyframes enrich-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* Effort badge */
+.effort-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 12px;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.effort-badge--xs { background: rgba(102, 187, 106, 0.15); color: #66bb6a; border: 1px solid rgba(102, 187, 106, 0.3); }
+.effort-badge--s  { background: rgba(78, 205, 196, 0.15); color: #4ecdc4; border: 1px solid rgba(78, 205, 196, 0.3); }
+.effort-badge--m  { background: rgba(255, 183, 77, 0.15); color: #ffb74d; border: 1px solid rgba(255, 183, 77, 0.3); }
+.effort-badge--l  { background: rgba(255, 138, 101, 0.15); color: #ff8a65; border: 1px solid rgba(255, 138, 101, 0.3); }
+.effort-badge--xl { background: rgba(255, 107, 107, 0.15); color: #ff6b6b; border: 1px solid rgba(255, 107, 107, 0.3); }
+
+/* Enrich after create checkbox row */
+.enrich-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+
+.enrich-checkbox {
+  width: 15px;
+  height: 15px;
+  accent-color: #ab91f9;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.enrich-checkbox-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  user-select: none;
+}
+
+.enrich-checkbox-label:hover {
+  color: rgba(255, 255, 255, 0.9);
+}

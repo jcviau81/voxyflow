@@ -1,19 +1,34 @@
 """Card/Task endpoints — with agent assignment support."""
 
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+import mimetypes
+from pathlib import Path
+
+import json
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
+from fastapi.responses import FileResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, Card, Project, TimeEntry, CardComment, ChecklistItem, new_uuid, utcnow
+from app.database import get_db, Card, CardAttachment, Project, TimeEntry, CardComment, ChecklistItem, new_uuid, utcnow
 from app.models.card import (
     CardCreate, CardUpdate, CardResponse, AgentAssignment,
     TimeEntryCreate, TimeEntryResponse,
     CommentCreate, CommentResponse,
     ChecklistItemCreate, ChecklistItemUpdate, ChecklistItemResponse, ChecklistProgress,
+    AttachmentResponse,
 )
 from app.services.agent_router import get_agent_router
 from app.services.agent_personas import AgentType, get_persona, get_all_personas
+
+logger = logging.getLogger(__name__)
+
+MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024  # 50 MB
+
+ATTACHMENTS_BASE = Path.home() / ".voxyflow" / "attachments"
 
 router = APIRouter(tags=["cards"])
 
@@ -437,3 +452,232 @@ async def delete_checklist_item(
         raise HTTPException(404, "Checklist item not found")
     await db.delete(item)
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Attachment endpoints
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/cards/{card_id}/attachments",
+    response_model=AttachmentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a file attachment to a card",
+)
+async def upload_attachment(
+    card_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a file and attach it to a card. Max 50 MB, any type accepted."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    filename = file.filename or "attachment"
+
+    # Read and size-check
+    content = await file.read()
+    file_size = len(content)
+    if file_size > MAX_ATTACHMENT_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large ({file_size} bytes). Maximum allowed is {MAX_ATTACHMENT_SIZE} bytes (50 MB).",
+        )
+
+    # Determine MIME type
+    mime_type = file.content_type or "application/octet-stream"
+    if not mime_type or mime_type == "application/octet-stream":
+        guessed, _ = mimetypes.guess_type(filename)
+        mime_type = guessed or "application/octet-stream"
+
+    # Build storage path: ~/.voxyflow/attachments/{card_id}/{uuid}_{filename}
+    att_id = new_uuid()
+    safe_filename = Path(filename).name  # strip any directory components
+    storage_filename = f"{att_id}_{safe_filename}"
+    storage_dir = ATTACHMENTS_BASE / card_id
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    storage_path = storage_dir / storage_filename
+
+    storage_path.write_bytes(content)
+
+    attachment = CardAttachment(
+        id=att_id,
+        card_id=card_id,
+        filename=filename,
+        file_size=file_size,
+        mime_type=mime_type,
+        storage_path=str(storage_path),
+        created_at=utcnow(),
+    )
+    db.add(attachment)
+    await db.commit()
+    await db.refresh(attachment)
+
+    logger.info(f"upload_attachment: card_id={card_id!r} filename={filename!r} size={file_size}")
+    return AttachmentResponse.model_validate(attachment)
+
+
+@router.get(
+    "/cards/{card_id}/attachments",
+    response_model=list[AttachmentResponse],
+    summary="List attachments for a card",
+)
+async def list_attachments(
+    card_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """List all attachments for a card."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    stmt = (
+        select(CardAttachment)
+        .where(CardAttachment.card_id == card_id)
+        .order_by(CardAttachment.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    attachments = result.scalars().all()
+    return [AttachmentResponse.model_validate(a) for a in attachments]
+
+
+@router.get(
+    "/cards/{card_id}/attachments/{attachment_id}/download",
+    summary="Download a card attachment",
+)
+async def download_attachment(
+    card_id: str,
+    attachment_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download a card attachment file."""
+    stmt = select(CardAttachment).where(
+        CardAttachment.id == attachment_id,
+        CardAttachment.card_id == card_id,
+    )
+    result = await db.execute(stmt)
+    attachment = result.scalar_one_or_none()
+    if not attachment:
+        raise HTTPException(404, "Attachment not found")
+
+    storage_path = Path(attachment.storage_path)
+    if not storage_path.exists():
+        raise HTTPException(404, "Attachment file not found on disk")
+
+    return FileResponse(
+        path=str(storage_path),
+        media_type=attachment.mime_type,
+        filename=attachment.filename,
+    )
+
+
+@router.delete(
+    "/cards/{card_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a card attachment",
+)
+async def delete_attachment(
+    card_id: str,
+    attachment_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a card attachment (removes file and DB record)."""
+    stmt = select(CardAttachment).where(
+        CardAttachment.id == attachment_id,
+        CardAttachment.card_id == card_id,
+    )
+    result = await db.execute(stmt)
+    attachment = result.scalar_one_or_none()
+    if not attachment:
+        raise HTTPException(404, "Attachment not found")
+
+    # Remove file from disk (non-fatal if missing)
+    storage_path = Path(attachment.storage_path)
+    if storage_path.exists():
+        try:
+            storage_path.unlink()
+        except OSError as e:
+            logger.warning(f"delete_attachment: could not remove file {storage_path}: {e}")
+
+    await db.delete(attachment)
+    await db.commit()
+    logger.info(f"delete_attachment: deleted attachment_id={attachment_id!r} card_id={card_id!r}")
+
+
+# ---------------------------------------------------------------------------
+# AI Card Enrichment endpoint
+# ---------------------------------------------------------------------------
+
+class EnrichResponse(BaseModel):
+    description: str
+    checklist_items: list[str]
+    effort: str
+    tags: list[str]
+
+
+@router.post("/cards/{card_id}/enrich", response_model=EnrichResponse)
+async def enrich_card(
+    card_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    AI enrichment: given just a card title, generate a description,
+    checklist items, effort estimate, and tags using the fast model.
+    """
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    from app.services.claude_service import ClaudeService
+    claude = ClaudeService()
+
+    agent_type = card.agent_type or "ember"
+    title = card.title
+    existing_desc = (card.description or "").strip()
+
+    prompt = (
+        f"Given a task card titled '{title}' for a {agent_type} agent"
+        + (f" (existing context: {existing_desc})" if existing_desc else "")
+        + ", generate the following in valid JSON only (no markdown, no code block):\n"
+        '{\n'
+        '  "description": "2-3 sentence clear description of what this task involves",\n'
+        '  "checklist_items": ["step 1", "step 2", "step 3"],\n'
+        '  "effort": "XS|S|M|L|XL",\n'
+        '  "tags": ["tag1", "tag2"]\n'
+        '}\n'
+        "Rules:\n"
+        "- description: 2-3 sentences, actionable and specific\n"
+        "- checklist_items: 3-5 concrete sub-tasks\n"
+        "- effort: one of XS/S/M/L/XL based on complexity\n"
+        "- tags: 2-4 short relevant tags (lowercase, no spaces, use hyphens)\n"
+        "Respond ONLY with the JSON object."
+    )
+
+    try:
+        raw = await claude._call_api(
+            model=claude.fast_model,
+            system="You are a project assistant. Generate structured task enrichment data. Respond with valid JSON only.",
+            messages=[{"role": "user", "content": prompt}],
+            client=claude.fast_client,
+        )
+
+        # Strip markdown code fences if present
+        text = raw.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+
+        data = json.loads(text)
+
+        return EnrichResponse(
+            description=str(data.get("description", "")),
+            checklist_items=[str(i) for i in data.get("checklist_items", [])],
+            effort=str(data.get("effort", "M")),
+            tags=[str(t) for t in data.get("tags", [])],
+        )
+    except (json.JSONDecodeError, KeyError, Exception) as e:
+        logger.error(f"enrich_card: failed for card_id={card_id!r}: {e}")
+        raise HTTPException(500, f"Enrichment failed: {e}")

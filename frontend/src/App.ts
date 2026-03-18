@@ -466,7 +466,7 @@ export class App {
     const { mode, data, cardId, projectId, assignedAgent, agentType } = payload;
     const resolvedAgentType = agentType || data.agentType || undefined;
     if (mode === 'create') {
-      cardService.create({
+      const newCard = cardService.create({
         title: data.title, description: data.description, projectId,
         status: data.status as CardStatus, assignedAgent, tags: data.tags, priority: data.priority,
       });
@@ -476,6 +476,49 @@ export class App {
         // (the WebSocket create doesn't include agentType yet)
       }
       eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created: "${data.title}"`, type: 'success', duration: 3000 });
+
+      // AI Enrich after create (if checkbox was checked)
+      if (data.enrichAfterCreate && newCard?.id) {
+        const cardIdToEnrich = newCard.id;
+        // Small delay to let the card be persisted on the backend first
+        setTimeout(async () => {
+          try {
+            const result = await apiClient.enrichCard(cardIdToEnrich);
+            if (!result) return;
+
+            const updates: Record<string, unknown> = {};
+
+            // Description (only if card still has no description)
+            const currentCard = appState.getCard(cardIdToEnrich);
+            if (currentCard && !currentCard.description?.trim() && result.description) {
+              updates.description = result.description;
+              await apiClient.patchCard(cardIdToEnrich, { description: result.description });
+            }
+
+            // Tags
+            if (result.tags?.length > 0) {
+              const existing = currentCard?.tags || [];
+              const merged = [...new Set([...existing, ...result.tags])];
+              updates.tags = merged;
+              await apiClient.patchCard(cardIdToEnrich, { tags: merged });
+            }
+
+            // Apply state updates
+            if (Object.keys(updates).length > 0) {
+              appState.updateCard(cardIdToEnrich, updates as Partial<Card>);
+            }
+
+            // Checklist items
+            for (const text of result.checklist_items) {
+              await apiClient.addChecklistItem(cardIdToEnrich, text);
+            }
+
+            eventBus.emit(EVENTS.TOAST_SHOW, { message: `✨ Card enriched!`, type: 'success', duration: 3500 });
+          } catch (err) {
+            console.error('[App] enrichCard after create failed:', err);
+          }
+        }, 1200);
+      }
     } else if (mode === 'edit' && cardId) {
       cardService.update(cardId, {
         title: data.title, description: data.description, status: data.status as CardStatus,

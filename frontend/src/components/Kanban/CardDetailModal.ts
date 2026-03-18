@@ -1,4 +1,4 @@
-import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem } from '../../types';
+import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment } from '../../types';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -527,6 +527,240 @@ export class CardDetailModal {
     return section;
   }
 
+  private getAttachmentIcon(mimeType: string): string {
+    if (mimeType.startsWith('image/')) return '🖼️';
+    if (mimeType.includes('pdf')) return '📄';
+    if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) return '📊';
+    if (mimeType.includes('word') || mimeType.includes('document')) return '📝';
+    if (mimeType.includes('zip') || mimeType.includes('archive') || mimeType.includes('tar') || mimeType.includes('gzip')) return '🗜️';
+    if (mimeType.startsWith('video/')) return '🎬';
+    if (mimeType.startsWith('audio/')) return '🎵';
+    return '📄';
+  }
+
+  private formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  private buildAttachmentsSection(cardId: string): HTMLElement {
+    const section = createElement('div', { className: 'modal-section attachments-section' });
+
+    const headerEl = createElement('label', { className: 'modal-label attachments-header' }, '📎 Attachments');
+
+    // List container
+    const listEl = createElement('div', { className: 'attachment-list' });
+    listEl.textContent = 'Loading…';
+
+    let localAttachments: CardAttachment[] = [];
+
+    const updateHeader = () => {
+      headerEl.textContent = `📎 Attachments (${localAttachments.length})`;
+    };
+
+    const renderAttachment = (att: CardAttachment): HTMLElement => {
+      const item = createElement('div', { className: 'attachment-item' });
+
+      const icon = createElement('span', { className: 'attachment-icon' }, this.getAttachmentIcon(att.mimeType));
+
+      const info = createElement('div', { className: 'attachment-info' });
+      const nameEl = createElement('span', { className: 'attachment-name' }, att.filename);
+      const sizeEl = createElement('span', { className: 'attachment-size' }, this.formatFileSize(att.fileSize));
+      info.appendChild(nameEl);
+      info.appendChild(sizeEl);
+
+      // Image thumbnail preview
+      if (att.mimeType.startsWith('image/')) {
+        const preview = createElement('img', {
+          className: 'attachment-preview',
+          src: apiClient.getAttachmentDownloadUrl(cardId, att.id),
+          alt: att.filename,
+          title: att.filename,
+        }) as HTMLImageElement;
+        preview.onerror = () => { preview.style.display = 'none'; };
+        item.appendChild(preview);
+      }
+
+      const downloadBtn = createElement('a', {
+        className: 'attachment-download-btn',
+        href: apiClient.getAttachmentDownloadUrl(cardId, att.id),
+        download: att.filename,
+        title: `Download ${att.filename}`,
+      }, '⬇️') as HTMLAnchorElement;
+
+      const delBtn = createElement('button', {
+        className: 'attachment-delete-btn',
+        title: `Delete ${att.filename}`,
+      }, '×') as HTMLButtonElement;
+
+      delBtn.addEventListener('click', async () => {
+        if (!confirm(`Delete "${att.filename}"?`)) return;
+        const ok = await apiClient.deleteAttachment(cardId, att.id);
+        if (ok) {
+          item.remove();
+          localAttachments = localAttachments.filter((a) => a.id !== att.id);
+          updateHeader();
+          if (localAttachments.length === 0) {
+            listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No attachments yet.'));
+          }
+        }
+      });
+
+      item.appendChild(icon);
+      item.appendChild(info);
+      item.appendChild(downloadBtn);
+      item.appendChild(delBtn);
+      return item;
+    };
+
+    // Load attachments async
+    apiClient.fetchAttachments(cardId).then((attachments) => {
+      localAttachments = [...attachments];
+      listEl.innerHTML = '';
+      updateHeader();
+      if (attachments.length === 0) {
+        listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No attachments yet.'));
+      } else {
+        attachments.forEach((a) => listEl.appendChild(renderAttachment(a)));
+      }
+    });
+
+    // Drop zone
+    const dropZone = createElement('div', { className: 'attachment-drop-zone' });
+    dropZone.innerHTML = '<span>📎 Drop files here or <strong>click to upload</strong></span>';
+
+    const fileInput = createElement('input', {
+      type: 'file',
+      className: 'attachment-file-input',
+      multiple: 'true',
+    }) as HTMLInputElement;
+    fileInput.style.display = 'none';
+
+    const uploadFiles = async (files: FileList | File[]) => {
+      const fileArray = Array.from(files);
+      for (const file of fileArray) {
+        // Optimistic placeholder
+        const placeholder = createElement('div', { className: 'attachment-item attachment-uploading' });
+        placeholder.textContent = `⬆️ Uploading ${file.name}…`;
+        const emptyEl = listEl.querySelector('.empty-text');
+        if (emptyEl) emptyEl.remove();
+        listEl.insertBefore(placeholder, listEl.firstChild);
+
+        const saved = await apiClient.uploadAttachment(cardId, file);
+        placeholder.remove();
+
+        if (saved) {
+          localAttachments.unshift(saved);
+          const el = renderAttachment(saved);
+          listEl.insertBefore(el, listEl.firstChild);
+          updateHeader();
+        } else {
+          // Show error placeholder
+          const errEl = createElement('div', { className: 'attachment-item attachment-error' });
+          errEl.textContent = `❌ Failed to upload ${file.name}`;
+          listEl.insertBefore(errEl, listEl.firstChild);
+          setTimeout(() => errEl.remove(), 4000);
+        }
+      }
+    };
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files.length > 0) {
+        uploadFiles(fileInput.files);
+        fileInput.value = '';
+      }
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        uploadFiles(e.dataTransfer.files);
+      }
+    });
+
+    dropZone.appendChild(fileInput);
+
+    section.appendChild(headerEl);
+    section.appendChild(dropZone);
+    section.appendChild(listEl);
+    return section;
+  }
+
+  private async handleEnrich(cardId: string, descInput: HTMLTextAreaElement, checklistSection: HTMLElement): Promise<void> {
+    const enrichBtn = this.modal.querySelector('.enrich-btn') as HTMLButtonElement | null;
+    if (!enrichBtn) return;
+
+    enrichBtn.disabled = true;
+    enrichBtn.classList.add('enrich-loading');
+    enrichBtn.textContent = '⏳';
+
+    try {
+      const result = await apiClient.enrichCard(cardId);
+      if (!result) throw new Error('No result');
+
+      // Pre-fill description if empty
+      if (!descInput.value.trim() && result.description) {
+        descInput.value = result.description;
+        // Persist
+        if (this.card) cardService.update(this.card.id, { description: result.description });
+      }
+
+      // Add checklist items
+      for (const text of result.checklist_items) {
+        const saved = await apiClient.addChecklistItem(cardId, text);
+        if (saved) {
+          // Refresh checklist section by triggering a re-render
+          const newChecklist = this.buildChecklistSection(cardId);
+          checklistSection.replaceWith(newChecklist);
+          // reference updated — break here, re-render will handle the rest
+          break;
+        }
+      }
+      // Bulk-add remaining items (after section replaced, we can't reuse old ref — use direct API)
+      for (let i = 1; i < result.checklist_items.length; i++) {
+        await apiClient.addChecklistItem(cardId, result.checklist_items[i]);
+      }
+
+      // Show effort badge
+      const existingBadge = this.modal.querySelector('.effort-badge');
+      if (existingBadge) existingBadge.remove();
+      if (result.effort) {
+        const badge = createElement('span', { className: `effort-badge effort-badge--${result.effort.toLowerCase()}` }, `⚡ ${result.effort}`);
+        enrichBtn.insertAdjacentElement('afterend', badge);
+      }
+
+      // Add suggested tags
+      if (result.tags && result.tags.length > 0 && this.card) {
+        const existingTags = this.card.tags || [];
+        const newTags = result.tags.filter((t) => !existingTags.includes(t));
+        if (newTags.length > 0) {
+          const updatedTags = [...existingTags, ...newTags];
+          cardService.update(this.card.id, { tags: updatedTags });
+        }
+      }
+
+      // Toast
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: '✨ Card enriched!', type: 'success', duration: 3000 });
+    } catch (err) {
+      console.error('[CardDetailModal] enrichCard error:', err);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Enrichment failed', type: 'error', duration: 3000 });
+    } finally {
+      enrichBtn.disabled = false;
+      enrichBtn.classList.remove('enrich-loading');
+      enrichBtn.textContent = '✨ AI Enrich';
+    }
+  }
+
   private renderContent(): void {
     if (!this.card) return;
     this.modal.innerHTML = '';
@@ -543,10 +777,15 @@ export class CardDetailModal {
       }
     });
 
+    // AI Enrich button
+    const enrichBtn = createElement('button', { className: 'enrich-btn', title: 'AI-generate description, checklist, effort & tags' }, '✨ AI Enrich') as HTMLButtonElement;
+    enrichBtn.type = 'button';
+
     const closeBtn = createElement('button', { className: 'modal-close-btn' }, '✕');
     closeBtn.addEventListener('click', () => this.close());
 
     header.appendChild(titleInput);
+    header.appendChild(enrichBtn);
     header.appendChild(closeBtn);
 
     // Status buttons
@@ -762,11 +1001,20 @@ export class CardDetailModal {
     // Checklist
     const checklistSection = this.buildChecklistSection(this.card.id);
 
+    // Wire up enrich button now that descInput and checklistSection exist
+    const cardIdForEnrich = this.card.id;
+    enrichBtn.addEventListener('click', () => {
+      this.handleEnrich(cardIdForEnrich, descInput, checklistSection);
+    });
+
     // Time tracking
     const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
 
     // Comments section
     const commentsSection = this.buildCommentsSection(this.card.id);
+
+    // Attachments section
+    const attachmentsSection = this.buildAttachmentsSection(this.card.id);
 
     // Focus Mode button
     const focusSection = createElement('div', { className: 'modal-section modal-focus-section' });
@@ -803,6 +1051,7 @@ export class CardDetailModal {
     this.modal.appendChild(depsSection);
     this.modal.appendChild(tagsSection);
     this.modal.appendChild(checklistSection);
+    this.modal.appendChild(attachmentsSection);
     this.modal.appendChild(timeSection);
     this.modal.appendChild(commentsSection);
     this.modal.appendChild(focusSection);

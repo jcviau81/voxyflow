@@ -160,6 +160,7 @@ class Card(Base):
     time_entries = relationship("TimeEntry", back_populates="card", cascade="all, delete-orphan")
     comments = relationship("CardComment", back_populates="card", cascade="all, delete-orphan")
     checklist_items = relationship("ChecklistItem", back_populates="card", cascade="all, delete-orphan", order_by="ChecklistItem.position")
+    attachments = relationship("CardAttachment", back_populates="card", cascade="all, delete-orphan", order_by="CardAttachment.created_at")
 
 
 class CardComment(Base):
@@ -197,6 +198,20 @@ class ChecklistItem(Base):
     created_at = Column(DateTime, default=utcnow)
 
     card = relationship("Card", back_populates="checklist_items")
+
+
+class CardAttachment(Base):
+    __tablename__ = "card_attachments"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    card_id = Column(String, ForeignKey("cards.id", ondelete="CASCADE"), nullable=False)
+    filename = Column(String, nullable=False)
+    file_size = Column(Integer, nullable=False, default=0)
+    mime_type = Column(String, nullable=False, default="application/octet-stream")
+    storage_path = Column(String, nullable=False)
+    created_at = Column(DateTime, default=utcnow)
+
+    card = relationship("Card", back_populates="attachments")
 
 
 class Document(Base):

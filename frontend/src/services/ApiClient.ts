@@ -1,4 +1,4 @@
-import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry, CardComment, ChecklistItem } from '../types';
+import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment } from '../types';
 
 export interface SearchResult {
   message_id: string;
@@ -544,6 +544,76 @@ export class ApiClient {
     }
   }
 
+  async fetchAttachments(cardId: string): Promise<CardAttachment[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/attachments`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as Array<{
+        id: string; card_id: string; filename: string; file_size: number; mime_type: string; created_at: string;
+      }>;
+      return data.map((a) => ({
+        id: a.id,
+        cardId: a.card_id,
+        filename: a.filename,
+        fileSize: a.file_size,
+        mimeType: a.mime_type,
+        createdAt: new Date(a.created_at).getTime(),
+      }));
+    } catch (error) {
+      console.error('[ApiClient] fetchAttachments error:', error);
+      return [];
+    }
+  }
+
+  async uploadAttachment(cardId: string, file: File): Promise<CardAttachment | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/attachments`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({})) as { detail?: string };
+        throw new Error(err.detail || `HTTP ${response.status}`);
+      }
+      const a = await response.json() as {
+        id: string; card_id: string; filename: string; file_size: number; mime_type: string; created_at: string;
+      };
+      return {
+        id: a.id,
+        cardId: a.card_id,
+        filename: a.filename,
+        fileSize: a.file_size,
+        mimeType: a.mime_type,
+        createdAt: new Date(a.created_at).getTime(),
+      };
+    } catch (error) {
+      console.error('[ApiClient] uploadAttachment error:', error);
+      return null;
+    }
+  }
+
+  getAttachmentDownloadUrl(cardId: string, attachmentId: string): string {
+    const baseUrl = API_URL || '';
+    return `${baseUrl}/api/cards/${cardId}/attachments/${attachmentId}/download`;
+  }
+
+  async deleteAttachment(cardId: string, attachmentId: string): Promise<boolean> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/attachments/${attachmentId}`, {
+        method: 'DELETE',
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('[ApiClient] deleteAttachment error:', error);
+      return false;
+    }
+  }
+
   async searchMessages(query: string, projectId?: string, limit = 20): Promise<SearchResult[]> {
     try {
       const baseUrl = API_URL || '';
@@ -585,6 +655,25 @@ export class ApiClient {
       return await response.json();
     } catch (error) {
       console.error('[ApiClient] createProjectFromTemplate error:', error);
+      return null;
+    }
+  }
+
+  // --- AI Enrichment ---
+
+  async enrichCard(cardId: string): Promise<{
+    description: string;
+    checklist_items: string[];
+    effort: string;
+    tags: string[];
+  } | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/enrich`, { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('[ApiClient] enrichCard error:', error);
       return null;
     }
   }
