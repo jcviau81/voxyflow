@@ -771,10 +771,14 @@ export class ChatWindow {
 
         switch (action) {
           case 'chat':
+            // Init the session with a greeting
+            chatService.sendMessage("Hey! Let's chat.");
+            break;
           case 'chat-project':
+            chatService.sendMessage("Let's discuss this project. What's on your mind?");
+            break;
           case 'discuss':
-            // Just focus input
-            this.textInput?.focus();
+            chatService.sendMessage("Let's discuss this task.");
             break;
 
           case 'brainstorm':
