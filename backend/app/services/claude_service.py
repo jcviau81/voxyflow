@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.services.personality_service import get_personality_service
 from app.services.memory_service import get_memory_service
 from app.services.agent_personas import AgentType, get_persona_prompt
+from app.services.session_store import session_store
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +41,31 @@ class ClaudeService:
         self.personality = get_personality_service()
         self.memory = get_memory_service()
 
-        # In-memory conversation history (MVP — move to DB later)
+        # In-memory cache backed by disk persistence via session_store
         self._histories: dict[str, list[dict]] = {}
 
     def _get_history(self, chat_id: str) -> list[dict]:
         if chat_id not in self._histories:
-            self._histories[chat_id] = []
+            # Load from disk on first access
+            self._histories[chat_id] = session_store.get_history_for_claude(chat_id, limit=40)
         return self._histories[chat_id]
+
+    def _append_and_persist(self, chat_id: str, role: str, content: str,
+                            model: str | None = None, msg_type: str | None = None,
+                            session_id: str | None = None):
+        """Append to in-memory history and persist to disk."""
+        history = self._get_history(chat_id)
+        history.append({"role": role, "content": content})
+
+        # Persist to disk
+        msg = {"role": role, "content": content}
+        if model:
+            msg["model"] = model
+        if msg_type:
+            msg["type"] = msg_type
+        if session_id:
+            msg["session_id"] = session_id
+        session_store.save_message(chat_id, msg)
 
     async def chat_haiku(
         self,
@@ -55,8 +74,8 @@ class ClaudeService:
         project_name: Optional[str] = None,
     ) -> str:
         """Layer 1: Fast conversational response via Haiku, personality-infused."""
+        self._append_and_persist(chat_id, "user", user_message, model="haiku")
         history = self._get_history(chat_id)
-        history.append({"role": "user", "content": user_message})
 
         settings = get_settings()
         recent = history[-settings.haiku_context_messages:]
@@ -79,7 +98,7 @@ class ClaudeService:
             messages=recent,
         )
 
-        history.append({"role": "assistant", "content": response_text})
+        self._append_and_persist(chat_id, "assistant", response_text, model="haiku")
         return response_text
 
     async def chat_haiku_stream(
@@ -92,8 +111,8 @@ class ClaudeService:
         card_context: Optional[dict] = None,
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from Haiku."""
+        self._append_and_persist(chat_id, "user", user_message, model="haiku")
         history = self._get_history(chat_id)
-        history.append({"role": "user", "content": user_message})
 
         settings = get_settings()
         recent = history[-settings.haiku_context_messages:]
@@ -120,12 +139,13 @@ class ClaudeService:
             full_response += token
             yield token
 
-        history.append({"role": "assistant", "content": full_response})
+        self._append_and_persist(chat_id, "assistant", full_response, model="haiku")
 
     async def chat_opus_supervisor(
         self,
         chat_id: str,
         user_message: str,
+        haiku_response: str = "",
         project_name: Optional[str] = None,
         chat_level: str = "general",
         project_context: Optional[dict] = None,
@@ -134,7 +154,7 @@ class ClaudeService:
         """
         Layer 2: Opus supervisor — decides whether to enrich or correct Haiku's response.
 
-        Runs in parallel with Haiku. Analyzes the full conversation context and returns:
+        Waits for Haiku to finish, then evaluates its response. Returns:
         { "action": "enrich"|"correct"|"none", "content": "..." }
         """
         history = self._get_history(chat_id)
@@ -149,18 +169,23 @@ class ClaudeService:
             include_daily=True,
         )
 
-        # Supervisor-specific system prompt
+        # Supervisor-specific system prompt — conservative by design
         supervisor_base = (
             "You are the deep-thinking supervisor layer of Voxyflow.\n"
-            "A fast layer (Haiku) is responding to the user simultaneously.\n"
-            "Your job: analyze the conversation and decide if a follow-up is needed.\n\n"
+            "The user sent a message, and a fast AI (Haiku) already responded.\n"
+            "You can see Haiku's full response below.\n"
+            "Your job: decide if the fast response needs improvement.\n\n"
             "Decide one of:\n"
-            '- "enrich": Add valuable context, deeper insight, or important nuance\n'
-            '- "correct": Fix a factual error or significant oversight the fast layer likely made\n'
-            '- "none": The fast response was probably fine, no need to add anything\n\n'
-            "IMPORTANT: Bias toward 'none'. Only enrich/correct when it genuinely adds value.\n"
-            "Simple greetings, acknowledgments, small talk → always 'none'.\n"
-            "Complex questions, technical topics, nuanced advice → consider enriching.\n\n"
+            '- "enrich": Add valuable context, deeper insight, or important nuance Haiku missed\n'
+            '- "correct": Fix a factual error or significant oversight in Haiku\'s response\n'
+            '- "none": Haiku\'s response was fine, no need to add anything\n\n'
+            "BIAS STRONGLY TOWARD 'none'.\n"
+            "- If the conversation is casual → \"none\"\n"
+            "- If the question is simple → \"none\"\n"
+            "- If Haiku answered reasonably → \"none\"\n"
+            "- Simple greetings, acknowledgments, small talk → ALWAYS \"none\"\n"
+            "- Only speak up if you have genuinely valuable insight Haiku missed\n"
+            "- Think: \"Would a thoughtful person interrupt to add this?\" If no → \"none\"\n\n"
             "If action is 'enrich' or 'correct', write a natural follow-up message.\n"
             "Make it sound like the same person thinking deeper:\n"
             '- "Actually, now that I think about it..."\n'
@@ -177,11 +202,21 @@ class ClaudeService:
             include_memory_context=memory_context,
         )
 
+        # Build messages: conversation history + user message + Haiku's response for evaluation
+        eval_messages = [*recent, {"role": "user", "content": user_message}]
+        if haiku_response:
+            eval_messages.append(
+                {"role": "assistant", "content": f"[Haiku's response]: {haiku_response}"}
+            )
+            eval_messages.append(
+                {"role": "user", "content": "Evaluate Haiku's response above. Should you enrich, correct, or stay silent?"}
+            )
+
         try:
             response_text = await self._call_api(
                 model=self.opus_model,
                 system=system_prompt,
-                messages=[*recent, {"role": "user", "content": user_message}],
+                messages=eval_messages,
             )
 
             # Parse JSON response
@@ -244,8 +279,8 @@ class ClaudeService:
         Used when a card is assigned to a specific agent type.
         The agent gets: personality + persona + task context + memory.
         """
+        self._append_and_persist(chat_id, "user", user_message, model="opus")
         history = self._get_history(chat_id)
-        history.append({"role": "user", "content": user_message})
 
         settings = get_settings()
         recent = history[-settings.opus_context_messages:]
@@ -274,7 +309,7 @@ class ClaudeService:
             messages=recent,
         )
 
-        history.append({"role": "assistant", "content": response_text})
+        self._append_and_persist(chat_id, "assistant", response_text, model="opus")
         return response_text
 
     async def analyze_for_cards(

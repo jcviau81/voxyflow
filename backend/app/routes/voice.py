@@ -139,14 +139,19 @@ async def _handle_transcript(
         await websocket.send_json(WSError(message=f"LLM error: {e}").model_dump())
         return
 
-    # --- Layer 2 + 3: Opus enrichment + Analyzer (background, non-blocking) ---
+    # --- Layer 2 + 3: Opus supervisor + Analyzer (background, non-blocking) ---
+    # Opus now receives Haiku's response so it can evaluate before enriching
     async def _background_enrichment():
         try:
-            opus_response = await claude.chat_opus(chat_id=chat_id, user_message=user_text)
-            if opus_response and opus_response != haiku_response:
+            opus_result = await claude.chat_opus_supervisor(
+                chat_id=chat_id,
+                user_message=user_text,
+                haiku_response=haiku_response,
+            )
+            if opus_result.get("action") in ("enrich", "correct") and opus_result.get("content"):
                 await websocket.send_json(
                     WSAssistantText(
-                        text=opus_response,
+                        text=opus_result["content"],
                         model="opus",
                         is_enrichment=True,
                     ).model_dump()
@@ -154,7 +159,7 @@ async def _handle_transcript(
 
                 # TTS for enrichment
                 try:
-                    audio_b64 = await tts.synthesize(opus_response)
+                    audio_b64 = await tts.synthesize(opus_result["content"])
                     if audio_b64:
                         await websocket.send_json(
                             WSAssistantAudio(data=audio_b64).model_dump()
@@ -162,7 +167,7 @@ async def _handle_transcript(
                 except Exception:
                     pass
         except Exception as e:
-            logger.warning(f"Opus enrichment failed: {e}")
+            logger.warning(f"Opus supervisor failed: {e}")
 
     async def _background_analysis():
         try:

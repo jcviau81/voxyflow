@@ -43,6 +43,14 @@ class AnalyzerService:
         self._min_confidence = 0.5
         self._router = get_agent_router()
 
+    # Casual/throwaway messages that should never generate cards
+    SKIP_MESSAGES = frozenset([
+        'hi', 'hello', 'hey', 'salut', 'allo', 'bonjour', 'bonsoir',
+        'ping', 'test', 'ok', 'oui', 'non', 'yes', 'no', 'thanks',
+        'merci', 'bye', 'ciao', 'yo', 'sup', 'lol', 'haha', 'hmm',
+        'cool', 'nice', 'wow', 'k', 'kk', 'np', 'thx', 'ty',
+    ])
+
     async def analyze(
         self,
         chat_id: str,
@@ -53,7 +61,13 @@ class AnalyzerService:
         Analyze a message for actionable content.
 
         Returns a CardSuggestion with agent_type if an action item is detected.
+        Skips casual/short messages that aren't actionable.
         """
+        # Step 0: Skip casual/short messages
+        stripped = message.strip()
+        if len(stripped) < 15 or stripped.lower().rstrip('!?.') in self.SKIP_MESSAGES:
+            return None
+
         # Step 1: Quick keyword check (cheap, fast)
         confidence = self._keyword_score(message)
         if confidence < self._min_confidence:
