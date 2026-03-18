@@ -28,9 +28,21 @@ test.describe('Voxyflow E2E', () => {
   });
 
   test('Kanban board renders columns', async ({ page }) => {
-    // Navigate to kanban view
-    await page.locator('[data-view="kanban"]').click();
-    await page.waitForSelector('[data-testid="kanban-column"]', { timeout: 5000 });
+    // Kanban requires project context — create a project via UI
+    const newProjectBtn = page.locator('[data-testid="sidebar-new-project"]');
+    await expect(newProjectBtn).toBeVisible({ timeout: 5000 });
+    await newProjectBtn.click();
+
+    // Fill project form
+    const nameInput = page.locator('[data-testid="project-name-input"]');
+    await expect(nameInput).toBeVisible({ timeout: 5000 });
+    await nameInput.fill('Kanban Test Project');
+
+    // Submit — app auto-switches to kanban view after project creation
+    const submitBtn = page.locator('[data-testid="project-form-submit"]');
+    await submitBtn.click();
+
+    await page.waitForSelector('[data-testid="kanban-column"]', { timeout: 10000 });
 
     const columns = page.locator('[data-testid="kanban-column"]');
     const count = await columns.count();
@@ -39,16 +51,20 @@ test.describe('Voxyflow E2E', () => {
     expect(count).toBe(4);
   });
 
-  test('Project list is accessible', async ({ page }) => {
-    // Navigate to projects view
-    await page.locator('[data-view="projects"]').click();
-    const projectList = page.locator('[data-testid="project-list"]');
-    await expect(projectList).toBeVisible();
+  test('Project list is accessible via sidebar', async ({ page }) => {
+    // Projects are now shown directly in the sidebar
+    const sidebar = page.locator('[data-testid="sidebar"]');
+    await expect(sidebar).toBeVisible();
+
+    // The sidebar should have a projects section
+    const projectSection = page.locator('.sidebar-projects');
+    await expect(projectSection).toBeVisible({ timeout: 5000 });
   });
 
-  test('Navigation breadcrumbs exist', async ({ page }) => {
-    const breadcrumbs = page.locator('[data-testid="breadcrumbs"]');
-    await expect(breadcrumbs).toBeVisible();
+  test('Context indicator exists', async ({ page }) => {
+    // Breadcrumbs were replaced by context indicator
+    const contextIndicator = page.locator('[data-testid="context-indicator"]');
+    await expect(contextIndicator).toBeVisible();
   });
 
   test('Dark theme CSS variables loaded', async ({ page }) => {

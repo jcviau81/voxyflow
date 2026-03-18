@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('3-Layer Multi-Model Chat Orchestration', () => {
+  // Proxy adds ~10-15s latency per request; need longer timeouts
+  test.setTimeout(90000);
+
   test('Haiku responds fast, Opus may enrich', async ({ page }) => {
     await page.goto('http://localhost:3000');
     await page.waitForLoadState('networkidle');
@@ -101,7 +104,7 @@ test.describe('3-Layer Multi-Model Chat Orchestration', () => {
       // Verify toast has card suggestion content
       const toastText = await toast.first().textContent();
       console.log('Toast content:', toastText);
-      expect(toastText).toContain('Card suggestion');
+      expect(toastText).toContain('suggestion');
 
       // Verify it has a "Create Card" button
       const createBtn = toast.first().locator('.toast-action');

@@ -1,14 +1,35 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Card Form', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.app-container', { timeout: 10000 });
-  });
+/**
+ * Helper: create a project via the frontend UI and wait for kanban view.
+ * Kanban is only available in project mode — this ensures we're there.
+ */
+async function createProjectAndOpenKanban(page: import('@playwright/test').Page) {
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
 
+  // Click "New Project" in sidebar
+  const newProjectBtn = page.locator('[data-testid="sidebar-new-project"]');
+  await expect(newProjectBtn).toBeVisible({ timeout: 5000 });
+  await newProjectBtn.click();
+
+  // Fill project form
+  const nameInput = page.locator('[data-testid="project-name-input"]');
+  await expect(nameInput).toBeVisible({ timeout: 5000 });
+  await nameInput.fill('Card Form Test');
+
+  // Submit
+  const submitBtn = page.locator('[data-testid="project-form-submit"]');
+  await submitBtn.click();
+
+  // After project creation, app auto-switches to kanban view
+  await page.waitForSelector('[data-testid="kanban-board"]', { timeout: 10000 });
+}
+
+test.describe('Card Form', () => {
   test('Card form appears when clicking New Card button', async ({ page }) => {
-    await page.keyboard.press('Control+2');
-    await page.waitForSelector('[data-testid="kanban-board"]', { timeout: 5000 });
+    await createProjectAndOpenKanban(page);
+
     const addCardBtn = page.locator('.kanban-add-btn');
     await expect(addCardBtn).toBeVisible({ timeout: 5000 });
     await addCardBtn.click();
@@ -24,8 +45,8 @@ test.describe('Card Form', () => {
   });
 
   test('Card form validates required title', async ({ page }) => {
-    await page.keyboard.press('Control+2');
-    await page.waitForSelector('[data-testid="kanban-board"]', { timeout: 5000 });
+    await createProjectAndOpenKanban(page);
+
     const addCardBtn = page.locator('.kanban-add-btn');
     if (await addCardBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await addCardBtn.click();
@@ -36,8 +57,8 @@ test.describe('Card Form', () => {
   });
 
   test('Card form cancel returns to kanban', async ({ page }) => {
-    await page.keyboard.press('Control+2');
-    await page.waitForSelector('[data-testid="kanban-board"]', { timeout: 5000 });
+    await createProjectAndOpenKanban(page);
+
     const addCardBtn = page.locator('.kanban-add-btn');
     if (await addCardBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await addCardBtn.click();
@@ -47,8 +68,8 @@ test.describe('Card Form', () => {
   });
 
   test('Card form has all 7 agent options', async ({ page }) => {
-    await page.keyboard.press('Control+2');
-    await page.waitForSelector('[data-testid="kanban-board"]', { timeout: 5000 });
+    await createProjectAndOpenKanban(page);
+
     const addCardBtn = page.locator('.kanban-add-btn');
     if (await addCardBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await addCardBtn.click();
@@ -63,8 +84,8 @@ test.describe('Card Form', () => {
   });
 
   test('Card form status pills are clickable', async ({ page }) => {
-    await page.keyboard.press('Control+2');
-    await page.waitForSelector('[data-testid="kanban-board"]', { timeout: 5000 });
+    await createProjectAndOpenKanban(page);
+
     const addCardBtn = page.locator('.kanban-add-btn');
     if (await addCardBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await addCardBtn.click();

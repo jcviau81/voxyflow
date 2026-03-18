@@ -32,8 +32,11 @@ test.describe('Tech Stack Detection', () => {
     }
 
     // File counts should have common extensions
-    expect(data.file_counts).toHaveProperty('.ts');
-    expect(data.file_counts).toHaveProperty('.py');
+    // toHaveProperty('.ts') treats the dot as a path separator — use bracket access
+    expect(data.file_counts['.ts']).toBeDefined();
+    expect(data.file_counts['.ts']).toBeGreaterThan(0);
+    expect(data.file_counts['.py']).toBeDefined();
+    expect(data.file_counts['.py']).toBeGreaterThan(0);
   });
 
   test('API: returns error for non-existent path', async ({ request }) => {
