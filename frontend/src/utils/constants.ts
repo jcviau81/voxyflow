@@ -121,6 +121,12 @@ export const EVENTS = {
   OPPORTUNITIES_COUNT: 'opportunities:count',
   OPPORTUNITIES_TOGGLE: 'opportunities:toggle',
 
+  // Ideas
+  IDEA_SUGGESTION: 'ideas:suggestion',
+  IDEA_ADDED: 'ideas:added',
+  IDEA_DELETED: 'ideas:deleted',
+  IDEA_PROMOTE: 'ideas:promote',
+
   // Settings
   SETTINGS_OPEN: 'settings:open',
   SETTINGS_CLOSE: 'settings:close',

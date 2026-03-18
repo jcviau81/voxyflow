@@ -1,0 +1,1 @@
+export { IdeaBoard } from './IdeaBoard';

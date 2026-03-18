@@ -272,9 +272,16 @@ body {
 
 /* ============= CONTEXT-AWARE LAYOUT MODES ============= */
 
-/* General mode: 2-column (sidebar + chat) — no opportunities, no kanban toggle */
+/* General mode: 3-column (sidebar + chat + idea board) */
 .app-layout.general-mode .opportunities-container {
   display: none;
+}
+
+.app-layout.general-mode .idea-board-container {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  opacity: 1;
 }
 
 .app-layout.general-mode .view-toggle {
@@ -287,6 +294,10 @@ body {
   flex-direction: column;
 }
 
+.app-layout.project-mode .idea-board-container {
+  display: none;
+}
+
 .app-layout.project-mode .view-toggle {
   display: flex;
 }
@@ -296,7 +307,8 @@ body {
   transition: all 0.3s ease;
 }
 
-.opportunities-container {
+.opportunities-container,
+.idea-board-container {
   transition: opacity 0.3s ease, width 0.3s ease;
 }
 
@@ -311,6 +323,14 @@ body {
 .app-layout.project-mode .opportunities-container {
   opacity: 1;
   width: 280px;
+}
+
+.app-layout.project-mode .idea-board-container {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  border-left: none;
+  pointer-events: none;
 }
 
 /* View Toggle (Chat/Kanban) — only visible in project mode */

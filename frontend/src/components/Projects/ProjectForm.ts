@@ -33,9 +33,12 @@ export class ProjectForm {
   private localPathInput: HTMLInputElement | null = null;
   private techStackComponent: TechStack | null = null;
 
+  private prefillTitle: string | undefined;
+
   constructor(private parentElement: HTMLElement, event: ProjectFormShowEvent) {
     this.mode = event.mode;
     this.project = event.project || null;
+    this.prefillTitle = event.prefillTitle;
 
     if (this.project) {
       this.selectedEmoji = this.project.emoji || DEFAULT_EMOJI;
@@ -117,6 +120,8 @@ export class ProjectForm {
 
     if (this.project) {
       this.nameInput.value = this.project.name;
+    } else if (this.prefillTitle) {
+      this.nameInput.value = this.prefillTitle;
     }
 
     // Live validation

@@ -1,4 +1,4 @@
-import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab } from '../types';
+import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab, Idea } from '../types';
 import { eventBus } from '../utils/EventBus';
 import { EVENTS } from '../utils/constants';
 import { generateId, deepClone } from '../utils/helpers';
@@ -29,6 +29,7 @@ const defaultState: AppStateData = {
   theme: 'dark',
   activeTab: 'main',
   openTabs: [{ ...DEFAULT_MAIN_TAB }],
+  ideas: [],
 };
 
 class AppState {
@@ -388,6 +389,31 @@ class AppState {
 
   getActiveTab(): string {
     return this.state.activeTab;
+  }
+
+  // --- Ideas ---
+
+  addIdea(content: string, source: 'manual' | 'analyzer' = 'manual'): Idea {
+    const idea: Idea = {
+      id: generateId(),
+      content,
+      createdAt: Date.now(),
+      source,
+    };
+    const ideas = [...this.state.ideas, idea];
+    this.set('ideas', ideas);
+    eventBus.emit(EVENTS.IDEA_ADDED, idea);
+    return idea;
+  }
+
+  deleteIdea(id: string): void {
+    const ideas = this.state.ideas.filter(i => i.id !== id);
+    this.set('ideas', ideas);
+    eventBus.emit(EVENTS.IDEA_DELETED, id);
+  }
+
+  getIdeas(): Idea[] {
+    return this.state.ideas;
   }
 
   // --- Reset ---

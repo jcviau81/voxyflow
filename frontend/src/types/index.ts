@@ -107,6 +107,7 @@ export interface AppStateData {
   theme: 'dark' | 'light';
   activeTab: string;
   openTabs: Tab[];
+  ideas: Idea[];
 }
 
 export interface WebSocketMessage {
@@ -186,6 +187,7 @@ export interface ProjectFormData {
 export interface ProjectFormShowEvent {
   mode: 'create' | 'edit';
   project?: Project;
+  prefillTitle?: string;
 }
 
 export interface CardSuggestion {
@@ -196,4 +198,11 @@ export interface CardSuggestion {
   agentName?: string;
   agentEmoji?: string;
   timestamp: number;
+}
+
+export interface Idea {
+  id: string;
+  content: string;
+  createdAt: number;
+  source: 'manual' | 'analyzer';
 }

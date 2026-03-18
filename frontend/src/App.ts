@@ -17,6 +17,7 @@ import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
 import { Toast } from './components/Shared/Toast';
 import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPanel';
+import { IdeaBoard } from './components/Ideas/IdeaBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
 
 export class App {
@@ -28,6 +29,7 @@ export class App {
   private toast: Toast | null = null;
   private cardModal: CardDetailModal | null = null;
   private opportunitiesPanel: OpportunitiesPanel | null = null;
+  private ideaBoard: IdeaBoard | null = null;
   private currentView: { component: { destroy(): void } | null; view: ViewMode | null } = {
     component: null,
     view: null,
@@ -70,13 +72,18 @@ export class App {
     mainArea.appendChild(topBarContainer);
     mainArea.appendChild(this.mainContent);
 
-    // Opportunities panel (right sidebar)
+    // Opportunities panel (right sidebar - project mode)
     const opportunitiesContainer = createElement('aside', { className: 'opportunities-container' });
     this.opportunitiesPanel = new OpportunitiesPanel(opportunitiesContainer);
+
+    // Idea board (right sidebar - general mode)
+    const ideaBoardContainer = createElement('aside', { className: 'idea-board-container' });
+    this.ideaBoard = new IdeaBoard(ideaBoardContainer);
 
     layout.appendChild(sidebarContainer);
     layout.appendChild(mainArea);
     layout.appendChild(opportunitiesContainer);
+    layout.appendChild(ideaBoardContainer);
 
     // Set initial layout mode based on active tab
     this.updateLayoutMode(layout);
@@ -408,6 +415,7 @@ export class App {
     this.toast?.destroy();
     this.cardModal?.destroy();
     this.opportunitiesPanel?.destroy();
+    this.ideaBoard?.destroy();
     this.currentView.component?.destroy();
     this.projectForm?.destroy();
     this.cardForm?.destroy();
