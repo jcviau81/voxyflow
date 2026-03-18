@@ -59,14 +59,16 @@ export class SessionTabBar {
         'data-session-id': session.id,
       });
       closeBtn.textContent = '×';
-      if (sessions.length <= 1) {
-        closeBtn.setAttribute('disabled', 'true');
-        closeBtn.setAttribute('aria-disabled', 'true');
-      }
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (sessions.length > 1) {
           this.handleClose(session.id);
+        } else {
+          // Last session: reset it (clear history, create fresh session)
+          appState.closeSession(this.tabId, session.id);
+          appState.createSession(this.tabId);
+          this.render();
+          eventBus.emit(EVENTS.SESSION_TAB_SWITCH);
         }
       });
       tab.appendChild(closeBtn);
