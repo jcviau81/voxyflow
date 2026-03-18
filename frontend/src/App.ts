@@ -21,6 +21,7 @@ import { CommandPalette } from './components/Shared/CommandPalette';
 import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPanel';
 import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
+import { FocusMode } from './components/FocusMode/FocusMode';
 
 export class App {
   private root: HTMLElement;
@@ -543,6 +544,31 @@ export class App {
         // Kanban only available in project mode
         if (appState.getActiveTab() !== 'main') {
           appState.setView('kanban');
+        }
+      } else if (e.ctrlKey && e.key === 'f') {
+        // Don't intercept when user is typing in an input or textarea
+        const target = e.target as HTMLElement;
+        const inInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+        if (!inInput) {
+          // Only activate if a card is selected and we're in kanban
+          const selectedCardId = appState.get('selectedCardId');
+          if (selectedCardId) {
+            e.preventDefault();
+            const card = appState.getCard(selectedCardId);
+            if (card) {
+              // Close any open modals first
+              eventBus.emit(EVENTS.MODAL_CLOSE, null);
+              setTimeout(() => {
+                const focusMode = new FocusMode(this.root, {
+                  card,
+                  onExit: () => {
+                    eventBus.emit(EVENTS.FOCUS_MODE_EXIT, null);
+                  },
+                });
+                eventBus.emit(EVENTS.FOCUS_MODE_ENTER, selectedCardId);
+              }, 100);
+            }
+          }
         }
       }
     });

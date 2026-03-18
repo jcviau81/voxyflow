@@ -31,6 +31,7 @@ export class KanbanBoard {
   private columns: Map<string, KanbanColumn> = new Map();
   private activityFeed: ActivityFeed | null = null;
   private unsubscribers: (() => void)[] = [];
+  private depGraphOverlay: HTMLElement | null = null;
 
   // Filter state (ephemeral — not in AppState)
   private searchQuery: string = '';
@@ -112,11 +113,16 @@ export class KanbanBoard {
     });
     importBtn.addEventListener('click', () => importInput.click());
 
+    // Dependency graph button
+    const depGraphBtn = createElement('button', { className: 'kanban-action-btn', title: 'View dependency map' }, '🔗 Dependencies');
+    depGraphBtn.addEventListener('click', () => this.showDepGraph());
+
     header.appendChild(title);
     header.appendChild(searchBar);
     header.appendChild(exportBtn);
     header.appendChild(importBtn);
     header.appendChild(importInput);
+    header.appendChild(depGraphBtn);
     header.appendChild(addBtn);
     this.container.appendChild(header);
 
@@ -334,6 +340,106 @@ export class KanbanBoard {
     eventBus.emit(EVENTS.PROJECT_CREATED, { id: result.project_id });
   }
 
+  private showDepGraph(): void {
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Select a project first', type: 'warning' });
+      return;
+    }
+
+    // Remove existing overlay if any
+    if (this.depGraphOverlay) {
+      this.depGraphOverlay.remove();
+      this.depGraphOverlay = null;
+    }
+
+    const allCards = appState.getCardsByProject(projectId);
+    const cardMap = new Map(allCards.map((c) => [c.id, c]));
+
+    // Cards with dependencies
+    const blockedCards = allCards.filter((c) =>
+      c.dependencies.length > 0 && c.dependencies.some((d) => {
+        const dep = cardMap.get(d);
+        return dep && dep.status !== 'done';
+      })
+    );
+
+    const readyCards = allCards.filter((c) => {
+      if (c.status === 'done') return false;
+      if (c.dependencies.length === 0) return true;
+      return c.dependencies.every((d) => {
+        const dep = cardMap.get(d);
+        return dep && dep.status === 'done';
+      });
+    });
+
+    const overlay = createElement('div', { className: 'dependency-graph' });
+
+    const panel = createElement('div', { className: 'dependency-graph-panel' });
+
+    const graphHeader = createElement('div', { className: 'dependency-graph-header' });
+    const graphTitle = createElement('h3', { className: 'dependency-graph-title' }, '🔗 Dependency Map');
+    const closeBtn = createElement('button', { className: 'dependency-graph-close' }, '✕');
+    closeBtn.addEventListener('click', () => {
+      overlay.remove();
+      this.depGraphOverlay = null;
+    });
+    graphHeader.appendChild(graphTitle);
+    graphHeader.appendChild(closeBtn);
+    panel.appendChild(graphHeader);
+
+    // Blocked section
+    const blockedSection = createElement('div', { className: 'dep-graph-section' });
+    blockedSection.appendChild(createElement('h4', { className: 'dep-graph-section-title blocked' }, `🚫 Cards with blocked dependencies (${blockedCards.length})`));
+    if (blockedCards.length === 0) {
+      blockedSection.appendChild(createElement('p', { className: 'dep-graph-empty' }, 'No blocked cards — great!'));
+    } else {
+      blockedCards.forEach((card) => {
+        const item = createElement('div', { className: 'dep-graph-item' });
+        const cardTitle = createElement('span', { className: 'dep-graph-card-title' }, `📋 ${card.title}`);
+        item.appendChild(cardTitle);
+        const blockersList = createElement('ul', { className: 'dep-graph-blockers' });
+        card.dependencies.forEach((depId) => {
+          const dep = cardMap.get(depId);
+          if (!dep || dep.status === 'done') return;
+          const li = createElement('li', { className: 'dep-graph-blocker' }, `⏳ ${dep.title}`);
+          blockersList.appendChild(li);
+        });
+        item.appendChild(blockersList);
+        blockedSection.appendChild(item);
+      });
+    }
+    panel.appendChild(blockedSection);
+
+    // Ready section
+    const readySection = createElement('div', { className: 'dep-graph-section' });
+    readySection.appendChild(createElement('h4', { className: 'dep-graph-section-title ready' }, `✅ Ready to work on (${readyCards.length})`));
+    if (readyCards.length === 0) {
+      readySection.appendChild(createElement('p', { className: 'dep-graph-empty' }, 'No ready cards.'));
+    } else {
+      readyCards.forEach((card) => {
+        const item = createElement('div', { className: 'dep-graph-item ready' });
+        const noDeps = card.dependencies.length === 0 ? ' (no deps)' : ' (all deps done)';
+        item.appendChild(createElement('span', {}, `📋 ${card.title}${noDeps}`));
+        readySection.appendChild(item);
+      });
+    }
+    panel.appendChild(readySection);
+
+    overlay.appendChild(panel);
+
+    // Close on backdrop click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+        this.depGraphOverlay = null;
+      }
+    });
+
+    this.depGraphOverlay = overlay;
+    this.container.appendChild(overlay);
+  }
+
   moveCard(cardId: string, newStatus: CardStatus): void {
     cardService.move(cardId, newStatus);
   }
@@ -349,6 +455,8 @@ export class KanbanBoard {
     this.columns.clear();
     this.activityFeed?.destroy();
     this.activityFeed = null;
+    this.depGraphOverlay?.remove();
+    this.depGraphOverlay = null;
     this.container.remove();
   }
 }

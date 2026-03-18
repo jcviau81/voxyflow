@@ -82,12 +82,34 @@ export class KanbanCard {
 
     // Dependencies indicator
     if (this.card.dependencies.length > 0) {
-      const deps = createElement(
+      const depCards = this.card.dependencies
+        .map((id) => appState.getCard(id))
+        .filter(Boolean);
+
+      const isBlocked = depCards.some((dep) => dep && dep.status !== 'done');
+
+      const tooltipLines = depCards.map((dep) =>
+        dep ? `${dep.status === 'done' ? '✅' : '⏳'} ${dep.title}` : '(unknown card)'
+      );
+      const tooltipText = tooltipLines.join('\n');
+
+      const depBadge = createElement(
         'span',
-        { className: 'kanban-card-deps' },
+        {
+          className: 'card-dependency-badge',
+          title: tooltipText,
+        },
         `🔗 ${this.card.dependencies.length}`
       );
-      footer.appendChild(deps);
+      footer.appendChild(depBadge);
+
+      if (isBlocked) {
+        this.element.classList.add('card-blocked');
+      } else {
+        this.element.classList.remove('card-blocked');
+      }
+    } else {
+      this.element.classList.remove('card-blocked');
     }
 
     this.element.appendChild(title);

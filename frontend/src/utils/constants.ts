@@ -179,4 +179,8 @@ export const EVENTS = {
 
   // Activity Feed
   ACTIVITY_ADDED: 'activity:added',
+
+  // Focus Mode
+  FOCUS_MODE_ENTER: 'focus:enter',
+  FOCUS_MODE_EXIT: 'focus:exit',
 } as const;

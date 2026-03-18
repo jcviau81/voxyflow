@@ -4,6 +4,7 @@ import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_I
 import { createElement, formatTime } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { cardService } from '../../services/CardService';
+import { FocusMode } from '../FocusMode/FocusMode';
 
 export class CardDetailModal {
   private overlay: HTMLElement;
@@ -162,34 +163,76 @@ export class CardDetailModal {
     agentSection.appendChild(agentLabel);
     agentSection.appendChild(agentSelector);
 
-    // Dependencies
+    // Dependencies — multi-select with chips
     const depsSection = createElement('div', { className: 'modal-section' });
     const depsLabel = createElement('label', { className: 'modal-label' }, 'Dependencies');
-    const depsList = createElement('div', { className: 'modal-deps-list' });
 
-    if (this.card.dependencies.length > 0) {
+    // Chips for currently selected dependencies
+    const chipsContainer = createElement('div', { className: 'dependency-chips-container' });
+
+    const renderChips = () => {
+      chipsContainer.innerHTML = '';
+      if (!this.card) return;
+      if (this.card.dependencies.length === 0) {
+        chipsContainer.appendChild(createElement('span', { className: 'empty-text' }, 'No dependencies'));
+        return;
+      }
       this.card.dependencies.forEach((depId) => {
         const depCard = appState.getCard(depId);
-        const depItem = createElement('div', { className: 'dep-item' });
-        const depName = createElement(
-          'span',
-          {},
-          depCard ? depCard.title : depId
-        );
-        const removeBtn = createElement('button', { className: 'dep-remove' }, '✕');
+        const chip = createElement('span', { className: 'dependency-chip' });
+        const statusIcon = depCard ? (depCard.status === 'done' ? '✅ ' : '⏳ ') : '';
+        const label = createElement('span', {}, statusIcon + (depCard ? depCard.title : depId));
+        const removeBtn = createElement('button', { className: 'dep-chip-remove', title: 'Remove dependency' }, '×');
         removeBtn.addEventListener('click', () => {
           if (this.card) cardService.removeDependency(this.card.id, depId);
         });
-        depItem.appendChild(depName);
-        depItem.appendChild(removeBtn);
-        depsList.appendChild(depItem);
+        chip.appendChild(label);
+        chip.appendChild(removeBtn);
+        chipsContainer.appendChild(chip);
       });
+    };
+    renderChips();
+
+    // Dropdown to add dependencies
+    const addDepRow = createElement('div', { className: 'dep-add-row' });
+    const projectId = this.card.projectId;
+    const allProjectCards = appState.getCardsByProject(projectId)
+      .filter((c) => c.id !== this.card!.id);
+
+    if (allProjectCards.length > 0) {
+      const select = createElement('select', { className: 'dep-add-select' }) as HTMLSelectElement;
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '+ Add dependency…';
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      select.appendChild(placeholder);
+
+      allProjectCards.forEach((c) => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        const already = this.card!.dependencies.includes(c.id);
+        opt.textContent = `${c.status === 'done' ? '✅' : '⏳'} ${c.title}`;
+        opt.disabled = already;
+        select.appendChild(opt);
+      });
+
+      select.addEventListener('change', () => {
+        const depId = select.value;
+        if (depId && this.card) {
+          cardService.addDependency(this.card.id, depId);
+          select.value = '';
+        }
+      });
+
+      addDepRow.appendChild(select);
     } else {
-      depsList.appendChild(createElement('span', { className: 'empty-text' }, 'No dependencies'));
+      addDepRow.appendChild(createElement('span', { className: 'empty-text' }, 'No other cards in this project'));
     }
 
     depsSection.appendChild(depsLabel);
-    depsSection.appendChild(depsList);
+    depsSection.appendChild(chipsContainer);
+    depsSection.appendChild(addDepRow);
 
     // Tags
     const tagsSection = createElement('div', { className: 'modal-section' });
@@ -253,6 +296,22 @@ export class CardDetailModal {
     chatSection.appendChild(chatLabel);
     chatSection.appendChild(chatPlaceholder);
 
+    // Focus Mode button
+    const focusSection = createElement('div', { className: 'modal-section modal-focus-section' });
+    const focusBtn = createElement('button', { className: 'focus-mode-btn' }, '🎯 Focus Mode');
+    focusBtn.addEventListener('click', () => {
+      if (!this.card) return;
+      this.close();
+      const focusMode = new FocusMode(document.body, {
+        card: this.card,
+        onExit: () => {
+          eventBus.emit(EVENTS.FOCUS_MODE_EXIT, null);
+        },
+      });
+      eventBus.emit(EVENTS.FOCUS_MODE_ENTER, this.card.id);
+    });
+    focusSection.appendChild(focusBtn);
+
     // Delete button
     const dangerZone = createElement('div', { className: 'modal-danger' });
     const deleteBtn = createElement('button', { className: 'delete-btn' }, '🗑️ Delete Card');
@@ -272,6 +331,7 @@ export class CardDetailModal {
     this.modal.appendChild(depsSection);
     this.modal.appendChild(tagsSection);
     this.modal.appendChild(chatSection);
+    this.modal.appendChild(focusSection);
     this.modal.appendChild(metaSection);
     this.modal.appendChild(dangerZone);
   }

@@ -3,6 +3,7 @@ import { appState } from '../../state/AppState';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { Tab } from '../../types';
+import { FocusMode } from '../FocusMode/FocusMode';
 
 interface PaletteAction {
   id: string;
@@ -181,6 +182,30 @@ export class CommandPalette {
         category: 'Help',
         action: () => {
           if (this.shortcutsModalShow) this.shortcutsModalShow();
+        },
+      },
+      {
+        id: 'focus-mode',
+        label: 'Enter Focus Mode',
+        icon: '🎯',
+        shortcut: 'Ctrl+F',
+        category: 'Actions',
+        action: () => {
+          const selectedCardId = appState.get('selectedCardId');
+          const card = selectedCardId ? appState.getCard(selectedCardId) : null;
+          if (card) {
+            new FocusMode(document.body, {
+              card,
+              onExit: () => eventBus.emit(EVENTS.FOCUS_MODE_EXIT, null),
+            });
+            eventBus.emit(EVENTS.FOCUS_MODE_ENTER, card.id);
+          } else {
+            eventBus.emit(EVENTS.TOAST_SHOW, {
+              message: '🎯 Select a card first to enter Focus Mode',
+              type: 'info',
+              duration: 3000,
+            });
+          }
         },
       },
     ];
