@@ -415,22 +415,13 @@ export class ChatWindow {
   }
 
   private renderGeneralViewToggle(): HTMLElement {
-    const currentView = appState.get('currentView');
+    // Just a single "📝 Board" button — no "Chat" tab needed (session tabs handle that)
     const viewToggle = createElement('div', { className: 'view-toggle', 'data-testid': 'general-view-toggle' });
-
-    const chatBtn = createElement('button', {
-      className: `view-btn ${currentView !== 'freeboard' ? 'active' : ''}`,
-      'data-view': 'chat',
-    }, '💬 Chat');
-    chatBtn.addEventListener('click', () => appState.setView('chat'));
-
     const boardBtn = createElement('button', {
-      className: `view-btn ${currentView === 'freeboard' ? 'active' : ''}`,
+      className: 'view-btn',
       'data-view': 'freeboard',
     }, '📝 Board');
     boardBtn.addEventListener('click', () => appState.setView('freeboard'));
-
-    viewToggle.appendChild(chatBtn);
     viewToggle.appendChild(boardBtn);
     return viewToggle;
   }
