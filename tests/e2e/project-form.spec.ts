@@ -161,6 +161,84 @@ test.describe('Project Form — Inline Create/Edit', () => {
     await expect(archiveBtn).toBeVisible();
   });
 
+  test('GitHub repo field exists in project form', async ({ page }) => {
+    const addBtn = page.locator('[data-testid="tab-add"]');
+    await addBtn.click();
+
+    const form = page.locator('[data-testid="project-form"]');
+    await expect(form).toBeVisible();
+
+    // Verify GitHub input exists
+    const githubInput = page.locator('[data-testid="project-github-input"]');
+    await expect(githubInput).toBeVisible();
+
+    // Verify Connect button exists
+    const connectBtn = page.locator('[data-testid="github-connect-btn"]');
+    await expect(connectBtn).toBeVisible();
+    await expect(connectBtn).toHaveText('Connect');
+
+    // Verify status area exists
+    const githubStatus = page.locator('[data-testid="github-status"]');
+    await expect(githubStatus).toBeAttached();
+  });
+
+  test('GitHub field validates input format', async ({ page }) => {
+    const addBtn = page.locator('[data-testid="tab-add"]');
+    await addBtn.click();
+
+    const githubInput = page.locator('[data-testid="project-github-input"]');
+    await githubInput.fill('not-a-valid-input');
+
+    // Mock the API to intercept
+    await page.route('**/api/github/validate/**', async (route) => {
+      await route.fulfill({ status: 404, body: JSON.stringify({ detail: 'Repository not found' }) });
+    });
+
+    const connectBtn = page.locator('[data-testid="github-connect-btn"]');
+    await connectBtn.click();
+
+    // Should show error (invalid format since no slash)
+    const githubStatus = page.locator('[data-testid="github-status"]');
+    await expect(githubStatus).toContainText('Invalid format');
+  });
+
+  test('GitHub field shows connected status on valid repo', async ({ page }) => {
+    const addBtn = page.locator('[data-testid="tab-add"]');
+    await addBtn.click();
+
+    // Mock successful API response
+    await page.route('**/api/github/validate/jcviau81/voxyflow', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          valid: true,
+          full_name: 'jcviau81/voxyflow',
+          description: 'Voice-first project assistant',
+          default_branch: 'main',
+          language: 'TypeScript',
+          stars: 5,
+          private: false,
+          html_url: 'https://github.com/jcviau81/voxyflow',
+          clone_url: 'https://github.com/jcviau81/voxyflow.git',
+          updated_at: new Date().toISOString(),
+        }),
+      });
+    });
+
+    const githubInput = page.locator('[data-testid="project-github-input"]');
+    await githubInput.fill('jcviau81/voxyflow');
+
+    const connectBtn = page.locator('[data-testid="github-connect-btn"]');
+    await connectBtn.click();
+
+    // Should show connected status
+    const githubStatus = page.locator('[data-testid="github-status"]');
+    await expect(githubStatus).toHaveClass(/connected/);
+    await expect(githubStatus).toContainText('jcviau81/voxyflow');
+    await expect(githubStatus).toContainText('TypeScript');
+  });
+
   test('No window.prompt calls exist', async ({ page }) => {
     // Override window.prompt to track calls
     await page.evaluate(() => {

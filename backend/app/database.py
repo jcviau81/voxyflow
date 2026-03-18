@@ -117,6 +117,11 @@ class Project(Base):
     description = Column(Text, default="")
     status = Column(String, default="active")  # active | archived
     context = Column(Text, default="")  # relevant docs, requirements summary
+    github_repo = Column(String, nullable=True)      # "owner/repo"
+    github_url = Column(String, nullable=True)        # "https://github.com/owner/repo"
+    github_branch = Column(String, nullable=True)     # "main"
+    github_language = Column(String, nullable=True)    # "TypeScript"
+    local_path = Column(String, nullable=True)         # "~/projects/voxyflow"
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

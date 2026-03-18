@@ -1,6 +1,7 @@
-import { Project, ProjectFormData, ProjectFormShowEvent } from '../../types';
+import { Project, ProjectFormData, ProjectFormShowEvent, GitHubRepoInfo } from '../../types';
+import { TechStack } from './TechStack';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS } from '../../utils/constants';
+import { EVENTS, API_URL } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 
 const PROJECT_EMOJIS = ['🎮', '🎙', '🌐', '📱', '🔧', '🎨', '📊', '🚀', '💡', '🔥', '📁', '🎯', '🛠️', '🧪', '📦', '🌟'];
@@ -20,12 +21,17 @@ export class ProjectForm {
   private selectedEmoji: string = DEFAULT_EMOJI;
   private selectedColor: string = '';
   private selectedStatus: 'active' | 'archived' = 'active';
+  private githubInfo: GitHubRepoInfo | null = null;
 
   // DOM refs
   private nameInput: HTMLInputElement | null = null;
   private descInput: HTMLTextAreaElement | null = null;
   private nameError: HTMLElement | null = null;
   private descError: HTMLElement | null = null;
+  private githubInput: HTMLInputElement | null = null;
+  private githubStatusEl: HTMLElement | null = null;
+  private localPathInput: HTMLInputElement | null = null;
+  private techStackComponent: TechStack | null = null;
 
   constructor(private parentElement: HTMLElement, event: ProjectFormShowEvent) {
     this.mode = event.mode;
@@ -64,6 +70,24 @@ export class ProjectForm {
 
     // Color palette
     form.appendChild(this.renderColorPalette());
+
+    // GitHub repo
+    form.appendChild(this.renderGitHubField());
+
+    // Local path
+    form.appendChild(this.renderLocalPathField());
+
+    // Tech stack (read-only display)
+    const techContainer = createElement('div', { className: 'form-group' });
+    this.techStackComponent = new TechStack(techContainer);
+    form.appendChild(techContainer);
+
+    // Auto-detect if project already has localPath or techStack
+    if (this.project?.localPath) {
+      this.techStackComponent.detect(this.project.localPath);
+    } else if (this.project?.techStack) {
+      this.techStackComponent.setData(this.project.techStack);
+    }
 
     // Status (edit only)
     if (this.mode === 'edit') {
@@ -180,6 +204,200 @@ export class ProjectForm {
     return group;
   }
 
+  private renderGitHubField(): HTMLElement {
+    const group = createElement('div', { className: 'form-group' });
+    const label = createElement('label', {}, '🔗 GitHub Repository');
+
+    const row = createElement('div', { className: 'github-input-row' });
+
+    this.githubInput = document.createElement('input');
+    this.githubInput.type = 'text';
+    this.githubInput.className = 'form-input';
+    this.githubInput.placeholder = 'owner/repo or https://github.com/owner/repo';
+    this.githubInput.setAttribute('data-testid', 'project-github-input');
+
+    // Pre-fill if editing and project has github info
+    if (this.project?.githubRepo) {
+      this.githubInput.value = this.project.githubRepo;
+    }
+
+    // Enter key triggers connect
+    this.githubInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.handleGitHubConnect();
+      }
+    });
+
+    const connectBtn = createElement('button', {
+      className: 'btn-secondary',
+      'data-testid': 'github-connect-btn',
+    }, 'Connect');
+    (connectBtn as HTMLButtonElement).type = 'button';
+    connectBtn.addEventListener('click', () => this.handleGitHubConnect());
+
+    row.appendChild(this.githubInput);
+    row.appendChild(connectBtn);
+
+    this.githubStatusEl = createElement('div', {
+      className: 'github-status',
+      'data-testid': 'github-status',
+    });
+
+    // If editing with existing github info, show connected status
+    if (this.project?.githubRepo && this.project?.githubUrl) {
+      this.showGitHubConnected({
+        valid: true,
+        full_name: this.project.githubRepo,
+        description: '',
+        default_branch: this.project.githubBranch || 'main',
+        language: this.project.githubLanguage || null,
+        stars: 0,
+        private: false,
+        html_url: this.project.githubUrl,
+        clone_url: '',
+        updated_at: '',
+      });
+    }
+
+    group.appendChild(label);
+    group.appendChild(row);
+    group.appendChild(this.githubStatusEl);
+    return group;
+  }
+
+  private parseGitHubInput(input: string): { owner: string; repo: string } | null {
+    let value = input.trim();
+    if (!value) return null;
+
+    // Strip .git suffix
+    value = value.replace(/\.git$/, '');
+
+    // Full URL: https://github.com/owner/repo
+    const urlMatch = value.match(/github\.com\/([^/]+)\/([^/]+)/);
+    if (urlMatch) {
+      return { owner: urlMatch[1], repo: urlMatch[2] };
+    }
+
+    // Short form: owner/repo
+    const shortMatch = value.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/);
+    if (shortMatch) {
+      return { owner: shortMatch[1], repo: shortMatch[2] };
+    }
+
+    return null;
+  }
+
+  private async handleGitHubConnect(): Promise<void> {
+    if (!this.githubInput || !this.githubStatusEl) return;
+
+    const parsed = this.parseGitHubInput(this.githubInput.value);
+    if (!parsed) {
+      this.showGitHubError('Invalid format. Use owner/repo or https://github.com/owner/repo');
+      return;
+    }
+
+    // Show loading
+    this.githubStatusEl.className = 'github-status';
+    this.githubStatusEl.innerHTML = '<span class="github-loading">⏳ Validating...</span>';
+
+    try {
+      const response = await fetch(`${API_URL}/api/github/validate/${parsed.owner}/${parsed.repo}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Repository not found' }));
+        this.showGitHubError(err.detail || 'Repository not found');
+        return;
+      }
+
+      const info: GitHubRepoInfo = await response.json();
+      this.githubInfo = info;
+      this.showGitHubConnected(info);
+    } catch (e) {
+      this.showGitHubError('Failed to connect to GitHub API');
+    }
+  }
+
+  private showGitHubConnected(info: GitHubRepoInfo): void {
+    if (!this.githubStatusEl) return;
+    this.githubInfo = info;
+
+    const updatedAgo = info.updated_at ? this.formatTimeAgo(info.updated_at) : '';
+    const metaParts = [
+      info.language,
+      info.default_branch,
+      `⭐ ${info.stars}`,
+      updatedAgo ? `Updated ${updatedAgo}` : '',
+    ].filter(Boolean).join(' · ');
+
+    this.githubStatusEl.className = 'github-status connected';
+    this.githubStatusEl.innerHTML = `
+      <span class="status-icon">✅</span>
+      <div class="status-info">
+        <div class="repo-name">${info.full_name}</div>
+        <div class="repo-meta">${metaParts}</div>
+        <a href="${info.html_url}" target="_blank" rel="noopener" class="repo-link">Open on GitHub ↗</a>
+      </div>
+    `;
+  }
+
+  private showGitHubError(message: string): void {
+    if (!this.githubStatusEl) return;
+    this.githubInfo = null;
+    this.githubStatusEl.className = 'github-status error';
+    this.githubStatusEl.innerHTML = `<span>❌ ${message}</span>`;
+  }
+
+  private formatTimeAgo(isoDate: string): string {
+    try {
+      const diff = Date.now() - new Date(isoDate).getTime();
+      const minutes = Math.floor(diff / 60000);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      return `${days}d ago`;
+    } catch {
+      return '';
+    }
+  }
+
+  private renderLocalPathField(): HTMLElement {
+    const group = createElement('div', { className: 'form-group' });
+    const label = createElement('label', {}, '📂 Local Path');
+
+    const row = createElement('div', { className: 'github-input-row' });
+
+    this.localPathInput = document.createElement('input');
+    this.localPathInput.type = 'text';
+    this.localPathInput.className = 'form-input';
+    this.localPathInput.placeholder = '~/projects/my-app';
+    this.localPathInput.setAttribute('data-testid', 'project-localpath-input');
+
+    if (this.project?.localPath) {
+      this.localPathInput.value = this.project.localPath;
+    }
+
+    const detectBtn = createElement('button', {
+      className: 'btn-secondary',
+      'data-testid': 'tech-detect-btn',
+    }, 'Detect');
+    (detectBtn as HTMLButtonElement).type = 'button';
+    detectBtn.addEventListener('click', () => this.handleTechDetect());
+
+    row.appendChild(this.localPathInput);
+    row.appendChild(detectBtn);
+
+    group.appendChild(label);
+    group.appendChild(row);
+    return group;
+  }
+
+  private async handleTechDetect(): Promise<void> {
+    const path = this.localPathInput?.value.trim();
+    if (!path || !this.techStackComponent) return;
+    await this.techStackComponent.detect(path);
+  }
+
   private renderStatusField(): HTMLElement {
     const group = createElement('div', { className: 'form-group' });
     const label = createElement('label', {}, 'Status');
@@ -286,7 +504,16 @@ export class ProjectForm {
       description: this.descInput?.value.trim() || undefined,
       emoji: this.selectedEmoji,
       color: this.selectedColor || undefined,
+      localPath: this.localPathInput?.value.trim() || undefined,
     };
+
+    // Include GitHub data if connected
+    if (this.githubInfo) {
+      data.githubRepo = this.githubInfo.full_name;
+      data.githubUrl = this.githubInfo.html_url;
+      data.githubBranch = this.githubInfo.default_branch;
+      data.githubLanguage = this.githubInfo.language || undefined;
+    }
 
     if (this.mode === 'edit') {
       data.status = this.selectedStatus;
@@ -314,6 +541,7 @@ export class ProjectForm {
   }
 
   destroy(): void {
+    this.techStackComponent?.destroy();
     this.container.remove();
   }
 }

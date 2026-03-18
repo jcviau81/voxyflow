@@ -9,6 +9,11 @@ class ProjectCreate(BaseModel):
     title: str
     description: Optional[str] = ""
     context: Optional[str] = ""
+    github_repo: Optional[str] = None
+    github_url: Optional[str] = None
+    github_branch: Optional[str] = None
+    github_language: Optional[str] = None
+    local_path: Optional[str] = None
 
 
 class ProjectUpdate(BaseModel):
@@ -16,6 +21,11 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(active|archived)$")
     context: Optional[str] = None
+    github_repo: Optional[str] = None
+    github_url: Optional[str] = None
+    github_branch: Optional[str] = None
+    github_language: Optional[str] = None
+    local_path: Optional[str] = None
 
 
 class ProjectResponse(BaseModel):
@@ -24,6 +34,11 @@ class ProjectResponse(BaseModel):
     description: str
     status: str
     context: str
+    github_repo: Optional[str] = None
+    github_url: Optional[str] = None
+    github_branch: Optional[str] = None
+    github_language: Optional[str] = None
+    local_path: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

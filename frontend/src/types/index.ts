@@ -30,16 +30,51 @@ export interface Message {
   model?: string;
 }
 
+export interface TechInfo {
+  name: string;
+  icon: string;
+  category: string;
+  version?: string;
+  source?: string;
+}
+
+export interface TechDetectResult {
+  path: string;
+  technologies: TechInfo[];
+  file_counts: Record<string, number>;
+  total_files: number;
+  error?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   description: string;
   emoji?: string;
   color?: string;
+  localPath?: string;
   createdAt: number;
   updatedAt: number;
   cards: string[];
   archived: boolean;
+  techStack?: TechDetectResult;
+  githubRepo?: string;      // "owner/repo"
+  githubUrl?: string;        // "https://github.com/owner/repo"
+  githubBranch?: string;     // "main"
+  githubLanguage?: string;   // "TypeScript"
+}
+
+export interface GitHubRepoInfo {
+  valid: boolean;
+  full_name: string;
+  description: string;
+  default_branch: string;
+  language: string | null;
+  stars: number;
+  private: boolean;
+  html_url: string;
+  clone_url: string;
+  updated_at: string;
 }
 
 export interface Card {
@@ -139,7 +174,12 @@ export interface ProjectFormData {
   description?: string;
   emoji?: string;
   color?: string;
+  localPath?: string;
   status?: 'active' | 'archived';
+  githubRepo?: string;
+  githubUrl?: string;
+  githubBranch?: string;
+  githubLanguage?: string;
 }
 
 export interface ProjectFormShowEvent {

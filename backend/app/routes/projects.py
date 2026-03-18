@@ -18,6 +18,11 @@ async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)
         title=body.title,
         description=body.description or "",
         context=body.context or "",
+        github_repo=body.github_repo,
+        github_url=body.github_url,
+        github_branch=body.github_branch,
+        github_language=body.github_language,
+        local_path=body.local_path,
     )
     db.add(project)
     await db.commit()

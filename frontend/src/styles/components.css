@@ -1313,6 +1313,69 @@
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
 }
 
+/* GitHub Repo Field */
+.github-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.github-input-row .form-input {
+  flex: 1;
+}
+
+.github-status {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.github-status:empty {
+  display: none;
+}
+
+.github-status.connected {
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.github-status.error {
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  color: #f44336;
+}
+
+.github-status .status-icon {
+  font-size: 18px;
+}
+
+.github-status .repo-name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.github-status .repo-meta {
+  font-size: 12px;
+  color: #888;
+}
+
+.github-status .repo-link {
+  font-size: 12px;
+  color: var(--color-accent, #54a0ff);
+  text-decoration: none;
+}
+
+.github-status .repo-link:hover {
+  text-decoration: underline;
+}
+
+.github-loading {
+  color: #888;
+}
+
 .form-actions {
   display: flex;
   gap: 12px;
@@ -1367,4 +1430,64 @@
 
 .btn-danger:hover {
   background: rgba(244, 67, 54, 0.1);
+}
+
+/* ============= TECH STACK ============= */
+
+.tech-stack {
+  margin: 16px 0;
+}
+
+.tech-stack h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #aaa);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tech-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.tech-badge {
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--color-bg-elevated, #1a1a2e);
+  border: 1px solid var(--color-border, #333);
+  white-space: nowrap;
+}
+
+.tech-badge.language  { border-color: #4ecdc4; color: #4ecdc4; }
+.tech-badge.runtime   { border-color: #4ecdc4; color: #4ecdc4; }
+.tech-badge.framework { border-color: #ff6b6b; color: #ff6b6b; }
+.tech-badge.testing   { border-color: #feca57; color: #feca57; }
+.tech-badge.build     { border-color: #54a0ff; color: #54a0ff; }
+.tech-badge.infra     { border-color: #ff9ff3; color: #ff9ff3; }
+.tech-badge.security  { border-color: #96ceb4; color: #96ceb4; }
+.tech-badge.ai        { border-color: #c47eff; color: #c47eff; }
+.tech-badge.lib       { border-color: #a29bfe; color: #a29bfe; }
+.tech-badge.config    { border-color: #fd9644; color: #fd9644; }
+.tech-badge.ci        { border-color: #78e08f; color: #78e08f; }
+.tech-badge.quality   { border-color: #e056fd; color: #e056fd; }
+.tech-badge.styling   { border-color: #38ada9; color: #38ada9; }
+.tech-badge.database  { border-color: #6ab04c; color: #6ab04c; }
+.tech-badge.validation { border-color: #eb4d4b; color: #eb4d4b; }
+
+.tech-files {
+  font-size: 12px;
+  color: #888;
+  margin-top: 4px;
+}
+
+.tech-loading {
+  font-size: 13px;
+  color: #888;
+  padding: 8px 0;
 }
