@@ -16,6 +16,7 @@ import { SessionTabBar } from './SessionTabBar';
 import { ChatSearch } from './ChatSearch';
 import { SmartSuggestions } from './SmartSuggestions';
 import { codeReviewService } from '../../services/CodeReviewService';
+import { openMeetingNotesModal } from './MeetingNotesModal';
 
 export class ChatWindow {
   private container: HTMLElement;
@@ -1030,6 +1031,10 @@ export class ChatWindow {
           });
         break;
       }
+
+      case '/meeting':
+        openMeetingNotesModal();
+        break;
 
       default:
         break;

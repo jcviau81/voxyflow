@@ -35,6 +35,18 @@ export class ProjectStats {
   private briefContent: string | null = null;
   private briefGeneratedAt: string | null = null;
 
+  // Health Check state
+  private healthLoading = false;
+  private healthData: {
+    score: number;
+    grade: string;
+    summary: string;
+    strengths: string[];
+    issues: { severity: string; message: string }[];
+    recommendations: string[];
+    generated_at: string;
+  } | null = null;
+
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'stats-view' });
     this.render();
@@ -95,6 +107,10 @@ export class ProjectStats {
     // ── Project Brief ────────────────────────────────
     const briefSection = this._buildBriefSection();
     this.container.appendChild(briefSection);
+
+    // ── Health Check ─────────────────────────────────
+    const healthSection = this._buildHealthSection();
+    this.container.appendChild(healthSection);
 
     this.parentElement.appendChild(this.container);
   }
@@ -629,6 +645,167 @@ export class ProjectStats {
     }
   }
 
+  // ── Health Check ─────────────────────────────────
+
+  private _buildHealthSection(): HTMLElement {
+    const section = createElement('div', { className: 'health-check-section' });
+
+    const sectionTitle = createElement('h3', { className: 'health-check-section-title' });
+    sectionTitle.textContent = '🏥 Health Check';
+    section.appendChild(sectionTitle);
+
+    const controls = createElement('div', { className: 'health-check-controls' });
+
+    const runBtn = createElement('button', {
+      className: `health-run-btn${this.healthLoading ? ' loading' : ''}`,
+    });
+    runBtn.disabled = this.healthLoading;
+    if (this.healthLoading) {
+      runBtn.textContent = '⏳ Analysing…';
+    } else {
+      runBtn.textContent = '🏥 Run Health Check';
+    }
+    runBtn.addEventListener('click', () => this._runHealthCheck());
+    controls.appendChild(runBtn);
+    section.appendChild(controls);
+
+    if (this.healthData) {
+      const card = this._buildHealthCard(this.healthData);
+      section.appendChild(card);
+    }
+
+    return section;
+  }
+
+  private _buildHealthCard(data: NonNullable<typeof this.healthData>): HTMLElement {
+    const card = createElement('div', { className: 'health-card' });
+
+    // Meta
+    const meta = createElement('div', { className: 'health-card-meta' });
+    const date = new Date(data.generated_at);
+    meta.textContent = `Analysed ${date.toLocaleString()}`;
+    card.appendChild(meta);
+
+    // Score + Grade row
+    const scoreRow = createElement('div', { className: 'health-score-row' });
+
+    const scoreEl = createElement('div', { className: 'health-score' });
+    scoreEl.textContent = String(data.score);
+    if (data.score > 80) scoreEl.classList.add('health-score--green');
+    else if (data.score > 60) scoreEl.classList.add('health-score--yellow');
+    else scoreEl.classList.add('health-score--red');
+
+    const gradeEl = createElement('div', { className: 'health-grade' });
+    gradeEl.textContent = data.grade;
+    gradeEl.classList.add(`health-grade--${data.grade.toLowerCase()}`);
+
+    scoreRow.appendChild(scoreEl);
+    scoreRow.appendChild(gradeEl);
+    card.appendChild(scoreRow);
+
+    // Summary
+    const summaryEl = createElement('p', { className: 'health-summary' });
+    summaryEl.textContent = data.summary;
+    card.appendChild(summaryEl);
+
+    // Strengths
+    if (data.strengths.length > 0) {
+      const strengthsEl = createElement('div', { className: 'health-strengths' });
+      const strengthsTitle = createElement('div', { className: 'health-list-title' });
+      strengthsTitle.textContent = 'Strengths';
+      strengthsEl.appendChild(strengthsTitle);
+      const ul = createElement('ul', { className: 'health-list' });
+      for (const s of data.strengths) {
+        const li = createElement('li', { className: 'health-strength-item' });
+        li.textContent = `✅ ${s}`;
+        ul.appendChild(li);
+      }
+      strengthsEl.appendChild(ul);
+      card.appendChild(strengthsEl);
+    }
+
+    // Issues
+    if (data.issues.length > 0) {
+      const issuesEl = createElement('div', { className: 'health-issues' });
+      const issuesTitle = createElement('div', { className: 'health-list-title' });
+      issuesTitle.textContent = 'Issues';
+      issuesEl.appendChild(issuesTitle);
+      const ul = createElement('ul', { className: 'health-list' });
+      for (const issue of data.issues) {
+        const li = createElement('li', { className: `health-issue-item health-issue-item--${issue.severity}` });
+        const icon = issue.severity === 'critical' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
+        li.textContent = `${icon} ${issue.message}`;
+        ul.appendChild(li);
+      }
+      issuesEl.appendChild(ul);
+      card.appendChild(issuesEl);
+    }
+
+    // Recommendations
+    if (data.recommendations.length > 0) {
+      const recsEl = createElement('div', { className: 'health-recommendations' });
+      const recsTitle = createElement('div', { className: 'health-list-title' });
+      recsTitle.textContent = 'Recommendations';
+      recsEl.appendChild(recsTitle);
+      const ul = createElement('ul', { className: 'health-list' });
+      for (const rec of data.recommendations) {
+        const li = createElement('li', { className: 'health-rec-item' });
+        li.textContent = `💡 ${rec}`;
+        ul.appendChild(li);
+      }
+      recsEl.appendChild(ul);
+      card.appendChild(recsEl);
+    }
+
+    // No issues = all clear message
+    if (data.issues.length === 0) {
+      const allClear = createElement('div', { className: 'health-all-clear' });
+      allClear.textContent = '✅ No issues detected — project looks healthy!';
+      card.appendChild(allClear);
+    }
+
+    return card;
+  }
+
+  private async _runHealthCheck(): Promise<void> {
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) return;
+
+    this.healthLoading = true;
+    this._refreshHealthSection();
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/health`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      this.healthData = await response.json();
+    } catch (err) {
+      console.error('[HealthCheck] failed:', err);
+      this.healthData = {
+        score: 0,
+        grade: 'F',
+        summary: '⚠️ Failed to run health check. Please try again.',
+        strengths: [],
+        issues: [],
+        recommendations: [],
+        generated_at: new Date().toISOString(),
+      };
+    } finally {
+      this.healthLoading = false;
+      this._refreshHealthSection();
+    }
+  }
+
+  private _refreshHealthSection(): void {
+    const existing = this.container.querySelector('.health-check-section');
+    if (existing) {
+      const newSection = this._buildHealthSection();
+      existing.replaceWith(newSection);
+    }
+  }
+
   update(): void {
     // Reset standup state when project changes
     this.standupSummary = null;
@@ -639,6 +816,9 @@ export class ProjectStats {
     this.briefContent = null;
     this.briefGeneratedAt = null;
     this.briefLoading = false;
+    // Reset health check state
+    this.healthData = null;
+    this.healthLoading = false;
     const old = this.container;
     this.container = createElement('div', { className: 'stats-view' });
     this.render();

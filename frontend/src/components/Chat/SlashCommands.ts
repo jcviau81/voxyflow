@@ -17,6 +17,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     name: '/standup',
     description: 'Generate a daily standup summary for the current project',
   },
+  {
+    name: '/meeting',
+    description: 'Import meeting notes and extract action items as cards',
+  },
 ];
 
 export class SlashCommandMenu {

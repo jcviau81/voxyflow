@@ -7,6 +7,7 @@ import './styles/stats.css';
 import './styles/roadmap.css';
 import './styles/wiki.css';
 import './styles/sprint.css';
+import './styles/meeting-notes.css';
 import './styles/responsive.css';
 import './styles/rich-chat.css';
 import './styles/notifications.css';

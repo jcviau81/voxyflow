@@ -420,6 +420,115 @@ async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)
 
 
 # ---------------------------------------------------------------------------
+# AI Meeting Notes Extractor
+# ---------------------------------------------------------------------------
+
+class MeetingNotesRequest(BaseModel):
+    notes: str
+    project_id: str | None = None  # optional, for context (unused in extraction but accepted)
+
+
+class MeetingCardPreview(BaseModel):
+    title: str
+    description: str
+    priority: int
+    agent_type: str
+
+
+class MeetingNotesResponse(BaseModel):
+    cards: list[MeetingCardPreview]
+    summary: str
+
+
+class MeetingConfirmRequest(BaseModel):
+    cards: list[MeetingCardPreview]
+
+
+class MeetingConfirmResponse(BaseModel):
+    created: int
+    card_ids: list[str]
+
+
+@router.post("/{project_id}/meeting-notes", response_model=MeetingNotesResponse)
+async def extract_meeting_notes(
+    project_id: str,
+    body: MeetingNotesRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Extract action items from meeting notes using the Fast AI model.
+    Returns a preview of cards — user confirms before creation.
+    """
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    if not body.notes or not body.notes.strip():
+        raise HTTPException(400, "Meeting notes cannot be empty")
+
+    from app.services.claude_service import ClaudeService
+    svc = ClaudeService()
+    data = await svc.generate_meeting_notes(body.notes)
+
+    cards = []
+    for item in data.get("cards", []):
+        cards.append(
+            MeetingCardPreview(
+                title=str(item.get("title", "Untitled action"))[:200],
+                description=str(item.get("description", ""))[:1000],
+                priority=max(0, min(3, int(item.get("priority", 1)))),
+                agent_type=str(item.get("agent_type", "ember")),
+            )
+        )
+
+    return MeetingNotesResponse(
+        cards=cards,
+        summary=str(data.get("summary", ""))[:500],
+    )
+
+
+@router.post("/{project_id}/meeting-notes/confirm", response_model=MeetingConfirmResponse, status_code=201)
+async def confirm_meeting_notes(
+    project_id: str,
+    body: MeetingConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create cards from confirmed meeting notes extraction.
+    """
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    card_ids = []
+    for i, card_data in enumerate(body.cards):
+        agent_assigned = None
+        try:
+            persona = get_persona(AgentType(card_data.agent_type))
+            agent_assigned = f"{persona.emoji} {persona.name}"
+        except (ValueError, KeyError):
+            pass
+
+        card = Card(
+            id=new_uuid(),
+            project_id=project_id,
+            title=card_data.title,
+            description=card_data.description,
+            status="todo",
+            priority=card_data.priority,
+            agent_type=card_data.agent_type,
+            agent_assigned=agent_assigned,
+        )
+        db.add(card)
+        card_ids.append(card.id)
+
+    project.updated_at = utcnow()
+    await db.commit()
+
+    return MeetingConfirmResponse(created=len(card_ids), card_ids=card_ids)
+
+
+# ---------------------------------------------------------------------------
 # AI Project Brief Generator
 # ---------------------------------------------------------------------------
 
@@ -501,6 +610,241 @@ async def generate_brief(project_id: str, db: AsyncSession = Depends(get_db)):
 
     return BriefResponse(
         brief=brief,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Project Health Check
+# ---------------------------------------------------------------------------
+
+class HealthIssue(BaseModel):
+    severity: str  # "critical" | "warning" | "info"
+    message: str
+
+
+class HealthResponse(BaseModel):
+    score: int
+    grade: str  # "A" | "B" | "C" | "D" | "F"
+    summary: str
+    strengths: list[str]
+    issues: list[HealthIssue]
+    recommendations: list[str]
+    generated_at: str
+
+
+def _compute_health(project: "Project", cards: list["Card"], sprints: list["Sprint"]) -> dict:
+    """Rule-based health analysis. Returns raw data dict (no AI summary yet)."""
+    now = datetime.now(timezone.utc)
+    issues: list[dict] = []
+    strengths: list[str] = []
+    recommendations: list[str] = []
+
+    total = len(cards)
+    idea_cards = [c for c in cards if c.status == "idea"]
+    todo_cards = [c for c in cards if c.status == "todo"]
+    inprog_cards = [c for c in cards if c.status == "in-progress"]
+    done_cards = [c for c in cards if c.status == "done"]
+
+    # ── Issue: no cards in-progress ──────────────────────────────────────────
+    if total > 0 and len(inprog_cards) == 0:
+        issues.append({"severity": "warning", "message": "No cards are currently in progress."})
+        recommendations.append("Move at least one card to 'in-progress' to keep momentum going.")
+    elif len(inprog_cards) > 0:
+        strengths.append(f"{len(inprog_cards)} card(s) actively in progress — work is moving forward.")
+
+    # ── Issue: stale todo cards (no activity > 7 days) ──────────────────────
+    stale_count = 0
+    seven_days_ago = now.timestamp() - 7 * 86400
+    for c in todo_cards:
+        updated = c.updated_at
+        if updated:
+            # Make timezone-aware for comparison
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            if updated.timestamp() < seven_days_ago:
+                stale_count += 1
+    if stale_count > 0:
+        issues.append({
+            "severity": "warning",
+            "message": f"{stale_count} todo card(s) have had no activity in over 7 days.",
+        })
+        recommendations.append("Review and prioritize stale todo cards or archive ones no longer relevant.")
+
+    # ── Issue: high ratio of idea cards (backlog bloat) ─────────────────────
+    if total > 0:
+        idea_ratio = len(idea_cards) / total
+        if idea_ratio > 0.4:
+            issues.append({
+                "severity": "info",
+                "message": f"{len(idea_cards)} of {total} cards ({round(idea_ratio*100)}%) are in the idea/backlog stage.",
+            })
+            recommendations.append("Groom your backlog: promote the best ideas to 'todo' or archive low-priority ones.")
+
+    # ── Issue: cards with no description ────────────────────────────────────
+    no_desc = [c for c in cards if not (c.description or "").strip()]
+    if no_desc:
+        issues.append({
+            "severity": "info",
+            "message": f"{len(no_desc)} card(s) have no description.",
+        })
+        recommendations.append("Add descriptions to cards so agents and teammates have the context they need.")
+
+    # ── Issue: cards with no assignee ──────────────────────────────────────
+    no_assignee = [c for c in cards if not c.assignee and not c.agent_type and not c.agent_assigned]
+    if total > 0 and len(no_assignee) > total * 0.5:
+        issues.append({
+            "severity": "info",
+            "message": f"{len(no_assignee)} card(s) have no assignee or agent.",
+        })
+        recommendations.append("Assign cards to agents or team members to ensure clear ownership.")
+
+    # ── Strength: checklist usage + completion ──────────────────────────────
+    all_checklist = []
+    for c in cards:
+        if hasattr(c, "checklist_items") and c.checklist_items:
+            all_checklist.extend(c.checklist_items)
+    if all_checklist:
+        completed_items = [i for i in all_checklist if i.completed]
+        completion_rate = len(completed_items) / len(all_checklist)
+        if completion_rate >= 0.5:
+            strengths.append(
+                f"Checklist items are {round(completion_rate*100)}% complete — good tracking discipline."
+            )
+        elif completion_rate < 0.2 and len(all_checklist) > 3:
+            issues.append({
+                "severity": "info",
+                "message": f"Checklist completion is low ({round(completion_rate*100)}% of {len(all_checklist)} items done).",
+            })
+
+    # ── Strength: sprint planning in use ──────────────────────────────────
+    if sprints:
+        active_sprints = [s for s in sprints if s.status == "active"]
+        if active_sprints:
+            strengths.append("Active sprint in progress — structured planning is in use.")
+        else:
+            strengths.append(f"{len(sprints)} sprint(s) defined — sprint planning is in use.")
+        recommendations_text = "Continue using sprint planning to maintain velocity and focus."
+    else:
+        if total > 5:
+            recommendations.append("Consider using sprint planning to group and prioritize your cards.")
+
+    # ── Issue: blocked cards (cards with is_blocked_by relations) ──────────
+    blocked_cards = []
+    for c in cards:
+        if hasattr(c, "relations_as_target") and c.relations_as_target:
+            for rel in c.relations_as_target:
+                if rel.relation_type == "is_blocked_by":
+                    source = rel.source_card
+                    if source and source.status not in ("done",):
+                        blocked_cards.append(c)
+                        break
+    if blocked_cards:
+        issues.append({
+            "severity": "warning",
+            "message": f"{len(blocked_cards)} card(s) are blocked by unresolved dependencies.",
+        })
+        recommendations.append("Resolve blocked card dependencies to unblock your team.")
+
+    # ── Strength: done cards signal progress ────────────────────────────────
+    if done_cards:
+        strengths.append(f"{len(done_cards)} card(s) completed — real progress delivered.")
+
+    # ── Score algorithm ─────────────────────────────────────────────────────
+    score = 100
+    severity_deductions = {"critical": -15, "warning": -5, "info": -2}
+    for issue in issues:
+        score += severity_deductions.get(issue["severity"], 0)
+    score += len(strengths) * 5
+    score = max(0, min(100, score))
+
+    # ── Grade ───────────────────────────────────────────────────────────────
+    if score >= 90:
+        grade = "A"
+    elif score >= 80:
+        grade = "B"
+    elif score >= 70:
+        grade = "C"
+    elif score >= 60:
+        grade = "D"
+    else:
+        grade = "F"
+
+    return {
+        "score": score,
+        "grade": grade,
+        "strengths": strengths,
+        "issues": [HealthIssue(**i) for i in issues],
+        "recommendations": recommendations,
+        # Context for AI summary
+        "_meta": {
+            "total": total,
+            "todo": len(todo_cards),
+            "inprog": len(inprog_cards),
+            "done": len(done_cards),
+            "idea": len(idea_cards),
+            "sprints": len(sprints),
+            "project_title": project.title,
+        },
+    }
+
+
+@router.post("/{project_id}/health", response_model=HealthResponse)
+async def project_health_check(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Analyse project health and return a score, grade, strengths, issues, and recommendations."""
+    from sqlalchemy.orm import selectinload as slo
+
+    from app.database import CardRelation, ChecklistItem
+    stmt = (
+        select(Project)
+        .options(
+            slo(Project.cards).selectinload(Card.checklist_items),
+            slo(Project.cards).selectinload(Card.relations_as_target).selectinload(CardRelation.source_card),
+            slo(Project.sprints),
+        )
+        .where(Project.id == project_id)
+    )
+    result = await db.execute(stmt)
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    cards = list(project.cards)
+    sprints = list(project.sprints) if hasattr(project, "sprints") else []
+
+    health = _compute_health(project, cards, sprints)
+
+    # Build AI summary prompt
+    meta = health.pop("_meta")
+    strengths_text = "\n".join(f"- {s}" for s in health["strengths"]) or "None"
+    issues_text = "\n".join(
+        f"- [{i.severity.upper()}] {i.message}" for i in health["issues"]
+    ) or "None"
+    recs_text = "\n".join(f"- {r}" for r in health["recommendations"]) or "None"
+
+    summary_prompt = (
+        f"Project: {meta['project_title']}\n"
+        f"Health score: {health['score']}/100 (Grade {health['grade']})\n"
+        f"Cards: {meta['total']} total — {meta['inprog']} in-progress, {meta['todo']} todo, "
+        f"{meta['done']} done, {meta['idea']} ideas\n"
+        f"Sprints: {meta['sprints']}\n\n"
+        f"Strengths:\n{strengths_text}\n\n"
+        f"Issues:\n{issues_text}\n\n"
+        f"Recommendations:\n{recs_text}\n\n"
+        f"Write a concise 2-3 sentence health summary for this project."
+    )
+
+    from app.services.claude_service import ClaudeService
+    svc = ClaudeService()
+    summary = await svc.generate_health_summary(summary_prompt)
+
+    return HealthResponse(
+        score=health["score"],
+        grade=health["grade"],
+        summary=summary,
+        strengths=health["strengths"],
+        issues=health["issues"],
+        recommendations=health["recommendations"],
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
 

@@ -453,6 +453,24 @@ class ClaudeService:
         )
         return response
 
+    async def generate_health_summary(
+        self,
+        prompt: str,
+    ) -> str:
+        """One-shot health check summary using the fast model. No history, no persistence."""
+        system_prompt = (
+            "You are a project health analyst. Given a project's stats and issues, "
+            "write a concise, honest 2-3 sentence summary of the project's health. "
+            "Be direct, specific, and actionable. No filler. Use plain text only."
+        )
+        response = await self._call_api(
+            model=self.fast_model,
+            system=system_prompt,
+            messages=[{"role": "user", "content": prompt}],
+            client=self.fast_client,
+        )
+        return response
+
     async def generate_standup(
         self,
         prompt: str,
@@ -471,6 +489,46 @@ class ClaudeService:
             client=self.fast_client,
         )
         return response
+
+    async def generate_meeting_notes(
+        self,
+        notes: str,
+    ) -> dict:
+        """One-shot meeting notes extraction using the fast model. Returns cards + summary."""
+        system_prompt = (
+            "You are a project assistant that extracts action items from meeting notes. "
+            "Respond ONLY with valid JSON — no markdown, no code blocks, no commentary.\n"
+            "The JSON must have two keys:\n"
+            '  "cards": an array of objects with keys: title (str), description (str), priority (int 0-3), agent_type (str)\n'
+            '  "summary": a brief 1-2 sentence summary of the meeting.\n'
+            "Priority scale: 0=low, 1=medium, 2=high, 3=critical.\n"
+            "agent_type must be one of: ember, researcher, coder, designer, architect, writer, qa.\n"
+            "Auto-detect the most appropriate agent_type based on the action item content."
+        )
+        prompt = (
+            "Extract action items from these meeting notes as structured tasks. "
+            "Return JSON with cards array and a brief summary.\n\n"
+            f"Meeting notes:\n{notes}"
+        )
+        response = await self._call_api(
+            model=self.fast_model,
+            system=system_prompt,
+            messages=[{"role": "user", "content": prompt}],
+            client=self.fast_client,
+        )
+        # Strip markdown code fences if any
+        text = response.strip()
+        if text.startswith("```"):
+            text = text.split("```", 2)[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.rsplit("```", 1)[0].strip()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # Fallback: return empty structure
+            data = {"cards": [], "summary": "Could not parse meeting notes."}
+        return data
 
     async def analyze_for_cards(
         self,
