@@ -86,8 +86,19 @@ export class ProjectService {
     appState.selectProject(id);
   }
 
-  requestSync(): void {
-    apiClient.send('project:list-request', {});
+  async requestSync(): Promise<void> {
+    try {
+      const response = await fetch('/api/projects');
+      if (!response.ok) return;
+      const projects = await response.json();
+      if (Array.isArray(projects)) {
+        appState.set('projects', projects);
+        eventBus.emit(EVENTS.PROJECT_CREATED); // trigger sidebar re-render
+      }
+    } catch (e) {
+      // fallback: try WS
+      apiClient.send('project:list-request', {});
+    }
   }
 
   destroy(): void {

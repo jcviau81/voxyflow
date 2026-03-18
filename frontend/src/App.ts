@@ -118,6 +118,9 @@ export class App {
     // Connect to backend
     apiClient.connect();
 
+    // Load projects from backend on startup
+    projectService.requestSync();
+
     // Register keyboard shortcuts
     this.setupShortcuts();
 
