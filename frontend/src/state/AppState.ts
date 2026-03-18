@@ -544,8 +544,8 @@ class AppState {
     }
     const sessionNumber = existing.length + 1;
     const session: SessionInfo = {
-      id: crypto.randomUUID(),
-      chatId: `${tabId}::${crypto.randomUUID()}`,
+      id: generateId(),
+      chatId: `${tabId}::${generateId()}`,
       title: `Session ${sessionNumber}`,
       createdAt: Date.now(),
     };

@@ -117,7 +117,7 @@ export class ChatService {
         };
 
         const suggestion = {
-          id: crypto.randomUUID(),
+          id: generateId(),
           title,
           description,
           agentType,
