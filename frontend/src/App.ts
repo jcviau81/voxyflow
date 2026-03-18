@@ -234,7 +234,8 @@ export class App {
     // Project created toast
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_CREATED, (project: unknown) => {
-        const p = project as Project;
+        const p = project as Project | undefined;
+        if (!p?.name) return; // guard: sync events may emit without payload
         eventBus.emit(EVENTS.TOAST_SHOW, {
           message: `✅ Project '${p.name}' created`,
           type: 'success',

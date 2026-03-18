@@ -110,7 +110,7 @@ export class ProjectService {
       })) : [];
       if (projects.length > 0) {
         appState.set('projects', projects);
-        eventBus.emit(EVENTS.PROJECT_CREATED); // trigger sidebar re-render
+        eventBus.emit(EVENTS.PROJECT_SELECTED); // trigger sidebar re-render (not PROJECT_CREATED — that expects a project payload)
       }
     } catch (e) {
       // fallback: try WS

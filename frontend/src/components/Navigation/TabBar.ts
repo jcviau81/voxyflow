@@ -121,7 +121,8 @@ export class TabBar {
     // When a project is created, offer to open it as a tab
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_CREATED, (project: unknown) => {
-        const p = project as { id: string; name: string };
+        const p = project as { id?: string; name?: string } | undefined;
+        if (!p?.id || !p?.name) return; // guard: sync events may emit without payload
         appState.openProjectTab(p.id, p.name);
       })
     );
