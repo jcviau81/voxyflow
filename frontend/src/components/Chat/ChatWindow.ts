@@ -1,6 +1,6 @@
 import { Message } from '../../types';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS, STREAMING_CHAR_DELAY, MAX_MESSAGE_LENGTH } from '../../utils/constants';
+import { EVENTS, STREAMING_CHAR_DELAY, MAX_MESSAGE_LENGTH, AGENT_PERSONAS } from '../../utils/constants';
 import { createElement, formatTime, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { chatService } from '../../services/ChatService';
@@ -8,6 +8,7 @@ import { VoiceInput } from './VoiceInput';
 import { MessageBubble } from './MessageBubble';
 import { ModelStatusBar } from '../Navigation/ModelStatusBar';
 import { EmojiPicker } from './EmojiPicker';
+import { WelcomePrompt, WelcomeMode, WelcomeContext } from './WelcomePrompt';
 
 export class ChatWindow {
   private container: HTMLElement;
@@ -17,6 +18,7 @@ export class ChatWindow {
   private voiceInput: VoiceInput | null = null;
   private emojiPicker: EmojiPicker | null = null;
   private modelStatusBar: ModelStatusBar | null = null;
+  private welcomePrompt: WelcomePrompt | null = null;
   private messageBubbles: Map<string, MessageBubble> = new Map();
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
@@ -41,8 +43,11 @@ export class ChatWindow {
     this.messageList = createElement('div', { className: 'chat-messages' });
     this.messageList.addEventListener('scroll', this.handleScroll.bind(this));
 
-    // Render existing messages
+    // Render existing messages or welcome prompt
     const messages = chatService.getHistory(appState.get('currentProjectId') || undefined);
+    if (messages.length === 0) {
+      this.showWelcomePrompt();
+    }
     messages.forEach((msg) => this.renderMessage(msg));
 
     // Input area
@@ -56,7 +61,7 @@ export class ChatWindow {
     }) as HTMLTextAreaElement;
     this.textInput.rows = 1;
     this.textInput.addEventListener('keydown', this.handleKeyDown.bind(this));
-    this.textInput.addEventListener('input', this.handleInputResize.bind(this));
+    this.textInput.addEventListener('input', this.handleInputChange.bind(this));
 
     const sendBtn = createElement('button', { className: 'chat-send-btn' }, '→');
     sendBtn.addEventListener('click', () => this.sendCurrentMessage());
@@ -73,7 +78,7 @@ export class ChatWindow {
         this.textInput.value = val.slice(0, start) + emoji + val.slice(end);
         this.textInput.selectionStart = this.textInput.selectionEnd = start + emoji.length;
         this.textInput.focus();
-        this.handleInputResize();
+        this.handleInputChange();
       }
     });
     emojiBtn.addEventListener('click', () => this.emojiPicker?.toggle());
@@ -120,12 +125,14 @@ export class ChatWindow {
     // New messages
     this.unsubscribers.push(
       eventBus.on(EVENTS.MESSAGE_SENT, (message: unknown) => {
+        this.hideWelcomeIfNeeded();
         this.renderMessage(message as Message);
       })
     );
 
     this.unsubscribers.push(
       eventBus.on(EVENTS.MESSAGE_RECEIVED, (message: unknown) => {
+        this.hideWelcomeIfNeeded();
         this.renderMessage(message as Message);
       })
     );
@@ -179,6 +186,55 @@ export class ChatWindow {
         this.reloadMessages();
       })
     );
+
+    // Welcome action handler
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.WELCOME_ACTION, (data: unknown) => {
+        const { action, mode } = data as { action: string; mode: string; cardId?: string };
+
+        switch (action) {
+          case 'chat':
+          case 'chat-project':
+          case 'discuss':
+            // Just focus input
+            this.textInput?.focus();
+            break;
+
+          case 'brainstorm':
+            // Send an opening brainstorm message from user
+            chatService.sendMessage("Let's brainstorm a new project! What should we build?");
+            break;
+
+          case 'brainstorm-task':
+            chatService.sendMessage("Let's brainstorm a new task for this project.");
+            break;
+
+          case 'start-work': {
+            const cardData = data as { cardId?: string };
+            if (cardData.cardId) {
+              chatService.sendMessage(`Let's start working on this task.`, undefined, cardData.cardId);
+            }
+            break;
+          }
+
+          case 'enrich': {
+            const enrichData = data as { cardId?: string };
+            if (enrichData.cardId) {
+              chatService.sendMessage(`Help me enrich this task with detailed requirements and a PRD.`, undefined, enrichData.cardId);
+            }
+            break;
+          }
+
+          case 'research': {
+            const researchData = data as { cardId?: string };
+            if (researchData.cardId) {
+              chatService.sendMessage(`Let's research the best approaches for this task before we start.`, undefined, researchData.cardId);
+            }
+            break;
+          }
+        }
+      })
+    );
   }
 
   private reloadMessages(): void {
@@ -186,9 +242,56 @@ export class ChatWindow {
     this.messageList.innerHTML = '';
     this.messageBubbles.clear();
 
+    // Destroy old welcome prompt
+    this.welcomePrompt?.destroy();
+    this.welcomePrompt = null;
+
     const messages = chatService.getHistory(appState.get('currentProjectId') || undefined);
+    if (messages.length === 0) {
+      this.showWelcomePrompt();
+    }
     messages.forEach((msg) => this.renderMessage(msg));
     this.scrollToBottom();
+  }
+
+  private showWelcomePrompt(): void {
+    if (!this.messageList) return;
+
+    const projectId = appState.get('currentProjectId');
+    const cardId = appState.get('selectedCardId');
+
+    let mode: WelcomeMode = 'general';
+    const context: WelcomeContext = {};
+
+    if (cardId) {
+      mode = 'card';
+      const card = appState.getCard(cardId);
+      if (card) {
+        context.card = card;
+        context.tags = card.tags;
+        // Resolve dependencies
+        context.deps = card.dependencies
+          .map((depId) => appState.getCard(depId))
+          .filter((c): c is import('../../types').Card => !!c);
+      }
+    } else if (projectId) {
+      mode = 'project';
+      const project = appState.getProject(projectId);
+      if (project) {
+        context.project = project;
+        const projectCards = appState.getCardsByProject(projectId);
+        context.inProgressCards = projectCards.filter((c) => c.status === 'in-progress');
+        context.todoCount = projectCards.filter((c) => c.status === 'todo').length;
+      }
+    }
+
+    this.welcomePrompt = new WelcomePrompt(this.messageList, mode, context);
+  }
+
+  private hideWelcomeIfNeeded(): void {
+    if (this.welcomePrompt?.isVisible()) {
+      this.welcomePrompt.hide();
+    }
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
@@ -198,10 +301,15 @@ export class ChatWindow {
     }
   }
 
-  private handleInputResize(): void {
+  private handleInputChange(): void {
     if (!this.textInput) return;
+    // Auto-resize
     this.textInput.style.height = 'auto';
     this.textInput.style.height = Math.min(this.textInput.scrollHeight, 150) + 'px';
+    // Hide welcome prompt on typing
+    if (this.textInput.value.trim().length > 0) {
+      this.hideWelcomeIfNeeded();
+    }
   }
 
   private sendCurrentMessage(): void {
@@ -238,6 +346,7 @@ export class ChatWindow {
     this.voiceInput?.destroy();
     this.emojiPicker?.destroy();
     this.modelStatusBar?.destroy();
+    this.welcomePrompt?.destroy();
     this.messageBubbles.forEach((bubble) => bubble.destroy());
     this.messageBubbles.clear();
     this.container.remove();

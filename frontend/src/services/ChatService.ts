@@ -4,6 +4,7 @@ import { EVENTS, STREAMING_CHAR_DELAY, AGENT_PERSONAS } from '../utils/constants
 import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
 import { generateId, sleep } from '../utils/helpers';
+import { ModelStatusBar } from '../components/Navigation/ModelStatusBar';
 
 export class ChatService {
   private streamingMessages: Map<string, { content: string; messageId: string }> = new Map();
@@ -144,11 +145,15 @@ export class ChatService {
       cardId,
     });
 
+    // Include layer toggle state so backend can skip disabled layers
+    const layers = ModelStatusBar.getStoredLayerState();
+
     apiClient.send('chat:message', {
       content,
       projectId: message.projectId,
       cardId: message.cardId,
       messageId: message.id,
+      layers,
     });
 
     eventBus.emit(EVENTS.MESSAGE_SENT, message);

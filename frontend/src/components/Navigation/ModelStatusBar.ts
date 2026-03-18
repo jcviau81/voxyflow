@@ -8,12 +8,14 @@ interface ModelInfo {
   emoji: string;
   label: string;
   state: ModelState;
+  /** Whether this layer can be toggled on/off */
+  toggleable: boolean;
 }
 
 const MODEL_DEFAULTS: ModelInfo[] = [
-  { name: 'haiku', emoji: '⚡', label: 'Haiku', state: 'idle' },
-  { name: 'opus', emoji: '🧠', label: 'Opus', state: 'idle' },
-  { name: 'analyzer', emoji: '🔍', label: 'Analyzer', state: 'idle' },
+  { name: 'haiku', emoji: '⚡', label: 'Haiku', state: 'idle', toggleable: false },
+  { name: 'opus', emoji: '🧠', label: 'Opus', state: 'idle', toggleable: true },
+  { name: 'analyzer', emoji: '🔍', label: 'Analyzer', state: 'idle', toggleable: true },
 ];
 
 const STATE_LABELS: Record<ModelState, string> = {
@@ -23,11 +25,15 @@ const STATE_LABELS: Record<ModelState, string> = {
   error: 'error',
 };
 
+const LAYER_STORAGE_KEY = 'voxyflow_layer_toggles';
+
 export class ModelStatusBar {
   private element: HTMLElement;
   private models: Map<ModelName, ModelInfo> = new Map();
   private dotElements: Map<ModelName, HTMLElement> = new Map();
   private labelElements: Map<ModelName, HTMLElement> = new Map();
+  private toggleElements: Map<ModelName, HTMLInputElement> = new Map();
+  private layerState: Record<string, boolean> = {};
   private unsubscribers: (() => void)[] = [];
 
   constructor(private parentElement: HTMLElement) {
@@ -39,8 +45,33 @@ export class ModelStatusBar {
     // Initialize models
     MODEL_DEFAULTS.forEach((m) => this.models.set(m.name, { ...m }));
 
+    // Load layer toggle state from localStorage
+    this.loadLayerState();
+
     this.render();
     this.setupListeners();
+  }
+
+  private loadLayerState(): void {
+    try {
+      const stored = localStorage.getItem(LAYER_STORAGE_KEY);
+      if (stored) {
+        this.layerState = JSON.parse(stored);
+      } else {
+        // Default: all toggleable layers enabled
+        this.layerState = { opus: true, analyzer: true };
+      }
+    } catch {
+      this.layerState = { opus: true, analyzer: true };
+    }
+  }
+
+  private saveLayerState(): void {
+    try {
+      localStorage.setItem(LAYER_STORAGE_KEY, JSON.stringify(this.layerState));
+    } catch (e) {
+      console.warn('[ModelStatusBar] Failed to save layer state:', e);
+    }
   }
 
   private render(): void {
@@ -48,6 +79,22 @@ export class ModelStatusBar {
 
     this.models.forEach((model) => {
       const statusDiv = createElement('div', { className: 'model-status' });
+
+      // Layer toggle checkbox (only for toggleable models)
+      if (model.toggleable) {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'layer-toggle';
+        checkbox.setAttribute('data-layer', model.name);
+        checkbox.setAttribute('data-testid', `layer-toggle-${model.name}`);
+        checkbox.checked = this.layerState[model.name] !== false;
+        checkbox.title = `Enable/disable ${model.label} layer`;
+        checkbox.addEventListener('change', () => {
+          this.handleLayerToggle(model.name, checkbox.checked);
+        });
+        statusDiv.appendChild(checkbox);
+        this.toggleElements.set(model.name, checkbox);
+      }
 
       const dot = createElement('span', { className: `status-dot ${model.state}` });
       const nameSpan = createElement('span', {}, `${model.emoji} ${model.label}`);
@@ -64,6 +111,12 @@ export class ModelStatusBar {
     });
 
     this.parentElement.appendChild(this.element);
+  }
+
+  private handleLayerToggle(layer: string, enabled: boolean): void {
+    this.layerState[layer] = enabled;
+    this.saveLayerState();
+    eventBus.emit(EVENTS.LAYER_TOGGLE, { layer, enabled });
   }
 
   private setupListeners(): void {
@@ -92,9 +145,24 @@ export class ModelStatusBar {
     }
   }
 
+  /** Get the current layer toggle states */
+  getLayerState(): Record<string, boolean> {
+    return { ...this.layerState };
+  }
+
+  /** Static helper to read layer state from localStorage */
+  static getStoredLayerState(): Record<string, boolean> {
+    try {
+      const stored = localStorage.getItem(LAYER_STORAGE_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return { opus: true, analyzer: true };
+  }
+
   destroy(): void {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
+    this.toggleElements.clear();
     this.element.remove();
   }
 }

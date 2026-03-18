@@ -127,6 +127,12 @@ export const EVENTS = {
   DOCS_OPEN: 'settings:docs:open',
   HELP_OPEN: 'settings:help:open',
 
+  // Welcome
+  WELCOME_ACTION: 'welcome:action',
+
+  // Layers
+  LAYER_TOGGLE: 'layer:toggle',
+
   // State
   STATE_CHANGED: 'state:changed',
 } as const;
