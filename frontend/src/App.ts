@@ -16,6 +16,7 @@ import { CardForm, CardFormShowEvent, CardFormData } from './components/Kanban/C
 import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
 import { Toast } from './components/Shared/Toast';
+import { KeyboardShortcutsModal } from './components/Shared/KeyboardShortcutsModal';
 import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPanel';
 import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
@@ -27,6 +28,7 @@ export class App {
   private topBar: TopBar | null = null;
   private tabBar: TabBar | null = null;
   private toast: Toast | null = null;
+  private keyboardShortcutsModal: KeyboardShortcutsModal | null = null;
   private cardModal: CardDetailModal | null = null;
   private opportunitiesPanel: OpportunitiesPanel | null = null;
   // FreeBoard is now a full-view via switchView('freeboard'), not a sidebar
@@ -87,6 +89,9 @@ export class App {
 
     // Toast container
     this.toast = new Toast(this.root);
+
+    // Keyboard shortcuts modal
+    this.keyboardShortcutsModal = new KeyboardShortcutsModal(this.root);
 
     // Card detail modal
     this.cardModal = new CardDetailModal(this.root);
@@ -421,6 +426,7 @@ export class App {
     this.topBar?.destroy();
     this.tabBar?.destroy();
     this.toast?.destroy();
+    this.keyboardShortcutsModal?.destroy();
     this.cardModal?.destroy();
     this.opportunitiesPanel?.destroy();
     // FreeBoard destroyed via switchView cycle

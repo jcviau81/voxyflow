@@ -44,6 +44,13 @@ class AppState {
     this.state.connectionState = 'disconnected';
     this.state.voiceActive = false;
 
+    // Apply persisted theme immediately
+    const savedTheme = localStorage.getItem('voxyflow_theme') as 'dark' | 'light' | null;
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      this.state.theme = savedTheme;
+    }
+    document.documentElement.setAttribute('data-theme', this.state.theme || 'dark');
+
     // Ensure tabs are initialized (migration from old state)
     if (!this.state.openTabs || this.state.openTabs.length === 0) {
       this.state.openTabs = [{ ...DEFAULT_MAIN_TAB }];
@@ -553,6 +560,14 @@ class AppState {
     };
     this.saveToStorage();
     eventBus.emit(EVENTS.SESSION_TAB_UPDATE, { tabId, sessionId, title });
+  }
+
+  // --- Theme ---
+
+  setTheme(theme: 'dark' | 'light'): void {
+    this.set('theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('voxyflow_theme', theme);
   }
 
   // --- Reset ---

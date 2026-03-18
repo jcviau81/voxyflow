@@ -113,6 +113,21 @@ export class Sidebar {
 
     // Footer icons
     const footer = createElement('div', { className: 'sidebar-footer', 'data-testid': 'sidebar-footer' });
+
+    // Theme toggle button
+    const currentTheme = appState.get('theme') || 'dark';
+    const themeBtn = createElement('button', {
+      className: 'sidebar-icon',
+      'data-action': 'theme-toggle',
+      title: currentTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
+    }, currentTheme === 'dark' ? '🌙' : '☀️');
+    themeBtn.addEventListener('click', () => {
+      const theme = appState.get('theme') || 'dark';
+      appState.setTheme(theme === 'dark' ? 'light' : 'dark');
+      this.render();
+    });
+    footer.appendChild(themeBtn);
+
     FOOTER_ICONS.forEach((item) => {
       const btn = createElement('button', {
         className: 'sidebar-icon',
@@ -172,6 +187,9 @@ export class Sidebar {
     );
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_DELETED, () => this.render())
+    );
+    this.unsubscribers.push(
+      appState.subscribe('theme', () => this.render())
     );
 
     // Toggle sidebar shortcut (Ctrl+B)
