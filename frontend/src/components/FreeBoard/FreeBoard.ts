@@ -60,16 +60,22 @@ export class FreeBoard {
   private render(): void {
     this.container.innerHTML = '';
 
-    // Header
-    const header = createElement('div', { className: 'freeboard-header' });
-    const backBtn = createElement('button', { className: 'freeboard-back-btn', title: 'Back to Chat' }, '← Chat');
-    backBtn.addEventListener('click', () => appState.setView('chat'));
-    const title = createElement('h3', {}, '📝 Notes & Reminders');
-    const addBtn = createElement('button', { className: 'freeboard-add-btn' }, '+ Add Note');
+    // Header — same pattern as KanbanBoard
+    const header = createElement('div', { className: 'freeboard-header kanban-header' });
+
+    // View toggle (like Chat/Kanban in project view)
+    const viewToggle = createElement('div', { className: 'view-toggle' });
+    const chatBtn = createElement('button', { className: 'view-btn', 'data-view': 'chat' }, '💬 Chat');
+    chatBtn.addEventListener('click', () => appState.setView('chat'));
+    const boardBtn = createElement('button', { className: 'view-btn active', 'data-view': 'freeboard' }, '📝 Board');
+    viewToggle.appendChild(chatBtn);
+    viewToggle.appendChild(boardBtn);
+
+    const addBtn = createElement('button', { className: 'freeboard-add-btn kanban-add-btn' }, '+ Add Note');
     addBtn.setAttribute('data-testid', 'freeboard-add-btn');
     addBtn.addEventListener('click', () => this.toggleForm());
-    header.appendChild(backBtn);
-    header.appendChild(title);
+
+    header.appendChild(viewToggle);
     header.appendChild(addBtn);
     this.container.appendChild(header);
 
