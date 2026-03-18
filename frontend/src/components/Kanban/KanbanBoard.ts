@@ -125,7 +125,7 @@ export class KanbanBoard {
     });
     importBtn.addEventListener('click', () => importInput.click());
 
-    // Dependency graph button
+    // Dependency graph button (lives in filter bar)
     const depGraphBtn = createElement('button', { className: 'kanban-action-btn', title: 'View dependency map' }, '🔗 Dependencies');
     depGraphBtn.addEventListener('click', () => this.showDepGraph());
 
@@ -136,7 +136,10 @@ export class KanbanBoard {
     }, '☑ Select');
     this.selectToggleBtn.addEventListener('click', () => this.toggleSelectMode());
 
-    // View toggle — same pattern as FreeBoard
+    // Spacer pushes action buttons to the right
+    const headerSpacer = createElement('div', { className: 'kanban-header-spacer' });
+
+    // Row 1: view toggle | title | spacer | Select | Export | Import | New Card
     const viewToggle = createElement('div', { className: 'view-toggle' });
     const chatBtn = createElement('button', { className: 'view-btn', 'data-view': 'chat' }, '💬 Chat');
     chatBtn.addEventListener('click', () => appState.setView('chat'));
@@ -145,17 +148,19 @@ export class KanbanBoard {
     viewToggle.appendChild(kanbanBtn);
     header.appendChild(viewToggle);
     header.appendChild(title);
-    header.appendChild(searchBar);
+    header.appendChild(headerSpacer);
+    header.appendChild(this.selectToggleBtn);
     header.appendChild(exportBtn);
     header.appendChild(importBtn);
     header.appendChild(importInput);
-    header.appendChild(depGraphBtn);
-    header.appendChild(this.selectToggleBtn);
     header.appendChild(addBtn);
     this.container.appendChild(header);
 
-    // Filter chips row
-    const filterRow = createElement('div', { className: 'kanban-filter-row' });
+    // Row 2: filter bar — search | priority | agent | sort | tags | deps
+    const filterRow = createElement('div', { className: 'kanban-filter-bar' });
+
+    // Search bar lives here now
+    filterRow.appendChild(searchBar);
 
     // Priority chips
     const priorityGroup = createElement('div', { className: 'kanban-filter-chips' });
@@ -224,6 +229,7 @@ export class KanbanBoard {
     filterRow.appendChild(agentGroup);
     filterRow.appendChild(sortGroup);
     filterRow.appendChild(this.tagFilterGroup);
+    filterRow.appendChild(depGraphBtn);
     this.container.appendChild(filterRow);
 
     // Board with columns
