@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 
 from app.models.card import CardSuggestion
-from app.services.agent_personas import AgentType
+from app.services.agent_personas import AgentType, PERSONAS
 from app.services.agent_router import get_agent_router
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,74 @@ ACTION_SIGNALS = {
         "configure", "install", "build", "design",
     ],
 }
+
+
+# Title/description patterns for agent type detection.
+# Each entry: (agent_type, set_of_trigger_words)
+# Pattern match = 2 points (stronger signal than a persona keyword match = 1 point).
+TITLE_PATTERNS: list[tuple[AgentType, frozenset]] = [
+    (AgentType.QA,         frozenset(["fix", "bug", "test", "debug", "error", "regression", "validate", "verify", "qa"])),
+    (AgentType.DESIGNER,   frozenset(["design", "ui", "ux", "layout", "color", "style", "wireframe", "mockup", "icon", "theme"])),
+    (AgentType.CODER,      frozenset(["code", "implement", "function", "api", "endpoint", "build", "refactor", "script", "class", "module"])),
+    (AgentType.ARCHITECT,  frozenset(["plan", "architecture", "system", "structure", "diagram", "spec", "prd", "schema", "infrastructure"])),
+    (AgentType.RESEARCHER, frozenset(["research", "analyze", "analyse", "compare", "review", "investigate", "benchmark", "survey", "evaluate"])),
+    (AgentType.WRITER,     frozenset(["write", "content", "doc", "blog", "copy", "readme", "documentation", "article", "rédiger", "blogue"])),
+]
+
+
+def suggest_agent_type(title: str, description: str) -> str:
+    """
+    Suggest the best agent type string for a card based on its title + description.
+
+    Scoring:
+    - Pattern match (TITLE_PATTERNS word in title/description): +2 pts per agent
+    - Keyword match (AgentPersona.keywords in title/description): +1 pt per hit,
+      normalized by keyword list length to avoid agents with longer lists dominating
+
+    Returns the highest-scoring agent type value (e.g. "coder", "qa", …),
+    or "ember" as fallback when no matches or there is a tie.
+    """
+    combined = f"{title} {description}".lower()
+    # Tokenise on word boundaries for pattern matching
+    words = set(combined.replace("-", " ").split())
+
+    scores: dict[AgentType, float] = {}
+
+    # --- Pattern matching (2 pts each) ---
+    for agent_type, trigger_words in TITLE_PATTERNS:
+        hits = len(words & trigger_words)
+        if hits:
+            scores[agent_type] = scores.get(agent_type, 0.0) + hits * 2
+
+    # --- Persona keyword matching (1 pt each, normalised) ---
+    for agent_type, persona in PERSONAS.items():
+        if agent_type == AgentType.EMBER or not persona.keywords:
+            continue
+        kw_hits = sum(1 for kw in persona.keywords if kw in combined)
+        if kw_hits:
+            # Normalise: divide by sqrt(keyword_count) so big lists don't dominate
+            import math
+            normalized = kw_hits / math.sqrt(len(persona.keywords))
+            scores[agent_type] = scores.get(agent_type, 0.0) + normalized
+
+    if not scores:
+        return AgentType.EMBER.value
+
+    best_score = max(scores.values())
+    # Collect all agents tied at the top score
+    best_agents = [at for at, s in scores.items() if s == best_score]
+
+    # Tie-break: prefer deterministic order (TITLE_PATTERNS order), fall back to EMBER
+    if len(best_agents) == 1:
+        return best_agents[0].value
+
+    # Multiple agents tied → pick the one that appears first in TITLE_PATTERNS order
+    pattern_order = [at for at, _ in TITLE_PATTERNS]
+    for at in pattern_order:
+        if at in best_agents:
+            return at.value
+
+    return AgentType.EMBER.value
 
 
 class AnalyzerService:
@@ -119,20 +187,36 @@ class AnalyzerService:
             except ValueError:
                 agent_type = AgentType.EMBER
 
+            card_title = data.get("title", "")
+            card_desc = data.get("description", "")
+
             # Cross-validate with keyword router
             router_agent, router_confidence = self._router.route(
-                title=data.get("title", ""),
-                description=data.get("description", ""),
+                title=card_title,
+                description=card_desc,
                 context=project_context,
             )
 
-            # If router strongly disagrees, prefer router (it's more deterministic)
+            # Cross-validate with pattern + persona-keyword scorer
+            pattern_agent_str = suggest_agent_type(card_title, card_desc)
+            pattern_agent = AgentType(pattern_agent_str)
+
+            # Resolution priority:
+            # 1. High-confidence router result (very deterministic)
+            # 2. Pattern scorer non-EMBER result (lightweight but accurate)
+            # 3. LLM suggestion (may hallucinate agent names)
             if router_confidence > 0.7 and router_agent != agent_type:
                 logger.info(
                     f"Router override: LLM suggested {agent_type.value}, "
                     f"router prefers {router_agent.value} (conf={router_confidence:.2f})"
                 )
                 agent_type = router_agent
+            elif pattern_agent != AgentType.EMBER and agent_type == AgentType.EMBER:
+                logger.info(
+                    f"Pattern override: LLM returned ember, "
+                    f"pattern scorer prefers {pattern_agent.value}"
+                )
+                agent_type = pattern_agent
 
             return CardSuggestion(
                 title=data.get("title", "Untitled"),
@@ -172,6 +256,13 @@ class AnalyzerService:
     ) -> Optional[CardSuggestion]:
         """
         Extract card details from message text, including agent assignment.
+
+        Agent selection uses a two-pass strategy:
+        1. suggest_agent_type() — pattern + persona-keyword scoring (lightweight)
+        2. AgentRouter.route() — weighted ROUTING_WEIGHTS scoring (more detailed)
+
+        The router wins if its confidence is high (≥ 0.6); otherwise suggest_agent_type
+        wins if it produced a non-EMBER result; final fallback is the router result.
         """
         # Simple title extraction: first sentence or first 80 chars
         sentences = message.replace("!", ".").replace("?", ".").split(".")
@@ -181,12 +272,25 @@ class AnalyzerService:
         if len(title) < 5:
             return None
 
-        # Route to appropriate agent
-        agent_type, agent_confidence = self._router.route(
+        # Pass 1: pattern + persona-keyword suggestion (always fast)
+        suggested_type_str = suggest_agent_type(title, message)
+        suggested_type = AgentType(suggested_type_str)
+
+        # Pass 2: router (weighted ROUTING_WEIGHTS)
+        router_type, router_confidence = self._router.route(
             title=title,
             description=message,
             context=project_context,
         )
+
+        # Resolution: high-confidence router result takes priority
+        if router_confidence >= 0.6:
+            agent_type = router_type
+        elif suggested_type != AgentType.EMBER:
+            # suggest_agent_type found a strong signal; prefer it
+            agent_type = suggested_type
+        else:
+            agent_type = router_type
 
         return CardSuggestion(
             title=title,

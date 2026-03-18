@@ -32,8 +32,14 @@ export class KanbanColumn {
       e.preventDefault();
       this.element.classList.add('drag-over');
     });
-    this.element.addEventListener('dragleave', () => {
-      this.element.classList.remove('drag-over');
+    this.element.addEventListener('dragleave', (e: DragEvent) => {
+      // Only remove highlight when truly leaving the column (not just moving onto a child)
+      if (!this.element.contains(e.relatedTarget as Node)) {
+        this.element.classList.remove('drag-over');
+      }
+    });
+    this.element.addEventListener('dragover', (e) => {
+      e.preventDefault();
     });
     this.element.addEventListener('drop', () => {
       this.element.classList.remove('drag-over');
