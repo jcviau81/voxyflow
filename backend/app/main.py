@@ -389,6 +389,27 @@ async def general_websocket(websocket: WebSocket):
                         card_id=card_id,
                     )
 
+                elif msg_type == "session:reset":
+                    chat_level = payload.get("chatLevel", "general")
+                    project_id = payload.get("projectId")
+
+                    # Derive chat_id matching the conversation isolation logic
+                    if project_id:
+                        chat_id = f"project:{project_id}"
+                    else:
+                        chat_id = "general"
+
+                    # Clear conversation history for this chat
+                    if chat_id in _claude_service._histories:
+                        _claude_service._histories[chat_id] = []
+                        logger.info(f"[WS] session:reset → cleared history for {chat_id}")
+
+                    await websocket.send_json({
+                        "type": "session:reset_ack",
+                        "payload": {"chatId": chat_id},
+                        "timestamp": int(time.time() * 1000),
+                    })
+
                 else:
                     # Ack unknown message types
                     await websocket.send_json({

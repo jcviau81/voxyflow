@@ -4,6 +4,7 @@ import { EVENTS, STREAMING_CHAR_DELAY, MAX_MESSAGE_LENGTH, AGENT_PERSONAS } from
 import { createElement, formatTime, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { chatService } from '../../services/ChatService';
+import { apiClient } from '../../services/ApiClient';
 import { VoiceInput } from './VoiceInput';
 import { MessageBubble } from './MessageBubble';
 import { ModelStatusBar } from '../Navigation/ModelStatusBar';
@@ -97,9 +98,19 @@ export class ChatWindow {
     const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
     this.modelStatusBar = new ModelStatusBar(statusBarContainer);
 
-    // Combine header + model status bar on same row
+    // New Session button
+    const newSessionBtn = createElement('button', {
+      className: 'new-session-btn',
+      title: 'New Session (Ctrl+Shift+N)',
+      'data-testid': 'new-session-btn',
+    });
+    newSessionBtn.textContent = '🔄 New';
+    newSessionBtn.addEventListener('click', () => this.handleNewSession());
+
+    // Combine header + new session btn + model status bar on same row
     const headerRow = createElement('div', { className: 'chat-header-row' });
     headerRow.appendChild(header);
+    headerRow.appendChild(newSessionBtn);
     headerRow.appendChild(statusBarContainer);
 
     this.container.appendChild(headerRow);
@@ -122,6 +133,16 @@ export class ChatWindow {
   }
 
   private setupListeners(): void {
+    // Keyboard shortcut: Ctrl+Shift+N → New Session
+    const keyboardHandler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'N') {
+        e.preventDefault();
+        this.handleNewSession();
+      }
+    };
+    document.addEventListener('keydown', keyboardHandler);
+    this.unsubscribers.push(() => document.removeEventListener('keydown', keyboardHandler));
+
     // New messages
     this.unsubscribers.push(
       eventBus.on(EVENTS.MESSAGE_SENT, (message: unknown) => {
@@ -291,6 +312,47 @@ export class ChatWindow {
   private hideWelcomeIfNeeded(): void {
     if (this.welcomePrompt?.isVisible()) {
       this.welcomePrompt.hide();
+    }
+  }
+
+  private handleNewSession(): void {
+    const currentProjectId = appState.get('currentProjectId');
+
+    // Clear messages for this chat context from state
+    if (currentProjectId) {
+      appState.set(
+        'messages',
+        appState.get('messages').filter((m: Message) => m.projectId !== currentProjectId)
+      );
+    } else {
+      // General chat: clear messages without a projectId
+      appState.set(
+        'messages',
+        appState.get('messages').filter((m: Message) => !!m.projectId)
+      );
+    }
+
+    // Clear the message list UI
+    if (this.messageList) {
+      this.messageList.innerHTML = '';
+    }
+    this.messageBubbles.clear();
+
+    // Show welcome prompt again
+    this.welcomePrompt?.destroy();
+    this.welcomePrompt = null;
+    this.showWelcomePrompt();
+
+    // Notify backend to reset conversation context
+    const chatLevel = currentProjectId ? 'project' : 'general';
+    apiClient.send('session:reset', {
+      chatLevel,
+      projectId: currentProjectId || undefined,
+    });
+
+    // Focus input
+    if (this.textInput) {
+      this.textInput.focus();
     }
   }
 

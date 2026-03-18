@@ -1970,6 +1970,25 @@
   flex-shrink: 0;
 }
 
+.new-session-btn {
+  padding: 4px 12px;
+  background: transparent;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.07));
+  border-radius: 6px;
+  color: var(--color-text-secondary, #888);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.new-session-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
 /* ============= WELCOME PROMPTS ============= */
 .welcome-prompt-wrapper {
   transition: opacity 0.3s ease, transform 0.3s ease;
