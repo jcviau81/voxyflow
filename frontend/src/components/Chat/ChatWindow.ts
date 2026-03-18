@@ -144,12 +144,7 @@ export class ChatWindow {
       titleSection.appendChild(emoji);
       titleSection.appendChild(name);
     } else {
-      const emoji = createElement('span', { className: 'context-emoji header-emoji' });
-      emoji.textContent = '💬';
-      const name = createElement('span', { className: 'header-title' });
-      name.textContent = 'General Chat';
-      titleSection.appendChild(emoji);
-      titleSection.appendChild(name);
+      // General chat: no title needed (tab already says "💬 Main")
     }
 
     headerRow.appendChild(titleSection);
