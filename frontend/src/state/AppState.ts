@@ -413,7 +413,7 @@ class AppState {
   }
 
   getIdeas(): Idea[] {
-    return this.state.ideas;
+    return this.state.ideas || [];
   }
 
   // --- Reset ---

@@ -136,7 +136,7 @@ export class IdeaBoard {
     const cards = this.listEl.querySelectorAll('.idea-card');
     cards.forEach(c => c.remove());
 
-    const ideas = appState.getIdeas();
+    const ideas = appState.getIdeas() || [];
 
     if (ideas.length === 0) {
       this.emptyEl.style.display = 'block';
