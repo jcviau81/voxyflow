@@ -1,7 +1,7 @@
 import { Message, ViewMode } from '../../types';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, STREAMING_CHAR_DELAY, MAX_MESSAGE_LENGTH, AGENT_PERSONAS } from '../../utils/constants';
-import { createElement, formatTime, cn } from '../../utils/helpers';
+import { createElement, formatTime, cn, generateId } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { chatService } from '../../services/ChatService';
 import { apiClient } from '../../services/ApiClient';
@@ -341,12 +341,37 @@ export class ChatWindow {
     });
 
     this.sessions.forEach((session) => {
-      const tab = createElement('button', {
+      const tab = createElement('div', {
         className: `session-tab ${session.id === this.activeSessionId ? 'active' : ''}`,
         'data-session-id': session.id,
       });
-      tab.textContent = session.label;
-      tab.addEventListener('click', () => this.switchSession(session.id));
+      const label = createElement('span', { className: 'session-tab-label' });
+      label.textContent = session.label;
+      label.addEventListener('click', () => this.switchSession(session.id));
+      tab.appendChild(label);
+
+      // Close button (×)
+      const closeBtn = createElement('button', { className: 'session-tab-close', title: 'Close session' });
+      closeBtn.textContent = '×';
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.sessions.length > 1) {
+          // Remove session, switch to another
+          this.sessions = this.sessions.filter(s => s.id !== session.id);
+          if (this.activeSessionId === session.id) {
+            this.activeSessionId = this.sessions[0]?.id || '';
+          }
+          this.updateUnifiedHeader();
+          this.reloadMessages();
+        } else {
+          // Last session: reset
+          this.sessions = [{ id: generateId(), label: 'Session 1' }];
+          this.activeSessionId = this.sessions[0].id;
+          this.updateUnifiedHeader();
+          this.reloadMessages();
+        }
+      });
+      tab.appendChild(closeBtn);
       container.appendChild(tab);
     });
 

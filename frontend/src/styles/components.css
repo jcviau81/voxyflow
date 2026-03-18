@@ -2867,7 +2867,10 @@
 }
 
 .session-tab {
-  padding: 4px 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 12px;
   border: none;
   background: transparent;
   color: var(--color-text-secondary);
@@ -2877,6 +2880,36 @@
   white-space: nowrap;
   font-family: inherit;
   transition: all 0.2s;
+}
+
+.session-tab .session-tab-label {
+  cursor: pointer;
+}
+
+.session-tab .session-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 50%;
+  opacity: 0.5;
+  padding: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.session-tab:hover .session-tab-close {
+  opacity: 0.8;
+}
+
+.session-tab .session-tab-close:hover {
+  opacity: 1;
+  background: rgba(255,255,255,0.15);
 }
 
 .session-tab.active {
