@@ -15,6 +15,7 @@ import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
 import { Toast } from './components/Shared/Toast';
 import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPanel';
+import { SettingsPage } from './components/Settings/SettingsPage';
 
 export class App {
   private root: HTMLElement;
@@ -242,73 +243,11 @@ export class App {
         component = new ProjectList(this.mainContent);
         break;
       case 'settings':
-        this.renderSettings();
-        component = { destroy: () => {} };
+        component = new SettingsPage(this.mainContent);
         break;
     }
 
     this.currentView = { component, view };
-  }
-
-  private renderSettings(): void {
-    const container = createElement('div', { className: 'settings-view' });
-    const title = createElement('h2', {}, '⚙️ Settings');
-
-    // Volume
-    const volumeSection = createElement('div', { className: 'settings-section' });
-    const volumeLabel = createElement('label', {}, 'Volume');
-    const volumeInput = createElement('input', {
-      type: 'range',
-      min: '0',
-      max: '100',
-      value: (appState.get('volume') * 100).toString(),
-    }) as HTMLInputElement;
-    volumeInput.addEventListener('input', () => {
-      appState.set('volume', parseInt(volumeInput.value) / 100);
-    });
-    volumeSection.appendChild(volumeLabel);
-    volumeSection.appendChild(volumeInput);
-
-    // Connection info
-    const connSection = createElement('div', { className: 'settings-section' });
-    const connLabel = createElement('label', {}, 'Connection');
-    const connStatus = createElement('div', {}, `Status: ${appState.get('connectionState')}`);
-    const reconnectBtn = createElement('button', { className: 'settings-btn' }, 'Reconnect');
-    reconnectBtn.addEventListener('click', () => {
-      apiClient.close();
-      apiClient.connect();
-    });
-    connSection.appendChild(connLabel);
-    connSection.appendChild(connStatus);
-    connSection.appendChild(reconnectBtn);
-
-    // Data management
-    const dataSection = createElement('div', { className: 'settings-section' });
-    const dataLabel = createElement('label', {}, 'Data');
-    const clearBtn = createElement('button', { className: 'settings-btn danger' }, 'Clear All Data');
-    clearBtn.addEventListener('click', () => {
-      if (confirm('This will delete all local data. Are you sure?')) {
-        appState.reset();
-        location.reload();
-      }
-    });
-    dataSection.appendChild(dataLabel);
-    dataSection.appendChild(clearBtn);
-
-    // About
-    const aboutSection = createElement('div', { className: 'settings-section' });
-    aboutSection.innerHTML = `
-      <h3>About Voxyflow</h3>
-      <p>Voice-first project assistant</p>
-      <p>Version: 1.0.0</p>
-    `;
-
-    container.appendChild(title);
-    container.appendChild(volumeSection);
-    container.appendChild(connSection);
-    container.appendChild(dataSection);
-    container.appendChild(aboutSection);
-    this.mainContent.appendChild(container);
   }
 
   private setupShortcuts(): void {

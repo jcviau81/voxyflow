@@ -14,7 +14,18 @@ const NAV_ITEMS: NavItem[] = [
   { view: 'chat', icon: '💬', label: 'Chat' },
   { view: 'kanban', icon: '📋', label: 'Kanban' },
   { view: 'projects', icon: '📁', label: 'Projects' },
-  { view: 'settings', icon: '⚙️', label: 'Settings' },
+];
+
+interface FooterIcon {
+  action: string;
+  icon: string;
+  title: string;
+}
+
+const FOOTER_ICONS: FooterIcon[] = [
+  { action: 'settings', icon: '⚙️', title: 'Settings' },
+  { action: 'docs', icon: '📖', title: 'Documentation' },
+  { action: 'help', icon: '❓', title: 'Help' },
 ];
 
 export class Sidebar {
@@ -107,10 +118,40 @@ export class Sidebar {
     status.appendChild(statusDot);
     status.appendChild(statusText);
 
+    // Sidebar content wrapper (scrollable area)
+    const content = createElement('div', { className: 'sidebar-content' });
+    content.appendChild(nav);
+    content.appendChild(projectSection);
+    content.appendChild(status);
+
+    // Footer icons
+    const footer = createElement('div', { className: 'sidebar-footer', 'data-testid': 'sidebar-footer' });
+    FOOTER_ICONS.forEach((item) => {
+      const btn = createElement('button', {
+        className: 'sidebar-icon',
+        'data-action': item.action,
+        title: item.title,
+      }, item.icon);
+      btn.addEventListener('click', () => {
+        switch (item.action) {
+          case 'settings':
+            appState.setView('settings');
+            eventBus.emit(EVENTS.SETTINGS_OPEN);
+            break;
+          case 'docs':
+            eventBus.emit(EVENTS.DOCS_OPEN);
+            break;
+          case 'help':
+            eventBus.emit(EVENTS.HELP_OPEN);
+            break;
+        }
+      });
+      footer.appendChild(btn);
+    });
+
     this.container.appendChild(brand);
-    this.container.appendChild(nav);
-    this.container.appendChild(projectSection);
-    this.container.appendChild(status);
+    this.container.appendChild(content);
+    this.container.appendChild(footer);
 
     this.parentElement.appendChild(this.container);
   }

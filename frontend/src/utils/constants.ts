@@ -116,6 +116,12 @@ export const EVENTS = {
   OPPORTUNITIES_COUNT: 'opportunities:count',
   OPPORTUNITIES_TOGGLE: 'opportunities:toggle',
 
+  // Settings
+  SETTINGS_OPEN: 'settings:open',
+  SETTINGS_CLOSE: 'settings:close',
+  DOCS_OPEN: 'settings:docs:open',
+  HELP_OPEN: 'settings:help:open',
+
   // State
   STATE_CHANGED: 'state:changed',
 } as const;
