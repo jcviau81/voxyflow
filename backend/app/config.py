@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     claude_fast_model: str = "claude-haiku-4"
     claude_sonnet_model: str = "claude-sonnet-4"
     claude_deep_model: str = "claude-opus-4"
-    claude_analyzer_model: str = "claude-haiku-4"
+    claude_analyzer_model: str = "claude-sonnet-4"
     claude_max_tokens: int = 1024
 
     # TTS
