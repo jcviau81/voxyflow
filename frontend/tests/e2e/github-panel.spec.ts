@@ -65,7 +65,7 @@ async function switchToProjectChat(page: import('@playwright/test').Page) {
 
 test.describe('GitHub Panel', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await page.waitForSelector('#app', { timeout: 10000 });

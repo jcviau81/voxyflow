@@ -238,7 +238,10 @@ export class ChatWindow {
       titleSection.appendChild(emoji);
       titleSection.appendChild(name);
     } else {
-      // General chat: no title needed (tab already says "💬 Main")
+      // General chat: show a small indicator
+      const title = createElement('span', { className: 'header-title' });
+      title.textContent = '💬 General Chat';
+      titleSection.appendChild(title);
     }
 
     headerRow.appendChild(titleSection);
@@ -273,12 +276,16 @@ export class ChatWindow {
 
     // New Session button (general chat only)
     if (chatLevel === 'general') {
+      const MAX_GENERAL_SESSIONS = 5;
       const newBtn = createElement('button', {
         className: 'header-btn new-session-btn',
-        title: 'New Session (Ctrl+Shift+N)',
+        title: this.sessions.length >= MAX_GENERAL_SESSIONS ? `Max ${MAX_GENERAL_SESSIONS} sessions` : 'New Session (Ctrl+Shift+N)',
         'data-testid': 'new-session-btn',
-      });
+      }) as HTMLButtonElement;
       newBtn.textContent = '+ New';
+      if (this.sessions.length >= MAX_GENERAL_SESSIONS) {
+        newBtn.disabled = true;
+      }
       newBtn.addEventListener('click', () => this.handleNewSession());
       actions.appendChild(newBtn);
     }
@@ -343,11 +350,15 @@ export class ChatWindow {
       container.appendChild(tab);
     });
 
+    const MAX_GENERAL_SESSIONS = 5;
     const addBtn = createElement('button', {
       className: 'session-tab-add',
-      title: 'New session tab',
-    });
+      title: this.sessions.length >= MAX_GENERAL_SESSIONS ? `Max ${MAX_GENERAL_SESSIONS} sessions` : 'New session tab',
+    }) as HTMLButtonElement;
     addBtn.textContent = '+';
+    if (this.sessions.length >= MAX_GENERAL_SESSIONS) {
+      addBtn.disabled = true;
+    }
     addBtn.addEventListener('click', () => this.handleNewSession());
     container.appendChild(addBtn);
 
@@ -870,6 +881,8 @@ export class ChatWindow {
 
   private handleNewSession(): void {
     // Create a new session tab (general chat only)
+    const MAX_GENERAL_SESSIONS = 5;
+    if (this.sessions.length >= MAX_GENERAL_SESSIONS) return;
     this.sessionCounter++;
     const newSession = {
       id: `session-${this.sessionCounter}`,

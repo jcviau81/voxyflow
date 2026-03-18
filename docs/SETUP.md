@@ -51,7 +51,11 @@ pip install -r requirements.txt
 - `keyring` + `keyrings.alt` — secure key storage
 - `openai` — OpenAI-compatible client (used for Claude proxy)
 - `python-multipart` — file upload support
+- `apscheduler` — background task scheduler (heartbeat + RAG indexing + user-defined jobs)
 - `chromadb` + `sentence-transformers` — RAG (optional but installed by default)
+- `pypdf` — PDF document parsing for RAG (Phase 2, optional)
+- `python-docx` — DOCX document parsing for RAG (Phase 2, optional)
+- `openpyxl` — XLSX/Excel document parsing for RAG (Phase 2, optional)
 
 ### Configure environment
 
@@ -292,13 +296,43 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 # Frontend — build and serve static files
 cd frontend && npm run build
 # Serve dist/ via Caddy/Nginx
+```
 
-# Example Caddy config (Caddyfile):
-# voxyflow.example.com {
-#   handle /api/* { reverse_proxy localhost:8000 }
-#   handle /ws    { reverse_proxy localhost:8000 }
-#   handle        { root * /path/to/frontend/dist; file_server }
-# }
+### HTTPS Setup
+
+For HTTPS (strongly recommended in production), use a reverse proxy. Example Caddy config (`/etc/caddy/Caddyfile`):
+
+```
+voxyflow.example.com {
+  # API + WebSocket → backend
+  handle /api/* {
+    reverse_proxy localhost:8000
+  }
+  handle /ws {
+    reverse_proxy localhost:8000
+  }
+  # Static frontend
+  handle {
+    root * /path/to/frontend/dist
+    file_server
+  }
+}
+```
+
+Caddy handles TLS certificate provisioning automatically (Let's Encrypt). For self-signed certs on LAN:
+
+```
+voxyflow.local {
+  tls internal
+  handle /api/* { reverse_proxy localhost:8000 }
+  handle /ws    { reverse_proxy localhost:8000 }
+  handle        { root * /path/to/frontend/dist; file_server }
+}
+```
+
+**WebSocket note:** When running behind HTTPS, update the frontend `.env`:
+```env
+VOXYFLOW_WS_URL=wss://voxyflow.example.com/ws
 ```
 
 ---
@@ -314,3 +348,6 @@ cd frontend && npm run build
 | No API response | Check proxy is running at `provider_url` in Settings → Models |
 | STT not working | Chrome/Edge required for Web Speech API; check microphone permissions |
 | TTS silent | Check `TTS_SERVICE_URL` is reachable; TTS failures are non-fatal |
+| PDF/DOCX upload fails | `pip install pypdf python-docx openpyxl` for Phase 2 document support |
+| Scheduler not running | Check `apscheduler` is installed; `GET /api/health` should show `scheduler_running: true` |
+| Jobs not executing | Check `~/.voxyflow/jobs.json` is writable; trigger manually via `POST /api/jobs/{id}/run` |

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Slash Commands', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForSelector('#app', { timeout: 10000 });
     // Clear any existing state
     await page.evaluate(() => localStorage.clear());

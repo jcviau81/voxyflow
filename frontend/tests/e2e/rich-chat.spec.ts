@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Rich Chat Features', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForSelector('[data-testid="chat-window"]', { timeout: 10000 });
   });
 

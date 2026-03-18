@@ -38,7 +38,7 @@ async function createProjectWithCard(page: import('@playwright/test').Page) {
 
 test.describe('Kanban Drag & Drop', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await page.waitForSelector('#app', { timeout: 10000 });
@@ -170,13 +170,18 @@ test.describe('Kanban Drag & Drop', () => {
     // Get card ID before drag
     const cardId = await card.getAttribute('data-card-id');
 
-    // Simulate full drag sequence
-    await card.dispatchEvent('dragstart', {
-      dataTransfer: { setData: () => {}, effectAllowed: 'move' },
+    // Simulate full drag sequence using evaluate to handle DataTransfer
+    await card.evaluate((el) => {
+      const dt = new DataTransfer();
+      el.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
     });
-    await targetColumn.dispatchEvent('dragover');
-    await targetColumn.dispatchEvent('drop');
-    await card.dispatchEvent('dragend');
+    await targetColumn.evaluate((el) => {
+      el.dispatchEvent(new DragEvent('dragover', { bubbles: true }));
+      el.dispatchEvent(new DragEvent('drop', { bubbles: true }));
+    });
+    await card.evaluate((el) => {
+      el.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+    });
 
     // Verify card ID exists somewhere on the board (card wasn't lost)
     const cardAfter = page.locator(`.kanban-card[data-card-id="${cardId}"]`);

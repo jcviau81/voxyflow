@@ -18,6 +18,9 @@ All REST endpoints are prefixed with `/api`. WebSocket is at `/ws`.
 10. [Tech Detection](#tech-detection)
 11. [Tools](#tools)
 12. [Voice WebSocket](#voice-websocket)
+13. [Focus Sessions](#focus-sessions)
+14. [Jobs / Cron](#jobs--cron)
+15. [Code Review](#code-review)
 
 ---
 
@@ -68,11 +71,44 @@ Primary real-time channel. One connection per browser session.
 
 ### `GET /health`
 
-Returns service health.
+Returns service health (basic).
 
 **Response:**
 ```json
 { "status": "ok", "service": "voxyflow" }
+```
+
+---
+
+### `GET /api/health`
+
+Overall health status powered by APScheduler heartbeat checks.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "scheduler_running": true,
+  "services": {
+    "database": { "status": "ok", "last_check": "2025-01-01T00:00:00Z" },
+    "rag": { "status": "ok", "last_check": "2025-01-01T00:00:00Z" }
+  }
+}
+```
+
+---
+
+### `GET /api/health/services`
+
+Detailed per-service health with last-check timestamps.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "scheduler_running": true,
+  "services": { "database": { ... }, "rag": { ... } }
+}
 ```
 
 ---
@@ -149,6 +185,287 @@ Add a message to a chat.
 ---
 
 ## Projects
+
+### `GET /api/templates`
+
+List all built-in project templates.
+
+**Response:** `200` — Array of templates
+```json
+[{
+  "id": "api-service",
+  "name": "API Service",
+  "description": "Backend API service with auth, testing, deploy cards",
+  "card_count": 8
+}]
+```
+
+---
+
+### `POST /api/from-template/{template_id}`
+
+Create a new project pre-populated with cards from a built-in template.
+
+**Path param:** `template_id` — one of the IDs returned by `GET /api/templates`
+
+**Request:**
+```json
+{ "title": "My API", "description": "Optional override" }
+```
+
+**Response:** `201` — `{ "project": ProjectResponse, "cards_created": 8 }`
+
+---
+
+### `GET /api/projects/{project_id}/export`
+
+Export a project and all its cards as a JSON payload (for backup/migration).
+
+**Response:** `200` — Full export object
+```json
+{
+  "version": "1",
+  "exported_at": "2025-01-01T00:00:00Z",
+  "project": { ...ProjectResponse },
+  "cards": [ ...CardResponse ]
+}
+```
+
+---
+
+### `POST /api/projects/import`
+
+Import a project from an exported JSON payload. Creates a new project with new IDs.
+
+**Request:** Export payload object (from `GET /export`)
+
+**Response:** `201`
+```json
+{ "project_id": "uuid", "cards_imported": 12 }
+```
+
+---
+
+### `POST /api/projects/{project_id}/meeting-notes`
+
+Extract action items from meeting notes using AI.
+
+**Request:**
+```json
+{ "transcript": "Meeting notes text..." }
+```
+
+**Response:** `200`
+```json
+{
+  "action_items": [
+    { "title": "Fix login bug", "owner": "Alice", "priority": 2, "due_date": "2025-01-15" }
+  ]
+}
+```
+
+---
+
+### `POST /api/projects/{project_id}/meeting-notes/confirm`
+
+Create cards from extracted meeting action items.
+
+**Request:**
+```json
+{
+  "action_items": [ { "title": "Fix login bug", "priority": 2 } ]
+}
+```
+
+**Response:** `201`
+```json
+{ "cards_created": 3, "cards": [ ...CardResponse ] }
+```
+
+---
+
+### `POST /api/projects/{project_id}/brief`
+
+Generate a comprehensive AI project brief / PRD using the Deep (Opus) model.
+
+**Response:** `200`
+```json
+{
+  "brief": "# Project Brief\n\n## Executive Summary\n..."
+}
+```
+
+---
+
+### `POST /api/projects/{project_id}/health`
+
+Analyse project health and return a score, grade, strengths, issues, and recommendations.
+
+**Response:** `200`
+```json
+{
+  "score": 72,
+  "grade": "B",
+  "strengths": ["Good velocity", "Clear ownership"],
+  "issues": ["3 cards blocked", "No done cards this week"],
+  "recommendations": ["Resolve blockers first", "Set sprint goal"]
+}
+```
+
+---
+
+### `POST /api/projects/{project_id}/standup`
+
+Generate a daily standup summary using the fast model.
+
+**Response:** `200`
+```json
+{
+  "standup": "**Done:** Closed auth bug.\n**In Progress:** API refactor.\n**Blockers:** None.",
+  "done_cards": [...],
+  "in_progress_cards": [...],
+  "blockers": []
+}
+```
+
+---
+
+### `GET /api/projects/{project_id}/standup/schedule`
+
+Get the standup schedule for a project (null if not configured).
+
+**Response:** `200`
+```json
+{ "project_id": "uuid", "cron": "0 9 * * 1-5", "timezone": "America/Toronto" }
+// or null
+```
+
+---
+
+### `POST /api/projects/{project_id}/standup/schedule`
+
+Create or update the daily standup schedule.
+
+**Request:**
+```json
+{ "cron": "0 9 * * 1-5", "timezone": "America/Toronto" }
+```
+
+**Response:** `201` — Schedule object
+
+---
+
+### `POST /api/projects/{project_id}/prioritize`
+
+Smart prioritization: rule-based scoring + AI reasoning to rank the backlog.
+
+**Response:** `200`
+```json
+{
+  "cards": [
+    {
+      "card_id": "uuid",
+      "title": "Fix login bug",
+      "score": 92,
+      "reasoning": "Critical priority, blocking other work, aged 5 days."
+    }
+  ]
+}
+```
+
+---
+
+### Wiki Endpoints
+
+#### `GET /api/projects/{project_id}/wiki`
+
+List all wiki pages (id, title, updated_at).
+
+**Response:** `200` — Array of `{ "id": "uuid", "title": "Architecture", "updated_at": "..." }`
+
+#### `POST /api/projects/{project_id}/wiki`
+
+Create a new wiki page.
+
+**Request:** `{ "title": "Architecture", "content": "# Arch\n..." }`
+
+**Response:** `201` — Full page object `{ "id", "title", "content", "created_at", "updated_at" }`
+
+#### `GET /api/projects/{project_id}/wiki/{page_id}`
+
+Get full content of a wiki page.
+
+**Response:** `200` — Full page object  
+**Error:** `404`
+
+#### `PUT /api/projects/{project_id}/wiki/{page_id}`
+
+Update a wiki page's title and/or content.
+
+**Request:** `{ "title"?: "...", "content"?: "..." }`
+
+**Response:** `200` — Updated page object
+
+#### `DELETE /api/projects/{project_id}/wiki/{page_id}`
+
+Delete a wiki page.
+
+**Response:** `204`
+
+---
+
+### Sprint Endpoints
+
+#### `GET /api/projects/{project_id}/sprints`
+
+List all sprints for a project with card counts.
+
+**Response:** `200` — Array of SprintResponse
+```json
+[{
+  "id": "uuid",
+  "name": "Sprint 1",
+  "goal": "Ship auth",
+  "status": "active",
+  "start_date": "2025-01-01",
+  "end_date": "2025-01-14",
+  "card_count": 5
+}]
+```
+
+#### `POST /api/projects/{project_id}/sprints`
+
+Create a new sprint.
+
+**Request:** `{ "name": "Sprint 1", "goal": "Ship auth", "start_date": "2025-01-01", "end_date": "2025-01-14" }`
+
+**Response:** `201` — SprintResponse
+
+#### `PUT /api/projects/{project_id}/sprints/{sprint_id}`
+
+Update sprint name, goal, or dates.
+
+**Response:** `200` — Updated SprintResponse
+
+#### `DELETE /api/projects/{project_id}/sprints/{sprint_id}`
+
+Delete a sprint. Cards in the sprint lose their sprint assignment.
+
+**Response:** `204`
+
+#### `POST /api/projects/{project_id}/sprints/{sprint_id}/start`
+
+Activate a sprint. Only one sprint can be active at a time.
+
+**Response:** `200` — Updated SprintResponse
+
+#### `POST /api/projects/{project_id}/sprints/{sprint_id}/complete`
+
+Mark a sprint as completed.
+
+**Response:** `200` — Updated SprintResponse
+
+---
 
 ### `POST /api/projects`
 
@@ -341,6 +658,248 @@ Delete a card.
 
 ---
 
+### `POST /api/cards/{card_id}/duplicate`
+
+Duplicate a card within the same project. Title gets ` (copy)` appended; votes reset to 0.
+
+**Response:** `201` — New `CardResponse`
+
+---
+
+### `POST /api/cards/{card_id}/clone-to/{target_project_id}`
+
+Clone a card to another project. Title gets ` (cloned)` appended; checklist items are cloned; a `cloned_from` relation is created.
+
+**Response:** `201` — New `CardResponse`  
+**Error:** `400` — Card already in target project  
+**Error:** `404` — Card or project not found
+
+---
+
+### `POST /api/cards/{card_id}/move-to/{target_project_id}`
+
+Move a card (with all comments, attachments, checklist) to another project.
+
+**Response:** `200` — Updated `CardResponse`  
+**Error:** `400` — Card already in target project
+
+---
+
+### `GET /api/cards/{card_id}/history`
+
+Return card change history, newest first, max 50 entries.
+
+Tracks changes to: `status`, `priority`, `title`, `description`, `assignee`, `agent_type`.
+
+**Response:** `200`
+```json
+[{
+  "id": "uuid",
+  "card_id": "uuid",
+  "field_changed": "status",
+  "old_value": "todo",
+  "new_value": "in-progress",
+  "changed_at": "2025-01-01T00:00:00Z",
+  "changed_by": "User"
+}]
+```
+
+---
+
+### `POST /api/cards/{card_id}/vote`
+
+Increment vote count. Returns `{ "votes": <new_count> }`.
+
+### `DELETE /api/cards/{card_id}/vote`
+
+Decrement vote count (min 0). Returns `{ "votes": <new_count> }`.
+
+---
+
+### Card Comment Endpoints
+
+#### `POST /api/cards/{card_id}/comments`
+
+Add a comment to a card.
+
+**Request:** `{ "author": "Alice", "content": "Looking good!" }`
+
+**Response:** `201` — `{ "id", "card_id", "author", "content", "created_at" }`
+
+#### `GET /api/cards/{card_id}/comments`
+
+List all comments (newest first).
+
+**Response:** `200` — Array of comment objects
+
+#### `DELETE /api/cards/{card_id}/comments/{comment_id}`
+
+Delete a comment.
+
+**Response:** `204`
+
+---
+
+### Card Checklist Endpoints
+
+#### `POST /api/cards/{card_id}/checklist`
+
+Add a checklist item.
+
+**Request:** `{ "text": "Write unit tests" }`
+
+**Response:** `201` — `{ "id", "card_id", "text", "completed", "position", "created_at" }`
+
+#### `GET /api/cards/{card_id}/checklist`
+
+List all checklist items (ordered by position).
+
+**Response:** `200` — Array of checklist item objects
+
+#### `PATCH /api/cards/{card_id}/checklist/{item_id}`
+
+Update a checklist item (toggle completed or edit text).
+
+**Request:** `{ "completed"?: true, "text"?: "..." }`
+
+**Response:** `200` — Updated item
+
+#### `DELETE /api/cards/{card_id}/checklist/{item_id}`
+
+Delete a checklist item.
+
+**Response:** `204`
+
+---
+
+### Card Time Tracking Endpoints
+
+#### `POST /api/cards/{card_id}/time`
+
+Log time spent on a card.
+
+**Request:** `{ "duration_minutes": 45, "note": "Debugging session" }`
+
+**Response:** `201` — `{ "id", "card_id", "duration_minutes", "note", "logged_at" }`
+
+#### `GET /api/cards/{card_id}/time`
+
+List all time entries (newest first).
+
+**Response:** `200` — Array of time entry objects
+
+#### `DELETE /api/cards/{card_id}/time/{entry_id}`
+
+Delete a time entry.
+
+**Response:** `204`
+
+---
+
+### Card Attachment Endpoints
+
+#### `POST /api/cards/{card_id}/attachments`
+
+Upload a file attachment. Max 50 MB, any type.
+
+**Content-Type:** `multipart/form-data`  
+**Body:** `file` field
+
+**Response:** `201`
+```json
+{
+  "id": "uuid",
+  "card_id": "uuid",
+  "filename": "screenshot.png",
+  "file_size": 204800,
+  "mime_type": "image/png",
+  "created_at": "2025-01-01T00:00:00Z"
+}
+```
+**Error:** `413` — File too large  
+**Error:** `404` — Card not found
+
+#### `GET /api/cards/{card_id}/attachments`
+
+List all attachments for a card (newest first).
+
+**Response:** `200` — Array of attachment objects
+
+#### `GET /api/cards/{card_id}/attachments/{attachment_id}/download`
+
+Download an attachment file.
+
+**Response:** File content with appropriate `Content-Type`  
+**Error:** `404`
+
+#### `DELETE /api/cards/{card_id}/attachments/{attachment_id}`
+
+Delete an attachment (removes from disk and DB).
+
+**Response:** `204`
+
+---
+
+### Card Relation Endpoints
+
+#### `POST /api/cards/{card_id}/relations`
+
+Add a typed relation from this card to another.
+
+**Request:**
+```json
+{ "target_card_id": "uuid", "relation_type": "blocks" }
+```
+
+Valid types: `duplicates`, `blocks`, `is_blocked_by`, `relates_to`, `cloned_from`
+
+**Response:** `201`
+```json
+{
+  "id": "uuid",
+  "source_card_id": "uuid",
+  "target_card_id": "uuid",
+  "relation_type": "blocks",
+  "created_at": "...",
+  "related_card_id": "uuid",
+  "related_card_title": "Fix login",
+  "related_card_status": "todo"
+}
+```
+**Error:** `409` — Relation already exists  
+**Error:** `400` — Invalid relation type or self-relation
+
+#### `GET /api/cards/{card_id}/relations`
+
+List all relations (both directions). Inverse types are auto-computed for target-direction relations.
+
+**Response:** `200` — Array of relation objects
+
+#### `DELETE /api/cards/{card_id}/relations/{relation_id}`
+
+Delete a relation. Card must be either source or target.
+
+**Response:** `204`
+
+---
+
+### `POST /api/cards/{card_id}/enrich`
+
+AI enrichment: generates description, checklist items, effort estimate, and tags from just the card title.
+
+**Response:** `200`
+```json
+{
+  "description": "Implement JWT-based auth middleware...",
+  "checklist_items": ["Define token schema", "Add middleware", "Write tests"],
+  "effort": "M",
+  "tags": ["auth", "security", "backend"]
+}
+```
+**Error:** `500` — AI enrichment failed
+
+---
+
 ## Documents (RAG)
 
 ### `POST /api/projects/{project_id}/documents`
@@ -350,8 +909,11 @@ Upload a document and index it into the project's RAG knowledge base.
 **Content-Type:** `multipart/form-data`  
 **Body:** `file` field with the file to upload
 
-**Supported:** `.txt`, `.md`, `.markdown`  
-**Not yet supported:** `.pdf`, `.docx`, `.xlsx` (Phase 2)
+**Supported formats (auto-detected by installed deps):**
+- `.txt`, `.md`, `.markdown` — always available
+- `.pdf` — requires `pypdf`
+- `.docx`, `.doc` — requires `python-docx`
+- `.xlsx`, `.xls`, `.csv` — requires `openpyxl`
 
 **Response:** `201` — `DocumentResponse`
 ```json
@@ -739,3 +1301,180 @@ Dedicated voice pipeline WebSocket (per chat_id).
 ```
 
 **Note:** Primary UI uses `/ws`. The `/api/ws/voice/{chat_id}` endpoint is an alternate pipeline for dedicated voice clients or future mobile apps.
+
+---
+
+## Focus Sessions
+
+### `POST /api/focus-sessions`
+
+Log a completed or interrupted Pomodoro focus session.
+
+**Request:**
+```json
+{
+  "card_id": "uuid | null",
+  "project_id": "uuid | null",
+  "duration_minutes": 25,
+  "completed": true,
+  "started_at": "2025-01-01T09:00:00Z",
+  "ended_at": "2025-01-01T09:25:00Z"
+}
+```
+
+**Response:** `201`
+```json
+{
+  "id": "uuid",
+  "card_id": "uuid",
+  "project_id": "uuid",
+  "duration_minutes": 25,
+  "completed": true,
+  "started_at": "2025-01-01T09:00:00Z",
+  "ended_at": "2025-01-01T09:25:00Z"
+}
+```
+**Error:** `400` — Invalid duration or datetime format  
+**Error:** `404` — Card or project not found
+
+---
+
+### `GET /api/projects/{project_id}/focus`
+
+Return focus session analytics for a project.
+
+**Response:** `200`
+```json
+{
+  "total_sessions": 12,
+  "total_minutes": 300,
+  "completed_sessions": 10,
+  "avg_session_minutes": 25.0,
+  "by_card": [
+    { "card_id": "uuid", "title": "Add auth", "sessions": 3, "minutes": 75 }
+  ],
+  "by_day": [
+    { "date": "2025-01-01", "sessions": 2, "minutes": 50 }
+  ]
+}
+```
+
+`by_day` covers the last 7 days. `by_card` is all-time, sorted by minutes desc.
+
+---
+
+## Jobs / Cron
+
+### `GET /api/jobs`
+
+List all configured jobs.
+
+**Response:** `200`
+```json
+{
+  "jobs": [
+    {
+      "id": "uuid",
+      "name": "Daily RAG index",
+      "type": "rag_index",
+      "schedule": "0 2 * * *",
+      "enabled": true,
+      "payload": {}
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### `POST /api/jobs`
+
+Create a new job.
+
+**Request:**
+```json
+{
+  "name": "Daily RAG index",
+  "type": "rag_index",
+  "schedule": "0 2 * * *",
+  "enabled": true,
+  "payload": { "project_id": "uuid" }
+}
+```
+
+**Job types:** `reminder`, `github_sync`, `rag_index`, `custom`  
+**Schedule formats:** cron expression (`"0 2 * * *"`) or shorthand (`"every_5min"`, `"every_1h"`)
+
+**Response:** `201` — Job object
+
+---
+
+### `PUT /api/jobs/{job_id}`
+
+Update an existing job (partial update).
+
+**Request:** Any subset of `{ name, type, schedule, enabled, payload }`
+
+**Response:** `200` — Updated job object  
+**Error:** `404` — Job not found
+
+---
+
+### `DELETE /api/jobs/{job_id}`
+
+Delete a job.
+
+**Response:** `204`  
+**Error:** `404` — Job not found
+
+---
+
+### `POST /api/jobs/{job_id}/run`
+
+Trigger a job immediately (fire-and-forget).
+
+**Response:** `200`
+```json
+{
+  "status": "triggered",
+  "job_id": "uuid",
+  "name": "Daily RAG index",
+  "result": { "status": "ok", "message": "RAG index triggered" }
+}
+```
+**Error:** `404` — Job not found
+
+---
+
+## Code Review
+
+### `POST /api/code/review`
+
+Review a code snippet using the Deep (Opus) model. Returns structured analysis.
+
+**Request:**
+```json
+{
+  "code": "def foo():\n    return 1/0",
+  "language": "python",
+  "context": "Utility function in our API"
+}
+```
+
+**Response:** `200`
+```json
+{
+  "review": "This function will always raise a ZeroDivisionError...",
+  "issues": [
+    { "line": 2, "severity": "error", "message": "Division by zero — always raises ZeroDivisionError" }
+  ],
+  "suggestions": [
+    "Add a guard clause before the division",
+    "Consider returning None or raising a custom exception"
+  ]
+}
+```
+
+**Issue severities:** `error` (bugs/security), `warning` (code smells/perf), `info` (style/clarity)  
+**Limits:** Up to 10 issues, up to 5 suggestions

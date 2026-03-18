@@ -5,7 +5,7 @@ test.describe('3-Layer Multi-Model Chat Orchestration', () => {
   test.setTimeout(90000);
 
   test('Haiku responds fast, Opus may enrich', async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     const input = page.locator('[data-testid="chat-input"]');
@@ -51,7 +51,7 @@ test.describe('3-Layer Multi-Model Chat Orchestration', () => {
   });
 
   test('Simple greeting does not trigger enrichment', async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     const input = page.locator('[data-testid="chat-input"]');
@@ -78,7 +78,7 @@ test.describe('3-Layer Multi-Model Chat Orchestration', () => {
   });
 
   test('Card suggestion toast appears for actionable messages', async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     const input = page.locator('[data-testid="chat-input"]');

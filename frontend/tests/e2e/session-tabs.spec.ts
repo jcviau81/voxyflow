@@ -26,7 +26,7 @@ async function createProjectAndOpenChat(page: import('@playwright/test').Page) {
 
 test.describe('Session Tabs — General Chat (Unified Header)', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await page.waitForSelector('#app', { timeout: 10000 });
@@ -105,17 +105,17 @@ test.describe('Session Tabs — General Chat (Unified Header)', () => {
 
 test.describe('Session Tabs — Project Chat (SessionTabBar)', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await page.waitForSelector('#app', { timeout: 10000 });
-    // Navigate to project view
+    // Navigate to project view (opens kanban)
     await createProjectAndOpenChat(page);
-    // Switch to chat view within project
-    const viewToggle = page.locator('[data-testid="view-toggle"]');
-    if (await viewToggle.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await viewToggle.click();
-    }
+    // Switch to chat view within project (click Chat button in kanban view-toggle)
+    const chatViewBtn = page.locator('.view-toggle [data-view="chat"]');
+    await chatViewBtn.waitFor({ timeout: 5000 });
+    await chatViewBtn.click();
+    await page.waitForSelector('[data-testid="session-tab-bar"]', { timeout: 5000 });
   });
 
   test('Opening a project shows the session tab bar', async ({ page }) => {
@@ -147,9 +147,11 @@ test.describe('Session Tabs — Project Chat (SessionTabBar)', () => {
     const tabBar = page.locator('[data-testid="session-tab-bar"]');
     await expect(tabBar.locator('.session-tab')).toHaveCount(2);
 
-    // Close the first tab using its × button
+    // Close the first tab using its × button (revealed on hover)
+    const firstTab = tabBar.locator('.session-tab').first();
+    await firstTab.hover();
     const firstCloseBtn = tabBar.locator('.session-tab-close').first();
-    await firstCloseBtn.click();
+    await firstCloseBtn.click({ force: true });
     await expect(tabBar.locator('.session-tab')).toHaveCount(1);
   });
 

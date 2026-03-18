@@ -5,7 +5,7 @@ test.describe('Chat → Claude Integration', () => {
   test.setTimeout(60000);
 
   test('Chat sends message and receives Claude response', async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Make sure chat input is visible

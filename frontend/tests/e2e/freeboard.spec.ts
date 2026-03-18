@@ -3,10 +3,15 @@ import { test, expect } from '@playwright/test';
 test.describe('FreeBoard', () => {
   test.beforeEach(async ({ page }) => {
     // Clear localStorage to ensure fresh state
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await page.waitForSelector('#app', { timeout: 10000 });
+    // Navigate to freeboard view
+    const boardBtn = page.locator('[data-testid="general-view-toggle"] [data-view="freeboard"]');
+    await boardBtn.waitFor({ timeout: 5000 });
+    await boardBtn.click();
+    await page.waitForSelector('[data-testid="freeboard"]', { timeout: 5000 });
   });
 
   test('FreeBoard renders in general chat view', async ({ page }) => {

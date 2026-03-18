@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Welcome Flow', () => {
   test.beforeEach(async ({ page }) => {
     // Clear localStorage to ensure fresh state (empty chat)
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.evaluate(() => {
       localStorage.clear();
     });
@@ -58,39 +58,40 @@ test.describe('Welcome Flow', () => {
 
 test.describe('Layer Toggles', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
   });
 
   test('Layer toggle checkboxes are visible', async ({ page }) => {
-    const opusToggle = page.locator('[data-testid="layer-toggle-opus"]');
+    // Models are: fast (non-toggleable), deep (toggleable), analyzer (toggleable)
+    const deepToggle = page.locator('[data-testid="layer-toggle-deep"]');
     const analyzerToggle = page.locator('[data-testid="layer-toggle-analyzer"]');
 
-    await expect(opusToggle).toBeVisible();
+    await expect(deepToggle).toBeVisible();
     await expect(analyzerToggle).toBeVisible();
 
     // Both should be checked by default
-    await expect(opusToggle).toBeChecked();
+    await expect(deepToggle).toBeChecked();
     await expect(analyzerToggle).toBeChecked();
   });
 
   test('Layer toggles persist to localStorage', async ({ page }) => {
-    const opusToggle = page.locator('[data-testid="layer-toggle-opus"]');
+    const deepToggle = page.locator('[data-testid="layer-toggle-deep"]');
 
-    // Uncheck Opus
-    await opusToggle.uncheck();
-    await expect(opusToggle).not.toBeChecked();
+    // Uncheck Deep
+    await deepToggle.uncheck();
+    await expect(deepToggle).not.toBeChecked();
 
     // Check localStorage
     const stored = await page.evaluate(() => {
       return JSON.parse(localStorage.getItem('voxyflow_layer_toggles') || '{}');
     });
-    expect(stored.opus).toBe(false);
+    expect(stored.deep).toBe(false);
     expect(stored.analyzer).toBe(true);
 
     // Reload page — toggle state should persist
     await page.reload();
-    const opusToggleAfter = page.locator('[data-testid="layer-toggle-opus"]');
-    await expect(opusToggleAfter).not.toBeChecked();
+    const deepToggleAfter = page.locator('[data-testid="layer-toggle-deep"]');
+    await expect(deepToggleAfter).not.toBeChecked();
   });
 
   test('Haiku has no toggle checkbox', async ({ page }) => {

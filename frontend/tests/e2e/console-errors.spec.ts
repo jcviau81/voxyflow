@@ -18,7 +18,7 @@ test('Capture all console errors on page load', async ({ page }) => {
   });
   
   // Navigate and wait for full load
-  await page.goto('http://localhost:3000', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'networkidle' });
   
   // Wait extra time for async operations
   await page.waitForTimeout(5000);

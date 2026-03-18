@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Streaming Responses (SSE)', () => {
   test('First token appears quickly via streaming', async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     const input = page.locator('[data-testid="chat-input"]');
@@ -64,7 +64,7 @@ test.describe('Streaming Responses (SSE)', () => {
   });
 
   test('Message renders correctly after stream completes', async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     const input = page.locator('[data-testid="chat-input"]');

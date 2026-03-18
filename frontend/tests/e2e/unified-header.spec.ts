@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Unified Header — Chat Levels', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForSelector('#app', { timeout: 10000 });
   });
 

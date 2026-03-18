@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Voxyflow E2E', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000');
+    await page.goto('/');
     await page.waitForSelector('#app', { timeout: 10000 });
   });
 

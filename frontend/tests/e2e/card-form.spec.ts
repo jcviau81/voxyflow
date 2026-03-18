@@ -37,7 +37,7 @@ test.describe('Card Form', () => {
     await expect(cardForm).toBeVisible({ timeout: 5000 });
     await expect(page.locator('[data-testid="card-title-input"]')).toBeVisible();
     await expect(page.locator('[data-testid="card-description-input"]')).toBeVisible();
-    await expect(page.locator('[data-testid="card-agent-select"]')).toBeVisible();
+    await expect(page.locator('[data-testid="card-agent-selector"]')).toBeVisible();
     await expect(page.locator('[data-testid="card-priority-select"]')).toBeVisible();
     await expect(page.locator('[data-testid="card-status-pills"]')).toBeVisible();
     await expect(page.locator('[data-testid="card-form-submit"]')).toBeVisible();
@@ -74,12 +74,14 @@ test.describe('Card Form', () => {
     if (await addCardBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await addCardBtn.click();
       await page.waitForSelector('[data-testid="card-form"]', { timeout: 5000 });
-      const agentSelect = page.locator('[data-testid="card-agent-select"]');
-      const options = await agentSelect.locator('option').allTextContents();
-      expect(options).toHaveLength(7);
-      expect(options).toContain('🔥 Ember');
-      expect(options).toContain('💻 Codeuse');
-      expect(options).toContain('🧪 QA/Tester');
+      const agentSelector = page.locator('[data-testid="card-agent-selector"]');
+      await expect(agentSelector).toBeVisible({ timeout: 3000 });
+      const chips = agentSelector.locator('.agent-chip');
+      const chipTexts = await chips.allTextContents();
+      expect(chipTexts).toHaveLength(7);
+      expect(chipTexts.some(t => t.includes('Ember'))).toBeTruthy();
+      expect(chipTexts.some(t => t.includes('Codeuse'))).toBeTruthy();
+      expect(chipTexts.some(t => t.includes('QA'))).toBeTruthy();
     }
   });
 
