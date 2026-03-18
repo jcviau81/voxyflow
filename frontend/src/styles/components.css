@@ -6206,3 +6206,33 @@ pre:hover .code-review-btn,
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
 }
+
+/* Chat connection status indicator */
+.chat-conn-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+.chat-conn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #888;
+}
+.chat-conn-status.connected .chat-conn-dot { background: #00b894; }
+.chat-conn-status.connected { color: #00b894; border-color: rgba(0,184,148,0.3); background: rgba(0,184,148,0.08); }
+.chat-conn-status.connecting .chat-conn-dot { background: #fdcb6e; animation: pulse 1s infinite; }
+.chat-conn-status.connecting { color: #fdcb6e; }
+.chat-conn-status.reconnecting .chat-conn-dot { background: #e17055; animation: pulse 0.5s infinite; }
+.chat-conn-status.reconnecting { color: #e17055; }
+.chat-conn-status.disconnected .chat-conn-dot { background: #d63031; }
+.chat-conn-status.disconnected { color: #d63031; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }

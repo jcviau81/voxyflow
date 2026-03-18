@@ -258,8 +258,18 @@ export class ChatWindow {
     // RIGHT: Actions + Model status
     const actions = createElement('div', { className: 'header-actions' });
 
-    // Connection dot
-    // connection-dot removed (redundant with model status)
+    // Connection status indicator
+    const connState = appState.get('connectionState');
+    const connIndicator = createElement('div', { className: `chat-conn-status ${connState}` });
+    const connDot = createElement('span', { className: 'chat-conn-dot' });
+    const connLabel = createElement('span', { className: 'chat-conn-label' },
+      connState === 'connected' ? 'Connected' :
+      connState === 'connecting' ? 'Connecting...' :
+      connState === 'reconnecting' ? 'Reconnecting...' : 'Disconnected'
+    );
+    connIndicator.appendChild(connDot);
+    connIndicator.appendChild(connLabel);
+    actions.appendChild(connIndicator);
 
     // New Session button (general chat only)
     if (chatLevel === 'general') {
@@ -628,12 +638,19 @@ export class ChatWindow {
       })
     );
 
-    // Connection state
+    // Connection state — update indicator in header
     this.unsubscribers.push(
       appState.subscribe('connectionState', (state) => {
-        const dot = this.container.querySelector('.connection-dot');
-        if (dot) {
-          dot.className = `connection-dot ${state}`;
+        const indicator = this.container.querySelector('.chat-conn-status');
+        if (indicator) {
+          indicator.className = `chat-conn-status ${state}`;
+          const label = indicator.querySelector('.chat-conn-label');
+          if (label) {
+            label.textContent =
+              state === 'connected' ? 'Connected' :
+              state === 'connecting' ? 'Connecting...' :
+              state === 'reconnecting' ? 'Reconnecting...' : 'Disconnected';
+          }
         }
       })
     );
