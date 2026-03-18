@@ -4,8 +4,11 @@ import asyncio
 import json
 import logging
 import time
+from pathlib import Path
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, Chat, Message, new_uuid, utcnow
@@ -25,6 +28,52 @@ from app.services.analyzer_service import AnalyzerService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["voice"])
+
+
+# ---------------------------------------------------------------------------
+# TTS REST endpoints
+# ---------------------------------------------------------------------------
+
+class TTSRequest(BaseModel):
+    text: str
+    language: str = "en"
+
+
+@router.post("/tts")
+async def tts_synthesize(req: TTSRequest):
+    """
+    Synthesize text to speech via the remote XTTS endpoint.
+
+    Returns a JSON object with the URL to the generated audio file.
+    Fails silently (returns 503) if the TTS server is unavailable.
+    """
+    from app.services.tts_service import TTSService
+    tts = TTSService()
+    file_path = await tts.synthesize_to_file(req.text)
+    if file_path is None:
+        raise HTTPException(status_code=503, detail="TTS service unavailable")
+
+    filename = Path(file_path).name
+    return {"url": f"/api/tts/audio/{filename}", "filename": filename}
+
+
+@router.get("/tts/audio/{filename}")
+async def tts_serve_audio(filename: str):
+    """Serve a generated TTS audio file."""
+    from app.services.tts_service import AUDIO_DIR
+
+    # Sanitize: strip path separators to prevent directory traversal
+    safe_name = Path(filename).name
+    file_path = AUDIO_DIR / safe_name
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    return FileResponse(
+        path=str(file_path),
+        media_type="audio/wav",
+        filename=safe_name,
+    )
 
 
 @router.websocket("/ws/voice/{chat_id}")

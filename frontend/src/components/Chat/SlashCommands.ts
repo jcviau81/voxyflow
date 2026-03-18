@@ -31,9 +31,8 @@ export class SlashCommandMenu {
     this.el.className = 'slash-menu';
     this.el.setAttribute('role', 'listbox');
     this.el.style.display = 'none';
-    // Insert before the anchor so it appears above in DOM flow;
-    // CSS uses bottom positioning to float above the input area.
-    anchor.parentElement?.appendChild(this.el);
+    // Append directly inside the anchor (chat-input-area) which has position:relative
+    anchor.appendChild(this.el);
   }
 
   /** Update filter based on current input value. */

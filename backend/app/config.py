@@ -49,8 +49,8 @@ class Settings(BaseSettings):
     claude_max_tokens: int = 1024
 
     # TTS
-    tts_service_url: str = "http://localhost:5500"
-    tts_engine: str = "sherpa-onnx"  # sherpa-onnx | remote
+    tts_service_url: str = "http://192.168.1.59:5500"
+    tts_engine: str = "remote"  # sherpa-onnx | remote
 
     # STT (Whisper fallback)
     whisper_model: str = "turbo"
