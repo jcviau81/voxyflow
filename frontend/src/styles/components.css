@@ -4,7 +4,7 @@
 .sidebar {
   background: var(--color-bg-secondary);
   border-right: 1px solid var(--color-border);
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   padding: 16px 0;
@@ -78,6 +78,56 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sidebar-projects {
+  padding: 8px;
+  flex: 1;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-border);
+  margin-top: 8px;
+}
+
+.sidebar-section-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 4px 12px 8px;
+  letter-spacing: 0.5px;
+}
+
+.sidebar-project-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  transition: background var(--transition), color var(--transition);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar-project-item:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.sidebar-project-item.active {
+  background: var(--color-bg-tertiary);
+  color: var(--color-primary);
+}
+
+.sidebar-project-item.has-tab .sidebar-tab-dot {
+  margin-left: auto;
+}
+
+.sidebar-tab-dot {
+  font-size: 8px;
+  color: var(--color-primary);
+  opacity: 0.6;
 }
 
 .sidebar-status {

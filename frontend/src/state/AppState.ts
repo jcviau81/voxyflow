@@ -1,9 +1,19 @@
-import { AppStateData, Message, Project, Card, ViewMode, ConnectionState } from '../types';
+import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab } from '../types';
 import { eventBus } from '../utils/EventBus';
 import { EVENTS } from '../utils/constants';
 import { generateId, deepClone } from '../utils/helpers';
 
 const STORAGE_KEY = 'voxyflow_state';
+const TABS_STORAGE_KEY = 'voxyflow_open_tabs';
+
+const DEFAULT_MAIN_TAB: Tab = {
+  id: 'main',
+  label: '💬 Main',
+  emoji: '💬',
+  closable: false,
+  hasNotification: false,
+  isActive: true,
+};
 
 const defaultState: AppStateData = {
   currentView: 'chat',
@@ -17,6 +27,8 @@ const defaultState: AppStateData = {
   voiceActive: false,
   volume: 0.8,
   theme: 'dark',
+  activeTab: 'main',
+  openTabs: [{ ...DEFAULT_MAIN_TAB }],
 };
 
 class AppState {
@@ -28,6 +40,17 @@ class AppState {
     // Always reset transient state
     this.state.connectionState = 'disconnected';
     this.state.voiceActive = false;
+
+    // Ensure tabs are initialized (migration from old state)
+    if (!this.state.openTabs || this.state.openTabs.length === 0) {
+      this.state.openTabs = [{ ...DEFAULT_MAIN_TAB }];
+    }
+    if (!this.state.activeTab) {
+      this.state.activeTab = 'main';
+    }
+
+    // Restore persisted tabs
+    this.loadTabsFromStorage();
   }
 
   private loadFromStorage(): AppStateData | null {
@@ -249,11 +272,126 @@ class AppState {
     this.set('connectionState', state);
   }
 
+  // --- Tabs ---
+
+  private loadTabsFromStorage(): void {
+    try {
+      const saved = localStorage.getItem(TABS_STORAGE_KEY);
+      if (saved) {
+        const tabs = JSON.parse(saved) as Tab[];
+        // Ensure main tab always exists
+        const hasMain = tabs.some(t => t.id === 'main');
+        if (!hasMain) {
+          tabs.unshift({ ...DEFAULT_MAIN_TAB });
+        }
+        this.state.openTabs = tabs;
+        // Ensure active tab is valid
+        const activeValid = tabs.some(t => t.id === this.state.activeTab);
+        if (!activeValid) {
+          this.state.activeTab = 'main';
+        }
+        // Set isActive flags
+        this.state.openTabs.forEach(t => {
+          t.isActive = t.id === this.state.activeTab;
+        });
+      }
+    } catch (e) {
+      console.warn('[AppState] Failed to load tabs from localStorage:', e);
+    }
+  }
+
+  private saveTabsToStorage(): void {
+    try {
+      localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(this.state.openTabs));
+    } catch (e) {
+      console.warn('[AppState] Failed to save tabs to localStorage:', e);
+    }
+  }
+
+  openProjectTab(projectId: string, projectName: string, emoji?: string): void {
+    const existing = this.state.openTabs.find(t => t.id === projectId);
+    if (existing) {
+      // Tab already open, just switch to it
+      this.switchTab(projectId);
+      return;
+    }
+
+    const tab: Tab = {
+      id: projectId,
+      label: projectName,
+      emoji: emoji || '📁',
+      closable: true,
+      hasNotification: false,
+      isActive: false,
+    };
+
+    const tabs = [...this.state.openTabs, tab];
+    this.set('openTabs', tabs);
+    this.saveTabsToStorage();
+    eventBus.emit(EVENTS.TAB_OPEN, tab);
+    this.switchTab(projectId);
+  }
+
+  closeTab(tabId: string): void {
+    if (tabId === 'main') return; // Cannot close main tab
+
+    const tabs = this.state.openTabs.filter(t => t.id !== tabId);
+    this.set('openTabs', tabs);
+    this.saveTabsToStorage();
+    eventBus.emit(EVENTS.TAB_CLOSE, tabId);
+
+    // If we closed the active tab, switch to main
+    if (this.state.activeTab === tabId) {
+      this.switchTab('main');
+    }
+  }
+
+  switchTab(tabId: string): void {
+    const tab = this.state.openTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    // Update active states
+    const tabs = this.state.openTabs.map(t => ({
+      ...t,
+      isActive: t.id === tabId,
+    }));
+    this.set('openTabs', tabs);
+    this.set('activeTab', tabId);
+    this.saveTabsToStorage();
+
+    // Update project context
+    if (tabId === 'main') {
+      this.selectProject(null);
+    } else {
+      this.selectProject(tabId);
+    }
+
+    eventBus.emit(EVENTS.TAB_SWITCH, tabId);
+  }
+
+  setTabNotification(tabId: string, hasNotification: boolean): void {
+    const tabs = this.state.openTabs.map(t =>
+      t.id === tabId ? { ...t, hasNotification } : t
+    );
+    this.set('openTabs', tabs);
+    this.saveTabsToStorage();
+    eventBus.emit(EVENTS.TAB_NOTIFICATION, { tabId, hasNotification });
+  }
+
+  getOpenTabs(): Tab[] {
+    return this.state.openTabs;
+  }
+
+  getActiveTab(): string {
+    return this.state.activeTab;
+  }
+
   // --- Reset ---
 
   reset(): void {
     this.state = deepClone(defaultState);
     this.saveToStorage();
+    this.saveTabsToStorage();
     eventBus.emit(EVENTS.STATE_CHANGED, { key: '*', value: null });
   }
 

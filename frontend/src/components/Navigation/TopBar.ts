@@ -84,6 +84,9 @@ export class TopBar {
       eventBus.on(EVENTS.PROJECT_SELECTED, () => this.render())
     );
     this.unsubscribers.push(
+      eventBus.on(EVENTS.TAB_SWITCH, () => this.render())
+    );
+    this.unsubscribers.push(
       appState.subscribe('voiceActive', () => this.render())
     );
     this.unsubscribers.push(

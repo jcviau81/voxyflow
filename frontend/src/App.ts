@@ -6,6 +6,7 @@ import { appState } from './state/AppState';
 import { apiClient } from './services/ApiClient';
 import { Sidebar } from './components/Navigation/Sidebar';
 import { TopBar } from './components/Navigation/TopBar';
+import { TabBar } from './components/Navigation/TabBar';
 import { ChatWindow } from './components/Chat/ChatWindow';
 import { KanbanBoard } from './components/Kanban/KanbanBoard';
 import { CardDetailModal } from './components/Kanban/CardDetailModal';
@@ -18,6 +19,7 @@ export class App {
   private mainContent: HTMLElement;
   private sidebar: Sidebar | null = null;
   private topBar: TopBar | null = null;
+  private tabBar: TabBar | null = null;
   private toast: Toast | null = null;
   private cardModal: CardDetailModal | null = null;
   private opportunitiesPanel: OpportunitiesPanel | null = null;
@@ -37,7 +39,11 @@ export class App {
     this.root.innerHTML = '';
     this.root.className = 'app-container';
 
-    // Layout
+    // Tab bar (full width, above everything)
+    const tabBarContainer = createElement('div', { className: 'tab-bar-container' });
+    this.tabBar = new TabBar(tabBarContainer);
+
+    // Layout (below tab bar)
     const layout = createElement('div', { className: 'app-layout' });
 
     // Sidebar
@@ -62,6 +68,7 @@ export class App {
     layout.appendChild(mainArea);
     layout.appendChild(opportunitiesContainer);
 
+    this.root.appendChild(tabBarContainer);
     this.root.appendChild(layout);
 
     // Toast container
@@ -243,6 +250,7 @@ export class App {
     this.unsubscribers.forEach((unsub) => unsub());
     this.sidebar?.destroy();
     this.topBar?.destroy();
+    this.tabBar?.destroy();
     this.toast?.destroy();
     this.cardModal?.destroy();
     this.opportunitiesPanel?.destroy();

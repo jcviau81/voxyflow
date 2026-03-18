@@ -67,6 +67,8 @@ export interface AppStateData {
   voiceActive: boolean;
   volume: number;
   theme: 'dark' | 'light';
+  activeTab: string;
+  openTabs: Tab[];
 }
 
 export interface WebSocketMessage {
@@ -119,6 +121,15 @@ export interface ApiClientConfig {
 export interface AudioQueueItem {
   buffer: ArrayBuffer;
   id: string;
+}
+
+export interface Tab {
+  id: string;           // 'main' or project UUID
+  label: string;        // '💬 Main' or project name
+  emoji?: string;       // project emoji
+  closable: boolean;    // Main = false, projects = true
+  hasNotification: boolean;
+  isActive: boolean;
 }
 
 export interface CardSuggestion {

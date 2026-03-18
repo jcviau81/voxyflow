@@ -85,12 +85,118 @@ body {
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-bar-container {
+  flex-shrink: 0;
 }
 
 .app-layout {
   display: flex;
-  height: 100vh;
+  flex: 1;
   width: 100%;
+  min-height: 0;
+}
+
+/* Tab Bar */
+.tab-bar {
+  display: flex;
+  align-items: center;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 8px;
+  height: 40px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary, #888);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tab:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tab.active {
+  color: var(--color-text);
+  border-bottom-color: var(--color-primary, #ff6b6b);
+}
+
+.tab-emoji {
+  font-size: 14px;
+}
+
+.tab-label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  margin-left: 4px;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.tab:hover .tab-close {
+  opacity: 0.6;
+}
+
+.tab-close:hover {
+  opacity: 1 !important;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tab-notification {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary, #ff6b6b);
+  margin-left: 4px;
+  flex-shrink: 0;
+  animation: pulse 2s infinite;
+}
+
+.tab-add {
+  padding: 8px 12px;
+  color: var(--color-text-muted, #666);
+  cursor: pointer;
+  font-size: 16px;
+  background: none;
+  border: none;
+  flex-shrink: 0;
+  transition: color 0.2s;
+}
+
+.tab-add:hover {
+  color: var(--color-text);
 }
 
 .sidebar-container {
@@ -108,7 +214,7 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  height: 100vh;
+  height: 100%;
 }
 
 .top-bar-container {

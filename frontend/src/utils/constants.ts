@@ -83,6 +83,12 @@ export const EVENTS = {
   VIEW_CHANGE: 'nav:view:change',
   SIDEBAR_TOGGLE: 'nav:sidebar:toggle',
 
+  // Tabs
+  TAB_SWITCH: 'nav:tab:switch',
+  TAB_OPEN: 'nav:tab:open',
+  TAB_CLOSE: 'nav:tab:close',
+  TAB_NOTIFICATION: 'nav:tab:notification',
+
   // Projects & Cards
   PROJECT_CREATED: 'project:created',
   PROJECT_UPDATED: 'project:updated',

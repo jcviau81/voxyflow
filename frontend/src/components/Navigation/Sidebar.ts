@@ -60,16 +60,44 @@ export class Sidebar {
       return el;
     });
 
-    // Project selector (bottom)
-    const projectSection = createElement('div', { className: 'sidebar-project' });
-    const currentProject = appState.get('currentProjectId');
-    const project = currentProject ? appState.getProject(currentProject) : null;
-    const projectLabel = createElement(
-      'div',
-      { className: 'sidebar-project-name' },
-      project ? project.name : 'No project selected'
-    );
-    projectSection.appendChild(projectLabel);
+    // Project list section
+    const projectSection = createElement('div', { className: 'sidebar-projects' });
+    const projectsHeader = createElement('div', { className: 'sidebar-section-header' }, 'Projects');
+    projectSection.appendChild(projectsHeader);
+
+    // General / Main item
+    const activeTabId = appState.getActiveTab();
+    const generalItem = createElement('div', {
+      className: cn('sidebar-project-item', activeTabId === 'main' && 'active'),
+      'data-testid': 'sidebar-general',
+    });
+    generalItem.appendChild(createElement('span', {}, '💬'));
+    generalItem.appendChild(createElement('span', {}, 'General'));
+    generalItem.addEventListener('click', () => {
+      appState.switchTab('main');
+    });
+    projectSection.appendChild(generalItem);
+
+    // Project items
+    const projects = appState.get('projects').filter(p => !p.archived);
+    const openTabs = appState.getOpenTabs();
+    projects.forEach((proj) => {
+      const isTabOpen = openTabs.some(t => t.id === proj.id);
+      const isActive = activeTabId === proj.id;
+      const item = createElement('div', {
+        className: cn('sidebar-project-item', isActive && 'active', isTabOpen && 'has-tab'),
+        'data-testid': `sidebar-project-${proj.id}`,
+      });
+      item.appendChild(createElement('span', {}, '📁'));
+      item.appendChild(createElement('span', {}, proj.name));
+      if (isTabOpen) {
+        item.appendChild(createElement('span', { className: 'sidebar-tab-dot' }, '●'));
+      }
+      item.addEventListener('click', () => {
+        appState.openProjectTab(proj.id, proj.name);
+      });
+      projectSection.appendChild(item);
+    });
 
     // Connection status
     const status = createElement('div', { className: 'sidebar-status' });
@@ -104,14 +132,26 @@ export class Sidebar {
     );
 
     this.unsubscribers.push(
-      eventBus.on(EVENTS.PROJECT_SELECTED, () => {
-        const currentProject = appState.get('currentProjectId');
-        const project = currentProject ? appState.getProject(currentProject) : null;
-        const nameEl = this.container.querySelector('.sidebar-project-name');
-        if (nameEl) {
-          nameEl.textContent = project ? project.name : 'No project selected';
-        }
-      })
+      eventBus.on(EVENTS.PROJECT_SELECTED, () => this.render())
+    );
+
+    // Re-render on tab changes
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TAB_SWITCH, () => this.render())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TAB_OPEN, () => this.render())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TAB_CLOSE, () => this.render())
+    );
+
+    // Re-render when projects change
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.PROJECT_CREATED, () => this.render())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.PROJECT_DELETED, () => this.render())
     );
 
     // Toggle sidebar shortcut (Ctrl+B)
