@@ -43,3 +43,7 @@ htmlcov/
 
 # Session data (persisted conversations)
 data/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
