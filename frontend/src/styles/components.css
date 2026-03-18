@@ -623,6 +623,24 @@
   box-shadow: 0 4px 10px rgba(255, 107, 107, 0.3);
 }
 
+.kanban-action-btn {
+  padding: 6px 12px;
+  background: var(--color-surface-2, rgba(255, 255, 255, 0.06));
+  color: var(--color-text-secondary, #aaa);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--border-radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.kanban-action-btn:hover {
+  background: var(--color-surface-3, rgba(255, 255, 255, 0.1));
+  color: var(--color-text, #fff);
+  border-color: var(--color-primary, #ff6b6b);
+}
+
 .kanban-columns {
   display: flex;
   gap: 12px;
@@ -3292,4 +3310,221 @@
   color: var(--color-text-muted);
   text-align: center;
   flex-shrink: 0;
+}
+
+/* ===== Health Status Bar ===== */
+
+.health-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.health-status-bar-label {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-right: 4px;
+}
+
+.health-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.health-dot.ok {
+  color: #00b894;
+}
+
+.health-dot.down {
+  color: #d63031;
+}
+
+.health-dot-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.health-dot.ok .health-dot-indicator {
+  background: #00b894;
+  box-shadow: 0 0 4px #00b894aa;
+}
+
+.health-dot.down .health-dot-indicator {
+  background: #d63031;
+  box-shadow: 0 0 4px #d63031aa;
+}
+
+/* ===== Jobs Section ===== */
+
+.jobs-section {
+  /* inherits .settings-section */
+}
+
+.jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.jobs-empty-state {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  padding: 16px 0;
+  text-align: center;
+}
+
+.job-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+
+.job-item:hover {
+  border-color: var(--color-border-light);
+}
+
+.job-item-toggle {
+  flex-shrink: 0;
+}
+
+.job-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.job-item-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-item-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.job-item-schedule {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono, monospace);
+}
+
+.job-item-type {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.job-item-lastrun {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.job-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Add Job Form */
+
+.job-add-form {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.job-add-form-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+
+.job-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 540px) {
+  .job-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.job-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.job-form-row label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.job-form-row .setting-input,
+.job-form-row .setting-select {
+  font-size: 13px;
+}
+
+.job-form-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 1px;
+}
+
+.job-form-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.job-form-enabled-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.jobs-loading {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  padding: 12px 0;
+  text-align: center;
 }

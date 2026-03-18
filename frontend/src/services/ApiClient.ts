@@ -303,6 +303,34 @@ export class ApiClient {
     }
   }
 
+  async exportProject(projectId: string): Promise<unknown | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/export`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('[ApiClient] exportProject error:', error);
+      return null;
+    }
+  }
+
+  async importProject(data: unknown): Promise<{ project_id: string; project_title: string; cards_imported: number } | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as { project_id: string; project_title: string; cards_imported: number };
+    } catch (error) {
+      console.error('[ApiClient] importProject error:', error);
+      return null;
+    }
+  }
+
   // --- State ---
 
   private updateState(state: ConnectionState): void {

@@ -4,6 +4,7 @@ import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_TYPE_EMOJI, AGENT_TYPE
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { cardService } from '../../services/CardService';
+import { apiClient } from '../../services/ApiClient';
 import { KanbanColumn } from './KanbanColumn';
 import { ActivityFeed } from './ActivityFeed';
 
@@ -94,8 +95,28 @@ export class KanbanBoard {
     const addBtn = createElement('button', { className: 'kanban-add-btn' }, '+ New Card');
     addBtn.addEventListener('click', () => this.promptNewCard());
 
+    // Export button
+    const exportBtn = createElement('button', { className: 'kanban-action-btn', title: 'Export project as JSON' }, '⬇ Export');
+    exportBtn.addEventListener('click', () => this.handleExport());
+
+    // Import button + hidden file input
+    const importBtn = createElement('button', { className: 'kanban-action-btn', title: 'Import project from JSON' }, '⬆ Import');
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.accept = '.json,application/json';
+    importInput.style.display = 'none';
+    importInput.addEventListener('change', () => {
+      const file = importInput.files?.[0];
+      if (file) this.handleImport(file);
+      importInput.value = ''; // reset so same file can be re-selected
+    });
+    importBtn.addEventListener('click', () => importInput.click());
+
     header.appendChild(title);
     header.appendChild(searchBar);
+    header.appendChild(exportBtn);
+    header.appendChild(importBtn);
+    header.appendChild(importInput);
     header.appendChild(addBtn);
     this.container.appendChild(header);
 
@@ -260,6 +281,57 @@ export class KanbanBoard {
       mode: 'create',
       projectId,
     });
+  }
+
+  private async handleExport(): Promise<void> {
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Select a project first', type: 'warning' });
+      return;
+    }
+
+    const project = appState.getProject(projectId);
+    const data = await apiClient.exportProject(projectId);
+    if (!data) {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Export failed', type: 'error' });
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const filename = `${(project?.name || 'project').replace(/[^a-z0-9_-]/gi, '_')}.json`;
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    eventBus.emit(EVENTS.TOAST_SHOW, { message: '✅ Project exported', type: 'success' });
+  }
+
+  private async handleImport(file: File): Promise<void> {
+    let data: unknown;
+    try {
+      const text = await file.text();
+      data = JSON.parse(text);
+    } catch {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Invalid JSON file', type: 'error' });
+      return;
+    }
+
+    const result = await apiClient.importProject(data);
+    if (!result) {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Import failed — check file format', type: 'error' });
+      return;
+    }
+
+    eventBus.emit(EVENTS.TOAST_SHOW, {
+      message: `✅ Project imported: ${result.project_title}`,
+      type: 'success',
+    });
+
+    // Refresh project list so new project appears in sidebar
+    eventBus.emit(EVENTS.PROJECT_CREATED, { id: result.project_id });
   }
 
   moveCard(cardId: string, newStatus: CardStatus): void {

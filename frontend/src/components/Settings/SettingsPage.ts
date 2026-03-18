@@ -8,6 +8,7 @@ import { EVENTS, API_URL } from '../../utils/constants';
 import { appState } from '../../state/AppState';
 import { apiClient } from '../../services/ApiClient';
 import { ttsService } from '../../services/TtsService';
+import { jobsService, Job, ServiceHealth } from '../../services/JobsService';
 
 interface PersonalitySettings {
   bot_name: string;
@@ -95,6 +96,15 @@ export class SettingsPage {
   private dirty = false;
   private saving = false;
 
+  // Jobs state
+  private jobs: Job[] = [];
+  private jobsLoading = false;
+  private showAddJobForm = false;
+  private jobsHealthInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Health state
+  private serviceHealth: ServiceHealth[] = [];
+
   constructor(container: HTMLElement) {
     this.container = container;
     this.root = createElement('div', { className: 'settings-view' });
@@ -125,6 +135,10 @@ export class SettingsPage {
     }
     this.render();
     this.loadPreviews();
+    this.loadJobs();
+    this.loadServiceHealth();
+    // Refresh health every 30 seconds
+    this.jobsHealthInterval = setInterval(() => this.loadServiceHealth(), 30_000);
   }
 
   private async loadPreviews(): Promise<void> {
@@ -171,6 +185,7 @@ export class SettingsPage {
     const title = createElement('h2', {}, '\u2699\uFE0F Settings');
     this.root.appendChild(title);
 
+    this.root.insertAdjacentHTML('beforeend', this.renderHealthBar());
     this.root.insertAdjacentHTML('beforeend', this.renderPersonalitySection());
     this.root.insertAdjacentHTML('beforeend', this.renderModelsSection());
     this.root.insertAdjacentHTML('beforeend', this.renderGitHubSection());
@@ -178,6 +193,7 @@ export class SettingsPage {
     this.root.insertAdjacentHTML('beforeend', this.renderTtsSection());
     this.root.insertAdjacentHTML('beforeend', this.renderConnectionSection());
     this.root.insertAdjacentHTML('beforeend', this.renderDataSection());
+    this.root.insertAdjacentHTML('beforeend', this.renderJobsSection());
     this.root.insertAdjacentHTML('beforeend', this.renderAboutSection());
     this.root.insertAdjacentHTML('beforeend', this.renderSaveBar());
 
@@ -479,6 +495,292 @@ export class SettingsPage {
     `;
   }
 
+  // ── Health Bar ─────────────────────────────────────────────────────────────
+
+  private renderHealthBar(): string {
+    const dots = this.serviceHealth.length === 0
+      ? '<span class="health-dot" style="color: var(--color-text-muted);">Checking…</span>'
+      : this.serviceHealth.map((s) => `
+          <span class="health-dot ${s.status === 'ok' ? 'ok' : 'down'}">
+            <span class="health-dot-indicator"></span>
+            ${this.escapeHtml(s.name)}
+          </span>
+        `).join('');
+
+    return `
+      <div class="health-status-bar" id="health-status-bar">
+        <span class="health-status-bar-label">🟢 Services</span>
+        ${dots}
+      </div>
+    `;
+  }
+
+  private async loadServiceHealth(): Promise<void> {
+    try {
+      const response = await fetch(`${API_URL}/api/health/services`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as { services?: ServiceHealth[] };
+      this.serviceHealth = data.services || [];
+    } catch {
+      // If endpoint doesn't exist or fails, show defaults as unknown
+      this.serviceHealth = [
+        { name: 'Claude Proxy', status: 'down' },
+        { name: 'XTTS', status: 'down' },
+        { name: 'ChromaDB', status: 'down' },
+      ];
+    }
+    this.refreshHealthBar();
+  }
+
+  private refreshHealthBar(): void {
+    const bar = this.root.querySelector('#health-status-bar');
+    if (!bar) return;
+    const parent = bar.parentElement;
+    if (!parent) return;
+    const next = bar.nextSibling;
+    bar.remove();
+    const tmp = document.createElement('div');
+    tmp.innerHTML = this.renderHealthBar();
+    const newBar = tmp.firstElementChild!;
+    parent.insertBefore(newBar, next);
+  }
+
+  // ── Jobs Section ───────────────────────────────────────────────────────────
+
+  private renderJobsSection(): string {
+    const jobsListHtml = this.jobsLoading
+      ? '<div class="jobs-loading">Loading jobs…</div>'
+      : this.jobs.length === 0
+        ? '<div class="jobs-empty-state">No scheduled jobs. Add one to automate tasks.</div>'
+        : `<div class="jobs-list">${this.jobs.map((job) => this.renderJobItem(job)).join('')}</div>`;
+
+    const addFormHtml = this.showAddJobForm ? this.renderAddJobForm() : '';
+
+    return `
+      <div class="settings-section jobs-section" data-testid="settings-jobs">
+        <h3>⏰ Scheduled Jobs</h3>
+        ${jobsListHtml}
+        ${addFormHtml}
+        ${!this.showAddJobForm ? `
+          <button class="btn-secondary" id="jobs-add-btn" style="margin-top: 8px;">+ Add Job</button>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  private renderJobItem(job: Job): string {
+    const lastRunText = job.last_run
+      ? `Last: ${new Date(job.last_run).toLocaleString()}`
+      : 'Never run';
+
+    return `
+      <div class="job-item" data-job-id="${this.escapeHtml(job.id)}">
+        <input
+          type="checkbox"
+          class="setting-checkbox job-item-toggle"
+          data-job-toggle="${this.escapeHtml(job.id)}"
+          title="Enable/disable"
+          ${job.enabled ? 'checked' : ''}
+        />
+        <div class="job-item-info">
+          <div class="job-item-name">${this.escapeHtml(job.name)}</div>
+          <div class="job-item-meta">
+            <span class="job-item-type">${this.escapeHtml(job.type)}</span>
+            <span class="job-item-schedule">${this.escapeHtml(job.schedule)}</span>
+            <span class="job-item-lastrun">${lastRunText}</span>
+          </div>
+        </div>
+        <div class="job-item-actions">
+          <button class="btn-sm" data-job-run="${this.escapeHtml(job.id)}" title="Run now">▶️</button>
+          <button class="btn-sm btn-danger-sm" data-job-delete="${this.escapeHtml(job.id)}" title="Delete">🗑️</button>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderAddJobForm(): string {
+    return `
+      <div class="job-add-form" id="job-add-form">
+        <div class="job-add-form-title">New Scheduled Job</div>
+        <div class="job-form-grid">
+          <div class="job-form-row">
+            <label for="job-form-name">Name</label>
+            <input type="text" id="job-form-name" class="setting-input" placeholder="Daily standup reminder" />
+          </div>
+          <div class="job-form-row">
+            <label for="job-form-type">Type</label>
+            <select id="job-form-type" class="setting-select">
+              <option value="reminder">reminder</option>
+              <option value="github_sync">github_sync</option>
+              <option value="rag_index">rag_index</option>
+              <option value="custom">custom</option>
+            </select>
+          </div>
+          <div class="job-form-row">
+            <label for="job-form-schedule">Schedule</label>
+            <input type="text" id="job-form-schedule" class="setting-input" placeholder="0 9 * * 1-5" />
+            <span class="job-form-hint">Cron or: every_30min, every_hour, every_day</span>
+          </div>
+          <div class="job-form-row" style="justify-content: flex-end;">
+            <label>&nbsp;</label>
+            <div class="job-form-enabled-row">
+              <input type="checkbox" id="job-form-enabled" checked />
+              <span>Enabled</span>
+            </div>
+          </div>
+        </div>
+        <div class="job-form-footer">
+          <button class="btn-primary btn-sm" id="job-form-submit">Create Job</button>
+          <button class="btn-ghost btn-sm" id="job-form-cancel">Cancel</button>
+          <span id="job-form-error" style="font-size: 12px; color: var(--color-error, #ff6b6b);"></span>
+        </div>
+      </div>
+    `;
+  }
+
+  private async loadJobs(): Promise<void> {
+    this.jobsLoading = true;
+    this.refreshJobsSection();
+    try {
+      this.jobs = await jobsService.getJobs();
+    } catch (e) {
+      console.warn('[SettingsPage] Failed to load jobs:', e);
+      this.jobs = [];
+    }
+    this.jobsLoading = false;
+    this.refreshJobsSection();
+  }
+
+  private refreshJobsSection(): void {
+    const section = this.root.querySelector('[data-testid="settings-jobs"]');
+    if (!section) return;
+    const parent = section.parentElement;
+    if (!parent) return;
+    const next = section.nextSibling;
+    section.remove();
+    const tmp = document.createElement('div');
+    tmp.innerHTML = this.renderJobsSection();
+    const newSection = tmp.firstElementChild!;
+    parent.insertBefore(newSection, next);
+    this.bindJobsEvents();
+  }
+
+  private bindJobsEvents(): void {
+    const addBtn = this.root.querySelector('#jobs-add-btn');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        this.showAddJobForm = true;
+        this.refreshJobsSection();
+      });
+    }
+
+    const cancelBtn = this.root.querySelector('#job-form-cancel');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', () => {
+        this.showAddJobForm = false;
+        this.refreshJobsSection();
+      });
+    }
+
+    const submitBtn = this.root.querySelector('#job-form-submit');
+    if (submitBtn) {
+      submitBtn.addEventListener('click', () => this.handleCreateJob());
+    }
+
+    // Toggle enabled
+    this.root.querySelectorAll('[data-job-toggle]').forEach((el) => {
+      el.addEventListener('change', async (e) => {
+        const id = (el as HTMLElement).dataset.jobToggle!;
+        const enabled = (e.target as HTMLInputElement).checked;
+        try {
+          const updated = await jobsService.updateJob(id, { enabled });
+          const idx = this.jobs.findIndex((j) => j.id === id);
+          if (idx !== -1) this.jobs[idx] = updated;
+          this.refreshJobsSection();
+        } catch (err) {
+          console.error('[SettingsPage] Failed to toggle job:', err);
+          eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to update job', type: 'error', duration: 3000 });
+        }
+      });
+    });
+
+    // Run now
+    this.root.querySelectorAll('[data-job-run]').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const id = (el as HTMLElement).dataset.jobRun!;
+        const btn = el as HTMLButtonElement;
+        btn.disabled = true;
+        try {
+          await jobsService.runJob(id);
+          eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Job triggered!', type: 'success', duration: 2000 });
+          await this.loadJobs();
+        } catch (err) {
+          console.error('[SettingsPage] Failed to run job:', err);
+          eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to run job', type: 'error', duration: 3000 });
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Delete
+    this.root.querySelectorAll('[data-job-delete]').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const id = (el as HTMLElement).dataset.jobDelete!;
+        const job = this.jobs.find((j) => j.id === id);
+        if (!confirm(`Delete job "${job?.name || id}"?`)) return;
+        try {
+          await jobsService.deleteJob(id);
+          this.jobs = this.jobs.filter((j) => j.id !== id);
+          this.refreshJobsSection();
+          eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Job deleted', type: 'info', duration: 2000 });
+        } catch (err) {
+          console.error('[SettingsPage] Failed to delete job:', err);
+          eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to delete job', type: 'error', duration: 3000 });
+        }
+      });
+    });
+  }
+
+  private async handleCreateJob(): Promise<void> {
+    const nameEl = this.root.querySelector('#job-form-name') as HTMLInputElement | null;
+    const typeEl = this.root.querySelector('#job-form-type') as HTMLSelectElement | null;
+    const scheduleEl = this.root.querySelector('#job-form-schedule') as HTMLInputElement | null;
+    const enabledEl = this.root.querySelector('#job-form-enabled') as HTMLInputElement | null;
+    const errorEl = this.root.querySelector('#job-form-error') as HTMLElement | null;
+    const submitBtn = this.root.querySelector('#job-form-submit') as HTMLButtonElement | null;
+
+    const name = nameEl?.value.trim() ?? '';
+    const type = (typeEl?.value ?? 'custom') as Job['type'];
+    const schedule = scheduleEl?.value.trim() ?? '';
+    const enabled = enabledEl?.checked ?? true;
+
+    if (!name) {
+      if (errorEl) errorEl.textContent = 'Name is required';
+      return;
+    }
+    if (!schedule) {
+      if (errorEl) errorEl.textContent = 'Schedule is required';
+      return;
+    }
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (errorEl) errorEl.textContent = '';
+
+    try {
+      const newJob = await jobsService.createJob({ name, type, schedule, enabled, payload: {} });
+      this.jobs.push(newJob);
+      this.showAddJobForm = false;
+      this.refreshJobsSection();
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `Job "${name}" created!`, type: 'success', duration: 2000 });
+    } catch (err) {
+      console.error('[SettingsPage] Failed to create job:', err);
+      if (errorEl) errorEl.textContent = 'Failed to create job. Check console.';
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
   private renderAboutSection(): string {
     return `
       <div class="settings-section" style="border-bottom: none;">
@@ -601,6 +903,9 @@ export class SettingsPage {
     if (ttsTestBtn) {
       ttsTestBtn.addEventListener('click', () => this.testTts());
     }
+
+    // Jobs events (jobs section may not be populated yet, bindJobsEvents handles it)
+    this.bindJobsEvents();
   }
 
   private async checkGitHubStatus(showToast: boolean): Promise<void> {
@@ -934,6 +1239,10 @@ export class SettingsPage {
   }
 
   destroy(): void {
+    if (this.jobsHealthInterval) {
+      clearInterval(this.jobsHealthInterval);
+      this.jobsHealthInterval = null;
+    }
     this.root.remove();
   }
 }
