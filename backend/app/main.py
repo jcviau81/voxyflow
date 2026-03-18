@@ -113,6 +113,7 @@ async def _handle_chat_3layer(
     layers: dict[str, bool] | None = None,
     chat_level: str = "general",
     card_id: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     """
     3-Layer Multi-Model Chat Orchestration.
@@ -164,7 +165,7 @@ async def _handle_chat_3layer(
     async def _send_model_status(model: str, state: str) -> None:
         await websocket.send_json({
             "type": "model:status",
-            "payload": {"model": model, "state": state},
+            "payload": {"model": model, "state": state, "sessionId": session_id},
             "timestamp": int(time.time() * 1000),
         })
 
@@ -211,6 +212,7 @@ async def _handle_chat_3layer(
                     "model": "haiku",
                     "streaming": True,
                     "done": False,
+                    "sessionId": session_id,
                 },
                 "timestamp": int(time.time() * 1000),
             })
@@ -227,6 +229,7 @@ async def _handle_chat_3layer(
                 "streaming": True,
                 "done": True,
                 "latency_ms": latency,
+                "sessionId": session_id,
             },
             "timestamp": int(time.time() * 1000),
         })
@@ -236,7 +239,7 @@ async def _handle_chat_3layer(
         await _send_model_status("haiku", "error")
         await websocket.send_json({
             "type": "chat:error",
-            "payload": {"messageId": message_id, "error": str(e)},
+            "payload": {"messageId": message_id, "error": str(e), "sessionId": session_id},
             "timestamp": int(time.time() * 1000),
         })
         # Cancel background tasks on Haiku failure
@@ -264,6 +267,7 @@ async def _handle_chat_3layer(
                         "data": result.data,
                         "error": result.error,
                         "ui_action": result.ui_action,
+                        "sessionId": session_id,
                     },
                     "timestamp": int(time.time() * 1000),
                 })
@@ -285,6 +289,7 @@ async def _handle_chat_3layer(
                         "model": "opus",
                         "action": opus_result["action"],
                         "done": True,
+                        "sessionId": session_id,
                     },
                     "timestamp": int(time.time() * 1000),
                 })
@@ -317,6 +322,7 @@ async def _handle_chat_3layer(
                             "agentType": card.get("agent_type", "ember"),
                             "agentName": card.get("agent_name", "Ember"),
                             "projectId": project_id or "",
+                            "sessionId": session_id,
                         },
                         "timestamp": int(time.time() * 1000),
                     })
@@ -389,6 +395,7 @@ async def general_websocket(websocket: WebSocket):
                         layers=msg_layers,
                         chat_level=chat_level,
                         card_id=card_id,
+                        session_id=session_id,
                     )
 
                 elif msg_type == "session:reset":

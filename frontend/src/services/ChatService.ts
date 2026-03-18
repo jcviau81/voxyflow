@@ -20,22 +20,24 @@ export class ChatService {
     // Handle incoming chat responses
     this.unsubscribers.push(
       apiClient.on('chat:response', (payload) => {
-        const { messageId, content, streaming, done } = payload as {
+        const { messageId, content, streaming, done, sessionId } = payload as {
           messageId: string;
           content: string;
           streaming: boolean;
           done: boolean;
+          sessionId?: string;
         };
+        const responseSessionId = sessionId || this.activeSessionId;
 
         if (streaming && !done) {
           // Streaming chunk — accumulate
-          this.handleStreamingChunk(messageId, content);
+          this.handleStreamingChunk(messageId, content, responseSessionId);
         } else if (done && this.streamingMessages.has(messageId)) {
           // Final chunk of an in-progress stream
           this.handleStreamComplete(messageId, content as string);
         } else {
           // Non-streaming full response (or done without prior stream state)
-          this.handleFullResponse(content);
+          this.handleFullResponse(content, responseSessionId);
         }
       })
     );
