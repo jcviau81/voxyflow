@@ -96,8 +96,8 @@ async def _handle_transcript(
     Process a user transcript through the multi-layer pipeline.
 
     1. Store user message
-    2. Layer 1 (Haiku): fast response → TTS → send
-    3. Layer 2 (Opus): background enrichment (async)
+    2. Layer 1 (Fast): fast response → TTS → send
+    3. Layer 2 (Deep): background enrichment (async)
     4. Layer 3 (Analyzer): card detection (async)
     """
     user_text = transcript.text.strip()
@@ -109,16 +109,20 @@ async def _handle_transcript(
 
     t0 = time.monotonic()
 
-    # --- Layer 1: Haiku (fast response) ---
+    # --- Layer 1: Fast response ---
     try:
-        haiku_response = await claude.chat_haiku(chat_id=chat_id, user_message=user_text)
+        fast_response = await claude.chat_fast(
+            chat_id=chat_id,
+            user_message=user_text,
+            project_id=transcript.project_id,
+        )
         latency_ms = (time.monotonic() - t0) * 1000
 
         # Send text response
         await websocket.send_json(
             WSAssistantText(
-                text=haiku_response,
-                model="haiku",
+                text=fast_response,
+                model="fast",
                 is_enrichment=False,
             ).model_dump()
         )
@@ -126,7 +130,7 @@ async def _handle_transcript(
         # Generate and send TTS audio
         await websocket.send_json(WSStatus(state="speaking").model_dump())
         try:
-            audio_b64 = await tts.synthesize(haiku_response)
+            audio_b64 = await tts.synthesize(fast_response)
             if audio_b64:
                 await websocket.send_json(
                     WSAssistantAudio(data=audio_b64).model_dump()
@@ -135,31 +139,32 @@ async def _handle_transcript(
             logger.warning(f"TTS failed: {e}")
 
     except Exception as e:
-        logger.error(f"Haiku response failed: {e}")
+        logger.error(f"Fast layer response failed: {e}")
         await websocket.send_json(WSError(message=f"LLM error: {e}").model_dump())
         return
 
-    # --- Layer 2 + 3: Opus supervisor + Analyzer (background, non-blocking) ---
-    # Opus now receives Haiku's response so it can evaluate before enriching
+    # --- Layer 2 + 3: Deep supervisor + Analyzer (background, non-blocking) ---
+    # Deep layer receives fast layer's response so it can evaluate before enriching
     async def _background_enrichment():
         try:
-            opus_result = await claude.chat_opus_supervisor(
+            deep_result = await claude.chat_deep_supervisor(
                 chat_id=chat_id,
                 user_message=user_text,
-                haiku_response=haiku_response,
+                fast_response=fast_response,
+                project_id=transcript.project_id,
             )
-            if opus_result.get("action") in ("enrich", "correct") and opus_result.get("content"):
+            if deep_result.get("action") in ("enrich", "correct") and deep_result.get("content"):
                 await websocket.send_json(
                     WSAssistantText(
-                        text=opus_result["content"],
-                        model="opus",
+                        text=deep_result["content"],
+                        model="deep",
                         is_enrichment=True,
                     ).model_dump()
                 )
 
                 # TTS for enrichment
                 try:
-                    audio_b64 = await tts.synthesize(opus_result["content"])
+                    audio_b64 = await tts.synthesize(deep_result["content"])
                     if audio_b64:
                         await websocket.send_json(
                             WSAssistantAudio(data=audio_b64).model_dump()
@@ -167,7 +172,7 @@ async def _handle_transcript(
                 except Exception:
                     pass
         except Exception as e:
-            logger.warning(f"Opus supervisor failed: {e}")
+            logger.warning(f"Deep supervisor failed: {e}")
 
     async def _background_analysis():
         try:

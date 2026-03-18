@@ -5,7 +5,7 @@ export type CardStatus = 'idea' | 'todo' | 'in-progress' | 'done';
 export type ViewMode = 'chat' | 'kanban' | 'projects' | 'settings';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'codeuse' | 'architecte' | 'designer' | 'devops' | 'analyste' | 'testeur' | 'documenteur';
-export type ModelName = 'haiku' | 'opus' | 'analyzer';
+export type ModelName = 'fast' | 'deep' | 'analyzer';
 export type ModelState = 'active' | 'thinking' | 'idle' | 'error';
 
 export interface ModelStatusEvent {
@@ -23,7 +23,7 @@ export interface Message {
   cardId?: string;
   streaming?: boolean;
   audioBuffer?: ArrayBuffer;
-  /** True if this is an Opus enrichment/correction follow-up */
+  /** True if this is a Deep layer enrichment/correction follow-up */
   enrichment?: boolean;
   /** The type of enrichment: deeper thought or correction */
   enrichmentAction?: 'enrich' | 'correct';
@@ -78,6 +78,15 @@ export interface GitHubRepoInfo {
   updated_at: string;
 }
 
+export interface AgentInfo {
+  type: string;
+  name: string;
+  emoji: string;
+  description: string;
+  strengths: string[];
+  keywords: string[];
+}
+
 export interface Card {
   id: string;
   title: string;
@@ -85,6 +94,7 @@ export interface Card {
   status: CardStatus;
   projectId: string;
   assignedAgent?: AgentPersona;
+  agentType?: string;  // ember|researcher|coder|designer|architect|writer|qa
   dependencies: string[];
   tags: string[];
   priority: number;
@@ -108,6 +118,18 @@ export interface AppStateData {
   activeTab: string;
   openTabs: Tab[];
   ideas: Idea[];
+  // Session tabs per context (tabId → SessionInfo[])
+  sessions: Record<string, SessionInfo[]>;
+  // Active session per context (tabId → sessionId)
+  activeSession: Record<string, string>;
+}
+
+// Session tabs (per project/card context)
+export interface SessionInfo {
+  id: string;
+  chatId: string;
+  title: string;
+  createdAt: number;
 }
 
 export interface WebSocketMessage {
@@ -205,4 +227,19 @@ export interface Idea {
   content: string;
   createdAt: number;
   source: 'manual' | 'analyzer';
+  color?: 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange';
+  body?: string;
+}
+
+export interface ModelLayerConfig {
+  provider_url: string;
+  api_key: string;
+  model: string;
+  enabled: boolean;
+}
+
+export interface ModelsSettings {
+  fast: ModelLayerConfig;
+  deep: ModelLayerConfig;
+  analyzer: ModelLayerConfig;
 }

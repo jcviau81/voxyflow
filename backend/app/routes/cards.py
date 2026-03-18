@@ -7,9 +7,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db, Card, Project, new_uuid, utcnow
 from app.models.card import CardCreate, CardUpdate, CardResponse, AgentAssignment
 from app.services.agent_router import get_agent_router
-from app.services.agent_personas import AgentType, get_persona
+from app.services.agent_personas import AgentType, get_persona, get_all_personas
 
 router = APIRouter(tags=["cards"])
+
+
+@router.get("/agents")
+async def list_agents():
+    """Return all available agent personas (type, name, emoji, description, strengths)."""
+    personas = get_all_personas()
+    return [
+        {
+            "type": persona.agent_type.value,
+            "name": persona.name,
+            "emoji": persona.emoji,
+            "description": persona.description,
+            "strengths": persona.strengths,
+            "keywords": persona.keywords,
+        }
+        for persona in personas.values()
+    ]
 
 
 @router.post("/projects/{project_id}/cards", response_model=CardResponse, status_code=201)

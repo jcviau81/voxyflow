@@ -1,7 +1,7 @@
 # Services package
 #
 # Core services:
-#   claude_service     — Claude API calls (Haiku + Opus), personality-infused
+#   claude_service     — Claude API calls (Fast + Deep layers), personality-infused
 #   chat_service       — Conversation management and persistence
 #   tts_service        — Text-to-speech
 #   analyzer_service   — Card detection from conversation + agent routing

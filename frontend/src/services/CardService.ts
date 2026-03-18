@@ -1,4 +1,4 @@
-import { Card, CardStatus, AgentPersona } from '../types';
+import { Card, CardStatus, AgentPersona, AgentInfo } from '../types';
 import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
 import { eventBus } from '../utils/EventBus';
@@ -6,6 +6,7 @@ import { EVENTS } from '../utils/constants';
 
 export class CardService {
   private unsubscribers: (() => void)[] = [];
+  private agentsCache: AgentInfo[] | null = null;
 
   constructor() {
     this.setupHandlers();
@@ -148,6 +149,20 @@ export class CardService {
 
   requestSync(projectId: string): void {
     apiClient.send('card:list-request', { projectId });
+  }
+
+  async getAgents(): Promise<AgentInfo[]> {
+    if (this.agentsCache) return this.agentsCache;
+    const agents = await apiClient.fetchAgents();
+    if (agents.length > 0) {
+      this.agentsCache = agents;
+    }
+    return agents;
+  }
+
+  async updateAgentType(cardId: string, agentType: string): Promise<void> {
+    appState.updateCard(cardId, { agentType });
+    await apiClient.patchCard(cardId, { agent_type: agentType });
   }
 
   destroy(): void {

@@ -1,6 +1,6 @@
-import { Card, AgentPersona, CardStatus } from '../../types';
+import { Card, AgentPersona, CardStatus, AgentInfo } from '../../types';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS } from '../../utils/constants';
+import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO } from '../../utils/constants';
 import { createElement, formatTime } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { cardService } from '../../services/CardService';
@@ -10,6 +10,14 @@ export class CardDetailModal {
   private modal: HTMLElement;
   private card: Card | null = null;
   private unsubscribers: (() => void)[] = [];
+  private agents: AgentInfo[] = Object.entries(AGENT_TYPE_INFO).map(([type, info]) => ({
+    type,
+    name: info.name,
+    emoji: info.emoji,
+    description: info.description,
+    strengths: [],
+    keywords: [],
+  }));
 
   constructor(private parentElement: HTMLElement) {
     this.overlay = createElement('div', { className: 'modal-overlay hidden' });
@@ -17,6 +25,10 @@ export class CardDetailModal {
     this.overlay.appendChild(this.modal);
     this.parentElement.appendChild(this.overlay);
     this.setupListeners();
+    // Load agents from API (for richer descriptions)
+    cardService.getAgents().then((agents) => {
+      if (agents.length > 0) this.agents = agents;
+    }).catch(() => {/* fallback already set */});
   }
 
   private setupListeners(): void {
@@ -125,34 +137,30 @@ export class CardDetailModal {
     descSection.appendChild(descLabel);
     descSection.appendChild(descInput);
 
-    // Agent assignment
+    // Agent assignment — chip selector
+    const currentAgentType = this.card.agentType || 'ember';
     const agentSection = createElement('div', { className: 'modal-section' });
-    const agentLabel = createElement('label', { className: 'modal-label' }, 'Assigned Agent');
-    const agentSelect = createElement('select', { className: 'modal-agent-select' }) as HTMLSelectElement;
+    const agentLabel = createElement('label', { className: 'modal-label' }, 'Agent');
+    const agentSelector = createElement('div', { className: 'agent-selector agent-selector--modal' });
 
-    const noneOption = createElement('option', { value: '' }, 'None');
-    agentSelect.appendChild(noneOption);
-
-    for (const [key, persona] of Object.entries(AGENT_PERSONAS)) {
-      const option = createElement(
-        'option',
-        { value: key },
-        `${persona.emoji} ${persona.name} — ${persona.description}`
-      );
-      if (this.card.assignedAgent === key) {
-        (option as HTMLOptionElement).selected = true;
-      }
-      agentSelect.appendChild(option);
-    }
-
-    agentSelect.addEventListener('change', () => {
-      if (this.card) {
-        const agent = agentSelect.value || undefined;
-        cardService.assignAgent(this.card.id, agent as AgentPersona | undefined);
-      }
+    this.agents.forEach((agent) => {
+      const chip = createElement('button', {
+        className: 'agent-chip' + (currentAgentType === agent.type ? ' selected' : ''),
+        'data-agent-type': agent.type,
+        title: agent.description,
+      }, `${agent.emoji} ${agent.name}`);
+      (chip as HTMLButtonElement).type = 'button';
+      chip.addEventListener('click', () => {
+        if (!this.card) return;
+        agentSelector.querySelectorAll('.agent-chip').forEach((el) => el.classList.remove('selected'));
+        chip.classList.add('selected');
+        cardService.updateAgentType(this.card.id, agent.type);
+      });
+      agentSelector.appendChild(chip);
     });
+
     agentSection.appendChild(agentLabel);
-    agentSection.appendChild(agentSelect);
+    agentSection.appendChild(agentSelector);
 
     // Dependencies
     const depsSection = createElement('div', { className: 'modal-section' });

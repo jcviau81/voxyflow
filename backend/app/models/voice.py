@@ -19,6 +19,7 @@ class WSTranscript(WSMessage):
     text: str
     is_final: bool = True
     language: str = "fr"
+    project_id: Optional[str] = None  # RAG: inject project knowledge if provided
 
 
 class WSAudioChunk(WSMessage):
@@ -32,8 +33,8 @@ class WSAssistantText(WSMessage):
     """Server → Client: assistant text response."""
     type: Literal["assistant_text"] = "assistant_text"
     text: str
-    model: str  # haiku | opus
-    is_enrichment: bool = False  # True if Opus correction/addition
+    model: str  # fast | deep
+    is_enrichment: bool = False  # True if Deep layer correction/addition
 
 
 class WSAssistantAudio(WSMessage):

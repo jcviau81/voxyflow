@@ -13,9 +13,11 @@ export class SttService {
   private isRecording = false;
   private _transcript = '';
   private stream: MediaStream | null = null;
+  private _lang: string;
 
   constructor() {
     this.engine = this.detectEngine();
+    this._lang = this.detectLanguage();
     if (this.engine === 'webspeech') {
       this.initWebSpeech();
     }
@@ -41,7 +43,7 @@ export class SttService {
     this.recognition = new SpeechRecognitionClass();
     this.recognition.continuous = true;
     this.recognition.interimResults = true;
-    this.recognition.lang = 'en-US';
+    this.recognition.lang = this._lang;
     this.recognition.maxAlternatives = 1;
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -226,7 +228,25 @@ export class SttService {
     return this.engine;
   }
 
+  private detectLanguage(): string {
+    const stored = localStorage.getItem('voxyflow_settings');
+    if (stored) {
+      try {
+        const settings = JSON.parse(stored);
+        const lang = settings?.personality?.preferred_language;
+        if (lang === 'en') return 'en-US';
+        if (lang === 'fr') return 'fr-CA';
+      } catch {}
+    }
+    return 'en-US'; // default (Quebec-based user)
+  }
+
+  get lang(): string {
+    return this._lang;
+  }
+
   setLanguage(lang: string): void {
+    this._lang = lang;
     if (this.recognition) {
       this.recognition.lang = lang;
     }

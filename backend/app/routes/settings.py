@@ -29,9 +29,37 @@ class PersonalitySettings(BaseModel):
     warmth: str = "warm"  # "cold", "warm", "hot"
 
 
+class ModelLayerConfig(BaseModel):
+    provider_url: str = ""   # e.g. "http://localhost:3456/v1" or "http://localhost:11434/v1"
+    api_key: str = ""        # empty = no key required (e.g. Ollama)
+    model: str = ""          # e.g. "claude-sonnet-4", "qwen2.5:7b"
+    enabled: bool = True
+
+
+class ModelsSettings(BaseModel):
+    fast: ModelLayerConfig = ModelLayerConfig(
+        provider_url="http://localhost:3456/v1",
+        api_key="",
+        model="claude-sonnet-4",
+        enabled=True,
+    )
+    deep: ModelLayerConfig = ModelLayerConfig(
+        provider_url="http://localhost:3456/v1",
+        api_key="",
+        model="claude-opus-4",
+        enabled=True,
+    )
+    analyzer: ModelLayerConfig = ModelLayerConfig(
+        provider_url="http://localhost:3456/v1",
+        api_key="",
+        model="claude-haiku-4",
+        enabled=True,
+    )
+
+
 class AppSettings(BaseModel):
     personality: PersonalitySettings = PersonalitySettings()
-    # Future: models, proxy, theme, voice sections
+    models: ModelsSettings = ModelsSettings()
 
 
 def _resolve_personality_path(rel_path: str) -> Path:
@@ -178,7 +206,7 @@ _The more your assistant knows, the better it can help._
 """,
     "IDENTITY.md": """# IDENTITY.md — Assistant Identity
 
-- **Name:** Assistant
+- **Name:** Voxy
 - **Emoji:** 🤖
 - **Vibe:** Helpful, clear, professional
 

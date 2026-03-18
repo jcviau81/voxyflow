@@ -1,6 +1,6 @@
 import { Card } from '../../types';
 import { createElement, truncate } from '../../utils/helpers';
-import { AGENT_PERSONAS } from '../../utils/constants';
+import { AGENT_PERSONAS, AGENT_TYPE_EMOJI } from '../../utils/constants';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { appState } from '../../state/AppState';
@@ -34,15 +34,19 @@ export class KanbanCard {
     // Footer with metadata
     const footer = createElement('div', { className: 'kanban-card-footer' });
 
-    // Agent badge
-    if (this.card.assignedAgent) {
+    // Agent badge — show emoji for non-ember agent types
+    const agentType = this.card.agentType;
+    if (agentType && agentType !== 'ember') {
+      const emoji = AGENT_TYPE_EMOJI[agentType];
+      if (emoji) {
+        const badge = createElement('span', { className: 'agent-badge', title: agentType }, emoji);
+        footer.appendChild(badge);
+      }
+    } else if (!agentType && this.card.assignedAgent) {
+      // Fallback: legacy assignedAgent field
       const persona = AGENT_PERSONAS[this.card.assignedAgent];
       if (persona) {
-        const agent = createElement(
-          'span',
-          { className: 'kanban-card-agent' },
-          `${persona.emoji} ${persona.name}`
-        );
+        const agent = createElement('span', { className: 'agent-badge' }, persona.emoji);
         footer.appendChild(agent);
       }
     }

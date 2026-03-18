@@ -1,0 +1,14 @@
+{
+  "personality": {
+    "bot_name": "Voxy",
+    "preferred_language": "en",
+    "soul_file": "./personality/SOUL.md",
+    "user_file": "./personality/USER.md",
+    "agents_file": "./personality/AGENTS.md",
+    "identity_file": "./personality/IDENTITY.md",
+    "custom_instructions": "",
+    "environment_notes": "",
+    "tone": "casual",
+    "warmth": "warm"
+  }
+}

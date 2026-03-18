@@ -20,8 +20,22 @@ interface PersonalitySettings {
   warmth: string;
 }
 
+interface ModelLayerConfig {
+  provider_url: string;
+  api_key: string;
+  model: string;
+  enabled: boolean;
+}
+
+interface ModelsSettings {
+  fast: ModelLayerConfig;
+  deep: ModelLayerConfig;
+  analyzer: ModelLayerConfig;
+}
+
 interface AppSettings {
   personality: PersonalitySettings;
+  models?: ModelsSettings;
 }
 
 interface FilePreview {
@@ -40,6 +54,13 @@ interface FileEditorState {
   exists: boolean;
 }
 
+const DEFAULT_MODEL_LAYER: ModelLayerConfig = {
+  provider_url: 'http://localhost:3456/v1',
+  api_key: '',
+  model: '',
+  enabled: true,
+};
+
 const DEFAULT_SETTINGS: AppSettings = {
   personality: {
     bot_name: 'Assistant',
@@ -51,6 +72,11 @@ const DEFAULT_SETTINGS: AppSettings = {
     environment_notes: '',
     tone: 'casual',
     warmth: 'warm',
+  },
+  models: {
+    fast: { ...DEFAULT_MODEL_LAYER, model: 'claude-sonnet-4' },
+    deep: { ...DEFAULT_MODEL_LAYER, model: 'claude-opus-4' },
+    analyzer: { ...DEFAULT_MODEL_LAYER, model: 'claude-haiku-4' },
   },
 };
 
@@ -80,10 +106,17 @@ export class SettingsPage {
       const response = await fetch(`${API_URL}/api/settings`);
       if (response.ok) {
         const data = await response.json();
+        const dm = DEFAULT_SETTINGS.models!;
+        const sm = data.models || {};
         this.settings = {
           ...DEFAULT_SETTINGS,
           ...data,
           personality: { ...DEFAULT_SETTINGS.personality, ...(data.personality || {}) },
+          models: {
+            fast: { ...dm.fast, ...(sm.fast || {}) },
+            deep: { ...dm.deep, ...(sm.deep || {}) },
+            analyzer: { ...dm.analyzer, ...(sm.analyzer || {}) },
+          },
         };
       }
     } catch (e) {
@@ -138,6 +171,7 @@ export class SettingsPage {
     this.root.appendChild(title);
 
     this.root.insertAdjacentHTML('beforeend', this.renderPersonalitySection());
+    this.root.insertAdjacentHTML('beforeend', this.renderModelsSection());
     this.root.insertAdjacentHTML('beforeend', this.renderGitHubSection());
     this.root.insertAdjacentHTML('beforeend', this.renderVolumeSection());
     this.root.insertAdjacentHTML('beforeend', this.renderConnectionSection());
@@ -245,6 +279,74 @@ export class SettingsPage {
             <option value="hot" ${p.warmth === 'hot' ? 'selected' : ''}>Hot \uD83D\uDD25</option>
           </select>
         </div>
+      </div>
+    `;
+  }
+
+  private renderModelLayerFields(
+    layerKey: 'fast' | 'deep' | 'analyzer',
+    label: string,
+    showEnabled: boolean,
+    placeholderModel: string,
+  ): string {
+    const m = this.settings.models?.[layerKey] ?? { ...DEFAULT_MODEL_LAYER };
+    const enabledRow = showEnabled ? `
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Enabled</div>
+          <div class="setting-description">Enable this layer</div>
+        </div>
+        <input type="checkbox" class="setting-checkbox" data-model-layer="${layerKey}" data-model-field="enabled"
+          ${m.enabled ? 'checked' : ''} />
+      </div>` : '';
+
+    return `
+      <div class="settings-subsection">
+        <h4>${label}</h4>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Provider URL</div>
+            <div class="setting-description">OpenAI-compatible API base URL</div>
+          </div>
+          <input type="text" class="setting-input" data-model-layer="${layerKey}" data-model-field="provider_url"
+            value="${this.escapeHtml(m.provider_url)}"
+            placeholder="http://localhost:3456/v1" />
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">API Key</div>
+            <div class="setting-description">Leave empty if not required (e.g. Ollama)</div>
+          </div>
+          <input type="password" class="setting-input" data-model-layer="${layerKey}" data-model-field="api_key"
+            value="${this.escapeHtml(m.api_key)}"
+            placeholder="Leave empty if not required"
+            autocomplete="new-password" />
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Model Name</div>
+            <div class="setting-description">Model identifier for this layer</div>
+          </div>
+          <input type="text" class="setting-input" data-model-layer="${layerKey}" data-model-field="model"
+            value="${this.escapeHtml(m.model)}"
+            placeholder="${placeholderModel}" />
+        </div>
+        ${enabledRow}
+      </div>
+    `;
+  }
+
+  private renderModelsSection(): string {
+    return `
+      <div class="settings-section" data-testid="settings-models">
+        <h3>🤖 Models</h3>
+        <p style="color: var(--color-text-secondary); font-size: 13px; margin-bottom: 16px;">
+          Configure which LLM provider and model handles each layer.
+          Leave fields empty to use the defaults from config.
+        </p>
+        ${this.renderModelLayerFields('fast', '⚡ Conversational (Fast)', false, 'claude-sonnet-4')}
+        ${this.renderModelLayerFields('deep', '🧠 Deep Thinking', true, 'claude-opus-4')}
+        ${this.renderModelLayerFields('analyzer', '🔍 Analyzer', true, 'claude-haiku-4')}
       </div>
     `;
   }
@@ -362,6 +464,11 @@ export class SettingsPage {
 
   private bindEvents(): void {
     this.root.querySelectorAll('[data-field]').forEach((el) => {
+      el.addEventListener('input', () => this.markDirty());
+      el.addEventListener('change', () => this.markDirty());
+    });
+
+    this.root.querySelectorAll('[data-model-layer]').forEach((el) => {
       el.addEventListener('input', () => this.markDirty());
       el.addEventListener('change', () => this.markDirty());
     });
@@ -561,8 +668,31 @@ export class SettingsPage {
       }
     }
 
+    // Collect model layer settings
+    const layers: Array<'fast' | 'deep' | 'analyzer'> = ['fast', 'deep', 'analyzer'];
+    const models: ModelsSettings = {
+      fast: { ...DEFAULT_MODEL_LAYER, model: 'claude-sonnet-4' },
+      deep: { ...DEFAULT_MODEL_LAYER, model: 'claude-opus-4' },
+      analyzer: { ...DEFAULT_MODEL_LAYER, model: 'claude-haiku-4' },
+    };
+
+    for (const layer of layers) {
+      const urlEl = this.root.querySelector(`[data-model-layer="${layer}"][data-model-field="provider_url"]`) as HTMLInputElement | null;
+      const keyEl = this.root.querySelector(`[data-model-layer="${layer}"][data-model-field="api_key"]`) as HTMLInputElement | null;
+      const modelEl = this.root.querySelector(`[data-model-layer="${layer}"][data-model-field="model"]`) as HTMLInputElement | null;
+      const enabledEl = this.root.querySelector(`[data-model-layer="${layer}"][data-model-field="enabled"]`) as HTMLInputElement | null;
+
+      models[layer] = {
+        provider_url: urlEl?.value ?? models[layer].provider_url,
+        api_key: keyEl?.value ?? '',
+        model: modelEl?.value ?? models[layer].model,
+        enabled: enabledEl ? enabledEl.checked : true,
+      };
+    }
+
     return {
       personality: { ...this.settings.personality, ...personality } as PersonalitySettings,
+      models,
     };
   }
 
@@ -615,7 +745,7 @@ export class SettingsPage {
   }
 
   private resetSettings(): void {
-    if (!confirm('Reset all personality settings to defaults?')) return;
+    if (!confirm('Reset all settings to defaults?')) return;
 
     this.settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
     this.render();

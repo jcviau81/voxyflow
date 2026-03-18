@@ -96,6 +96,7 @@ export class OpportunitiesPanel {
           mode: 'create',
           projectId,
           prefillTitle: opp.title,
+          prefillAgentType: opp.agentType,
         });
       } else {
         eventBus.emit(EVENTS.CREATE_CARD_FROM_SUGGESTION, {

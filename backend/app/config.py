@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     # Claude API via proxy (OpenAI-compatible)
     claude_proxy_url: str = "http://localhost:3456/v1"
     claude_api_key: str = "not-needed"  # proxy doesn't require a key
-    claude_haiku_model: str = "claude-haiku-4"
+    claude_fast_model: str = "claude-haiku-4"
     claude_sonnet_model: str = "claude-sonnet-4"
-    claude_opus_model: str = "claude-opus-4"
+    claude_deep_model: str = "claude-opus-4"
     claude_analyzer_model: str = "claude-haiku-4"
     claude_max_tokens: int = 1024
 
@@ -61,8 +61,8 @@ class Settings(BaseSettings):
     voice_channels: int = 1
 
     # Conversation
-    haiku_context_messages: int = 20
-    opus_context_messages: int = 100
+    fast_context_messages: int = 20
+    deep_context_messages: int = 100
     analyzer_enabled: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

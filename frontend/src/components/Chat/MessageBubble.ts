@@ -80,8 +80,8 @@ export class MessageBubble {
 
   private getModelBadge(model: string): string {
     switch (model) {
-      case 'haiku': return '⚡ haiku';
-      case 'opus': return '🧠 opus';
+      case 'fast': return '⚡ fast';
+      case 'deep': return '🧠 deep';
       case 'sonnet': return '✨ sonnet';
       case 'analyzer': return '🔍 analyzer';
       default: return model;

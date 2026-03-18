@@ -1,8 +1,9 @@
-import { Card, CardStatus, AgentPersona } from '../../types';
+import { Card, CardStatus, AgentPersona, AgentInfo } from '../../types';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, CARD_STATUS_LABELS, CARD_STATUSES } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { cardService } from '../../services/CardService';
 
 export interface CardFormShowEvent {
   mode: 'create' | 'edit';
@@ -10,33 +11,37 @@ export interface CardFormShowEvent {
   projectId: string;
   prefillTitle?: string;
   prefillStatus?: CardStatus;
+  prefillAgentType?: string;  // auto-detected agent type for new cards
 }
 
 export interface CardFormData {
   title: string;
   description: string;
   agent: string;
+  agentType: string;
   status: CardStatus;
   priority: number;
   dependencies: string[];
   tags: string[];
 }
 
-const AGENTS = [
-  { value: 'ember', label: '\u{1F525} Ember' },
-  { value: 'researcher', label: '\u{1F50D} Recherchiste' },
-  { value: 'coder', label: '\u{1F4BB} Codeuse' },
-  { value: 'designer', label: '\u{1F3A8} Designer' },
-  { value: 'architect', label: '\u{1F3D7}\uFE0F Architecte' },
-  { value: 'writer', label: '\u270D\uFE0F R\u00E9dactrice' },
-  { value: 'qa', label: '\u{1F9EA} QA/Tester' },
+// Fallback static agents if API isn't available yet
+const FALLBACK_AGENTS: AgentInfo[] = [
+  { type: 'ember', name: 'Ember', emoji: '🔥', description: 'Default', strengths: [], keywords: [] },
+  { type: 'researcher', name: 'Recherchiste', emoji: '🔍', description: 'Research & analysis', strengths: [], keywords: [] },
+  { type: 'coder', name: 'Codeuse', emoji: '💻', description: 'Code implementation', strengths: [], keywords: [] },
+  { type: 'designer', name: 'Designer', emoji: '🎨', description: 'UI/UX design', strengths: [], keywords: [] },
+  { type: 'architect', name: 'Architecte', emoji: '🏗️', description: 'System design', strengths: [], keywords: [] },
+  { type: 'writer', name: 'Rédactrice', emoji: '✍️', description: 'Content & docs', strengths: [], keywords: [] },
+  { type: 'qa', name: 'QA', emoji: '🧪', description: 'Testing & QA', strengths: [], keywords: [] },
 ];
 
 const PRIORITIES = [
-  { value: 0, label: '\u{1F7E2} Low' },
-  { value: 1, label: '\u{1F7E1} Medium' },
-  { value: 2, label: '\u{1F7E0} High' },
-  { value: 3, label: '\u{1F534} Critical' },
+  { value: 0, label: '🟢 Low' },
+  { value: 1, label: '🟡 Medium' },
+  { value: 2, label: '🟠 High' },
+  { value: 3, label: '🔴 Critical' },
+
 ];
 
 const AGENT_TO_PERSONA: Record<string, AgentPersona> = {
@@ -58,10 +63,12 @@ export class CardForm {
   private selectedDependencies: Set<string> = new Set();
   private titleInput: HTMLInputElement | null = null;
   private descInput: HTMLTextAreaElement | null = null;
-  private agentSelect: HTMLSelectElement | null = null;
+  private selectedAgentType: string = 'ember';
+  private agentSelectorEl: HTMLElement | null = null;
   private prioritySelect: HTMLSelectElement | null = null;
   private tagsInput: HTMLInputElement | null = null;
   private titleError: HTMLElement | null = null;
+  private agents: AgentInfo[] = FALLBACK_AGENTS;
 
   constructor(private parentElement: HTMLElement, event: CardFormShowEvent) {
     this.mode = event.mode;
@@ -70,10 +77,18 @@ export class CardForm {
     if (this.card) {
       this.selectedStatus = this.card.status;
       this.selectedDependencies = new Set(this.card.dependencies);
+      this.selectedAgentType = this.card.agentType || 'ember';
     }
     if (event.prefillStatus) this.selectedStatus = event.prefillStatus;
+    if (event.prefillAgentType) this.selectedAgentType = event.prefillAgentType;
     this.container = createElement('div', { className: 'card-form-wrapper' });
-    this.render();
+    // Load agents from API, then render
+    cardService.getAgents().then((agents) => {
+      if (agents.length > 0) this.agents = agents;
+      this.render();
+    }).catch(() => {
+      this.render();
+    });
   }
 
   render(): void {
@@ -82,7 +97,8 @@ export class CardForm {
     form.appendChild(createElement('h3', {}, this.mode === 'create' ? 'Create Card' : 'Edit Card'));
     form.appendChild(this.renderTitleField());
     form.appendChild(this.renderDescriptionField());
-    form.appendChild(this.renderAgentPriorityRow());
+    form.appendChild(this.renderAgentSelector());
+    form.appendChild(this.renderPriorityRow());
     form.appendChild(this.renderStatusPills());
     form.appendChild(this.renderDependencies());
     form.appendChild(this.renderTagsField());
@@ -124,20 +140,36 @@ export class CardForm {
     return group;
   }
 
-  private renderAgentPriorityRow(): HTMLElement {
-    const row = createElement('div', { className: 'form-row' });
-    const agentGroup = createElement('div', { className: 'form-group half' });
-    agentGroup.appendChild(createElement('label', {}, 'Agent'));
-    this.agentSelect = document.createElement('select');
-    this.agentSelect.className = 'form-select';
-    this.agentSelect.setAttribute('data-testid', 'card-agent-select');
-    AGENTS.forEach((a) => {
-      const opt = document.createElement('option');
-      opt.value = a.value; opt.textContent = a.label;
-      this.agentSelect!.appendChild(opt);
+  private renderAgentSelector(): HTMLElement {
+    const group = createElement('div', { className: 'form-group' });
+    group.appendChild(createElement('label', {}, 'Agent'));
+    const selector = createElement('div', {
+      className: 'agent-selector',
+      'data-testid': 'card-agent-selector',
     });
-    agentGroup.appendChild(this.agentSelect);
-    const prioGroup = createElement('div', { className: 'form-group half' });
+    this.agentSelectorEl = selector;
+    this.agents.forEach((agent) => {
+      const chip = createElement('button', {
+        className: 'agent-chip' + (this.selectedAgentType === agent.type ? ' selected' : ''),
+        'data-agent-type': agent.type,
+        title: agent.description,
+      }, `${agent.emoji} ${agent.name}`);
+      (chip as HTMLButtonElement).type = 'button';
+      chip.addEventListener('click', () => {
+        this.selectedAgentType = agent.type;
+        // Update chip highlights
+        selector.querySelectorAll('.agent-chip').forEach((el) => el.classList.remove('selected'));
+        chip.classList.add('selected');
+      });
+      selector.appendChild(chip);
+    });
+    group.appendChild(selector);
+    return group;
+  }
+
+  private renderPriorityRow(): HTMLElement {
+    const row = createElement('div', { className: 'form-row' });
+    const prioGroup = createElement('div', { className: 'form-group' });
     prioGroup.appendChild(createElement('label', {}, 'Priority'));
     this.prioritySelect = document.createElement('select');
     this.prioritySelect.className = 'form-select';
@@ -148,7 +180,6 @@ export class CardForm {
       this.prioritySelect!.appendChild(opt);
     });
     prioGroup.appendChild(this.prioritySelect);
-    row.appendChild(agentGroup);
     row.appendChild(prioGroup);
     return row;
   }
@@ -244,9 +275,18 @@ export class CardForm {
     if (!this.card) return;
     if (this.titleInput) this.titleInput.value = this.card.title;
     if (this.descInput) this.descInput.value = this.card.description || '';
-    if (this.agentSelect && this.card.assignedAgent) {
+    // Set agent type from card (prefer agentType, fall back to legacy assignedAgent mapping)
+    if (this.card.agentType) {
+      this.selectedAgentType = this.card.agentType;
+    } else if (this.card.assignedAgent) {
       const val = Object.entries(AGENT_TO_PERSONA).find(([, p]) => p === this.card!.assignedAgent)?.[0] || 'ember';
-      this.agentSelect.value = val;
+      this.selectedAgentType = val;
+    }
+    // Update chip selection
+    if (this.agentSelectorEl) {
+      this.agentSelectorEl.querySelectorAll('.agent-chip').forEach((el) => {
+        el.classList.toggle('selected', (el as HTMLElement).dataset.agentType === this.selectedAgentType);
+      });
     }
     if (this.prioritySelect) this.prioritySelect.value = this.card.priority.toString();
     if (this.tagsInput && this.card.tags.length > 0) this.tagsInput.value = this.card.tags.join(', ');
@@ -275,11 +315,12 @@ export class CardForm {
     if (!this.validateTitle()) return;
     const tagsRaw = this.tagsInput?.value.trim() || '';
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
-    const agentValue = this.agentSelect?.value || 'ember';
+    const agentType = this.selectedAgentType || 'ember';
     const data: CardFormData = {
       title: this.titleInput!.value.trim(),
       description: this.descInput?.value.trim() || '',
-      agent: agentValue,
+      agent: agentType,
+      agentType,
       status: this.selectedStatus,
       priority: parseInt(this.prioritySelect?.value || '0', 10),
       dependencies: Array.from(this.selectedDependencies),
@@ -288,7 +329,8 @@ export class CardForm {
     eventBus.emit(EVENTS.CARD_FORM_SUBMIT, {
       mode: this.mode, data, cardId: this.card?.id,
       projectId: this.projectId,
-      assignedAgent: AGENT_TO_PERSONA[agentValue] || undefined,
+      agentType,
+      assignedAgent: AGENT_TO_PERSONA[agentType] || undefined,
     });
   }
 

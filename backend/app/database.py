@@ -127,6 +127,7 @@ class Project(Base):
 
     chats = relationship("Chat", back_populates="project")
     cards = relationship("Card", back_populates="project", cascade="all, delete-orphan")
+    documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
 
 
 class Card(Base):
@@ -156,3 +157,18 @@ class Card(Base):
         secondaryjoin=(id == card_dependencies.c.depends_on_id),
         backref="dependents",
     )
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    project_id = Column(String, ForeignKey("projects.id"), nullable=False)
+    filename = Column(String, nullable=False)
+    filetype = Column(String, nullable=False)   # ".txt", ".md", etc.
+    size_bytes = Column(Integer, nullable=False, default=0)
+    chunk_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=utcnow)
+    indexed_at = Column(DateTime, nullable=True)
+
+    project = relationship("Project", back_populates="documents")

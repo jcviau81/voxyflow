@@ -285,7 +285,7 @@ class PersonalityService:
 
         return "\n".join(sections)
 
-    def build_haiku_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None) -> str:
+    def build_fast_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None) -> str:
         from app.tools import get_tool_definitions
 
         tool_defs = get_tool_definitions()
@@ -325,7 +325,7 @@ class PersonalityService:
 
         return base + voice_instructions + tool_section
 
-    def build_opus_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None) -> str:
+    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None) -> str:
         # Build context-appropriate base
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card)
@@ -334,19 +334,19 @@ class PersonalityService:
         else:
             base = self.build_general_prompt()
 
-        opus_instructions = (
+        deep_instructions = (
             "\n\n## Deep Thinking Layer\n"
             "You are the deep-thinking layer of Voxyflow, a voice PM assistant.\n"
-            "You receive the full conversation context and the fast response already given (by Haiku).\n"
+            "You receive the full conversation context and the fast response already given.\n"
             "Your job: only speak if you have something substantively better or different to add.\n"
-            "If the Haiku response was fine, return EMPTY (literally the word EMPTY).\n"
+            "If the fast layer's response was fine, return EMPTY (literally the word EMPTY).\n"
             "If you have a correction, better approach, or important nuance, provide it briefly.\n"
             "Start naturally: 'Actually...' or 'One thing to consider...' -- this will be spoken aloud.\n"
             "Keep it concise (2-4 sentences max). Respond in the user's language.\n"
-            "Your personality is the same as Haiku's -- you're one being, thinking deeper."
+            "Your personality is the same as the fast layer's -- you're one being, thinking deeper."
         )
 
-        return base + opus_instructions
+        return base + deep_instructions
 
     def build_analyzer_prompt(self, memory_context: Optional[str] = None) -> str:
         base = (

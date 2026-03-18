@@ -64,6 +64,8 @@ module.exports = (env, argv) => {
     ],
     devServer: {
       port: 3000,
+      host: '0.0.0.0',
+      allowedHosts: 'all',
       hot: true,
       historyApiFallback: true,
       proxy: [
@@ -79,7 +81,8 @@ module.exports = (env, argv) => {
       ],
       client: {
         // Use /hmr path for webpack HMR WebSocket to avoid conflict with /ws proxy
-        webSocketURL: 'ws://localhost:3000/hmr',
+        // auto:// tells the client to mirror the page's hostname/port (fixes non-localhost access)
+        webSocketURL: 'auto://0.0.0.0:0/hmr',
         overlay: {
           errors: true,
           warnings: false,

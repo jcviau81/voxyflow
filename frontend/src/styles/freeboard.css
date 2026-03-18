@@ -1,0 +1,345 @@
+/* FreeBoard — Sticky-note style card grid */
+
+/* ── Container ─────────────────────────────────────────────── */
+.freeboard-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px 12px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.freeboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.freeboard-header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: 0.02em;
+}
+
+.freeboard-add-btn {
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.freeboard-add-btn:hover {
+  background: var(--color-primary-hover);
+}
+
+/* ── Grid ────────────────────────────────────────────────────── */
+.freeboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+  padding-right: 4px;
+  align-content: start;
+}
+
+.freeboard-grid::-webkit-scrollbar {
+  width: 4px;
+}
+.freeboard-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+.freeboard-grid::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+/* ── Card base ───────────────────────────────────────────────── */
+@keyframes freeboard-fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.freeboard-card {
+  position: relative;
+  min-height: 120px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+  cursor: default;
+  animation: freeboard-fadeIn 0.22s ease both;
+}
+
+.freeboard-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  border-color: var(--color-border-hover, var(--color-border));
+}
+
+/* ── Color variants ──────────────────────────────────────────── */
+.freeboard-card--yellow {
+  background: rgba(255, 220, 100, 0.10);
+  border-color: rgba(255, 220, 100, 0.22);
+}
+.freeboard-card--blue {
+  background: rgba(66, 165, 245, 0.10);
+  border-color: rgba(66, 165, 245, 0.22);
+}
+.freeboard-card--green {
+  background: rgba(76, 175, 80, 0.10);
+  border-color: rgba(76, 175, 80, 0.22);
+}
+.freeboard-card--pink {
+  background: rgba(240, 98, 146, 0.10);
+  border-color: rgba(240, 98, 146, 0.22);
+}
+.freeboard-card--purple {
+  background: rgba(171, 71, 188, 0.10);
+  border-color: rgba(171, 71, 188, 0.22);
+}
+.freeboard-card--orange {
+  background: rgba(255, 152, 0, 0.10);
+  border-color: rgba(255, 152, 0, 0.22);
+}
+
+/* ── Card title ──────────────────────────────────────────────── */
+.freeboard-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.4;
+  word-break: break-word;
+  flex-shrink: 0;
+}
+
+/* ── Card body ───────────────────────────────────────────────── */
+.freeboard-card-body {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  word-break: break-word;
+  flex: 1;
+}
+
+/* ── Card actions ────────────────────────────────────────────── */
+.freeboard-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+.freeboard-card:hover .freeboard-card-actions {
+  opacity: 1;
+}
+
+.freeboard-card-btn {
+  background: none;
+  border: none;
+  padding: 3px 5px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1;
+  transition: background 0.12s, color 0.12s;
+}
+
+.freeboard-card-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.freeboard-card-btn--delete:hover {
+  background: rgba(239, 83, 80, 0.15);
+  color: var(--color-error);
+}
+
+.freeboard-card-btn--promote:hover {
+  background: rgba(255, 183, 77, 0.15);
+  color: var(--color-warning);
+}
+
+/* ── Color dot ───────────────────────────────────────────────── */
+.freeboard-card-color-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.freeboard-card-color-dot--yellow  { background: rgba(255, 220, 100, 0.85); }
+.freeboard-card-color-dot--blue    { background: rgba(66, 165, 245, 0.85); }
+.freeboard-card-color-dot--green   { background: rgba(76, 175, 80, 0.85); }
+.freeboard-card-color-dot--pink    { background: rgba(240, 98, 146, 0.85); }
+.freeboard-card-color-dot--purple  { background: rgba(171, 71, 188, 0.85); }
+.freeboard-card-color-dot--orange  { background: rgba(255, 152, 0, 0.85); }
+
+/* ── Empty state ─────────────────────────────────────────────── */
+.freeboard-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
+  gap: 8px;
+}
+
+.freeboard-empty-icon {
+  font-size: 28px;
+  opacity: 0.5;
+}
+
+/* ── Add form ────────────────────────────────────────────────── */
+.freeboard-add-form {
+  grid-column: 1 / -1;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-primary);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: freeboard-fadeIn 0.18s ease both;
+}
+
+.freeboard-add-form-title {
+  width: 100%;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.freeboard-add-form-title::placeholder { color: var(--color-text-muted); }
+.freeboard-add-form-title:focus { border-color: var(--color-primary); }
+
+.freeboard-add-form-body {
+  width: 100%;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--color-text);
+  outline: none;
+  resize: vertical;
+  min-height: 56px;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.freeboard-add-form-body::placeholder { color: var(--color-text-muted); }
+.freeboard-add-form-body:focus { border-color: var(--color-primary); }
+
+/* Color swatches row */
+.freeboard-color-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.freeboard-color-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.freeboard-color-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s;
+}
+
+.freeboard-color-swatch:hover {
+  transform: scale(1.2);
+}
+
+.freeboard-color-swatch.selected {
+  border-color: var(--color-text);
+  transform: scale(1.15);
+}
+
+.freeboard-color-swatch--none  { background: var(--color-bg-tertiary); border-color: var(--color-border); }
+.freeboard-color-swatch--yellow  { background: rgba(255, 220, 100, 0.8); }
+.freeboard-color-swatch--blue    { background: rgba(66, 165, 245, 0.8); }
+.freeboard-color-swatch--green   { background: rgba(76, 175, 80, 0.8); }
+.freeboard-color-swatch--pink    { background: rgba(240, 98, 146, 0.8); }
+.freeboard-color-swatch--purple  { background: rgba(171, 71, 188, 0.8); }
+.freeboard-color-swatch--orange  { background: rgba(255, 152, 0, 0.8); }
+
+/* Form row: submit + cancel */
+.freeboard-add-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.freeboard-form-submit {
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.freeboard-form-submit:hover { background: var(--color-primary-hover); }
+
+.freeboard-form-cancel {
+  background: none;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.freeboard-form-cancel:hover { background: var(--color-bg-hover); color: var(--color-text); }

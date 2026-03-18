@@ -424,7 +424,7 @@
   text-align: right;
 }
 
-/* Enrichment messages (Layer 2 — Opus deep thinking) */
+/* Enrichment messages (Layer 2 — Deep thinking) */
 .message-enrichment {
   opacity: 0;
   animation: enrichment-fade-in 0.5s ease 0.3s forwards;
@@ -1099,10 +1099,13 @@
 }
 
 .settings-section h3 {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 16px;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 20px;
   color: var(--color-text);
+  letter-spacing: 0.3px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .settings-section label {
@@ -1608,12 +1611,12 @@
   letter-spacing: 0.02em;
 }
 
-.model-haiku {
+.model-fast {
   background: rgba(126, 207, 255, 0.1);
   color: #7ecfff;
 }
 
-.model-opus {
+.model-deep {
   background: rgba(255, 159, 126, 0.1);
   color: #ff9f7e;
 }
@@ -2397,4 +2400,553 @@
 
 .header-title-section:empty {
   display: none;
+}
+
+/* =====================
+   Slash Command Menu
+   ===================== */
+
+.slash-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: var(--color-bg-secondary, #1e1e2e);
+  border: 1px solid var(--color-border, rgba(255,255,255,0.08));
+  border-radius: 8px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  min-width: 260px;
+  max-width: 480px;
+}
+
+/* The input area needs relative positioning so the menu is anchored correctly */
+.chat-input-area {
+  position: relative;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: background var(--transition-fast, 0.12s ease);
+}
+
+.slash-menu-item:not(:last-child) {
+  border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.05));
+}
+
+.slash-menu-item:hover,
+.slash-menu-item.active {
+  background: var(--color-bg-hover, rgba(255,255,255,0.06));
+}
+
+.slash-menu-item-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-primary, #ff6b6b);
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+}
+
+.slash-menu-item-desc {
+  font-size: 12px;
+  color: var(--color-text-muted, rgba(255,255,255,0.4));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slash-menu-empty {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--color-text-muted, rgba(255,255,255,0.4));
+  text-align: center;
+}
+
+/* =====================
+   Agent Badge & Selector
+   ===================== */
+
+/* Small emoji badge on kanban card (bottom of footer) */
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: default;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* Grid of agent chips for selection in forms */
+.agent-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.agent-selector--modal {
+  gap: 5px;
+}
+
+/* Individual chip: emoji + name, selectable */
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.6));
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.agent-chip:hover {
+  border-color: var(--color-primary, #ff6b6b);
+  color: var(--color-text, rgba(255, 255, 255, 0.9));
+  background: var(--color-primary-glow, rgba(255, 107, 107, 0.08));
+}
+
+/* Selected state — highlighted chip */
+.agent-chip.selected {
+  border-color: var(--color-primary, #ff6b6b);
+  background: var(--color-primary-glow, rgba(255, 107, 107, 0.15));
+  color: var(--color-primary, #ff6b6b);
+  font-weight: 600;
+}
+
+/* Modal variant — slightly smaller chips */
+.agent-selector--modal .agent-chip {
+  padding: 4px 9px;
+  font-size: 11px;
+}
+
+
+/* ============= GITHUB PANEL ============= */
+
+.github-panel {
+  background: var(--color-bg-secondary, #1a1a2e);
+  border: 1px solid var(--color-border, #2a2a3e);
+  border-radius: 10px;
+  margin: 12px 0;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.github-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--color-bg-tertiary, #16213e);
+  border-bottom: 1px solid var(--color-border, #2a2a3e);
+  gap: 8px;
+}
+
+.github-panel-header--skeleton {
+  border-bottom: none;
+}
+
+.github-panel-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+
+.github-octicon {
+  color: var(--color-text-muted, #888);
+  flex-shrink: 0;
+}
+
+.github-panel-repo-link,
+.github-panel-repo-name {
+  font-weight: 600;
+  color: var(--color-primary, #7c6af7);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.github-panel-repo-link:hover {
+  text-decoration: underline;
+}
+
+.github-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.github-panel-refresh-btn,
+.github-panel-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted, #888);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 14px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.github-panel-refresh-btn:hover,
+.github-panel-toggle-btn:hover {
+  color: var(--color-text, #e0e0e0);
+  background: var(--color-hover, rgba(255,255,255,0.06));
+}
+
+/* Stats row */
+.github-panel-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px 4px;
+}
+
+.github-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-bg-tertiary, #16213e);
+  border: 1px solid var(--color-border, #2a2a3e);
+  border-radius: 20px;
+  padding: 2px 9px;
+  font-size: 11px;
+  color: var(--color-text-muted, #888);
+  font-weight: 500;
+}
+
+.github-panel-description {
+  margin: 2px 14px 8px;
+  color: var(--color-text-muted, #888);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Tabs */
+.github-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border, #2a2a3e);
+  padding: 0 10px;
+  gap: 2px;
+  background: var(--color-bg-secondary, #1a1a2e);
+}
+
+.github-panel-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted, #888);
+  cursor: pointer;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.github-panel-tab:hover {
+  color: var(--color-text, #e0e0e0);
+}
+
+.github-panel-tab.active {
+  color: var(--color-primary, #7c6af7);
+  border-bottom-color: var(--color-primary, #7c6af7);
+}
+
+/* Content list */
+.github-panel-content {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.github-issue-item,
+.github-pr-item {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--color-border, #2a2a3e);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background 0.1s;
+}
+
+.github-issue-item:last-child,
+.github-pr-item:last-child {
+  border-bottom: none;
+}
+
+.github-issue-item:hover,
+.github-pr-item:hover {
+  background: var(--color-hover, rgba(255,255,255,0.03));
+}
+
+.github-item-link {
+  color: var(--color-text, #e0e0e0);
+  text-decoration: none;
+  font-size: 12.5px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.github-item-link:hover {
+  color: var(--color-primary, #7c6af7);
+  text-decoration: underline;
+}
+
+.github-item-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.github-item-date,
+.github-item-assignee {
+  font-size: 11px;
+  color: var(--color-text-muted, #666);
+}
+
+.github-item-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.github-label {
+  background: var(--color-primary-dim, rgba(124, 106, 247, 0.15));
+  color: var(--color-primary, #7c6af7);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+/* PR status badge */
+.github-pr-status {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 1px 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+  width: fit-content;
+}
+
+.github-pr-status--open {
+  background: rgba(35, 197, 94, 0.15);
+  color: #23c55e;
+}
+
+.github-pr-status--draft {
+  background: rgba(136, 136, 136, 0.15);
+  color: #888;
+}
+
+/* Empty / error states */
+.github-panel-empty {
+  padding: 18px 14px;
+  text-align: center;
+  color: var(--color-text-muted, #666);
+  font-size: 12px;
+}
+
+.github-panel-error {
+  padding: 12px 14px;
+  color: var(--color-error, #f87171);
+  font-size: 12px;
+}
+
+/* Skeleton loading */
+.github-skeleton-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.github-panel-title-skeleton {
+  display: inline-block;
+  width: 140px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--color-border, #2a2a3e);
+  animation: github-shimmer 1.4s infinite;
+}
+
+.github-skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--color-border, #2a2a3e);
+  animation: github-shimmer 1.4s infinite;
+}
+
+.github-skeleton-line--short {
+  width: 60%;
+}
+
+@keyframes github-shimmer {
+  0%   { opacity: 0.5; }
+  50%  { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+.github-panel-wrap {
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+/* ============= SESSION TAB BAR (project/card context) ============= */
+
+.session-tab-bar-wrap {
+  flex-shrink: 0;
+}
+
+.session-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-height: 32px;
+}
+
+.session-tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.session-tab-bar-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Individual session pill tab */
+.session-tab-bar .session-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  max-width: 160px;
+  user-select: none;
+}
+
+.session-tab-bar .session-tab:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text);
+}
+
+.session-tab-bar .session-tab.active {
+  background: var(--color-primary, #6366f1);
+  color: #fff;
+  border-color: var(--color-primary, #6366f1);
+}
+
+.session-tab-bar .session-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* × close button — hidden until tab hover */
+.session-tab-bar .session-tab-close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  opacity: 0.7;
+  font-family: inherit;
+  transition: background 0.1s, opacity 0.1s;
+}
+
+.session-tab-bar .session-tab:hover .session-tab-close {
+  display: flex;
+}
+
+.session-tab-bar .session-tab-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  opacity: 1;
+}
+
+.session-tab-bar .session-tab-close[disabled] {
+  cursor: not-allowed;
+  opacity: 0.3;
+}
+
+/* + new session button */
+.session-tab-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: 50%;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  margin-left: 4px;
+  padding: 0;
+}
+
+.session-tab-new:hover:not([disabled]) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text);
+  border-color: var(--color-primary, #6366f1);
+}
+
+.session-tab-new[disabled] {
+  cursor: not-allowed;
+  opacity: 0.4;
 }

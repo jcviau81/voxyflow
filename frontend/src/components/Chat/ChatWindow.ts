@@ -10,6 +10,9 @@ import { MessageBubble } from './MessageBubble';
 import { ModelStatusBar } from '../Navigation/ModelStatusBar';
 import { EmojiPicker } from './EmojiPicker';
 import { WelcomePrompt, WelcomeMode, WelcomeContext } from './WelcomePrompt';
+import { SlashCommandMenu, SlashCommand } from './SlashCommands';
+import { GitHubPanel } from '../Projects/GitHubPanel';
+import { SessionTabBar } from './SessionTabBar';
 
 export class ChatWindow {
   private container: HTMLElement;
@@ -21,6 +24,9 @@ export class ChatWindow {
   private modelStatusBar: ModelStatusBar | null = null;
   private welcomePrompt: WelcomePrompt | null = null;
   private messageBubbles: Map<string, MessageBubble> = new Map();
+  private slashMenu: SlashCommandMenu | null = null;
+  private githubPanel: GitHubPanel | null = null;
+  private sessionTabBar: SessionTabBar | null = null;
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
   private currentProjectView: 'chat' | 'kanban' = 'chat';
@@ -49,7 +55,19 @@ export class ChatWindow {
 
     // Render existing messages or welcome prompt
     const chatLevel = this.getChatLevel();
-    const sessionIdForRender = chatLevel === 'general' ? this.activeSessionId : undefined;
+    let sessionIdForRender: string | undefined;
+    if (chatLevel === 'general') {
+      sessionIdForRender = this.activeSessionId;
+    } else {
+      const activeTabId = appState.getActiveTab();
+      const contextTabId = chatLevel === 'card'
+        ? (appState.get('selectedCardId') || activeTabId)
+        : activeTabId;
+      const sessions = appState.getSessions(contextTabId);
+      if (sessions.length > 0) {
+        sessionIdForRender = appState.getActiveChatId(contextTabId);
+      }
+    }
     const messages = chatService.getHistory(
       appState.get('currentProjectId') || undefined,
       sessionIdForRender
@@ -103,8 +121,43 @@ export class ChatWindow {
     this.inputArea.appendChild(sendBtn);
 
     this.container.appendChild(headerRow);
+
+    // Session Tab Bar — show for project and card levels
+    this.sessionTabBar?.destroy();
+    this.sessionTabBar = null;
+    const chatLevelForST = this.getChatLevel();
+    if (chatLevelForST === 'project' || chatLevelForST === 'card') {
+      const activeTabId = appState.getActiveTab();
+      // For card context, use the card id as the tabId so sessions are card-scoped
+      const sessionTabId = chatLevelForST === 'card'
+        ? (appState.get('selectedCardId') || activeTabId)
+        : activeTabId;
+      const sessionTabBarContainer = createElement('div', { className: 'session-tab-bar-wrap' });
+      this.container.appendChild(sessionTabBarContainer);
+      this.sessionTabBar = new SessionTabBar(sessionTabBarContainer, sessionTabId);
+    }
+
+    // GitHub Panel — show when project has a github_url and we're in project chat level
+    this.githubPanel?.destroy();
+    this.githubPanel = null;
+    const chatLevelForGH = this.getChatLevel();
+    if (chatLevelForGH === 'project') {
+      const projectIdForGH = appState.get('currentProjectId');
+      const projectForGH = projectIdForGH ? appState.getProject(projectIdForGH) : null;
+      const ghUrl = projectForGH?.githubUrl || projectForGH?.githubRepo;
+      if (ghUrl) {
+        const ghContainer = createElement('div', { className: 'github-panel-wrap' });
+        this.container.appendChild(ghContainer);
+        this.githubPanel = new GitHubPanel(ghContainer, ghUrl);
+      }
+    }
+
     this.container.appendChild(this.messageList);
     this.container.appendChild(this.inputArea);
+
+    // Slash command menu — anchored to the input area, floats above it
+    this.slashMenu?.destroy();
+    this.slashMenu = new SlashCommandMenu(this.inputArea, (cmd) => this.executeSlashCommand(cmd));
 
     this.parentElement.appendChild(this.container);
     this.scrollToBottom();
@@ -416,7 +469,7 @@ export class ChatWindow {
       })
     );
 
-    // Enrichment messages (Layer 2 — Opus deep thinking)
+    // Enrichment messages (Layer 2 — Deep thinking)
     this.unsubscribers.push(
       eventBus.on(EVENTS.MESSAGE_ENRICHMENT, (message: unknown) => {
         const msg = message as Message;
@@ -505,6 +558,23 @@ export class ChatWindow {
       })
     );
 
+    // Session tab switch (project/card context) — reload messages for new session
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.SESSION_TAB_SWITCH, (data: unknown) => {
+        const { tabId } = data as { tabId: string; sessionId: string };
+        const chatLevel = this.getChatLevel();
+        if (chatLevel === 'general') return; // Not our concern here
+
+        const activeTabId = appState.getActiveTab();
+        const contextTabId = chatLevel === 'card'
+          ? (appState.get('selectedCardId') || activeTabId)
+          : activeTabId;
+        if (tabId === contextTabId) {
+          this.reloadMessages();
+        }
+      })
+    );
+
     // Welcome action handler
     this.unsubscribers.push(
       eventBus.on(EVENTS.WELCOME_ACTION, (data: unknown) => {
@@ -565,7 +635,22 @@ export class ChatWindow {
     this.welcomePrompt = null;
 
     const chatLevel = this.getChatLevel();
-    const sessionId = chatLevel === 'general' ? this.activeSessionId : undefined;
+    let sessionId: string | undefined;
+
+    if (chatLevel === 'general') {
+      sessionId = this.activeSessionId;
+    } else {
+      const activeTabId = appState.getActiveTab();
+      const contextTabId = chatLevel === 'card'
+        ? (appState.get('selectedCardId') || activeTabId)
+        : activeTabId;
+      // Only filter by session chatId if sessions have been created (non-empty)
+      const sessions = appState.getSessions(contextTabId);
+      if (sessions.length > 0) {
+        sessionId = appState.getActiveChatId(contextTabId);
+      }
+    }
+
     const messages = chatService.getHistory(
       appState.get('currentProjectId') || undefined,
       sessionId
@@ -668,6 +753,14 @@ export class ChatWindow {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    // Let the slash menu consume navigation/confirm keys first
+    if (this.slashMenu?.isVisible()) {
+      const consumed = this.slashMenu.handleKey(event);
+      if (consumed) {
+        event.preventDefault();
+        return;
+      }
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       this.sendCurrentMessage();
@@ -683,6 +776,90 @@ export class ChatWindow {
     if (this.textInput.value.trim().length > 0) {
       this.hideWelcomeIfNeeded();
     }
+    // Slash command menu
+    const val = this.textInput.value;
+    if (val.startsWith('/')) {
+      this.slashMenu?.update(val);
+    } else {
+      this.slashMenu?.hide();
+    }
+  }
+
+  private executeSlashCommand(cmd: SlashCommand): void {
+    if (!this.textInput) return;
+    const input = this.textInput.value.trim();
+
+    // Clear input
+    this.textInput.value = '';
+    this.textInput.style.height = 'auto';
+    this.textInput.focus();
+
+    switch (cmd.name) {
+      case '/new':
+        this.handleNewSession();
+        break;
+
+      case '/clear':
+        this.handleClearChat();
+        break;
+
+      case '/help': {
+        const helpText = [
+          '**Available commands:**',
+          '`/new` — Start a new session',
+          '`/clear` — Clear chat messages visually',
+          '`/help` — Show this help message',
+          '`/agent [name]` — Switch agent persona',
+          '  Agents: `ember`, `coder`, `architect`, `researcher`, `designer`, `writer`, `qa`',
+        ].join('\n');
+
+        // Inject as an assistant message locally (no round-trip to server)
+        const helpMsg: Message = {
+          id: `slash-help-${Date.now()}`,
+          role: 'assistant',
+          content: helpText,
+          timestamp: Date.now(),
+          sessionId: this.activeSessionId,
+        };
+        this.hideWelcomeIfNeeded();
+        this.renderMessage(helpMsg);
+        break;
+      }
+
+      case '/agent': {
+        // Parse agent name from typed input, e.g. "/agent coder"
+        const parts = input.split(/\s+/);
+        const agentName = parts[1]?.toLowerCase() || '';
+
+        const validAgents = ['ember', 'coder', 'architect', 'researcher', 'designer', 'writer', 'qa'];
+        if (!agentName || !validAgents.includes(agentName)) {
+          const errMsg: Message = {
+            id: `slash-agent-err-${Date.now()}`,
+            role: 'assistant',
+            content: `Unknown agent. Available: ${validAgents.map((a) => '`' + a + '`').join(', ')}`,
+            timestamp: Date.now(),
+            sessionId: this.activeSessionId,
+          };
+          this.hideWelcomeIfNeeded();
+          this.renderMessage(errMsg);
+        } else {
+          eventBus.emit(EVENTS.AGENT_SWITCH, { agent: agentName });
+          const confirmMsg: Message = {
+            id: `slash-agent-ok-${Date.now()}`,
+            role: 'assistant',
+            content: `Switched to **${agentName}** agent.`,
+            timestamp: Date.now(),
+            sessionId: this.activeSessionId,
+          };
+          this.hideWelcomeIfNeeded();
+          this.renderMessage(confirmMsg);
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
   }
 
   private sendCurrentMessage(): void {
@@ -691,7 +868,28 @@ export class ChatWindow {
     if (!content) return;
 
     const chatLevel = this.getChatLevel();
-    const sessionId = chatLevel === 'general' ? this.activeSessionId : undefined;
+    let sessionId: string | undefined;
+
+    if (chatLevel === 'general') {
+      sessionId = this.activeSessionId;
+    } else {
+      // project or card — use the active session's chatId
+      const activeTabId = appState.getActiveTab();
+      const contextTabId = chatLevel === 'card'
+        ? (appState.get('selectedCardId') || activeTabId)
+        : activeTabId;
+      sessionId = appState.getActiveChatId(contextTabId);
+
+      // Update session title from first user message content
+      if (this.sessionTabBar) {
+        const activeSession = appState.getActiveSession(contextTabId);
+        if (activeSession.title.match(/^Session \d+$/)) {
+          // Still has the default name — update with first 25 chars
+          this.sessionTabBar.updateSessionTitle(activeSession.id, content);
+        }
+      }
+    }
+
     chatService.sendMessage(content, undefined, undefined, sessionId);
     this.textInput.value = '';
     this.textInput.style.height = 'auto';
@@ -722,6 +920,9 @@ export class ChatWindow {
     this.emojiPicker?.destroy();
     this.modelStatusBar?.destroy();
     this.welcomePrompt?.destroy();
+    this.slashMenu?.destroy();
+    this.githubPanel?.destroy();
+    this.sessionTabBar?.destroy();
     this.messageBubbles.forEach((bubble) => bubble.destroy());
     this.messageBubbles.clear();
     this.container.remove();

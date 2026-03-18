@@ -1,6 +1,6 @@
-import { WebSocketMessage, ApiClientConfig, ConnectionState } from '../types';
+import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo } from '../types';
 import { eventBus } from '../utils/EventBus';
-import { EVENTS, WS_URL, RECONNECT_MAX_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, HEARTBEAT_INTERVAL } from '../utils/constants';
+import { EVENTS, WS_URL, API_URL, RECONNECT_MAX_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, HEARTBEAT_INTERVAL } from '../utils/constants';
 import { generateId } from '../utils/helpers';
 import { appState } from '../state/AppState';
 
@@ -258,6 +258,48 @@ export class ApiClient {
       }
     } catch (e) {
       console.warn('[ApiClient] Failed to load offline queue:', e);
+    }
+  }
+
+  // --- HTTP helpers ---
+
+  async fetchAgents(): Promise<AgentInfo[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/agents`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as AgentInfo[];
+    } catch (error) {
+      console.error('[ApiClient] fetchAgents error:', error);
+      return [];
+    }
+  }
+
+  async fetchCards(projectId: string): Promise<unknown[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/cards`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as unknown[];
+    } catch (error) {
+      console.error('[ApiClient] fetchCards error:', error);
+      return [];
+    }
+  }
+
+  async patchCard(cardId: string, updates: Record<string, unknown>): Promise<unknown | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('[ApiClient] patchCard error:', error);
+      return null;
     }
   }
 

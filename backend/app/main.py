@@ -12,10 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db
-from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools, sessions
+from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools, sessions, documents
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
+from app.services.rag_service import get_rag_service
 from app.tools import execute_tool, get_tool_definitions
 
 # ---------------------------------------------------------------------------
@@ -39,6 +40,12 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Voxyflow starting up...")
     await init_db()
     logger.info("✅ Database initialized")
+    # Initialize RAGService singleton (chromadb + sentence-transformers)
+    rag = get_rag_service()
+    if rag.enabled:
+        logger.info("✅ RAGService initialized (ChromaDB + all-MiniLM-L6-v2)")
+    else:
+        logger.warning("⚠️  RAGService disabled (chromadb not installed — install chromadb + sentence-transformers to enable)")
     yield
     logger.info("👋 Voxyflow shutting down")
 
@@ -73,6 +80,7 @@ app.include_router(github.router, prefix="/api")
 app.include_router(settings.router)
 app.include_router(tools.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
+app.include_router(documents.router, prefix="/api")
 
 
 @app.get("/health")
@@ -120,8 +128,8 @@ async def _handle_chat_3layer(
     """
     3-Layer Multi-Model Chat Orchestration.
 
-    Layer 1 — Haiku (fast, <1s): Immediate conversational response.
-    Layer 2 — Opus (deep, 2-5s): Enriches/corrects if needed, runs in parallel.
+    Layer 1 — Fast (<1s): Immediate conversational response.
+    Layer 2 — Deep (2-5s): Enriches/corrects if needed, runs in parallel.
     Layer 3 — Analyzer (background): Detects actionable items → card suggestions.
     """
     # Resolve project context from project_id
@@ -160,7 +168,7 @@ async def _handle_chat_3layer(
     # Resolve layer toggles (default: all enabled)
     if layers is None:
         layers = {}
-    opus_enabled = layers.get("opus", True)
+    deep_enabled = layers.get("deep", layers.get("opus", True))  # support legacy "opus" key too
     analyzer_enabled = layers.get("analyzer", True)
 
     # Helper to send model status updates
@@ -171,16 +179,17 @@ async def _handle_chat_3layer(
             "timestamp": int(time.time() * 1000),
         })
 
-    # Launch Opus + Analyzer in parallel (only if enabled)
-    opus_task = None
+    # Launch Deep + Analyzer in parallel (only if enabled)
+    deep_task = None
     analyzer_task = None
 
-    if opus_enabled:
-        await _send_model_status("opus", "thinking")
-        opus_task = asyncio.create_task(
-            _claude_service.chat_opus_supervisor(
+    if deep_enabled:
+        await _send_model_status("deep", "thinking")
+        deep_task = asyncio.create_task(
+            _claude_service.chat_deep_supervisor(
                 chat_id=chat_id, user_message=content, project_name=project_name,
                 chat_level=chat_level, project_context=project_context, card_context=card_context,
+                project_id=project_id,
             )
         )
 
@@ -190,20 +199,21 @@ async def _handle_chat_3layer(
             _analyzer_service.analyze_for_cards(chat_id=chat_id, message=content, project_context="")
         )
 
-    # --- Layer 1: Stream Haiku response token-by-token ---
-    await _send_model_status("haiku", "active")
+    # --- Layer 1: Stream fast response token-by-token ---
+    await _send_model_status("fast", "active")
     start = time.time()
-    haiku_full_response = ""
+    fast_full_response = ""
     try:
         first_token_sent = False
-        async for token in _claude_service.chat_haiku_stream(
+        async for token in _claude_service.chat_fast_stream(
             chat_id=chat_id, user_message=content, project_name=project_name,
             chat_level=chat_level, project_context=project_context, card_context=card_context,
+            project_id=project_id,
         ):
-            haiku_full_response += token
+            fast_full_response += token
             if not first_token_sent:
                 first_token_latency = int((time.time() - start) * 1000)
-                logger.info(f"[Layer1-Haiku] first token in {first_token_latency}ms")
+                logger.info(f"[Layer1-Fast] first token in {first_token_latency}ms")
                 first_token_sent = True
 
             await websocket.send_json({
@@ -211,7 +221,7 @@ async def _handle_chat_3layer(
                 "payload": {
                     "messageId": message_id,
                     "content": token,
-                    "model": "haiku",
+                    "model": "fast",
                     "streaming": True,
                     "done": False,
                     "sessionId": session_id,
@@ -221,13 +231,13 @@ async def _handle_chat_3layer(
 
         # Send stream-done signal
         latency = int((time.time() - start) * 1000)
-        logger.info(f"[Layer1-Haiku] stream complete in {latency}ms")
+        logger.info(f"[Layer1-Fast] stream complete in {latency}ms")
         await websocket.send_json({
             "type": "chat:response",
             "payload": {
                 "messageId": message_id,
                 "content": "",
-                "model": "haiku",
+                "model": "fast",
                 "streaming": True,
                 "done": True,
                 "latency_ms": latency,
@@ -235,24 +245,24 @@ async def _handle_chat_3layer(
             },
             "timestamp": int(time.time() * 1000),
         })
-        await _send_model_status("haiku", "idle")
+        await _send_model_status("fast", "idle")
     except Exception as e:
-        logger.error(f"[Layer1-Haiku] error: {e}")
-        await _send_model_status("haiku", "error")
+        logger.error(f"[Layer1-Fast] error: {e}")
+        await _send_model_status("fast", "error")
         await websocket.send_json({
             "type": "chat:error",
             "payload": {"messageId": message_id, "error": str(e), "sessionId": session_id},
             "timestamp": int(time.time() * 1000),
         })
-        # Cancel background tasks on Haiku failure
-        if opus_task:
-            opus_task.cancel()
+        # Cancel background tasks on fast layer failure
+        if deep_task:
+            deep_task.cancel()
         if analyzer_task:
             analyzer_task.cancel()
         return
 
-    # --- Tool execution: parse <tool_call> blocks from Haiku response ---
-    tool_calls = _parse_tool_calls(haiku_full_response)
+    # --- Tool execution: parse <tool_call> blocks from fast layer response ---
+    tool_calls = _parse_tool_calls(fast_full_response)
     if tool_calls:
         from app.database import async_session
         async with async_session() as db:
@@ -274,21 +284,21 @@ async def _handle_chat_3layer(
                     "timestamp": int(time.time() * 1000),
                 })
 
-    # --- Layer 2: Opus enrichment/correction ---
-    if not opus_enabled or opus_task is None:
-        logger.debug("[Layer2-Opus] skipped (disabled by user)")
+    # --- Layer 2: Deep enrichment/correction ---
+    if not deep_enabled or deep_task is None:
+        logger.debug("[Layer2-Deep] skipped (disabled by user)")
     else:
         try:
-            opus_result = await asyncio.wait_for(opus_task, timeout=15.0)
-            if opus_result and opus_result.get("action") in ("enrich", "correct"):
+            deep_result = await asyncio.wait_for(deep_task, timeout=15.0)
+            if deep_result and deep_result.get("action") in ("enrich", "correct"):
                 enrichment_id = str(uuid4())
-                logger.info(f"[Layer2-Opus] action={opus_result['action']}, sending enrichment")
+                logger.info(f"[Layer2-Deep] action={deep_result['action']}, sending enrichment")
 
                 # Persist enrichment to disk
                 session_store.save_message(chat_id, {
                     "role": "assistant",
-                    "content": opus_result["content"],
-                    "model": "opus",
+                    "content": deep_result["content"],
+                    "model": "deep",
                     "type": "enrichment",
                     "session_id": session_id,
                 })
@@ -297,25 +307,25 @@ async def _handle_chat_3layer(
                     "type": "chat:enrichment",
                     "payload": {
                         "messageId": enrichment_id,
-                        "content": opus_result["content"],
-                        "model": "opus",
-                        "action": opus_result["action"],
+                        "content": deep_result["content"],
+                        "model": "deep",
+                        "action": deep_result["action"],
                         "done": True,
                         "sessionId": session_id,
                     },
                     "timestamp": int(time.time() * 1000),
                 })
             else:
-                logger.debug("[Layer2-Opus] no enrichment needed")
-            await _send_model_status("opus", "idle")
+                logger.debug("[Layer2-Deep] no enrichment needed")
+            await _send_model_status("deep", "idle")
         except asyncio.TimeoutError:
-            logger.warning("[Layer2-Opus] timed out after 15s, skipping")
-            await _send_model_status("opus", "idle")
+            logger.warning("[Layer2-Deep] timed out after 15s, skipping")
+            await _send_model_status("deep", "idle")
         except asyncio.CancelledError:
-            await _send_model_status("opus", "idle")
+            await _send_model_status("deep", "idle")
         except Exception as e:
-            logger.error(f"[Layer2-Opus] error: {e}")
-            await _send_model_status("opus", "error")
+            logger.error(f"[Layer2-Deep] error: {e}")
+            await _send_model_status("deep", "error")
 
     # --- Layer 3: Analyzer card suggestions ---
     if not analyzer_enabled or analyzer_task is None:
@@ -379,7 +389,7 @@ async def general_websocket(websocket: WebSocket):
                     project_id = payload.get("projectId")
                     card_id = payload.get("cardId")
                     chat_level = payload.get("chatLevel", "general")
-                    msg_layers = payload.get("layers")  # {opus: bool, analyzer: bool}
+                    msg_layers = payload.get("layers")  # {deep: bool, analyzer: bool}
 
                     session_id = payload.get("sessionId")
 
@@ -397,7 +407,7 @@ async def general_websocket(websocket: WebSocket):
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
 
-                    # 3-Layer orchestration (Haiku + Opus + Analyzer in parallel)
+                    # 3-Layer orchestration (Fast + Deep + Analyzer in parallel)
                     await _handle_chat_3layer(
                         websocket=websocket,
                         content=content,

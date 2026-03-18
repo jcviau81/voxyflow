@@ -144,10 +144,12 @@ export class TabBar {
       appState.switchTab(tabs[nextIndex].id);
     }
 
-    // Ctrl+W: close current tab (if closable)
-    if (e.ctrlKey && e.key === 'w') {
+    // Ctrl+W / Cmd+W: close current tab (if closable)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
       const activeId = appState.getActiveTab();
-      if (activeId !== 'main') {
+      const tabs = appState.getOpenTabs();
+      const activeTab = tabs.find(t => t.id === activeId);
+      if (activeTab?.closable) {
         e.preventDefault();
         appState.closeTab(activeId);
       }

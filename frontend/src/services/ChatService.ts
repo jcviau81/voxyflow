@@ -42,7 +42,7 @@ export class ChatService {
       })
     );
 
-    // Handle enrichment messages (Layer 2 — Opus deep thinking)
+    // Handle enrichment messages (Layer 2 — Deep thinking)
     this.unsubscribers.push(
       apiClient.on('chat:enrichment', (payload) => {
         const { messageId, content, model, action, sessionId } = payload as {

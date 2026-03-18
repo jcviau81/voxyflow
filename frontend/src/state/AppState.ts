@@ -1,4 +1,4 @@
-import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab, Idea } from '../types';
+import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab, Idea, SessionInfo } from '../types';
 import { eventBus } from '../utils/EventBus';
 import { EVENTS } from '../utils/constants';
 import { generateId, deepClone } from '../utils/helpers';
@@ -30,6 +30,8 @@ const defaultState: AppStateData = {
   activeTab: 'main',
   openTabs: [{ ...DEFAULT_MAIN_TAB }],
   ideas: [],
+  sessions: {},
+  activeSession: {},
 };
 
 class AppState {
@@ -48,6 +50,14 @@ class AppState {
     }
     if (!this.state.activeTab) {
       this.state.activeTab = 'main';
+    }
+
+    // Ensure session tab data is initialized (migration from old state)
+    if (!this.state.sessions) {
+      this.state.sessions = {};
+    }
+    if (!this.state.activeSession) {
+      this.state.activeSession = {};
     }
 
     // Restore persisted tabs
@@ -340,14 +350,26 @@ class AppState {
   closeTab(tabId: string): void {
     if (tabId === 'main') return; // Cannot close main tab
 
-    const tabs = this.state.openTabs.filter(t => t.id !== tabId);
+    const wasActive = this.state.activeTab === tabId;
+    const oldTabs = this.state.openTabs;
+    const closedIndex = oldTabs.findIndex(t => t.id === tabId);
+
+    const tabs = oldTabs.filter(t => t.id !== tabId);
     this.set('openTabs', tabs);
     this.saveTabsToStorage();
     eventBus.emit(EVENTS.TAB_CLOSE, tabId);
 
-    // If we closed the active tab, switch to main
-    if (this.state.activeTab === tabId) {
-      this.switchTab('main');
+    // If we closed the active tab, switch to nearest remaining tab
+    if (wasActive) {
+      if (tabs.length === 0) {
+        // Should not happen (main always exists), but guard anyway
+        this.switchTab('main');
+      } else {
+        // Prefer the tab that was just before; fall back to main
+        const fallbackIndex = Math.min(closedIndex, tabs.length - 1);
+        const fallbackTab = tabs[fallbackIndex] || tabs[0];
+        this.switchTab(fallbackTab.id);
+      }
     }
   }
 
@@ -414,6 +436,123 @@ class AppState {
 
   getIdeas(): Idea[] {
     return this.state.ideas || [];
+  }
+
+  // --- Session Tabs (per project/card context) ---
+
+  /**
+   * Create a new session for a given tabId.
+   * Auto-assigns a sequential title ("Session 1", "Session 2", …).
+   * Returns the created SessionInfo. Does NOT create a session if max (5) reached.
+   */
+  createSession(tabId: string): SessionInfo {
+    const existing = this.state.sessions[tabId] || [];
+    if (existing.length >= 5) {
+      // Return last session if max reached
+      return existing[existing.length - 1];
+    }
+    const sessionNumber = existing.length + 1;
+    const session: SessionInfo = {
+      id: crypto.randomUUID(),
+      chatId: `${tabId}::${crypto.randomUUID()}`,
+      title: `Session ${sessionNumber}`,
+      createdAt: Date.now(),
+    };
+    const updatedSessions = {
+      ...this.state.sessions,
+      [tabId]: [...existing, session],
+    };
+    const updatedActive = {
+      ...this.state.activeSession,
+      [tabId]: session.id,
+    };
+    this.state.sessions = updatedSessions;
+    this.state.activeSession = updatedActive;
+    this.saveToStorage();
+    return session;
+  }
+
+  /**
+   * Close (remove) a session for a given tabId.
+   * Won't close the last remaining session.
+   * Switches active session if the closed one was active.
+   */
+  closeSession(tabId: string, sessionId: string): void {
+    const existing = this.state.sessions[tabId] || [];
+    if (existing.length <= 1) return; // Never close the last session
+
+    const updatedList = existing.filter((s) => s.id !== sessionId);
+    const updatedSessions = {
+      ...this.state.sessions,
+      [tabId]: updatedList,
+    };
+    this.state.sessions = updatedSessions;
+
+    // If we closed the active session, switch to the first remaining one
+    if (this.state.activeSession[tabId] === sessionId) {
+      this.state.activeSession = {
+        ...this.state.activeSession,
+        [tabId]: updatedList[0].id,
+      };
+    }
+    this.saveToStorage();
+    eventBus.emit(EVENTS.SESSION_TAB_CLOSE, { tabId, sessionId });
+  }
+
+  /**
+   * Set the active session for a tabId. Creates sessions array if needed.
+   */
+  setActiveSession(tabId: string, sessionId: string): void {
+    this.state.activeSession = {
+      ...this.state.activeSession,
+      [tabId]: sessionId,
+    };
+    this.saveToStorage();
+    eventBus.emit(EVENTS.SESSION_TAB_SWITCH, { tabId, sessionId });
+  }
+
+  /**
+   * Get sessions for a tabId, auto-creating an initial session if none exist.
+   */
+  getSessions(tabId: string): SessionInfo[] {
+    if (!this.state.sessions[tabId] || this.state.sessions[tabId].length === 0) {
+      this.createSession(tabId);
+    }
+    return this.state.sessions[tabId] || [];
+  }
+
+  /**
+   * Get the active SessionInfo for a tabId.
+   */
+  getActiveSession(tabId: string): SessionInfo {
+    const sessions = this.getSessions(tabId);
+    const activeId = this.state.activeSession[tabId];
+    return sessions.find((s) => s.id === activeId) || sessions[0];
+  }
+
+  /**
+   * Returns the chat_id for the active session of a given tabId.
+   * This is the ID used when communicating with the backend.
+   */
+  getActiveChatId(tabId: string): string {
+    return this.getActiveSession(tabId).chatId;
+  }
+
+  /**
+   * Update a session's title (e.g. after first message).
+   */
+  updateSessionTitle(tabId: string, sessionId: string, title: string): void {
+    const sessions = this.state.sessions[tabId];
+    if (!sessions) return;
+    const updated = sessions.map((s) =>
+      s.id === sessionId ? { ...s, title } : s
+    );
+    this.state.sessions = {
+      ...this.state.sessions,
+      [tabId]: updated,
+    };
+    this.saveToStorage();
+    eventBus.emit(EVENTS.SESSION_TAB_UPDATE, { tabId, sessionId, title });
   }
 
   // --- Reset ---

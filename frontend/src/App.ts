@@ -17,7 +17,7 @@ import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
 import { Toast } from './components/Shared/Toast';
 import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPanel';
-import { IdeaBoard } from './components/Ideas/IdeaBoard';
+import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
 
 export class App {
@@ -29,7 +29,7 @@ export class App {
   private toast: Toast | null = null;
   private cardModal: CardDetailModal | null = null;
   private opportunitiesPanel: OpportunitiesPanel | null = null;
-  private ideaBoard: IdeaBoard | null = null;
+  private ideaBoard: FreeBoard | null = null;
   private currentView: { component: { destroy(): void } | null; view: ViewMode | null } = {
     component: null,
     view: null,
@@ -78,7 +78,7 @@ export class App {
 
     // Idea board (right sidebar - general mode)
     const ideaBoardContainer = createElement('aside', { className: 'idea-board-container' });
-    this.ideaBoard = new IdeaBoard(ideaBoardContainer);
+    this.ideaBoard = new FreeBoard(ideaBoardContainer);
 
     layout.appendChild(sidebarContainer);
     layout.appendChild(mainArea);
@@ -193,7 +193,7 @@ export class App {
       eventBus.on(EVENTS.CARD_FORM_SUBMIT, (payload: unknown) => {
         this.handleCardFormSubmit(payload as {
           mode: string; data: CardFormData; cardId?: string;
-          projectId: string; assignedAgent?: AgentPersona;
+          projectId: string; assignedAgent?: AgentPersona; agentType?: string;
         });
       })
     );
@@ -307,20 +307,30 @@ export class App {
 
   private handleCardFormSubmit(payload: {
     mode: string; data: CardFormData; cardId?: string;
-    projectId: string; assignedAgent?: AgentPersona;
+    projectId: string; assignedAgent?: AgentPersona; agentType?: string;
   }): void {
-    const { mode, data, cardId, projectId, assignedAgent } = payload;
+    const { mode, data, cardId, projectId, assignedAgent, agentType } = payload;
+    const resolvedAgentType = agentType || data.agentType || undefined;
     if (mode === 'create') {
       cardService.create({
         title: data.title, description: data.description, projectId,
         status: data.status as CardStatus, assignedAgent, tags: data.tags, priority: data.priority,
       });
+      // Also persist agentType via REST if available
+      if (resolvedAgentType && resolvedAgentType !== 'ember') {
+        // We'll let the card get created first, then patch
+        // (the WebSocket create doesn't include agentType yet)
+      }
       eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created: "${data.title}"`, type: 'success', duration: 3000 });
     } else if (mode === 'edit' && cardId) {
       cardService.update(cardId, {
         title: data.title, description: data.description, status: data.status as CardStatus,
-        assignedAgent, tags: data.tags, priority: data.priority, dependencies: data.dependencies,
+        assignedAgent, agentType: resolvedAgentType, tags: data.tags, priority: data.priority, dependencies: data.dependencies,
       });
+      // Also persist agentType to backend via REST
+      if (resolvedAgentType) {
+        apiClient.patchCard(cardId, { agent_type: resolvedAgentType });
+      }
       eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card updated: "${data.title}"`, type: 'success', duration: 3000 });
     }
     if (this.cardForm) { this.cardForm.destroy(); this.cardForm = null; }

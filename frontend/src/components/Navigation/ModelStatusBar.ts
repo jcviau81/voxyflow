@@ -13,8 +13,8 @@ interface ModelInfo {
 }
 
 const MODEL_DEFAULTS: ModelInfo[] = [
-  { name: 'haiku', emoji: '⚡', label: 'Haiku', state: 'idle', toggleable: false },
-  { name: 'opus', emoji: '🧠', label: 'Opus', state: 'idle', toggleable: true },
+  { name: 'fast', emoji: '⚡', label: 'Fast', state: 'idle', toggleable: false },
+  { name: 'deep', emoji: '🧠', label: 'Deep', state: 'idle', toggleable: true },
   { name: 'analyzer', emoji: '🔍', label: 'Analyzer', state: 'idle', toggleable: true },
 ];
 
@@ -59,10 +59,10 @@ export class ModelStatusBar {
         this.layerState = JSON.parse(stored);
       } else {
         // Default: all toggleable layers enabled
-        this.layerState = { opus: true, analyzer: true };
+        this.layerState = { deep: true, analyzer: true };
       }
     } catch {
-      this.layerState = { opus: true, analyzer: true };
+      this.layerState = { deep: true, analyzer: true };
     }
   }
 
@@ -156,7 +156,7 @@ export class ModelStatusBar {
       const stored = localStorage.getItem(LAYER_STORAGE_KEY);
       if (stored) return JSON.parse(stored);
     } catch {}
-    return { opus: true, analyzer: true };
+    return { deep: true, analyzer: true };
   }
 
   destroy(): void {

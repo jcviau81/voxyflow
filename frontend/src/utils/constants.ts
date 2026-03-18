@@ -35,7 +35,7 @@ export const CARD_STATUS_LABELS: Record<string, string> = {
   'done': '✅ Done',
 };
 
-// Agent Personas
+// Agent Personas (legacy, used by old assignedAgent field)
 export const AGENT_PERSONAS: Record<string, { name: string; emoji: string; description: string }> = {
   codeuse: { name: 'Codeuse', emoji: '👩‍💻', description: 'Code implementation & debugging' },
   architecte: { name: 'Architecte', emoji: '🏗️', description: 'System design & architecture' },
@@ -44,6 +44,28 @@ export const AGENT_PERSONAS: Record<string, { name: string; emoji: string; descr
   analyste: { name: 'Analyste', emoji: '📊', description: 'Requirements & analysis' },
   testeur: { name: 'Testeur', emoji: '🧪', description: 'Testing & quality assurance' },
   documenteur: { name: 'Documenteur', emoji: '📝', description: 'Documentation & specs' },
+};
+
+// Agent type → emoji mapping for the 7 BMAD agent types
+export const AGENT_TYPE_EMOJI: Record<string, string> = {
+  ember: '🔥',
+  researcher: '🔍',
+  coder: '💻',
+  designer: '🎨',
+  architect: '🏗️',
+  writer: '✍️',
+  qa: '🧪',
+};
+
+// Agent type → display info
+export const AGENT_TYPE_INFO: Record<string, { name: string; emoji: string; description: string }> = {
+  ember: { name: 'Ember', emoji: '🔥', description: 'Default — general tasks' },
+  researcher: { name: 'Recherchiste', emoji: '🔍', description: 'Research & analysis' },
+  coder: { name: 'Codeuse', emoji: '💻', description: 'Code implementation & debugging' },
+  designer: { name: 'Designer', emoji: '🎨', description: 'UI/UX design & styling' },
+  architect: { name: 'Architecte', emoji: '🏗️', description: 'System design & planning' },
+  writer: { name: 'Rédactrice', emoji: '✍️', description: 'Content & documentation' },
+  qa: { name: 'QA', emoji: '🧪', description: 'Testing & quality assurance' },
 };
 
 // Keyboard shortcuts
@@ -138,6 +160,16 @@ export const EVENTS = {
 
   // Layers
   LAYER_TOGGLE: 'layer:toggle',
+
+  // Slash commands
+  SESSION_NEW: 'session:new',
+  AGENT_SWITCH: 'agent:switch',
+
+  // Session tabs (project/card context)
+  SESSION_TAB_SWITCH: 'session:tab:switch',
+  SESSION_TAB_CLOSE: 'session:tab:close',
+  SESSION_TAB_NEW: 'session:tab:new',
+  SESSION_TAB_UPDATE: 'session:tab:update',
 
   // State
   STATE_CHANGED: 'state:changed',

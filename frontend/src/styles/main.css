@@ -182,6 +182,10 @@ body {
   background: rgba(255, 107, 107, 0.04);
 }
 
+.tab.active .tab-close {
+  opacity: 0.35;
+}
+
 .tab-emoji {
   font-size: 13px;
 }
@@ -204,7 +208,7 @@ body {
 }
 
 .tab:hover .tab-close {
-  opacity: 0.4;
+  opacity: 0.6;
 }
 
 .tab-close:hover {
