@@ -30,5 +30,10 @@
       "model": "claude-haiku-4",
       "enabled": true
     }
+  },
+  "scheduler": {
+    "enabled": true,
+    "heartbeat_interval_minutes": 2,
+    "rag_index_interval_minutes": 15
   }
 }
