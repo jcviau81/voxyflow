@@ -1,4 +1,13 @@
 import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry } from '../types';
+
+export interface SearchResult {
+  message_id: string;
+  chat_id: string;
+  role: string;
+  content: string;
+  snippet: string;
+  created_at: string | null;
+}
 import { eventBus } from '../utils/EventBus';
 import { EVENTS, WS_URL, API_URL, RECONNECT_MAX_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, HEARTBEAT_INTERVAL } from '../utils/constants';
 import { generateId } from '../utils/helpers';
@@ -401,6 +410,20 @@ export class ApiClient {
     } catch (error) {
       console.error('[ApiClient] deleteTimeEntry error:', error);
       return false;
+    }
+  }
+
+  async searchMessages(query: string, projectId?: string, limit = 20): Promise<SearchResult[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const params = new URLSearchParams({ q: query, limit: String(limit) });
+      if (projectId) params.set('project_id', projectId);
+      const response = await fetch(`${baseUrl}/api/sessions/search/messages?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as SearchResult[];
+    } catch (error) {
+      console.error('[ApiClient] searchMessages error:', error);
+      return [];
     }
   }
 

@@ -13,6 +13,8 @@ import { WelcomePrompt, WelcomeMode, WelcomeContext } from './WelcomePrompt';
 import { SlashCommandMenu, SlashCommand } from './SlashCommands';
 import { GitHubPanel } from '../Projects/GitHubPanel';
 import { SessionTabBar } from './SessionTabBar';
+import { ChatSearch } from './ChatSearch';
+import { SmartSuggestions } from './SmartSuggestions';
 
 export class ChatWindow {
   private container: HTMLElement;
@@ -27,6 +29,8 @@ export class ChatWindow {
   private slashMenu: SlashCommandMenu | null = null;
   private githubPanel: GitHubPanel | null = null;
   private sessionTabBar: SessionTabBar | null = null;
+  private smartSuggestions: SmartSuggestions | null = null;
+  private chatSearch: ChatSearch | null = null;
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
   private currentProjectView: 'chat' | 'kanban' | 'stats' = 'chat';
@@ -115,6 +119,18 @@ export class ChatWindow {
     const voiceContainer = createElement('div', { className: 'voice-input-container' });
     this.voiceInput = new VoiceInput(voiceContainer);
 
+    // Smart suggestions chips row (above textarea)
+    const suggestionsWrapper = createElement('div', { className: 'quick-replies-wrapper' });
+    this.smartSuggestions?.destroy();
+    this.smartSuggestions = new SmartSuggestions(suggestionsWrapper, (text: string) => {
+      if (this.textInput) {
+        this.textInput.value = text;
+        this.textInput.focus();
+        this.handleInputChange();
+      }
+    });
+
+    this.inputArea.appendChild(suggestionsWrapper);
     this.inputArea.appendChild(emojiContainer);
     this.inputArea.appendChild(this.textInput);
     this.inputArea.appendChild(voiceContainer);
@@ -161,6 +177,10 @@ export class ChatWindow {
 
     this.parentElement.appendChild(this.container);
     this.scrollToBottom();
+
+    // Chat history search panel (attached to parentElement so it overlays the window)
+    this.chatSearch?.destroy();
+    this.chatSearch = new ChatSearch(this.parentElement);
   }
 
   private getChatLevel(): 'general' | 'project' | 'card' {
@@ -250,7 +270,18 @@ export class ChatWindow {
       });
       actions.appendChild(newCardBtn);
     } else {
-      // Chat mode: show Clear + Model Status
+      // Chat mode: show Search + Clear + Model Status
+      const searchBtn = createElement('button', {
+        className: 'header-btn',
+        title: 'Search Chat History (Ctrl+Shift+F)',
+        'data-testid': 'chat-search-btn',
+      });
+      searchBtn.textContent = '🔍';
+      searchBtn.addEventListener('click', () => {
+        eventBus.emit(EVENTS.CHAT_SEARCH_OPEN, {});
+      });
+      actions.appendChild(searchBtn);
+
       const clearBtn = createElement('button', {
         className: 'header-btn',
         title: 'Clear Chat',
@@ -495,6 +526,10 @@ export class ChatWindow {
         if (this.shouldRenderMessage(msg)) {
           this.hideWelcomeIfNeeded();
           this.renderMessage(msg);
+          // Update smart suggestions based on AI response
+          if (msg.role === 'assistant') {
+            this.smartSuggestions?.onAiResponse(msg.content);
+          }
         } else {
           // Mark the session tab as having unread messages
           this.markSessionUnread(msg.sessionId);
@@ -542,6 +577,8 @@ export class ChatWindow {
         if (bubble) {
           bubble.updateContent(content, false);
         }
+        // Update smart suggestions after stream ends
+        this.smartSuggestions?.onAiResponse(content);
       })
     );
 
@@ -580,6 +617,7 @@ export class ChatWindow {
         this.currentProjectView = 'chat';
         this.reloadMessages();
         this.updateUnifiedHeader();
+        this.smartSuggestions?.refresh();
       })
     );
 
@@ -588,6 +626,25 @@ export class ChatWindow {
       eventBus.on(EVENTS.CARD_SELECTED, () => {
         this.reloadMessages();
         this.updateUnifiedHeader();
+        this.smartSuggestions?.refresh();
+      })
+    );
+
+    // Chat history search: jump to a chat/session from search results
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CHAT_SEARCH_JUMP, (data: unknown) => {
+        const { chatId } = data as { chatId: string; messageId: string };
+        // For general sessions, switch to matching session tab if possible
+        if (chatId.startsWith('general:')) {
+          const sessionId = chatId.replace('general:', '');
+          const existingSession = this.sessions.find((s) => s.id === sessionId);
+          if (existingSession) {
+            this.switchSession(sessionId);
+          }
+        }
+        // For project/card chats, navigation was already handled by ChatSearch
+        // (PROJECT_SELECTED / CARD_SELECTED events), just reload to ensure messages are current
+        this.reloadMessages();
       })
     );
 
@@ -805,12 +862,14 @@ export class ChatWindow {
     // Auto-resize
     this.textInput.style.height = 'auto';
     this.textInput.style.height = Math.min(this.textInput.scrollHeight, 150) + 'px';
+    const val = this.textInput.value;
     // Hide welcome prompt on typing
-    if (this.textInput.value.trim().length > 0) {
+    if (val.trim().length > 0) {
       this.hideWelcomeIfNeeded();
     }
+    // Smart suggestions — fade out while typing
+    this.smartSuggestions?.onUserTyping(val);
     // Slash command menu
-    const val = this.textInput.value;
     if (val.startsWith('/')) {
       this.slashMenu?.update(val);
     } else {
@@ -956,6 +1015,8 @@ export class ChatWindow {
     this.slashMenu?.destroy();
     this.githubPanel?.destroy();
     this.sessionTabBar?.destroy();
+    this.smartSuggestions?.destroy();
+    this.chatSearch?.destroy();
     this.messageBubbles.forEach((bubble) => bubble.destroy());
     this.messageBubbles.clear();
     this.container.remove();

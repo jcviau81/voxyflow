@@ -184,6 +184,11 @@ export const EVENTS = {
   FOCUS_MODE_ENTER: 'focus:enter',
   FOCUS_MODE_EXIT: 'focus:exit',
 
+  // Chat History Search
+  CHAT_SEARCH_OPEN: 'chat:search:open',
+  CHAT_SEARCH_CLOSE: 'chat:search:close',
+  CHAT_SEARCH_JUMP: 'chat:search:jump',
+
   // Tag filter (emitted by KanbanCard tag click)
   KANBAN_TAG_FILTER: 'kanban:tag:filter',
 } as const;
