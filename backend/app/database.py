@@ -54,6 +54,16 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN votes INTEGER NOT NULL DEFAULT 0"))
         if "sprint_id" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN sprint_id TEXT REFERENCES sprints(id)"))
+        # Ensure card_relations table exists (created via create_all above, but explicit for safety)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS card_relations (
+                id TEXT PRIMARY KEY,
+                source_card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                target_card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                relation_type TEXT NOT NULL,
+                created_at DATETIME NOT NULL
+            )
+        """))
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +219,8 @@ class Card(Base):
     comments = relationship("CardComment", back_populates="card", cascade="all, delete-orphan")
     checklist_items = relationship("ChecklistItem", back_populates="card", cascade="all, delete-orphan", order_by="ChecklistItem.position")
     attachments = relationship("CardAttachment", back_populates="card", cascade="all, delete-orphan", order_by="CardAttachment.created_at")
+    relations_as_source = relationship("CardRelation", foreign_keys="[CardRelation.source_card_id]", back_populates="source_card", cascade="all, delete-orphan")
+    relations_as_target = relationship("CardRelation", foreign_keys="[CardRelation.target_card_id]", back_populates="target_card", cascade="all, delete-orphan")
 
 
 class CardComment(Base):
@@ -260,6 +272,19 @@ class CardAttachment(Base):
     created_at = Column(DateTime, default=utcnow)
 
     card = relationship("Card", back_populates="attachments")
+
+
+class CardRelation(Base):
+    __tablename__ = "card_relations"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    source_card_id = Column(String, ForeignKey("cards.id", ondelete="CASCADE"), nullable=False)
+    target_card_id = Column(String, ForeignKey("cards.id", ondelete="CASCADE"), nullable=False)
+    relation_type = Column(String, nullable=False)  # duplicates|blocks|is_blocked_by|relates_to|cloned_from
+    created_at = Column(DateTime, default=utcnow)
+
+    source_card = relationship("Card", foreign_keys=[source_card_id], back_populates="relations_as_source")
+    target_card = relationship("Card", foreign_keys=[target_card_id], back_populates="relations_as_target")
 
 
 class Document(Base):

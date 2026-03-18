@@ -1,4 +1,4 @@
-import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment } from '../../types';
+import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType } from '../../types';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -902,6 +902,178 @@ export class CardDetailModal {
     return section;
   }
 
+  // ── Relations helpers ─────────────────────────────────────────────────────
+
+  private getRelationIcon(type: CardRelationType | string): string {
+    const icons: Record<string, string> = {
+      duplicates: '🔁',
+      duplicated_by: '🔁',
+      blocks: '⛔',
+      is_blocked_by: '🔒',
+      relates_to: '🔗',
+      cloned_from: '🧬',
+      cloned_to: '🧬',
+    };
+    return icons[type] ?? '🔗';
+  }
+
+  private getRelationLabel(type: CardRelationType | string): string {
+    const labels: Record<string, string> = {
+      duplicates: 'Duplicates',
+      duplicated_by: 'Duplicated by',
+      blocks: 'Blocks',
+      is_blocked_by: 'Blocked by',
+      relates_to: 'Relates to',
+      cloned_from: 'Cloned from',
+      cloned_to: 'Cloned to',
+    };
+    return labels[type] ?? type;
+  }
+
+  private getRelationBadgeClass(type: CardRelationType | string): string {
+    const classes: Record<string, string> = {
+      duplicates: 'relation-type-badge--duplicates',
+      duplicated_by: 'relation-type-badge--duplicates',
+      blocks: 'relation-type-badge--blocks',
+      is_blocked_by: 'relation-type-badge--blocked',
+      relates_to: 'relation-type-badge--relates',
+      cloned_from: 'relation-type-badge--cloned',
+      cloned_to: 'relation-type-badge--cloned',
+    };
+    return classes[type] ?? '';
+  }
+
+  private buildRelationsSection(card: Card): HTMLElement {
+    const section = createElement('div', { className: 'modal-section relations-section' });
+    const headerEl = createElement('label', { className: 'modal-label relations-header' }, '🔗 Related Cards');
+
+    const listEl = createElement('div', { className: 'relations-list' });
+    listEl.textContent = 'Loading…';
+
+    let localRelations: CardRelation[] = [];
+
+    const updateHeader = () => {
+      headerEl.textContent = `🔗 Related Cards (${localRelations.length})`;
+    };
+
+    const renderRelationItem = (rel: CardRelation): HTMLElement => {
+      const item = createElement('div', { className: 'relation-item' });
+
+      const icon = createElement('span', { className: 'relation-icon' }, this.getRelationIcon(rel.relationType));
+
+      const badge = createElement('span', {
+        className: `relation-type-badge ${this.getRelationBadgeClass(rel.relationType)}`,
+      }, this.getRelationLabel(rel.relationType));
+
+      const titleEl = createElement('span', { className: 'relation-card-title' }, rel.relatedCardTitle);
+
+      const statusDot = createElement('span', {
+        className: `relation-status-dot relation-status-dot--${rel.relatedCardStatus}`,
+        title: rel.relatedCardStatus,
+      });
+
+      const delBtn = createElement('button', { className: 'relation-delete-btn', title: 'Remove relation' }, '×') as HTMLButtonElement;
+      delBtn.addEventListener('click', async () => {
+        const ok = await apiClient.deleteRelation(card.id, rel.id);
+        if (ok) {
+          item.remove();
+          localRelations = localRelations.filter((r) => r.id !== rel.id);
+          updateHeader();
+          if (localRelations.length === 0) {
+            listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No relations yet.'));
+          }
+        }
+      });
+
+      item.appendChild(icon);
+      item.appendChild(badge);
+      item.appendChild(statusDot);
+      item.appendChild(titleEl);
+      item.appendChild(delBtn);
+      return item;
+    };
+
+    // Load async
+    apiClient.fetchRelations(card.id).then((relations) => {
+      localRelations = [...relations];
+      listEl.innerHTML = '';
+      updateHeader();
+      if (relations.length === 0) {
+        listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No relations yet.'));
+      } else {
+        relations.forEach((r) => listEl.appendChild(renderRelationItem(r)));
+      }
+    });
+
+    // Add relation form
+    const addRow = createElement('div', { className: 'relation-add-row' });
+
+    const RELATION_TYPES: CardRelationType[] = ['relates_to', 'blocks', 'is_blocked_by', 'duplicates', 'cloned_from'];
+
+    const cardSelect = createElement('select', { className: 'relation-card-select' }) as HTMLSelectElement;
+    const cardPlaceholder = document.createElement('option');
+    cardPlaceholder.value = '';
+    cardPlaceholder.textContent = 'Select card…';
+    cardPlaceholder.disabled = true;
+    cardPlaceholder.selected = true;
+    cardSelect.appendChild(cardPlaceholder);
+
+    const projectCards = appState.getCardsByProject(card.projectId).filter((c) => c.id !== card.id);
+    projectCards.forEach((c) => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.status === 'done' ? '✅' : '⏳'} ${c.title}`;
+      cardSelect.appendChild(opt);
+    });
+
+    const typeSelect = createElement('select', { className: 'relation-type-select' }) as HTMLSelectElement;
+    RELATION_TYPES.forEach((t) => {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = `${this.getRelationIcon(t)} ${this.getRelationLabel(t)}`;
+      typeSelect.appendChild(opt);
+    });
+
+    const addBtn = createElement('button', { className: 'relation-add-btn' }, '+ Add') as HTMLButtonElement;
+    addBtn.type = 'button';
+    addBtn.addEventListener('click', async () => {
+      const targetId = cardSelect.value;
+      const relType = typeSelect.value as CardRelationType;
+      if (!targetId) return;
+
+      addBtn.disabled = true;
+      addBtn.textContent = '…';
+
+      const saved = await apiClient.addRelation(card.id, targetId, relType);
+      if (saved) {
+        const emptyEl = listEl.querySelector('.empty-text');
+        if (emptyEl) emptyEl.remove();
+        localRelations.push(saved);
+        listEl.appendChild(renderRelationItem(saved));
+        updateHeader();
+        cardSelect.value = '';
+      } else {
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Could not add relation', type: 'error', duration: 3000 });
+      }
+
+      addBtn.disabled = false;
+      addBtn.textContent = '+ Add';
+    });
+
+    if (projectCards.length > 0) {
+      addRow.appendChild(cardSelect);
+      addRow.appendChild(typeSelect);
+      addRow.appendChild(addBtn);
+    } else {
+      addRow.appendChild(createElement('span', { className: 'empty-text' }, 'No other cards in this project'));
+    }
+
+    section.appendChild(headerEl);
+    section.appendChild(listEl);
+    section.appendChild(addRow);
+    return section;
+  }
+
   private async handleEnrich(cardId: string, descInput: HTMLTextAreaElement, checklistSection: HTMLElement): Promise<void> {
     const enrichBtn = this.modal.querySelector('.enrich-btn') as HTMLButtonElement | null;
     if (!enrichBtn) return;
@@ -1228,6 +1400,9 @@ export class CardDetailModal {
     // Attachments section
     const attachmentsSection = this.buildAttachmentsSection(this.card.id);
 
+    // Relations section
+    const relationsSection = this.buildRelationsSection(this.card);
+
     // Focus Mode button
     const focusSection = createElement('div', { className: 'modal-section modal-focus-section' });
     const focusBtn = createElement('button', { className: 'focus-mode-btn' }, '🎯 Focus Mode');
@@ -1263,6 +1438,7 @@ export class CardDetailModal {
     this.modal.appendChild(agentSection);
     this.modal.appendChild(assigneeWatchersSection);
     this.modal.appendChild(depsSection);
+    this.modal.appendChild(relationsSection);
     this.modal.appendChild(tagsSection);
     this.modal.appendChild(checklistSection);
     this.modal.appendChild(attachmentsSection);

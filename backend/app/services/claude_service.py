@@ -434,6 +434,25 @@ class ClaudeService:
         self._append_and_persist(chat_id, "assistant", response_text, model="deep")
         return response_text
 
+    async def generate_brief(
+        self,
+        prompt: str,
+    ) -> str:
+        """One-shot project brief generation using the deep model (Opus). No history, no persistence."""
+        system_prompt = (
+            "You are a senior product manager and technical architect generating a comprehensive "
+            "project brief / PRD. Produce well-structured, professional markdown. "
+            "Be thorough, specific, and actionable. Use clear headings, bullet points, and "
+            "tables where appropriate. Infer technical details from context when not explicitly provided."
+        )
+        response = await self._call_api(
+            model=self.deep_model,
+            system=system_prompt,
+            messages=[{"role": "user", "content": prompt}],
+            client=self.deep_client,
+        )
+        return response
+
     async def generate_standup(
         self,
         prompt: str,

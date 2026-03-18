@@ -126,6 +126,19 @@ export interface CardAttachment {
   createdAt: number; // unix ms
 }
 
+export type CardRelationType = 'duplicates' | 'blocks' | 'is_blocked_by' | 'relates_to' | 'cloned_from' | 'duplicated_by' | 'cloned_to';
+
+export interface CardRelation {
+  id: string;
+  sourceCardId: string;
+  targetCardId: string;
+  relationType: CardRelationType;
+  createdAt: string; // ISO string
+  relatedCardId: string;
+  relatedCardTitle: string;
+  relatedCardStatus: string;
+}
+
 export interface Card {
   id: string;
   title: string;

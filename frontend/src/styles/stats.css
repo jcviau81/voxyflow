@@ -306,3 +306,138 @@
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
+
+/* ── Project Brief Section ─────────────────────────────────── */
+.brief-section {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-border);
+}
+
+.brief-section-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 14px 0;
+}
+
+.brief-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.brief-gen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #6c63ff 0%, #a855f7 100%);
+  border: none;
+  border-radius: var(--border-radius);
+  padding: 9px 18px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  transition: opacity var(--transition), transform var(--transition);
+}
+
+.brief-gen-btn:hover:not(:disabled) {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+
+.brief-gen-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.brief-gen-btn.loading {
+  background: linear-gradient(135deg, #5a52d5 0%, #8b44d4 100%);
+}
+
+.brief-model-note {
+  background: rgba(255,255,255,0.25);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.brief-loading-note {
+  font-size: 0.78rem;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+/* Brief card (rendered markdown) */
+.brief-card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brief-card-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.brief-card-content {
+  font-size: 0.88rem;
+  color: var(--color-text);
+  line-height: 1.7;
+}
+
+.brief-card-content ul {
+  margin: 4px 0 10px 0;
+  padding-left: 22px;
+}
+
+.brief-card-content li {
+  margin-bottom: 4px;
+}
+
+.brief-card-content strong {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.brief-card-content h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 18px 0 6px;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 4px;
+}
+
+/* Actions row */
+.brief-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.brief-action-btn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 7px 14px;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition);
+}
+
+.brief-action-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}

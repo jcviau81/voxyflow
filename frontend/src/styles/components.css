@@ -5362,3 +5362,169 @@
   font-size: 13px;
   border-radius: 8px;
 }
+
+/* ── Card Relations Section ───────────────────────────────────────────────── */
+
+.relations-section {
+  margin-top: 4px;
+}
+
+.relations-header {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted, #9ca3af);
+  margin-bottom: 8px;
+}
+
+.relations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.relation-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--color-surface-2, rgba(255,255,255,0.04));
+  border: 1px solid var(--color-border, rgba(255,255,255,0.08));
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.relation-item:hover {
+  background: var(--color-surface-3, rgba(255,255,255,0.08));
+}
+
+.relation-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.relation-type-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.relation-type-badge--relates {
+  background: rgba(66, 165, 245, 0.18);
+  color: #42a5f5;
+}
+
+.relation-type-badge--blocks {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+}
+
+.relation-type-badge--blocked {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fb923c;
+}
+
+.relation-type-badge--duplicates {
+  background: rgba(168, 85, 247, 0.18);
+  color: #c084fc;
+}
+
+.relation-type-badge--cloned {
+  background: rgba(20, 184, 166, 0.18);
+  color: #2dd4bf;
+}
+
+.relation-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.relation-status-dot--done { background: #22c55e; }
+.relation-status-dot--in_progress { background: #3b82f6; }
+.relation-status-dot--todo { background: #f59e0b; }
+.relation-status-dot--idea { background: #9ca3af; }
+.relation-status-dot--archived { background: #6b7280; }
+
+.relation-card-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--color-text, #e5e7eb);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-delete-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted, #9ca3af);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.relation-delete-btn:hover {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.relation-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.relation-card-select,
+.relation-type-select {
+  flex: 1;
+  min-width: 120px;
+  background: var(--color-surface-2, rgba(255,255,255,0.06));
+  border: 1px solid var(--color-border, rgba(255,255,255,0.12));
+  color: var(--color-text, #e5e7eb);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.relation-type-select {
+  flex: 0 0 auto;
+  min-width: 140px;
+}
+
+.relation-add-btn {
+  background: var(--color-accent, #7c3aed);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.relation-add-btn:hover {
+  background: var(--color-accent-hover, #6d28d9);
+}
+
+.relation-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

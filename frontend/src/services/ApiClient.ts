@@ -682,6 +682,73 @@ export class ApiClient {
     }
   }
 
+  // --- Card Relations ---
+
+  async fetchRelations(cardId: string): Promise<import('../types').CardRelation[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/relations`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as Array<{
+        id: string; source_card_id: string; target_card_id: string; relation_type: string;
+        created_at: string; related_card_id: string; related_card_title: string; related_card_status: string;
+      }>;
+      return data.map((r) => ({
+        id: r.id,
+        sourceCardId: r.source_card_id,
+        targetCardId: r.target_card_id,
+        relationType: r.relation_type as import('../types').CardRelationType,
+        createdAt: r.created_at,
+        relatedCardId: r.related_card_id,
+        relatedCardTitle: r.related_card_title,
+        relatedCardStatus: r.related_card_status,
+      }));
+    } catch (error) {
+      console.error('[ApiClient] fetchRelations error:', error);
+      return [];
+    }
+  }
+
+  async addRelation(cardId: string, targetCardId: string, relationType: string): Promise<import('../types').CardRelation | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/relations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_card_id: targetCardId, relation_type: relationType }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const r = await response.json() as {
+        id: string; source_card_id: string; target_card_id: string; relation_type: string;
+        created_at: string; related_card_id: string; related_card_title: string; related_card_status: string;
+      };
+      return {
+        id: r.id,
+        sourceCardId: r.source_card_id,
+        targetCardId: r.target_card_id,
+        relationType: r.relation_type as import('../types').CardRelationType,
+        createdAt: r.created_at,
+        relatedCardId: r.related_card_id,
+        relatedCardTitle: r.related_card_title,
+        relatedCardStatus: r.related_card_status,
+      };
+    } catch (error) {
+      console.error('[ApiClient] addRelation error:', error);
+      return null;
+    }
+  }
+
+  async deleteRelation(cardId: string, relationId: string): Promise<boolean> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/relations/${relationId}`, { method: 'DELETE' });
+      return response.ok;
+    } catch (error) {
+      console.error('[ApiClient] deleteRelation error:', error);
+      return false;
+    }
+  }
+
   // --- Voting ---
 
   async voteCard(cardId: string): Promise<number | null> {

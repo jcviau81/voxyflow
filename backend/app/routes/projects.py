@@ -420,6 +420,92 @@ async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)
 
 
 # ---------------------------------------------------------------------------
+# AI Project Brief Generator
+# ---------------------------------------------------------------------------
+
+class BriefResponse(BaseModel):
+    brief: str
+    generated_at: str
+
+
+@router.post("/{project_id}/brief", response_model=BriefResponse)
+async def generate_brief(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Generate a comprehensive AI project brief / PRD using the Deep (Opus) model."""
+    # Fetch project + cards
+    stmt = (
+        select(Project)
+        .options(selectinload(Project.cards))
+        .where(Project.id == project_id)
+    )
+    result = await db.execute(stmt)
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    cards = project.cards
+
+    # Group cards by status
+    def card_lines(filtered_cards) -> str:
+        if not filtered_cards:
+            return "  (none)"
+        lines = []
+        for c in filtered_cards:
+            agent = f" [{c.agent_type}]" if c.agent_type else ""
+            priority_map = {0: "low", 1: "medium", 2: "high", 3: "critical"}
+            prio = priority_map.get(c.priority or 0, "low")
+            desc = f" — {c.description[:120]}" if c.description else ""
+            lines.append(f"  - {c.title}{agent} (priority: {prio}){desc}")
+        return "\n".join(lines)
+
+    idea_cards    = [c for c in cards if c.status == "idea"]
+    todo_cards    = [c for c in cards if c.status == "todo"]
+    inprog_cards  = [c for c in cards if c.status == "in-progress"]
+    done_cards    = [c for c in cards if c.status == "done"]
+
+    tech_stack = ""
+    if project.github_language:
+        tech_stack += f"Primary language: {project.github_language}. "
+    if project.github_repo:
+        tech_stack += f"Repo: {project.github_repo}. "
+    if project.local_path:
+        tech_stack += f"Local path: {project.local_path}. "
+    if not tech_stack:
+        tech_stack = "Not specified — infer from context."
+
+    prompt = (
+        f"Generate a professional project brief for: **{project.title}**\n\n"
+        f"Description: {project.description or 'No description provided.'}\n\n"
+        f"Tech stack: {tech_stack}\n\n"
+        f"Cards/Features by status:\n\n"
+        f"💡 IDEAS:\n{card_lines(idea_cards)}\n\n"
+        f"📋 TODO:\n{card_lines(todo_cards)}\n\n"
+        f"🔨 IN PROGRESS:\n{card_lines(inprog_cards)}\n\n"
+        f"✅ DONE:\n{card_lines(done_cards)}\n\n"
+        f"Total cards: {len(cards)} | Done: {len(done_cards)} | "
+        f"In Progress: {len(inprog_cards)} | Todo: {len(todo_cards)} | "
+        f"Ideas: {len(idea_cards)}\n\n"
+        f"Generate a comprehensive project brief with the following sections:\n"
+        f"1. Executive Summary (2-3 paragraphs)\n"
+        f"2. Problem Statement\n"
+        f"3. Goals & Success Metrics\n"
+        f"4. Features List (organized from the cards above)\n"
+        f"5. Technical Architecture (inferred from tech stack and card context)\n"
+        f"6. Timeline Estimate (based on card count and complexity)\n"
+        f"7. Risk Assessment\n\n"
+        f"Format as clean, professional markdown. Be specific and actionable."
+    )
+
+    from app.services.claude_service import ClaudeService
+    svc = ClaudeService()
+    brief = await svc.generate_brief(prompt)
+
+    return BriefResponse(
+        brief=brief,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Daily Standup
 # ---------------------------------------------------------------------------
 

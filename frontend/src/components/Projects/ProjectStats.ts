@@ -30,6 +30,11 @@ export class ProjectStats {
   private standupScheduled = false;
   private standupCard: HTMLElement | null = null;
 
+  // Brief state
+  private briefLoading = false;
+  private briefContent: string | null = null;
+  private briefGeneratedAt: string | null = null;
+
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'stats-view' });
     this.render();
@@ -86,6 +91,10 @@ export class ProjectStats {
     // ── Daily Standup ───────────────────────────────
     const standupSection = this.buildStandupSection();
     this.container.appendChild(standupSection);
+
+    // ── Project Brief ────────────────────────────────
+    const briefSection = this._buildBriefSection();
+    this.container.appendChild(briefSection);
 
     this.parentElement.appendChild(this.container);
   }
@@ -500,12 +509,136 @@ export class ProjectStats {
     this.unsubscribers.push(eventBus.on(EVENTS.ACTIVITY_ADDED, rerender));
   }
 
+  // ── Project Brief ────────────────────────────────
+
+  private _buildBriefSection(): HTMLElement {
+    const section = createElement('div', { className: 'brief-section' });
+
+    const sectionTitle = createElement('h3', { className: 'brief-section-title' });
+    sectionTitle.textContent = '📄 Project Brief';
+    section.appendChild(sectionTitle);
+
+    const controls = createElement('div', { className: 'brief-controls' });
+
+    const genBtn = createElement('button', {
+      className: `brief-gen-btn${this.briefLoading ? ' loading' : ''}`,
+    });
+    genBtn.disabled = this.briefLoading;
+
+    if (this.briefLoading) {
+      genBtn.innerHTML = '⏳ Generating… <span class="brief-loading-note">(Using Deep model — may take 10-15s…)</span>';
+    } else {
+      genBtn.innerHTML = '✨ Generate Brief <span class="brief-model-note">Opus</span>';
+    }
+
+    genBtn.addEventListener('click', () => this._generateBrief());
+    controls.appendChild(genBtn);
+    section.appendChild(controls);
+
+    if (this.briefContent) {
+      const card = this._buildBriefCard(this.briefContent, this.briefGeneratedAt);
+      section.appendChild(card);
+    }
+
+    return section;
+  }
+
+  private _buildBriefCard(brief: string, generatedAt: string | null): HTMLElement {
+    const card = createElement('div', { className: 'brief-card' });
+
+    if (generatedAt) {
+      const meta = createElement('div', { className: 'brief-card-meta' });
+      const date = new Date(generatedAt);
+      meta.textContent = `Generated ${date.toLocaleString()} · Deep model (Opus)`;
+      card.appendChild(meta);
+    }
+
+    const content = createElement('div', { className: 'brief-card-content' });
+    content.innerHTML = this._renderMarkdown(brief);
+    card.appendChild(content);
+
+    const actions = createElement('div', { className: 'brief-actions' });
+
+    const copyBtn = createElement('button', { className: 'brief-action-btn' });
+    copyBtn.textContent = '📋 Copy to Clipboard';
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(brief).then(() => {
+        copyBtn.textContent = '✅ Copied!';
+        setTimeout(() => { copyBtn.textContent = '📋 Copy to Clipboard'; }, 2000);
+      });
+    });
+
+    const projectId = appState.get('currentProjectId');
+    const project = projectId ? appState.getProject(projectId) : null;
+    const filename = `${(project?.name ?? 'project').replace(/\s+/g, '-').toLowerCase()}-brief.md`;
+
+    const downloadBtn = createElement('button', { className: 'brief-action-btn' });
+    downloadBtn.textContent = '⬇️ Download .md';
+    downloadBtn.addEventListener('click', () => {
+      const blob = new Blob([brief], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    actions.appendChild(copyBtn);
+    actions.appendChild(downloadBtn);
+    card.appendChild(actions);
+
+    return card;
+  }
+
+  private async _generateBrief(): Promise<void> {
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) return;
+
+    this.briefLoading = true;
+    this._refreshBriefSection();
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/brief`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      this.briefContent = data.brief;
+      this.briefGeneratedAt = data.generated_at;
+    } catch (err) {
+      console.error('[Brief] generation failed:', err);
+      this.briefContent = '⚠️ Failed to generate project brief. Please try again.';
+      this.briefGeneratedAt = null;
+    } finally {
+      this.briefLoading = false;
+      this._refreshBriefSection();
+    }
+  }
+
+  private _refreshBriefSection(): void {
+    const existing = this.container.querySelector('.brief-section');
+    if (existing) {
+      const newSection = this._buildBriefSection();
+      existing.replaceWith(newSection);
+    }
+  }
+
   update(): void {
     // Reset standup state when project changes
     this.standupSummary = null;
     this.standupGeneratedAt = null;
     this.standupScheduled = false;
     this.standupLoading = false;
+    // Reset brief state
+    this.briefContent = null;
+    this.briefGeneratedAt = null;
+    this.briefLoading = false;
     const old = this.container;
     this.container = createElement('div', { className: 'stats-view' });
     this.render();
