@@ -40,3 +40,6 @@ htmlcov/
 # Database
 *.db
 *.sqlite3
+
+# Session data (persisted conversations)
+data/

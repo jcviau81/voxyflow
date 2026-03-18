@@ -12,9 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db
-from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools
+from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools, sessions
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
+from app.services.session_store import session_store
 from app.tools import execute_tool, get_tool_definitions
 
 # ---------------------------------------------------------------------------
@@ -71,6 +72,7 @@ app.include_router(techdetect.router)
 app.include_router(github.router, prefix="/api")
 app.include_router(settings.router)
 app.include_router(tools.router, prefix="/api")
+app.include_router(sessions.router, prefix="/api")
 
 
 @app.get("/health")
@@ -281,6 +283,16 @@ async def _handle_chat_3layer(
             if opus_result and opus_result.get("action") in ("enrich", "correct"):
                 enrichment_id = str(uuid4())
                 logger.info(f"[Layer2-Opus] action={opus_result['action']}, sending enrichment")
+
+                # Persist enrichment to disk
+                session_store.save_message(chat_id, {
+                    "role": "assistant",
+                    "content": opus_result["content"],
+                    "model": "opus",
+                    "type": "enrichment",
+                    "session_id": session_id,
+                })
+
                 await websocket.send_json({
                     "type": "chat:enrichment",
                     "payload": {
@@ -409,10 +421,11 @@ async def general_websocket(websocket: WebSocket):
                     else:
                         chat_id = f"general:{session_id}" if session_id else "general"
 
-                    # Clear conversation history for this chat
+                    # Clear conversation history (in-memory + disk)
                     if chat_id in _claude_service._histories:
                         _claude_service._histories[chat_id] = []
-                        logger.info(f"[WS] session:reset → cleared history for {chat_id}")
+                    session_store.clear_session(chat_id)
+                    logger.info(f"[WS] session:reset → cleared history for {chat_id}")
 
                     await websocket.send_json({
                         "type": "session:reset_ack",
