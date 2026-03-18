@@ -1,6 +1,7 @@
 """Project endpoints."""
 
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -14,6 +15,107 @@ from app.models.project import ProjectCreate, ProjectUpdate, ProjectResponse, Pr
 from app.services.agent_personas import AgentType, get_persona
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+# ---------------------------------------------------------------------------
+# Built-in project templates
+# ---------------------------------------------------------------------------
+
+TEMPLATES: dict[str, dict[str, Any]] = {
+    "software": {
+        "id": "software",
+        "name": "Software Project",
+        "emoji": "💻",
+        "description": "Plan, build, test and ship a software product.",
+        "color": "#54a0ff",
+        "cards": [
+            {"title": "Define requirements", "status": "todo", "priority": 1, "agent_type": "researcher"},
+            {"title": "Design architecture", "status": "todo", "priority": 2, "agent_type": "architect"},
+            {"title": "Implement features", "status": "todo", "priority": 3, "agent_type": "coder"},
+            {"title": "Write tests", "status": "todo", "priority": 4, "agent_type": "qa"},
+            {"title": "Deploy", "status": "todo", "priority": 5, "agent_type": "ember"},
+        ],
+    },
+    "research": {
+        "id": "research",
+        "name": "Research Project",
+        "emoji": "🔬",
+        "description": "Structured process from question to published findings.",
+        "color": "#96ceb4",
+        "cards": [
+            {"title": "Define research question", "status": "todo", "priority": 1, "agent_type": "researcher"},
+            {"title": "Literature review", "status": "todo", "priority": 2, "agent_type": "researcher"},
+            {"title": "Data collection", "status": "todo", "priority": 3, "agent_type": "researcher"},
+            {"title": "Analysis", "status": "todo", "priority": 4, "agent_type": "researcher"},
+            {"title": "Write report", "status": "todo", "priority": 5, "agent_type": "writer"},
+        ],
+    },
+    "content": {
+        "id": "content",
+        "name": "Content Creation",
+        "emoji": "✍️",
+        "description": "From brainstorm to published content, end to end.",
+        "color": "#ff9ff3",
+        "cards": [
+            {"title": "Brainstorm topics", "status": "idea", "priority": 1, "agent_type": "ember"},
+            {"title": "Outline", "status": "todo", "priority": 2, "agent_type": "writer"},
+            {"title": "Draft", "status": "todo", "priority": 3, "agent_type": "writer"},
+            {"title": "Review & edit", "status": "todo", "priority": 4, "agent_type": "qa"},
+            {"title": "Publish", "status": "todo", "priority": 5, "agent_type": "ember"},
+        ],
+    },
+    "bugfix": {
+        "id": "bugfix",
+        "name": "Bug Fix Sprint",
+        "emoji": "🐛",
+        "description": "Systematic process to squash a bug and ship the fix.",
+        "color": "#ff6b6b",
+        "cards": [
+            {"title": "Reproduce bug", "status": "todo", "priority": 1, "agent_type": "qa"},
+            {"title": "Root cause analysis", "status": "todo", "priority": 2, "agent_type": "architect"},
+            {"title": "Implement fix", "status": "todo", "priority": 3, "agent_type": "coder"},
+            {"title": "Write regression test", "status": "todo", "priority": 4, "agent_type": "qa"},
+            {"title": "Deploy fix", "status": "todo", "priority": 5, "agent_type": "ember"},
+        ],
+    },
+    "launch": {
+        "id": "launch",
+        "name": "Product Launch",
+        "emoji": "🚀",
+        "description": "Take a product idea from zero to market.",
+        "color": "#feca57",
+        "cards": [
+            {"title": "Market research", "status": "todo", "priority": 1, "agent_type": "researcher"},
+            {"title": "MVP definition", "status": "todo", "priority": 2, "agent_type": "architect"},
+            {"title": "Build MVP", "status": "todo", "priority": 3, "agent_type": "coder"},
+            {"title": "Beta testing", "status": "todo", "priority": 4, "agent_type": "qa"},
+            {"title": "Launch", "status": "todo", "priority": 5, "agent_type": "ember"},
+        ],
+    },
+}
+
+
+class TemplateResponse(BaseModel):
+    id: str
+    name: str
+    emoji: str
+    description: str
+    color: str
+    cards: list[dict[str, Any]]
+
+
+class CreateFromTemplateRequest(BaseModel):
+    title: str
+    description: str = ""
+    emoji: str | None = None
+    color: str | None = None
+
+
+class CreateFromTemplateResponse(BaseModel):
+    project_id: str
+    project_title: str
+    cards_imported: int
+    template_emoji: str
+    template_color: str
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +154,65 @@ class ImportResponse(BaseModel):
     project_id: str
     project_title: str
     cards_imported: int
+
+
+@router.get("/templates", response_model=list[TemplateResponse])
+async def list_templates():
+    """Return all built-in project templates."""
+    return list(TEMPLATES.values())
+
+
+@router.post("/from-template/{template_id}", response_model=CreateFromTemplateResponse, status_code=201)
+async def create_project_from_template(
+    template_id: str,
+    body: CreateFromTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new project pre-populated with cards from a built-in template."""
+    template = TEMPLATES.get(template_id)
+    if not template:
+        raise HTTPException(404, f"Template '{template_id}' not found")
+
+    project = Project(
+        id=new_uuid(),
+        title=body.title,
+        description=body.description,
+        context="",
+    )
+    db.add(project)
+    await db.flush()
+
+    for card_data in template["cards"]:
+        agent_assigned = None
+        if card_data.get("agent_type"):
+            try:
+                persona = get_persona(AgentType(card_data["agent_type"]))
+                agent_assigned = f"{persona.emoji} {persona.name}"
+            except (ValueError, KeyError):
+                pass
+
+        card = Card(
+            id=new_uuid(),
+            project_id=project.id,
+            title=card_data["title"],
+            description="",
+            status=card_data.get("status", "todo"),
+            priority=card_data.get("priority", 0),
+            agent_type=card_data.get("agent_type"),
+            agent_assigned=agent_assigned,
+        )
+        db.add(card)
+
+    await db.commit()
+    await db.refresh(project)
+
+    return CreateFromTemplateResponse(
+        project_id=project.id,
+        project_title=project.title,
+        cards_imported=len(template["cards"]),
+        template_emoji=body.emoji or template["emoji"],
+        template_color=body.color or template["color"],
+    )
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)

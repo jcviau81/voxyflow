@@ -331,6 +331,37 @@ export class ApiClient {
     }
   }
 
+  async fetchTemplates(): Promise<Array<{ id: string; name: string; emoji: string; description: string; color: string; cards: unknown[] }> | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/templates`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('[ApiClient] fetchTemplates error:', error);
+      return null;
+    }
+  }
+
+  async createProjectFromTemplate(
+    templateId: string,
+    data: { title: string; description?: string; emoji?: string; color?: string },
+  ): Promise<{ project_id: string; project_title: string; cards_imported: number; template_emoji: string; template_color: string } | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/from-template/${templateId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('[ApiClient] createProjectFromTemplate error:', error);
+      return null;
+    }
+  }
+
   // --- State ---
 
   private updateState(state: ConnectionState): void {

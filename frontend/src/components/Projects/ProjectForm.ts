@@ -1,4 +1,4 @@
-import { Project, ProjectFormData, ProjectFormShowEvent, GitHubRepoInfo } from '../../types';
+import { Project, ProjectFormData, ProjectFormShowEvent, GitHubRepoInfo, ProjectTemplate } from '../../types';
 import { TechStack } from './TechStack';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, API_URL } from '../../utils/constants';
@@ -22,6 +22,8 @@ export class ProjectForm {
   private selectedColor: string = '';
   private selectedStatus: 'active' | 'archived' = 'active';
   private githubInfo: GitHubRepoInfo | null = null;
+  private selectedTemplateId: string | null = null;
+  private templates: ProjectTemplate[] = [];
 
   // DOM refs
   private nameInput: HTMLInputElement | null = null;
@@ -32,6 +34,7 @@ export class ProjectForm {
   private githubStatusEl: HTMLElement | null = null;
   private localPathInput: HTMLInputElement | null = null;
   private techStackComponent: TechStack | null = null;
+  private templateSectionEl: HTMLElement | null = null;
 
   private prefillTitle: string | undefined;
 
@@ -48,6 +51,24 @@ export class ProjectForm {
 
     this.container = createElement('div', { className: 'project-form-wrapper' });
     this.render();
+
+    // Load templates async (create mode only)
+    if (this.mode === 'create') {
+      this.loadTemplates();
+    }
+  }
+
+  private async loadTemplates(): Promise<void> {
+    try {
+      const response = await fetch(`${API_URL}/api/projects/templates`);
+      if (!response.ok) return;
+      this.templates = await response.json() as ProjectTemplate[];
+      if (this.templateSectionEl) {
+        this.renderTemplateCards(this.templateSectionEl);
+      }
+    } catch {
+      // Silent fail — templates are a nice-to-have
+    }
   }
 
   render(): void {
@@ -61,6 +82,12 @@ export class ProjectForm {
     // Title
     const heading = createElement('h2', {}, this.mode === 'create' ? 'Create Project' : 'Edit Project');
     form.appendChild(heading);
+
+    // Template picker (create mode only)
+    if (this.mode === 'create') {
+      this.templateSectionEl = this.renderTemplateSection();
+      form.appendChild(this.templateSectionEl);
+    }
 
     // Name field
     form.appendChild(this.renderNameField());
@@ -105,6 +132,90 @@ export class ProjectForm {
 
     // Focus name input
     requestAnimationFrame(() => this.nameInput?.focus());
+  }
+
+  private renderTemplateSection(): HTMLElement {
+    const section = createElement('div', { className: 'template-section' });
+
+    const label = createElement('div', { className: 'template-section-label' }, '✨ Start from a template');
+    section.appendChild(label);
+
+    const track = createElement('div', { className: 'template-track' });
+    section.appendChild(track);
+
+    // Render existing templates (or placeholder)
+    if (this.templates.length > 0) {
+      this.renderTemplateCards(track);
+    } else {
+      const loading = createElement('div', { className: 'template-loading' }, 'Loading templates…');
+      track.appendChild(loading);
+    }
+
+    // Store reference to track for async update
+    section.dataset.track = 'true';
+    return section;
+  }
+
+  private renderTemplateCards(container: HTMLElement): void {
+    // Find the track inside the section (or use container directly if it IS the track)
+    const track = container.classList.contains('template-track')
+      ? container
+      : (container.querySelector('.template-track') as HTMLElement | null) || container;
+
+    track.innerHTML = '';
+
+    // "None" option
+    const noneCard = createElement('button', {
+      className: `template-card${this.selectedTemplateId === null ? ' selected' : ''}`,
+      type: 'button',
+    });
+    noneCard.innerHTML = `<span class="template-card-emoji">🚫</span><span class="template-card-name">Blank</span><span class="template-card-desc">Start from scratch</span>`;
+    noneCard.addEventListener('click', () => this.selectTemplate(null, track));
+    track.appendChild(noneCard);
+
+    this.templates.forEach((tpl) => {
+      const card = createElement('button', {
+        className: `template-card${this.selectedTemplateId === tpl.id ? ' selected' : ''}`,
+        type: 'button',
+      });
+      card.style.setProperty('--tpl-color', tpl.color);
+      card.innerHTML = `<span class="template-card-emoji">${tpl.emoji}</span><span class="template-card-name">${tpl.name}</span><span class="template-card-desc">${tpl.description}</span>`;
+      card.addEventListener('click', () => this.selectTemplate(tpl.id, track));
+      track.appendChild(card);
+    });
+  }
+
+  private selectTemplate(templateId: string | null, track: HTMLElement): void {
+    this.selectedTemplateId = templateId;
+    track.querySelectorAll('.template-card').forEach((el, idx) => {
+      // idx 0 = "Blank" (null), idx 1+ = template
+      const isSelected = (idx === 0 && templateId === null) ||
+        (idx > 0 && this.templates[idx - 1]?.id === templateId);
+      el.classList.toggle('selected', isSelected);
+    });
+
+    // Pre-fill emoji & color from template
+    if (templateId) {
+      const tpl = this.templates.find((t) => t.id === templateId);
+      if (tpl) {
+        // Update emoji selector
+        this.selectedEmoji = tpl.emoji;
+        const emojiSelector = this.container.querySelector('.emoji-selector');
+        if (emojiSelector) {
+          emojiSelector.querySelectorAll('.emoji-option').forEach((el) => {
+            el.classList.toggle('selected', (el as HTMLElement).textContent === tpl.emoji);
+          });
+        }
+        // Update color palette
+        this.selectedColor = tpl.color;
+        const palette = this.container.querySelector('.color-palette');
+        if (palette) {
+          palette.querySelectorAll('.color-option').forEach((el) => {
+            el.classList.toggle('selected', (el as HTMLElement).dataset['color'] === tpl.color);
+          });
+        }
+      }
+    }
   }
 
   private renderNameField(): HTMLElement {
@@ -565,6 +676,11 @@ export class ProjectForm {
 
     if (this.mode === 'edit') {
       data.status = this.selectedStatus;
+    }
+
+    // Pass template selection to App handler
+    if (this.mode === 'create' && this.selectedTemplateId) {
+      data.templateId = this.selectedTemplateId;
     }
 
     eventBus.emit(EVENTS.PROJECT_FORM_SUBMIT, { mode: this.mode, data, projectId: this.project?.id });

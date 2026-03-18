@@ -208,6 +208,16 @@ export interface ProjectFormData {
   githubUrl?: string;
   githubBranch?: string;
   githubLanguage?: string;
+  templateId?: string;
+}
+
+export interface ProjectTemplate {
+  id: string;
+  name: string;
+  emoji: string;
+  description: string;
+  color: string;
+  cards: Array<{ title: string; status: string; priority: number; agent_type?: string }>;
 }
 
 export interface ProjectFormShowEvent {

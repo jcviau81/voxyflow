@@ -17,6 +17,7 @@ import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
 import { Toast } from './components/Shared/Toast';
 import { KeyboardShortcutsModal } from './components/Shared/KeyboardShortcutsModal';
+import { CommandPalette } from './components/Shared/CommandPalette';
 import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPanel';
 import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
@@ -29,6 +30,7 @@ export class App {
   private tabBar: TabBar | null = null;
   private toast: Toast | null = null;
   private keyboardShortcutsModal: KeyboardShortcutsModal | null = null;
+  private commandPalette: CommandPalette | null = null;
   private cardModal: CardDetailModal | null = null;
   private opportunitiesPanel: OpportunitiesPanel | null = null;
   // FreeBoard is now a full-view via switchView('freeboard'), not a sidebar
@@ -92,6 +94,12 @@ export class App {
 
     // Keyboard shortcuts modal
     this.keyboardShortcutsModal = new KeyboardShortcutsModal(this.root);
+
+    // Command palette (Ctrl+K / Cmd+K)
+    this.commandPalette = new CommandPalette(this.root);
+    this.commandPalette.setShortcutsModalCallback(() => {
+      this.keyboardShortcutsModal?.show();
+    });
 
     // Card detail modal
     this.cardModal = new CardDetailModal(this.root);
@@ -339,6 +347,12 @@ export class App {
   private handleProjectFormSubmit(payload: { mode: string; data: ProjectFormData; projectId?: string }): void {
     const { mode, data, projectId } = payload;
 
+    if (mode === 'create' && data.templateId) {
+      // Template flow — async via REST API
+      this.handleCreateFromTemplate(data);
+      return;
+    }
+
     if (mode === 'create') {
       const project = projectService.create(data.title, data.description || '');
       // Update with emoji and color
@@ -376,6 +390,49 @@ export class App {
     } else {
       this.switchView('projects');
     }
+  }
+
+  private async handleCreateFromTemplate(data: ProjectFormData): Promise<void> {
+    const result = await apiClient.createProjectFromTemplate(data.templateId!, {
+      title: data.title,
+      description: data.description,
+      emoji: data.emoji,
+      color: data.color,
+    });
+
+    if (!result) {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Failed to create project from template', type: 'error' });
+      return;
+    }
+
+    // Create project in local state with the server-assigned ID and template visual
+    const emoji = data.emoji || result.template_emoji;
+    const color = data.color || result.template_color;
+    // Inject project via sync (backend already persisted it)
+    // Pull project list so the new project appears
+    apiClient.send('project:list-request', {});
+
+    // Open tab immediately (project will sync in shortly)
+    appState.openProjectTab(result.project_id, result.project_title, emoji);
+
+    // Apply emoji/color locally once project syncs
+    setTimeout(() => {
+      projectService.update(result.project_id, { emoji, color } as Partial<import('./types').Project>);
+    }, 500);
+
+    eventBus.emit(EVENTS.TOAST_SHOW, {
+      message: `✅ Project "${result.project_title}" created with ${result.cards_imported} cards`,
+      type: 'success',
+      duration: 4000,
+    });
+
+    if (this.projectForm) {
+      this.projectForm.destroy();
+      this.projectForm = null;
+    }
+    this.viewBeforeForm = null;
+    this.currentView = { component: null, view: null };
+    this.switchView('kanban');
   }
 
 
@@ -521,6 +578,7 @@ export class App {
     this.tabBar?.destroy();
     this.toast?.destroy();
     this.keyboardShortcutsModal?.destroy();
+    this.commandPalette?.destroy();
     this.cardModal?.destroy();
     this.opportunitiesPanel?.destroy();
     // FreeBoard destroyed via switchView cycle
