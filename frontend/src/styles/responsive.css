@@ -1,4 +1,4 @@
-/* Voxyflow - Responsive Styles */
+/* Voxyflow - Responsive Styles — Polished */
 
 /* Tablet: 768px - 1024px */
 @media (max-width: 1024px) {
@@ -7,7 +7,7 @@
   }
 
   .kanban-columns {
-    gap: 12px;
+    gap: 10px;
   }
 
   .kanban-column {
@@ -24,7 +24,7 @@
     position: fixed;
     top: 0;
     right: 0;
-    width: 300px;
+    width: 280px;
     height: 100vh;
     z-index: 900;
     transform: translateX(100%);
@@ -90,7 +90,7 @@
   }
 
   .chat-input-area {
-    padding: 8px 12px;
+    padding: 8px 12px 12px;
   }
 
   .chat-input {
@@ -137,7 +137,7 @@
     width: 100%;
     max-width: none;
     max-height: 100vh;
-    border-radius: 0;
+    border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
     margin: 0;
   }
 
@@ -165,6 +165,19 @@
   .settings-view {
     padding: 12px;
   }
+
+  /* Model status bar - stack on mobile */
+  .chat-header-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .model-status-bar {
+    padding: 6px 16px;
+    border-top: 1px solid var(--color-border);
+    gap: 10px;
+    flex-wrap: wrap;
+  }
 }
 
 /* Small mobile: < 375px */
@@ -187,7 +200,7 @@
   }
 
   .kanban-card-title {
-    font-size: 13px;
+    font-size: 12px;
   }
 }
 
@@ -213,11 +226,11 @@
 /* Desktop large: > 1440px */
 @media (min-width: 1440px) {
   :root {
-    --sidebar-width: 280px;
+    --sidebar-width: 260px;
   }
 
   .chat-messages {
-    padding: 20px 40px;
+    padding: 24px 40px;
   }
 
   .message-bubble {
