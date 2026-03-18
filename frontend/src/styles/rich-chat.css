@@ -1,0 +1,414 @@
+/* ============= RICH CHAT: Markdown Rendering ============= */
+
+/* --- Message content markdown styles --- */
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  margin: 12px 0 6px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.message-content h1 { font-size: 1.5em; }
+.message-content h2 { font-size: 1.3em; }
+.message-content h3 { font-size: 1.15em; }
+.message-content h4 { font-size: 1.05em; }
+
+.message-content p {
+  margin: 4px 0;
+}
+
+.message-content strong {
+  font-weight: 700;
+}
+
+.message-content em {
+  font-style: italic;
+}
+
+.message-content del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+/* --- Links --- */
+.message-content a {
+  color: var(--color-accent, #4ecdc4);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: color 0.2s ease;
+}
+
+.message-content a:hover {
+  color: var(--color-primary, #ff6b6b);
+}
+
+.message-user .message-content a {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.message-user .message-content a:hover {
+  color: #fff;
+}
+
+/* --- Inline code --- */
+.message-content code:not(pre code) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-accent, #4ecdc4);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+  font-size: 0.88em;
+}
+
+.message-user .message-content code:not(pre code) {
+  background: rgba(0, 0, 0, 0.2);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* --- Code blocks --- */
+.message-content pre {
+  background: #1e1e2e;
+  border-radius: 8px;
+  padding: 16px;
+  padding-top: 32px;
+  overflow-x: auto;
+  margin: 8px 0;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.message-content pre code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  background: transparent;
+  padding: 0;
+  color: #cdd6f4;
+}
+
+/* Copy button on code blocks */
+.code-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: #888;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  z-index: 1;
+}
+
+.code-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+/* Language label on code blocks */
+.code-lang-label {
+  position: absolute;
+  top: 6px;
+  left: 12px;
+  font-size: 11px;
+  color: #666;
+  font-family: var(--font-mono, monospace);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* --- Blockquotes --- */
+.message-content blockquote {
+  border-left: 3px solid var(--color-accent, #4ecdc4);
+  margin: 8px 0;
+  padding: 6px 12px;
+  background: rgba(78, 205, 196, 0.05);
+  border-radius: 0 4px 4px 0;
+  color: var(--color-text-secondary, #999);
+}
+
+.message-content blockquote p {
+  margin: 2px 0;
+}
+
+/* --- Lists --- */
+.message-content ul,
+.message-content ol {
+  margin: 6px 0;
+  padding-left: 24px;
+}
+
+.message-content li {
+  margin: 3px 0;
+  line-height: 1.5;
+}
+
+.message-content ul li {
+  list-style-type: disc;
+}
+
+.message-content ol li {
+  list-style-type: decimal;
+}
+
+/* --- Horizontal rules --- */
+.message-content hr {
+  border: none;
+  border-top: 1px solid var(--color-border, #333);
+  margin: 12px 0;
+}
+
+/* --- Tables --- */
+.message-content table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  width: 100%;
+  font-size: 13px;
+  overflow-x: auto;
+  display: block;
+}
+
+.message-content thead {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid var(--color-border, #333);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.message-content th {
+  font-weight: 600;
+  color: var(--color-text, #e0e0e0);
+}
+
+/* --- Images --- */
+.message-content img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 8px 0;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.message-content img:hover {
+  opacity: 0.9;
+}
+
+
+/* ============= EMOJI PICKER ============= */
+
+.emoji-picker-container {
+  position: relative;
+}
+
+.emoji-picker-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--color-bg-tertiary, #252525);
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.emoji-picker-btn:hover {
+  background: var(--color-bg-hover, #2a2a2a);
+}
+
+.emoji-picker-panel {
+  position: absolute;
+  bottom: 48px;
+  left: 0;
+  width: 320px;
+  max-height: 360px;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.emoji-search {
+  padding: 8px 12px;
+  background: var(--color-bg-tertiary, #252525);
+  border: none;
+  border-bottom: 1px solid var(--color-border, #333);
+  color: var(--color-text, #e0e0e0);
+  font-size: 13px;
+  outline: none;
+}
+
+.emoji-search::placeholder {
+  color: var(--color-text-muted, #666);
+}
+
+.emoji-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border, #333);
+  padding: 4px;
+  gap: 2px;
+}
+
+.emoji-tab {
+  flex: 1;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s ease;
+}
+
+.emoji-tab:hover {
+  background: var(--color-bg-hover, #2a2a2a);
+}
+
+.emoji-tab.active {
+  background: var(--color-bg-tertiary, #252525);
+}
+
+.emoji-grid-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.emoji-section.hidden {
+  display: none;
+}
+
+.emoji-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #666);
+  padding: 4px 4px 6px;
+  letter-spacing: 0.5px;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+}
+
+.emoji-item {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.emoji-item:hover {
+  background: var(--color-bg-hover, #2a2a2a);
+  transform: scale(1.15);
+}
+
+
+/* ============= HIGHLIGHT.JS THEME (Catppuccin-ish Dark) ============= */
+
+.hljs {
+  color: #cdd6f4;
+  background: #1e1e2e;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-title,
+.hljs-section,
+.hljs-doctag,
+.hljs-name,
+.hljs-strong {
+  color: #cba6f7;
+  font-weight: 700;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #6c7086;
+  font-style: italic;
+}
+
+.hljs-string,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-template-variable,
+.hljs-template-tag,
+.hljs-addition {
+  color: #a6e3a1;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-link {
+  color: #fab387;
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+  color: #89dceb;
+}
+
+.hljs-attr,
+.hljs-variable,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #f9e2af;
+}
+
+.hljs-symbol,
+.hljs-bullet,
+.hljs-subst {
+  color: #f38ba8;
+}
+
+.hljs-meta {
+  color: #74c7ec;
+}
+
+.hljs-deletion {
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.1);
+}
+
+.hljs-addition {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.1);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}

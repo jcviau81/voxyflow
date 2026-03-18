@@ -1,5 +1,6 @@
 import { Message } from '../../types';
-import { createElement, markdownToHtml, formatTime } from '../../utils/helpers';
+import { createElement, formatTime } from '../../utils/helpers';
+import { renderMarkdown, addCodeCopyButtons, enhanceImages, replaceEmojiShortcodes } from '../../utils/markdown';
 
 export class MessageBubble {
   private element: HTMLElement;
@@ -33,11 +34,7 @@ export class MessageBubble {
 
     // Content
     this.contentEl = createElement('div', { className: 'message-content' });
-    if (this.message.role === 'assistant') {
-      this.contentEl.innerHTML = markdownToHtml(this.message.content);
-    } else {
-      this.contentEl.textContent = this.message.content;
-    }
+    this.renderContent(this.message.content);
 
     // Streaming indicator
     if (this.message.streaming) {
@@ -69,6 +66,18 @@ export class MessageBubble {
     this.parentElement.appendChild(this.element);
   }
 
+  private renderContent(content: string): void {
+    if (!this.contentEl) return;
+    const processed = replaceEmojiShortcodes(content);
+    if (this.message.role === 'assistant') {
+      this.contentEl.innerHTML = renderMarkdown(processed);
+      addCodeCopyButtons(this.contentEl);
+      enhanceImages(this.contentEl);
+    } else {
+      this.contentEl.textContent = processed;
+    }
+  }
+
   private getModelBadge(model: string): string {
     switch (model) {
       case 'haiku': return '⚡ haiku';
@@ -82,11 +91,7 @@ export class MessageBubble {
   updateContent(content: string, streaming: boolean): void {
     if (!this.contentEl) return;
 
-    if (this.message.role === 'assistant') {
-      this.contentEl.innerHTML = markdownToHtml(content);
-    } else {
-      this.contentEl.textContent = content;
-    }
+    this.renderContent(content);
 
     if (streaming) {
       const existing = this.contentEl.querySelector('.streaming-cursor');

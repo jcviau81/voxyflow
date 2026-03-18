@@ -1,12 +1,13 @@
 import { Message } from '../../types';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, STREAMING_CHAR_DELAY, MAX_MESSAGE_LENGTH } from '../../utils/constants';
-import { createElement, markdownToHtml, formatTime, cn } from '../../utils/helpers';
+import { createElement, formatTime, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { chatService } from '../../services/ChatService';
 import { VoiceInput } from './VoiceInput';
 import { MessageBubble } from './MessageBubble';
 import { ModelStatusBar } from '../Navigation/ModelStatusBar';
+import { EmojiPicker } from './EmojiPicker';
 
 export class ChatWindow {
   private container: HTMLElement;
@@ -14,6 +15,7 @@ export class ChatWindow {
   private inputArea: HTMLElement | null = null;
   private textInput: HTMLTextAreaElement | null = null;
   private voiceInput: VoiceInput | null = null;
+  private emojiPicker: EmojiPicker | null = null;
   private modelStatusBar: ModelStatusBar | null = null;
   private messageBubbles: Map<string, MessageBubble> = new Map();
   private unsubscribers: (() => void)[] = [];
@@ -59,10 +61,29 @@ export class ChatWindow {
     const sendBtn = createElement('button', { className: 'chat-send-btn' }, '→');
     sendBtn.addEventListener('click', () => this.sendCurrentMessage());
 
+    // Emoji picker
+    const emojiContainer = createElement('div', { className: 'emoji-picker-container' });
+    const emojiBtn = createElement('button', { className: 'emoji-picker-btn' }, '😀');
+    emojiBtn.title = 'Emoji picker';
+    this.emojiPicker = new EmojiPicker(emojiContainer, (emoji: string) => {
+      if (this.textInput) {
+        const start = this.textInput.selectionStart || 0;
+        const end = this.textInput.selectionEnd || 0;
+        const val = this.textInput.value;
+        this.textInput.value = val.slice(0, start) + emoji + val.slice(end);
+        this.textInput.selectionStart = this.textInput.selectionEnd = start + emoji.length;
+        this.textInput.focus();
+        this.handleInputResize();
+      }
+    });
+    emojiBtn.addEventListener('click', () => this.emojiPicker?.toggle());
+    emojiContainer.appendChild(emojiBtn);
+
     // Voice input
     const voiceContainer = createElement('div', { className: 'voice-input-container' });
     this.voiceInput = new VoiceInput(voiceContainer);
 
+    this.inputArea.appendChild(emojiContainer);
     this.inputArea.appendChild(this.textInput);
     this.inputArea.appendChild(voiceContainer);
     this.inputArea.appendChild(sendBtn);
@@ -211,6 +232,7 @@ export class ChatWindow {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
     this.voiceInput?.destroy();
+    this.emojiPicker?.destroy();
     this.modelStatusBar?.destroy();
     this.messageBubbles.forEach((bubble) => bubble.destroy());
     this.messageBubbles.clear();

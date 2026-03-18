@@ -1,0 +1,180 @@
+/**
+ * Rich Markdown Rendering — marked + highlight.js + DOMPurify
+ */
+import { marked, Renderer, Tokens } from 'marked';
+import DOMPurify from 'dompurify';
+import hljs from 'highlight.js/lib/core';
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+import bash from 'highlight.js/lib/languages/bash';
+import json from 'highlight.js/lib/languages/json';
+import css from 'highlight.js/lib/languages/css';
+import xml from 'highlight.js/lib/languages/xml';
+import sql from 'highlight.js/lib/languages/sql';
+import yaml from 'highlight.js/lib/languages/yaml';
+import markdown from 'highlight.js/lib/languages/markdown';
+
+// Register languages
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('js', javascript);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('ts', typescript);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('py', python);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('sh', bash);
+hljs.registerLanguage('shell', bash);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('html', xml);
+hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('sql', sql);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('yml', yaml);
+hljs.registerLanguage('markdown', markdown);
+hljs.registerLanguage('md', markdown);
+
+// Custom renderer
+const renderer = new Renderer();
+
+renderer.link = function({ href, title, tokens }: Tokens.Link): string {
+  const text = this.parser.parseInline(tokens);
+  const titleAttr = title ? ` title="${title}"` : '';
+  return `<a href="${href}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`;
+};
+
+renderer.image = function({ href, title, text }: Tokens.Image): string {
+  const titleAttr = title ? ` title="${title}"` : '';
+  return `<img src="${href}" alt="${text}" loading="lazy"${titleAttr} />`;
+};
+
+renderer.code = function({ text, lang }: Tokens.Code): string {
+  const language = lang && hljs.getLanguage(lang) ? lang : null;
+  const highlighted = language
+    ? hljs.highlight(text, { language }).value
+    : hljs.highlightAuto(text).value;
+  const langLabel = language || 'code';
+  return `<pre data-lang="${langLabel}"><code class="hljs language-${langLabel}">${highlighted}</code></pre>`;
+};
+
+// Configure marked
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+  renderer,
+});
+
+// DOMPurify config
+const PURIFY_CONFIG = {
+  ALLOWED_TAGS: [
+    'p', 'br', 'strong', 'em', 'del', 'code', 'pre', 'a', 'ul', 'ol', 'li',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'img', 'span', 'div', 'input',
+  ],
+  ALLOWED_ATTR: [
+    'href', 'target', 'rel', 'src', 'alt', 'class', 'data-lang',
+    'loading', 'title', 'type', 'checked', 'disabled',
+  ],
+};
+
+/**
+ * Render markdown string to sanitized HTML
+ */
+export function renderMarkdown(content: string): string {
+  const rawHtml = marked.parse(content) as string;
+  return DOMPurify.sanitize(rawHtml, PURIFY_CONFIG);
+}
+
+/**
+ * Add copy buttons to all <pre> code blocks inside a container element
+ */
+export function addCodeCopyButtons(container: HTMLElement): void {
+  container.querySelectorAll('pre').forEach((pre) => {
+    // Don't add if already has one
+    if (pre.querySelector('.code-copy-btn')) return;
+
+    const btn = document.createElement('button');
+    btn.className = 'code-copy-btn';
+    btn.textContent = '📋 Copy';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const code = pre.querySelector('code')?.textContent || '';
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = '✅ Copied!';
+        setTimeout(() => (btn.textContent = '📋 Copy'), 2000);
+      });
+    });
+
+    // Language label
+    const lang = pre.getAttribute('data-lang');
+    if (lang) {
+      const label = document.createElement('span');
+      label.className = 'code-lang-label';
+      label.textContent = lang;
+      pre.appendChild(label);
+    }
+
+    pre.style.position = 'relative';
+    pre.appendChild(btn);
+  });
+}
+
+/**
+ * Make images in container clickable (open full size in new tab)
+ */
+export function enhanceImages(container: HTMLElement): void {
+  container.querySelectorAll('img').forEach((img) => {
+    img.style.cursor = 'pointer';
+    img.addEventListener('click', () => {
+      window.open(img.src, '_blank');
+    });
+  });
+}
+
+/**
+ * Emoji shortcode map
+ */
+const EMOJI_SHORTCODES: Record<string, string> = {
+  ':grinning:': '😀', ':smile:': '😊', ':joy:': '😂', ':rofl:': '🤣',
+  ':wink:': '😉', ':blush:': '😊', ':heart_eyes:': '😍', ':kissing_heart:': '😘',
+  ':thinking:': '🤔', ':expressionless:': '😑', ':unamused:': '😒', ':smirk:': '😏',
+  ':relieved:': '😌', ':sleepy:': '😪', ':drool:': '🤤', ':yum:': '😋',
+  ':sunglasses:': '😎', ':nerd:': '🤓', ':confused:': '😕', ':worried:': '😟',
+  ':angry:': '😠', ':rage:': '🤬', ':cry:': '😢', ':sob:': '😭',
+  ':scream:': '😱', ':flushed:': '😳', ':dizzy_face:': '😵', ':exploding_head:': '🤯',
+  ':heart:': '❤️', ':orange_heart:': '🧡', ':yellow_heart:': '💛', ':green_heart:': '💚',
+  ':blue_heart:': '💙', ':purple_heart:': '💜', ':black_heart:': '🖤', ':hearts:': '💕',
+  ':fire:': '🔥', ':star:': '⭐', ':sparkles:': '✨', ':zap:': '⚡',
+  ':thumbsup:': '👍', ':thumbsdown:': '👎', ':clap:': '👏', ':wave:': '👋',
+  ':pray:': '🙏', ':muscle:': '💪', ':ok_hand:': '👌', ':point_up:': '☝️',
+  ':100:': '💯', ':check:': '✅', ':x:': '❌', ':warning:': '⚠️',
+  ':bulb:': '💡', ':rocket:': '🚀', ':party:': '🎉', ':tada:': '🎉',
+  ':gift:': '🎁', ':trophy:': '🏆', ':medal:': '🏅', ':crown:': '👑',
+  ':gem:': '💎', ':money:': '💰', ':briefcase:': '💼', ':computer:': '💻',
+  ':phone:': '📱', ':email:': '📧', ':lock:': '🔒', ':key:': '🔑',
+  ':gear:': '⚙️', ':wrench:': '🔧', ':hammer:': '🔨', ':link:': '🔗',
+  ':pin:': '📌', ':memo:': '📝', ':book:': '📖', ':pencil:': '✏️',
+  ':eyes:': '👀', ':brain:': '🧠', ':skull:': '💀', ':ghost:': '👻',
+  ':robot:': '🤖', ':alien:': '👽', ':unicorn:': '🦄', ':snake:': '🐍',
+  ':cat:': '🐱', ':dog:': '🐶', ':pizza:': '🍕', ':coffee:': '☕',
+  ':beer:': '🍺', ':wine:': '🍷', ':cocktail:': '🍸', ':cake:': '🎂',
+};
+
+/**
+ * Replace :shortcode: patterns with emojis in text
+ */
+export function replaceEmojiShortcodes(text: string): string {
+  return text.replace(/:[a-z_]+:/g, (match) => EMOJI_SHORTCODES[match] || match);
+}
+
+/**
+ * Auto-detect and linkify bare URLs in plain text
+ */
+export function linkifyUrls(text: string): string {
+  const urlRegex = /(?<!["\(=])https?:\/\/[^\s<>\])"']+/g;
+  return text.replace(urlRegex, (url) => {
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+  });
+}
