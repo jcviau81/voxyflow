@@ -281,20 +281,25 @@ register_tool(
 )
 
 
+def _handle_add_note(params: dict) -> ToolResult:
+    content = params.get("content", "")
+    color = params.get("color")
+    return ToolResult(
+        success=True,
+        message=f"Note added to FreeBoard: {content}",
+        data={"action": "idea:add", "content": content, "color": color},
+        ui_event={"type": "idea:add", "content": content, "color": color}
+    )
+
 register_tool(
     ToolDefinition(
         name="add_note",
         description="Add a sticky note/reminder to the FreeBoard (main chat board). Use this when the user wants to add a note, reminder, or idea to their personal board.",
         parameters={
             "content": {"type": "string", "description": "The text content of the note"},
-            "color": {"type": "string", "enum": ["yellow", "blue", "green", "pink", "purple", "orange"], "description": "Optional color for the note", "default": None}
+            "color": {"type": "string", "enum": ["yellow", "blue", "green", "pink", "purple", "orange"], "description": "Optional color for the note"}
         },
         required_params=["content"],
-        handler=lambda params: ToolResult(
-            success=True,
-            message=f"Note added to FreeBoard: {params.get('content', '')}",
-            data={"action": "idea:add", "content": params.get("content", ""), "color": params.get("color")},
-            ui_event={"type": "idea:add", "content": params.get("content", ""), "color": params.get("color")}
-        )
-    )
+    ),
+    _handle_add_note
 )
