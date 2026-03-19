@@ -57,6 +57,12 @@ def get_claude_tools(chat_level: str = "general", project_id: Optional[str] = No
         from app.mcp_server import get_tool_list
         all_tools = get_tool_list()
 
+        # System tools are available in ALL chat levels
+        system_tools = {
+            "system.exec", "web.search", "web.fetch",
+            "file.read", "file.write", "file.list",
+        }
+
         if chat_level == "general":
             allowed = {
                 "voxyflow.note.add",
@@ -64,12 +70,12 @@ def get_claude_tools(chat_level: str = "general", project_id: Optional[str] = No
                 "voxyflow.project.create",
                 "voxyflow.project.list",
                 "voxyflow.health",
-            }
+            } | system_tools
         elif chat_level == "project":
-            allowed = {t["name"] for t in all_tools} - {
+            allowed = ({t["name"] for t in all_tools} - {
                 "voxyflow.note.add",
                 "voxyflow.note.list",
-            }
+            })
         else:
             allowed = {t["name"] for t in all_tools}
 

@@ -3,6 +3,9 @@
 This module is a thin HTTP client over the Voxyflow REST API (localhost:8000).
 It does NOT access the database directly; every tool call goes through the API.
 
+System tools (system.exec, web.search, web.fetch, file.*) are executed directly
+via async handlers — they don't go through the REST API.
+
 Transport modes:
   - SSE  → imported by routes/mcp.py  (web clients)
   - Stdio → imported by backend/mcp_stdio.py  (Claude Code, Cursor, etc.)
@@ -458,7 +461,123 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_http": ("POST", "/api/jobs", None),
     },
+
+    # ======================================================================
+    # SYSTEM TOOLS — direct execution, no REST API
+    # ======================================================================
+
+    {
+        "name": "system.exec",
+        "description": "Run a shell command on the local machine. Returns stdout, stderr, exit_code, and duration.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["command"],
+            "properties": {
+                "command": {"type": "string", "description": "Shell command to execute"},
+                "cwd": {"type": "string", "description": "Working directory (optional)"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default 30, max 300)", "default": 30},
+            },
+        },
+        "_handler": "system_exec",
+    },
+    {
+        "name": "web.search",
+        "description": "Search the web using Brave Search API. Returns titles, URLs, and snippets.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+                "count": {"type": "integer", "description": "Number of results (default 5, max 20)", "default": 5},
+            },
+        },
+        "_handler": "web_search",
+    },
+    {
+        "name": "web.fetch",
+        "description": "Fetch a web page and extract its readable content as text/markdown.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {"type": "string", "description": "URL to fetch"},
+                "max_chars": {"type": "integer", "description": "Max characters to return (default 5000)", "default": 5000},
+            },
+        },
+        "_handler": "web_fetch",
+    },
+    {
+        "name": "file.read",
+        "description": "Read a file from the filesystem. Supports offset and line limits.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": {"type": "string", "description": "File path to read"},
+                "offset": {"type": "integer", "description": "Start line number (1-indexed)"},
+                "limit": {"type": "integer", "description": "Max lines to read"},
+            },
+        },
+        "_handler": "file_read",
+    },
+    {
+        "name": "file.write",
+        "description": "Write content to a file. Creates parent directories automatically.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["path", "content"],
+            "properties": {
+                "path": {"type": "string", "description": "File path to write"},
+                "content": {"type": "string", "description": "Content to write"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["overwrite", "append"],
+                    "description": "Write mode (default: overwrite)",
+                    "default": "overwrite",
+                },
+            },
+        },
+        "_handler": "file_write",
+    },
+    {
+        "name": "file.list",
+        "description": "List files and directories at a given path.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": {"type": "string", "description": "Directory path to list"},
+                "pattern": {"type": "string", "description": "Glob pattern (default: '*')", "default": "*"},
+                "recursive": {"type": "boolean", "description": "List recursively (default: false)", "default": False},
+            },
+        },
+        "_handler": "file_list",
+    },
 ]
+
+# ---------------------------------------------------------------------------
+# System tool handler registry
+# ---------------------------------------------------------------------------
+
+_SYSTEM_HANDLERS: dict[str, Any] = {}
+
+
+def _get_system_handler(name: str):
+    """Lazily load and cache system tool handlers."""
+    if not _SYSTEM_HANDLERS:
+        from app.tools.system_tools import (
+            system_exec, web_search, web_fetch,
+            file_read, file_write, file_list,
+        )
+        _SYSTEM_HANDLERS.update({
+            "system_exec": system_exec,
+            "web_search": web_search,
+            "web_fetch": web_fetch,
+            "file_read": file_read,
+            "file_write": file_write,
+            "file_list": file_list,
+        })
+    return _SYSTEM_HANDLERS.get(name)
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +620,21 @@ def _build_url_and_payload(
 
 
 async def _call_api(tool_def: dict, params: dict) -> dict:
-    """Make the actual HTTP call to the Voxyflow REST API."""
+    """Execute a tool — either via REST API (_http) or direct handler (_handler)."""
+
+    # System tools use direct async handlers
+    if "_handler" in tool_def:
+        handler_name = tool_def["_handler"]
+        handler = _get_system_handler(handler_name)
+        if handler is None:
+            return {"success": False, "error": f"Handler not found: {handler_name}"}
+        try:
+            return await handler(params)
+        except Exception as e:
+            logger.error(f"System tool handler failed: {handler_name} → {e}")
+            return {"success": False, "error": str(e)}
+
+    # Voxyflow REST API tools
     method, path_template, payload_transformer = tool_def["_http"]
 
     url, json_body, query_params = _build_url_and_payload(
@@ -541,9 +674,9 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _public_tool_defs() -> list[dict]:
-    """Return tool definitions without the internal _http key."""
+    """Return tool definitions without internal keys (_http, _handler)."""
     return [
-        {k: v for k, v in t.items() if k != "_http"}
+        {k: v for k, v in t.items() if k not in ("_http", "_handler")}
         for t in _TOOL_DEFINITIONS
     ]
 

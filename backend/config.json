@@ -1,0 +1,17 @@
+{
+  "tools": {
+    "brave_api_key": "",
+    "allowed_paths": ["~", "/tmp", "/home/jcviau"],
+    "exec_blocklist": [
+      "rm -rf /",
+      "rm -rf /*",
+      "mkfs",
+      "dd if=",
+      ":(){:|:&};:",
+      "chmod -R 777 /",
+      "> /dev/sda",
+      "mv /* /dev/null"
+    ],
+    "exec_enabled": true
+  }
+}
