@@ -3,10 +3,12 @@
 import asyncio
 import json
 import logging
+import os
+import tempfile
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,6 +76,73 @@ async def tts_serve_audio(filename: str):
         media_type="audio/wav",
         filename=safe_name,
     )
+
+
+# ---------------------------------------------------------------------------
+# STT REST endpoint (server-side Whisper transcription)
+# ---------------------------------------------------------------------------
+
+@router.post("/stt")
+async def transcribe_audio(
+    audio: UploadFile = File(...),
+    language: str = Form(default="auto"),
+):
+    """
+    Transcribe uploaded audio using faster-whisper (server-side Whisper).
+
+    Accepts WebM/Opus audio from the browser MediaRecorder API.
+    Falls back gracefully if faster-whisper is not installed.
+
+    Returns: {"text": str, "language": str}
+    """
+    # Save uploaded audio to a temp file
+    suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+        f.write(await audio.read())
+        tmp_path = f.name
+
+    try:
+        # Try faster-whisper first (preferred, lower latency)
+        try:
+            from faster_whisper import WhisperModel  # type: ignore
+            model = WhisperModel("turbo", device="cpu", compute_type="int8")
+            lang_arg = language if language != "auto" else None
+            segments, info = model.transcribe(tmp_path, language=lang_arg)
+            text = " ".join(s.text for s in segments).strip()
+            return {"text": text, "language": info.language}
+        except ImportError:
+            logger.debug("faster-whisper not installed, trying whisper CLI fallback")
+
+        # Fallback: openai-whisper CLI
+        import subprocess
+        result = subprocess.run(
+            ["whisper", tmp_path, "--model", "turbo", "--output_format", "txt",
+             "--output_dir", tempfile.gettempdir()],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            txt_path = Path(tempfile.gettempdir()) / (Path(tmp_path).stem + ".txt")
+            if txt_path.exists():
+                text = txt_path.read_text().strip()
+                txt_path.unlink(missing_ok=True)
+                return {"text": text, "language": "unknown"}
+            return {"text": result.stdout.strip(), "language": "unknown"}
+        else:
+            logger.error(f"whisper CLI failed: {result.stderr}")
+            raise HTTPException(status_code=500, detail="Transcription failed: Whisper not available")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"STT transcription error: {e}")
+        raise HTTPException(status_code=500, detail=f"Transcription error: {e}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 @router.websocket("/ws/voice/{chat_id}")

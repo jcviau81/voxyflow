@@ -2,7 +2,7 @@ import { SttResult } from '../../types';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
-import { sttService } from '../../services/SttService';
+import { sttService, STT_EVENTS } from '../../services/SttService';
 import { appState } from '../../state/AppState';
 
 export class VoiceInput {
@@ -49,7 +49,7 @@ export class VoiceInput {
     // Recording indicator
     this.indicator = createElement('div', { className: 'voice-indicator hidden' });
     const dot = createElement('span', { className: 'recording-dot' });
-    const label = createElement('span', {}, 'Recording...');
+    const label = createElement('span', { className: 'voice-indicator-label' }, 'Recording...');
     this.indicator.appendChild(dot);
     this.indicator.appendChild(label);
 
@@ -98,6 +98,7 @@ export class VoiceInput {
           }, 5000);
         }
         this.updateButtonState(false);
+        this.setTranscribingState(false);
       })
     );
 
@@ -105,14 +106,50 @@ export class VoiceInput {
     this.unsubscribers.push(
       eventBus.on(EVENTS.VOICE_START, () => {
         this.updateButtonState(true);
+        this.setTranscribingState(false);
       })
     );
 
     this.unsubscribers.push(
       eventBus.on(EVENTS.VOICE_STOP, () => {
         this.updateButtonState(false);
+        // If using Whisper server engine, show transcribing indicator until done
+        if (sttService.currentEngine === 'whisper') {
+          this.setTranscribingState(true);
+        }
       })
     );
+
+    // Whisper server: transcribing in progress
+    this.unsubscribers.push(
+      eventBus.on(STT_EVENTS.TRANSCRIBING, () => {
+        this.setTranscribingState(true);
+      })
+    );
+
+    // Whisper server: transcription complete
+    this.unsubscribers.push(
+      eventBus.on(STT_EVENTS.TRANSCRIBE_DONE, () => {
+        this.setTranscribingState(false);
+      })
+    );
+  }
+
+  /** Update the indicator label to show transcribing state */
+  private setTranscribingState(transcribing: boolean): void {
+    if (!this.indicator) return;
+    const label = this.indicator.querySelector('.voice-indicator-label') as HTMLElement | null;
+    if (!label) return;
+
+    if (transcribing) {
+      this.indicator.classList.remove('hidden');
+      this.indicator.classList.add('transcribing');
+      label.textContent = 'Transcribing...';
+    } else {
+      this.indicator.classList.add('hidden');
+      this.indicator.classList.remove('transcribing');
+      label.textContent = 'Recording...';
+    }
   }
 
   private setupKeyboardShortcut(): void {

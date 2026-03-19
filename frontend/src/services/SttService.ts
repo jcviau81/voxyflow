@@ -1,9 +1,15 @@
 import { SttResult } from '../types';
 import { eventBus } from '../utils/EventBus';
-import { EVENTS } from '../utils/constants';
+import { EVENTS, API_URL } from '../utils/constants';
 import { isMobile } from '../utils/helpers';
 
 type SttEngine = 'webspeech' | 'whisper';
+
+/** Events emitted during Whisper server-side transcription */
+export const STT_EVENTS = {
+  TRANSCRIBING: 'stt:transcribing',
+  TRANSCRIBE_DONE: 'stt:transcribe_done',
+} as const;
 
 export class SttService {
   private engine: SttEngine;
@@ -24,15 +30,25 @@ export class SttService {
   }
 
   private detectEngine(): SttEngine {
-    // Mobile: use Web Speech API (native Google/Apple)
-    // Desktop: use Whisper WASM (placeholder)
+    // Check user override from settings first
+    const stored = localStorage.getItem('voxyflow_settings');
+    if (stored) {
+      try {
+        const settings = JSON.parse(stored);
+        const engineOverride = settings?.stt_engine as SttEngine | undefined;
+        if (engineOverride === 'whisper' || engineOverride === 'webspeech') {
+          return engineOverride;
+        }
+      } catch {}
+    }
+
+    // Auto-detect: mobile → Web Speech API (native, no latency)
+    // Desktop → Whisper server (better accuracy, language support)
     if (isMobile() && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
       return 'webspeech';
     }
-    // For now, fall back to Web Speech API on desktop too if available
-    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
-      return 'webspeech';
-    }
+
+    // Desktop: prefer server-side Whisper
     return 'whisper';
   }
 
@@ -192,21 +208,59 @@ export class SttService {
   }
 
   private async processWhisperAudio(audioBlob: Blob): Promise<void> {
-    // TODO: Integrate Whisper.cpp WASM
-    // For now, this is a placeholder that would:
-    // 1. Convert audio blob to float32 PCM
-    // 2. Feed to Whisper WASM module
-    // 3. Get transcript back
-    console.log('[SttService] Whisper WASM processing placeholder', audioBlob.size, 'bytes');
+    console.log('[SttService] Sending audio to server-side Whisper:', audioBlob.size, 'bytes');
 
-    // Placeholder: emit empty transcript
-    const result: SttResult = {
-      transcript: '[Whisper WASM not yet integrated]',
-      confidence: 0,
-      isFinal: true,
-    };
-    this._transcript = result.transcript;
-    eventBus.emit(EVENTS.VOICE_TRANSCRIPT, result);
+    // Emit transcribing state so UI can show a loading indicator
+    eventBus.emit(STT_EVENTS.TRANSCRIBING, { size: audioBlob.size });
+
+    try {
+      const lang = this._lang.split('-')[0]; // e.g. 'fr-CA' → 'fr'
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
+      formData.append('language', lang === 'en' || lang === 'fr' ? lang : 'auto');
+
+      const sttUrl = `${API_URL}/api/stt`;
+      const response = await fetch(sttUrl, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`STT server error ${response.status}: ${errText}`);
+      }
+
+      const data = await response.json() as { text: string; language?: string };
+      const transcript = (data.text ?? '').trim();
+
+      eventBus.emit(STT_EVENTS.TRANSCRIBE_DONE, { transcript });
+
+      if (transcript) {
+        this._transcript = transcript;
+        const result: SttResult = {
+          transcript,
+          confidence: 1.0,
+          isFinal: true,
+        };
+        eventBus.emit(EVENTS.VOICE_TRANSCRIPT, result);
+      } else {
+        // Empty transcript — nothing heard or silence
+        console.warn('[SttService] Whisper returned empty transcript');
+        const result: SttResult = {
+          transcript: '',
+          confidence: 0,
+          isFinal: true,
+        };
+        eventBus.emit(EVENTS.VOICE_TRANSCRIPT, result);
+      }
+    } catch (error) {
+      console.error('[SttService] Whisper server transcription failed:', error);
+      eventBus.emit(STT_EVENTS.TRANSCRIBE_DONE, { transcript: '' });
+      eventBus.emit(EVENTS.VOICE_ERROR, {
+        error: 'whisper-failed',
+        message: `Transcription failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   }
 
   private cleanupStream(): void {
@@ -250,6 +304,27 @@ export class SttService {
     if (this.recognition) {
       this.recognition.lang = lang;
     }
+  }
+
+  /**
+   * Override the STT engine and persist to localStorage.
+   * Takes effect on next recording session.
+   */
+  setEngine(engine: SttEngine): void {
+    this.engine = engine;
+    // Persist override in settings
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      const settings = stored ? JSON.parse(stored) : {};
+      settings.stt_engine = engine;
+      localStorage.setItem('voxyflow_settings', JSON.stringify(settings));
+    } catch {}
+
+    // Init Web Speech if switching to it
+    if (engine === 'webspeech' && !this.recognition) {
+      this.initWebSpeech();
+    }
+    console.log('[SttService] Engine switched to:', engine);
   }
 
   destroy(): void {
