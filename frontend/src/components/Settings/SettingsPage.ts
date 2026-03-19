@@ -1093,6 +1093,7 @@ export class SettingsPage {
       <div class="settings-save-bar" data-testid="settings-save-bar">
         <button class="btn-primary" data-testid="settings-save" id="save-btn">Save Settings</button>
         <button class="btn-ghost" data-testid="settings-reset" id="reset-btn">Reset to Default</button>
+        <button class="btn-ghost" id="settings-back-bottom-btn">← Back</button>
         <span class="save-status" id="save-status"></span>
       </div>
     `;
@@ -1135,6 +1136,11 @@ export class SettingsPage {
     const saveBtn = this.root.querySelector('#save-btn');
     if (saveBtn) {
       saveBtn.addEventListener('click', () => this.saveSettings());
+    }
+
+    const backBottomBtn = this.root.querySelector('#settings-back-bottom-btn');
+    if (backBottomBtn) {
+      backBottomBtn.addEventListener('click', () => appState.setView('chat'));
     }
 
     const resetBtn = this.root.querySelector('#reset-btn');
