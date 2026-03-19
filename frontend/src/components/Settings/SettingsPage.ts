@@ -281,7 +281,7 @@ export class SettingsPage {
           <div class="setting-row">
             <div class="setting-info">
               <div class="setting-label">Font Size</div>
-              <div class="setting-description">Small (12px) · Medium (14px) · Large (16px)</div>
+              <div class="setting-description">Small (12px) · Medium (16px) · Large (20px)</div>
             </div>
             <div class="appearance-pills">${fontPills}</div>
           </div>
@@ -290,7 +290,7 @@ export class SettingsPage {
           <div class="setting-row">
             <div class="setting-info">
               <div class="setting-label">Sidebar Width</div>
-              <div class="setting-description">Compact (180px) · Normal (240px) · Wide (300px)</div>
+              <div class="setting-description">Compact (220px) · Normal (280px) · Wide (360px)</div>
             </div>
             <div class="appearance-pills">${sidebarPills}</div>
           </div>

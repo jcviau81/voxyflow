@@ -1,5 +1,104 @@
 /* Opportunities Panel Styles — Polished Dark Theme */
 
+/* ─── Right Panel (merged Opportunities + Notifications) ──────────────────── */
+
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-secondary);
+  overflow: hidden;
+}
+
+.right-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.right-panel-tab {
+  flex: 1;
+  padding: 10px 6px;
+  text-align: center;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.right-panel-tab:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+}
+
+.right-panel-tab.active {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+}
+
+.right-panel-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  line-height: 1;
+}
+
+.right-panel-tab-badge.unread {
+  background: #ef5350;
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 1px 4px rgba(239, 83, 80, 0.4);
+  animation: badge-pop 0.2s ease;
+}
+
+.right-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Make notification body fill panel properly inside the right panel */
+.right-panel-body .notification-center-header {
+  padding: 12px 14px 10px;
+}
+
+.right-panel-body .notification-center-body {
+  flex: 1;
+  padding: 4px 0;
+}
+
+/* Make opportunities list fill the panel */
+.right-panel-body .opportunities-header {
+  padding: 12px 14px 10px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.right-panel-body .opportunities-list {
+  padding: 10px 14px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 .opportunities-container {
   width: 280px;
   flex-shrink: 0;

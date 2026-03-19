@@ -3,8 +3,6 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
-import { NotificationCenter } from '../Notifications/NotificationCenter';
-
 interface FooterIcon {
   action: string;
   icon: string;
@@ -19,15 +17,12 @@ const FOOTER_ICONS: FooterIcon[] = [
 
 export class Sidebar {
   private container: HTMLElement;
-  private notificationCenter: NotificationCenter | null = null;
   private unsubscribers: (() => void)[] = [];
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('nav', { className: 'sidebar', 'data-testid': 'sidebar' });
     this.render();
     this.setupListeners();
-    // NotificationCenter panel — appended to parentElement so it overlays correctly
-    this.notificationCenter = new NotificationCenter(this.parentElement);
   }
 
   render(): void {
@@ -264,8 +259,6 @@ export class Sidebar {
   destroy(): void {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
-    this.notificationCenter?.destroy();
-    this.notificationCenter = null;
     this.container.remove();
   }
 }

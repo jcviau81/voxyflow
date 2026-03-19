@@ -23,14 +23,14 @@ export const ACCENT_PRESETS: Array<{ name: string; value: string }> = [
 
 const FONT_SIZE_MAP: Record<FontSize, string> = {
   small:  '12px',
-  medium: '14px',
-  large:  '16px',
+  medium: '16px',
+  large:  '20px',
 };
 
 const SIDEBAR_WIDTH_MAP: Record<SidebarWidth, string> = {
-  compact: '180px',
-  normal:  '240px',
-  wide:    '300px',
+  compact: '220px',
+  normal:  '280px',
+  wide:    '360px',
 };
 
 const TRANSITION_MAP: Record<AnimationSpeed, { transition: string; transitionFast: string }> = {

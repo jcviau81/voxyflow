@@ -56,7 +56,7 @@
   --top-bar-height: 52px;
 
   /* Appearance — overridden by ThemeService at runtime */
-  --font-size-base: 15px;
+  --font-size-base: 16px;
   --card-padding: 16px;
   --card-font-size: 13px;
 }

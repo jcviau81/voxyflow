@@ -18,7 +18,7 @@ import { ProjectForm } from './components/Projects/ProjectForm';
 import { Toast } from './components/Shared/Toast';
 import { KeyboardShortcutsModal } from './components/Shared/KeyboardShortcutsModal';
 import { CommandPalette } from './components/Shared/CommandPalette';
-import { OpportunitiesPanel } from './components/Opportunities/OpportunitiesPanel';
+import { RightPanel } from './components/RightPanel/RightPanel';
 import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
 import { FocusMode } from './components/FocusMode/FocusMode';
@@ -38,7 +38,7 @@ export class App {
   private keyboardShortcutsModal: KeyboardShortcutsModal | null = null;
   private commandPalette: CommandPalette | null = null;
   private cardModal: CardDetailModal | null = null;
-  private opportunitiesPanel: OpportunitiesPanel | null = null;
+  private rightPanel: RightPanel | null = null;
   // FreeBoard is now a full-view via switchView('freeboard'), not a sidebar
   private currentView: { component: { destroy(): void } | null; view: ViewMode | null } = {
     component: null,
@@ -82,9 +82,9 @@ export class App {
     mainArea.appendChild(topBarContainer);
     mainArea.appendChild(this.mainContent);
 
-    // Opportunities panel (right sidebar - project mode)
+    // Right panel (always-visible right sidebar: Opportunities + Notifications tabs)
     const opportunitiesContainer = createElement('aside', { className: 'opportunities-container' });
-    this.opportunitiesPanel = new OpportunitiesPanel(opportunitiesContainer);
+    this.rightPanel = new RightPanel(opportunitiesContainer);
 
     layout.appendChild(sidebarContainer);
     layout.appendChild(mainArea);
@@ -726,7 +726,7 @@ export class App {
     this.keyboardShortcutsModal?.destroy();
     this.commandPalette?.destroy();
     this.cardModal?.destroy();
-    this.opportunitiesPanel?.destroy();
+    this.rightPanel?.destroy();
     // FreeBoard destroyed via switchView cycle
     this.currentView.component?.destroy();
     this.projectForm?.destroy();
