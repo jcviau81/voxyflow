@@ -501,15 +501,54 @@ export class ChatWindow {
   }
 
   /**
+   * Returns the active session ID for the current chat context (project, card, or general).
+   * Used to guard against rendering messages from other views.
+   */
+  private getActiveSessionId(): string | undefined {
+    const chatLevel = this.getChatLevel();
+    if (chatLevel === 'general') {
+      return this.activeSessionId;
+    }
+    const activeTabId = appState.getActiveTab();
+    const contextTabId = chatLevel === 'card'
+      ? (appState.get('selectedCardId') || activeTabId)
+      : activeTabId;
+    const sessions = appState.getSessions(contextTabId);
+    if (sessions.length > 0) {
+      return appState.getActiveChatId(contextTabId) || undefined;
+    }
+    return undefined;
+  }
+
+  /**
    * Check if a message belongs to the currently active view/session.
-   * For general chat, message must match activeSessionId.
-   * For project/card chat, session doesn't matter.
+   * - General chat: must match activeSessionId.
+   * - Project/card chat: if sessions exist, must match the active project/card session.
+   *   If no sessions exist yet, allow messages with no sessionId (legacy/unsessioned project chat).
    */
   private shouldRenderMessage(message: Message): boolean {
     const chatLevel = this.getChatLevel();
-    if (chatLevel !== 'general') return true;
-    // General chat: only render if sessionId matches active session
-    return !message.sessionId || message.sessionId === this.activeSessionId;
+
+    if (chatLevel === 'general') {
+      // General chat: only render if sessionId matches the active general session
+      return !message.sessionId || message.sessionId === this.activeSessionId;
+    }
+
+    // Project / card chat
+    const activeTabId = appState.getActiveTab();
+    const contextTabId = chatLevel === 'card'
+      ? (appState.get('selectedCardId') || activeTabId)
+      : activeTabId;
+    const sessions = appState.getSessions(contextTabId);
+
+    if (sessions.length === 0) {
+      // No sessions yet — allow messages that have no sessionId or belong to the project
+      return !message.sessionId;
+    }
+
+    const activeChatId = appState.getActiveChatId(contextTabId);
+    // Allow messages with no sessionId only when there's no active session constraint
+    return !message.sessionId || message.sessionId === activeChatId;
   }
 
   /**
