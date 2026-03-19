@@ -1141,11 +1141,6 @@ export class SettingsPage {
       saveBtn.addEventListener('click', () => this.saveSettings());
     }
 
-    const backBottomBtn = this.root.querySelector('#settings-back-bottom-btn');
-    if (backBottomBtn) {
-      backBottomBtn.addEventListener('click', () => appState.setView('chat'));
-    }
-
     const resetBtn = this.root.querySelector('#reset-btn');
     if (resetBtn) {
       resetBtn.addEventListener('click', () => this.resetSettings());
