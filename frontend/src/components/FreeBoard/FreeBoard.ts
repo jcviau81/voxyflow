@@ -99,7 +99,7 @@ export class FreeBoard {
     viewToggle.appendChild(chatBtn);
     viewToggle.appendChild(boardBtn);
 
-    const addBtn = createElement('button', { className: 'freeboard-add-btn kanban-add-btn' }, '+ Add Note');
+    const addBtn = createElement('button', { className: 'freeboard-add-btn kanban-add-btn' }, '+ Add Card');
     addBtn.setAttribute('data-testid', 'freeboard-add-btn');
     addBtn.addEventListener('click', () => this.toggleForm());
 
@@ -133,7 +133,7 @@ export class FreeBoard {
     if (cards.length === 0) {
       const empty = createElement('div', { className: 'freeboard-empty' });
       const icon = createElement('div', { className: 'freeboard-empty-icon' }, '🗒️');
-      const msg = createElement('div', {}, this.initialLoadDone ? 'No notes yet. Add one!' : 'Loading...');
+      const msg = createElement('div', {}, this.initialLoadDone ? 'No cards yet. Add one!' : 'Loading...');
       empty.appendChild(icon);
       empty.appendChild(msg);
       this.grid.appendChild(empty);
@@ -248,7 +248,7 @@ export class FreeBoard {
     const titleInput = createElement('input', {
       type: 'text',
       className: 'freeboard-add-form-title',
-      placeholder: 'Note title...',
+      placeholder: 'Card title...',
     }) as HTMLInputElement;
 
     // Body textarea
