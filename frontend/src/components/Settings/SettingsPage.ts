@@ -218,12 +218,9 @@ export class SettingsPage {
   private render(): void {
     this.root.innerHTML = '';
 
-    // Header with back button
+    // Header (no back button — it's in the footer bar)
     const header = createElement('div', { className: 'settings-header' });
-    const backBtn = createElement('button', { className: 'settings-back-btn' }, '← Back');
-    backBtn.addEventListener('click', () => appState.setView('chat'));
     const title = createElement('h2', {}, '\u2699\uFE0F Settings');
-    header.appendChild(backBtn);
     header.appendChild(title);
     this.root.appendChild(header);
 
