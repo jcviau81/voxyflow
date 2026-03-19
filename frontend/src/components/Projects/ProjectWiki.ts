@@ -49,8 +49,9 @@ export class ProjectWiki {
     // --- Sidebar ---
     this.sidebar = createElement('div', { className: 'wiki-sidebar' });
 
+    // Sidebar header — title removed, project name + tabs are in shared ProjectHeader
     const sidebarHeader = createElement('div', { className: 'wiki-sidebar-header' });
-    const sidebarTitle = createElement('span', { className: 'wiki-sidebar-title' }, '📖 Wiki');
+    const sidebarTitle = createElement('span', { className: 'wiki-sidebar-title' }, 'Pages');
     const newPageBtn = createElement('button', { className: 'wiki-new-page-btn', title: 'New page' }, '+');
     newPageBtn.addEventListener('click', () => this.handleNewPage());
     sidebarHeader.appendChild(sidebarTitle);

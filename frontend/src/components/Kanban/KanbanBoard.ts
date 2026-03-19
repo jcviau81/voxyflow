@@ -70,12 +70,9 @@ export class KanbanBoard {
     this.tagFilter = null;
     this.sortMode = 'default';
 
-    // Header row (title + search + add button)
+    // Header row (action buttons — project name + view tabs are in shared ProjectHeader)
     const header = createElement('div', { className: 'kanban-header' });
     const projectId = appState.get('currentProjectId');
-    const project = projectId ? appState.getProject(projectId) : null;
-    const projectName = project?.name || 'Kanban Board';
-    const title = createElement('h2', { className: 'kanban-title' }, projectName);
 
     // Search bar
     const searchBar = createElement('div', { className: 'kanban-search-bar' });
@@ -139,15 +136,7 @@ export class KanbanBoard {
     // Spacer pushes action buttons to the right
     const headerSpacer = createElement('div', { className: 'kanban-header-spacer' });
 
-    // Row 1: view toggle | title | spacer | Select | Export | Import | New Card
-    const viewToggle = createElement('div', { className: 'view-toggle' });
-    const chatBtn = createElement('button', { className: 'view-btn', 'data-view': 'chat' }, '💬 Chat');
-    chatBtn.addEventListener('click', () => appState.setView('chat'));
-    const kanbanBtn = createElement('button', { className: 'view-btn active', 'data-view': 'kanban' }, '📋 Kanban');
-    viewToggle.appendChild(chatBtn);
-    viewToggle.appendChild(kanbanBtn);
-    header.appendChild(viewToggle);
-    header.appendChild(title);
+    // Row 1: spacer | Select | Export | Import | New Card
     header.appendChild(headerSpacer);
     header.appendChild(this.selectToggleBtn);
     header.appendChild(exportBtn);

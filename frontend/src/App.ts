@@ -27,6 +27,7 @@ import { ProjectRoadmap } from './components/Projects/ProjectRoadmap';
 import { ProjectWiki } from './components/Projects/ProjectWiki';
 import { SprintPlanner } from './components/Projects/SprintPlanner';
 import { ProjectDocuments } from './components/Projects/ProjectDocuments';
+import { ProjectHeader } from './components/Projects/ProjectHeader';
 
 export class App {
   private root: HTMLElement;
@@ -39,6 +40,7 @@ export class App {
   private commandPalette: CommandPalette | null = null;
   private cardModal: CardDetailModal | null = null;
   private rightPanel: RightPanel | null = null;
+  private projectHeader: ProjectHeader | null = null;
   // FreeBoard is now a full-view via switchView('freeboard'), not a sidebar
   private currentView: { component: { destroy(): void } | null; view: ViewMode | null } = {
     component: null,
@@ -79,6 +81,12 @@ export class App {
 
     // Tab bar goes inside main area (above top bar, not full width)
     mainArea.appendChild(tabBarContainer);
+
+    // Shared project header (project name + view tabs) — visible only in project mode
+    const projectHeaderContainer = createElement('div', { className: 'project-header-container' });
+    this.projectHeader = new ProjectHeader(projectHeaderContainer);
+    mainArea.appendChild(projectHeaderContainer);
+
     mainArea.appendChild(topBarContainer);
     mainArea.appendChild(this.mainContent);
 
@@ -722,6 +730,7 @@ export class App {
     this.sidebar?.destroy();
     this.topBar?.destroy();
     this.tabBar?.destroy();
+    this.projectHeader?.destroy();
     this.toast?.destroy();
     this.keyboardShortcutsModal?.destroy();
     this.commandPalette?.destroy();

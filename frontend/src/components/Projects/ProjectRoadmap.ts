@@ -101,10 +101,7 @@ export class ProjectRoadmap {
     const timelineEnd   = addWeeks(currentWeekStart,  WEEKS_AFTER + 1); // exclusive
     const totalMs = timelineEnd.getTime() - timelineStart.getTime();
 
-    // ── Page title
-    const title = createElement('div', { className: 'roadmap-title' });
-    title.textContent = '📅 Project Roadmap';
-    this.container.appendChild(title);
+    // Page title removed — project name + tabs are in shared ProjectHeader
 
     // ── Scroll wrapper (header + rows share horizontal scroll)
     const scrollWrapper = createElement('div', { className: 'roadmap-scroll-wrapper' });

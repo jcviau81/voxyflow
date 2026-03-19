@@ -224,6 +224,31 @@
   }
 }
 
+/* Project header responsive: scrollable tabs on narrow screens */
+@media (max-width: 768px) {
+  .project-header {
+    padding: 0 8px;
+    gap: 8px;
+  }
+
+  .project-header__tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-left: 0;
+  }
+  .project-header__tabs::-webkit-scrollbar { display: none; }
+
+  .project-header__tab {
+    font-size: 0.6875rem;
+    padding: 3px 8px;
+  }
+
+  .project-header__name {
+    max-width: 120px;
+  }
+}
+
 /* Small mobile: < 375px */
 @media (max-width: 375px) {
   .unified-header {

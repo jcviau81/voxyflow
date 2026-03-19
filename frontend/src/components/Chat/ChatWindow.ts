@@ -238,13 +238,8 @@ export class ChatWindow {
         ? card.title.substring(0, 40) + '...'
         : card.title;
       titleSection.appendChild(title);
-    } else if (chatLevel === 'project' && project) {
-      const emoji = createElement('span', { className: 'context-emoji header-emoji' });
-      emoji.textContent = project.emoji || '📁';
-      const name = createElement('span', { className: 'header-title' });
-      name.textContent = project.name;
-      titleSection.appendChild(emoji);
-      titleSection.appendChild(name);
+    } else if (chatLevel === 'project') {
+      // Project name + tabs are in shared ProjectHeader; just show minimal context here
     } else {
       // General chat: show a small indicator
       const title = createElement('span', { className: 'header-title' });
@@ -254,17 +249,14 @@ export class ChatWindow {
 
     headerRow.appendChild(titleSection);
 
-    // CENTER: Session tabs (general) + view toggle (general = chat/freeboard, project = chat/kanban)
+    // CENTER: Session tabs (general only) — project view toggle is now in shared ProjectHeader
     if (chatLevel === 'general') {
       const sessionTabs = this.renderSessionTabs();
       headerRow.appendChild(sessionTabs);
       const generalToggle = this.renderGeneralViewToggle();
       headerRow.appendChild(generalToggle);
-    } else if (chatLevel === 'project') {
-      const viewToggle = this.renderViewToggle();
-      headerRow.appendChild(viewToggle);
     }
-    // Card: nothing in center
+    // Project + Card: nothing in center (tabs in ProjectHeader)
 
     // RIGHT: Actions + Model status
     const actions = createElement('div', { className: 'header-actions' });

@@ -88,12 +88,7 @@ export class ProjectStats {
     const cards = appState.getCardsByProject(projectId);
     const activities = appState.getActivities(projectId, 50);
 
-    // ── Header ─────────────────────────────────────
-    const header = createElement('div', { className: 'stats-header' });
-    const title = createElement('h2', { className: 'stats-title' });
-    title.textContent = `📊 ${project?.name ?? 'Project'} — Stats`;
-    header.appendChild(title);
-    this.container.appendChild(header);
+    // Header removed — project name + tabs are in shared ProjectHeader
 
     // ── Grid ───────────────────────────────────────
     const grid = createElement('div', { className: 'stats-grid' });
