@@ -13,19 +13,19 @@
   },
   "models": {
     "fast": {
-      "provider_url": "http://localhost:3456/v1",
+      "provider_url": "http://localhost:3457/v1",
       "api_key": "sk-any",
       "model": "claude-sonnet-4",
       "enabled": true
     },
     "deep": {
-      "provider_url": "http://localhost:3456/v1",
+      "provider_url": "http://localhost:3457/v1",
       "api_key": "sk-any",
       "model": "claude-opus-4",
       "enabled": true
     },
     "analyzer": {
-      "provider_url": "http://localhost:3456/v1",
+      "provider_url": "http://localhost:3457/v1",
       "api_key": "sk-any",
       "model": "claude-haiku-4",
       "enabled": true
@@ -37,9 +37,10 @@
     "rag_index_interval_minutes": 15
   },
   "voice": {
-    "stt_engine": "native",
+    "stt_engine": "whisper_local",
     "stt_model": "medium",
     "stt_language": "auto",
+    "whisper_model_id": "",
     "tts_enabled": true,
     "tts_auto_play": false,
     "tts_url": "http://192.168.1.59:5500",
@@ -47,7 +48,7 @@
     "tts_speed": 1.0,
     "volume": 80
   },
-  "onboarding_complete": true,
-  "user_name": "Jim",
+  "onboarding_complete": false,
+  "user_name": "",
   "assistant_name": "Voxy"
 }

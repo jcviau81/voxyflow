@@ -30,7 +30,7 @@ class PersonalitySettings(BaseModel):
 
 
 class ModelLayerConfig(BaseModel):
-    provider_url: str = ""   # e.g. "http://localhost:3456/v1" or "http://localhost:11434/v1"
+    provider_url: str = ""   # e.g. "http://localhost:3457/v1" or "http://localhost:11434/v1"
     api_key: str = ""        # empty = no key required (e.g. Ollama)
     model: str = ""          # e.g. "claude-sonnet-4", "qwen2.5:7b"
     enabled: bool = True
@@ -38,19 +38,19 @@ class ModelLayerConfig(BaseModel):
 
 class ModelsSettings(BaseModel):
     fast: ModelLayerConfig = ModelLayerConfig(
-        provider_url="http://localhost:3456/v1",
+        provider_url="http://localhost:3457/v1",
         api_key="",
         model="claude-sonnet-4",
         enabled=True,
     )
     deep: ModelLayerConfig = ModelLayerConfig(
-        provider_url="http://localhost:3456/v1",
+        provider_url="http://localhost:3457/v1",
         api_key="",
         model="claude-opus-4",
         enabled=True,
     )
     analyzer: ModelLayerConfig = ModelLayerConfig(
-        provider_url="http://localhost:3456/v1",
+        provider_url="http://localhost:3457/v1",
         api_key="",
         model="claude-haiku-4",
         enabled=True,

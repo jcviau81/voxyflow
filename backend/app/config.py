@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     claude_api_base: str = ""        # Empty = default api.anthropic.com
 
     # Claude API via proxy (OpenAI-compatible, fallback when claude_use_native=False)
-    claude_proxy_url: str = "http://localhost:3456/v1"
+    claude_proxy_url: str = "http://localhost:3457/v1"
     claude_fast_model: str = "claude-haiku-4-20250514"
     claude_sonnet_model: str = "claude-sonnet-4-20250514"
     claude_deep_model: str = "claude-opus-4-20250514"

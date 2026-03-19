@@ -84,7 +84,7 @@ interface FileEditorState {
 }
 
 const DEFAULT_MODEL_LAYER: ModelLayerConfig = {
-  provider_url: 'http://localhost:3456/v1',
+  provider_url: 'http://localhost:3457/v1',
   api_key: '',
   model: '',
   enabled: true,
@@ -550,7 +550,7 @@ export class SettingsPage {
           </div>
           <input type="text" class="setting-input" data-model-layer="${layerKey}" data-model-field="provider_url"
             value="${this.escapeHtml(m.provider_url)}"
-            placeholder="http://localhost:3456/v1" />
+            placeholder="http://localhost:3457/v1" />
         </div>
         <div class="setting-row">
           <div class="setting-info">

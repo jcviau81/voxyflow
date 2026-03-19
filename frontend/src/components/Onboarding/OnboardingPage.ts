@@ -22,7 +22,7 @@ export class OnboardingPage {
   private data: OnboardingData = {
     user_name: '',
     assistant_name: 'Voxy',
-    api_url: 'http://localhost:3456/v1',
+    api_url: 'http://localhost:3457/v1',
     api_key: 'sk-any',
     fast_model: 'claude-sonnet-4-5',
     deep_model: 'claude-opus-4-5',
@@ -69,7 +69,7 @@ export class OnboardingPage {
             <div class="onboarding-field">
               <label for="ob-api-url">LLM API URL</label>
               <input type="text" id="ob-api-url"
-                placeholder="http://localhost:3456/v1"
+                placeholder="http://localhost:3457/v1"
                 value="${this.esc(this.data.api_url)}" />
               <span class="onboarding-hint">OpenAI-compatible API endpoint</span>
             </div>
@@ -172,7 +172,7 @@ export class OnboardingPage {
     // Collect form values
     this.data.user_name = (this.root.querySelector('#ob-user-name') as HTMLInputElement)?.value.trim() || '';
     this.data.assistant_name = (this.root.querySelector('#ob-assistant-name') as HTMLInputElement)?.value.trim() || 'Voxy';
-    this.data.api_url = (this.root.querySelector('#ob-api-url') as HTMLInputElement)?.value.trim() || 'http://localhost:3456/v1';
+    this.data.api_url = (this.root.querySelector('#ob-api-url') as HTMLInputElement)?.value.trim() || 'http://localhost:3457/v1';
     this.data.api_key = (this.root.querySelector('#ob-api-key') as HTMLInputElement)?.value.trim() || 'sk-any';
     this.data.fast_model = (this.root.querySelector('#ob-fast-model') as HTMLInputElement)?.value.trim() || 'claude-sonnet-4-5';
     this.data.deep_model = (this.root.querySelector('#ob-deep-model') as HTMLInputElement)?.value.trim() || 'claude-opus-4-5';

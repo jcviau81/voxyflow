@@ -150,7 +150,7 @@ def _make_openai_client(provider_url: str, api_key: str):
     """Create an OpenAI-compatible client (proxy fallback)."""
     from openai import OpenAI
     return OpenAI(
-        base_url=provider_url or "http://localhost:3456/v1",
+        base_url=provider_url or "http://localhost:3457/v1",
         api_key=api_key if api_key else "not-needed",
     )
 
@@ -169,7 +169,7 @@ class ClaudeService:
     Handles Claude API calls for both conversation layers.
 
     Primary path: native Anthropic Python SDK (claude_use_native=True).
-    Fallback path: OpenAI-compatible proxy at localhost:3456 (claude_use_native=False).
+    Fallback path: OpenAI-compatible proxy at localhost:3457 (claude_use_native=False).
 
     Model/provider overrides can be configured via the Settings UI (settings.json).
     All calls are personality-infused via PersonalityService.
