@@ -5,17 +5,26 @@ import { EVENTS } from '../utils/constants';
 /**
  * STT engine type.
  * - 'webspeech': Browser Web Speech API (works on mobile + desktop Chrome/Edge)
- *
- * NOTE: Server-side Whisper ('whisper') has been removed.
- * Local Whisper WASM support is in the ember/whisper-wasm-stt branch.
+ * - 'whisper': Server-side Whisper (future)
+ * - 'whisper_local': Local Whisper WASM (in-browser)
  */
-type SttEngine = 'webspeech';
+type SttEngine = 'webspeech' | 'whisper' | 'whisper_local';
 
 /** Events emitted during transcription */
 export const STT_EVENTS = {
   TRANSCRIBING: 'stt:transcribing',
   TRANSCRIBE_DONE: 'stt:transcribe_done',
+  MODEL_STATUS: 'stt:model_status',
+  MODEL_PROGRESS: 'stt:model_progress',
 } as const;
+
+/** Available Whisper model presets for local WASM inference */
+export const WHISPER_MODEL_PRESETS = [
+  { id: 'Xenova/whisper-tiny', label: 'Whisper Tiny (~40MB, fastest)' },
+  { id: 'Xenova/whisper-base', label: 'Whisper Base (~75MB, fast)' },
+  { id: 'Xenova/whisper-small', label: 'Whisper Small (~250MB, balanced)' },
+  { id: 'Xenova/whisper-medium', label: 'Whisper Medium (~750MB, accurate)' },
+] as const;
 
 export class SttService {
   private engine: SttEngine;
@@ -23,6 +32,8 @@ export class SttService {
   private isRecording = false;
   private _transcript = '';
   private _lang: string;
+  private _whisperModel: string | null = null;
+  private _modelReady = false;
 
   constructor() {
     this.engine = 'webspeech';
@@ -166,6 +177,50 @@ export class SttService {
 
   get lang(): string {
     return this._lang;
+  }
+
+  /** Get the current whisper model ID (null if none set) */
+  get whisperModel(): string | null {
+    return this._whisperModel;
+  }
+
+  /** Whether the local whisper model is loaded and ready */
+  get modelReady(): boolean {
+    return this._modelReady;
+  }
+
+  /**
+   * Switch STT engine. Stops any active recording first.
+   */
+  setEngine(newEngine: SttEngine): void {
+    if (this.isRecording) {
+      this.stopRecording();
+    }
+    this.engine = newEngine;
+    this._modelReady = false;
+
+    if (newEngine === 'webspeech') {
+      this.initWebSpeech();
+    }
+    // whisper / whisper_local engines will be initialized when setWhisperModel is called
+  }
+
+  /**
+   * Set and (in future) load a local Whisper WASM model by ID.
+   * Emits MODEL_STATUS events so the UI can track loading state.
+   */
+  setWhisperModel(modelId: string): void {
+    this._whisperModel = modelId;
+    this._modelReady = false;
+
+    eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message: `Loading model ${modelId}…` });
+
+    // TODO: Actual Whisper WASM loading logic goes here.
+    // For now, emit a placeholder "ready" after a tick so the UI flow works.
+    setTimeout(() => {
+      this._modelReady = true;
+      eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'ready' });
+    }, 100);
   }
 
   setLanguage(lang: string): void {

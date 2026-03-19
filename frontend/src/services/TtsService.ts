@@ -121,6 +121,18 @@ class TtsService {
       try { cb(); } catch { /* ignore */ }
     }
   }
+
+  /** Speak only if auto-play is enabled in settings. */
+  async speakIfAutoPlay(text: string): Promise<void> {
+    try {
+      const autoPlay = localStorage.getItem('tts_auto_play') !== 'false';
+      if (autoPlay && this.isEnabled) {
+        await this.speak(text);
+      }
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export const ttsService = new TtsService();
