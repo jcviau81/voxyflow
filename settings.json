@@ -15,13 +15,13 @@
     "fast": {
       "provider_url": "http://localhost:3456/v1",
       "api_key": "sk-any",
-      "model": "claude-sonnet-4-5",
+      "model": "claude-sonnet-4",
       "enabled": true
     },
     "deep": {
       "provider_url": "http://localhost:3456/v1",
       "api_key": "sk-any",
-      "model": "claude-opus-4-5",
+      "model": "claude-opus-4",
       "enabled": true
     },
     "analyzer": {
@@ -48,6 +48,6 @@
     "volume": 80
   },
   "onboarding_complete": true,
-  "user_name": "",
+  "user_name": "Jim",
   "assistant_name": "Voxy"
 }

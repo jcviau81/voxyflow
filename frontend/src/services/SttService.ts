@@ -33,6 +33,7 @@ export class SttService {
   private _transcript = '';
   private _lang: string;
   private _whisperModel: string | null = null;
+  private _whisperModelFile: File | null = null;
   private _modelReady = false;
 
   constructor() {
@@ -206,21 +207,52 @@ export class SttService {
   }
 
   /**
-   * Set and (in future) load a local Whisper WASM model by ID.
+   * Set and (in future) load a local Whisper WASM model by ID or from a local File.
    * Emits MODEL_STATUS events so the UI can track loading state.
+   *
+   * @param modelIdOrFile - HuggingFace model ID string, or a File object from a file picker
    */
-  setWhisperModel(modelId: string): void {
-    this._whisperModel = modelId;
+  setWhisperModel(modelIdOrFile: string | File): void {
     this._modelReady = false;
 
-    eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message: `Loading model ${modelId}…` });
+    if (modelIdOrFile instanceof File) {
+      const file = modelIdOrFile;
+      this._whisperModel = `local:${file.name}`;
+      this._whisperModelFile = file;
 
-    // TODO: Actual Whisper WASM loading logic goes here.
-    // For now, emit a placeholder "ready" after a tick so the UI flow works.
-    setTimeout(() => {
-      this._modelReady = true;
-      eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'ready' });
-    }, 100);
+      eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message: `Loading local file ${file.name}…` });
+
+      // Read the file into an ArrayBuffer for future WebWorker use
+      const reader = new FileReader();
+      reader.onload = () => {
+        // TODO: Pass reader.result (ArrayBuffer) to the Whisper WebWorker
+        // const arrayBuffer = reader.result as ArrayBuffer;
+        this._modelReady = true;
+        eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'ready', message: `Local model ${file.name} loaded` });
+      };
+      reader.onerror = () => {
+        eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'error', message: `Failed to read ${file.name}` });
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const modelId = modelIdOrFile;
+      this._whisperModel = modelId;
+      this._whisperModelFile = null;
+
+      eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message: `Loading model ${modelId}…` });
+
+      // TODO: Actual Whisper WASM loading logic goes here.
+      // For now, emit a placeholder "ready" after a tick so the UI flow works.
+      setTimeout(() => {
+        this._modelReady = true;
+        eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'ready' });
+      }, 100);
+    }
+  }
+
+  /** Get the current whisper model File object (null if using HuggingFace ID) */
+  get whisperModelFile(): File | null {
+    return this._whisperModelFile;
   }
 
   setLanguage(lang: string): void {

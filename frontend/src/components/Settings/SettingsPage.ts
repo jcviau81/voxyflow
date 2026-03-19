@@ -49,6 +49,10 @@ interface VoiceSettings {
   stt_model: string;
   stt_language: string;
   whisper_model_id: string;
+  /** 'huggingface' or 'local' — tracks which model source tab is active */
+  whisper_model_source: 'huggingface' | 'local';
+  /** Filename of last loaded local model file (display only) */
+  whisper_local_filename: string;
   tts_enabled: boolean;
   tts_auto_play: boolean;
   tts_url: string;
@@ -91,6 +95,8 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   stt_model: 'medium',
   stt_language: 'auto',
   whisper_model_id: '',
+  whisper_model_source: 'huggingface',
+  whisper_local_filename: '',
   tts_enabled: true,
   tts_auto_play: false,
   tts_url: 'http://192.168.1.59:5500',
@@ -632,6 +638,8 @@ export class SettingsPage {
     const whisperServerHidden = sttEngine !== 'whisper' ? 'style="display:none"' : '';
     const whisperLocalHidden = sttEngine !== 'whisper_local' ? 'style="display:none"' : '';
     const whisperModelId = (v as VoiceSettings & { whisper_model_id?: string }).whisper_model_id || '';
+    const whisperModelSource = v.whisper_model_source ?? 'huggingface';
+    const whisperLocalFilename = v.whisper_local_filename ?? '';
 
     const langOptions = [
       { value: 'auto', label: 'Auto' },
@@ -678,38 +686,74 @@ export class SettingsPage {
 
         <!-- Whisper Local model config -->
         <div id="voice-whisper-local-section" ${whisperLocalHidden}>
-          <div class="setting-row">
-            <div class="setting-info">
-              <div class="setting-label">🤗 HuggingFace Model</div>
-              <div class="setting-description">
-                ONNX model identifier from HuggingFace Hub. The model will be downloaded and cached in the browser.
+          <!-- Model source tabs -->
+          <div class="setting-row" style="flex-direction: column; align-items: flex-start;">
+            <div class="setting-info" style="margin-bottom: 8px;">
+              <div class="setting-label">Model Source</div>
+              <div class="setting-description">Choose where to load the Whisper model from
                 <span id="whisper-model-status" style="display: inline-block; margin-left: 8px;"></span>
               </div>
             </div>
-            <input type="text" class="setting-input" id="voice-whisper-model-id"
-              value="${this.escapeHtml(whisperModelId)}"
-              placeholder="onnx-community/whisper-small" />
-          </div>
-          <div class="setting-row" style="flex-direction: column; align-items: flex-start;">
-            <div class="setting-info" style="margin-bottom: 8px;">
-              <div class="setting-label">Quick select</div>
-              <div class="setting-description">Click a preset to fill the model field</div>
-            </div>
-            <div style="display: flex; flex-wrap: wrap;">
-              ${modelPresetsHtml}
+            <div class="appearance-pills">
+              <button class="appearance-pill ${whisperModelSource === 'huggingface' ? 'active' : ''}" data-whisper-source="huggingface">🤗 From HuggingFace</button>
+              <button class="appearance-pill ${whisperModelSource === 'local' ? 'active' : ''}" data-whisper-source="local">📁 Local File</button>
             </div>
           </div>
-          <div class="setting-row" style="flex-direction: column; align-items: flex-start;">
-            <div class="setting-info">
-              <div class="setting-label" style="font-size: 12px; color: var(--color-text-secondary);">
-                📖 Recommended models:
+
+          <!-- HuggingFace model source -->
+          <div id="whisper-source-huggingface" ${whisperModelSource === 'local' ? 'style="display:none"' : ''}>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">🤗 HuggingFace Model</div>
+                <div class="setting-description">
+                  ONNX model identifier from HuggingFace Hub. The model will be downloaded and cached in the browser.
+                </div>
               </div>
-              <div class="setting-description" style="font-size: 12px; line-height: 1.8;">
-                • <strong>onnx-community/whisper-small</strong> — Good balance, ~500MB, multilingual<br>
-                • <strong>onnx-community/whisper-medium</strong> — Best for French, ~1.5GB<br>
-                • <strong>onnx-community/whisper-tiny</strong> — Fastest, ~150MB, lower accuracy<br>
-                • <strong>Xenova/whisper-small</strong> — Lighter alternative<br>
-                <em style="opacity: 0.7;">First load downloads the model; subsequent loads use browser cache.</em>
+              <input type="text" class="setting-input" id="voice-whisper-model-id"
+                value="${this.escapeHtml(whisperModelId)}"
+                placeholder="onnx-community/whisper-small" />
+            </div>
+            <div class="setting-row" style="flex-direction: column; align-items: flex-start;">
+              <div class="setting-info" style="margin-bottom: 8px;">
+                <div class="setting-label">Quick select</div>
+                <div class="setting-description">Click a preset to fill the model field</div>
+              </div>
+              <div style="display: flex; flex-wrap: wrap;">
+                ${modelPresetsHtml}
+              </div>
+            </div>
+            <div class="setting-row" style="flex-direction: column; align-items: flex-start;">
+              <div class="setting-info">
+                <div class="setting-label" style="font-size: 12px; color: var(--color-text-secondary);">
+                  📖 Recommended models:
+                </div>
+                <div class="setting-description" style="font-size: 12px; line-height: 1.8;">
+                  • <strong>onnx-community/whisper-small</strong> — Good balance, ~500MB, multilingual<br>
+                  • <strong>onnx-community/whisper-medium</strong> — Best for French, ~1.5GB<br>
+                  • <strong>onnx-community/whisper-tiny</strong> — Fastest, ~150MB, lower accuracy<br>
+                  • <strong>Xenova/whisper-small</strong> — Lighter alternative<br>
+                  <em style="opacity: 0.7;">First load downloads the model; subsequent loads use browser cache.</em>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Local file model source -->
+          <div id="whisper-source-local" ${whisperModelSource !== 'local' ? 'style="display:none"' : ''}>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">📁 Local Model File</div>
+                <div class="setting-description">
+                  Select a Whisper model file from your disk (.bin, .gguf, .onnx).
+                  The file stays in memory for this session only.
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="file" id="voice-whisper-file" accept=".bin,.gguf,.onnx" style="display:none" />
+                <button class="btn-secondary" id="voice-whisper-browse-btn" style="white-space: nowrap;">Browse…</button>
+                <span id="voice-whisper-file-name" style="font-size: 13px; color: var(--color-text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  ${whisperLocalFilename ? this.escapeHtml(whisperLocalFilename) + ' (session expired — re-select)' : 'No file selected'}
+                </span>
               </div>
             </div>
           </div>
@@ -1380,10 +1424,16 @@ export class SettingsPage {
         // Apply immediately
         if (engine === 'whisper_local') {
           sttService.setEngine('whisper_local');
-          // If a model is configured, load it
-          const modelInput = this.root.querySelector<HTMLInputElement>('#voice-whisper-model-id');
-          if (modelInput?.value.trim()) {
-            sttService.setWhisperModel(modelInput.value.trim());
+          // If a model is configured, load it based on active source
+          const activeSource = this.root.querySelector<HTMLButtonElement>('[data-whisper-source].active')?.dataset.whisperSource;
+          const storedFile = (this as unknown as Record<string, File | null>)._whisperLocalFile;
+          if (activeSource === 'local' && storedFile) {
+            sttService.setWhisperModel(storedFile);
+          } else {
+            const modelInput = this.root.querySelector<HTMLInputElement>('#voice-whisper-model-id');
+            if (modelInput?.value.trim()) {
+              sttService.setWhisperModel(modelInput.value.trim());
+            }
           }
         } else if (engine === 'whisper') {
           sttService.setEngine('whisper');
@@ -1418,6 +1468,55 @@ export class SettingsPage {
         }
       });
     });
+
+    // Whisper model source tabs (HuggingFace vs Local File)
+    this.root.querySelectorAll<HTMLButtonElement>('[data-whisper-source]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const source = btn.dataset.whisperSource as 'huggingface' | 'local';
+
+        // Update pill active states
+        this.root.querySelectorAll<HTMLButtonElement>('[data-whisper-source]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.whisperSource === source);
+        });
+
+        // Show/hide source panels
+        const hfPanel = this.root.querySelector<HTMLElement>('#whisper-source-huggingface');
+        const localPanel = this.root.querySelector<HTMLElement>('#whisper-source-local');
+        if (hfPanel) hfPanel.style.display = source === 'huggingface' ? '' : 'none';
+        if (localPanel) localPanel.style.display = source === 'local' ? '' : 'none';
+
+        this.markDirty();
+      });
+    });
+
+    // Whisper local file picker
+    const whisperFileInput = this.root.querySelector<HTMLInputElement>('#voice-whisper-file');
+    const whisperBrowseBtn = this.root.querySelector<HTMLButtonElement>('#voice-whisper-browse-btn');
+    const whisperFileName = this.root.querySelector<HTMLElement>('#voice-whisper-file-name');
+
+    if (whisperBrowseBtn && whisperFileInput) {
+      whisperBrowseBtn.addEventListener('click', () => {
+        whisperFileInput.click();
+      });
+
+      whisperFileInput.addEventListener('change', () => {
+        const file = whisperFileInput.files?.[0];
+        if (file && whisperFileName) {
+          whisperFileName.textContent = file.name;
+          whisperFileName.title = file.name;
+
+          // Store the File object on the service for this session
+          if (sttService.currentEngine === 'whisper_local') {
+            sttService.setWhisperModel(file);
+          }
+
+          // Store the file reference on the component for collectSettings
+          (this as unknown as Record<string, File | null>)._whisperLocalFile = file;
+
+          this.markDirty();
+        }
+      });
+    }
 
     // Whisper model status listener
     const statusEl = this.root.querySelector<HTMLElement>('#whisper-model-status');
@@ -1619,6 +1718,8 @@ export class SettingsPage {
       stt_model: sttModelEl?.value.trim() ?? this.settings.voice?.stt_model ?? 'medium',
       stt_language: sttLangEl?.value ?? this.settings.voice?.stt_language ?? 'auto',
       whisper_model_id: whisperModelIdEl?.value.trim() ?? (this.settings.voice as VoiceSettings & { whisper_model_id?: string })?.whisper_model_id ?? '',
+      whisper_model_source: (this.root.querySelector<HTMLButtonElement>('[data-whisper-source].active')?.dataset.whisperSource as 'huggingface' | 'local') ?? this.settings.voice?.whisper_model_source ?? 'huggingface',
+      whisper_local_filename: sttService.whisperModelFile?.name ?? this.settings.voice?.whisper_local_filename ?? '',
       tts_enabled: ttsEnabledEl ? ttsEnabledEl.checked : (this.settings.voice?.tts_enabled ?? true),
       tts_auto_play: ttsAutoPlayEl ? ttsAutoPlayEl.checked : (this.settings.voice?.tts_auto_play ?? false),
       tts_url: ttsUrlEl?.value.trim() || (this.settings.voice?.tts_url ?? 'http://192.168.1.59:5500'),
