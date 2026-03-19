@@ -260,11 +260,8 @@ export class ChatWindow {
       headerRow.appendChild(sessionTabs);
       const generalToggle = this.renderGeneralViewToggle();
       headerRow.appendChild(generalToggle);
-    } else if (chatLevel === 'project') {
-      const viewToggle = this.renderViewToggle();
-      headerRow.appendChild(viewToggle);
     }
-    // Card: nothing in center
+    // Project + Card: view toggle handled by ProjectHeader
 
     // RIGHT: Actions + Model status
     const actions = createElement('div', { className: 'header-actions' });

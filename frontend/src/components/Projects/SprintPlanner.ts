@@ -45,11 +45,10 @@ export class SprintPlanner {
   private render(): void {
     this.container.innerHTML = '';
 
+    // (page title handled by ProjectHeader)
     const header = createElement('div', { className: 'sprint-header' });
-    const title = createElement('h2', {}, '🏃 Sprint Planning');
     const newBtn = createElement('button', { className: 'btn-primary sprint-new-btn' }, '+ New Sprint');
     newBtn.addEventListener('click', () => this.toggleCreateForm());
-    header.appendChild(title);
     header.appendChild(newBtn);
 
     const body = createElement('div', { className: 'sprint-body' });

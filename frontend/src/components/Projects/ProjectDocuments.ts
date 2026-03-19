@@ -57,18 +57,13 @@ export class ProjectDocuments {
     // Header
     const header = createElement('div', { className: 'docs-header' });
 
-    const title = createElement('h2', {}, '📚 Knowledge Base');
-    title.style.margin = '0';
-    title.style.fontSize = '16px';
-    title.style.fontWeight = '600';
-
+    // (page title handled by ProjectHeader)
     this.badgeEl = createElement('span', { className: 'badge' }, '0');
     this.badgeEl.style.cssText = 'background:var(--color-accent,#7c6ff7);color:#fff;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:600;';
 
     const uploadBtn = createElement('button', { className: 'btn btn-primary docs-upload-btn' }, '⬆️ Upload');
     uploadBtn.addEventListener('click', () => this.triggerFilePicker());
 
-    header.appendChild(title);
     header.appendChild(this.badgeEl);
     header.appendChild(uploadBtn);
     this.container.appendChild(header);
