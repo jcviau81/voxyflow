@@ -1,19 +1,16 @@
 /**
- * TtsService — Text-to-speech via the Voxyflow backend → XTTS (Corsair).
+ * TtsService — Text-to-speech via browser speechSynthesis API.
  *
  * Usage:
- *   ttsService.speak("Hello!")   // POSTs to /api/tts, plays audio
+ *   ttsService.speak("Hello!")   // Uses browser speechSynthesis
  *   ttsService.stop()            // Stops current playback
  *   ttsService.isSpeaking        // true while audio is playing
  *
- * TTS is opt-in: honour the global `tts_enabled` setting.
- * Fails silently if the backend is unreachable.
+ * NOTE: Server-side TTS (XTTS on Corsair) has been removed.
+ * TTS is now 100% client-side via the Web Speech API.
  */
 
-import { API_URL } from '../utils/constants';
-
 class TtsService {
-  private audio: HTMLAudioElement | null = null;
   private _isSpeaking = false;
   private _onEndCallbacks: Array<() => void> = [];
 
@@ -39,46 +36,58 @@ class TtsService {
   }
 
   /**
-   * Synthesize and play the given text.
+   * Synthesize and play the given text using browser speechSynthesis.
    * Returns immediately if TTS is disabled or text is empty.
    */
   async speak(text: string): Promise<void> {
     if (!text.trim()) return;
+    if (!('speechSynthesis' in window)) {
+      console.warn('[TtsService] speechSynthesis not available in this browser');
+      return;
+    }
 
     // Stop previous playback
     this.stop();
 
-    try {
-      const response = await fetch(`${API_URL}/api/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, language: 'en' }),
-      });
+    return new Promise<void>((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
 
-      if (!response.ok) {
-        // TTS server down — fail silently
-        console.warn('[TtsService] TTS request failed:', response.status);
-        return;
+      // Try to pick a good voice
+      const lang = this.detectLanguage();
+      utterance.lang = lang;
+
+      const voices = speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        const preferred = voices.find(v => v.lang.startsWith(lang.split('-')[0]) && v.localService);
+        if (preferred) utterance.voice = preferred;
       }
 
-      const data = await response.json();
-      const audioUrl = `${API_URL}${data.url}`;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
 
-      await this._play(audioUrl);
-    } catch (err) {
-      // Network error — fail silently
-      console.warn('[TtsService] TTS error (ignored):', err);
-      this._isSpeaking = false;
-      this._notifyEnd();
-    }
+      this._isSpeaking = true;
+
+      utterance.onend = () => {
+        this._isSpeaking = false;
+        this._notifyEnd();
+        resolve();
+      };
+
+      utterance.onerror = (e) => {
+        console.warn('[TtsService] speechSynthesis error:', e);
+        this._isSpeaking = false;
+        this._notifyEnd();
+        resolve();
+      };
+
+      speechSynthesis.speak(utterance);
+    });
   }
 
   /** Stop current audio playback. */
   stop(): void {
-    if (this.audio) {
-      this.audio.pause();
-      this.audio.src = '';
-      this.audio = null;
+    if ('speechSynthesis' in window) {
+      speechSynthesis.cancel();
     }
     if (this._isSpeaking) {
       this._isSpeaking = false;
@@ -94,35 +103,17 @@ class TtsService {
     };
   }
 
-  private async _play(url: string): Promise<void> {
-    return new Promise((resolve) => {
-      const audio = new Audio(url);
-      this.audio = audio;
-      this._isSpeaking = true;
-
-      audio.addEventListener('ended', () => {
-        this._isSpeaking = false;
-        this.audio = null;
-        this._notifyEnd();
-        resolve();
-      });
-
-      audio.addEventListener('error', (e) => {
-        console.warn('[TtsService] Audio playback error:', e);
-        this._isSpeaking = false;
-        this.audio = null;
-        this._notifyEnd();
-        resolve();
-      });
-
-      audio.play().catch((err) => {
-        console.warn('[TtsService] audio.play() failed:', err);
-        this._isSpeaking = false;
-        this.audio = null;
-        this._notifyEnd();
-        resolve();
-      });
-    });
+  private detectLanguage(): string {
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        const lang = settings?.personality?.preferred_language;
+        if (lang === 'fr') return 'fr-CA';
+        if (lang === 'en') return 'en-US';
+      }
+    } catch { /* ignore */ }
+    return 'en-US';
   }
 
   private _notifyEnd(): void {
