@@ -154,10 +154,13 @@ class SchedulerService:
             # Backend is always alive (we're executing)
             self._health["backend"] = {"status": "ok", "checked_at": _now_iso()}
 
+            from app.config import get_settings
+            _settings = get_settings()
+
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # Claude proxy
                 try:
-                    r = await client.get("http://localhost:3456/v1/models")
+                    r = await client.get(_settings.claude_proxy_url + "/models")
                     status = "ok" if r.status_code < 500 else "down"
                 except Exception as e:
                     status = "down"
@@ -169,7 +172,7 @@ class SchedulerService:
 
                 # XTTS server
                 try:
-                    r = await client.get("http://192.168.1.59:5500/health")
+                    r = await client.get(_settings.tts_service_url + "/health")
                     status = "ok" if r.status_code < 500 else "down"
                 except Exception as e:
                     status = "down"

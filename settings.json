@@ -15,7 +15,7 @@
     "fast": {
       "provider_url": "http://localhost:3456/v1",
       "api_key": "",
-      "model": "claude-test-model",
+      "model": "claude-sonnet-4-5",
       "enabled": true
     },
     "deep": {

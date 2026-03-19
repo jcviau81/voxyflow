@@ -72,7 +72,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             "type": "object",
             "properties": {},
         },
-        "_http": ("GET", "/api/tools/definitions", None),
+        "_http": ("GET", "/api/cards/unassigned", None),
     },
 
     # ---- Projects ----------------------------------------------------------

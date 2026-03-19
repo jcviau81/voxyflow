@@ -123,11 +123,6 @@ app.include_router(focus_sessions.router, prefix="/api")
 app.include_router(mcp_routes.router)  # MCP server (SSE + stdio, no /api prefix)
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "service": "voxyflow"}
-
-
 _claude_service = ClaudeService()
 _analyzer_service = AnalyzerService()
 
