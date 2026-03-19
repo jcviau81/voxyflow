@@ -170,17 +170,8 @@ class SchedulerService:
                 if prev not in (None, "unknown") and prev != status:
                     logger.warning(f"[Heartbeat] Claude proxy status changed: {prev} → {status}")
 
-                # XTTS server
-                try:
-                    r = await client.get(_settings.tts_service_url + "/health")
-                    status = "ok" if r.status_code < 500 else "down"
-                except Exception as e:
-                    status = "down"
-                    logger.warning(f"[Heartbeat] XTTS server down: {e}")
-                prev = self._health["xtts"].get("status")
-                self._health["xtts"] = {"status": status, "checked_at": _now_iso()}
-                if prev not in (None, "unknown") and prev != status:
-                    logger.warning(f"[Heartbeat] XTTS status changed: {prev} → {status}")
+                # XTTS server — removed (TTS is now client-side)
+                self._health["xtts"] = {"status": "removed", "checked_at": _now_iso()}
 
             # ChromaDB — check via local import
             try:

@@ -52,17 +52,9 @@ class Settings(BaseSettings):
     claude_analyzer_model: str = "claude-sonnet-4-20250514"
     claude_max_tokens: int = 1024
 
-    # TTS
-    tts_service_url: str = "http://192.168.1.59:5500"
-    tts_engine: str = "remote"  # sherpa-onnx | remote
-
-    # STT (Whisper fallback)
-    whisper_model: str = "turbo"
-    stt_engine: str = "browser"  # browser | whisper
-
-    # Voice
-    voice_sample_rate: int = 16000
-    voice_channels: int = 1
+    # TTS/STT — now 100% client-side (Whisper WASM + Web Speech API + browser speechSynthesis)
+    # Legacy config kept for scheduler health check compatibility
+    tts_service_url: str = ""  # No longer used — TTS is browser-side
 
     # Conversation
     fast_context_messages: int = 20
