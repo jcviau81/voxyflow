@@ -758,18 +758,21 @@ export class ChatWindow {
       })
     );
 
-    // Tab switch — reset view and update header
+    // Tab switch — reset view, rebuild context components, and update header
     this.unsubscribers.push(
       eventBus.on(EVENTS.TAB_SWITCH, () => {
         this.currentProjectView = 'chat';
+        this.refreshContextComponents();
+        this.reloadMessages();
         this.updateUnifiedHeader();
       })
     );
 
-    // Project change — reload messages
+    // Project change — reload messages and rebuild context-specific components
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_SELECTED, () => {
         this.currentProjectView = 'chat';
+        this.refreshContextComponents();
         this.reloadMessages();
         this.updateUnifiedHeader();
         this.smartSuggestions?.refresh();
@@ -949,6 +952,66 @@ export class ChatWindow {
 
       const newHeader = this.renderUnifiedHeader();
       oldHeader.replaceWith(newHeader);
+    }
+  }
+
+  /**
+   * Destroy and recreate context-specific components (GitHub panel, SessionTabBar)
+   * based on the current chat level / project context.
+   *
+   * Must be called whenever the active tab or project changes so that components
+   * from the previous context are cleaned up and the correct ones are shown for
+   * the new context.
+   */
+  private refreshContextComponents(): void {
+    // --- Session Tab Bar ---
+    if (this.sessionTabBar) {
+      this.sessionTabBar.destroy();
+      this.sessionTabBar = null;
+    }
+    // Remove any stale wrap elements left in the DOM
+    this.container.querySelector('.session-tab-bar-wrap')?.remove();
+    this.container.querySelector('.github-panel-wrap')?.remove();
+
+    // Also destroy the GitHub panel reference (its DOM was just removed above)
+    if (this.githubPanel) {
+      // destroy() calls container.remove() but the wrap was already removed — that's fine
+      this.githubPanel = null;
+    }
+
+    const chatLevel = this.getChatLevel();
+
+    // Recreate SessionTabBar for project / card contexts
+    if (chatLevel === 'project' || chatLevel === 'card') {
+      const activeTabId = appState.getActiveTab();
+      const sessionTabId = chatLevel === 'card'
+        ? (appState.get('selectedCardId') || activeTabId)
+        : activeTabId;
+      const sessionTabBarContainer = createElement('div', { className: 'session-tab-bar-wrap' });
+      // Insert before the message list so the order matches render()
+      if (this.messageList && this.messageList.parentElement === this.container) {
+        this.container.insertBefore(sessionTabBarContainer, this.messageList);
+      } else {
+        this.container.appendChild(sessionTabBarContainer);
+      }
+      this.sessionTabBar = new SessionTabBar(sessionTabBarContainer, sessionTabId);
+    }
+
+    // Recreate GitHub panel only for project context with a github_url
+    if (chatLevel === 'project') {
+      const projectId = appState.get('currentProjectId');
+      const project = projectId ? appState.getProject(projectId) : null;
+      const ghUrl = project?.githubUrl || (project as unknown as Record<string, string>)?.githubRepo;
+      if (ghUrl) {
+        const ghContainer = createElement('div', { className: 'github-panel-wrap' });
+        // Insert before the message list (after session tab bar if present)
+        if (this.messageList && this.messageList.parentElement === this.container) {
+          this.container.insertBefore(ghContainer, this.messageList);
+        } else {
+          this.container.appendChild(ghContainer);
+        }
+        this.githubPanel = new GitHubPanel(ghContainer, ghUrl);
+      }
     }
   }
 
