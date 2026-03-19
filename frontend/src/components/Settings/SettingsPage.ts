@@ -711,11 +711,11 @@ export class SettingsPage {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Voice</div>
-            <div class="setting-description">Voice name or ID for the TTS server</div>
+            <div class="setting-description">Browser voice for text-to-speech</div>
           </div>
-          <input type="text" class="setting-input" id="voice-tts-voice"
-            value="${this.escapeHtml(v.tts_voice ?? '')}"
-            placeholder="default" />
+          <select class="setting-input" id="voice-tts-voice">
+            <option value="default" ${(!v.tts_voice || v.tts_voice === 'default') ? 'selected' : ''}>Default</option>
+          </select>
         </div>
 
         <div class="setting-row">
@@ -1349,7 +1349,6 @@ export class SettingsPage {
     const ttsEnabled = this.root.querySelector<HTMLInputElement>('#voice-tts-enabled');
     if (ttsEnabled) {
       ttsEnabled.addEventListener('change', () => {
-        ttsService.setEnabled(ttsEnabled.checked);
         this.markDirty();
       });
     }
@@ -1360,11 +1359,35 @@ export class SettingsPage {
       ttsAutoplay.addEventListener('change', () => this.markDirty());
     }
 
-    // TTS URL / voice
-    ['#voice-tts-url', '#voice-tts-voice'].forEach((sel) => {
-      const el = this.root.querySelector<HTMLInputElement>(sel);
-      if (el) el.addEventListener('input', () => this.markDirty());
-    });
+    // TTS voice dropdown — populate with browser voices
+    const ttsVoiceSelect = this.root.querySelector<HTMLSelectElement>('#voice-tts-voice');
+    if (ttsVoiceSelect) {
+      const populateVoices = () => {
+        const voices = speechSynthesis?.getVoices() || [];
+        // Keep the "Default" option, clear the rest
+        while (ttsVoiceSelect.options.length > 1) {
+          ttsVoiceSelect.remove(1);
+        }
+        voices.forEach((voice) => {
+          const opt = document.createElement('option');
+          opt.value = voice.name;
+          opt.textContent = `${voice.name} (${voice.lang})`;
+          if (voice.name === (this.settings.voice?.tts_voice ?? 'default')) {
+            opt.selected = true;
+          }
+          ttsVoiceSelect.appendChild(opt);
+        });
+      };
+      populateVoices();
+      if (typeof speechSynthesis !== 'undefined') {
+        speechSynthesis.onvoiceschanged = populateVoices;
+      }
+      ttsVoiceSelect.addEventListener('change', () => this.markDirty());
+    }
+
+    // TTS URL (if still present)
+    const ttsUrlEl = this.root.querySelector<HTMLInputElement>('#voice-tts-url');
+    if (ttsUrlEl) ttsUrlEl.addEventListener('input', () => this.markDirty());
 
     // TTS speed slider
     const speedSlider = this.root.querySelector<HTMLInputElement>('#voice-tts-speed');
@@ -1459,7 +1482,7 @@ export class SettingsPage {
     const ttsEnabledEl = this.root.querySelector<HTMLInputElement>('#voice-tts-enabled');
     const ttsAutoPlayEl = this.root.querySelector<HTMLInputElement>('#voice-tts-autoplay');
     const ttsUrlEl = this.root.querySelector<HTMLInputElement>('#voice-tts-url');
-    const ttsVoiceEl = this.root.querySelector<HTMLInputElement>('#voice-tts-voice');
+    const ttsVoiceEl = this.root.querySelector<HTMLSelectElement>('#voice-tts-voice');
     const ttsSpeedEl = this.root.querySelector<HTMLInputElement>('#voice-tts-speed');
     const volSliderEl = this.root.querySelector<HTMLInputElement>('#voice-volume-slider');
 

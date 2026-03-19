@@ -5,6 +5,7 @@ import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
 import { generateId, sleep } from '../utils/helpers';
 import { ModelStatusBar } from '../components/Navigation/ModelStatusBar';
+import { ttsService } from './TtsService';
 
 export class ChatService {
   private streamingMessages: Map<string, { content: string; messageId: string }> = new Map();
@@ -302,6 +303,9 @@ export class ChatService {
         messageId: stream.messageId,
         content,
       });
+
+      // Auto-play TTS after stream completes
+      ttsService.speakIfAutoPlay(content);
     }
   }
 
@@ -312,6 +316,9 @@ export class ChatService {
       sessionId: sessionId || this.getActiveContextSessionId(),
     });
     eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);
+
+    // Auto-play TTS for assistant responses
+    ttsService.speakIfAutoPlay(content);
   }
 
   /**

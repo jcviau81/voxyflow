@@ -42,13 +42,13 @@ export class SttService {
       } catch {}
     }
 
-    // Auto-detect: mobile → Web Speech API (native, no latency)
-    // Desktop → Whisper server (better accuracy, language support)
-    if (isMobile() && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
+    // Default: Web Speech API (browser-native, zero server dependency)
+    // Falls back to Whisper only if Web Speech API is not available
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
       return 'webspeech';
     }
 
-    // Desktop: prefer server-side Whisper
+    // Fallback: server-side Whisper (for browsers without Web Speech API, e.g. Firefox)
     return 'whisper';
   }
 
