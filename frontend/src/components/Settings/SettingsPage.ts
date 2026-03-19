@@ -190,8 +190,14 @@ export class SettingsPage {
   private render(): void {
     this.root.innerHTML = '';
 
+    // Header with back button
+    const header = createElement('div', { className: 'settings-header' });
+    const backBtn = createElement('button', { className: 'settings-back-btn' }, '← Back');
+    backBtn.addEventListener('click', () => appState.setView('chat'));
     const title = createElement('h2', {}, '\u2699\uFE0F Settings');
-    this.root.appendChild(title);
+    header.appendChild(backBtn);
+    header.appendChild(title);
+    this.root.appendChild(header);
 
     this.root.insertAdjacentHTML('beforeend', this.renderHealthBar());
     this.root.insertAdjacentHTML('beforeend', this.renderAppearanceSection());
