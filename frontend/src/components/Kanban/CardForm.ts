@@ -30,11 +30,11 @@ export interface CardFormData {
 // Fallback static agents if API isn't available yet
 const FALLBACK_AGENTS: AgentInfo[] = [
   { type: 'ember', name: 'Ember', emoji: '🔥', description: 'Default', strengths: [], keywords: [] },
-  { type: 'researcher', name: 'Recherchiste', emoji: '🔍', description: 'Research & analysis', strengths: [], keywords: [] },
-  { type: 'coder', name: 'Codeuse', emoji: '💻', description: 'Code implementation', strengths: [], keywords: [] },
+  { type: 'researcher', name: 'Researcher', emoji: '🔍', description: 'Research & analysis', strengths: [], keywords: [] },
+  { type: 'coder', name: 'Coder', emoji: '💻', description: 'Code implementation', strengths: [], keywords: [] },
   { type: 'designer', name: 'Designer', emoji: '🎨', description: 'UI/UX design', strengths: [], keywords: [] },
-  { type: 'architect', name: 'Architecte', emoji: '🏗️', description: 'System design', strengths: [], keywords: [] },
-  { type: 'writer', name: 'Rédactrice', emoji: '✍️', description: 'Content & docs', strengths: [], keywords: [] },
+  { type: 'architect', name: 'Architect', emoji: '🏗️', description: 'System design', strengths: [], keywords: [] },
+  { type: 'writer', name: 'Writer', emoji: '✍️', description: 'Content & docs', strengths: [], keywords: [] },
   { type: 'qa', name: 'QA', emoji: '🧪', description: 'Testing & QA', strengths: [], keywords: [] },
 ];
 

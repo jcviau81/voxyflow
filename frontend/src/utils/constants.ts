@@ -39,8 +39,8 @@ export const CARD_STATUS_LABELS: Record<string, string> = {
 
 // Agent Personas (legacy, used by old assignedAgent field)
 export const AGENT_PERSONAS: Record<string, { name: string; emoji: string; description: string }> = {
-  codeuse: { name: 'Codeuse', emoji: '👩‍💻', description: 'Code implementation & debugging' },
-  architecte: { name: 'Architecte', emoji: '🏗️', description: 'System design & architecture' },
+  coder: { name: 'Coder', emoji: '👩‍💻', description: 'Code implementation & debugging' },
+  architect: { name: 'Architect', emoji: '🏗️', description: 'System design & architecture' },
   designer: { name: 'Designer', emoji: '🎨', description: 'UI/UX design & styling' },
   devops: { name: 'DevOps', emoji: '⚙️', description: 'Infrastructure & deployment' },
   analyste: { name: 'Analyste', emoji: '📊', description: 'Requirements & analysis' },
@@ -62,11 +62,11 @@ export const AGENT_TYPE_EMOJI: Record<string, string> = {
 // Agent type → display info
 export const AGENT_TYPE_INFO: Record<string, { name: string; emoji: string; description: string }> = {
   ember: { name: 'Ember', emoji: '🔥', description: 'Default — general tasks' },
-  researcher: { name: 'Recherchiste', emoji: '🔍', description: 'Research & analysis' },
-  coder: { name: 'Codeuse', emoji: '💻', description: 'Code implementation & debugging' },
+  researcher: { name: 'Researcher', emoji: '🔍', description: 'Research & analysis' },
+  coder: { name: 'Coder', emoji: '💻', description: 'Code implementation & debugging' },
   designer: { name: 'Designer', emoji: '🎨', description: 'UI/UX design & styling' },
-  architect: { name: 'Architecte', emoji: '🏗️', description: 'System design & planning' },
-  writer: { name: 'Rédactrice', emoji: '✍️', description: 'Content & documentation' },
+  architect: { name: 'Architect', emoji: '🏗️', description: 'System design & planning' },
+  writer: { name: 'Writer', emoji: '✍️', description: 'Content & documentation' },
   qa: { name: 'QA', emoji: '🧪', description: 'Testing & quality assurance' },
 };
 

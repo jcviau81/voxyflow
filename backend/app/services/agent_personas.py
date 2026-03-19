@@ -48,7 +48,7 @@ PERSONAS: dict[AgentType, AgentPersona] = {
 
     AgentType.RESEARCHER: AgentPersona(
         agent_type=AgentType.RESEARCHER,
-        name="Recherchiste",
+        name="Researcher",
         emoji="🔍",
         description="Deep analysis and research. Fact-checks, synthesizes information, produces thorough reports.",
         system_prompt=(
@@ -76,7 +76,7 @@ PERSONAS: dict[AgentType, AgentPersona] = {
 
     AgentType.CODER: AgentPersona(
         agent_type=AgentType.CODER,
-        name="Codeuse",
+        name="Coder",
         emoji="💻",
         description="Code generation, debugging, optimization, technical implementation.",
         system_prompt=(
@@ -134,7 +134,7 @@ PERSONAS: dict[AgentType, AgentPersona] = {
 
     AgentType.ARCHITECT: AgentPersona(
         agent_type=AgentType.ARCHITECT,
-        name="Architecte",
+        name="Architect",
         emoji="🏗️",
         description="System design, technical planning, PRD writing, architecture decisions.",
         system_prompt=(
@@ -164,7 +164,7 @@ PERSONAS: dict[AgentType, AgentPersona] = {
 
     AgentType.WRITER: AgentPersona(
         agent_type=AgentType.WRITER,
-        name="Rédactrice",
+        name="Writer",
         emoji="✍️",
         description="Content creation, marketing copy, storytelling, documentation.",
         system_prompt=(
