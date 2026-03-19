@@ -28,7 +28,7 @@ Built as a Progressive Web App. Runs locally. No cloud lock-in.
 └────────────┬────────────────────┘
              │ OpenAI-compatible API
 ┌────────────▼────────────────────┐
-│  claude-max-api proxy :3456     │
+│  claude-max-api proxy :3457     │
 │  → Claude Sonnet / Opus         │
 └─────────────────────────────────┘
              │
@@ -184,7 +184,7 @@ Upload and parse documents for RAG context:
 
 - Python 3.11+
 - Node.js 18+
-- [claude-max-api](https://github.com/jcviau81/claude-max-api) proxy running on port 3456
+- [claude-max-api](https://github.com/jcviau81/claude-max-api) proxy running on port 3457 (see Proxy Setup below)
 
 ### Backend
 
@@ -221,6 +221,39 @@ npm run dev
 ```
 
 Open https://localhost:3000
+
+### Proxy Setup (claude-max-api)
+
+Voxyflow uses [claude-max-api](https://github.com/jcviau81/claude-max-api) as an OpenAI-compatible proxy to route requests to Claude models.
+
+**⚠️ Important:** The proxy's working directory (`cwd`) **must** be `~/voxyflow/`. This is required for the proxy to correctly resolve relative paths in settings and personality files.
+
+```bash
+# Start the proxy (from the voxyflow directory)
+cd ~/voxyflow
+npx claude-max-api --port 3457
+```
+
+**Port assignment:**
+- **Port 3457** — Voxyflow's proxy (this project)
+- **Port 3456** — Reserved for OpenClaw (do NOT use for Voxyflow)
+
+**Model names** (use these in `settings.json`):
+- `claude-sonnet-4-20250514` (or `claude-sonnet-4`)
+- `claude-opus-4-20250514` (or `claude-opus-4`)
+- `claude-haiku-4-20250514` (or `claude-haiku-4`)
+
+Update `settings.json` to point all models to `http://localhost:3457/v1`:
+
+```json
+{
+  "models": {
+    "fast": { "provider_url": "http://localhost:3457/v1", "model": "claude-sonnet-4-20250514" },
+    "deep": { "provider_url": "http://localhost:3457/v1", "model": "claude-opus-4-20250514" },
+    "analyzer": { "provider_url": "http://localhost:3457/v1", "model": "claude-sonnet-4-20250514" }
+  }
+}
+```
 
 ### MCP Client Configuration
 
@@ -263,17 +296,17 @@ Runtime configuration for personality and models:
   },
   "models": {
     "fast": {
-      "provider_url": "http://localhost:3456/v1",
+      "provider_url": "http://localhost:3457/v1",
       "model": "claude-sonnet-4-20250514",
       "enabled": true
     },
     "deep": {
-      "provider_url": "http://localhost:3456/v1",
+      "provider_url": "http://localhost:3457/v1",
       "model": "claude-opus-4-20250514",
       "enabled": true
     },
     "analyzer": {
-      "provider_url": "http://localhost:3456/v1",
+      "provider_url": "http://localhost:3457/v1",
       "model": "claude-sonnet-4-20250514",
       "enabled": true
     }
@@ -294,7 +327,7 @@ Runtime configuration for personality and models:
 | `DATABASE_URL` | `sqlite+aiosqlite:///./voxyflow.db` | Database connection string |
 | `CLAUDE_USE_NATIVE` | `false` | Use Anthropic SDK directly (vs proxy) |
 | `ANTHROPIC_API_KEY` | — | API key (also loaded from keyring) |
-| `CLAUDE_PROXY_URL` | `http://localhost:3456/v1` | OpenAI-compatible proxy URL |
+| `CLAUDE_PROXY_URL` | `http://localhost:3457/v1` | OpenAI-compatible proxy URL |
 | `CLAUDE_FAST_MODEL` | `claude-haiku-4-20250514` | Fast response model |
 | `CLAUDE_SONNET_MODEL` | `claude-sonnet-4-20250514` | Balanced model |
 | `CLAUDE_DEEP_MODEL` | `claude-opus-4-20250514` | Deep analysis model |

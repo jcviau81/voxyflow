@@ -857,7 +857,7 @@ export class ChatWindow {
         switch (action) {
           case 'chat':
             // Hidden init — Voxy responds but no user bubble shown
-            chatService.sendSystemInit("User wants to start a casual conversation. Greet them warmly and ask what they'd like to do.");
+            chatService.sendSystemInit("User wants to start a casual conversation. Greet them naturally based on the time of day and context. Do NOT say 'welcome back' — this may be a brand new user.");
             break;
           case 'chat-project':
             chatService.sendSystemInit("User wants to discuss this project. Summarize the current state and ask what they want to work on.");
