@@ -26,7 +26,7 @@
 
 .freeboard-header h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 700;
   color: var(--color-text);
   letter-spacing: -0.01em;
@@ -38,7 +38,7 @@
   border: none;
   border-radius: var(--border-radius-sm);
   padding: 7px 16px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
@@ -140,7 +140,7 @@
 
 /* ── Card title ──────────────────────────────────────────────── */
 .freeboard-card-title {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: var(--color-text);
   line-height: 1.4;
@@ -150,7 +150,7 @@
 
 /* ── Card body ───────────────────────────────────────────────── */
 .freeboard-card-body {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--color-text-secondary);
   line-height: 1.5;
   display: -webkit-box;
@@ -182,7 +182,7 @@
   padding: 3px 5px;
   border-radius: 5px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--color-text-secondary);
   line-height: 1;
   transition: background 0.12s, color 0.12s;
@@ -229,7 +229,7 @@
   justify-content: center;
   padding: 32px 16px;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   text-align: center;
   gap: 8px;
 }
@@ -258,7 +258,7 @@
   border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 7px 10px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: var(--color-text);
   outline: none;
@@ -274,7 +274,7 @@
   border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 7px 10px;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--color-text);
   outline: none;
   resize: vertical;
@@ -294,7 +294,7 @@
 }
 
 .freeboard-color-label {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--color-text-muted);
   flex-shrink: 0;
 }
@@ -340,7 +340,7 @@
   border: none;
   border-radius: 6px;
   padding: 5px 12px;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
@@ -353,7 +353,7 @@
   border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 5px 10px;
-  font-size: 12px;
+  font-size: 0.75rem;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -365,7 +365,7 @@
   border-radius: 6px;
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.8125rem;
   padding: 4px 10px;
   transition: all 0.15s;
 }

@@ -232,12 +232,12 @@
   }
 
   .unified-header .context-indicator {
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 
   .message-content {
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 
   .kanban-card {
@@ -245,7 +245,7 @@
   }
 
   .kanban-card-title {
-    font-size: 12px;
+    font-size: 0.75rem;
   }
 }
 

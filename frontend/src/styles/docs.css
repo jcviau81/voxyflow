@@ -64,7 +64,7 @@
 
 .doc-name {
   flex: 1;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--color-text, #e0e0e0);
   white-space: nowrap;
   overflow: hidden;
@@ -72,7 +72,7 @@
 }
 
 .doc-meta {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--color-text-muted, #888);
   white-space: nowrap;
   flex-shrink: 0;
