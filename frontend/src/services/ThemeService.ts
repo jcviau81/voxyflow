@@ -5,7 +5,7 @@
  */
 
 export type AccentColor = string; // hex value
-export type FontSize    = 'small' | 'medium' | 'large' | 'x-large';
+export type FontSize    = 'small' | 'medium' | 'large' | 'x-large' | 'xx-large';
 export type SidebarWidth = 'compact' | 'normal' | 'wide';
 export type CardDensity  = 'comfortable' | 'compact';
 export type AnimationSpeed = 'off' | 'normal' | 'snappy';
@@ -22,11 +22,13 @@ export const ACCENT_PRESETS: Array<{ name: string; value: string }> = [
 ];
 
 const FONT_SIZE_MAP: Record<FontSize, { base: string; card: string }> = {
-  small:    { base: '15px', card: '14px' },
+  small:    { base: '14px', card: '13px' },
   medium:   { base: '16px', card: '15px' },
-  large:    { base: '18px', card: '17px' },
-  'x-large': { base: '20px', card: '19px' },
+  large:    { base: '20px', card: '19px' },
+  'x-large': { base: '24px', card: '23px' },
+  'xx-large': { base: '28px', card: '27px' },
 };
+
 
 const SIDEBAR_WIDTH_MAP: Record<SidebarWidth, string> = {
   compact: '220px',

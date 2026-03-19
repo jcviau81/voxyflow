@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/github", tags=["github"])
 
-SETTINGS_FILE = os.path.expanduser("~/.openclaw/workspace/voxyflow/settings.json")
+SETTINGS_FILE = os.path.expanduser("~/voxyflow/settings.json")
 GITHUB_API = "https://api.github.com"
 
 

@@ -1,4 +1,4 @@
-"""Memory Service — reads/writes to ~/.openclaw/workspace/ for conversation continuity."""
+"""Memory Service — reads/writes to ~/voxyflow/personality/ for Voxy's own memory."""
 
 import logging
 import os
@@ -8,7 +8,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-WORKSPACE_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace")))
+WORKSPACE_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow"))) / "personality"
 MEMORY_FILE = WORKSPACE_DIR / "MEMORY.md"
 MEMORY_DIR = WORKSPACE_DIR / "memory"
 

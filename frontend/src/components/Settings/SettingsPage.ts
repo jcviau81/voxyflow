@@ -259,7 +259,7 @@ export class SettingsPage {
       ></button>
     `).join('');
 
-    const fontPills   = (['small', 'medium', 'large'] as FontSize[]).map((v) =>
+    const fontPills   = (['small', 'medium', 'large', 'x-large', 'xx-large'] as FontSize[]).map((v) =>
       `<button class="appearance-pill ${currentFont === v ? 'active' : ''}" data-font-size="${v}">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`
     ).join('');
 

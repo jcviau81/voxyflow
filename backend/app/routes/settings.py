@@ -11,7 +11,7 @@ from pathlib import Path
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.openclaw/workspace/voxyflow")))
+VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow")))
 SETTINGS_FILE = str(VOXYFLOW_DIR / "settings.json")
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 

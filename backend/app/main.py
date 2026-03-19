@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
     try:
         import json, os
         from pathlib import Path
-        _voxyflow_dir = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.openclaw/workspace/voxyflow")))
+        _voxyflow_dir = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow")))
         _settings_file = _voxyflow_dir / "settings.json"
         if _settings_file.exists():
             with open(_settings_file) as _f:

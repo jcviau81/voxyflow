@@ -14,7 +14,7 @@ from typing import List, Dict, Optional
 
 DATA_DIR = Path(os.environ.get(
     "VOXYFLOW_DATA",
-    os.path.expanduser("~/.openclaw/workspace/voxyflow/data"),
+    os.path.expanduser("~/voxyflow/data"),
 ))
 
 
