@@ -58,6 +58,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN recurrence TEXT"))
         if "recurrence_next" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN recurrence_next DATETIME"))
+        if "color" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN color TEXT"))
         # Ensure card_relations table exists (created via create_all above, but explicit for safety)
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS card_relations (
@@ -215,11 +217,12 @@ class Card(Base):
     __tablename__ = "cards"
 
     id = Column(String, primary_key=True, default=new_uuid)
-    project_id = Column(String, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(String, ForeignKey("projects.id"), nullable=True)  # NULL = Main Board (unassigned)
     title = Column(String, nullable=False)
     description = Column(Text, default="")
-    status = Column(String, default="idea")  # idea | todo | in_progress | done | archived
+    status = Column(String, default="idea")  # note | idea | todo | in_progress | done | archived
     priority = Column(Integer, default=0)  # 0=none, 1=low, 2=medium, 3=high, 4=critical
+    color = Column(String, nullable=True)  # yellow|blue|green|pink|purple|orange (for Main Board notes)
     position = Column(Integer, default=0)  # ordering within status column
     source_message_id = Column(String, ForeignKey("messages.id"), nullable=True)
     auto_generated = Column(Boolean, default=False)

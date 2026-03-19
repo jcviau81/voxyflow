@@ -33,6 +33,7 @@ const defaultState: AppStateData = {
   activeTab: 'main',
   openTabs: [{ ...DEFAULT_MAIN_TAB }],
   ideas: [],
+  mainBoardCards: [],
   sessions: {},
   activeSession: {},
   activities: {},
@@ -64,6 +65,11 @@ class AppState {
     }
     if (!this.state.activeTab) {
       this.state.activeTab = 'main';
+    }
+
+    // Ensure mainBoardCards is initialized (migration from old state)
+    if (!this.state.mainBoardCards) {
+      this.state.mainBoardCards = [];
     }
 
     // Ensure session tab data is initialized (migration from old state)
@@ -256,12 +262,14 @@ class AppState {
     const cards = [...this.state.cards, fullCard];
     this.set('cards', cards);
 
-    // Add card ID to project
-    const project = this.getProject(card.projectId);
-    if (project) {
-      this.updateProject(card.projectId, {
-        cards: [...project.cards, fullCard.id],
-      });
+    // Add card ID to project (only for project-assigned cards)
+    if (card.projectId) {
+      const project = this.getProject(card.projectId);
+      if (project) {
+        this.updateProject(card.projectId, {
+          cards: [...project.cards, fullCard.id],
+        });
+      }
     }
 
     eventBus.emit(EVENTS.CARD_CREATED, fullCard);
@@ -278,7 +286,7 @@ class AppState {
 
   deleteCard(id: string): void {
     const card = this.state.cards.find((c) => c.id === id);
-    if (card) {
+    if (card && card.projectId) {
       const project = this.getProject(card.projectId);
       if (project) {
         this.updateProject(card.projectId, {
@@ -483,6 +491,41 @@ class AppState {
 
   getIdeas(): Idea[] {
     return this.state.ideas || [];
+  }
+
+  // --- Main Board Cards ---
+
+  setMainBoardCards(cards: Card[]): void {
+    this.set('mainBoardCards', cards);
+    eventBus.emit(EVENTS.MAIN_BOARD_UPDATED, cards);
+  }
+
+  getMainBoardCards(): Card[] {
+    return this.state.mainBoardCards || [];
+  }
+
+  addMainBoardCard(card: Card): void {
+    const cards = [...this.getMainBoardCards(), card];
+    this.set('mainBoardCards', cards);
+    eventBus.emit(EVENTS.MAIN_BOARD_CARD_CREATED, card);
+  }
+
+  updateMainBoardCard(id: string, updates: Partial<Card>): void {
+    const cards = this.state.mainBoardCards.map((c) =>
+      c.id === id ? { ...c, ...updates, updatedAt: Date.now() } : c
+    );
+    this.set('mainBoardCards', cards);
+    eventBus.emit(EVENTS.MAIN_BOARD_UPDATED, cards);
+  }
+
+  deleteMainBoardCard(id: string): void {
+    const cards = this.state.mainBoardCards.filter((c) => c.id !== id);
+    this.set('mainBoardCards', cards);
+    eventBus.emit(EVENTS.MAIN_BOARD_CARD_DELETED, id);
+  }
+
+  getMainBoardCard(id: string): Card | undefined {
+    return this.state.mainBoardCards.find((c) => c.id === id);
   }
 
   // --- Activity Feed ---

@@ -64,14 +64,13 @@ export class ApiClient {
 
     switch (tool) {
       case 'voxyflow.note.add': {
-        const note = result.note as { content: string; color?: string } | undefined;
-        if (note) {
-          appState.addIdea(note.content, 'analyzer');
-          eventBus.emit(EVENTS.TOAST_SHOW, {
-            message: `📝 Note added: ${note.content.substring(0, 30)}...`,
-            type: 'success',
-          });
-        }
+        // New unified model: result is a Card, refresh the main board
+        const title = (result.title as string) || (args.content as string) || 'Note';
+        eventBus.emit(EVENTS.MAIN_BOARD_UPDATED, null);
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `📝 Note added: ${title.substring(0, 30)}...`,
+          type: 'success',
+        });
         break;
       }
 

@@ -1018,7 +1018,7 @@ export class CardDetailModal {
     cardPlaceholder.selected = true;
     cardSelect.appendChild(cardPlaceholder);
 
-    const projectCards = appState.getCardsByProject(card.projectId).filter((c) => c.id !== card.id);
+    const projectCards = card.projectId ? appState.getCardsByProject(card.projectId).filter((c) => c.id !== card.id) : [];
     projectCards.forEach((c) => {
       const opt = document.createElement('option');
       opt.value = c.id;
@@ -1399,8 +1399,8 @@ export class CardDetailModal {
     // Dropdown to add dependencies
     const addDepRow = createElement('div', { className: 'dep-add-row' });
     const projectId = this.card.projectId;
-    const allProjectCards = appState.getCardsByProject(projectId)
-      .filter((c) => c.id !== this.card!.id);
+    const allProjectCards = projectId ? appState.getCardsByProject(projectId)
+      .filter((c) => c.id !== this.card!.id) : [];
 
     if (allProjectCards.length > 0) {
       const select = createElement('select', { className: 'dep-add-select' }) as HTMLSelectElement;

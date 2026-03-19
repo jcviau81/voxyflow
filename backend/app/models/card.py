@@ -10,8 +10,9 @@ RecurrenceType = Optional[Literal["daily", "weekly", "monthly"]]
 class CardCreate(BaseModel):
     title: str
     description: Optional[str] = ""
-    status: str = Field(default="idea", pattern="^(idea|todo|in_progress|done|archived)$")
+    status: str = Field(default="idea", pattern="^(note|idea|todo|in_progress|done|archived)$")
     priority: int = Field(default=0, ge=0, le=4)
+    color: Optional[str] = Field(None, pattern="^(yellow|blue|green|pink|purple|orange)$")
     source_message_id: Optional[str] = None
     auto_generated: bool = False
     dependency_ids: list[str] = []
@@ -32,9 +33,10 @@ class CardCreate(BaseModel):
 class CardUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    status: Optional[str] = Field(None, pattern="^(idea|todo|in_progress|done|archived)$")
+    status: Optional[str] = Field(None, pattern="^(note|idea|todo|in_progress|done|archived)$")
     priority: Optional[int] = Field(None, ge=0, le=4)
     position: Optional[int] = None
+    color: Optional[str] = Field(None, pattern="^(yellow|blue|green|pink|purple|orange)$")
     agent_assigned: Optional[str] = None
     agent_type: Optional[str] = Field(
         None,
@@ -65,7 +67,7 @@ class TimeEntryResponse(BaseModel):
 
 class CardResponse(BaseModel):
     id: str
-    project_id: str
+    project_id: Optional[str] = None
     title: str
     description: str
     status: str
@@ -76,6 +78,7 @@ class CardResponse(BaseModel):
     agent_assigned: Optional[str] = None
     agent_type: Optional[str] = None
     agent_context: Optional[str] = None
+    color: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     dependency_ids: list[str] = []

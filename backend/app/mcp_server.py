@@ -39,23 +39,28 @@ VOXYFLOW_API_BASE = os.environ.get("VOXYFLOW_API_BASE", "http://localhost:8000")
 # ---------------------------------------------------------------------------
 
 _TOOL_DEFINITIONS: list[dict] = [
-    # ---- Notes (Main Board / FreeBoard) ------------------------------------
+    # ---- Notes (Main Board / FreeBoard) — now creates a real Card ──────────
     {
         "name": "voxyflow.note.add",
-        "description": "Add a sticky note or reminder to the Voxyflow main board (FreeBoard).",
+        "description": "Add a note (card) to the Voxyflow main board (FreeBoard). Creates a real Card with status='note' and no project.",
         "inputSchema": {
             "type": "object",
             "required": ["content"],
             "properties": {
-                "content": {"type": "string", "description": "Text content of the note"},
+                "content": {"type": "string", "description": "Title / text content of the note"},
                 "color": {
                     "type": "string",
                     "enum": ["yellow", "blue", "green", "pink", "purple", "orange"],
                     "description": "Background color of the note",
                 },
+                "description": {"type": "string", "description": "Optional longer description / body"},
             },
         },
-        "_http": ("POST", "/api/notes", lambda p: p),
+        "_http": ("POST", "/api/cards/unassigned", lambda p: {
+            "title": p.get("content", ""),
+            "description": p.get("description", ""),
+            "color": p.get("color"),
+        }),
     },
     {
         "name": "voxyflow.note.list",

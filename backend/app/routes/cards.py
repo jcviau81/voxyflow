@@ -132,6 +132,124 @@ async def list_cards(
     return [_card_to_response(c) for c in result.scalars().all()]
 
 
+# ── Main Board / Unassigned Card endpoints ─────────────────────────────────
+# These MUST be declared before /cards/{card_id} to avoid path conflicts
+
+
+class UnassignedCardCreate(BaseModel):
+    """Create a card on the Main Board (no project)."""
+    title: str
+    description: str = ""
+    color: str | None = None  # yellow|blue|green|pink|purple|orange
+    priority: int = 0
+
+
+@router.get("/cards/unassigned", response_model=list[CardResponse])
+async def list_unassigned_cards(db: AsyncSession = Depends(get_db)):
+    """List all cards with no project (Main Board cards)."""
+    stmt = (
+        select(Card)
+        .where(Card.project_id.is_(None))
+        .options(selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items))
+        .order_by(Card.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    return [_card_to_response(c) for c in result.scalars().all()]
+
+
+@router.post("/cards/unassigned", response_model=CardResponse, status_code=201)
+async def create_unassigned_card(
+    body: UnassignedCardCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a card on the Main Board (no project). Status defaults to 'note'."""
+    card = Card(
+        id=new_uuid(),
+        project_id=None,
+        title=body.title,
+        description=body.description,
+        status="note",
+        priority=body.priority,
+        color=body.color,
+    )
+    db.add(card)
+    await db.commit()
+    stmt = select(Card).where(Card.id == card.id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
+    result = await db.execute(stmt)
+    card = result.scalar_one()
+    return _card_to_response(card)
+
+
+@router.patch("/cards/{card_id}/assign/{project_id}", response_model=CardResponse)
+async def assign_card_to_project(
+    card_id: str,
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Move a card to a project (assign project_id). Changes status from 'note' to 'idea'."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    old_status = card.status
+    card.project_id = project_id
+    if card.status == "note":
+        card.status = "idea"
+    card.updated_at = utcnow()
+
+    if old_status != card.status:
+        db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="status",
+                           old_value=old_status, new_value=card.status, changed_at=utcnow(), changed_by="User"))
+    db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="project_id",
+                       old_value=None, new_value=project_id, changed_at=utcnow(), changed_by="User"))
+
+    await db.commit()
+    stmt = select(Card).where(Card.id == card_id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
+    result = await db.execute(stmt)
+    card = result.scalar_one()
+    return _card_to_response(card)
+
+
+@router.patch("/cards/{card_id}/unassign", response_model=CardResponse)
+async def unassign_card_from_project(
+    card_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Detach a card from its project (back to Main Board). Status becomes 'note'."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    old_project_id = card.project_id
+    old_status = card.status
+    card.project_id = None
+    card.status = "note"
+    card.updated_at = utcnow()
+
+    if old_status != "note":
+        db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="status",
+                           old_value=old_status, new_value="note", changed_at=utcnow(), changed_by="User"))
+    db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="project_id",
+                       old_value=old_project_id, new_value=None, changed_at=utcnow(), changed_by="User"))
+
+    await db.commit()
+    stmt = select(Card).where(Card.id == card_id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
+    result = await db.execute(stmt)
+    card = result.scalar_one()
+    return _card_to_response(card)
+
+
+# ── Generic card CRUD (by card_id) ────────────────────────────────────────
+
 @router.patch("/cards/{card_id}", response_model=CardResponse)
 async def update_card(
     card_id: str,
@@ -482,6 +600,7 @@ def _card_to_response(card: Card) -> CardResponse:
         agent_assigned=card.agent_assigned,
         agent_type=card.agent_type,
         agent_context=card.agent_context,
+        color=card.color,
         created_at=card.created_at,
         updated_at=card.updated_at,
         dependency_ids=[d.id for d in card.dependencies] if card.dependencies else [],
@@ -1090,13 +1209,12 @@ async def enrich_card(
         raise HTTPException(500, f"Enrichment failed: {e}")
 
 
-# ── Note / FreeBoard endpoints (Main Board sticky notes) ──────────────────
+# ── Legacy Note endpoint (deprecated — use /cards/unassigned) ──────────────
 
-@router.post("/notes")
+@router.post("/notes", deprecated=True)
 async def create_note(body: dict):
-    """Create a note for the Main Board (FreeBoard).
-    Notes are client-side (localStorage) but this endpoint returns the data
-    so the WebSocket can emit a ui_event to add it."""
+    """DEPRECATED: Use POST /api/cards/unassigned instead.
+    Kept for backward compatibility with old MCP tool calls."""
     content = body.get("content", "")
     color = body.get("color")
     if not content:

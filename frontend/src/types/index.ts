@@ -1,7 +1,7 @@
 // Voxyflow Type Definitions
 
 export type MessageRole = 'user' | 'assistant' | 'system';
-export type CardStatus = 'idea' | 'todo' | 'in-progress' | 'done';
+export type CardStatus = 'note' | 'idea' | 'todo' | 'in-progress' | 'done';
 export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings' | 'stats' | 'roadmap' | 'wiki' | 'sprint' | 'docs';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'codeuse' | 'architecte' | 'designer' | 'devops' | 'analyste' | 'testeur' | 'documenteur';
@@ -144,7 +144,8 @@ export interface Card {
   title: string;
   description: string;
   status: CardStatus;
-  projectId: string;
+  projectId: string | null;  // null = Main Board (unassigned)
+  color?: 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange' | null;
   assignedAgent?: AgentPersona;
   agentType?: string;  // ember|researcher|coder|designer|architect|writer|qa
   dependencies: string[];
@@ -177,7 +178,8 @@ export interface AppStateData {
   theme: 'dark' | 'light';
   activeTab: string;
   openTabs: Tab[];
-  ideas: Idea[];
+  ideas: Idea[];  // @deprecated — kept for migration only
+  mainBoardCards: Card[];  // Cards with projectId = null (Main Board)
   // Session tabs per context (tabId → SessionInfo[])
   sessions: Record<string, SessionInfo[]>;
   // Active session per context (tabId → sessionId)
@@ -299,6 +301,10 @@ export interface CardSuggestion {
   timestamp: number;
 }
 
+/**
+ * @deprecated Use Card with `projectId = null` and `status = 'note'` instead.
+ * Kept temporarily for localStorage migration.
+ */
 export interface Idea {
   id: string;
   content: string;

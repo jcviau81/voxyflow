@@ -28,7 +28,9 @@ export const MAX_MESSAGE_LENGTH = 10000;
 
 // Kanban
 export const CARD_STATUSES = ['idea', 'todo', 'in-progress', 'done'] as const;
+export const ALL_CARD_STATUSES = ['note', 'idea', 'todo', 'in-progress', 'done'] as const;
 export const CARD_STATUS_LABELS: Record<string, string> = {
+  'note': '📝 Note',
   'idea': '💡 Idea',
   'todo': '📋 Todo',
   'in-progress': '🔨 In Progress',
@@ -143,11 +145,16 @@ export const EVENTS = {
   OPPORTUNITIES_COUNT: 'opportunities:count',
   OPPORTUNITIES_TOGGLE: 'opportunities:toggle',
 
-  // Ideas
+  // Ideas (deprecated — use MAIN_BOARD events)
   IDEA_SUGGESTION: 'ideas:suggestion',
   IDEA_ADDED: 'ideas:added',
   IDEA_DELETED: 'ideas:deleted',
   IDEA_PROMOTE: 'ideas:promote',
+
+  // Main Board Cards
+  MAIN_BOARD_UPDATED: 'mainboard:updated',
+  MAIN_BOARD_CARD_CREATED: 'mainboard:card:created',
+  MAIN_BOARD_CARD_DELETED: 'mainboard:card:deleted',
 
   // Settings
   SETTINGS_OPEN: 'settings:open',
