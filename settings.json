@@ -15,7 +15,7 @@
     "fast": {
       "provider_url": "http://localhost:3456/v1",
       "api_key": "",
-      "model": "claude-sonnet-4-5",
+      "model": "claude-test-model",
       "enabled": true
     },
     "deep": {
@@ -35,6 +35,17 @@
     "enabled": true,
     "heartbeat_interval_minutes": 2,
     "rag_index_interval_minutes": 15
+  },
+  "voice": {
+    "stt_engine": "native",
+    "stt_model": "medium",
+    "stt_language": "auto",
+    "tts_enabled": true,
+    "tts_auto_play": false,
+    "tts_url": "http://192.168.1.59:5500",
+    "tts_voice": "default",
+    "tts_speed": 1.0,
+    "volume": 80
   },
   "onboarding_complete": true,
   "user_name": "",
