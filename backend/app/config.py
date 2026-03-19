@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./voxyflow.db"
 
     # Claude API — native Anthropic SDK (preferred)
-    claude_use_native: bool = True   # True = Anthropic SDK; False = OpenAI-compatible proxy
+    claude_use_native: bool = False   # False = OpenAI-compatible proxy (claude-max-api). True requires direct API access.
     claude_api_key: str = ""         # Loaded from keyring / env ANTHROPIC_API_KEY
     claude_api_base: str = ""        # Empty = default api.anthropic.com
 

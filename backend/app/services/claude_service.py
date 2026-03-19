@@ -29,8 +29,11 @@ _MODEL_MAP = {
 }
 
 
-def _resolve_model(name: str) -> str:
-    """Return the full Anthropic model name for a short alias, or the name unchanged."""
+def _resolve_model(name: str, native: bool = True) -> str:
+    """Return the full Anthropic model name for a short alias, or the name unchanged.
+    When using the proxy (native=False), keep short names as-is."""
+    if not native:
+        return name
     return _MODEL_MAP.get(name, name)
 
 
