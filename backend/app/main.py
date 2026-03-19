@@ -12,13 +12,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db
-from app.routes import chats, projects, cards, voice, techdetect, github, settings, tools, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes
+from app.routes import chats, projects, cards, voice, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
 from app.services.rag_service import get_rag_service
 from app.services.scheduler_service import get_scheduler_service
-from app.tools import execute_tool, get_tool_definitions  # kept for legacy REST tool routes
+
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -114,7 +114,6 @@ app.include_router(voice.router, prefix="/api")
 app.include_router(techdetect.router)
 app.include_router(github.router, prefix="/api")
 app.include_router(settings.router)
-app.include_router(tools.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(health.router)
