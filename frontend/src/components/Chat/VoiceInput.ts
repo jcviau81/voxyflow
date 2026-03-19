@@ -3,6 +3,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { sttService, STT_EVENTS } from '../../services/SttService';
+import { ttsService } from '../../services/TtsService';
 import { appState } from '../../state/AppState';
 
 export class VoiceInput {
@@ -19,6 +20,7 @@ export class VoiceInput {
     this.render();
     this.setupListeners();
     this.setupKeyboardShortcut();
+    this.showEngineHint();
   }
 
   render(): void {
@@ -78,7 +80,6 @@ export class VoiceInput {
           this.transcriptEl.classList.toggle('final', isFinal);
         }
         if (isFinal) {
-          // Auto-hide after a delay
           setTimeout(() => {
             this.transcriptEl?.classList.add('hidden');
           }, 2000);
@@ -113,26 +114,62 @@ export class VoiceInput {
     this.unsubscribers.push(
       eventBus.on(EVENTS.VOICE_STOP, () => {
         this.updateButtonState(false);
-        // If using Whisper server engine, show transcribing indicator until done
-        if (sttService.currentEngine === 'whisper') {
+        // Show transcribing indicator for non-webspeech engines
+        if (sttService.currentEngine === 'whisper' || sttService.currentEngine === 'whisper_local') {
           this.setTranscribingState(true);
         }
       })
     );
 
-    // Whisper server: transcribing in progress
+    // Transcribing in progress
     this.unsubscribers.push(
       eventBus.on(STT_EVENTS.TRANSCRIBING, () => {
         this.setTranscribingState(true);
       })
     );
 
-    // Whisper server: transcription complete
+    // Transcription complete
     this.unsubscribers.push(
       eventBus.on(STT_EVENTS.TRANSCRIBE_DONE, () => {
         this.setTranscribingState(false);
       })
     );
+
+    // Whisper local model status
+    this.unsubscribers.push(
+      eventBus.on(STT_EVENTS.MODEL_STATUS, (data: unknown) => {
+        const { status, message } = data as { status: string; message?: string };
+        if (status === 'loading') {
+          this.setModelLoadingState(true, message);
+        } else if (status === 'ready') {
+          this.setModelLoadingState(false);
+        } else if (status === 'error') {
+          this.setModelLoadingState(false);
+          if (this.errorEl) {
+            this.errorEl.textContent = `Model error: ${message || 'unknown'}`;
+            this.errorEl.classList.remove('hidden');
+            setTimeout(() => this.errorEl?.classList.add('hidden'), 8000);
+          }
+        }
+      })
+    );
+
+    // Model download progress
+    this.unsubscribers.push(
+      eventBus.on(STT_EVENTS.MODEL_PROGRESS, (data: unknown) => {
+        const { progress } = data as { progress: number };
+        if (this.indicator) {
+          const label = this.indicator.querySelector('.voice-indicator-label') as HTMLElement | null;
+          if (label && !this.isRecording()) {
+            label.textContent = `Loading model… ${Math.round(progress)}%`;
+          }
+        }
+      })
+    );
+  }
+
+  private isRecording(): boolean {
+    return sttService.recording;
   }
 
   /** Update the indicator label to show transcribing state */
@@ -152,6 +189,23 @@ export class VoiceInput {
     }
   }
 
+  /** Show model loading indicator */
+  private setModelLoadingState(loading: boolean, message?: string): void {
+    if (!this.indicator) return;
+    const label = this.indicator.querySelector('.voice-indicator-label') as HTMLElement | null;
+    if (!label) return;
+
+    if (loading) {
+      this.indicator.classList.remove('hidden');
+      this.indicator.classList.add('model-loading');
+      label.textContent = message || 'Loading model…';
+    } else {
+      this.indicator.classList.remove('model-loading');
+      this.indicator.classList.add('hidden');
+      label.textContent = 'Recording...';
+    }
+  }
+
   private setupKeyboardShortcut(): void {
     this.keyHandler = (e: KeyboardEvent) => {
       if (e.altKey && e.key === 'v') {
@@ -167,6 +221,8 @@ export class VoiceInput {
   }
 
   private startRecording(): void {
+    // Stop any ongoing TTS so mic doesn't pick up the speaker
+    ttsService.stop();
     sttService.startRecording();
     appState.set('voiceActive', true);
   }
@@ -180,10 +236,45 @@ export class VoiceInput {
     if (this.button) {
       this.button.classList.toggle('recording', recording);
       this.button.innerHTML = recording ? '⏹️' : '🎤';
+
+      // Show engine indicator on the button
+      if (!recording && sttService.currentEngine === 'whisper_local') {
+        this.button.setAttribute('data-tooltip', 'Push to Talk (Alt+V) · Whisper Local 🔒');
+      } else if (!recording) {
+        this.button.setAttribute('data-tooltip', 'Push to Talk (Alt+V)');
+      }
     }
     if (this.indicator) {
       this.indicator.classList.toggle('hidden', !recording);
     }
+  }
+
+  /** Show a one-time hint if using Web Speech API without a local model configured */
+  private showEngineHint(): void {
+    if (sttService.currentEngine !== 'webspeech') return;
+
+    // Only show once
+    const hintShown = localStorage.getItem('voxyflow_stt_hint_shown');
+    if (hintShown) return;
+
+    // Check if whisper_local model is configured
+    const stored = localStorage.getItem('voxyflow_settings');
+    if (stored) {
+      try {
+        const settings = JSON.parse(stored);
+        if (settings?.whisper_model_id) return; // Model is configured, no need for hint
+      } catch { /* ignore */ }
+    }
+
+    // Show non-intrusive hint after a brief delay
+    setTimeout(() => {
+      eventBus.emit('ui:toast:show', {
+        message: '💡 Configure a local Whisper model in Settings for private, offline transcription.',
+        type: 'info',
+        duration: 8000,
+      });
+      localStorage.setItem('voxyflow_stt_hint_shown', '1');
+    }, 3000);
   }
 
   update(): void {

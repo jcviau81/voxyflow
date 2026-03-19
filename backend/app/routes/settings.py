@@ -64,9 +64,10 @@ class SchedulerSettings(BaseModel):
 
 
 class VoiceSettings(BaseModel):
-    stt_engine: str = "native"   # "native" (Web Speech API) | "whisper" (server-side)
-    stt_model: str = "medium"    # Whisper model name (tiny, base, small, medium, large-v3, turbo)
+    stt_engine: str = "native"   # "native" (Web Speech API) | "whisper" (server-side) | "whisper_local" (browser WASM)
+    stt_model: str = "medium"    # Whisper server model name (tiny, base, small, medium, large-v3, turbo)
     stt_language: str = "auto"   # auto/en/fr/es/de/ja/zh
+    whisper_model_id: str = ""   # HuggingFace model ID for browser-side Whisper (e.g. "onnx-community/whisper-small")
     tts_enabled: bool = True
     tts_auto_play: bool = False
     tts_url: str = "http://192.168.1.59:5500"
