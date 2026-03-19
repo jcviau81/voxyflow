@@ -1,12 +1,11 @@
-"""Claude API integration via claude-max-api-proxy (OpenAI-compatible)."""
+"""Claude API integration — native Anthropic SDK (primary) with OpenAI-compatible proxy fallback."""
 
 import asyncio
 import json
 import logging
-from typing import AsyncIterator, Callable, Optional
+from typing import AsyncIterator, Callable, Optional, Union
 
 import httpx
-from openai import OpenAI
 
 from app.config import get_settings
 from app.services.personality_service import get_personality_service
@@ -16,6 +15,23 @@ from app.services.session_store import session_store
 from app.services.rag_service import get_rag_service
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Model name mapping: short names → Anthropic full names
+# ---------------------------------------------------------------------------
+_MODEL_MAP = {
+    "claude-haiku-4":   "claude-haiku-4-20250514",
+    "claude-sonnet-4":  "claude-sonnet-4-20250514",
+    "claude-opus-4":    "claude-opus-4-20250514",
+    "claude-haiku-3":   "claude-3-haiku-20240307",
+    "claude-sonnet-3":  "claude-3-5-sonnet-20241022",
+    "claude-opus-3":    "claude-3-opus-20240229",
+}
+
+
+def _resolve_model(name: str) -> str:
+    """Return the full Anthropic model name for a short alias, or the name unchanged."""
+    return _MODEL_MAP.get(name, name)
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +55,6 @@ def get_claude_tools(chat_level: str = "general", project_id: Optional[str] = No
         all_tools = get_tool_list()
 
         if chat_level == "general":
-            # General chat: only note board + project creation + health check
             allowed = {
                 "voxyflow.note.add",
                 "voxyflow.note.list",
@@ -48,20 +63,18 @@ def get_claude_tools(chat_level: str = "general", project_id: Optional[str] = No
                 "voxyflow.health",
             }
         elif chat_level == "project":
-            # Project chat: all tools except note board tools
             allowed = {t["name"] for t in all_tools} - {
                 "voxyflow.note.add",
                 "voxyflow.note.list",
             }
         else:
-            # Card chat or fallback: full access
             allowed = {t["name"] for t in all_tools}
 
         tools = []
         for tool in all_tools:
             if tool["name"] in allowed:
                 tools.append({
-                    "name": tool["name"].replace(".", "_"),  # Claude forbids dots in tool names
+                    "name": tool["name"].replace(".", "_"),  # Anthropic forbids dots in tool names
                     "description": tool["description"],
                     "input_schema": tool["inputSchema"],
                 })
@@ -75,13 +88,7 @@ def _mcp_tool_name_from_claude(claude_name: str) -> str:
     """Convert a Claude tool name back to its MCP equivalent.
 
     voxyflow_card_create → voxyflow.card.create
-    Only the first underscore-separated segment is the namespace; subsequent
-    underscores are replaced with dots starting from index 1, e.g.:
-      voxyflow_ai_review_code → voxyflow.ai.review_code  (last part kept as-is)
     """
-    # Strategy: split on "_", re-join keeping first segment as-is and joining
-    # the remainder with dots.  Since all voxyflow tools have exactly 3 parts
-    # (namespace.group.action), split into at most 3 pieces.
     parts = claude_name.split("_", 2)  # ['voxyflow', 'card', 'create']
     return ".".join(parts)
 
@@ -101,7 +108,7 @@ async def _call_mcp_tool(tool_mcp_name: str, arguments: dict) -> dict:
 
 
 def _load_model_overrides() -> dict:
-    """Load model layer overrides from settings.json if it exists. Returns empty dict on failure."""
+    """Load model layer overrides from settings.json if it exists."""
     import os
     from pathlib import Path
 
@@ -117,96 +124,132 @@ def _load_model_overrides() -> dict:
         return {}
 
 
-def _make_client(provider_url: str, api_key: str) -> OpenAI:
-    """Create an OpenAI-compatible client."""
+# ---------------------------------------------------------------------------
+# Client factories
+# ---------------------------------------------------------------------------
+
+def _make_anthropic_client(api_key: str, api_base: str = ""):
+    """Create a native Anthropic SDK client."""
+    import anthropic
+    kwargs = {"api_key": api_key} if api_key else {}
+    if api_base:
+        kwargs["base_url"] = api_base
+    return anthropic.Anthropic(**kwargs)
+
+
+def _make_openai_client(provider_url: str, api_key: str):
+    """Create an OpenAI-compatible client (proxy fallback)."""
+    from openai import OpenAI
     return OpenAI(
         base_url=provider_url or "http://localhost:3456/v1",
         api_key=api_key if api_key else "not-needed",
     )
 
 
+def _get_api_key_from_settings(layer_cfg: dict) -> str:
+    """Extract api_key from a settings.json layer config block."""
+    return (layer_cfg.get("api_key") or "").strip()
+
+
+# ---------------------------------------------------------------------------
+# ClaudeService
+# ---------------------------------------------------------------------------
+
 class ClaudeService:
     """
     Handles Claude API calls for both conversation layers.
 
-    Uses claude-max-api-proxy (OpenAI-compatible) at localhost:3456 by default.
-    Model/provider overrides can be configured via the Settings UI (settings.json).
+    Primary path: native Anthropic Python SDK (claude_use_native=True).
+    Fallback path: OpenAI-compatible proxy at localhost:3456 (claude_use_native=False).
 
-    All calls are personality-infused via PersonalityService:
-    - SOUL.md + USER.md + IDENTITY.md = consistent Ember personality
-    - Memory context from MEMORY.md + daily logs = continuity
-    - Agent personas = specialized behavior when needed
+    Model/provider overrides can be configured via the Settings UI (settings.json).
+    All calls are personality-infused via PersonalityService.
     """
 
     def __init__(self):
         config = get_settings()
         self.max_tokens = config.claude_max_tokens
+        self.use_native = config.claude_use_native
 
-        # Load overrides from settings.json (UI-configured models)
+        # Load overrides from settings.json
         overrides = _load_model_overrides()
+
+        # Resolve API key (keyring/env already merged into config.claude_api_key)
+        default_api_key = config.claude_api_key
 
         # --- Fast layer ---
         fast_cfg = overrides.get("fast", {})
-        fast_model = fast_cfg.get("model", "").strip()
-        if fast_model:
-            self.fast_model = fast_model
-            self.fast_client = _make_client(
+        fast_model_raw = fast_cfg.get("model", "").strip()
+        self.fast_model = _resolve_model(fast_model_raw or config.claude_sonnet_model)
+        fast_key = _get_api_key_from_settings(fast_cfg) or default_api_key
+        if self.use_native and fast_key:
+            self.fast_client = _make_anthropic_client(fast_key, fast_cfg.get("provider_url", config.claude_api_base))
+            self.fast_client_type = "anthropic"
+        else:
+            self.fast_client = _make_openai_client(
                 fast_cfg.get("provider_url", config.claude_proxy_url),
                 fast_cfg.get("api_key", ""),
             )
-        else:
-            self.fast_model = config.claude_sonnet_model
-            self.fast_client = OpenAI(base_url=config.claude_proxy_url, api_key=config.claude_api_key)
+            self.fast_client_type = "openai"
 
         # --- Deep layer ---
         deep_cfg = overrides.get("deep", {})
-        deep_model = deep_cfg.get("model", "").strip()
-        if deep_model:
-            self.deep_model = deep_model
-            self.deep_client = _make_client(
+        deep_model_raw = deep_cfg.get("model", "").strip()
+        self.deep_model = _resolve_model(deep_model_raw or config.claude_deep_model)
+        deep_key = _get_api_key_from_settings(deep_cfg) or default_api_key
+        if self.use_native and deep_key:
+            self.deep_client = _make_anthropic_client(deep_key, deep_cfg.get("provider_url", config.claude_api_base))
+            self.deep_client_type = "anthropic"
+        else:
+            self.deep_client = _make_openai_client(
                 deep_cfg.get("provider_url", config.claude_proxy_url),
                 deep_cfg.get("api_key", ""),
             )
-        else:
-            self.deep_model = config.claude_deep_model
-            self.deep_client = OpenAI(base_url=config.claude_proxy_url, api_key=config.claude_api_key)
+            self.deep_client_type = "openai"
 
         # --- Analyzer layer ---
         analyzer_cfg = overrides.get("analyzer", {})
-        analyzer_model = analyzer_cfg.get("model", "").strip()
-        if analyzer_model:
-            self.analyzer_model = analyzer_model
-            self.analyzer_client = _make_client(
+        analyzer_model_raw = analyzer_cfg.get("model", "").strip()
+        self.analyzer_model = _resolve_model(analyzer_model_raw or config.claude_analyzer_model)
+        analyzer_key = _get_api_key_from_settings(analyzer_cfg) or default_api_key
+        if self.use_native and analyzer_key:
+            self.analyzer_client = _make_anthropic_client(analyzer_key, analyzer_cfg.get("provider_url", config.claude_api_base))
+            self.analyzer_client_type = "anthropic"
+        else:
+            self.analyzer_client = _make_openai_client(
                 analyzer_cfg.get("provider_url", config.claude_proxy_url),
                 analyzer_cfg.get("api_key", ""),
             )
-        else:
-            self.analyzer_model = config.claude_analyzer_model
-            self.analyzer_client = OpenAI(base_url=config.claude_proxy_url, api_key=config.claude_api_key)
+            self.analyzer_client_type = "openai"
 
-        # Legacy single client kept for backward compat (points to default proxy)
-        self.client = OpenAI(base_url=config.claude_proxy_url, api_key=config.claude_api_key)
+        # Legacy single client (backward compat, always OpenAI-compat proxy)
+        from openai import OpenAI as _OAI
+        self.client = _OAI(base_url=config.claude_proxy_url, api_key=config.claude_api_key or "not-needed")
 
         self.personality = get_personality_service()
         self.memory = get_memory_service()
-
-        # In-memory cache backed by disk persistence via session_store
         self._histories: dict[str, list[dict]] = {}
+
+        logger.info(
+            f"ClaudeService initialized — native={self.use_native} | "
+            f"fast={self.fast_model}({self.fast_client_type}) | "
+            f"deep={self.deep_model}({self.deep_client_type})"
+        )
+
+    # ------------------------------------------------------------------
+    # History helpers
+    # ------------------------------------------------------------------
 
     def _get_history(self, chat_id: str) -> list[dict]:
         if chat_id not in self._histories:
-            # Load from disk on first access
             self._histories[chat_id] = session_store.get_history_for_claude(chat_id, limit=40)
         return self._histories[chat_id]
 
     def _append_and_persist(self, chat_id: str, role: str, content: str,
                             model: str | None = None, msg_type: str | None = None,
                             session_id: str | None = None):
-        """Append to in-memory history and persist to disk."""
         history = self._get_history(chat_id)
         history.append({"role": role, "content": content})
-
-        # Persist to disk
         msg = {"role": role, "content": content}
         if model:
             msg["model"] = model
@@ -215,6 +258,10 @@ class ClaudeService:
         if session_id:
             msg["session_id"] = session_id
         session_store.save_message(chat_id, msg)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     async def chat_fast(
         self,
@@ -233,14 +280,11 @@ class ClaudeService:
         settings = get_settings()
         recent = history[-settings.fast_context_messages:]
 
-        # Build memory context (lightweight for fast layer — speed matters)
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
-            include_long_term=False,  # Skip long-term for speed
-            include_daily=True,       # Recent context is valuable
+            include_long_term=False,
+            include_daily=True,
         )
-
-        # Build personality-infused system prompt
         system_prompt = self.personality.build_fast_prompt(
             memory_context=memory_context,
             chat_level=chat_level,
@@ -248,15 +292,11 @@ class ClaudeService:
             card=card_context,
         )
 
-        # Inject RAG context if project_id is provided (failure is non-fatal)
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
                 if rag_context:
-                    system_prompt += (
-                        "\n\n## Relevant Context from Project Knowledge Base\n"
-                        + rag_context
-                    )
+                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_fast): {e}")
 
@@ -265,6 +305,7 @@ class ClaudeService:
             system=system_prompt,
             messages=recent,
             client=self.fast_client,
+            client_type=self.fast_client_type,
             chat_level=chat_level,
         )
 
@@ -295,7 +336,6 @@ class ClaudeService:
             include_long_term=False,
             include_daily=True,
         )
-
         system_prompt = self.personality.build_fast_prompt(
             memory_context=memory_context,
             chat_level=chat_level,
@@ -304,15 +344,11 @@ class ClaudeService:
             project_names=project_names,
         )
 
-        # Inject RAG context if project_id is provided (failure is non-fatal)
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
                 if rag_context:
-                    system_prompt += (
-                        "\n\n## Relevant Context from Project Knowledge Base\n"
-                        + rag_context
-                    )
+                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_fast_stream): {e}")
 
@@ -322,6 +358,7 @@ class ClaudeService:
             system=system_prompt,
             messages=recent,
             client=self.fast_client,
+            client_type=self.fast_client_type,
             tool_callback=tool_callback,
             chat_level=chat_level,
         ):
@@ -341,25 +378,18 @@ class ClaudeService:
         card_context: Optional[dict] = None,
         project_id: Optional[str] = None,
     ) -> dict:
-        """
-        Layer 2: Deep supervisor — decides whether to enrich or correct the fast layer's response.
-
-        Waits for the fast layer to finish, then evaluates its response. Returns:
-        { "action": "enrich"|"correct"|"none", "content": "..." }
-        """
+        """Layer 2: Deep supervisor — decides whether to enrich or correct the fast layer's response."""
         history = self._get_history(chat_id)
 
         settings = get_settings()
         recent = history[-settings.deep_context_messages:]
 
-        # Build full memory context for deep layer
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
             include_long_term=True,
             include_daily=True,
         )
 
-        # Supervisor-specific system prompt — conservative by design
         supervisor_base = (
             "You are the deep-thinking supervisor layer of Voxyflow.\n"
             "The user sent a message, and the fast layer already responded.\n"
@@ -392,19 +422,14 @@ class ClaudeService:
             include_memory_context=memory_context,
         )
 
-        # Inject RAG context if project_id is provided (failure is non-fatal)
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
                 if rag_context:
-                    system_prompt += (
-                        "\n\n## Relevant Context from Project Knowledge Base\n"
-                        + rag_context
-                    )
+                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_deep_supervisor): {e}")
 
-        # Build messages: conversation history + user message + fast layer's response for evaluation
         eval_messages = [*recent, {"role": "user", "content": user_message}]
         if fast_response:
             eval_messages.append(
@@ -420,9 +445,9 @@ class ClaudeService:
                 system=system_prompt,
                 messages=eval_messages,
                 client=self.deep_client,
+                client_type=self.deep_client_type,
+                use_tools=False,
             )
-
-            # Parse JSON response
             result = json.loads(response_text.strip())
             if result.get("action") in ("enrich", "correct", "none"):
                 return result
@@ -438,35 +463,24 @@ class ClaudeService:
         project_name: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> Optional[str]:
-        """
-        Layer 2: Deep analysis, personality-infused.
-        Returns None or enrichment text.
-        """
+        """Layer 2: Deep analysis, personality-infused. Returns None or enrichment text."""
         history = self._get_history(chat_id)
 
         settings = get_settings()
         recent = history[-settings.deep_context_messages:]
 
-        # Build full memory context for deep layer (deeper thinking, more context)
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
             include_long_term=True,
             include_daily=True,
         )
+        system_prompt = self.personality.build_deep_prompt(memory_context=memory_context)
 
-        system_prompt = self.personality.build_deep_prompt(
-            memory_context=memory_context,
-        )
-
-        # Inject RAG context if project_id is provided (failure is non-fatal)
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
                 if rag_context:
-                    system_prompt += (
-                        "\n\n## Relevant Context from Project Knowledge Base\n"
-                        + rag_context
-                    )
+                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_deep): {e}")
 
@@ -475,11 +489,11 @@ class ClaudeService:
             system=system_prompt,
             messages=recent,
             client=self.deep_client,
+            client_type=self.deep_client_type,
         )
 
         if not response_text or response_text.strip().upper() == "EMPTY":
             return None
-
         return response_text
 
     async def chat_with_agent(
@@ -490,107 +504,88 @@ class ClaudeService:
         task_context: str = "",
         project_name: Optional[str] = None,
     ) -> str:
-        """
-        Call Claude with a specialized agent persona.
-
-        Used when a card is assigned to a specific agent type.
-        The agent gets: personality + persona + task context + memory.
-        """
+        """Call Claude with a specialized agent persona."""
         self._append_and_persist(chat_id, "user", user_message, model="deep")
         history = self._get_history(chat_id)
 
         settings = get_settings()
         recent = history[-settings.deep_context_messages:]
 
-        # Get agent persona prompt
         agent_persona_prompt = get_persona_prompt(agent_type)
-
-        # Full memory for specialized work
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
             include_long_term=True,
             include_daily=True,
         )
-
-        # Build combined prompt: personality + agent persona + task
         system_prompt = self.personality.build_agent_prompt(
             agent_persona=agent_persona_prompt,
             task_context=task_context or "Complete the task described in the conversation.",
             memory_context=memory_context,
         )
 
-        # Use deep model for specialized agents (they need deeper thinking)
         response_text = await self._call_api(
             model=self.deep_model,
             system=system_prompt,
             messages=recent,
             client=self.deep_client,
+            client_type=self.deep_client_type,
         )
 
         self._append_and_persist(chat_id, "assistant", response_text, model="deep")
         return response_text
 
-    async def generate_brief(
-        self,
-        prompt: str,
-    ) -> str:
-        """One-shot project brief generation using the deep model (Opus). No history, no persistence."""
+    async def generate_brief(self, prompt: str) -> str:
+        """One-shot project brief generation using the deep model. No history, no persistence."""
         system_prompt = (
             "You are a senior product manager and technical architect generating a comprehensive "
             "project brief / PRD. Produce well-structured, professional markdown. "
             "Be thorough, specific, and actionable. Use clear headings, bullet points, and "
             "tables where appropriate. Infer technical details from context when not explicitly provided."
         )
-        response = await self._call_api(
+        return await self._call_api(
             model=self.deep_model,
             system=system_prompt,
             messages=[{"role": "user", "content": prompt}],
             client=self.deep_client,
+            client_type=self.deep_client_type,
+            use_tools=False,
         )
-        return response
 
-    async def generate_health_summary(
-        self,
-        prompt: str,
-    ) -> str:
-        """One-shot health check summary using the fast model. No history, no persistence."""
+    async def generate_health_summary(self, prompt: str) -> str:
+        """One-shot health check summary using the fast model."""
         system_prompt = (
             "You are a project health analyst. Given a project's stats and issues, "
             "write a concise, honest 2-3 sentence summary of the project's health. "
             "Be direct, specific, and actionable. No filler. Use plain text only."
         )
-        response = await self._call_api(
+        return await self._call_api(
             model=self.fast_model,
             system=system_prompt,
             messages=[{"role": "user", "content": prompt}],
             client=self.fast_client,
+            client_type=self.fast_client_type,
+            use_tools=False,
         )
-        return response
 
-    async def generate_standup(
-        self,
-        prompt: str,
-    ) -> str:
-        """One-shot standup generation using the fast model. No history, no persistence."""
+    async def generate_standup(self, prompt: str) -> str:
+        """One-shot standup generation using the fast model."""
         system_prompt = (
             "You are a project assistant generating a concise daily standup summary. "
             "Be direct and brief. Use markdown bullet points. No filler words.\n"
             "Format:\n"
             "**✅ Done**\n- ...\n\n**🔨 In Progress**\n- ...\n\n**🚧 Blocked / Risks**\n- ...\n\n**📌 Today's Goals**\n- ..."
         )
-        response = await self._call_api(
+        return await self._call_api(
             model=self.fast_model,
             system=system_prompt,
             messages=[{"role": "user", "content": prompt}],
             client=self.fast_client,
+            client_type=self.fast_client_type,
+            use_tools=False,
         )
-        return response
 
-    async def generate_meeting_notes(
-        self,
-        notes: str,
-    ) -> dict:
-        """One-shot meeting notes extraction using the fast model. Returns cards + summary."""
+    async def generate_meeting_notes(self, notes: str) -> dict:
+        """One-shot meeting notes extraction. Returns cards + summary."""
         system_prompt = (
             "You are a project assistant that extracts action items from meeting notes. "
             "Respond ONLY with valid JSON — no markdown, no code blocks, no commentary.\n"
@@ -611,8 +606,9 @@ class ClaudeService:
             system=system_prompt,
             messages=[{"role": "user", "content": prompt}],
             client=self.fast_client,
+            client_type=self.fast_client_type,
+            use_tools=False,
         )
-        # Strip markdown code fences if any
         text = response.strip()
         if text.startswith("```"):
             text = text.split("```", 2)[1]
@@ -620,30 +616,26 @@ class ClaudeService:
                 text = text[4:]
             text = text.rsplit("```", 1)[0].strip()
         try:
-            data = json.loads(text)
+            return json.loads(text)
         except json.JSONDecodeError:
-            # Fallback: return empty structure
-            data = {"cards": [], "summary": "Could not parse meeting notes."}
-        return data
+            return {"cards": [], "summary": "Could not parse meeting notes."}
 
-    async def generate_priority_reasoning(
-        self,
-        prompt: str,
-    ) -> str:
-        """One-shot priority reasoning for top-3 cards using the fast model. Returns JSON string."""
+    async def generate_priority_reasoning(self, prompt: str) -> str:
+        """One-shot priority reasoning for top-3 cards. Returns JSON string."""
         system_prompt = (
             "You are a project prioritization assistant. "
             "Given the top prioritized cards with their scores and attributes, "
             "write a short, specific one-sentence reasoning for why each card is ranked where it is. "
             "Respond ONLY with valid JSON array — no markdown, no code blocks, no commentary."
         )
-        response = await self._call_api(
+        return await self._call_api(
             model=self.fast_model,
             system=system_prompt,
             messages=[{"role": "user", "content": prompt}],
             client=self.fast_client,
+            client_type=self.fast_client_type,
+            use_tools=False,
         )
-        return response
 
     async def analyze_for_cards(
         self,
@@ -651,21 +643,13 @@ class ClaudeService:
         message: str,
         project_name: Optional[str] = None,
     ) -> Optional[str]:
-        """
-        Call Claude to analyze a message for card suggestions + agent routing.
-
-        Returns structured JSON string or None.
-        Used by AnalyzerService for LLM-powered card detection.
-        """
+        """Analyze a message for card suggestions + agent routing. Returns JSON string or None."""
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
             include_long_term=False,
             include_daily=True,
         )
-
-        system_prompt = self.personality.build_analyzer_prompt(
-            memory_context=memory_context,
-        )
+        system_prompt = self.personality.build_analyzer_prompt(memory_context=memory_context)
 
         analysis_prompt = (
             "Analyze this message for actionable items. If you detect a task, respond with JSON:\n"
@@ -683,43 +667,255 @@ class ClaudeService:
             f"Message to analyze:\n{message}"
         )
 
-        response = await self._call_api(
+        return await self._call_api(
             model=self.analyzer_model,
             system=system_prompt,
             messages=[{"role": "user", "content": analysis_prompt}],
             client=self.analyzer_client,
+            client_type=self.analyzer_client_type,
+            use_tools=False,
         )
 
-        return response
+    # ------------------------------------------------------------------
+    # Internal: Anthropic native SDK
+    # ------------------------------------------------------------------
 
-    async def _call_api(
+    async def _call_api_anthropic(
         self,
         model: str,
         system: str,
         messages: list[dict],
-        client: Optional[OpenAI] = None,
+        client,
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
     ) -> str:
-        """Make an API call via the OpenAI-compatible proxy.
+        """Native Anthropic SDK call with tool_use loop.
 
-        When use_tools=True, Claude native tool_use is enabled.  Any tool_use
-        blocks are automatically dispatched to the MCP REST layer and the
-        results fed back to Claude in an agentic loop until Claude returns a
-        final text-only response.
-
-        tool_callback(tool_name, arguments, result) is called after each tool
-        execution — callers can use this to emit WebSocket events.
+        - Strips system messages from the messages array (system goes in `system` param).
+        - Converts OpenAI tool format (parameters) to Anthropic (input_schema) — already done
+          by get_claude_tools() which always uses input_schema.
+        - Loops on tool_use blocks until Claude returns a final text response.
         """
-        api_client = client or self.client
+        # Strip system-role messages; system prompt is passed separately
+        clean_messages = [m for m in messages if m.get("role") != "system"]
+
+        claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
+
+        # Ensure messages list is not empty (Anthropic requires at least one)
+        if not clean_messages:
+            clean_messages = [{"role": "user", "content": "(empty)"}]
+
+        kwargs = {
+            "model": model,
+            "max_tokens": self.max_tokens,
+            "system": system,
+            "messages": clean_messages,
+        }
+        if claude_tools:
+            kwargs["tools"] = claude_tools
+
+        try:
+            # Agentic tool-use loop (max 10 rounds)
+            for _ in range(10):
+                response = await asyncio.to_thread(
+                    lambda kw=kwargs: client.messages.create(**kw)
+                )
+
+                stop_reason = response.stop_reason  # "end_turn" | "tool_use" | "max_tokens"
+
+                # Collect tool_use blocks
+                tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+
+                if stop_reason == "tool_use" or tool_use_blocks:
+                    # Append assistant's response (with tool_use blocks) to messages
+                    kwargs["messages"] = list(kwargs["messages"]) + [
+                        {"role": "assistant", "content": response.content}
+                    ]
+
+                    # Execute each tool and collect results
+                    tool_results = []
+                    for block in tool_use_blocks:
+                        claude_tool_name = block.name
+                        arguments = block.input or {}
+                        mcp_name = _mcp_tool_name_from_claude(claude_tool_name)
+                        logger.info(f"[MCP] tool_use: {claude_tool_name} → {mcp_name}({arguments})")
+
+                        result = await _call_mcp_tool(mcp_name, arguments)
+
+                        if tool_callback:
+                            try:
+                                tool_callback(mcp_name, arguments, result)
+                            except Exception:
+                                pass
+
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": json.dumps(result, default=str),
+                        })
+
+                    # Append tool results as a user message
+                    kwargs["messages"] = list(kwargs["messages"]) + [
+                        {"role": "user", "content": tool_results}
+                    ]
+                    continue  # Loop back for Claude's next response
+
+                # No tool calls — collect text from content blocks
+                text_parts = [b.text for b in response.content if b.type == "text"]
+                return "".join(text_parts)
+
+            logger.warning("_call_api_anthropic: tool loop exceeded 10 rounds")
+            return ""
+
+        except Exception as e:
+            logger.error(f"Anthropic native API call failed: {e}")
+            raise
+
+    async def _call_api_stream_anthropic(
+        self,
+        model: str,
+        system: str,
+        messages: list[dict],
+        client,
+        use_tools: bool = True,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        chat_level: str = "general",
+    ) -> AsyncIterator[str]:
+        """Native Anthropic SDK streaming call with tool_use handling.
+
+        Streams text tokens on first pass. If Claude requests tool_use,
+        buffers them, executes them, then makes a second non-streaming call
+        for the final response and yields it as tokens.
+        """
+        clean_messages = [m for m in messages if m.get("role") != "system"]
+        if not clean_messages:
+            clean_messages = [{"role": "user", "content": "(empty)"}]
+
+        claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
+
+        kwargs = {
+            "model": model,
+            "max_tokens": self.max_tokens,
+            "system": system,
+            "messages": clean_messages,
+        }
+        if claude_tools:
+            kwargs["tools"] = claude_tools
+
+        try:
+            # Collect streamed content and tool_use blocks
+            streamed_text_parts: list[str] = []
+            tool_use_blocks: list = []
+
+            def _do_stream():
+                """Run in thread — yields (type, data) tuples via a list."""
+                events = []
+                with client.messages.stream(**kwargs) as stream:
+                    for text in stream.text_stream:
+                        events.append(("text", text))
+                    # After stream, inspect final message for tool_use blocks
+                    final_msg = stream.get_final_message()
+                    for block in final_msg.content:
+                        if block.type == "tool_use":
+                            events.append(("tool_use", block))
+                    events.append(("stop_reason", final_msg.stop_reason))
+                return events
+
+            events = await asyncio.to_thread(_do_stream)
+
+            stop_reason = "end_turn"
+            for event_type, data in events:
+                if event_type == "text":
+                    streamed_text_parts.append(data)
+                    yield data
+                elif event_type == "tool_use":
+                    tool_use_blocks.append(data)
+                elif event_type == "stop_reason":
+                    stop_reason = data
+
+            # If tool calls present, execute them and get final response
+            if tool_use_blocks or stop_reason == "tool_use":
+                # Build assistant message with full content (text + tool_use blocks)
+                # We need to reconstruct content blocks from streamed data
+                # Use the tool_use blocks we captured from the final message
+                assistant_content = []
+                if streamed_text_parts:
+                    assistant_content.append({"type": "text", "text": "".join(streamed_text_parts)})
+                for block in tool_use_blocks:
+                    assistant_content.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    })
+
+                updated_messages = list(clean_messages) + [
+                    {"role": "assistant", "content": assistant_content}
+                ]
+
+                # Execute tools
+                tool_results = []
+                for block in tool_use_blocks:
+                    claude_tool_name = block.name
+                    arguments = block.input or {}
+                    mcp_name = _mcp_tool_name_from_claude(claude_tool_name)
+                    logger.info(f"[MCP stream] tool_use: {claude_tool_name} → {mcp_name}({arguments})")
+
+                    result = await _call_mcp_tool(mcp_name, arguments)
+
+                    if tool_callback:
+                        try:
+                            tool_callback(mcp_name, arguments, result)
+                        except Exception:
+                            pass
+
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(result, default=str),
+                    })
+
+                updated_messages.append({"role": "user", "content": tool_results})
+
+                # Second call — non-streaming final response
+                final_text = await self._call_api_anthropic(
+                    model=model,
+                    system=system,
+                    messages=updated_messages,
+                    client=client,
+                    use_tools=False,
+                )
+                if final_text:
+                    yield final_text
+
+        except Exception as e:
+            logger.error(f"Anthropic native streaming API call failed: {e}")
+            raise
+
+    # ------------------------------------------------------------------
+    # Internal: OpenAI-compatible proxy (fallback)
+    # ------------------------------------------------------------------
+
+    async def _call_api_openai(
+        self,
+        model: str,
+        system: str,
+        messages: list[dict],
+        client,
+        use_tools: bool = True,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        chat_level: str = "general",
+    ) -> str:
+        """OpenAI-compatible proxy call (fallback path)."""
+        from openai import OpenAI
+
         api_messages = [{"role": "system", "content": system}]
         api_messages.extend(messages)
 
         claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
 
         try:
-            # Agentic tool-use loop (max 10 rounds to prevent runaway)
             for _ in range(10):
                 kwargs: dict = {
                     "model": model,
@@ -730,21 +926,16 @@ class ClaudeService:
                     kwargs["tools"] = claude_tools
 
                 response = await asyncio.to_thread(
-                    lambda: api_client.chat.completions.create(**kwargs)
+                    lambda kw=kwargs: client.chat.completions.create(**kw)
                 )
 
                 choice = response.choices[0]
                 finish_reason = choice.finish_reason
-
-                # OpenAI SDK flattens tool_calls into .message.tool_calls
-                # Check both content and tool_calls
                 tool_calls = getattr(choice.message, "tool_calls", None) or []
 
                 if finish_reason == "tool_calls" or (tool_calls and finish_reason in ("stop", "tool_calls", None)):
-                    # Append the assistant's tool_call message to history
                     api_messages.append(choice.message.model_dump(exclude_unset=True))
 
-                    # Execute each tool call and collect results
                     tool_results = []
                     for tc in tool_calls:
                         claude_tool_name = tc.function.name
@@ -762,7 +953,7 @@ class ClaudeService:
                             try:
                                 tool_callback(mcp_name, arguments, result)
                             except Exception:
-                                pass  # Callbacks must not crash the pipeline
+                                pass
 
                         tool_results.append({
                             "role": "tool",
@@ -771,51 +962,37 @@ class ClaudeService:
                         })
 
                     api_messages.extend(tool_results)
-                    # Continue loop — feed results back to Claude
                     continue
 
-                # No tool calls — return final text
                 return choice.message.content or ""
 
-            # Exceeded loop limit — return whatever we have
-            logger.warning("_call_api: tool loop exceeded 10 rounds, returning empty")
+            logger.warning("_call_api_openai: tool loop exceeded 10 rounds")
             return ""
 
         except Exception as e:
             logger.error(f"Claude proxy API call failed: {e}")
             raise
 
-    async def _call_api_stream(
+    async def _call_api_stream_openai(
         self,
         model: str,
         system: str,
         messages: list[dict],
-        client: Optional[OpenAI] = None,
+        client,
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
     ) -> AsyncIterator[str]:
-        """Make a streaming API call via the OpenAI-compatible proxy.
-
-        Yields content tokens as they arrive from the SSE stream.
-        When Claude emits tool_use blocks mid-stream, they are buffered,
-        executed via MCP, and a second non-streaming call is made so Claude
-        can generate its final response (which is then yielded as tokens).
-
-        tool_callback(tool_name, arguments, result) is called after each tool
-        execution — callers can use this to emit WebSocket events.
-        """
+        """OpenAI-compatible streaming (fallback path)."""
         import asyncio
         import queue
         import threading
 
-        api_client = client or self.client
         api_messages = [{"role": "system", "content": system}]
         api_messages.extend(messages)
 
         claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
 
-        # ---- Streaming first pass ------------------------------------------
         try:
             kwargs: dict = {
                 "model": model,
@@ -826,10 +1003,9 @@ class ClaudeService:
             if claude_tools:
                 kwargs["tools"] = claude_tools
 
-            stream = api_client.chat.completions.create(**kwargs)
+            stream = client.chat.completions.create(**kwargs)
 
             token_queue: queue.Queue[str | None] = queue.Queue()
-            # Accumulate tool_call data (streamed in fragments)
             streamed_tool_calls: list[dict] = []
             finish_reason_holder: list[str] = []
             content_text_holder: list[str] = []
@@ -842,12 +1018,10 @@ class ClaudeService:
                         delta = chunk.choices[0].delta
                         finish_reason = chunk.choices[0].finish_reason
 
-                        # Accumulate regular text tokens
                         if delta.content:
                             content_text_holder.append(delta.content)
                             token_queue.put(delta.content)
 
-                        # Accumulate tool call fragments
                         if delta.tool_calls:
                             for tc_delta in delta.tool_calls:
                                 idx = tc_delta.index
@@ -867,16 +1041,14 @@ class ClaudeService:
 
                         if finish_reason:
                             finish_reason_holder.append(finish_reason)
-
                 except Exception as e:
                     logger.error(f"Stream consumption error: {e}")
                 finally:
-                    token_queue.put(None)  # Sentinel
+                    token_queue.put(None)
 
             thread = threading.Thread(target=_consume_stream, daemon=True)
             thread.start()
 
-            # Yield text tokens as they arrive
             while True:
                 token = await asyncio.to_thread(token_queue.get)
                 if token is None:
@@ -885,9 +1057,7 @@ class ClaudeService:
 
             finish_reason = finish_reason_holder[0] if finish_reason_holder else "stop"
 
-            # ---- If Claude requested tool calls, handle them ----------------
             if finish_reason == "tool_calls" or streamed_tool_calls:
-                # Build assistant message with tool_calls list
                 assistant_msg: dict = {"role": "assistant", "content": "".join(content_text_holder) or None}
                 if streamed_tool_calls:
                     assistant_msg["tool_calls"] = [
@@ -903,7 +1073,6 @@ class ClaudeService:
                     ]
                 api_messages.append(assistant_msg)
 
-                # Execute tools and collect results
                 tool_results = []
                 for tc in streamed_tool_calls:
                     claude_tool_name = tc["function"]["name"]
@@ -925,19 +1094,18 @@ class ClaudeService:
 
                     tool_results.append({
                         "role": "tool",
-                        "tool_call_id": tc["id"] or f"call_0",
+                        "tool_call_id": tc["id"] or "call_0",
                         "content": json.dumps(result, default=str),
                     })
 
                 api_messages.extend(tool_results)
 
-                # Second call — non-streaming final response
-                final_text = await self._call_api(
+                final_text = await self._call_api_openai(
                     model=model,
                     system=system,
                     messages=api_messages[1:],  # drop system (re-added inside)
-                    client=api_client,
-                    use_tools=False,  # no further tool loops on final pass
+                    client=client,
+                    use_tools=False,
                 )
                 if final_text:
                     yield final_text
@@ -945,3 +1113,61 @@ class ClaudeService:
         except Exception as e:
             logger.error(f"Claude proxy streaming API call failed: {e}")
             raise
+
+    # ------------------------------------------------------------------
+    # Dispatcher: routes to native or fallback based on client_type
+    # ------------------------------------------------------------------
+
+    async def _call_api(
+        self,
+        model: str,
+        system: str,
+        messages: list[dict],
+        client=None,
+        client_type: str = "anthropic",
+        use_tools: bool = True,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        chat_level: str = "general",
+    ) -> str:
+        """Dispatch to native Anthropic SDK or OpenAI-compat fallback."""
+        api_client = client or self.fast_client
+        ct = client_type if client is not None else self.fast_client_type
+
+        if ct == "anthropic":
+            return await self._call_api_anthropic(
+                model=model, system=system, messages=messages, client=api_client,
+                use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
+            )
+        else:
+            return await self._call_api_openai(
+                model=model, system=system, messages=messages, client=api_client,
+                use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
+            )
+
+    async def _call_api_stream(
+        self,
+        model: str,
+        system: str,
+        messages: list[dict],
+        client=None,
+        client_type: str = "anthropic",
+        use_tools: bool = True,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        chat_level: str = "general",
+    ) -> AsyncIterator[str]:
+        """Dispatch streaming to native Anthropic SDK or OpenAI-compat fallback."""
+        api_client = client or self.fast_client
+        ct = client_type if client is not None else self.fast_client_type
+
+        if ct == "anthropic":
+            async for token in self._call_api_stream_anthropic(
+                model=model, system=system, messages=messages, client=api_client,
+                use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
+            ):
+                yield token
+        else:
+            async for token in self._call_api_stream_openai(
+                model=model, system=system, messages=messages, client=api_client,
+                use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
+            ):
+                yield token

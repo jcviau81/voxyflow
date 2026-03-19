@@ -39,13 +39,17 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite+aiosqlite:///./voxyflow.db"
 
-    # Claude API via proxy (OpenAI-compatible)
+    # Claude API — native Anthropic SDK (preferred)
+    claude_use_native: bool = True   # True = Anthropic SDK; False = OpenAI-compatible proxy
+    claude_api_key: str = ""         # Loaded from keyring / env ANTHROPIC_API_KEY
+    claude_api_base: str = ""        # Empty = default api.anthropic.com
+
+    # Claude API via proxy (OpenAI-compatible, fallback when claude_use_native=False)
     claude_proxy_url: str = "http://localhost:3456/v1"
-    claude_api_key: str = "not-needed"  # proxy doesn't require a key
-    claude_fast_model: str = "claude-haiku-4"
-    claude_sonnet_model: str = "claude-sonnet-4"
-    claude_deep_model: str = "claude-opus-4"
-    claude_analyzer_model: str = "claude-sonnet-4"
+    claude_fast_model: str = "claude-haiku-4-20250514"
+    claude_sonnet_model: str = "claude-sonnet-4-20250514"
+    claude_deep_model: str = "claude-opus-4-20250514"
+    claude_analyzer_model: str = "claude-sonnet-4-20250514"
     claude_max_tokens: int = 1024
 
     # TTS
@@ -69,8 +73,8 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Override claude_api_key from keyring if available
-        if not self.claude_api_key or self.claude_api_key == "placeholder":
+        # Load claude_api_key from keyring → env if not already set
+        if not self.claude_api_key or self.claude_api_key in ("placeholder", "not-needed"):
             keyring_key = _get_secret(
                 "voxyflow", "claude_api_key", "ANTHROPIC_API_KEY"
             )
