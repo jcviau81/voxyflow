@@ -3,6 +3,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { NoteDetailModal } from './NoteDetailModal';
 
 type CardColor = 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange';
 
@@ -22,11 +23,16 @@ export class FreeBoard {
   private showingForm = false;
   private selectedColor: CardColor | null = null;
   private unsubscribers: (() => void)[] = [];
+  private noteModal: NoteDetailModal;
 
   constructor(parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'freeboard-container' });
     this.container.setAttribute('data-testid', 'freeboard');
     parentElement.appendChild(this.container);
+    // Mount modal once on the parent so it can overlay everything
+    this.noteModal = new NoteDetailModal(document.body);
+    this.noteModal.onDeleted = () => this.renderGrid();
+    this.noteModal.onUpdated = () => this.renderGrid();
     this.render();
     this.setupListeners();
   }
@@ -128,6 +134,13 @@ export class FreeBoard {
     if (color) classes.push(`freeboard-card--${color}`);
     const card = createElement('div', { className: classes.join(' ') });
     card.setAttribute('data-idea-id', idea.id);
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', (e) => {
+      // Only open modal if not clicking an action button
+      const target = e.target as HTMLElement;
+      if (target.closest('.freeboard-card-btn')) return;
+      this.noteModal.open(idea);
+    });
 
     // Title row (with optional color dot)
     const titleEl = createElement('div', { className: 'freeboard-card-title' });
@@ -311,6 +324,7 @@ export class FreeBoard {
 
   destroy(): void {
     this.unsubscribers.forEach(unsub => unsub());
+    this.noteModal.destroy();
     this.container.remove();
   }
 }
