@@ -72,7 +72,7 @@
 }
 
 .doc-meta {
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted, #888);
   white-space: nowrap;
   flex-shrink: 0;

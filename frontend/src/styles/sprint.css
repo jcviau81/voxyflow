@@ -120,7 +120,7 @@
 }
 
 .sprint-active-badge {
-  font-size: 0.65rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #22c55e;
   background: rgba(34, 197, 94, 0.15);
@@ -130,7 +130,7 @@
 }
 
 .sprint-status-tag {
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   border-radius: 4px;
   padding: 1px 6px;
   flex-shrink: 0;
@@ -164,7 +164,7 @@
 }
 
 .sprint-date-range {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--text-muted, #888);
   margin-bottom: 6px;
 }
@@ -177,7 +177,7 @@
 }
 
 .sprint-card-count {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--text-muted, #888);
 }
 
@@ -187,7 +187,7 @@
 }
 
 .sprint-btn-sm {
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   padding: 2px 6px;
   border-radius: 4px;
   cursor: pointer;
@@ -402,7 +402,7 @@
   background: var(--bg-secondary, #16213e);
   border-radius: 10px;
   padding: 0 6px;
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   color: var(--text-muted, #888);
 }
 
@@ -435,7 +435,7 @@
 }
 
 .sprint-card-desc {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--text-muted, #888);
   margin-bottom: 6px;
   line-height: 1.3;
@@ -449,7 +449,7 @@
 }
 
 .sprint-card-agent {
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   color: var(--text-muted, #888);
   background: var(--bg-secondary, #16213e);
   border-radius: 4px;
@@ -533,7 +533,7 @@
 }
 
 .sprint-status-badge {
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   border-radius: 4px;
   padding: 2px 6px;
   text-transform: capitalize;
@@ -547,7 +547,7 @@
 .sprint-status-badge.sprint-status-done { color: #22c55e; background: rgba(34, 197, 94, 0.1); }
 
 .sprint-add-btn {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   padding: 3px 10px;
   border-radius: 5px;
   cursor: pointer;

@@ -309,7 +309,7 @@ export class SettingsPage {
           <div class="setting-row">
             <div class="setting-info">
               <div class="setting-label">Font Size</div>
-              <div class="setting-description">Small (14px) · Medium (16px) · Large (18px) · X-Large (20px)</div>
+              <div class="setting-description">Small (15px) · Medium (16px) · Large (18px) · X-Large (20px)</div>
             </div>
             <div class="appearance-pills">${fontPills}</div>
           </div>

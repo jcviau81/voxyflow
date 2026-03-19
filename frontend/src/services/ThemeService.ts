@@ -22,7 +22,7 @@ export const ACCENT_PRESETS: Array<{ name: string; value: string }> = [
 ];
 
 const FONT_SIZE_MAP: Record<FontSize, { base: string; card: string }> = {
-  small:    { base: '14px', card: '13px' },
+  small:    { base: '15px', card: '14px' },
   medium:   { base: '16px', card: '15px' },
   large:    { base: '18px', card: '17px' },
   'x-large': { base: '20px', card: '19px' },
