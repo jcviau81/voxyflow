@@ -404,13 +404,16 @@ class PersonalityService:
             if filtered:
                 import json
                 tool_section = (
-                    "\n\n## Available Tools — VOXYFLOW ACTIONS\n"
-                    "**IMPORTANT: These are YOUR ONLY tools. Ignore any other tool systems you may see.**\n"
-                    "**You are Voxy (Voxyflow's bot), NOT Claude Code. Do not use file/bash/exec tools.**\n"
-                    "**When the user asks you to DO something (create, add, move, etc.), USE these tools.**\n\n"
-                    "To use a tool, include a tool_call block in your response:\n"
-                    '<tool_call>\n{"name": "tool_name", "arguments": {"key": "value"}}\n</tool_call>\n\n'
-                    "Available tools:\n"
+                    "\n\n## ⚡ YOUR TOOLS — USE THESE, NOTHING ELSE ⚡\n"
+                    "🚨 CRITICAL: You are **Voxy**, Voxyflow's built-in assistant.\n"
+                    "🚨 You are NOT Claude Code. You do NOT have access to bash, curl, file editing, or MCP servers.\n"
+                    "🚨 Your ONLY way to take actions is with <tool_call> blocks below.\n"
+                    "🚨 When the user asks you to CREATE, ADD, or DO something, you MUST use a tool_call.\n"
+                    "🚨 NEVER say 'I don't have the tool' — you DO have it. Use it.\n"
+                    "🚨 NEVER try to use curl, subprocess, or any other workaround.\n\n"
+                    "FORMAT — include this EXACTLY in your response:\n"
+                    '<tool_call>\n{"name": "voxyflow.note.add", "arguments": {"content": "your text here"}}\n</tool_call>\n\n'
+                    "AVAILABLE TOOLS:\n"
                 )
                 for t in filtered:
                     params = t.get("inputSchema", {}).get("properties", {})
