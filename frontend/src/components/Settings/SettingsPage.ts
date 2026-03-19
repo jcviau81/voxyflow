@@ -8,7 +8,7 @@ import { EVENTS, API_URL } from '../../utils/constants';
 import { appState } from '../../state/AppState';
 import { apiClient } from '../../services/ApiClient';
 import { ttsService } from '../../services/TtsService';
-import { sttService } from '../../services/SttService';
+import { sttService, STT_EVENTS, WHISPER_MODEL_PRESETS } from '../../services/SttService';
 import { jobsService, Job, ServiceHealth } from '../../services/JobsService';
 import {
   themeService,
@@ -45,9 +45,10 @@ interface ModelsSettings {
 }
 
 interface VoiceSettings {
-  stt_engine: 'native' | 'whisper';
+  stt_engine: 'native' | 'whisper' | 'whisper_local';
   stt_model: string;
   stt_language: string;
+  whisper_model_id: string;
   tts_enabled: boolean;
   tts_auto_play: boolean;
   tts_url: string;
@@ -89,6 +90,7 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   stt_engine: 'native',
   stt_model: 'medium',
   stt_language: 'auto',
+  whisper_model_id: '',
   tts_enabled: true,
   tts_auto_play: false,
   tts_url: 'http://192.168.1.59:5500',
@@ -627,7 +629,9 @@ export class SettingsPage {
   private renderVoiceSection(): string {
     const v = this.settings.voice ?? { ...DEFAULT_VOICE_SETTINGS };
     const sttEngine = v.stt_engine ?? 'native';
-    const whisperModelHidden = sttEngine !== 'whisper' ? 'style="display:none"' : '';
+    const whisperServerHidden = sttEngine !== 'whisper' ? 'style="display:none"' : '';
+    const whisperLocalHidden = sttEngine !== 'whisper_local' ? 'style="display:none"' : '';
+    const whisperModelId = (v as VoiceSettings & { whisper_model_id?: string }).whisper_model_id || '';
 
     const langOptions = [
       { value: 'auto', label: 'Auto' },
@@ -641,6 +645,14 @@ export class SettingsPage {
       `<option value="${value}" ${(v.stt_language ?? 'auto') === value ? 'selected' : ''}>${label}</option>`
     ).join('');
 
+    const modelPresetsHtml = WHISPER_MODEL_PRESETS.map((preset) =>
+      `<button class="btn-sm whisper-preset-btn" data-whisper-preset="${preset.id}"
+        style="margin: 2px 4px 2px 0; font-size: 12px;"
+        title="${preset.label}">
+        ${preset.id.split('/')[1] || preset.id}
+      </button>`
+    ).join('');
+
     return `
       <div class="settings-section" data-testid="settings-voice">
         <h3>🎤 Voice</h3>
@@ -651,15 +663,60 @@ export class SettingsPage {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Engine</div>
-            <div class="setting-description">Native: Web Speech API (fast, browser-based) · Whisper: server transcription (better accuracy, offline)</div>
+            <div class="setting-description">
+              Native: Web Speech API (fast, sends audio to Google) ·
+              Whisper Local: 🔒 private, runs in browser via WebAssembly ·
+              Whisper Server: server-side transcription
+            </div>
           </div>
           <div class="appearance-pills">
             <button class="appearance-pill ${sttEngine === 'native' ? 'active' : ''}" data-stt-engine="native">Native (Browser)</button>
+            <button class="appearance-pill ${sttEngine === 'whisper_local' ? 'active' : ''}" data-stt-engine="whisper_local">🔒 Whisper Local</button>
             <button class="appearance-pill ${sttEngine === 'whisper' ? 'active' : ''}" data-stt-engine="whisper">Whisper (Server)</button>
           </div>
         </div>
 
-        <div class="setting-row" id="voice-whisper-model-row" ${whisperModelHidden}>
+        <!-- Whisper Local model config -->
+        <div id="voice-whisper-local-section" ${whisperLocalHidden}>
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">🤗 HuggingFace Model</div>
+              <div class="setting-description">
+                ONNX model identifier from HuggingFace Hub. The model will be downloaded and cached in the browser.
+                <span id="whisper-model-status" style="display: inline-block; margin-left: 8px;"></span>
+              </div>
+            </div>
+            <input type="text" class="setting-input" id="voice-whisper-model-id"
+              value="${this.escapeHtml(whisperModelId)}"
+              placeholder="onnx-community/whisper-small" />
+          </div>
+          <div class="setting-row" style="flex-direction: column; align-items: flex-start;">
+            <div class="setting-info" style="margin-bottom: 8px;">
+              <div class="setting-label">Quick select</div>
+              <div class="setting-description">Click a preset to fill the model field</div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap;">
+              ${modelPresetsHtml}
+            </div>
+          </div>
+          <div class="setting-row" style="flex-direction: column; align-items: flex-start;">
+            <div class="setting-info">
+              <div class="setting-label" style="font-size: 12px; color: var(--color-text-secondary);">
+                📖 Recommended models:
+              </div>
+              <div class="setting-description" style="font-size: 12px; line-height: 1.8;">
+                • <strong>onnx-community/whisper-small</strong> — Good balance, ~500MB, multilingual<br>
+                • <strong>onnx-community/whisper-medium</strong> — Best for French, ~1.5GB<br>
+                • <strong>onnx-community/whisper-tiny</strong> — Fastest, ~150MB, lower accuracy<br>
+                • <strong>Xenova/whisper-small</strong> — Lighter alternative<br>
+                <em style="opacity: 0.7;">First load downloads the model; subsequent loads use browser cache.</em>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Whisper Server model config -->
+        <div class="setting-row" id="voice-whisper-model-row" ${whisperServerHidden}>
           <div class="setting-info">
             <div class="setting-label">Whisper Model</div>
             <div class="setting-description">Model name (e.g. tiny, base, small, medium, large-v3, turbo)</div>
@@ -672,7 +729,7 @@ export class SettingsPage {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Language</div>
-            <div class="setting-description">Recognition language for both Native and Whisper engines</div>
+            <div class="setting-description">Recognition language for all engines</div>
           </div>
           <select class="setting-select" id="voice-stt-language">
             ${langOptions}
@@ -1303,26 +1360,96 @@ export class SettingsPage {
     // STT engine pills
     this.root.querySelectorAll<HTMLButtonElement>('[data-stt-engine]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const engine = btn.dataset.sttEngine as 'native' | 'whisper';
+        const engine = btn.dataset.sttEngine as 'native' | 'whisper' | 'whisper_local';
 
         // Update pill active states
         this.root.querySelectorAll<HTMLButtonElement>('[data-stt-engine]').forEach((b) => {
           b.classList.toggle('active', b.dataset.sttEngine === engine);
         });
 
-        // Show/hide Whisper model row
-        const whisperRow = this.root.querySelector<HTMLElement>('#voice-whisper-model-row');
-        if (whisperRow) {
-          whisperRow.style.display = engine === 'whisper' ? '' : 'none';
+        // Show/hide engine-specific sections
+        const whisperServerRow = this.root.querySelector<HTMLElement>('#voice-whisper-model-row');
+        const whisperLocalSection = this.root.querySelector<HTMLElement>('#voice-whisper-local-section');
+        if (whisperServerRow) {
+          whisperServerRow.style.display = engine === 'whisper' ? '' : 'none';
+        }
+        if (whisperLocalSection) {
+          whisperLocalSection.style.display = engine === 'whisper_local' ? '' : 'none';
         }
 
         // Apply immediately
-        sttService.setEngine(engine === 'whisper' ? 'whisper' : 'webspeech');
+        if (engine === 'whisper_local') {
+          sttService.setEngine('whisper_local');
+          // If a model is configured, load it
+          const modelInput = this.root.querySelector<HTMLInputElement>('#voice-whisper-model-id');
+          if (modelInput?.value.trim()) {
+            sttService.setWhisperModel(modelInput.value.trim());
+          }
+        } else if (engine === 'whisper') {
+          sttService.setEngine('whisper');
+        } else {
+          sttService.setEngine('webspeech');
+        }
 
-        // Mark dirty so Save persists
         this.markDirty();
       });
     });
+
+    // Whisper Local model ID input
+    const whisperModelInput = this.root.querySelector<HTMLInputElement>('#voice-whisper-model-id');
+    if (whisperModelInput) {
+      whisperModelInput.addEventListener('change', () => {
+        const modelId = whisperModelInput.value.trim();
+        if (modelId && sttService.currentEngine === 'whisper_local') {
+          sttService.setWhisperModel(modelId);
+        }
+        this.markDirty();
+      });
+    }
+
+    // Whisper model preset buttons
+    this.root.querySelectorAll<HTMLButtonElement>('[data-whisper-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const presetId = btn.dataset.whisperPreset!;
+        const modelInput = this.root.querySelector<HTMLInputElement>('#voice-whisper-model-id');
+        if (modelInput) {
+          modelInput.value = presetId;
+          modelInput.dispatchEvent(new Event('change'));
+        }
+      });
+    });
+
+    // Whisper model status listener
+    const statusEl = this.root.querySelector<HTMLElement>('#whisper-model-status');
+    if (statusEl) {
+      const unsub1 = eventBus.on(STT_EVENTS.MODEL_STATUS, (data: unknown) => {
+        const { status, message } = data as { status: string; message?: string };
+        if (status === 'loading') {
+          statusEl.innerHTML = '<span style="color: var(--color-warning, #feca57);">⏳ Loading…</span>';
+        } else if (status === 'ready') {
+          statusEl.innerHTML = '<span style="color: var(--color-success, #4ecdc4);">✅ Ready</span>';
+        } else if (status === 'error') {
+          statusEl.innerHTML = `<span style="color: var(--color-error, #ff6b6b);">❌ ${message || 'Error'}</span>`;
+        }
+      });
+      const unsub2 = eventBus.on(STT_EVENTS.MODEL_PROGRESS, (data: unknown) => {
+        const { progress } = data as { progress: number };
+        statusEl.innerHTML = `<span style="color: var(--color-warning, #feca57);">⏳ ${Math.round(progress)}%</span>`;
+      });
+
+      // Show current status
+      if (sttService.currentEngine === 'whisper_local') {
+        if (sttService.modelReady) {
+          statusEl.innerHTML = '<span style="color: var(--color-success, #4ecdc4);">✅ Ready</span>';
+        } else if (sttService.whisperModel) {
+          statusEl.innerHTML = '<span style="color: var(--color-warning, #feca57);">⏳ Loading…</span>';
+        }
+      }
+
+      // Clean up on destroy would be nice, but these live as long as the page
+      void unsub1;
+      void unsub2;
+    }
 
     // STT language
     const langSelect = this.root.querySelector<HTMLSelectElement>('#voice-stt-language');
@@ -1476,9 +1603,10 @@ export class SettingsPage {
 
     // Collect voice settings
     const sttEngineEl = this.root.querySelector<HTMLButtonElement>('[data-stt-engine].active');
-    const sttEngine = (sttEngineEl?.dataset.sttEngine ?? this.settings.voice?.stt_engine ?? 'native') as 'native' | 'whisper';
+    const sttEngine = (sttEngineEl?.dataset.sttEngine ?? this.settings.voice?.stt_engine ?? 'native') as 'native' | 'whisper' | 'whisper_local';
     const sttModelEl = this.root.querySelector<HTMLInputElement>('#voice-stt-model');
     const sttLangEl = this.root.querySelector<HTMLSelectElement>('#voice-stt-language');
+    const whisperModelIdEl = this.root.querySelector<HTMLInputElement>('#voice-whisper-model-id');
     const ttsEnabledEl = this.root.querySelector<HTMLInputElement>('#voice-tts-enabled');
     const ttsAutoPlayEl = this.root.querySelector<HTMLInputElement>('#voice-tts-autoplay');
     const ttsUrlEl = this.root.querySelector<HTMLInputElement>('#voice-tts-url');
@@ -1490,6 +1618,7 @@ export class SettingsPage {
       stt_engine: sttEngine,
       stt_model: sttModelEl?.value.trim() ?? this.settings.voice?.stt_model ?? 'medium',
       stt_language: sttLangEl?.value ?? this.settings.voice?.stt_language ?? 'auto',
+      whisper_model_id: whisperModelIdEl?.value.trim() ?? (this.settings.voice as VoiceSettings & { whisper_model_id?: string })?.whisper_model_id ?? '',
       tts_enabled: ttsEnabledEl ? ttsEnabledEl.checked : (this.settings.voice?.tts_enabled ?? true),
       tts_auto_play: ttsAutoPlayEl ? ttsAutoPlayEl.checked : (this.settings.voice?.tts_auto_play ?? false),
       tts_url: ttsUrlEl?.value.trim() || (this.settings.voice?.tts_url ?? 'http://192.168.1.59:5500'),
