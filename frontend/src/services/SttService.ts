@@ -96,7 +96,7 @@ export class SttService {
           errorMessage = 'No speech detected. Please try again.';
           break;
         case 'network':
-          errorMessage = 'Network error. Check your connection.';
+          errorMessage = 'Web Speech API requires internet (sends audio to Google). Go to Settings → Voice to configure a local Whisper model for private offline transcription.';
           break;
         case 'audio-capture':
           errorMessage = 'No microphone found.';
