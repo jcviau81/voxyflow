@@ -85,7 +85,7 @@
 }
 
 .sidebar-item-icon {
-  font-size: 16px;
+  font-size: 1rem;
   width: 22px;
   text-align: center;
   flex-shrink: 0;
@@ -2491,7 +2491,7 @@
 }
 
 .github-status .status-icon {
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .github-status .repo-name {
@@ -2812,7 +2812,7 @@
 }
 
 .header-emoji {
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .header-title {
@@ -3055,7 +3055,7 @@
 }
 
 .welcome-btn-icon {
-  font-size: 20px;
+  font-size: 1.25rem;
   flex-shrink: 0;
 }
 
@@ -4137,7 +4137,7 @@
 }
 
 .command-palette-search-icon {
-  font-size: 16px;
+  font-size: 1rem;
   flex-shrink: 0;
   opacity: 0.6;
 }
@@ -4190,7 +4190,7 @@
 }
 
 .command-palette-item-icon {
-  font-size: 16px;
+  font-size: 1rem;
   flex-shrink: 0;
   width: 22px;
   text-align: center;
@@ -4425,7 +4425,7 @@
 
 /* ── Project Overview Grid ─────────────────────────────────────────────── */
 .project-summary-bar { display: flex; align-items: center; gap: 16px; padding: 12px 0; margin-bottom: 16px; border-bottom: 1px solid var(--color-border); }
-.project-summary-stat { font-size: 13px; color: var(--color-text-muted); }
+.project-summary-stat { font-size: 0.8125rem; color: var(--color-text-muted); }
 .project-summary-stat strong { color: var(--color-text); }
 .project-filter-chips { display: flex; gap: 8px; margin-left: auto; }
 .project-filter-chip { padding: 4px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-muted); }
@@ -4435,7 +4435,7 @@
 .project-card-overview:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
 .project-card-header { display: flex; align-items: center; gap: 10px; }
 .project-card-emoji { font-size: 24px; }
-.project-card-name { font-size: 15px; font-weight: 600; color: var(--color-text); }
+.project-card-name { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); }
 .project-card-desc { font-size: 12px; color: var(--color-text-muted); line-height: 1.4; }
 .project-mini-progress { height: 4px; background: var(--color-bg-tertiary); border-radius: 2px; overflow: hidden; }
 .project-mini-progress-fill { height: 100%; background: var(--color-accent); border-radius: 2px; transition: width 0.3s; }
@@ -4605,7 +4605,7 @@
 }
 
 .chat-search-role-icon {
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1;
   flex-shrink: 0;
   margin-top: 2px;
@@ -5060,7 +5060,7 @@
 }
 
 .attachment-icon {
-  font-size: 18px;
+  font-size: 1.125rem;
   flex-shrink: 0;
 }
 
@@ -5456,7 +5456,7 @@
 }
 
 .relation-icon {
-  font-size: 15px;
+  font-size: 0.9375rem;
   flex-shrink: 0;
 }
 
@@ -5726,7 +5726,7 @@
 }
 
 .card-context-icon {
-  font-size: 14px;
+  font-size: 0.875rem;
   width: 18px;
   text-align: center;
   flex-shrink: 0;

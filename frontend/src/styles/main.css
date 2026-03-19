@@ -58,7 +58,7 @@
   /* Appearance — overridden by ThemeService at runtime */
   --font-size-base: 16px;
   --card-padding: 16px;
-  --card-font-size: 13px;
+  --card-font-size: 15px;
 }
 
 /* Light Theme */
@@ -236,7 +236,7 @@ body {
 }
 
 .tab-emoji {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .tab-label {
@@ -433,7 +433,7 @@ body {
 }
 
 .context-indicator .context-emoji {
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .context-indicator .context-sep {

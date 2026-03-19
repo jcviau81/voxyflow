@@ -331,7 +331,7 @@ export class ProjectForm {
     });
     setupHint.style.display = 'none';
     setupHint.innerHTML = `
-      <span style="color: var(--color-warning, #feca57); font-size: 13px;">
+      <span style="color: var(--color-warning, #feca57); font-size: 0.8125rem;">
         ⚠️ GitHub not configured.
         <a href="#" data-testid="github-settings-link" style="color: var(--color-primary, #54a0ff); text-decoration: underline;">Go to Settings → GitHub</a>
         to connect.

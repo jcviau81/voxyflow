@@ -262,8 +262,9 @@ export class SettingsPage {
       ></button>
     `).join('');
 
-    const fontPills   = (['small', 'medium', 'large'] as FontSize[]).map((v) =>
-      `<button class="appearance-pill ${currentFont === v ? 'active' : ''}" data-font-size="${v}">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`
+    const fontLabels: Record<FontSize, string> = { small: 'Small', medium: 'Medium', large: 'Large', 'x-large': 'X-Large' };
+    const fontPills   = (['small', 'medium', 'large', 'x-large'] as FontSize[]).map((v) =>
+      `<button class="appearance-pill ${currentFont === v ? 'active' : ''}" data-font-size="${v}">${fontLabels[v]}</button>`
     ).join('');
 
     const sidebarPills = (['compact', 'normal', 'wide'] as SidebarWidth[]).map((v) =>
@@ -308,7 +309,7 @@ export class SettingsPage {
           <div class="setting-row">
             <div class="setting-info">
               <div class="setting-label">Font Size</div>
-              <div class="setting-description">Small (12px) · Medium (16px) · Large (20px)</div>
+              <div class="setting-description">Small (14px) · Medium (16px) · Large (18px) · X-Large (20px)</div>
             </div>
             <div class="appearance-pills">${fontPills}</div>
           </div>
@@ -575,7 +576,7 @@ export class SettingsPage {
     return `
       <div class="settings-section" data-testid="settings-models">
         <h3>🤖 Models</h3>
-        <p style="color: var(--color-text-secondary); font-size: 13px; margin-bottom: 16px;">
+        <p style="color: var(--color-text-secondary); font-size: 0.8125rem; margin-bottom: 16px;">
           Configure which LLM provider and model handles each layer.
           Leave fields empty to use the defaults from config.
         </p>
@@ -746,7 +747,7 @@ export class SettingsPage {
 
         <div style="display: flex; gap: 12px; align-items: center; margin-top: 12px;">
           <button class="btn-ghost" id="voice-tts-test-btn">🔊 Test TTS</button>
-          <span id="voice-tts-test-result" style="font-size: 13px; color: var(--color-text-secondary);"></span>
+          <span id="voice-tts-test-result" style="font-size: 0.8125rem; color: var(--color-text-secondary);"></span>
         </div>
       </div>
     `;
@@ -926,7 +927,7 @@ export class SettingsPage {
         <div class="job-form-footer">
           <button class="btn-primary btn-sm" id="job-form-submit">Create Job</button>
           <button class="btn-ghost btn-sm" id="job-form-cancel">Cancel</button>
-          <span id="job-form-error" style="font-size: 12px; color: var(--color-error, #ff6b6b);"></span>
+          <span id="job-form-error" style="font-size: 0.75rem; color: var(--color-error, #ff6b6b);"></span>
         </div>
       </div>
     `;
@@ -1079,7 +1080,7 @@ export class SettingsPage {
     return `
       <div class="settings-section" style="border-bottom: none;">
         <h3>\u2139\uFE0F About Voxyflow</h3>
-        <p style="color: var(--color-text-secondary); font-size: 13px; line-height: 1.6;">
+        <p style="color: var(--color-text-secondary); font-size: 0.8125rem; line-height: 1.6;">
           Voice-first project assistant<br>
           Version: 1.0.0
         </p>

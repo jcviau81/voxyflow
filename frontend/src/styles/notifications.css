@@ -138,7 +138,7 @@
 }
 
 .notification-item-icon {
-  font-size: 16px;
+  font-size: 1rem;
   flex-shrink: 0;
   margin-top: 1px;
   line-height: 1.4;
@@ -303,7 +303,7 @@
 }
 
 .activity-entry-icon {
-  font-size: 13px;
+  font-size: 0.8125rem;
   flex-shrink: 0;
   margin-top: 1px;
 }
