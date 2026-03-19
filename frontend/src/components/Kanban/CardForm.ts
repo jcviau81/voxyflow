@@ -47,13 +47,13 @@ const PRIORITIES = [
 ];
 
 const AGENT_TO_PERSONA: Record<string, AgentPersona> = {
-  ember: 'codeuse',
-  researcher: 'analyste',
-  coder: 'codeuse',
+  ember: 'coder',
+  researcher: 'analyst',
+  coder: 'coder',
   designer: 'designer',
-  architect: 'architecte',
-  writer: 'documenteur',
-  qa: 'testeur',
+  architect: 'architect',
+  writer: 'writer',
+  qa: 'tester',
 };
 
 export class CardForm {

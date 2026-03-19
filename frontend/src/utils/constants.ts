@@ -43,9 +43,9 @@ export const AGENT_PERSONAS: Record<string, { name: string; emoji: string; descr
   architect: { name: 'Architect', emoji: '🏗️', description: 'System design & architecture' },
   designer: { name: 'Designer', emoji: '🎨', description: 'UI/UX design & styling' },
   devops: { name: 'DevOps', emoji: '⚙️', description: 'Infrastructure & deployment' },
-  analyste: { name: 'Analyste', emoji: '📊', description: 'Requirements & analysis' },
-  testeur: { name: 'Testeur', emoji: '🧪', description: 'Testing & quality assurance' },
-  documenteur: { name: 'Documenteur', emoji: '📝', description: 'Documentation & specs' },
+  analyst: { name: 'Analyst', emoji: '📊', description: 'Requirements & analysis' },
+  tester: { name: 'Tester', emoji: '🧪', description: 'Testing & quality assurance' },
+  writer: { name: 'Writer', emoji: '📝', description: 'Documentation & specs' },
 };
 
 // Agent type → emoji mapping for the 7 BMAD agent types
