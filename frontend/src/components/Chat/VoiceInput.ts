@@ -3,6 +3,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { sttService, STT_EVENTS } from '../../services/SttService';
+import { ttsService } from '../../services/TtsService';
 import { appState } from '../../state/AppState';
 
 export class VoiceInput {
@@ -167,6 +168,8 @@ export class VoiceInput {
   }
 
   private startRecording(): void {
+    // Stop any ongoing TTS so mic doesn't pick up the speaker
+    ttsService.stop();
     sttService.startRecording();
     appState.set('voiceActive', true);
   }
