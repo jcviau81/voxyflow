@@ -1083,6 +1083,13 @@ export class SettingsPage {
           Voice-first project assistant<br>
           Version: 1.0.0
         </p>
+        <div class="setting-row" style="margin-top: 16px;">
+          <div class="setting-info">
+            <div class="setting-label">Reset Onboarding</div>
+            <div class="setting-description">Show the first-launch setup screen again on next reload</div>
+          </div>
+          <button class="settings-btn" id="reset-onboarding-btn">Reset Onboarding</button>
+        </div>
       </div>
     `;
   }
@@ -1183,6 +1190,12 @@ export class SettingsPage {
 
     // Auto-check GitHub status on load
     this.checkGitHubStatus(false);
+
+    // Reset onboarding button
+    const resetOnboardingBtn = this.root.querySelector('#reset-onboarding-btn');
+    if (resetOnboardingBtn) {
+      resetOnboardingBtn.addEventListener('click', () => this.resetOnboarding());
+    }
 
     // Jobs events (jobs section may not be populated yet, bindJobsEvents handles it)
     this.bindJobsEvents();
@@ -1511,6 +1524,30 @@ export class SettingsPage {
     } finally {
       this.saving = false;
       if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  private async resetOnboarding(): Promise<void> {
+    if (!confirm('Reset onboarding? The setup screen will appear on next reload.')) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/settings`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      data.onboarding_complete = false;
+
+      const saveResponse = await fetch(`${API_URL}/api/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!saveResponse.ok) throw new Error(`HTTP ${saveResponse.status}`);
+
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Onboarding reset! Reloading...', type: 'success', duration: 2000 });
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (e) {
+      console.error('[SettingsPage] Failed to reset onboarding:', e);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to reset onboarding', type: 'error', duration: 3000 });
     }
   }
 

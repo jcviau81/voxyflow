@@ -80,6 +80,9 @@ class AppSettings(BaseModel):
     models: ModelsSettings = ModelsSettings()
     scheduler: SchedulerSettings = SchedulerSettings()
     voice: VoiceSettings = VoiceSettings()
+    onboarding_complete: bool = False
+    user_name: str = ""
+    assistant_name: str = "Voxy"
 
 
 def _resolve_personality_path(rel_path: str) -> Path:
