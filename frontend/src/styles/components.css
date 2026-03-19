@@ -1631,6 +1631,17 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.settings-subsection-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--color-text-secondary);
+  padding: 8px 0 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+
 .settings-section label {
   display: block;
   font-size: 13px;

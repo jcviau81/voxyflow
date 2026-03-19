@@ -63,10 +63,23 @@ class SchedulerSettings(BaseModel):
     rag_index_interval_minutes: int = 15
 
 
+class VoiceSettings(BaseModel):
+    stt_engine: str = "native"   # "native" (Web Speech API) | "whisper" (server-side)
+    stt_model: str = "medium"    # Whisper model name (tiny, base, small, medium, large-v3, turbo)
+    stt_language: str = "auto"   # auto/en/fr/es/de/ja/zh
+    tts_enabled: bool = True
+    tts_auto_play: bool = False
+    tts_url: str = "http://192.168.1.59:5500"
+    tts_voice: str = "default"
+    tts_speed: float = 1.0
+    volume: int = 80
+
+
 class AppSettings(BaseModel):
     personality: PersonalitySettings = PersonalitySettings()
     models: ModelsSettings = ModelsSettings()
     scheduler: SchedulerSettings = SchedulerSettings()
+    voice: VoiceSettings = VoiceSettings()
 
 
 def _resolve_personality_path(rel_path: str) -> Path:

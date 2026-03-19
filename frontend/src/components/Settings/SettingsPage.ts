@@ -8,6 +8,7 @@ import { EVENTS, API_URL } from '../../utils/constants';
 import { appState } from '../../state/AppState';
 import { apiClient } from '../../services/ApiClient';
 import { ttsService } from '../../services/TtsService';
+import { sttService } from '../../services/SttService';
 import { jobsService, Job, ServiceHealth } from '../../services/JobsService';
 import {
   themeService,
@@ -43,9 +44,22 @@ interface ModelsSettings {
   analyzer: ModelLayerConfig;
 }
 
+interface VoiceSettings {
+  stt_engine: 'native' | 'whisper';
+  stt_model: string;
+  stt_language: string;
+  tts_enabled: boolean;
+  tts_auto_play: boolean;
+  tts_url: string;
+  tts_voice: string;
+  tts_speed: number;
+  volume: number;
+}
+
 interface AppSettings {
   personality: PersonalitySettings;
   models?: ModelsSettings;
+  voice?: VoiceSettings;
 }
 
 interface FilePreview {
@@ -71,6 +85,18 @@ const DEFAULT_MODEL_LAYER: ModelLayerConfig = {
   enabled: true,
 };
 
+const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  stt_engine: 'native',
+  stt_model: 'medium',
+  stt_language: 'auto',
+  tts_enabled: true,
+  tts_auto_play: false,
+  tts_url: 'http://192.168.1.59:5500',
+  tts_voice: 'default',
+  tts_speed: 1.0,
+  volume: 80,
+};
+
 const DEFAULT_SETTINGS: AppSettings = {
   personality: {
     bot_name: 'Assistant',
@@ -88,6 +114,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     deep: { ...DEFAULT_MODEL_LAYER, model: 'claude-opus-4' },
     analyzer: { ...DEFAULT_MODEL_LAYER, model: 'claude-haiku-4' },
   },
+  voice: { ...DEFAULT_VOICE_SETTINGS },
 };
 
 export class SettingsPage {
@@ -136,6 +163,7 @@ export class SettingsPage {
             deep: { ...dm.deep, ...(sm.deep || {}) },
             analyzer: { ...dm.analyzer, ...(sm.analyzer || {}) },
           },
+          voice: { ...DEFAULT_VOICE_SETTINGS, ...(data.voice || {}) },
         };
       }
     } catch (e) {
@@ -204,8 +232,7 @@ export class SettingsPage {
     this.root.insertAdjacentHTML('beforeend', this.renderPersonalitySection());
     this.root.insertAdjacentHTML('beforeend', this.renderModelsSection());
     this.root.insertAdjacentHTML('beforeend', this.renderGitHubSection());
-    this.root.insertAdjacentHTML('beforeend', this.renderVolumeSection());
-    this.root.insertAdjacentHTML('beforeend', this.renderTtsSection());
+    this.root.insertAdjacentHTML('beforeend', this.renderVoiceSection());
     this.root.insertAdjacentHTML('beforeend', this.renderConnectionSection());
     this.root.insertAdjacentHTML('beforeend', this.renderDataSection());
     this.root.insertAdjacentHTML('beforeend', this.renderJobsSection());
@@ -600,54 +627,126 @@ export class SettingsPage {
     `;
   }
 
-  private renderVolumeSection(): string {
-    const volume = Math.round(appState.get('volume') * 100);
+  private renderVoiceSection(): string {
+    const v = this.settings.voice ?? { ...DEFAULT_VOICE_SETTINGS };
+    const sttEngine = v.stt_engine ?? 'native';
+    const whisperModelHidden = sttEngine !== 'whisper' ? 'style="display:none"' : '';
+
+    const langOptions = [
+      { value: 'auto', label: 'Auto' },
+      { value: 'en', label: 'English' },
+      { value: 'fr', label: 'French' },
+      { value: 'es', label: 'Spanish' },
+      { value: 'de', label: 'German' },
+      { value: 'ja', label: 'Japanese' },
+      { value: 'zh', label: 'Chinese' },
+    ].map(({ value, label }) =>
+      `<option value="${value}" ${(v.stt_language ?? 'auto') === value ? 'selected' : ''}>${label}</option>`
+    ).join('');
+
     return `
-      <div class="settings-section">
-        <h3>\uD83D\uDD0A Audio</h3>
+      <div class="settings-section" data-testid="settings-voice">
+        <h3>🎤 Voice</h3>
+
+        <!-- ── STT subsection ─────────────────────────────────── -->
+        <div class="settings-subsection-label">Speech-to-Text (STT)</div>
+
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-label">Volume</div>
-            <div class="setting-description">TTS and notification volume</div>
+            <div class="setting-label">Engine</div>
+            <div class="setting-description">Native: Web Speech API (fast, browser-based) · Whisper: server transcription (better accuracy, offline)</div>
           </div>
-          <input type="range" class="setting-range" id="volume-slider" min="0" max="100" value="${volume}" />
+          <div class="appearance-pills">
+            <button class="appearance-pill ${sttEngine === 'native' ? 'active' : ''}" data-stt-engine="native">Native (Browser)</button>
+            <button class="appearance-pill ${sttEngine === 'whisper' ? 'active' : ''}" data-stt-engine="whisper">Whisper (Server)</button>
+          </div>
         </div>
-      </div>
-    `;
-  }
 
-  private renderTtsSection(): string {
-    const enabled = ttsService.isEnabled;
-    const storedUrl = localStorage.getItem('tts_service_url') || 'http://192.168.1.59:5500';
-    return `
-      <div class="settings-section" data-testid="settings-tts">
-        <h3>🔊 Voice Output</h3>
-        <p style="color: var(--color-text-secondary); font-size: 13px; margin-bottom: 16px;">
-          Uses the XTTS server to read assistant messages aloud. Click the 🔊 button on any message to speak it.
-        </p>
+        <div class="setting-row" id="voice-whisper-model-row" ${whisperModelHidden}>
+          <div class="setting-info">
+            <div class="setting-label">Whisper Model</div>
+            <div class="setting-description">Model name (e.g. tiny, base, small, medium, large-v3, turbo)</div>
+          </div>
+          <input type="text" class="setting-input" id="voice-stt-model"
+            value="${this.escapeHtml(v.stt_model ?? 'medium')}"
+            placeholder="medium" />
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Language</div>
+            <div class="setting-description">Recognition language for both Native and Whisper engines</div>
+          </div>
+          <select class="setting-select" id="voice-stt-language">
+            ${langOptions}
+          </select>
+        </div>
+
+        <!-- ── TTS subsection ─────────────────────────────────── -->
+        <div class="settings-subsection-label" style="margin-top: 20px;">Text-to-Speech (TTS)</div>
 
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Enable TTS</div>
             <div class="setting-description">Allow text-to-speech on assistant messages</div>
           </div>
-          <input type="checkbox" class="setting-checkbox" id="tts-enabled-toggle" ${enabled ? 'checked' : ''} />
+          <input type="checkbox" class="setting-checkbox" id="voice-tts-enabled" ${v.tts_enabled ? 'checked' : ''} />
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Auto-play responses</div>
+            <div class="setting-description">Read Voxy's responses aloud automatically</div>
+          </div>
+          <input type="checkbox" class="setting-checkbox" id="voice-tts-autoplay" ${v.tts_auto_play ? 'checked' : ''} />
         </div>
 
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">TTS Service URL</div>
-            <div class="setting-description">Base URL of the XTTS server (without /speak)</div>
+            <div class="setting-description">URL of your TTS server (XTTS, Coqui, etc.)</div>
           </div>
-          <input type="text" class="setting-input" id="tts-service-url"
-            value="${this.escapeHtml(storedUrl)}"
+          <input type="text" class="setting-input" id="voice-tts-url"
+            value="${this.escapeHtml(v.tts_url ?? 'http://192.168.1.59:5500')}"
             placeholder="http://192.168.1.59:5500" />
         </div>
 
-        <div style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
-          <button class="btn-secondary" id="tts-save-btn">Save TTS Settings</button>
-          <button class="btn-ghost" id="tts-test-btn">🔊 Test</button>
-          <span id="tts-test-result" style="font-size: 13px; color: var(--color-text-secondary);"></span>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Voice</div>
+            <div class="setting-description">Voice name or ID for the TTS server</div>
+          </div>
+          <input type="text" class="setting-input" id="voice-tts-voice"
+            value="${this.escapeHtml(v.tts_voice ?? '')}"
+            placeholder="default" />
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Speed</div>
+            <div class="setting-description">Playback speed — <span id="voice-tts-speed-label">${(v.tts_speed ?? 1.0).toFixed(1)}x</span></div>
+          </div>
+          <input type="range" class="setting-range" id="voice-tts-speed"
+            min="0.5" max="2.0" step="0.1"
+            value="${(v.tts_speed ?? 1.0).toFixed(1)}" />
+        </div>
+
+        <!-- ── Volume subsection ──────────────────────────────── -->
+        <div class="settings-subsection-label" style="margin-top: 20px;">Volume</div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Audio volume</div>
+            <div class="setting-description">TTS and notification volume — <span id="voice-volume-label">${v.volume ?? 80}%</span></div>
+          </div>
+          <input type="range" class="setting-range" id="voice-volume-slider"
+            min="0" max="100"
+            value="${v.volume ?? 80}" />
+        </div>
+
+        <div style="display: flex; gap: 12px; align-items: center; margin-top: 12px;">
+          <button class="btn-ghost" id="voice-tts-test-btn">🔊 Test TTS</button>
+          <span id="voice-tts-test-result" style="font-size: 13px; color: var(--color-text-secondary);"></span>
         </div>
       </div>
     `;
@@ -1011,12 +1110,7 @@ export class SettingsPage {
       el.addEventListener('change', () => this.markDirty());
     });
 
-    const volumeSlider = this.root.querySelector('#volume-slider') as HTMLInputElement;
-    if (volumeSlider) {
-      volumeSlider.addEventListener('input', () => {
-        appState.set('volume', parseInt(volumeSlider.value) / 100);
-      });
-    }
+    this.bindVoiceEvents();
 
     const reconnectBtn = this.root.querySelector('#reconnect-btn');
     if (reconnectBtn) {
@@ -1089,17 +1183,6 @@ export class SettingsPage {
 
     // Auto-check GitHub status on load
     this.checkGitHubStatus(false);
-
-    // TTS settings
-    const ttsSaveBtn = this.root.querySelector('#tts-save-btn');
-    if (ttsSaveBtn) {
-      ttsSaveBtn.addEventListener('click', () => this.saveTtsSettings());
-    }
-
-    const ttsTestBtn = this.root.querySelector('#tts-test-btn');
-    if (ttsTestBtn) {
-      ttsTestBtn.addEventListener('click', () => this.testTts());
-    }
 
     // Jobs events (jobs section may not be populated yet, bindJobsEvents handles it)
     this.bindJobsEvents();
@@ -1200,23 +1283,105 @@ export class SettingsPage {
     }
   }
 
-  private saveTtsSettings(): void {
-    const enabledEl = this.root.querySelector('#tts-enabled-toggle') as HTMLInputElement | null;
-    const urlEl = this.root.querySelector('#tts-service-url') as HTMLInputElement | null;
+  private bindVoiceEvents(): void {
+    // STT engine pills
+    this.root.querySelectorAll<HTMLButtonElement>('[data-stt-engine]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const engine = btn.dataset.sttEngine as 'native' | 'whisper';
 
-    if (enabledEl) {
-      ttsService.setEnabled(enabledEl.checked);
+        // Update pill active states
+        this.root.querySelectorAll<HTMLButtonElement>('[data-stt-engine]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.sttEngine === engine);
+        });
+
+        // Show/hide Whisper model row
+        const whisperRow = this.root.querySelector<HTMLElement>('#voice-whisper-model-row');
+        if (whisperRow) {
+          whisperRow.style.display = engine === 'whisper' ? '' : 'none';
+        }
+
+        // Apply immediately
+        sttService.setEngine(engine === 'whisper' ? 'whisper' : 'webspeech');
+
+        // Mark dirty so Save persists
+        this.markDirty();
+      });
+    });
+
+    // STT language
+    const langSelect = this.root.querySelector<HTMLSelectElement>('#voice-stt-language');
+    if (langSelect) {
+      langSelect.addEventListener('change', () => {
+        const lang = langSelect.value;
+        // Map code to BCP-47 for native engine
+        const langMap: Record<string, string> = {
+          auto: 'en-US', en: 'en-US', fr: 'fr-CA', es: 'es-ES',
+          de: 'de-DE', ja: 'ja-JP', zh: 'zh-CN',
+        };
+        sttService.setLanguage(langMap[lang] ?? lang);
+        this.markDirty();
+      });
     }
 
-    if (urlEl && urlEl.value.trim()) {
-      localStorage.setItem('tts_service_url', urlEl.value.trim());
+    // Whisper model
+    const modelInput = this.root.querySelector<HTMLInputElement>('#voice-stt-model');
+    if (modelInput) {
+      modelInput.addEventListener('input', () => this.markDirty());
     }
 
-    eventBus.emit(EVENTS.TOAST_SHOW, { message: 'TTS settings saved', type: 'success', duration: 2000 });
+    // TTS enabled
+    const ttsEnabled = this.root.querySelector<HTMLInputElement>('#voice-tts-enabled');
+    if (ttsEnabled) {
+      ttsEnabled.addEventListener('change', () => {
+        ttsService.setEnabled(ttsEnabled.checked);
+        this.markDirty();
+      });
+    }
+
+    // TTS auto-play
+    const ttsAutoplay = this.root.querySelector<HTMLInputElement>('#voice-tts-autoplay');
+    if (ttsAutoplay) {
+      ttsAutoplay.addEventListener('change', () => this.markDirty());
+    }
+
+    // TTS URL / voice
+    ['#voice-tts-url', '#voice-tts-voice'].forEach((sel) => {
+      const el = this.root.querySelector<HTMLInputElement>(sel);
+      if (el) el.addEventListener('input', () => this.markDirty());
+    });
+
+    // TTS speed slider
+    const speedSlider = this.root.querySelector<HTMLInputElement>('#voice-tts-speed');
+    const speedLabel = this.root.querySelector<HTMLElement>('#voice-tts-speed-label');
+    if (speedSlider) {
+      speedSlider.addEventListener('input', () => {
+        const val = parseFloat(speedSlider.value).toFixed(1);
+        if (speedLabel) speedLabel.textContent = `${val}x`;
+        this.markDirty();
+      });
+    }
+
+    // Volume slider
+    const volSlider = this.root.querySelector<HTMLInputElement>('#voice-volume-slider');
+    const volLabel = this.root.querySelector<HTMLElement>('#voice-volume-label');
+    if (volSlider) {
+      volSlider.addEventListener('input', () => {
+        const val = parseInt(volSlider.value);
+        if (volLabel) volLabel.textContent = `${val}%`;
+        appState.set('volume', val / 100);
+        this.markDirty();
+      });
+    }
+
+    // TTS test button
+    const ttsTestBtn = this.root.querySelector('#voice-tts-test-btn');
+    if (ttsTestBtn) {
+      ttsTestBtn.addEventListener('click', () => this.testTts());
+    }
   }
 
   private async testTts(): Promise<void> {
-    const resultEl = this.root.querySelector('#tts-test-result') as HTMLElement | null;
+    const resultEl = this.root.querySelector('#voice-tts-test-result') as HTMLElement | null;
     if (resultEl) resultEl.textContent = 'Testing…';
 
     try {
@@ -1270,9 +1435,34 @@ export class SettingsPage {
       };
     }
 
+    // Collect voice settings
+    const sttEngineEl = this.root.querySelector<HTMLButtonElement>('[data-stt-engine].active');
+    const sttEngine = (sttEngineEl?.dataset.sttEngine ?? this.settings.voice?.stt_engine ?? 'native') as 'native' | 'whisper';
+    const sttModelEl = this.root.querySelector<HTMLInputElement>('#voice-stt-model');
+    const sttLangEl = this.root.querySelector<HTMLSelectElement>('#voice-stt-language');
+    const ttsEnabledEl = this.root.querySelector<HTMLInputElement>('#voice-tts-enabled');
+    const ttsAutoPlayEl = this.root.querySelector<HTMLInputElement>('#voice-tts-autoplay');
+    const ttsUrlEl = this.root.querySelector<HTMLInputElement>('#voice-tts-url');
+    const ttsVoiceEl = this.root.querySelector<HTMLInputElement>('#voice-tts-voice');
+    const ttsSpeedEl = this.root.querySelector<HTMLInputElement>('#voice-tts-speed');
+    const volSliderEl = this.root.querySelector<HTMLInputElement>('#voice-volume-slider');
+
+    const voice: VoiceSettings = {
+      stt_engine: sttEngine,
+      stt_model: sttModelEl?.value.trim() ?? this.settings.voice?.stt_model ?? 'medium',
+      stt_language: sttLangEl?.value ?? this.settings.voice?.stt_language ?? 'auto',
+      tts_enabled: ttsEnabledEl ? ttsEnabledEl.checked : (this.settings.voice?.tts_enabled ?? true),
+      tts_auto_play: ttsAutoPlayEl ? ttsAutoPlayEl.checked : (this.settings.voice?.tts_auto_play ?? false),
+      tts_url: ttsUrlEl?.value.trim() || (this.settings.voice?.tts_url ?? 'http://192.168.1.59:5500'),
+      tts_voice: ttsVoiceEl?.value.trim() || (this.settings.voice?.tts_voice ?? 'default'),
+      tts_speed: ttsSpeedEl ? parseFloat(ttsSpeedEl.value) : (this.settings.voice?.tts_speed ?? 1.0),
+      volume: volSliderEl ? parseInt(volSliderEl.value) : (this.settings.voice?.volume ?? 80),
+    };
+
     return {
       personality: { ...this.settings.personality, ...personality } as PersonalitySettings,
       models,
+      voice,
     };
   }
 
