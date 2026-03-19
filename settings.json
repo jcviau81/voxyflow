@@ -37,7 +37,7 @@
     "rag_index_interval_minutes": 15
   },
   "voice": {
-    "stt_engine": "whisper_local",
+    "stt_engine": "native",
     "stt_model": "medium",
     "stt_language": "auto",
     "whisper_model_id": "",
@@ -48,7 +48,7 @@
     "tts_speed": 1.0,
     "volume": 80
   },
-  "onboarding_complete": false,
-  "user_name": "",
+  "onboarding_complete": true,
+  "user_name": "Jim",
   "assistant_name": "Voxy"
 }
