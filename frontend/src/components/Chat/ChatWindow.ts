@@ -82,7 +82,15 @@ export class ChatWindow {
       appState.get('currentProjectId') || undefined,
       sessionIdForRender
     );
-    if (messages.length === 0) {
+    // Loading indicator while connecting
+    const initConnState = appState.get('connectionState');
+    if (initConnState !== 'connected') {
+      const loadingEl = createElement('div', { className: 'chat-loading-indicator' });
+      loadingEl.innerHTML = '<div class="chat-loading-spinner"></div><div class="chat-loading-text">Connecting to Voxy...</div>';
+      this.messageList.appendChild(loadingEl);
+    }
+
+    if (messages.length === 0 && initConnState === 'connected') {
       this.showWelcomePrompt();
     }
     messages.forEach((msg) => this.renderMessage(msg));
@@ -686,6 +694,15 @@ export class ChatWindow {
               state === 'connected' ? 'Connected' :
               state === 'connecting' ? 'Connecting...' :
               state === 'reconnecting' ? 'Reconnecting...' : 'Disconnected';
+          }
+        }
+        // Remove loading indicator and show welcome when connected
+        if (state === 'connected') {
+          const loading = this.messageList?.querySelector('.chat-loading-indicator');
+          if (loading) {
+            loading.remove();
+            const msgs = chatService.getHistory(appState.get('currentProjectId') || undefined);
+            if (msgs.length === 0) this.showWelcomePrompt();
           }
         }
       })
