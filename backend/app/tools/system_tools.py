@@ -438,6 +438,199 @@ async def file_write(params: dict) -> dict:
 # 6. file.list
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 7. git tools
+# ---------------------------------------------------------------------------
+
+_DEFAULT_GIT_PATH = os.path.expanduser("~")
+
+
+async def _run_git(args: list[str], cwd: str, timeout: int = 30) -> dict:
+    """Helper to run a git command and return structured output."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(), timeout=timeout
+        )
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+        if proc.returncode != 0:
+            return {"success": False, "error": stderr.strip() or f"git exited with code {proc.returncode}"}
+        return {"success": True, "result": stdout.strip()}
+    except asyncio.TimeoutError:
+        return {"success": False, "error": f"git command timed out after {timeout}s"}
+    except FileNotFoundError:
+        return {"success": False, "error": "git is not installed or not in PATH"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+async def git_status(params: dict) -> dict:
+    """Run git status in a given path."""
+    cwd = params.get("path", _DEFAULT_GIT_PATH)
+    cwd = str(Path(cwd).expanduser().resolve())
+    return await _run_git(["status"], cwd)
+
+
+async def git_log(params: dict) -> dict:
+    """Run git log --oneline."""
+    cwd = params.get("path", _DEFAULT_GIT_PATH)
+    cwd = str(Path(cwd).expanduser().resolve())
+    limit = str(params.get("limit", 20))
+    return await _run_git(["log", "--oneline", f"-{limit}"], cwd)
+
+
+async def git_diff(params: dict) -> dict:
+    """Run git diff (or git diff --staged)."""
+    cwd = params.get("path", _DEFAULT_GIT_PATH)
+    cwd = str(Path(cwd).expanduser().resolve())
+    staged = params.get("staged", False)
+    args = ["diff", "--staged"] if staged else ["diff", "HEAD"]
+    return await _run_git(args, cwd)
+
+
+async def git_branches(params: dict) -> dict:
+    """List all git branches."""
+    cwd = params.get("path", _DEFAULT_GIT_PATH)
+    cwd = str(Path(cwd).expanduser().resolve())
+    return await _run_git(["branch", "-a"], cwd)
+
+
+async def git_commit(params: dict) -> dict:
+    """Stage all changes and commit with a message."""
+    cwd = params.get("path", _DEFAULT_GIT_PATH)
+    cwd = str(Path(cwd).expanduser().resolve())
+    message = params.get("message", "").strip()
+    if not message:
+        return {"success": False, "error": "No commit message provided"}
+
+    # Stage all
+    add_result = await _run_git(["add", "-A"], cwd)
+    if not add_result.get("success"):
+        return add_result
+
+    # Commit
+    return await _run_git(["commit", "-m", message], cwd)
+
+
+# ---------------------------------------------------------------------------
+# 8. tmux tools
+# ---------------------------------------------------------------------------
+
+async def _run_tmux(args: list[str], timeout: int = 10) -> dict:
+    """Helper to run a tmux command and return structured output."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "tmux", *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(), timeout=timeout
+        )
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+        if proc.returncode != 0:
+            return {"success": False, "error": stderr.strip() or f"tmux exited with code {proc.returncode}"}
+        return {"success": True, "result": stdout.strip()}
+    except asyncio.TimeoutError:
+        return {"success": False, "error": f"tmux command timed out after {timeout}s"}
+    except FileNotFoundError:
+        return {"success": False, "error": "tmux is not installed or not in PATH"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+async def tmux_list(params: dict) -> dict:
+    """List all tmux sessions."""
+    return await _run_tmux(["ls"])
+
+
+async def tmux_run(params: dict) -> dict:
+    """Run a command in a named tmux session (creates if doesn't exist)."""
+    session = params.get("session", "").strip()
+    command = params.get("command", "").strip()
+    if not session:
+        return {"success": False, "error": "No session name provided"}
+    if not command:
+        return {"success": False, "error": "No command provided"}
+
+    # Check if session exists
+    check = await _run_tmux(["has-session", "-t", session])
+    if check.get("success"):
+        # Session exists — send command
+        result = await _run_tmux(["send-keys", "-t", session, command, "Enter"])
+        if result.get("success"):
+            result["result"] = f"Sent command to existing session '{session}'"
+        return result
+    else:
+        # Create new session with command
+        result = await _run_tmux(["new-session", "-d", "-s", session, command])
+        if result.get("success"):
+            result["result"] = f"Created session '{session}' running: {command}"
+        return result
+
+
+async def tmux_send(params: dict) -> dict:
+    """Send keys to a tmux pane."""
+    session = params.get("session", "").strip()
+    keys = params.get("keys", "").strip()
+    if not session:
+        return {"success": False, "error": "No session name provided"}
+    if not keys:
+        return {"success": False, "error": "No keys provided"}
+    return await _run_tmux(["send-keys", "-t", session, keys, "Enter"])
+
+
+async def tmux_capture(params: dict) -> dict:
+    """Capture output from a tmux pane."""
+    session = params.get("session", "").strip()
+    if not session:
+        return {"success": False, "error": "No session name provided"}
+
+    # Capture pane content to stdout
+    return await _run_tmux(["capture-pane", "-t", session, "-p"])
+
+
+async def tmux_new(params: dict) -> dict:
+    """Create a new named tmux session."""
+    session = params.get("session", "").strip()
+    if not session:
+        return {"success": False, "error": "No session name provided"}
+
+    command = params.get("command", "").strip()
+    args = ["new-session", "-d", "-s", session]
+    if command:
+        args.append(command)
+
+    result = await _run_tmux(args)
+    if result.get("success"):
+        result["result"] = f"Created session '{session}'" + (f" running: {command}" if command else "")
+    return result
+
+
+async def tmux_kill(params: dict) -> dict:
+    """Kill a tmux session."""
+    session = params.get("session", "").strip()
+    if not session:
+        return {"success": False, "error": "No session name provided"}
+    result = await _run_tmux(["kill-session", "-t", session])
+    if result.get("success"):
+        result["result"] = f"Killed session '{session}'"
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 6. file.list (original numbering preserved)
+# ---------------------------------------------------------------------------
+
 async def file_list(params: dict) -> dict:
     """List files in a directory."""
     path_str = params.get("path", "").strip()

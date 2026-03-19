@@ -218,9 +218,12 @@ export class SettingsPage {
   private render(): void {
     this.root.innerHTML = '';
 
-    // Header (no back button — it's in the footer bar)
+    // Header with back button
     const header = createElement('div', { className: 'settings-header' });
+    const backBtn = createElement('button', { className: 'settings-back-btn' }, '← Back');
+    backBtn.addEventListener('click', () => appState.setView('chat'));
     const title = createElement('h2', {}, '\u2699\uFE0F Settings');
+    header.appendChild(backBtn);
     header.appendChild(title);
     this.root.appendChild(header);
 
@@ -259,9 +262,8 @@ export class SettingsPage {
       ></button>
     `).join('');
 
-    const fontLabels: Record<FontSize, string> = { small: 'Small', medium: 'Medium', large: 'Large', 'x-large': 'X-Large' };
-    const fontPills   = (['small', 'medium', 'large', 'x-large'] as FontSize[]).map((v) =>
-      `<button class="appearance-pill ${currentFont === v ? 'active' : ''}" data-font-size="${v}">${fontLabels[v]}</button>`
+    const fontPills   = (['small', 'medium', 'large'] as FontSize[]).map((v) =>
+      `<button class="appearance-pill ${currentFont === v ? 'active' : ''}" data-font-size="${v}">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`
     ).join('');
 
     const sidebarPills = (['compact', 'normal', 'wide'] as SidebarWidth[]).map((v) =>
@@ -306,7 +308,7 @@ export class SettingsPage {
           <div class="setting-row">
             <div class="setting-info">
               <div class="setting-label">Font Size</div>
-              <div class="setting-description">Small (15px) · Medium (16px) · Large (18px) · X-Large (20px)</div>
+              <div class="setting-description">Small (12px) · Medium (16px) · Large (20px)</div>
             </div>
             <div class="appearance-pills">${fontPills}</div>
           </div>
@@ -573,7 +575,7 @@ export class SettingsPage {
     return `
       <div class="settings-section" data-testid="settings-models">
         <h3>🤖 Models</h3>
-        <p style="color: var(--color-text-secondary); font-size: 0.8125rem; margin-bottom: 16px;">
+        <p style="color: var(--color-text-secondary); font-size: 13px; margin-bottom: 16px;">
           Configure which LLM provider and model handles each layer.
           Leave fields empty to use the defaults from config.
         </p>
@@ -744,7 +746,7 @@ export class SettingsPage {
 
         <div style="display: flex; gap: 12px; align-items: center; margin-top: 12px;">
           <button class="btn-ghost" id="voice-tts-test-btn">🔊 Test TTS</button>
-          <span id="voice-tts-test-result" style="font-size: 0.8125rem; color: var(--color-text-secondary);"></span>
+          <span id="voice-tts-test-result" style="font-size: 13px; color: var(--color-text-secondary);"></span>
         </div>
       </div>
     `;
@@ -924,7 +926,7 @@ export class SettingsPage {
         <div class="job-form-footer">
           <button class="btn-primary btn-sm" id="job-form-submit">Create Job</button>
           <button class="btn-ghost btn-sm" id="job-form-cancel">Cancel</button>
-          <span id="job-form-error" style="font-size: 0.75rem; color: var(--color-error, #ff6b6b);"></span>
+          <span id="job-form-error" style="font-size: 12px; color: var(--color-error, #ff6b6b);"></span>
         </div>
       </div>
     `;
@@ -1077,10 +1079,17 @@ export class SettingsPage {
     return `
       <div class="settings-section" style="border-bottom: none;">
         <h3>\u2139\uFE0F About Voxyflow</h3>
-        <p style="color: var(--color-text-secondary); font-size: 0.8125rem; line-height: 1.6;">
+        <p style="color: var(--color-text-secondary); font-size: 13px; line-height: 1.6;">
           Voice-first project assistant<br>
           Version: 1.0.0
         </p>
+        <div class="setting-row" style="margin-top: 16px;">
+          <div class="setting-info">
+            <div class="setting-label">Reset Onboarding</div>
+            <div class="setting-description">Show the first-launch setup screen again on next reload</div>
+          </div>
+          <button class="settings-btn" id="reset-onboarding-btn">Reset Onboarding</button>
+        </div>
       </div>
     `;
   }
@@ -1090,7 +1099,6 @@ export class SettingsPage {
       <div class="settings-save-bar" data-testid="settings-save-bar">
         <button class="btn-primary" data-testid="settings-save" id="save-btn">Save Settings</button>
         <button class="btn-ghost" data-testid="settings-reset" id="reset-btn">Reset to Default</button>
-        <button class="btn-ghost" id="settings-back-bottom-btn">← Back</button>
         <span class="save-status" id="save-status"></span>
       </div>
     `;
@@ -1133,11 +1141,6 @@ export class SettingsPage {
     const saveBtn = this.root.querySelector('#save-btn');
     if (saveBtn) {
       saveBtn.addEventListener('click', () => this.saveSettings());
-    }
-
-    const backBottomBtn = this.root.querySelector('#settings-back-bottom-btn');
-    if (backBottomBtn) {
-      backBottomBtn.addEventListener('click', () => appState.setView('chat'));
     }
 
     const resetBtn = this.root.querySelector('#reset-btn');
@@ -1187,6 +1190,12 @@ export class SettingsPage {
 
     // Auto-check GitHub status on load
     this.checkGitHubStatus(false);
+
+    // Reset onboarding button
+    const resetOnboardingBtn = this.root.querySelector('#reset-onboarding-btn');
+    if (resetOnboardingBtn) {
+      resetOnboardingBtn.addEventListener('click', () => this.resetOnboarding());
+    }
 
     // Jobs events (jobs section may not be populated yet, bindJobsEvents handles it)
     this.bindJobsEvents();
@@ -1515,6 +1524,30 @@ export class SettingsPage {
     } finally {
       this.saving = false;
       if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  private async resetOnboarding(): Promise<void> {
+    if (!confirm('Reset onboarding? The setup screen will appear on next reload.')) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/settings`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      data.onboarding_complete = false;
+
+      const saveResponse = await fetch(`${API_URL}/api/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!saveResponse.ok) throw new Error(`HTTP ${saveResponse.status}`);
+
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Onboarding reset! Reloading...', type: 'success', duration: 2000 });
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (e) {
+      console.error('[SettingsPage] Failed to reset onboarding:', e);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to reset onboarding', type: 'error', duration: 3000 });
     }
   }
 

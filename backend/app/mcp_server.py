@@ -553,6 +553,141 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "file_list",
     },
+
+    # ---- Git ---------------------------------------------------------------
+    {
+        "name": "git.status",
+        "description": "Run git status in a given path.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Git repo path (default: home dir)"},
+            },
+        },
+        "_handler": "git_status",
+    },
+    {
+        "name": "git.log",
+        "description": "Show recent git commits (oneline format).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Git repo path"},
+                "limit": {"type": "integer", "description": "Number of commits to show (default: 20)", "default": 20},
+            },
+        },
+        "_handler": "git_log",
+    },
+    {
+        "name": "git.diff",
+        "description": "Show git diff (working tree vs HEAD, or staged changes).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Git repo path"},
+                "staged": {"type": "boolean", "description": "Show staged changes only (default: false)", "default": False},
+            },
+        },
+        "_handler": "git_diff",
+    },
+    {
+        "name": "git.branches",
+        "description": "List all git branches (local and remote).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Git repo path"},
+            },
+        },
+        "_handler": "git_branches",
+    },
+    {
+        "name": "git.commit",
+        "description": "Stage all changes (git add -A) and commit with a message.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["message"],
+            "properties": {
+                "path": {"type": "string", "description": "Git repo path"},
+                "message": {"type": "string", "description": "Commit message"},
+            },
+        },
+        "_handler": "git_commit",
+    },
+
+    # ---- Tmux --------------------------------------------------------------
+    {
+        "name": "tmux.list",
+        "description": "List all tmux sessions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+        "_handler": "tmux_list",
+    },
+    {
+        "name": "tmux.run",
+        "description": "Run a command in a named tmux session. Creates the session if it doesn't exist, or sends the command to the existing session.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["session", "command"],
+            "properties": {
+                "session": {"type": "string", "description": "Tmux session name"},
+                "command": {"type": "string", "description": "Command to run"},
+            },
+        },
+        "_handler": "tmux_run",
+    },
+    {
+        "name": "tmux.send",
+        "description": "Send keys to a tmux pane.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["session", "keys"],
+            "properties": {
+                "session": {"type": "string", "description": "Tmux session name"},
+                "keys": {"type": "string", "description": "Keys to send"},
+            },
+        },
+        "_handler": "tmux_send",
+    },
+    {
+        "name": "tmux.capture",
+        "description": "Capture the current output/content of a tmux pane.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["session"],
+            "properties": {
+                "session": {"type": "string", "description": "Tmux session name"},
+            },
+        },
+        "_handler": "tmux_capture",
+    },
+    {
+        "name": "tmux.new",
+        "description": "Create a new named tmux session.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["session"],
+            "properties": {
+                "session": {"type": "string", "description": "Tmux session name"},
+                "command": {"type": "string", "description": "Optional command to run in the session"},
+            },
+        },
+        "_handler": "tmux_new",
+    },
+    {
+        "name": "tmux.kill",
+        "description": "Kill a tmux session.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["session"],
+            "properties": {
+                "session": {"type": "string", "description": "Tmux session name"},
+            },
+        },
+        "_handler": "tmux_kill",
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -568,6 +703,8 @@ def _get_system_handler(name: str):
         from app.tools.system_tools import (
             system_exec, web_search, web_fetch,
             file_read, file_write, file_list,
+            git_status, git_log, git_diff, git_branches, git_commit,
+            tmux_list, tmux_run, tmux_send, tmux_capture, tmux_new, tmux_kill,
         )
         _SYSTEM_HANDLERS.update({
             "system_exec": system_exec,
@@ -576,6 +713,17 @@ def _get_system_handler(name: str):
             "file_read": file_read,
             "file_write": file_write,
             "file_list": file_list,
+            "git_status": git_status,
+            "git_log": git_log,
+            "git_diff": git_diff,
+            "git_branches": git_branches,
+            "git_commit": git_commit,
+            "tmux_list": tmux_list,
+            "tmux_run": tmux_run,
+            "tmux_send": tmux_send,
+            "tmux_capture": tmux_capture,
+            "tmux_new": tmux_new,
+            "tmux_kill": tmux_kill,
         })
     return _SYSTEM_HANDLERS.get(name)
 
