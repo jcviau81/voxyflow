@@ -27,9 +27,8 @@ export interface CardFormData {
   recurrence?: 'daily' | 'weekly' | 'monthly' | null;
 }
 
-// Fallback static agents if API isn't available yet
+// Fallback static agents if API isn't available yet (ember is the default fallback, not shown as a selectable option)
 const FALLBACK_AGENTS: AgentInfo[] = [
-  { type: 'ember', name: 'Ember', emoji: '🔥', description: 'Default', strengths: [], keywords: [] },
   { type: 'researcher', name: 'Researcher', emoji: '🔍', description: 'Research & analysis', strengths: [], keywords: [] },
   { type: 'coder', name: 'Coder', emoji: '💻', description: 'Code implementation', strengths: [], keywords: [] },
   { type: 'designer', name: 'Designer', emoji: '🎨', description: 'UI/UX design', strengths: [], keywords: [] },
@@ -47,13 +46,13 @@ const PRIORITIES = [
 ];
 
 const AGENT_TO_PERSONA: Record<string, AgentPersona> = {
-  ember: 'codeuse',
-  researcher: 'analyste',
-  coder: 'codeuse',
+  ember: 'coder',
+  researcher: 'analyst',
+  coder: 'coder',
   designer: 'designer',
-  architect: 'architecte',
-  writer: 'documenteur',
-  qa: 'testeur',
+  architect: 'architect',
+  writer: 'writer',
+  qa: 'tester',
 };
 
 export class CardForm {

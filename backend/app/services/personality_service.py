@@ -393,11 +393,14 @@ class PersonalityService:
         from app.mcp_server import get_tool_list
         try:
             all_tools = get_tool_list()
+            # System tools available in ALL contexts
+            system_tools = {"system.exec", "web.search", "web.fetch", "file.read", "file.write", "file.list"}
+
             # Filter by context
             if chat_level == "general":
-                allowed = {"voxyflow.note.add", "voxyflow.note.list", "voxyflow.project.create", "voxyflow.project.list", "voxyflow.health"}
+                allowed = {"voxyflow.note.add", "voxyflow.note.list", "voxyflow.project.create", "voxyflow.project.list", "voxyflow.health"} | system_tools
             elif chat_level == "project":
-                allowed = {t["name"] for t in all_tools} - {"voxyflow.note.add", "voxyflow.note.list"}
+                allowed = ({t["name"] for t in all_tools} - {"voxyflow.note.add", "voxyflow.note.list"})
             else:
                 allowed = {t["name"] for t in all_tools}
             filtered = [t for t in all_tools if t["name"] in allowed]
@@ -406,13 +409,12 @@ class PersonalityService:
                 tool_section = (
                     "\n\n## ⚡ YOUR TOOLS — USE THESE, NOTHING ELSE ⚡\n"
                     "🚨 CRITICAL: You are **Voxy**, Voxyflow's built-in assistant.\n"
-                    "🚨 You are NOT Claude Code. You do NOT have access to bash, curl, file editing, or MCP servers.\n"
+                    "🚨 You have REAL system tools: shell execution, web search/fetch, and file operations.\n"
                     "🚨 Your ONLY way to take actions is with <tool_call> blocks below.\n"
-                    "🚨 When the user asks you to CREATE, ADD, or DO something, you MUST use a tool_call.\n"
-                    "🚨 NEVER say 'I don't have the tool' — you DO have it. Use it.\n"
-                    "🚨 NEVER try to use curl, subprocess, or any other workaround.\n\n"
+                    "🚨 When the user asks you to CREATE, ADD, DO, or SEARCH something, you MUST use a tool_call.\n"
+                    "🚨 NEVER say 'I don't have the tool' — you DO have it. Use it.\n\n"
                     "FORMAT — include this EXACTLY in your response:\n"
-                    '<tool_call>\n{"name": "voxyflow.note.add", "arguments": {"content": "your text here"}}\n</tool_call>\n\n'
+                    '<tool_call>\n{"name": "system.exec", "arguments": {"command": "ls -la"}}\n</tool_call>\n\n'
                     "AVAILABLE TOOLS:\n"
                 )
                 for t in filtered:

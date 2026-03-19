@@ -58,7 +58,7 @@
   /* Appearance — overridden by ThemeService at runtime */
   --font-size-base: 16px;
   --card-padding: 16px;
-  --card-font-size: 13px;
+  --card-font-size: 15px;
 }
 
 /* Light Theme */
@@ -210,7 +210,7 @@ body {
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   white-space: nowrap;
   border-bottom: 2px solid transparent;
@@ -236,7 +236,7 @@ body {
 }
 
 .tab-emoji {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .tab-label {
@@ -407,7 +407,7 @@ body {
   color: var(--color-text-secondary);
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   transition: all 0.2s;
   white-space: nowrap;
   font-family: inherit;
@@ -433,13 +433,13 @@ body {
 }
 
 .context-indicator .context-emoji {
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .context-indicator .context-sep {
   color: var(--color-text-muted);
   font-weight: 400;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .context-indicator .context-view-label {
@@ -977,7 +977,7 @@ pre code {
 .opportunity-item,
 .idea-item {
   padding: var(--card-padding, 16px);
-  font-size: var(--card-font-size, 13px);
+  font-size: var(--card-font-size, 15px);
 }
 
 /* Compact density */
@@ -987,7 +987,7 @@ pre code {
 .density-compact .opportunity-item,
 .density-compact .idea-item {
   padding: calc(var(--card-padding, 16px) * 0.6);
-  font-size: calc(var(--card-font-size, 13px) * 0.92);
+  font-size: calc(var(--card-font-size, 15px) * 0.92);
 }
 
 /* Settings Appearance section */
@@ -1034,7 +1034,7 @@ pre code {
   border: 1px solid var(--color-border-light);
   background: var(--color-bg-tertiary);
   color: var(--color-text-secondary);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;

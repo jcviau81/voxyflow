@@ -32,7 +32,7 @@
 }
 
 .project-summary-icon {
-  font-size: 18px;
+  font-size: 1.125rem;
   line-height: 1;
 }
 
@@ -44,7 +44,7 @@
 }
 
 .project-summary-label {
-  font-size: 0.625rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -61,7 +61,7 @@
 .project-filter-chip {
   padding: 4px 14px;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   border: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
@@ -155,7 +155,7 @@
 }
 
 .project-card-gh-link {
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
   text-decoration: none;
   display: inline-flex;
@@ -171,7 +171,7 @@
 
 /* ── Description ─────────────────────────────────────────── */
 .project-card-desc {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--color-text-secondary);
   overflow: hidden;
   display: -webkit-box;
@@ -190,7 +190,7 @@
 .project-tech-badge {
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 0.625rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   background: var(--color-bg-tertiary, rgba(255,255,255,0.06));
   color: var(--color-text-secondary);
@@ -234,7 +234,7 @@
 }
 
 .project-mini-progress-label {
-  font-size: 0.625rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
   text-align: right;
   margin-top: 2px;
@@ -246,13 +246,13 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   color: var(--color-text-secondary);
 }
 
 .project-card-stat-sep {
   color: var(--color-border-light, rgba(255,255,255,0.15));
-  font-size: 0.625rem;
+  font-size: 0.8125rem;
 }
 
 .project-card-stat.done {
@@ -265,7 +265,7 @@
 
 /* ── Activity ────────────────────────────────────────────── */
 .project-card-activity {
-  font-size: 0.625rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -292,7 +292,7 @@
 .project-card-action-btn {
   padding: 4px 10px;
   border-radius: var(--border-radius-sm);
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   background: var(--color-bg-tertiary, rgba(255,255,255,0.06));
   color: var(--color-text-secondary);

@@ -218,12 +218,9 @@ export class SettingsPage {
   private render(): void {
     this.root.innerHTML = '';
 
-    // Header with back button
+    // Header (no back button — it's in the footer bar)
     const header = createElement('div', { className: 'settings-header' });
-    const backBtn = createElement('button', { className: 'settings-back-btn' }, '← Back');
-    backBtn.addEventListener('click', () => appState.setView('chat'));
     const title = createElement('h2', {}, '\u2699\uFE0F Settings');
-    header.appendChild(backBtn);
     header.appendChild(title);
     this.root.appendChild(header);
 
@@ -1099,6 +1096,7 @@ export class SettingsPage {
       <div class="settings-save-bar" data-testid="settings-save-bar">
         <button class="btn-primary" data-testid="settings-save" id="save-btn">Save Settings</button>
         <button class="btn-ghost" data-testid="settings-reset" id="reset-btn">Reset to Default</button>
+        <button class="btn-ghost" id="settings-back-bottom-btn">← Back</button>
         <span class="save-status" id="save-status"></span>
       </div>
     `;
@@ -1146,6 +1144,11 @@ export class SettingsPage {
     const resetBtn = this.root.querySelector('#reset-btn');
     if (resetBtn) {
       resetBtn.addEventListener('click', () => this.resetSettings());
+    }
+
+    const backBottomBtn = this.root.querySelector('#settings-back-bottom-btn');
+    if (backBottomBtn) {
+      backBottomBtn.addEventListener('click', () => appState.setView('chat'));
     }
 
     // File editor buttons

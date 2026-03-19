@@ -5,7 +5,7 @@
  */
 
 export type AccentColor = string; // hex value
-export type FontSize    = 'small' | 'medium' | 'large';
+export type FontSize    = 'small' | 'medium' | 'large' | 'x-large';
 export type SidebarWidth = 'compact' | 'normal' | 'wide';
 export type CardDensity  = 'comfortable' | 'compact';
 export type AnimationSpeed = 'off' | 'normal' | 'snappy';
@@ -21,10 +21,11 @@ export const ACCENT_PRESETS: Array<{ name: string; value: string }> = [
   { name: 'Yellow',  value: '#fdcb6e' },
 ];
 
-const FONT_SIZE_MAP: Record<FontSize, string> = {
-  small:  '12px',
-  medium: '16px',
-  large:  '20px',
+const FONT_SIZE_MAP: Record<FontSize, { base: string; card: string }> = {
+  small:    { base: '15px', card: '14px' },
+  medium:   { base: '16px', card: '15px' },
+  large:    { base: '18px', card: '17px' },
+  'x-large': { base: '20px', card: '19px' },
 };
 
 const SIDEBAR_WIDTH_MAP: Record<SidebarWidth, string> = {
@@ -80,8 +81,10 @@ class ThemeService {
   setFontSize(size: FontSize): void {
     this._fontSize = size;
     localStorage.setItem(LS.FONT_SIZE, size);
-    document.documentElement.style.setProperty('--font-size-base', FONT_SIZE_MAP[size]);
-    document.documentElement.style.fontSize = FONT_SIZE_MAP[size];
+    const { base, card } = FONT_SIZE_MAP[size];
+    document.documentElement.style.setProperty('--font-size-base', base);
+    document.documentElement.style.setProperty('--card-font-size', card);
+    document.documentElement.style.fontSize = base;
   }
 
   setSidebarWidth(width: SidebarWidth): void {
@@ -115,7 +118,7 @@ class ThemeService {
     if (accent) this.setAccentColor(accent);
 
     const fontSize = localStorage.getItem(LS.FONT_SIZE) as FontSize | null;
-    if (fontSize && fontSize in FONT_SIZE_MAP) this.setFontSize(fontSize);
+    this.setFontSize(fontSize && fontSize in FONT_SIZE_MAP ? fontSize : this._fontSize);
 
     const sidebar = localStorage.getItem(LS.SIDEBAR) as SidebarWidth | null;
     if (sidebar && sidebar in SIDEBAR_WIDTH_MAP) this.setSidebarWidth(sidebar);

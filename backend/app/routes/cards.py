@@ -250,6 +250,19 @@ async def unassign_card_from_project(
 
 # ── Generic card CRUD (by card_id) ────────────────────────────────────────
 
+@router.get("/cards/{card_id}", response_model=CardResponse)
+async def get_card(card_id: str, db: AsyncSession = Depends(get_db)):
+    """Get details of a specific card by ID."""
+    stmt = select(Card).where(Card.id == card_id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
+    result = await db.execute(stmt)
+    card = result.scalar_one_or_none()
+    if not card:
+        raise HTTPException(404, "Card not found")
+    return _card_to_response(card)
+
+
 @router.patch("/cards/{card_id}", response_model=CardResponse)
 async def update_card(
     card_id: str,

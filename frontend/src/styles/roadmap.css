@@ -75,7 +75,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   color: var(--text-muted, #888);
   border-right: 1px solid var(--border-color, rgba(255,255,255,0.06));
   padding: 8px 4px;
@@ -125,14 +125,14 @@
   top: -2px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 0.5625rem;
+  font-size: 0.8125rem;
   color: rgba(231, 76, 60, 0.9);
 }
 
 /* ── Section label ───────────────────────────────────────────────────────── */
 
 .roadmap-section-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -228,7 +228,7 @@
 }
 
 .roadmap-bar-label {
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   padding: 0 6px;
   white-space: nowrap;
   overflow: hidden;
@@ -282,7 +282,7 @@
 
 .roadmap-tooltip .tooltip-hint {
   margin-top: 8px;
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   color: var(--text-muted, #666);
   border-top: 1px solid var(--border-color, rgba(255,255,255,0.08));
   padding-top: 6px;

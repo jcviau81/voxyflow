@@ -292,6 +292,23 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
     return project
 
 
+@router.delete("/{project_id}", status_code=204)
+async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a project and all its cards (irreversible)."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    # Delete all cards belonging to this project
+    stmt = select(Card).where(Card.project_id == project_id)
+    result = await db.execute(stmt)
+    for card in result.scalars().all():
+        await db.delete(card)
+
+    await db.delete(project)
+    await db.commit()
+
+
 @router.patch("/{project_id}", response_model=ProjectResponse)
 async def update_project(
     project_id: str,

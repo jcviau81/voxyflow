@@ -105,13 +105,13 @@ uvicorn app.main:app --reload --port 8000
 
 The backend routes messages to specialized AI agents:
 
-- 🔥 **La Codeuse** — Code implementation & debugging
-- 🏗️ **L'Architecte** — System design & patterns
-- 🎨 **Le Designer** — UI/UX guidance
-- 📊 **L'Analyste** — Data & metrics
-- 🧪 **Le Testeur** — Testing & QA
-- 🛡️ **La Sécurité** — Security review
-- 🎯 **Le Chef de Projet** — Planning & coordination
+- 🔥 **Coder** — Code implementation & debugging
+- 🏗️ **Architect** — System design & patterns
+- 🎨 **Designer** — UI/UX guidance
+- 📊 **Analyst** — Data & metrics
+- 🧪 **Tester** — Testing & QA
+- 🛡️ **Security** — Security review
+- 🎯 **Project Manager** — Planning & coordination
 
 ## Environment Variables
 

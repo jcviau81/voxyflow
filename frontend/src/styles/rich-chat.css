@@ -84,7 +84,7 @@
 
 .message-content pre code {
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', monospace;
-  font-size: 0.78125rem;
+  font-size: 0.8125rem;
   line-height: 1.5;
   background: transparent;
   padding: 0;
@@ -102,7 +102,7 @@
   padding: 3px 8px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   transition: all 0.15s ease;
   z-index: 1;
 }
@@ -117,7 +117,7 @@
   position: absolute;
   top: 7px;
   left: 12px;
-  font-size: 0.625rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   text-transform: uppercase;
@@ -171,7 +171,7 @@
   border-collapse: collapse;
   margin: 8px 0;
   width: 100%;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   overflow-x: auto;
   display: block;
 }
@@ -255,7 +255,7 @@
   border: none;
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   outline: none;
 }
 
@@ -301,7 +301,7 @@
 }
 
 .emoji-section-label {
-  font-size: 0.625rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   text-transform: uppercase;
   color: var(--color-text-muted);

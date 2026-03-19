@@ -14,6 +14,9 @@ pydantic-settings>=2.0.0
 # HTTP client (Claude API, remote TTS)
 httpx>=0.27.0
 
+# HTML parsing (web.fetch tool)
+beautifulsoup4>=4.12.0
+
 # TTS (optional — uncomment when ready)
 # sherpa-onnx>=1.10.0
 
@@ -46,4 +49,3 @@ mcp>=1.0.0
 python-dotenv>=1.0.0
 openai>=1.0.0
 anthropic>=0.40.0
-python-multipart>=0.0.9

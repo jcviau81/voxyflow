@@ -15,6 +15,7 @@ import { CardDetailModal } from './components/Kanban/CardDetailModal';
 import { CardForm, CardFormShowEvent, CardFormData } from './components/Kanban/CardForm';
 import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
+import { ProjectHeader } from './components/Projects/ProjectHeader';
 import { Toast } from './components/Shared/Toast';
 import { KeyboardShortcutsModal } from './components/Shared/KeyboardShortcutsModal';
 import { CommandPalette } from './components/Shared/CommandPalette';
@@ -39,6 +40,7 @@ export class App {
   private commandPalette: CommandPalette | null = null;
   private cardModal: CardDetailModal | null = null;
   private rightPanel: RightPanel | null = null;
+  private projectHeader: ProjectHeader | null = null;
   // FreeBoard is now a full-view via switchView('freeboard'), not a sidebar
   private currentView: { component: { destroy(): void } | null; view: ViewMode | null } = {
     component: null,
@@ -80,6 +82,12 @@ export class App {
     // Tab bar goes inside main area (above top bar, not full width)
     mainArea.appendChild(tabBarContainer);
     mainArea.appendChild(topBarContainer);
+
+    // Project header (shared tabs for project views — auto-shows/hides)
+    const projectHeaderContainer = createElement('div', { className: 'project-header-container' });
+    this.projectHeader = new ProjectHeader(projectHeaderContainer);
+    mainArea.appendChild(projectHeaderContainer);
+
     mainArea.appendChild(this.mainContent);
 
     // Right panel (always-visible right sidebar: Opportunities + Notifications tabs)
@@ -727,6 +735,7 @@ export class App {
     this.commandPalette?.destroy();
     this.cardModal?.destroy();
     this.rightPanel?.destroy();
+    this.projectHeader?.destroy();
     // FreeBoard destroyed via switchView cycle
     this.currentView.component?.destroy();
     this.projectForm?.destroy();

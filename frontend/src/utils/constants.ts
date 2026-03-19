@@ -43,14 +43,13 @@ export const AGENT_PERSONAS: Record<string, { name: string; emoji: string; descr
   architect: { name: 'Architect', emoji: '🏗️', description: 'System design & architecture' },
   designer: { name: 'Designer', emoji: '🎨', description: 'UI/UX design & styling' },
   devops: { name: 'DevOps', emoji: '⚙️', description: 'Infrastructure & deployment' },
-  analyste: { name: 'Analyste', emoji: '📊', description: 'Requirements & analysis' },
-  testeur: { name: 'Testeur', emoji: '🧪', description: 'Testing & quality assurance' },
-  documenteur: { name: 'Documenteur', emoji: '📝', description: 'Documentation & specs' },
+  analyst: { name: 'Analyst', emoji: '📊', description: 'Requirements & analysis' },
+  tester: { name: 'Tester', emoji: '🧪', description: 'Testing & quality assurance' },
+  writer: { name: 'Writer', emoji: '📝', description: 'Documentation & specs' },
 };
 
-// Agent type → emoji mapping for the 7 BMAD agent types
+// Agent type → emoji mapping for the 6 specialized agent types (ember is the default fallback, not a selectable persona)
 export const AGENT_TYPE_EMOJI: Record<string, string> = {
-  ember: '🔥',
   researcher: '🔍',
   coder: '💻',
   designer: '🎨',
@@ -59,9 +58,8 @@ export const AGENT_TYPE_EMOJI: Record<string, string> = {
   qa: '🧪',
 };
 
-// Agent type → display info
+// Agent type → display info (ember is the default fallback, not a selectable persona)
 export const AGENT_TYPE_INFO: Record<string, { name: string; emoji: string; description: string }> = {
-  ember: { name: 'Ember', emoji: '🔥', description: 'Default — general tasks' },
   researcher: { name: 'Researcher', emoji: '🔍', description: 'Research & analysis' },
   coder: { name: 'Coder', emoji: '💻', description: 'Code implementation & debugging' },
   designer: { name: 'Designer', emoji: '🎨', description: 'UI/UX design & styling' },

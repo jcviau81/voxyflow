@@ -60,7 +60,7 @@
 }
 
 .stat-card-title {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -137,7 +137,7 @@
 }
 
 .bar-count {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: var(--color-text-secondary);
   text-align: right;
@@ -175,7 +175,7 @@
 }
 
 .sparkline-label {
-  font-size: 0.65rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
   text-transform: uppercase;
 }
@@ -259,7 +259,7 @@
 }
 
 .standup-card-meta {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
 }
 
@@ -362,14 +362,14 @@
   background: rgba(255,255,255,0.25);
   border-radius: 4px;
   padding: 1px 6px;
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .brief-loading-note {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 400;
   opacity: 0.85;
 }
@@ -386,7 +386,7 @@
 }
 
 .brief-card-meta {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
 }
 
@@ -496,7 +496,7 @@
 }
 
 .health-card-meta {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
 }
 
@@ -544,7 +544,7 @@
 
 /* List sections */
 .health-list-title {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -768,7 +768,7 @@
 }
 
 .priority-score-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
@@ -777,7 +777,7 @@
 }
 
 .priority-reasoning {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: var(--color-text-secondary);
   font-style: italic;
   line-height: 1.45;
@@ -858,7 +858,7 @@
 }
 
 .focus-stat-label {
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   color: var(--color-text-secondary, #9e9ea8);
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -889,7 +889,7 @@
 
 /* Day chart label */
 .focus-chart-label {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: var(--color-text-secondary, #9e9ea8);
   margin-bottom: 8px;
   text-transform: uppercase;
@@ -917,7 +917,7 @@
 }
 
 .focus-day-min-label {
-  font-size: 0.65rem;
+  font-size: 0.8125rem;
   color: var(--color-text-muted, #666);
   height: 14px;
   line-height: 14px;
@@ -946,7 +946,7 @@
 }
 
 .focus-day-label {
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   color: var(--color-text-secondary, #9e9ea8);
   text-align: center;
   line-height: 1;
@@ -955,7 +955,7 @@
 
 /* Per-card breakdown */
 .focus-card-breakdown-title {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: var(--color-text-secondary, #9e9ea8);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -999,7 +999,7 @@
 
 .focus-card-row-stat {
   color: var(--color-text-secondary, #9e9ea8);
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   text-align: right;
   min-width: 36px;
 }
