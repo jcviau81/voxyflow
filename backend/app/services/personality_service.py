@@ -363,6 +363,14 @@ class PersonalityService:
             sections.append("## Specialized Role\n")
             sections.append(agent_persona + "\n")
 
+        # Global quality rules (always injected, not user-editable)
+        sections.append(
+            "## Global Quality Rules\n"
+            "- When performing research or documenting a card: always cite your sources. "
+            "Include URLs, links, site names, and exact prices. "
+            "Never fabricate sources — if uncertain, say so explicitly.\n"
+        )
+
         # Layer 5: Task instructions
         sections.append("## Your Current Task\n")
         sections.append(base_prompt)
