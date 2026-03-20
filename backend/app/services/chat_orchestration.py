@@ -70,7 +70,7 @@ class DeepWorkerPool:
                 await self._listener_task
             except asyncio.CancelledError:
                 pass
-        for task_id, task in self._active_tasks.items():
+        for task_id, task in list(self._active_tasks.items()):
             task.cancel()
         self._active_tasks.clear()
         logger.info(f"[DeepWorkerPool] Stopped for session {self._bus.session_id}")

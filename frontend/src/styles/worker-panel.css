@@ -1,0 +1,261 @@
+/* WorkerPanel — Deep Worker live status sidebar */
+
+.worker-panel-container {
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+
+.worker-panel {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  height: 100%;
+  background: var(--color-bg-secondary);
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+
+.worker-panel.collapsed {
+  width: 42px;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────── */
+
+.worker-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.worker-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.collapsed .worker-panel-title-row {
+  display: none;
+}
+
+.worker-panel-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.worker-panel-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent, #7c5bf5);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  line-height: 1;
+  animation: worker-badge-pop 0.2s ease;
+}
+
+@keyframes worker-badge-pop {
+  0% { transform: scale(0.6); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+.worker-panel-collapse {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.worker-panel-collapse:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+/* ─── Body ───────────────────────────────────────────────────────────────── */
+
+.worker-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.worker-panel-empty {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-align: center;
+  padding: 24px 8px;
+  line-height: 1.5;
+}
+
+/* ─── Task Card ──────────────────────────────────────────────────────────── */
+
+.worker-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--color-bg-tertiary);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  transition: border-color 0.2s, opacity 0.3s;
+  animation: worker-task-in 0.25s ease-out;
+}
+
+@keyframes worker-task-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.worker-task--started,
+.worker-task--executing {
+  border-color: var(--color-accent, #7c5bf5);
+  border-left: 3px solid var(--color-accent, #7c5bf5);
+}
+
+.worker-task--completed {
+  opacity: 0.65;
+  border-color: var(--color-success, #4caf50);
+  border-left: 3px solid var(--color-success, #4caf50);
+}
+
+.worker-task--failed {
+  opacity: 0.75;
+  border-color: var(--color-error, #ef5350);
+  border-left: 3px solid var(--color-error, #ef5350);
+}
+
+/* Status indicator */
+.worker-task-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.worker-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.worker-dot--queued {
+  color: var(--color-text-muted);
+}
+
+.worker-dot--done {
+  color: var(--color-success, #4caf50);
+}
+
+.worker-dot--failed {
+  color: var(--color-error, #ef5350);
+}
+
+/* Spinner */
+.worker-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-accent, #7c5bf5);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: worker-spin 1s linear infinite;
+}
+
+.worker-spinner--fast {
+  animation-duration: 0.5s;
+}
+
+@keyframes worker-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Content */
+.worker-task-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.worker-task-intent {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-accent, #7c5bf5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.worker-task-summary {
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.worker-task-progress {
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin-top: 3px;
+}
+
+.worker-task-result {
+  font-size: 0.6875rem;
+  color: var(--color-success, #4caf50);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.worker-task-result--error {
+  color: var(--color-error, #ef5350);
+}
+
+/* Time */
+.worker-task-time {
+  font-size: 0.625rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 2px;
+}

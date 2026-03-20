@@ -326,6 +326,12 @@ body {
 
 /* ============= CONTEXT-AWARE LAYOUT MODES ============= */
 
+/* Worker panel: visible in both modes */
+.app-layout .worker-panel-container {
+  display: flex;
+  flex-direction: column;
+}
+
 /* General mode: 3-column (sidebar + chat + idea board) */
 .app-layout.general-mode .opportunities-container {
   display: flex;

@@ -24,6 +24,11 @@
     grid-template-columns: repeat(2, 1fr);
   }
 
+  /* Worker panel: hide on tablet/mobile */
+  .worker-panel-container {
+    display: none !important;
+  }
+
   /* Opportunities panel: slide-in drawer on tablet/mobile */
   .opportunities-container {
     position: fixed;

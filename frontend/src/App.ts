@@ -20,6 +20,7 @@ import { Toast } from './components/Shared/Toast';
 import { KeyboardShortcutsModal } from './components/Shared/KeyboardShortcutsModal';
 import { CommandPalette } from './components/Shared/CommandPalette';
 import { RightPanel } from './components/RightPanel/RightPanel';
+import { WorkerPanel } from './components/RightPanel/WorkerPanel';
 import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
 import { FocusMode } from './components/FocusMode/FocusMode';
@@ -40,6 +41,7 @@ export class App {
   private commandPalette: CommandPalette | null = null;
   private cardModal: CardDetailModal | null = null;
   private rightPanel: RightPanel | null = null;
+  private workerPanel: WorkerPanel | null = null;
   private projectHeader: ProjectHeader | null = null;
   // FreeBoard is now a full-view via switchView('freeboard'), not a sidebar
   private currentView: { component: { destroy(): void } | null; view: ViewMode | null } = {
@@ -90,12 +92,17 @@ export class App {
 
     mainArea.appendChild(this.mainContent);
 
+    // Worker panel (between chat and opportunities — shows active Deep workers)
+    const workerContainer = createElement('aside', { className: 'worker-panel-container' });
+    this.workerPanel = new WorkerPanel(workerContainer);
+
     // Right panel (always-visible right sidebar: Opportunities + Notifications tabs)
     const opportunitiesContainer = createElement('aside', { className: 'opportunities-container' });
     this.rightPanel = new RightPanel(opportunitiesContainer);
 
     layout.appendChild(sidebarContainer);
     layout.appendChild(mainArea);
+    layout.appendChild(workerContainer);
     layout.appendChild(opportunitiesContainer);
 
     // Set initial layout mode based on active tab
@@ -734,6 +741,7 @@ export class App {
     this.keyboardShortcutsModal?.destroy();
     this.commandPalette?.destroy();
     this.cardModal?.destroy();
+    this.workerPanel?.destroy();
     this.rightPanel?.destroy();
     this.projectHeader?.destroy();
     // FreeBoard destroyed via switchView cycle
