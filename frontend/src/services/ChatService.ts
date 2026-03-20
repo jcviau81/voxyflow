@@ -378,6 +378,49 @@ export class ChatService {
     eventBus.emit(EVENTS.MESSAGE_STREAM_END, { messageId, content: fullContent });
   }
 
+  /**
+   * Load chat history from the backend API and inject into AppState.
+   * Returns the loaded messages (empty array on failure).
+   */
+  async loadHistory(chatId: string, projectId?: string, cardId?: string, sessionId?: string): Promise<Message[]> {
+    try {
+      const resp = await fetch(`/api/sessions/${chatId}?limit=50`);
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      const backendMessages: Array<{
+        role: string;
+        content: string;
+        timestamp?: string;
+        model?: string;
+        type?: string;
+      }> = data.messages || [];
+
+      // Convert backend format → frontend Message format
+      const converted: Message[] = backendMessages
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .filter((m) => m.type !== 'enrichment')
+        .map((m) => ({
+          id: generateId(),
+          role: m.role as 'user' | 'assistant',
+          content: m.content || '',
+          timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+          projectId: projectId || undefined,
+          cardId: cardId || undefined,
+          sessionId: sessionId || undefined,
+          streaming: false,
+          model: m.model,
+        }));
+
+      if (converted.length > 0) {
+        appState.setMessages(converted);
+      }
+      return converted;
+    } catch (e) {
+      console.warn('[ChatService] Failed to load history:', e);
+      return [];
+    }
+  }
+
   getHistory(projectId?: string, sessionId?: string): Message[] {
     return appState.getMessages(projectId, sessionId);
   }

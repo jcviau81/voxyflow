@@ -93,9 +93,13 @@ export class ChatWindow {
     }
 
     if (messages.length === 0 && initConnState === 'connected') {
-      this.showWelcomePrompt();
+      // Try loading from backend before showing welcome
+      this.loadHistoryFromBackend();
+    } else if (messages.length === 0) {
+      // Not connected yet — loading indicator is already shown, history will load on connect
+    } else {
+      messages.forEach((msg) => this.renderMessage(msg));
     }
-    messages.forEach((msg) => this.renderMessage(msg));
 
     // === Input area ===
     this.inputArea = createElement('div', { className: 'chat-input-area' });
@@ -739,13 +743,16 @@ export class ChatWindow {
               state === 'reconnecting' ? 'Reconnecting...' : 'Disconnected';
           }
         }
-        // Remove loading indicator and show welcome when connected
+        // Remove loading indicator and load history when connected
         if (state === 'connected') {
           const loading = this.messageList?.querySelector('.chat-loading-indicator');
           if (loading) {
             loading.remove();
-            const msgs = chatService.getHistory(appState.get('currentProjectId') || undefined);
-            if (msgs.length === 0) this.showWelcomePrompt();
+          }
+          // Load history from backend on (re)connection
+          const msgs = chatService.getHistory(appState.get('currentProjectId') || undefined);
+          if (msgs.length === 0) {
+            this.loadHistoryFromBackend();
           }
           // Reset all model status pills to idle on reconnection (safety net)
           this.modelStatusBar?.resetAllStatuses();
@@ -941,11 +948,65 @@ export class ChatWindow {
       appState.get('currentProjectId') || undefined,
       sessionId
     );
+
     if (messages.length === 0) {
+      // No in-memory messages — try loading from backend
+      this.loadHistoryFromBackend();
+    } else {
+      messages.forEach((msg) => this.renderMessage(msg));
+      this.scrollToBottom();
+    }
+  }
+
+  /**
+   * Load chat history from the backend and render it.
+   * Called when in-memory messages are empty (page refresh, new session load).
+   */
+  private async loadHistoryFromBackend(): Promise<void> {
+    const chatLevel = this.getChatLevel();
+    let backendChatId: string;
+    let projectId: string | undefined;
+    let cardId: string | undefined;
+    let sessionId: string | undefined;
+
+    if (chatLevel === 'card') {
+      const cid = appState.get('selectedCardId');
+      if (!cid) { this.showWelcomePrompt(); return; }
+      backendChatId = `card:${cid}`;
+      cardId = cid;
+      projectId = appState.get('currentProjectId') || undefined;
+    } else if (chatLevel === 'project') {
+      const activeTabId = appState.getActiveTab();
+      const contextTabId = activeTabId;
+      const sessions = appState.getSessions(contextTabId);
+      if (sessions.length > 0) {
+        const activeChatId = appState.getActiveChatId(contextTabId);
+        // The session chatId format is "{tabId}::{randomId}" — backend uses "project:{tabId}"
+        backendChatId = `project:${contextTabId}`;
+        sessionId = activeChatId;
+      } else {
+        backendChatId = `project:${contextTabId}`;
+      }
+      projectId = appState.get('currentProjectId') || undefined;
+    } else {
+      // General chat
+      backendChatId = this.activeSessionId ? `general:${this.activeSessionId}` : 'general';
+      sessionId = this.activeSessionId;
+    }
+
+    const loaded = await chatService.loadHistory(backendChatId, projectId, cardId, sessionId);
+
+    if (!this.messageList) return;
+
+    if (loaded.length > 0) {
+      // Re-render with loaded messages
+      this.messageList.innerHTML = '';
+      this.messageBubbles.clear();
+      loaded.forEach((msg) => this.renderMessage(msg));
+      this.scrollToBottom();
+    } else {
       this.showWelcomePrompt();
     }
-    messages.forEach((msg) => this.renderMessage(msg));
-    this.scrollToBottom();
   }
 
   private updateUnifiedHeader(): void {

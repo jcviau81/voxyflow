@@ -204,6 +204,28 @@ class AppState {
     return messages;
   }
 
+  /**
+   * Replace messages in bulk — used to inject history from backend without N re-renders.
+   * Merges with existing messages, deduplicating by timestamp + role.
+   */
+  setMessages(newMessages: Message[], replace = false): void {
+    if (replace) {
+      this.set('messages', newMessages);
+      return;
+    }
+    // Merge: add only messages that don't already exist (dedup by timestamp + role + content prefix)
+    const existing = this.state.messages;
+    const existingKeys = new Set(
+      existing.map((m) => `${m.role}:${m.timestamp}:${m.content.slice(0, 50)}`)
+    );
+    const toAdd = newMessages.filter(
+      (m) => !existingKeys.has(`${m.role}:${m.timestamp}:${m.content.slice(0, 50)}`)
+    );
+    if (toAdd.length > 0) {
+      this.set('messages', [...existing, ...toAdd]);
+    }
+  }
+
   clearMessages(): void {
     this.set('messages', []);
   }
