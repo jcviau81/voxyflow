@@ -419,16 +419,8 @@ export class App {
     }
 
     if (mode === 'create') {
-      const project = projectService.create(data.title, data.description || '');
-      // Update with emoji and color
-      if (data.emoji || data.color) {
-        projectService.update(project.id, {
-          ...(data.emoji ? { emoji: data.emoji } : {}),
-          ...(data.color ? { color: data.color } : {}),
-        } as Partial<import('./types').Project>);
-      }
-      // Open project tab
-      appState.openProjectTab(project.id, project.name, data.emoji);
+      // Async create via REST API
+      this.handleCreateProject(data);
     } else if (mode === 'edit' && projectId) {
       const updates: Record<string, unknown> = {
         name: data.title,
@@ -437,6 +429,11 @@ export class App {
       if (data.emoji) updates.emoji = data.emoji;
       if (data.color) updates.color = data.color;
       if (data.status) updates.archived = data.status === 'archived';
+      if (data.localPath !== undefined) updates.localPath = data.localPath;
+      if (data.githubRepo !== undefined) updates.githubRepo = data.githubRepo;
+      if (data.githubUrl !== undefined) updates.githubUrl = data.githubUrl;
+      if (data.githubBranch !== undefined) updates.githubBranch = data.githubBranch;
+      if (data.githubLanguage !== undefined) updates.githubLanguage = data.githubLanguage;
 
       projectService.update(projectId, updates as Partial<import('./types').Project>);
     }
@@ -455,6 +452,24 @@ export class App {
     } else {
       this.switchView('projects');
     }
+  }
+
+  private async handleCreateProject(data: ProjectFormData): Promise<void> {
+    const project = await projectService.create(data.title, data.description || '');
+    // Update with all extra fields in one PATCH call
+    const extraUpdates: Record<string, unknown> = {};
+    if (data.emoji) extraUpdates.emoji = data.emoji;
+    if (data.color) extraUpdates.color = data.color;
+    if (data.localPath) extraUpdates.localPath = data.localPath;
+    if (data.githubRepo) extraUpdates.githubRepo = data.githubRepo;
+    if (data.githubUrl) extraUpdates.githubUrl = data.githubUrl;
+    if (data.githubBranch) extraUpdates.githubBranch = data.githubBranch;
+    if (data.githubLanguage) extraUpdates.githubLanguage = data.githubLanguage;
+    if (Object.keys(extraUpdates).length > 0) {
+      await projectService.update(project.id, extraUpdates as Partial<import('./types').Project>);
+    }
+    // Open project tab
+    appState.openProjectTab(project.id, project.name, data.emoji);
   }
 
   private async handleCreateFromTemplate(data: ProjectFormData): Promise<void> {

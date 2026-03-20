@@ -1,65 +1,123 @@
 import { Project } from '../types';
 import { appState } from '../state/AppState';
-import { apiClient } from './ApiClient';
 import { eventBus } from '../utils/EventBus';
 import { EVENTS } from '../utils/constants';
 
+/**
+ * ProjectService — uses REST API (fetch) for all CRUD operations.
+ * Projects are persisted in the backend database.
+ */
 export class ProjectService {
-  private unsubscribers: (() => void)[] = [];
 
-  constructor() {
-    this.setupHandlers();
-  }
-
-  private setupHandlers(): void {
-    // Sync project updates from backend
-    this.unsubscribers.push(
-      apiClient.on('project:sync', (payload) => {
-        const { action, project } = payload as { action: string; project: Project };
-        switch (action) {
-          case 'created':
-            if (!appState.getProject(project.id)) {
-              const projects = [...appState.get('projects'), project];
-              appState.set('projects', projects);
-            }
-            break;
-          case 'updated':
-            appState.updateProject(project.id, project);
-            break;
-          case 'deleted':
-            appState.deleteProject(project.id);
-            break;
-        }
-      })
-    );
-
-    // Handle bulk sync (initial load)
-    this.unsubscribers.push(
-      apiClient.on('project:list', (payload) => {
-        const { projects } = payload as { projects: Project[] };
+  /**
+   * Load all projects from backend and populate AppState.
+   * Called on app init.
+   */
+  async requestSync(): Promise<void> {
+    try {
+      const [activeResp, archivedResp] = await Promise.all([
+        fetch('/api/projects?archived=false'),
+        fetch('/api/projects?archived=true'),
+      ]);
+      if (!activeResp.ok) return;
+      const activeRaw = await activeResp.json();
+      const archivedRaw = archivedResp.ok ? await archivedResp.json() : [];
+      const active: Project[] = Array.isArray(activeRaw)
+        ? activeRaw.map((p: Record<string, unknown>) => this.mapRawProject(p))
+        : [];
+      const archived: Project[] = Array.isArray(archivedRaw)
+        ? archivedRaw.map((p: Record<string, unknown>) => this.mapRawProject(p))
+        : [];
+      const projects = [...active, ...archived];
+      if (projects.length > 0) {
         appState.set('projects', projects);
-      })
-    );
+        eventBus.emit(EVENTS.PROJECT_SELECTED);
+      }
+    } catch (e) {
+      console.error('[ProjectService] Failed to sync projects from backend:', e);
+    }
   }
 
-  create(name: string, description: string = ''): Project {
+  /**
+   * Create a project via REST API.
+   * Returns the created project with server-generated ID.
+   */
+  async create(name: string, description: string = ''): Promise<Project> {
+    try {
+      const resp = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: name, description }),
+      });
+      if (resp.ok) {
+        const raw = await resp.json();
+        const project = this.mapRawProject(raw);
+        // Add to AppState
+        const projects = [...appState.get('projects'), project];
+        appState.set('projects', projects);
+        return project;
+      }
+    } catch (e) {
+      console.error('[ProjectService] REST create failed:', e);
+    }
+    // Fallback: create locally (won't persist but at least UI works)
     const project = appState.addProject(name, description);
-    apiClient.send('project:create', {
-      id: project.id,
-      name: project.name,
-      description: project.description,
-    });
     return project;
   }
 
-  update(id: string, updates: Partial<Project>): void {
+  /**
+   * Update a project via REST API.
+   * Maps frontend field names to backend snake_case names.
+   */
+  async update(id: string, updates: Partial<Project>): Promise<void> {
+    // Map frontend camelCase → backend snake_case
+    const body: Record<string, unknown> = {};
+    if (updates.name !== undefined) body.title = updates.name;
+    if (updates.description !== undefined) body.description = updates.description;
+    if (updates.localPath !== undefined) body.local_path = updates.localPath;
+    if (updates.githubRepo !== undefined) body.github_repo = updates.githubRepo;
+    if (updates.githubUrl !== undefined) body.github_url = updates.githubUrl;
+    if (updates.githubBranch !== undefined) body.github_branch = updates.githubBranch;
+    if (updates.githubLanguage !== undefined) body.github_language = updates.githubLanguage;
+    // Note: emoji and color are frontend-only (not in backend schema)
+    // They are stored in AppState but not sent to the backend
+
+    // Update AppState immediately for responsive UI
     appState.updateProject(id, updates);
-    apiClient.send('project:update', { id, updates });
+
+    if (Object.keys(body).length === 0) return;
+
+    try {
+      const resp = await fetch(`/api/projects/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok) {
+        const raw = await resp.json();
+        const project = this.mapRawProject(raw);
+        appState.updateProject(id, project);
+      } else {
+        console.error('[ProjectService] PATCH failed:', resp.status, await resp.text());
+      }
+    } catch (e) {
+      console.error('[ProjectService] REST update failed:', e);
+    }
   }
 
-  delete(id: string): void {
+  /**
+   * Delete a project via REST API.
+   */
+  async delete(id: string): Promise<void> {
     appState.deleteProject(id);
-    apiClient.send('project:delete', { id });
+    try {
+      const resp = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+      if (!resp.ok && resp.status !== 204) {
+        console.error('[ProjectService] DELETE failed:', resp.status);
+      }
+    } catch (e) {
+      console.error('[ProjectService] REST delete failed:', e);
+    }
   }
 
   list(): Project[] {
@@ -82,8 +140,7 @@ export class ProjectService {
         eventBus.emit(EVENTS.PROJECT_UPDATED, { id });
       }
     } catch (e) {
-      // fallback to WS update
-      this.update(id, { archived: true });
+      console.error('[ProjectService] Archive failed:', e);
     }
   }
 
@@ -95,7 +152,7 @@ export class ProjectService {
         eventBus.emit(EVENTS.PROJECT_UPDATED, { id });
       }
     } catch (e) {
-      this.update(id, { archived: false });
+      console.error('[ProjectService] Restore failed:', e);
     }
   }
 
@@ -103,6 +160,9 @@ export class ProjectService {
     appState.selectProject(id);
   }
 
+  /**
+   * Map backend snake_case response to frontend Project type.
+   */
   private mapRawProject(p: Record<string, unknown>): Project {
     return {
       id: p.id as string,
@@ -123,31 +183,8 @@ export class ProjectService {
     };
   }
 
-  async requestSync(): Promise<void> {
-    try {
-      // Fetch both active and archived projects
-      const [activeResp, archivedResp] = await Promise.all([
-        fetch('/api/projects?archived=false'),
-        fetch('/api/projects?archived=true'),
-      ]);
-      if (!activeResp.ok) return;
-      const activeRaw = await activeResp.json();
-      const archivedRaw = archivedResp.ok ? await archivedResp.json() : [];
-      const active: Project[] = Array.isArray(activeRaw) ? activeRaw.map((p: Record<string, unknown>) => this.mapRawProject(p)) : [];
-      const archived: Project[] = Array.isArray(archivedRaw) ? archivedRaw.map((p: Record<string, unknown>) => this.mapRawProject(p)) : [];
-      const projects = [...active, ...archived];
-      if (projects.length > 0) {
-        appState.set('projects', projects);
-        eventBus.emit(EVENTS.PROJECT_SELECTED);
-      }
-    } catch (e) {
-      apiClient.send('project:list-request', {});
-    }
-  }
-
   destroy(): void {
-    this.unsubscribers.forEach((unsub) => unsub());
-    this.unsubscribers = [];
+    // No-op — no WS subscriptions to clean up
   }
 }
 
