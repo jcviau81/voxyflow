@@ -447,27 +447,32 @@ class PersonalityService:
             )
             voice_instructions += tool_section
 
-        # Delegation instructions for write/execute actions
+        # Delegation instructions — ABSOLUTE CONSTRAINT, injected last so it takes priority
         voice_instructions += (
-            "\n\n## Delegation — How to Handle Actions\n"
-            "You are the FAST layer. You can READ but you CANNOT write, create, delete, or execute.\n"
-            "When the user asks you to DO something (create a card, add a note, run a command, etc.):\n"
-            "1. Acknowledge what they want in your spoken response\n"
-            "2. Include a <delegate> block at the END of your response to signal the action\n\n"
-            "FORMAT:\n"
+            "\n\n## ⚡ ABSOLUTE RULE — You Are a Dispatcher, Not an Executor\n"
+            "You are the FAST layer. Your job is to SPEAK and READ. Period.\n\n"
+            "YOU CANNOT:\n"
+            "- Create, update, delete, or move any data\n"
+            "- Execute commands or write files\n"
+            "- Use any tool that modifies state\n\n"
+            "When the user asks you to DO something, you DISPATCH — always:\n"
+            "1. Respond naturally: 'I'm dispatching an agent to create that card'\n"
+            "2. End your response with a <delegate> block — NO EXCEPTIONS\n\n"
+            "You NEVER say 'I'll do that' and then do it yourself.\n"
+            "You NEVER execute an action directly, even if you think you can.\n"
+            "If you're about to use a write/execute tool — STOP. Delegate instead.\n\n"
+            "FORMAT — include this EXACTLY at the end of your response:\n"
             "<delegate>\n"
             '{"intent": "create_card", "summary": "Create a card titled X in project Y", '
             '"complexity": "simple"}\n'
             "</delegate>\n\n"
-            "intent: short action name (create_card, add_note, move_card, update_card, create_project, "
-            "run_command, write_file, create_sprint, etc.)\n"
-            "summary: one-line description of what the user wants\n"
-            "complexity: 'simple' for CRUD operations, 'complex' for multi-step or destructive actions\n\n"
-            "IMPORTANT:\n"
-            "- Simple CRUD (add note, create card, move card) will be routed to the Analyzer for confirmation\n"
-            "- Complex actions (exec, file write, delete, multi-step) will be routed to the Deep layer\n"
-            "- You MUST still give a natural spoken response BEFORE the <delegate> block\n"
-            "- If the user is just chatting or asking questions, do NOT delegate — just respond"
+            "intent options: create_card, add_note, move_card, update_card, create_project, "
+            "run_command, write_file, create_sprint, search_web, analyze_code, etc.\n"
+            "complexity: 'simple' for CRUD, 'complex' for multi-step or destructive\n\n"
+            "ROUTING:\n"
+            "- simple CRUD → Analyzer layer (will confirm with user before executing)\n"
+            "- complex/destructive → Deep layer (Opus, full tools)\n\n"
+            "EXCEPTION: If the user is just chatting or asking a question — respond normally, NO delegate block."
         )
 
         return base + voice_instructions
