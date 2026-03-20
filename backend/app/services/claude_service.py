@@ -536,6 +536,68 @@ class ClaudeService:
             logger.warning(f"Deep supervisor failed to parse response: {e}")
             return {"action": "none", "content": ""}
 
+    async def chat_deep_executor(
+        self,
+        chat_id: str,
+        user_message: str,
+        project_name: Optional[str] = None,
+        chat_level: str = "general",
+        project_context: Optional[dict] = None,
+        card_context: Optional[dict] = None,
+        project_id: Optional[str] = None,
+    ) -> str:
+        """Execute a delegated action from the Fast layer using tools.
+
+        Unlike chat_deep_supervisor (which evaluates), this method is designed
+        to carry out concrete actions (create cards, add notes, etc.) via MCP tools.
+        Returns a plain-text summary of what was done.
+        """
+        memory_context = self.memory.build_memory_context(
+            project_name=project_name,
+            include_long_term=False,
+            include_daily=False,
+        )
+
+        executor_base = (
+            "You are the action executor layer of Voxyflow.\n"
+            "The fast layer identified an action that needs to be performed.\n"
+            "Your job: execute it using your available tools, then confirm what you did.\n\n"
+            "Rules:\n"
+            "- Execute the requested action immediately using the appropriate tool\n"
+            "- Do NOT ask for confirmation — the user already confirmed via the fast layer\n"
+            "- After executing, respond with a brief summary of what you did\n"
+            "- If the action fails, explain why\n"
+            "- Respond in the same language the user used\n"
+        )
+
+        system_prompt = self.personality.build_system_prompt(
+            base_prompt=executor_base,
+            include_memory_context=memory_context,
+        )
+
+        if project_id:
+            try:
+                rag_context = await get_rag_service().build_rag_context(project_id, user_message)
+                if rag_context:
+                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
+            except Exception as e:
+                logger.warning(f"RAG context injection failed (chat_deep_executor): {e}")
+
+        messages = [{"role": "user", "content": user_message}]
+
+        response_text = await self._call_api(
+            model=self.deep_model,
+            system=system_prompt,
+            messages=messages,
+            client=self.deep_client,
+            client_type=self.deep_client_type,
+            use_tools=True,
+            layer="deep",
+            chat_level=chat_level,
+        )
+
+        return response_text or ""
+
     async def chat_deep(
         self,
         chat_id: str,

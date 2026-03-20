@@ -55,6 +55,7 @@ class DeepWorkerPool:
         self._active_tasks: dict[str, asyncio.Task] = {}
         self._listener_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
+        self._stopped = False
 
     def start(self) -> None:
         """Start listening on the bus for events."""
@@ -63,6 +64,7 @@ class DeepWorkerPool:
 
     async def stop(self) -> None:
         """Stop the pool and cancel all active tasks."""
+        self._stopped = True
         self._bus.close()
         if self._listener_task:
             self._listener_task.cancel()
@@ -91,6 +93,8 @@ class DeepWorkerPool:
 
     def _on_task_done(self, task_id: str) -> None:
         """Cleanup when a task completes."""
+        if self._stopped:
+            return
         self._active_tasks.pop(task_id, None)
         self._semaphore.release()
 
@@ -107,19 +111,17 @@ class DeepWorkerPool:
 
             logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent}")
 
-            # Build a focused prompt for the Deep layer
+            # Build a focused prompt for the executor
             execution_prompt = (
-                f"Execute this delegated action:\n"
+                f"Execute this action:\n"
                 f"Intent: {event.intent}\n"
                 f"Summary: {event.summary}\n"
-                f"Complexity: {event.complexity}\n"
             )
             if event.data:
-                execution_prompt += f"Data: {json.dumps(event.data)}\n"
-            execution_prompt += (
-                "\nExecute using your tools. Respond with JSON:\n"
-                '{"action": "execute", "content": "summary of what you did"}'
-            )
+                # Pass relevant data but exclude internal context objects
+                action_data = {k: v for k, v in event.data.items()
+                               if k not in ("project_context", "card_context")}
+                execution_prompt += f"Data: {json.dumps(action_data)}\n"
 
             # Use a dedicated chat_id for this task to avoid polluting main history
             task_chat_id = f"task-{event.task_id}"
@@ -130,19 +132,16 @@ class DeepWorkerPool:
                 "sessionId": event.session_id,
             })
 
-            # Call Deep with tools enabled
-            result = await self._claude.chat_deep_supervisor(
+            # Call the dedicated executor (not the supervisor)
+            result_content = await self._claude.chat_deep_executor(
                 chat_id=task_chat_id,
                 user_message=execution_prompt,
-                fast_response="",
                 project_name=event.data.get("project_name"),
                 chat_level=event.data.get("chat_level", "general"),
                 project_context=event.data.get("project_context"),
                 card_context=event.data.get("card_context"),
                 project_id=event.data.get("project_id"),
             )
-
-            result_content = result.get("content", "") if result else ""
 
             # Notify frontend: task completed
             await self._send_task_event("task:completed", event.task_id, {

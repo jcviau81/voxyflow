@@ -27,9 +27,12 @@ class ActionIntent:
 class SessionEventBus:
     """Per-session async event bus for Fast→Deep communication."""
 
+    # Sentinel object to signal the listener to stop
+    _POISON = object()
+
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self.queue: asyncio.Queue[ActionIntent] = asyncio.Queue()
+        self.queue: asyncio.Queue = asyncio.Queue()
         self._closed = False
         logger.debug(f"[EventBus] Created bus for session {session_id}")
 
@@ -43,18 +46,19 @@ class SessionEventBus:
 
     async def listen(self) -> AsyncIterator[ActionIntent]:
         """Async generator that yields events as they arrive."""
-        while not self._closed:
+        while True:
             try:
-                event = await asyncio.wait_for(self.queue.get(), timeout=1.0)
+                event = await self.queue.get()
+                if event is self._POISON:
+                    break
                 yield event
-            except asyncio.TimeoutError:
-                continue
             except asyncio.CancelledError:
                 break
 
     def close(self) -> None:
-        """Mark bus as closed — listen() will stop."""
+        """Mark bus as closed and unblock any waiting listener."""
         self._closed = True
+        self.queue.put_nowait(self._POISON)
         logger.debug(f"[EventBus] Closed bus for session {self.session_id}")
 
     @property
