@@ -1,8 +1,13 @@
 """Project schemas."""
 
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    pass
 
 
 class ProjectCreate(BaseModel):
@@ -47,4 +52,25 @@ class ProjectResponse(BaseModel):
 
 class ProjectWithCards(ProjectResponse):
     """Project response that includes its cards."""
-    cards: list = []  # Will be list[CardResponse] — avoiding circular import
+    cards: list[CardResponseMinimal] = []
+
+
+class CardResponseMinimal(BaseModel):
+    """Minimal card representation for embedding inside ProjectWithCards."""
+    id: str
+    project_id: Optional[str] = None
+    title: str
+    description: str
+    status: str
+    priority: int
+    position: int
+    agent_assigned: Optional[str] = None
+    agent_type: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# Rebuild the model now that CardResponseMinimal is defined
+ProjectWithCards.model_rebuild()
