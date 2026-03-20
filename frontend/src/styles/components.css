@@ -1602,11 +1602,10 @@
 
 /* ============= SETTINGS ============= */
 .settings-view {
-  padding: 24px;
-  max-width: 720px;
+  padding: 24px 40px;
+  max-width: 1200px;
   overflow-y: auto;
   height: 100%;
-
 }
 
 .settings-view h2 {
