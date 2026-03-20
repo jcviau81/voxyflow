@@ -369,13 +369,57 @@ class PersonalityService:
 
         return "\n".join(sections)
 
+    def _build_tool_section(self, tool_names: set, chat_level: str = "general") -> str:
+        """Build a tool instruction text block for a given set of tool names.
+
+        Filters by both the provided tool name set AND the chat_level context.
+        Returns an empty string if no tools match or the MCP server is unavailable.
+        """
+        from app.mcp_server import get_tool_list
+        try:
+            all_tools = get_tool_list()
+
+            # Context-based secondary filter
+            if chat_level == "general":
+                context_allowed = {
+                    "voxyflow.note.add", "voxyflow.note.list",
+                    "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
+                    "voxyflow.health",
+                    # System/infra tools pass through context filter
+                    "system.exec", "web.search", "web.fetch",
+                    "file.read", "file.write", "file.list",
+                    "git.status", "git.log", "git.diff", "git.branches", "git.commit",
+                    "tmux.list", "tmux.capture", "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
+                    "voxyflow.jobs.list", "voxyflow.jobs.create",
+                    "voxyflow.doc.list", "voxyflow.doc.delete",
+                }
+            elif chat_level == "project":
+                context_allowed = {t["name"] for t in all_tools} - {
+                    "voxyflow.note.add", "voxyflow.note.list",
+                }
+            else:
+                context_allowed = {t["name"] for t in all_tools}
+
+            allowed = tool_names & context_allowed
+            filtered = [t for t in all_tools if t["name"] in allowed]
+            if not filtered:
+                return ""
+
+            lines = []
+            for t in filtered:
+                params = t.get("inputSchema", {}).get("properties", {})
+                param_str = ", ".join(f'{k}: {v.get("type","")}' for k, v in params.items())
+                lines.append(f'- **{t["name"]}**({param_str}) -- {t["description"]}')
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
     def build_fast_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None, project_names: Optional[list] = None) -> str:
         voice_instructions = (
             "\n\n## Voice Instructions\n"
             "You speak naturally and concisely -- this is a voice conversation, not a text chat.\n"
             "Keep responses short (1-3 sentences for voice). Be helpful, direct, and friendly.\n"
             "You help manage projects, tasks, and ideas through conversation.\n"
-            "When the user describes work to do, use the available tools to act on it immediately.\n"
             "Respond in the same language the user speaks (French or English).\n"
             "Your personality comes through in HOW you say things -- tone, word choice, energy.\n"
             "Be yourself. Not a corporate bot."
@@ -389,45 +433,46 @@ class PersonalityService:
         else:
             base = self.build_general_prompt(project_names=project_names)
 
-        # Add tool instructions as text fallback (proxy may not support native tools param)
-        from app.mcp_server import get_tool_list
-        try:
-            all_tools = get_tool_list()
-            # System tools available in ALL contexts
-            system_tools = {"system.exec", "web.search", "web.fetch", "file.read", "file.write", "file.list"}
+        # Fast layer: READ-ONLY tools only + delegation intent
+        from app.services.claude_service import TOOLS_READ_ONLY
+        tool_list_text = self._build_tool_section(TOOLS_READ_ONLY, chat_level)
+        if tool_list_text:
+            tool_section = (
+                "\n\n## Your Tools (READ-ONLY)\n"
+                "You can READ and SEARCH, but you CANNOT create, modify, delete, or execute.\n"
+                "Use <tool_call> blocks to invoke your read-only tools:\n"
+                '<tool_call>\n{"name": "file.read", "arguments": {"path": "/some/file"}}\n</tool_call>\n\n'
+                "AVAILABLE TOOLS:\n"
+                + tool_list_text
+            )
+            voice_instructions += tool_section
 
-            # Filter by context
-            if chat_level == "general":
-                allowed = {"voxyflow.note.add", "voxyflow.note.list", "voxyflow.project.create", "voxyflow.project.list", "voxyflow.health"} | system_tools
-            elif chat_level == "project":
-                allowed = ({t["name"] for t in all_tools} - {"voxyflow.note.add", "voxyflow.note.list"})
-            else:
-                allowed = {t["name"] for t in all_tools}
-            filtered = [t for t in all_tools if t["name"] in allowed]
-            if filtered:
-                import json
-                tool_section = (
-                    "\n\n## ⚡ YOUR TOOLS — USE THESE, NOTHING ELSE ⚡\n"
-                    "🚨 CRITICAL: You are **Voxy**, Voxyflow's built-in assistant.\n"
-                    "🚨 You have REAL system tools: shell execution, web search/fetch, and file operations.\n"
-                    "🚨 Your ONLY way to take actions is with <tool_call> blocks below.\n"
-                    "🚨 When the user asks you to CREATE, ADD, DO, or SEARCH something, you MUST use a tool_call.\n"
-                    "🚨 NEVER say 'I don't have the tool' — you DO have it. Use it.\n\n"
-                    "FORMAT — include this EXACTLY in your response:\n"
-                    '<tool_call>\n{"name": "system.exec", "arguments": {"command": "ls -la"}}\n</tool_call>\n\n'
-                    "AVAILABLE TOOLS:\n"
-                )
-                for t in filtered:
-                    params = t.get("inputSchema", {}).get("properties", {})
-                    param_str = ", ".join(f'{k}: {v.get("type","")}' for k, v in params.items())
-                    tool_section += f'- **{t["name"]}**({param_str}) — {t["description"]}\n'
-                voice_instructions += tool_section
-        except Exception:
-            pass  # Tools unavailable, no problem
+        # Delegation instructions for write/execute actions
+        voice_instructions += (
+            "\n\n## Delegation — How to Handle Actions\n"
+            "You are the FAST layer. You can READ but you CANNOT write, create, delete, or execute.\n"
+            "When the user asks you to DO something (create a card, add a note, run a command, etc.):\n"
+            "1. Acknowledge what they want in your spoken response\n"
+            "2. Include a <delegate> block at the END of your response to signal the action\n\n"
+            "FORMAT:\n"
+            "<delegate>\n"
+            '{"intent": "create_card", "summary": "Create a card titled X in project Y", '
+            '"complexity": "simple"}\n'
+            "</delegate>\n\n"
+            "intent: short action name (create_card, add_note, move_card, update_card, create_project, "
+            "run_command, write_file, create_sprint, etc.)\n"
+            "summary: one-line description of what the user wants\n"
+            "complexity: 'simple' for CRUD operations, 'complex' for multi-step or destructive actions\n\n"
+            "IMPORTANT:\n"
+            "- Simple CRUD (add note, create card, move card) will be routed to the Analyzer for confirmation\n"
+            "- Complex actions (exec, file write, delete, multi-step) will be routed to the Deep layer\n"
+            "- You MUST still give a natural spoken response BEFORE the <delegate> block\n"
+            "- If the user is just chatting or asking questions, do NOT delegate — just respond"
+        )
 
         return base + voice_instructions
 
-    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None) -> str:
+    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None, has_delegation: bool = False) -> str:
         # Build context-appropriate base
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card)
@@ -437,31 +482,66 @@ class PersonalityService:
             base = self.build_general_prompt(project_names=project_names)
 
         mode_label = "Main Chat" if chat_level == "general" else f"Project Chat: {project.get('title', '?')}" if project else "Card Chat"
+
+        # Role 1: Supervisor / Fact-checker (always active)
         deep_instructions = (
-            f"\n\n## Layer Init — Deep (Supervisor)\n"
-            f"Role: SUPERVISOR / FACT-CHECKER / QUALITY GATE\n"
+            f"\n\n## Layer Init — Deep (Supervisor + Executor)\n"
+            f"Role: SUPERVISOR / FACT-CHECKER / QUALITY GATE / TOOL EXECUTOR\n"
             f"Context: {mode_label}\n"
             f"You run AFTER the Fast layer responds. You see the Fast layer's response.\n\n"
-            "## Your Decision\n"
-            "1. Fast response is CORRECT and COMPLETE → respond with ONLY the word: EMPTY\n"
-            "2. Fast response has an ERROR or ASSUMPTION → INTERVENE with a correction\n"
-            "3. Fast response misses something IMPORTANT → ADD the missing point\n\n"
-            "## You MUST intervene when the Fast layer:\n"
-            "- Makes factual claims it cannot verify (e.g. 'you created X' without evidence)\n"
-            "- Assumes things about the user that aren't in USER.md or confirmed facts\n"
-            "- States something confidently about a topic post-training-cutoff without searching\n"
-            "- Recommends actions that don't match the current context (e.g. kanban in Main Chat)\n"
-            "- Hallucinates tool capabilities it doesn't have in this context\n"
+            "## Role 1: Enrichment / Correction\n"
+            "Evaluate the Fast layer's response:\n"
+            "1. Fast response is CORRECT and COMPLETE → no enrichment needed\n"
+            "2. Fast response has an ERROR or ASSUMPTION → provide a correction\n"
+            "3. Fast response misses something IMPORTANT → add the missing point\n\n"
+            "You MUST intervene when the Fast layer:\n"
+            "- Makes factual claims it cannot verify\n"
+            "- Assumes things about the user not in confirmed facts\n"
+            "- Recommends actions that don't match the current context\n"
             "- Gives advice that contradicts the project's tech stack or constraints\n\n"
-            "## Output Rules\n"
-            "- If intervening: start with 'Actually...' or 'Hmm, correction...' (spoken aloud)\n"
-            "- Max 2-4 sentences. Same personality as Fast layer. Same language as user.\n"
-            "- If EMPTY: literally just the word EMPTY, nothing else."
+        )
+
+        # Role 2: Tool execution (active when delegation is detected)
+        deep_instructions += (
+            "## Role 2: Tool Execution\n"
+            "When the Fast layer delegates a complex action to you (via a <delegate> block),\n"
+            "you are responsible for executing it using your tools.\n"
+            "Complex actions include: shell execution, file writes, deletions, multi-step operations.\n\n"
+            "To execute a tool, include <tool_call> blocks in your response:\n"
+            '<tool_call>\n{"name": "system.exec", "arguments": {"command": "ls -la"}}\n</tool_call>\n\n'
+        )
+
+        # Inject full tool set
+        from app.services.claude_service import TOOLS_FULL
+        tool_list_text = self._build_tool_section(TOOLS_FULL, chat_level)
+        if tool_list_text:
+            deep_instructions += (
+                "AVAILABLE TOOLS (FULL ACCESS):\n"
+                + tool_list_text + "\n\n"
+            )
+
+        # Output format
+        deep_instructions += (
+            "## Output Format\n"
+            "You MUST respond with valid JSON (no markdown, no code blocks):\n"
+            '{"action": "enrich"|"correct"|"execute"|"none", "content": "...", "tool_calls": [...]}\n\n'
+            "- action='enrich': You have valuable context to add. content = spoken follow-up.\n"
+            "- action='correct': Fast layer made an error. content = correction text.\n"
+            "- action='execute': You executed tools for a delegated action. content = summary of what was done.\n"
+            "  tool_calls should be an array of <tool_call> blocks embedded in content if needed.\n"
+            "- action='none': Fast layer was fine, no delegation pending. content can be empty.\n\n"
+            "BIAS STRONGLY TOWARD 'none' for enrichment.\n"
+            "- Casual conversation → 'none'\n"
+            "- Simple questions answered correctly → 'none'\n"
+            "- Only speak up if you have genuinely valuable insight\n\n"
+            "If enriching/correcting: max 2-4 sentences. Same personality and language as user.\n"
+            "If executing: summarize what you did naturally, like 'Done! I created the card...'\n"
+            "Respond in the same language the user used."
         )
 
         return base + deep_instructions
 
-    def build_analyzer_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project_names: Optional[list] = None) -> str:
+    def build_analyzer_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project_names: Optional[list] = None, delegation: Optional[dict] = None) -> str:
         context_note = ""
         if chat_level == "general":
             projs = ", ".join(project_names or []) or "none"
@@ -476,6 +556,47 @@ class PersonalityService:
             context_note = "\n\nCurrent context: PROJECT CHAT. Suggest CARDS for this project.\n"
 
         mode_label = "Main Chat" if chat_level == "general" else "Project Chat"
+
+        # Delegation mode: Analyzer received a simple CRUD action to suggest-then-execute
+        if delegation:
+            base = (
+                f"## Layer Init — Analyzer (Delegated Action)\n"
+                f"Role: CRUD EXECUTOR with SUGGEST-FIRST pattern\n"
+                f"Context: {mode_label}\n"
+                "The Fast layer delegated a simple action to you.\n\n"
+                f"## Delegated Intent\n"
+                f"Intent: {delegation.get('intent', 'unknown')}\n"
+                f"Summary: {delegation.get('summary', '')}\n\n"
+                "## CRITICAL: Suggest-First Pattern\n"
+                "You MUST suggest the action FIRST. The user confirms, THEN you execute.\n"
+                "1. Analyze the delegation intent\n"
+                "2. Propose the exact action you would take (tool name + arguments)\n"
+                "3. Return a suggestion for the user to confirm\n\n"
+                "## Output Format — JSON ONLY\n"
+                '{"action": "suggest", "suggestions": [\n'
+                '  {"tool": "voxyflow.note.add", "arguments": {"content": "..."}, '
+                '"display": "Add note: ...", "description": "..."}\n'
+                "]}\n\n"
+                "Each suggestion:\n"
+                "- tool: the MCP tool name to call\n"
+                "- arguments: the exact arguments to pass when confirmed\n"
+                "- display: human-readable one-line summary of the action\n"
+                "- description: optional extra detail\n\n"
+                "If the delegation doesn't map to any tool you have, respond with:\n"
+                '{"action": "none", "reason": "..."}\n'
+            )
+            # Add available CRUD tools
+            from app.services.claude_service import TOOLS_VOXYFLOW_CRUD
+            tool_list_text = self._build_tool_section(TOOLS_VOXYFLOW_CRUD, chat_level)
+            if tool_list_text:
+                base += (
+                    "\n## Available CRUD Tools\n"
+                    + tool_list_text + "\n"
+                )
+            base += context_note
+            return self.build_system_prompt(base_prompt=base, include_user=True, include_memory_context=memory_context)
+
+        # Standard mode: Analyzer runs in parallel to detect actionable items
         base = (
             f"## Layer Init — Analyzer\n"
             f"Role: PRECISE ACTION ITEM EXTRACTOR\n"
@@ -491,24 +612,24 @@ class PersonalityService:
             "7. Break big items into 2-4 smaller cards. Never suggest a single mega-card.\n"
             "8. Match the user's language — if they speak French, titles in French.\n\n"
             "## BAD Examples (too vague):\n"
-            "❌ 'Improve the UI' → too broad\n"
-            "❌ 'Work on the project' → meaningless\n"
-            "❌ 'Set up infrastructure' → too big\n\n"
+            "- 'Improve the UI' -> too broad\n"
+            "- 'Work on the project' -> meaningless\n"
+            "- 'Set up infrastructure' -> too big\n\n"
             "## GOOD Examples (specific, actionable):\n"
-            "✅ 'Fix session tab X button not closing in Main Chat'\n"
-            "✅ 'Add connection status indicator to chat header'\n"
-            "✅ 'Create unit tests for the Analyzer prompt builder'\n"
-            "✅ 'Update SOUL.md with FreeBoard nomenclature'\n\n"
+            "- 'Fix session tab X button not closing in Main Chat'\n"
+            "- 'Add connection status indicator to chat header'\n"
+            "- 'Create unit tests for the Analyzer prompt builder'\n"
+            "- 'Update SOUL.md with FreeBoard nomenclature'\n\n"
             "## Suggestion Types\n"
-            "- **NOTE**: Quick reminder/thought → Main Board sticky note\n"
-            "- **CARD**: Specific task → Project kanban (MUST have a clear deliverable)\n"
+            "- **NOTE**: Quick reminder/thought -> Main Board sticky note\n"
+            "- **CARD**: Specific task -> Project kanban (MUST have a clear deliverable)\n"
             "- **PROJECT**: Only if user explicitly discusses a NEW initiative\n\n"
             "## Output Format — JSON ONLY, no text\n"
             "[{\"type\": \"note|card|project\", \"title\": \"Verb + specific action...\", "
             "\"description\": \"What exactly to do in 1-2 sentences\", "
             "\"project\": \"project_name or null\", \"priority\": \"low|medium|high\", "
             "\"agentType\": \"coder|architect|designer|researcher|writer|qa|ember\"}]\n"
-            "If nothing actionable → respond with: []\n"
+            "If nothing actionable -> respond with: []\n"
             + context_note
         )
         return self.build_system_prompt(base_prompt=base, include_user=True, include_memory_context=memory_context)

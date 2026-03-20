@@ -41,49 +41,102 @@ def _resolve_model(name: str, native: bool = True) -> str:
 # MCP Tool bridge — converts Voxyflow MCP tools to Claude native tool_use
 # ---------------------------------------------------------------------------
 
-def get_claude_tools(chat_level: str = "general", project_id: Optional[str] = None) -> list[dict]:
+# ---------------------------------------------------------------------------
+# Tool sets by layer — controls which tools each AI layer can use
+# ---------------------------------------------------------------------------
+
+# Read-only tools: Fast layer can read/search but NOT write or execute
+TOOLS_READ_ONLY = {
+    "web.search", "web.fetch",
+    "file.read", "file.list",
+    "voxyflow.health",
+    "voxyflow.note.list",
+    "voxyflow.project.list", "voxyflow.project.get",
+    "voxyflow.card.list", "voxyflow.card.get",
+    "voxyflow.wiki.list", "voxyflow.wiki.get",
+    "voxyflow.doc.list",
+    "voxyflow.jobs.list",
+    "git.status", "git.log", "git.diff", "git.branches",
+    "tmux.list", "tmux.capture",
+}
+
+# CRUD tools: Analyzer (Haiku) can do trivial dashboard actions
+TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
+    "voxyflow.note.add",
+    "voxyflow.project.create",
+    "voxyflow.card.create", "voxyflow.card.update", "voxyflow.card.move",
+    "voxyflow.card.duplicate", "voxyflow.card.enrich",
+    "voxyflow.wiki.create", "voxyflow.wiki.update",
+}
+
+# Full tools: Deep (Opus) can do everything including exec, write, delete
+TOOLS_FULL = TOOLS_VOXYFLOW_CRUD | {
+    "system.exec",
+    "file.write",
+    "voxyflow.project.delete", "voxyflow.project.export",
+    "voxyflow.card.delete",
+    "voxyflow.doc.delete",
+    "voxyflow.ai.standup", "voxyflow.ai.brief", "voxyflow.ai.health",
+    "voxyflow.ai.prioritize", "voxyflow.ai.review_code",
+    "voxyflow.jobs.create",
+    "git.commit",
+    "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
+}
+
+_LAYER_TOOL_SETS = {
+    "fast": TOOLS_READ_ONLY,
+    "analyzer": TOOLS_VOXYFLOW_CRUD,
+    "deep": TOOLS_FULL,
+}
+
+
+def get_claude_tools(
+    chat_level: str = "general",
+    layer: str = "fast",
+    project_id: Optional[str] = None,
+) -> list[dict]:
     """Convert Voxyflow MCP tool definitions to Claude API tool_use format.
 
-    Filters tools based on chat_level to prevent the LLM from offering
-    actions that are not applicable in the current context:
-      - general: only note and project management tools
-      - project: all tools except note tools (use cards instead)
-      - card:    all tools (full access)
-
-    Returns an empty list (graceful degradation) if the MCP module is
-    unavailable or the tool list cannot be loaded.
+    Filters tools by layer (fast=read-only, analyzer=CRUD, deep=full)
+    and by chat_level (general/project/card context).
     """
     try:
         from app.mcp_server import get_tool_list
         all_tools = get_tool_list()
 
-        # System tools are available in ALL chat levels
-        system_tools = {
-            "system.exec", "web.search", "web.fetch",
-            "file.read", "file.write", "file.list",
-        }
+        # Layer-based filtering (primary gate)
+        layer_allowed = _LAYER_TOOL_SETS.get(layer, TOOLS_READ_ONLY)
 
+        # Context-based filtering (secondary gate)
         if chat_level == "general":
-            allowed = {
-                "voxyflow.note.add",
-                "voxyflow.note.list",
-                "voxyflow.project.create",
-                "voxyflow.project.list",
+            context_allowed = {
+                "voxyflow.note.add", "voxyflow.note.list",
+                "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
                 "voxyflow.health",
-            } | system_tools
+            } | {
+                # System/infra tools pass through context filter
+                "system.exec", "web.search", "web.fetch",
+                "file.read", "file.write", "file.list",
+                "git.status", "git.log", "git.diff", "git.branches", "git.commit",
+                "tmux.list", "tmux.capture", "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
+                "voxyflow.jobs.list", "voxyflow.jobs.create",
+                "voxyflow.doc.list", "voxyflow.doc.delete",
+            }
         elif chat_level == "project":
-            allowed = ({t["name"] for t in all_tools} - {
-                "voxyflow.note.add",
-                "voxyflow.note.list",
-            })
+            context_allowed = {t["name"] for t in all_tools} - {
+                "voxyflow.note.add", "voxyflow.note.list",
+            }
         else:
-            allowed = {t["name"] for t in all_tools}
+            context_allowed = {t["name"] for t in all_tools}
+
+        # Tool must pass BOTH layer and context gates
+        allowed = layer_allowed & context_allowed
 
         tools = []
         for tool in all_tools:
             if tool["name"] in allowed:
                 tools.append({
-                    "name": tool["name"].replace(".", "_"),  # Anthropic forbids dots in tool names
+                    "name": tool["name"].replace(".", "_"),
                     "description": tool["description"],
                     "input_schema": tool["inputSchema"],
                 })
@@ -175,7 +228,17 @@ class ClaudeService:
     All calls are personality-infused via PersonalityService.
     """
 
+    _instance: "ClaudeService | None" = None
+
+    def __new__(cls) -> "ClaudeService":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        if hasattr(self, "_initialized"):
+            return
+        self._initialized = True
         config = get_settings()
         self.max_tokens = config.claude_max_tokens
         self.use_native = config.claude_use_native
@@ -246,13 +309,19 @@ class ClaudeService:
         )
 
     # ------------------------------------------------------------------
-    # History helpers
+    # History helpers (accessible across layers via the singleton)
     # ------------------------------------------------------------------
 
-    def _get_history(self, chat_id: str) -> list[dict]:
+    def get_history(self, chat_id: str) -> list[dict]:
+        """Return conversation history for *chat_id*, loading from the session
+        store on first access.  Because ClaudeService is a singleton, this
+        history is shared across all layers (fast, deep, analyzer)."""
         if chat_id not in self._histories:
             self._histories[chat_id] = session_store.get_history_for_claude(chat_id, limit=40)
         return self._histories[chat_id]
+
+    # Keep the underscore alias so existing internal callers don't break.
+    _get_history = get_history
 
     def _append_and_persist(self, chat_id: str, role: str, content: str,
                             model: str | None = None, msg_type: str | None = None,
@@ -455,7 +524,9 @@ class ClaudeService:
                 messages=eval_messages,
                 client=self.deep_client,
                 client_type=self.deep_client_type,
-                use_tools=False,
+                use_tools=True,
+                layer="deep",
+                chat_level=chat_level,
             )
             result = json.loads(response_text.strip())
             if result.get("action") in ("enrich", "correct", "none"):
@@ -499,6 +570,7 @@ class ClaudeService:
             messages=recent,
             client=self.deep_client,
             client_type=self.deep_client_type,
+            layer="deep",
         )
 
         if not response_text or response_text.strip().upper() == "EMPTY":
@@ -538,6 +610,7 @@ class ClaudeService:
             messages=recent,
             client=self.deep_client,
             client_type=self.deep_client_type,
+            layer="deep",
         )
 
         self._append_and_persist(chat_id, "assistant", response_text, model="deep")
@@ -646,45 +719,6 @@ class ClaudeService:
             use_tools=False,
         )
 
-    async def analyze_for_cards(
-        self,
-        chat_id: str,
-        message: str,
-        project_name: Optional[str] = None,
-    ) -> Optional[str]:
-        """Analyze a message for card suggestions + agent routing. Returns JSON string or None."""
-        memory_context = self.memory.build_memory_context(
-            project_name=project_name,
-            include_long_term=False,
-            include_daily=True,
-        )
-        system_prompt = self.personality.build_analyzer_prompt(memory_context=memory_context)
-
-        analysis_prompt = (
-            "Analyze this message for actionable items. If you detect a task, respond with JSON:\n"
-            "```json\n"
-            '{\n'
-            '  "has_action": true,\n'
-            '  "title": "concise action title",\n'
-            '  "description": "fuller context",\n'
-            '  "priority": 0-4,\n'
-            '  "agent_type": "ember|researcher|coder|designer|architect|writer|qa",\n'
-            '  "confidence": 0.0-1.0\n'
-            '}\n'
-            "```\n"
-            "If no actionable item, respond: {\"has_action\": false}\n\n"
-            f"Message to analyze:\n{message}"
-        )
-
-        return await self._call_api(
-            model=self.analyzer_model,
-            system=system_prompt,
-            messages=[{"role": "user", "content": analysis_prompt}],
-            client=self.analyzer_client,
-            client_type=self.analyzer_client_type,
-            use_tools=False,
-        )
-
     # ------------------------------------------------------------------
     # Internal: Anthropic native SDK
     # ------------------------------------------------------------------
@@ -698,6 +732,7 @@ class ClaudeService:
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
+        layer: str = "fast",
     ) -> str:
         """Native Anthropic SDK call with tool_use loop.
 
@@ -709,7 +744,7 @@ class ClaudeService:
         # Strip system-role messages; system prompt is passed separately
         clean_messages = [m for m in messages if m.get("role") != "system"]
 
-        claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
+        claude_tools = get_claude_tools(chat_level=chat_level, layer=layer) if use_tools else []
 
         # Ensure messages list is not empty (Anthropic requires at least one)
         if not clean_messages:
@@ -790,6 +825,7 @@ class ClaudeService:
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
+        layer: str = "fast",
     ) -> AsyncIterator[str]:
         """Native Anthropic SDK streaming call with tool_use handling.
 
@@ -801,7 +837,7 @@ class ClaudeService:
         if not clean_messages:
             clean_messages = [{"role": "user", "content": "(empty)"}]
 
-        claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
+        claude_tools = get_claude_tools(chat_level=chat_level, layer=layer) if use_tools else []
 
         kwargs = {
             "model": model,
@@ -915,6 +951,7 @@ class ClaudeService:
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
+        layer: str = "fast",
     ) -> str:
         """OpenAI-compatible proxy call (fallback path)."""
         from openai import OpenAI
@@ -922,7 +959,7 @@ class ClaudeService:
         api_messages = [{"role": "system", "content": system}]
         api_messages.extend(messages)
 
-        claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
+        claude_tools = get_claude_tools(chat_level=chat_level, layer=layer) if use_tools else []
 
         try:
             for _ in range(10):
@@ -991,6 +1028,7 @@ class ClaudeService:
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
+        layer: str = "fast",
     ) -> AsyncIterator[str]:
         """OpenAI-compatible streaming (fallback path)."""
         import asyncio
@@ -1000,7 +1038,7 @@ class ClaudeService:
         api_messages = [{"role": "system", "content": system}]
         api_messages.extend(messages)
 
-        claude_tools = get_claude_tools(chat_level=chat_level) if use_tools else []
+        claude_tools = get_claude_tools(chat_level=chat_level, layer=layer) if use_tools else []
 
         try:
             kwargs: dict = {
@@ -1137,6 +1175,7 @@ class ClaudeService:
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
+        layer: str = "fast",
     ) -> str:
         """Dispatch to native Anthropic SDK or OpenAI-compat fallback."""
         api_client = client or self.fast_client
@@ -1146,11 +1185,13 @@ class ClaudeService:
             return await self._call_api_anthropic(
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
+                layer=layer,
             )
         else:
             return await self._call_api_openai(
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
+                layer=layer,
             )
 
     async def _call_api_stream(
@@ -1163,6 +1204,7 @@ class ClaudeService:
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
+        layer: str = "fast",
     ) -> AsyncIterator[str]:
         """Dispatch streaming to native Anthropic SDK or OpenAI-compat fallback."""
         api_client = client or self.fast_client
@@ -1172,11 +1214,13 @@ class ClaudeService:
             async for token in self._call_api_stream_anthropic(
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
+                layer=layer,
             ):
                 yield token
         else:
             async for token in self._call_api_stream_openai(
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
+                layer=layer,
             ):
                 yield token

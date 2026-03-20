@@ -890,3 +890,12 @@ else:
 def get_tool_list() -> list[dict]:
     """Return all MCP tool definitions (public, no internal keys)."""
     return _public_tool_defs()
+
+
+def get_tools_for_names(names: set[str]) -> list[dict]:
+    """Return tool definitions (public, no internal keys) filtered to the given names."""
+    return [
+        {k: v for k, v in t.items() if k not in ("_http", "_handler")}
+        for t in _TOOL_DEFINITIONS
+        if t["name"] in names
+    ]

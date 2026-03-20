@@ -119,7 +119,7 @@ class AnalyzerService:
         'cool', 'nice', 'wow', 'k', 'kk', 'np', 'thx', 'ty',
     ])
 
-    async def analyze(
+    async def _analyze(
         self,
         chat_id: str,
         message: str,
@@ -152,7 +152,7 @@ class AnalyzerService:
 
         return card
 
-    async def analyze_with_llm(
+    async def _analyze_with_llm(
         self,
         chat_id: str,
         message: str,
@@ -160,9 +160,8 @@ class AnalyzerService:
         project_context: str = "",
     ) -> Optional[CardSuggestion]:
         """
-        LLM-powered analysis (uses Claude response from claude_service.analyze_for_cards).
-
-        Parses the structured JSON response and enriches with agent routing.
+        LLM-powered analysis — parses a structured JSON response from an LLM
+        and enriches with agent routing.
         """
         if not llm_response:
             return None
@@ -231,7 +230,7 @@ class AnalyzerService:
         except (json.JSONDecodeError, KeyError, IndexError) as e:
             logger.warning(f"Failed to parse LLM analysis response: {e}")
             # Fall back to heuristic analysis
-            return await self.analyze(chat_id, message, project_context)
+            return await self._analyze(chat_id, message, project_context)
 
     def _keyword_score(self, text: str) -> float:
         """Score message for action-likelihood based on keywords."""
@@ -318,7 +317,7 @@ class AnalyzerService:
         ClaudeService, it enriches the result. Returns empty list if nothing detected.
         """
         # Step 1: Heuristic analysis (fast, no API call)
-        card = await self.analyze(chat_id, message, project_context)
+        card = await self._analyze(chat_id, message, project_context)
 
         if not card:
             return []
