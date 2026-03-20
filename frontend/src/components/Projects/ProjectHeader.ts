@@ -13,10 +13,10 @@ interface ProjectTab {
 const PROJECT_TABS: ProjectTab[] = [
   { view: 'chat', emoji: '💬', label: 'Chat' },
   { view: 'kanban', emoji: '📋', label: 'Kanban' },
-  { view: 'stats', emoji: '📊', label: 'Stats' },
-  { view: 'roadmap', emoji: '📅', label: 'Roadmap' },
+  // Hidden until implemented: { view: 'stats', emoji: '📊', label: 'Stats' },
+  // Hidden until implemented: { view: 'roadmap', emoji: '📅', label: 'Roadmap' },
   { view: 'wiki', emoji: '📖', label: 'Wiki' },
-  { view: 'sprint', emoji: '🏃', label: 'Sprints' },
+  // Hidden until implemented: { view: 'sprint', emoji: '🏃', label: 'Sprints' },
   { view: 'docs', emoji: '📚', label: 'Docs' },
 ];
 
