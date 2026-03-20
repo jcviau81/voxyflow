@@ -1060,20 +1060,18 @@ export class ChatWindow {
   }
 
   private handleNewSession(): void {
-    // Create a new session tab (general chat only)
-    const MAX_GENERAL_SESSIONS = 5;
-    if (this.sessions.length >= MAX_GENERAL_SESSIONS) return;
-    // Label based on current count, not a global counter
-    const nextNum = this.sessions.length + 1;
-    const newSession = {
-      id: generateId(),
-      label: `Session ${nextNum}`,
-    };
-    this.sessions.push(newSession);
-    this.activeSessionId = newSession.id;
-    chatService.activeSessionId = newSession.id;
+    // Reset the CURRENT session in-place (clear history, fresh start — no new tab)
+    const freshId = generateId();
 
-    // Clear the message list UI for the new session
+    // Update session id in-place
+    const currentSession = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (currentSession) {
+      currentSession.id = freshId;
+    }
+    this.activeSessionId = freshId;
+    chatService.activeSessionId = freshId;
+
+    // Clear the message list UI
     if (this.messageList) {
       this.messageList.innerHTML = '';
     }
@@ -1087,7 +1085,7 @@ export class ChatWindow {
     // Notify backend to reset conversation context
     apiClient.send('session:reset', {
       chatLevel: 'general',
-      sessionId: newSession.id,
+      sessionId: freshId,
     });
 
     // Auto-greet on new session
@@ -1095,10 +1093,10 @@ export class ChatWindow {
       "User just started a new session. Greet them naturally and briefly — one sentence max. Ask what they want to work on.",
       undefined,
       undefined,
-      newSession.id,
+      freshId,
     );
 
-    // Update header to show new tab
+    // Update header
     this.updateUnifiedHeader();
 
     // Focus input
