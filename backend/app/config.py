@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///./voxyflow.db"
+    database_url: str = "sqlite+aiosqlite:////home/jcviau/.voxyflow/voxyflow.db"
 
     # Claude API — native Anthropic SDK (preferred)
     claude_use_native: bool = False   # False = OpenAI-compatible proxy (claude-max-api). True requires direct API access.
