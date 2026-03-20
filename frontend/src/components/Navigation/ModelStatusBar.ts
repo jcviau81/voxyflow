@@ -36,6 +36,8 @@ export class ModelStatusBar {
   private modeButtons: Map<string, HTMLButtonElement> = new Map();
   private layerState: Record<string, boolean> = {};
   private unsubscribers: (() => void)[] = [];
+  private staleTimers: Map<ModelName, ReturnType<typeof setTimeout>> = new Map();
+  private static readonly STALE_TIMEOUT_MS = 60_000; // 60 seconds safety net
 
   constructor(private parentElement: HTMLElement) {
     this.element = createElement('div', {
@@ -223,6 +225,21 @@ export class ModelStatusBar {
       btn.classList.toggle('responding', state === 'active');
       btn.classList.toggle('thinking', state === 'thinking');
     }
+
+    // Safety net: auto-reset to idle if stuck in thinking/active for too long
+    const existingTimer = this.staleTimers.get(modelName);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.staleTimers.delete(modelName);
+    }
+
+    if (state === 'thinking' || state === 'active') {
+      const timer = setTimeout(() => {
+        console.warn(`[ModelStatusBar] Safety net: forcing ${modelName} back to idle after ${ModelStatusBar.STALE_TIMEOUT_MS}ms`);
+        this.updateModelState(modelName, 'idle');
+      }, ModelStatusBar.STALE_TIMEOUT_MS);
+      this.staleTimers.set(modelName, timer);
+    }
   }
 
   /** Get the current layer toggle states */
@@ -239,9 +256,21 @@ export class ModelStatusBar {
     return { deep: true, analyzer: true };
   }
 
+  /** Reset all model statuses to idle — used on reconnection */
+  resetAllStatuses(): void {
+    for (const modelName of this.models.keys()) {
+      this.updateModelState(modelName, 'idle');
+    }
+  }
+
   destroy(): void {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
+    // Clear all stale timers
+    for (const timer of this.staleTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.staleTimers.clear();
     this.toggleElements.clear();
     this.modeButtons.clear();
     this.element.remove();

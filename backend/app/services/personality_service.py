@@ -443,7 +443,25 @@ class PersonalityService:
         if dispatcher:
             voice_instructions += "\n\n" + dispatcher
 
-        return base + voice_instructions
+        # CRITICAL REMINDER at the very end — reinforces delegate format after all other instructions
+        voice_instructions += (
+            "\n\n## ⚠️ CRITICAL REMINDER — DO NOT FORGET ⚠️\n"
+            "When the user asks you to DO something (not just chat), you MUST include a <delegate> block "
+            "at the END of your response. This is the ONLY way to trigger worker execution.\n\n"
+            "Format — include this EXACTLY:\n"
+            "<delegate>\n"
+            '{"action": "...", "model": "haiku|sonnet|opus", "description": "..."}\n'
+            "</delegate>\n\n"
+            "WITHOUT this block, NO worker will execute. Just saying \"I'll do it\" does NOTHING.\n"
+            "If you said you would do something but didn't include <delegate>, YOU FAILED.\n"
+            "When in doubt, INCLUDE the delegate block."
+        )
+
+        # Log system prompt length for debugging delegate issues
+        full_prompt = base + voice_instructions
+        logger.info(f"[PersonalityService] Fast prompt built: {len(full_prompt)} chars, chat_level={chat_level}")
+
+        return full_prompt
 
     def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None, has_delegation: bool = False, is_chat_responder: bool = False) -> str:
         # Build context-appropriate base
@@ -497,7 +515,22 @@ class PersonalityService:
                 "EXCEPTION: If the user is just chatting or asking a question — respond normally, NO delegate block."
             )
 
-            return base + voice_instructions
+            # CRITICAL REMINDER at the very end
+            voice_instructions += (
+                "\n\n## ⚠️ CRITICAL REMINDER — DO NOT FORGET ⚠️\n"
+                "When the user asks you to DO something (not just chat), you MUST include a <delegate> block "
+                "at the END of your response. This is the ONLY way to trigger worker execution.\n\n"
+                "Format — include this EXACTLY:\n"
+                "<delegate>\n"
+                '{"action": "...", "model": "haiku|sonnet|opus", "description": "..."}\n'
+                "</delegate>\n\n"
+                "WITHOUT this block, NO worker will execute. Just saying \"I'll do it\" does NOTHING.\n"
+                "If you said you would do something but didn't include <delegate>, YOU FAILED."
+            )
+
+            full_prompt = base + voice_instructions
+            logger.info(f"[PersonalityService] Deep chat prompt built: {len(full_prompt)} chars, chat_level={chat_level}")
+            return full_prompt
 
         # --- Background executor / supervisor mode (original behavior) ---
         deep_instructions = (

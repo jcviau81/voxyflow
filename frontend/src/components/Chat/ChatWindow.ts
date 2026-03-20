@@ -747,6 +747,8 @@ export class ChatWindow {
             const msgs = chatService.getHistory(appState.get('currentProjectId') || undefined);
             if (msgs.length === 0) this.showWelcomePrompt();
           }
+          // Reset all model status pills to idle on reconnection (safety net)
+          this.modelStatusBar?.resetAllStatuses();
         }
       })
     );
