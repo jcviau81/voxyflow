@@ -74,46 +74,73 @@ export class ProjectService {
     return appState.getProject(id);
   }
 
-  archive(id: string): void {
-    this.update(id, { archived: true });
+  async archive(id: string): Promise<void> {
+    try {
+      const resp = await fetch(`/api/projects/${id}/archive`, { method: 'POST' });
+      if (resp.ok) {
+        appState.updateProject(id, { archived: true });
+        eventBus.emit(EVENTS.PROJECT_UPDATED, { id });
+      }
+    } catch (e) {
+      // fallback to WS update
+      this.update(id, { archived: true });
+    }
   }
 
-  unarchive(id: string): void {
-    this.update(id, { archived: false });
+  async unarchive(id: string): Promise<void> {
+    try {
+      const resp = await fetch(`/api/projects/${id}/restore`, { method: 'POST' });
+      if (resp.ok) {
+        appState.updateProject(id, { archived: false });
+        eventBus.emit(EVENTS.PROJECT_UPDATED, { id });
+      }
+    } catch (e) {
+      this.update(id, { archived: false });
+    }
   }
 
   select(id: string | null): void {
     appState.selectProject(id);
   }
 
+  private mapRawProject(p: Record<string, unknown>): Project {
+    return {
+      id: p.id as string,
+      name: (p.name || p.title || 'Untitled') as string,
+      description: (p.description || '') as string,
+      emoji: p.emoji as string | undefined,
+      color: p.color as string | undefined,
+      localPath: p.local_path as string | undefined,
+      createdAt: p.created_at ? new Date(p.created_at as string).getTime() : Date.now(),
+      updatedAt: p.updated_at ? new Date(p.updated_at as string).getTime() : Date.now(),
+      cards: (p.cards as string[]) || [],
+      archived: p.status === 'archived' || (p.archived as boolean) || false,
+      techStack: p.tech_stack as import('../types').TechDetectResult | undefined,
+      githubRepo: p.github_repo as string | undefined,
+      githubUrl: p.github_url as string | undefined,
+      githubBranch: p.github_branch as string | undefined,
+      githubLanguage: p.github_language as string | undefined,
+    };
+  }
+
   async requestSync(): Promise<void> {
     try {
-      const response = await fetch('/api/projects');
-      if (!response.ok) return;
-      const raw = await response.json();
-      const projects: Project[] = Array.isArray(raw) ? raw.map((p: Record<string, unknown>) => ({
-        id: p.id as string,
-        name: (p.name || p.title || 'Untitled') as string,
-        description: (p.description || '') as string,
-        emoji: p.emoji as string | undefined,
-        color: p.color as string | undefined,
-        localPath: p.local_path as string | undefined,
-        createdAt: p.created_at ? new Date(p.created_at as string).getTime() : Date.now(),
-        updatedAt: p.updated_at ? new Date(p.updated_at as string).getTime() : Date.now(),
-        cards: (p.cards as string[]) || [],
-        archived: (p.archived as boolean) || false,
-        techStack: p.tech_stack as import('../types').TechDetectResult | undefined,
-        githubRepo: p.github_repo as string | undefined,
-        githubUrl: p.github_url as string | undefined,
-        githubBranch: p.github_branch as string | undefined,
-        githubLanguage: p.github_language as string | undefined,
-      })) : [];
+      // Fetch both active and archived projects
+      const [activeResp, archivedResp] = await Promise.all([
+        fetch('/api/projects?archived=false'),
+        fetch('/api/projects?archived=true'),
+      ]);
+      if (!activeResp.ok) return;
+      const activeRaw = await activeResp.json();
+      const archivedRaw = archivedResp.ok ? await archivedResp.json() : [];
+      const active: Project[] = Array.isArray(activeRaw) ? activeRaw.map((p: Record<string, unknown>) => this.mapRawProject(p)) : [];
+      const archived: Project[] = Array.isArray(archivedRaw) ? archivedRaw.map((p: Record<string, unknown>) => this.mapRawProject(p)) : [];
+      const projects = [...active, ...archived];
       if (projects.length > 0) {
         appState.set('projects', projects);
-        eventBus.emit(EVENTS.PROJECT_SELECTED); // trigger sidebar re-render (not PROJECT_CREATED — that expects a project payload)
+        eventBus.emit(EVENTS.PROJECT_SELECTED);
       }
     } catch (e) {
-      // fallback: try WS
       apiClient.send('project:list-request', {});
     }
   }

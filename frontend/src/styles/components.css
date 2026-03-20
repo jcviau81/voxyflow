@@ -175,6 +175,19 @@
   color: var(--color-primary) !important;
 }
 
+.sidebar-archived-link {
+  color: var(--color-text-muted) !important;
+  font-size: 0.85em;
+  opacity: 0.75;
+  border-top: 1px solid var(--color-border);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.sidebar-archived-link:hover {
+  opacity: 1;
+  color: var(--color-text) !important;
+}
+
 .sidebar-status {
   display: flex;
   align-items: center;

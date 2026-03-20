@@ -130,6 +130,17 @@
   gap: 10px;
 }
 
+.project-archived-badge {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.08));
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .project-card-emoji {
   font-size: 22px;
   line-height: 1;

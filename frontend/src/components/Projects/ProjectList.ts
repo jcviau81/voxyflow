@@ -6,7 +6,7 @@ import { appState } from '../../state/AppState';
 import { projectService } from '../../services/ProjectService';
 import { apiClient } from '../../services/ApiClient';
 
-type FilterMode = 'all' | 'active' | 'completed';
+type FilterMode = 'all' | 'active' | 'completed' | 'archived';
 
 export class ProjectList {
   private container: HTMLElement;
@@ -63,6 +63,7 @@ export class ProjectList {
       { key: 'all', label: 'All' },
       { key: 'active', label: 'Active' },
       { key: 'completed', label: 'Completed' },
+      { key: 'archived', label: '📦 Archived' },
     ];
     filters.forEach(({ key, label }) => {
       const chip = createElement('button', {
@@ -103,6 +104,20 @@ export class ProjectList {
     this.unsubscribers.push(
       eventBus.on(EVENTS.CARD_MOVED, () => this.refreshProjects())
     );
+    // Listen for filter switch from sidebar archived link
+    this.unsubscribers.push(
+      eventBus.on('PROJECT_LIST_FILTER' as any, (payload: unknown) => {
+        const { filter } = payload as { filter: FilterMode };
+        this.currentFilter = filter;
+        this.refreshProjects();
+        // Update chip active states
+        if (this.filterEl) {
+          this.filterEl.querySelectorAll('.project-filter-chip').forEach((el) => {
+            el.classList.toggle('active', (el as HTMLElement).dataset.filter === filter);
+          });
+        }
+      })
+    );
   }
 
   private getProjectStats(project: Project): {
@@ -132,7 +147,8 @@ export class ProjectList {
     if (!this.listEl || !this.summaryEl) return;
     this.listEl.innerHTML = '';
 
-    const allProjects = projectService.list(); // non-archived only
+    const isArchivedView = this.currentFilter === 'archived';
+    const allProjects = isArchivedView ? projectService.listArchived() : projectService.list();
 
     // ── Summary stats ───────────────────────────────────────────────────
     const totalCards = allProjects.reduce((sum, p) => {
@@ -143,12 +159,14 @@ export class ProjectList {
     }, 0);
 
     this.summaryEl.innerHTML = '';
-    const stats = [
-      { label: 'Projects', value: String(allProjects.length), icon: '📁' },
-      { label: 'Total cards', value: String(totalCards), icon: '🃏' },
-      { label: 'Done', value: String(totalDone), icon: '✅' },
-      { label: 'Completion', value: totalCards > 0 ? `${Math.round((totalDone / totalCards) * 100)}%` : '—', icon: '📊' },
-    ];
+    const stats = isArchivedView
+      ? [{ label: 'Archived', value: String(allProjects.length), icon: '📦' }]
+      : [
+          { label: 'Projects', value: String(allProjects.length), icon: '📁' },
+          { label: 'Total cards', value: String(totalCards), icon: '🃏' },
+          { label: 'Done', value: String(totalDone), icon: '✅' },
+          { label: 'Completion', value: totalCards > 0 ? `${Math.round((totalDone / totalCards) * 100)}%` : '—', icon: '📊' },
+        ];
     stats.forEach(({ label, value, icon }) => {
       const stat = createElement('div', { className: 'project-summary-stat' });
       stat.appendChild(createElement('span', { className: 'project-summary-icon' }, icon));
@@ -214,6 +232,12 @@ export class ProjectList {
 
     cardHeader.appendChild(emojiEl);
     cardHeader.appendChild(titleWrap);
+
+    // Archived badge
+    if (project.archived) {
+      const badge = createElement('span', { className: 'project-archived-badge' }, '📦 Archived');
+      cardHeader.appendChild(badge);
+    }
 
     // ── Description ─────────────────────────────────────────────────────
     const descEl = createElement('div', { className: 'project-card-desc' }, project.description || 'No description');
@@ -284,51 +308,90 @@ export class ProjectList {
     // ── Quick actions ─────────────────────────────────────────────────────
     const actions = createElement('div', { className: 'project-card-actions' });
 
-    const openBtn = createElement('button', {
-      className: 'project-card-action-btn primary',
-      'data-testid': `project-open-${project.id}`,
-      title: 'Open project',
-    }, '▶ Open');
-    openBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      projectService.select(project.id);
-      appState.setView('kanban');
-    });
+    if (project.archived) {
+      // Archived project actions: Restore + Delete permanently
+      const restoreBtn = createElement('button', {
+        className: 'project-card-action-btn primary',
+        title: 'Restore project',
+      }, '↩ Restore');
+      restoreBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        projectService.unarchive(project.id);
+      });
 
-    const exportBtn = createElement('button', {
-      className: 'project-card-action-btn',
-      title: 'Export project',
-    }, '⬇ Export');
-    exportBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.exportProject(project);
-    });
+      const deleteBtn = createElement('button', {
+        className: 'project-card-action-btn danger',
+        title: 'Delete permanently',
+      }, '🗑️ Delete permanently');
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm(`Permanently delete "${project.name}"? This cannot be undone. All cards, history, and knowledge will be lost.`)) {
+          projectService.delete(project.id);
+        }
+      });
 
-    const editBtn = createElement('button', {
-      className: 'project-card-action-btn',
-      'data-testid': `project-edit-${project.id}`,
-      title: 'Edit project',
-    }, '✏️ Edit');
-    editBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'edit', project });
-    });
+      actions.appendChild(restoreBtn);
+      actions.appendChild(deleteBtn);
+    } else {
+      // Active project actions
+      const openBtn = createElement('button', {
+        className: 'project-card-action-btn primary',
+        'data-testid': `project-open-${project.id}`,
+        title: 'Open project',
+      }, '▶ Open');
+      openBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        projectService.select(project.id);
+        appState.setView('kanban');
+      });
 
-    const deleteBtn = createElement('button', {
-      className: 'project-card-action-btn danger',
-      title: 'Delete project',
-    }, '🗑️');
-    deleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (confirm(`Delete project "${project.name}"?`)) {
-        projectService.delete(project.id);
-      }
-    });
+      const exportBtn = createElement('button', {
+        className: 'project-card-action-btn',
+        title: 'Export project',
+      }, '⬇ Export');
+      exportBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.exportProject(project);
+      });
 
-    actions.appendChild(openBtn);
-    actions.appendChild(exportBtn);
-    actions.appendChild(editBtn);
-    actions.appendChild(deleteBtn);
+      const editBtn = createElement('button', {
+        className: 'project-card-action-btn',
+        'data-testid': `project-edit-${project.id}`,
+        title: 'Edit project',
+      }, '✏️ Edit');
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'edit', project });
+      });
+
+      const archiveBtn = createElement('button', {
+        className: 'project-card-action-btn',
+        title: 'Archive project',
+      }, '📦 Archive');
+      archiveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm(`Archive "${project.name}"? It will be hidden from the main list.`)) {
+          projectService.archive(project.id);
+        }
+      });
+
+      const deleteBtn = createElement('button', {
+        className: 'project-card-action-btn danger',
+        title: 'Delete project',
+      }, '🗑️');
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm(`Delete project "${project.name}"?`)) {
+          projectService.delete(project.id);
+        }
+      });
+
+      actions.appendChild(openBtn);
+      actions.appendChild(exportBtn);
+      actions.appendChild(editBtn);
+      actions.appendChild(archiveBtn);
+      actions.appendChild(deleteBtn);
+    }
 
     // ── Assemble card ─────────────────────────────────────────────────────
     card.appendChild(cardHeader);
@@ -340,11 +403,13 @@ export class ProjectList {
     card.appendChild(activityEl);
     card.appendChild(actions);
 
-    // Click whole card → open project
-    card.addEventListener('click', () => {
-      projectService.select(project.id);
-      appState.setView('kanban');
-    });
+    // Click whole card → open project (only for active projects)
+    if (!project.archived) {
+      card.addEventListener('click', () => {
+        projectService.select(project.id);
+        appState.setView('kanban');
+      });
+    }
 
     return card;
   }

@@ -119,6 +119,25 @@ export class Sidebar {
     });
     projectSection.appendChild(newProjectItem);
 
+    // Archived projects link
+    const archivedProjects = appState.get('projects').filter(p => p.archived);
+    if (archivedProjects.length > 0) {
+      const archivedItem = createElement('div', {
+        className: 'sidebar-project-item sidebar-archived-link',
+        'data-testid': 'sidebar-archived',
+        title: `${archivedProjects.length} archived project${archivedProjects.length > 1 ? 's' : ''}`,
+      });
+      archivedItem.appendChild(createElement('span', {}, '📦'));
+      archivedItem.appendChild(createElement('span', { className: 'sidebar-project-name-text' }, `Archived (${archivedProjects.length})`));
+      archivedItem.addEventListener('click', () => {
+        appState.switchTab('main');
+        appState.setView('projects');
+        // Emit event to switch to archived filter
+        eventBus.emit('PROJECT_LIST_FILTER', { filter: 'archived' });
+      });
+      projectSection.appendChild(archivedItem);
+    }
+
     content.appendChild(projectSection);
 
     // Connection status
@@ -226,6 +245,9 @@ export class Sidebar {
     );
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_DELETED, () => this.render())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.PROJECT_UPDATED, () => this.render())
     );
     this.unsubscribers.push(
       appState.subscribe('theme', () => this.render())

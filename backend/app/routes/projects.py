@@ -269,11 +269,20 @@ async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)
 @router.get("", response_model=list[ProjectResponse])
 async def list_projects(
     status: str | None = None,
+    archived: bool | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(Project).order_by(Project.updated_at.desc())
     if status:
         stmt = stmt.where(Project.status == status)
+    elif archived is not None:
+        if archived:
+            stmt = stmt.where(Project.status == "archived")
+        else:
+            stmt = stmt.where(Project.status == "active")
+    else:
+        # Default: only active projects
+        stmt = stmt.where(Project.status == "active")
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -307,6 +316,32 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
 
     await db.delete(project)
     await db.commit()
+
+
+@router.post("/{project_id}/archive", response_model=ProjectResponse)
+async def archive_project(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Archive a project (hide from main list, keep all data)."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    project.status = "archived"
+    project.updated_at = utcnow()
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+@router.post("/{project_id}/restore", response_model=ProjectResponse)
+async def restore_project(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Restore an archived project back to active."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    project.status = "active"
+    project.updated_at = utcnow()
+    await db.commit()
+    await db.refresh(project)
+    return project
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
