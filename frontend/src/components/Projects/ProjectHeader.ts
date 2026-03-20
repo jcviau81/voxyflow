@@ -15,9 +15,8 @@ const PROJECT_TABS: ProjectTab[] = [
   { view: 'kanban', emoji: '📋', label: 'Kanban' },
   // Hidden until implemented: { view: 'stats', emoji: '📊', label: 'Stats' },
   // Hidden until implemented: { view: 'roadmap', emoji: '📅', label: 'Roadmap' },
-  { view: 'wiki', emoji: '📖', label: 'Wiki' },
+  { view: 'knowledge', emoji: '🧠', label: 'Knowledge' },
   // Hidden until implemented: { view: 'sprint', emoji: '🏃', label: 'Sprints' },
-  { view: 'docs', emoji: '📚', label: 'Docs' },
 ];
 
 export class ProjectHeader {

@@ -1,0 +1,138 @@
+/* ============================================================
+   Knowledge Tab — unified Wiki + Docs + RAG view
+   ============================================================ */
+
+.knowledge-view {
+  padding: 24px;
+  max-width: 860px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.knowledge-section {
+  margin-bottom: 32px;
+}
+
+.knowledge-section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.08));
+}
+
+/* Upload */
+
+.knowledge-upload-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.knowledge-drop-zone {
+  border: 2px dashed var(--color-border, #333);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  color: var(--color-text-muted, #888);
+  font-size: 0.8125rem;
+  user-select: none;
+}
+
+.knowledge-drop-zone:hover {
+  border-color: var(--color-accent, #7c6ff7);
+  background: rgba(124, 111, 247, 0.04);
+}
+
+.knowledge-drop-zone.dragover {
+  border-color: var(--color-accent, #7c6ff7);
+  background: rgba(124, 111, 247, 0.08);
+}
+
+/* List items */
+
+.knowledge-list {
+  margin-top: 8px;
+}
+
+.knowledge-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.06));
+}
+
+.knowledge-item:last-child {
+  border-bottom: none;
+}
+
+.knowledge-item-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.knowledge-item-name {
+  flex: 1;
+  font-size: 0.8125rem;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.knowledge-item-meta {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #888);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.knowledge-item-delete {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  opacity: 0.5;
+  transition: opacity 0.12s;
+}
+
+.knowledge-item-delete:hover {
+  opacity: 1;
+}
+
+/* RAG status badge */
+
+.knowledge-rag-status {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.knowledge-rag-status.indexed {
+  background: rgba(76, 175, 80, 0.15);
+  color: var(--color-success, #4caf50);
+}
+
+.knowledge-rag-status.pending {
+  background: rgba(255, 193, 7, 0.15);
+  color: var(--color-warning, #ffc107);
+}
+
+/* Empty state */
+
+.knowledge-empty {
+  padding: 16px 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #888);
+  font-style: italic;
+}

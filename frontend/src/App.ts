@@ -26,9 +26,8 @@ import { SettingsPage } from './components/Settings/SettingsPage';
 import { FocusMode } from './components/FocusMode/FocusMode';
 import { ProjectStats } from './components/Projects/ProjectStats';
 import { ProjectRoadmap } from './components/Projects/ProjectRoadmap';
-import { ProjectWiki } from './components/Projects/ProjectWiki';
+import { ProjectKnowledge } from './components/Projects/ProjectKnowledge';
 import { SprintPlanner } from './components/Projects/SprintPlanner';
-import { ProjectDocuments } from './components/Projects/ProjectDocuments';
 
 export class App {
   private root: HTMLElement;
@@ -655,14 +654,11 @@ export class App {
       case 'roadmap':
         component = new ProjectRoadmap(this.mainContent);
         break;
-      case 'wiki':
-        component = new ProjectWiki(this.mainContent);
+      case 'knowledge':
+        component = new ProjectKnowledge(this.mainContent);
         break;
       case 'sprint':
         component = new SprintPlanner(this.mainContent);
-        break;
-      case 'docs':
-        component = new ProjectDocuments(this.mainContent);
         break;
     }
 

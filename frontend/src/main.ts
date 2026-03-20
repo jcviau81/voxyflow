@@ -8,6 +8,7 @@ import './styles/roadmap.css';
 import './styles/wiki.css';
 import './styles/sprint.css';
 import './styles/docs.css';
+import './styles/knowledge.css';
 import './styles/meeting-notes.css';
 import './styles/responsive.css';
 import './styles/rich-chat.css';
