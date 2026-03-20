@@ -628,7 +628,16 @@ class ClaudeService:
             "- Do NOT ask for confirmation — the user already confirmed via the fast layer\n"
             "- After executing, respond with a brief summary of what you did\n"
             "- If the action fails, explain why\n"
-            "- Respond in the same language the user used\n"
+            "- Respond in the same language the user used\n\n"
+            "## Research & Content Quality Rules (CRITICAL)\n"
+            "When filling cards with researched content (deals, lists, recommendations, etc.):\n"
+            "- ALWAYS include source URLs for every fact, price, deal, or recommendation\n"
+            "- ALWAYS include exact prices (not ranges) when found\n"
+            "- ALWAYS name the specific site/store where the deal was found\n"
+            "- Format: 'Item name — $X.XX at StoreName (url)'\n"
+            "- If you cannot find a real source URL, explicitly say 'Source not verified'\n"
+            "- Never fabricate URLs or prices — if uncertain, state it clearly\n"
+            "- Include the date/time of research so the user knows how fresh the info is\n"
         )
 
         system_prompt = self.personality.build_system_prompt(
