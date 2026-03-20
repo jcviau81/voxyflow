@@ -380,6 +380,9 @@ class ChatOrchestrator:
         project_id: str | None = None,
     ) -> None:
         """Parse <delegate> blocks from the Fast response and emit ActionIntent events."""
+        # Debug: log the tail of the response to verify delegate blocks are present
+        response_preview = fast_response[-300:] if len(fast_response) > 300 else fast_response
+        logger.info(f"[Orchestrator] Parsing delegates from response (len={len(fast_response)}), tail: {response_preview!r}")
         matches = self._DELEGATE_PATTERN.findall(fast_response)
         if not matches:
             return
@@ -616,13 +619,25 @@ class ChatOrchestrator:
 
         except Exception as e:
             logger.error(f"[Layer1-Fast] error: {e}")
-            await send_model_status("fast", "error")
-            await websocket.send_json({
-                "type": "chat:error",
-                "payload": {"messageId": message_id, "error": str(e), "sessionId": session_id},
-                "timestamp": int(time.time() * 1000),
-            })
+            try:
+                await send_model_status("fast", "error")
+            except Exception:
+                pass
+            try:
+                await websocket.send_json({
+                    "type": "chat:error",
+                    "payload": {"messageId": message_id, "error": str(e), "sessionId": session_id},
+                    "timestamp": int(time.time() * 1000),
+                })
+            except Exception:
+                pass
             return False
+        finally:
+            # Safety net: always reset to idle even if WS is closed
+            try:
+                await send_model_status("fast", "idle")
+            except Exception:
+                logger.debug("[Layer1-Fast] Could not send final idle status (WS likely closed)")
 
     # ------------------------------------------------------------------
     # Internal: Layer 2 — Deep Chat (streaming, direct response)
@@ -707,13 +722,25 @@ class ChatOrchestrator:
 
         except Exception as e:
             logger.error(f"[Layer-Deep-Chat] error: {e}")
-            await send_model_status("deep", "error")
-            await websocket.send_json({
-                "type": "chat:error",
-                "payload": {"messageId": message_id, "error": str(e), "sessionId": session_id},
-                "timestamp": int(time.time() * 1000),
-            })
+            try:
+                await send_model_status("deep", "error")
+            except Exception:
+                pass
+            try:
+                await websocket.send_json({
+                    "type": "chat:error",
+                    "payload": {"messageId": message_id, "error": str(e), "sessionId": session_id},
+                    "timestamp": int(time.time() * 1000),
+                })
+            except Exception:
+                pass
             return False
+        finally:
+            # Safety net: always reset to idle even if WS is closed
+            try:
+                await send_model_status("deep", "idle")
+            except Exception:
+                logger.debug("[Layer-Deep-Chat] Could not send final idle status (WS likely closed)")
 
     # ------------------------------------------------------------------
     # Internal: Layer 3 — Analyzer (card suggestions)

@@ -2,7 +2,7 @@
 
 **AI-powered, voice-first project assistant.**
 
-Talk to it. It listens, thinks, responds with voice, and turns your conversations into organized projects with cards, kanban boards, roadmaps, and docs. Three Claude models work together — one for fast chat, one for deep thinking, one for background analysis.
+Talk to it. It listens, thinks, responds with voice, and turns your conversations into organized projects with cards, kanban boards, roadmaps, and docs. A Chat Agent (Dispatcher) handles conversation while background Workers execute real tasks — your conversation is never blocked.
 
 Built as a Progressive Web App. Runs locally. No cloud lock-in.
 
@@ -19,8 +19,10 @@ Built as a Progressive Web App. Runs locally. No cloud lock-in.
              │ REST + WebSocket
 ┌────────────▼────────────────────┐
 │  FastAPI Backend :8000          │
-│  ├─ Chat Pipeline (3 models)   │
-│  ├─ Tool System (native)       │
+│  ├─ Chat Agent (Dispatcher)    │
+│  ├─ Workers (background exec)  │
+│  ├─ Analyzer (passive observer)│
+│  ├─ Tool System (workers only) │
 │  ├─ MCP Server (SSE + stdio)   │
 │  ├─ RAG (ChromaDB)             │
 │  ├─ APScheduler                │
@@ -40,15 +42,16 @@ Built as a Progressive Web App. Runs locally. No cloud lock-in.
 
 ## Features
 
-### 💬 Multi-Model Chat Pipeline
+### 💬 Dispatcher + Workers Architecture
 
-- **Fast Model** (Sonnet) — Instant conversational responses, tool execution
-- **Deep Model** (Opus) — Background supervisor, deep analysis, project briefs
-- **Analyzer** (Sonnet) — Watches conversations, auto-detects cards and action items
+- **Chat Agent (Dispatcher)** — Conversational interface, zero tools, always responsive. Reads, speaks, and dispatches work to background Workers.
+- **Workers** — Background agents that execute real tasks (CRUD, research, code, etc.) without blocking the conversation. Routed by model: Haiku (simple CRUD), Sonnet (research), Opus (complex multi-step).
+- **Analyzer** — Passive background observer that watches conversations and detects opportunities (card suggestions, patterns, action items).
 - 3-level chat hierarchy: **General Chat → Project Chat → Card Chat**
 - Streaming responses, session tabs, chat search, slash commands
 - Smart suggestions, emoji picker, meeting notes export
 - Welcome flow with context-aware prompts
+- **Key principle:** The conversation is never blocked by running tasks
 
 ### 🎤 Voice
 
@@ -255,6 +258,12 @@ Update `settings.json` to point all models to `http://localhost:3457/v1`:
 }
 ```
 
+**Model roles in the new architecture:**
+- `fast` — Powers the Chat Agent (Dispatcher) in Fast mode
+- `deep` — Powers the Chat Agent (Dispatcher) in Deep mode
+- `analyzer` — Powers the background Analyzer
+- Workers select their own model (haiku/sonnet/opus) based on task complexity, dispatched by the Chat Agent
+
 ### MCP Client Configuration
 
 To use Voxyflow as an MCP server in Claude Code, Cursor, or other clients, add to your MCP config:
@@ -298,17 +307,20 @@ Runtime configuration for personality and models:
     "fast": {
       "provider_url": "http://localhost:3457/v1",
       "model": "claude-sonnet-4-20250514",
-      "enabled": true
+      "enabled": true,
+      "_note": "Chat Agent (Dispatcher) — Fast mode"
     },
     "deep": {
       "provider_url": "http://localhost:3457/v1",
       "model": "claude-opus-4-20250514",
-      "enabled": true
+      "enabled": true,
+      "_note": "Chat Agent (Dispatcher) — Deep mode"
     },
     "analyzer": {
       "provider_url": "http://localhost:3457/v1",
       "model": "claude-sonnet-4-20250514",
-      "enabled": true
+      "enabled": true,
+      "_note": "Background Analyzer — passive observation"
     }
   },
   "scheduler": {
@@ -319,6 +331,8 @@ Runtime configuration for personality and models:
 }
 ```
 
+**Architecture note:** The `fast` and `deep` models power the Chat Agent (Dispatcher), which has zero tools and only converses + dispatches. Workers are launched in the background and select their own model (haiku/sonnet/opus) based on task complexity. The `analyzer` model powers the passive background observer.
+
 ### Environment Variables (backend/.env)
 
 | Variable | Default | Description |
@@ -328,18 +342,18 @@ Runtime configuration for personality and models:
 | `CLAUDE_USE_NATIVE` | `false` | Use Anthropic SDK directly (vs proxy) |
 | `ANTHROPIC_API_KEY` | — | API key (also loaded from keyring) |
 | `CLAUDE_PROXY_URL` | `http://localhost:3457/v1` | OpenAI-compatible proxy URL |
-| `CLAUDE_FAST_MODEL` | `claude-haiku-4-20250514` | Fast response model |
-| `CLAUDE_SONNET_MODEL` | `claude-sonnet-4-20250514` | Balanced model |
-| `CLAUDE_DEEP_MODEL` | `claude-opus-4-20250514` | Deep analysis model |
-| `CLAUDE_ANALYZER_MODEL` | `claude-sonnet-4-20250514` | Background analyzer model |
+| `CLAUDE_FAST_MODEL` | `claude-haiku-4-20250514` | Chat Agent (Dispatcher) — Fast mode |
+| `CLAUDE_SONNET_MODEL` | `claude-sonnet-4-20250514` | Worker model (research tasks) |
+| `CLAUDE_DEEP_MODEL` | `claude-opus-4-20250514` | Chat Agent (Dispatcher) — Deep mode / Worker model (complex tasks) |
+| `CLAUDE_ANALYZER_MODEL` | `claude-sonnet-4-20250514` | Background Analyzer model |
 | `CLAUDE_MAX_TOKENS` | `1024` | Max response tokens |
 | `TTS_SERVICE_URL` | `http://192.168.1.59:5500` | TTS server endpoint |
 | `TTS_ENGINE` | `remote` | TTS engine: `remote` or `sherpa-onnx` |
 | `STT_ENGINE` | `browser` | STT engine: `browser` or `whisper` |
 | `WHISPER_MODEL` | `turbo` | Whisper model size for server-side STT |
-| `FAST_CONTEXT_MESSAGES` | `20` | Context window for fast model |
-| `DEEP_CONTEXT_MESSAGES` | `100` | Context window for deep model |
-| `ANALYZER_ENABLED` | `true` | Enable background card detection |
+| `FAST_CONTEXT_MESSAGES` | `20` | Context window for Chat Agent (Fast mode) |
+| `DEEP_CONTEXT_MESSAGES` | `100` | Context window for Chat Agent (Deep mode) |
+| `ANALYZER_ENABLED` | `true` | Enable background Analyzer (passive card detection) |
 
 ### Secure Key Storage
 
@@ -389,9 +403,9 @@ voxyflow/
 │   │   ├── services/               # Business logic
 │   │   │   ├── agent_personas.py   # 7 agent types + auto-routing
 │   │   │   ├── agent_router.py     # Keyword-based agent selection
-│   │   │   ├── analyzer_service.py # Background card detection
+│   │   │   ├── analyzer_service.py # Background Analyzer (passive card detection)
 │   │   │   ├── chat_service.py     # Conversation management
-│   │   │   ├── claude_service.py   # Multi-model orchestration
+│   │   │   ├── claude_service.py   # Dispatcher + Worker model orchestration
 │   │   │   ├── document_parser.py  # txt/md/pdf/docx/xlsx parsing
 │   │   │   ├── memory_service.py   # Persistent memory
 │   │   │   ├── personality_service.py
@@ -492,7 +506,7 @@ cd frontend && npm run lint
 | **Frontend** | Vanilla TypeScript, Webpack 5, CSS modules, Workbox (PWA) |
 | **Backend** | Python 3.11+, FastAPI, SQLAlchemy (async), Pydantic |
 | **Database** | SQLite (aiosqlite) |
-| **AI** | Claude Sonnet + Opus via OpenAI-compatible proxy |
+| **AI** | Claude Sonnet + Opus via OpenAI-compatible proxy (Dispatcher + Workers) |
 | **RAG** | ChromaDB + sentence-transformers |
 | **TTS** | XTTS v2 (GPU, remote) / Sherpa-ONNX (CPU, local) |
 | **STT** | Web Speech API (browser) / Whisper (server fallback) |

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Voxyflow is a **voice-first project management assistant** powered by Claude. It combines natural voice interaction with intelligent project management through specialized AI agent personas.
+Voxyflow is a **voice-first project management assistant** powered by Claude. It combines natural voice interaction with intelligent project management through a Dispatcher + Workers architecture.
 
 ## System Architecture
 
@@ -21,22 +21,28 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 │  │            EventBus • StorageService         │ │
 │  └──────────────────┬──────────────────────────┘ │
 └─────────────────────┼───────────────────────────┘
-                      │ REST API
+                      │ REST + WebSocket
 ┌─────────────────────┼───────────────────────────┐
 │                   Backend (FastAPI)              │
 │  Python 3.12+ • Async • SQLite                   │
 │                                                   │
 │  ┌──────────────────┴──────────────────────────┐ │
-│  │              Agent Router                    │ │
-│  │  Analyzes intent → routes to specialist      │ │
-│  └──┬───┬───┬───┬───┬───┬───┬──────────────────┘ │
-│     │   │   │   │   │   │   │                    │
-│  ┌──┴┐┌─┴─┐┌┴──┐┌─┴┐┌─┴─┐┌┴──┐┌───┐           │
-│  │ 🔥││🏗️ ││🎨 ││📊││🧪 ││🛡️ ││🎯 │           │
-│  │Cod││Arc││Des││Ana││Tes││Sec││Pro│           │
-│  │eur││hit││ign││lys││teu││uri││jet│           │
-│  │se ││ect││er ││te ││r  ││té ││   │           │
-│  └───┘└───┘└───┘└───┘└───┘└───┘└───┘           │
+│  │         Chat Agent (Dispatcher)              │ │
+│  │  Zero tools • Converses • Dispatches work    │ │
+│  │  Fast mode (Sonnet) / Deep mode (Opus)       │ │
+│  └──┬───────────────────────────────┬──────────┘ │
+│     │ <delegate> blocks             │ observes   │
+│  ┌──▼──────────────────────┐  ┌────▼─────────┐  │
+│  │   Background Workers    │  │   Analyzer    │  │
+│  │  ┌───────┐ ┌─────────┐ │  │  Passive      │  │
+│  │  │ Haiku │ │ Sonnet  │ │  │  observer     │  │
+│  │  │ CRUD  │ │Research │ │  │  Card detect  │  │
+│  │  └───────┘ └─────────┘ │  │  Patterns     │  │
+│  │  ┌───────┐             │  │  Suggestions  │  │
+│  │  │ Opus  │ ALL tools   │  └──────────────┘  │
+│  │  │Complex│ here        │                     │
+│  │  └───────┘             │                     │
+│  └─────────────────────────┘                     │
 │                                                   │
 │  ┌─────────────┐ ┌──────────┐ ┌──────────────┐  │
 │  │ Claude API  │ │ Memory   │ │ Personality  │  │
@@ -44,6 +50,14 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 │  └─────────────┘ └──────────┘ └──────────────┘  │
 └─────────────────────────────────────────────────┘
 ```
+
+### Core Architecture Principle
+
+**The conversation is never blocked by running tasks.**
+
+- The **Chat Agent (Dispatcher)** has zero tools. It reads, speaks, and dispatches.
+- **Workers** run in the background, execute tasks with full tool access, and report results via WebSocket.
+- The **Analyzer** passively observes conversations and surfaces opportunities (card suggestions, patterns) without interrupting.
 
 ## Key Design Decisions
 
@@ -60,14 +74,14 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 - EventBus pattern for decoupled communication
 
 ### Agent Personas (7 Specialists)
-Each agent has a distinct personality and expertise:
-1. **La Codeuse** 🔥 — Implementation, debugging, code review
-2. **L'Architecte** 🏗️ — System design, patterns, scalability
-3. **Le Designer** 🎨 — UI/UX, accessibility, visual design
-4. **L'Analyste** 📊 — Data analysis, metrics, optimization
-5. **Le Testeur** 🧪 — Testing strategy, QA, edge cases
-6. **La Sécurité** 🛡️ — Security review, threat modeling
-7. **Le Chef de Projet** 🎯 — Planning, priorities, coordination
+Cards and conversations can be routed to specialized agents:
+1. **Ember** 🔥 — Default, general conversation, coordination
+2. **Researcher** 🔍 — Deep analysis, fact-checking, long-form research
+3. **Coder** 💻 — Code generation, debugging, optimization
+4. **Designer** 🎨 — UI/UX thinking, visual design guidance
+5. **Architect** 🏗️ — System design, planning, PRD writing
+6. **Writer** ✍️ — Content, marketing, storytelling
+7. **QA** 🧪 — Testing strategies, edge cases, validation
 
 ### Memory & Context
 - Conversation history persisted in SQLite
@@ -77,11 +91,13 @@ Each agent has a distinct personality and expertise:
 
 ## Data Flow
 
-1. **Voice Input** → STT → Text → API → Agent Router
-2. **Agent Router** → Intent Analysis → Specialist Selection
-3. **Specialist** → Claude API (with persona prompt) → Response
-4. **Response** → TTS (optional) + Chat Display + Card Generation
-5. **Cards** → Kanban Board (auto-categorized by status)
+1. **Voice Input** → STT → Text → WebSocket → Chat Agent (Dispatcher)
+2. **Chat Agent** → Responds conversationally + emits `<delegate>` blocks for actions
+3. **Dispatcher** → Routes delegate to background Worker (Haiku/Sonnet/Opus based on task)
+4. **Worker** → Executes task with tools → Reports result via WebSocket
+5. **Analyzer** → Passively observes conversation → Emits card suggestions
+6. **Response** → TTS (optional) + Chat Display + Worker results + Card suggestions
+7. **Cards** → Kanban Board (auto-categorized by status)
 
 ## Deployment
 

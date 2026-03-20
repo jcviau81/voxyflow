@@ -39,10 +39,11 @@
 │  │  /ws  General WebSocket Handler (main.py)                       │ │
 │  │                                                                 │ │
 │  │  ping/pong  ──►  pong                                           │ │
-│  │  chat:message ──► _handle_chat_3layer()                         │ │
-│  │                   ├── Layer 1: chat_fast_stream() ──► tokens    │ │
-│  │                   ├── Layer 2: chat_deep_supervisor() ──► enrich│ │
-│  │                   └── Layer 3: analyze_for_cards() ──► cards    │ │
+│  │  chat:message ──► Chat Agent (Dispatcher)                       │ │
+│  │                   ├── Dispatcher streams response (zero tools)  │ │
+│  │                   ├── <delegate> blocks → Background Workers    │ │
+│  │                   └── Analyzer observes → card suggestions      │ │
+│  │  task:steer ──► Steer active worker                             │ │
 │  │  session:reset ──► clear history                                │ │
 │  └─────────────────────────────────────────────────────────────────┘ │
 │                                                                      │
@@ -199,7 +200,7 @@ All component-to-component communication goes through EventBus. No direct refere
 
 ```
 backend/app/
-├── main.py              # FastAPI app, WebSocket handler, 3-layer orchestration
+├── main.py              # FastAPI app, WebSocket handler, Dispatcher + Workers
 ├── config.py            # Settings via pydantic-settings + .env
 ├── database.py          # SQLAlchemy models + engine + session factory
 │
@@ -216,8 +217,8 @@ backend/app/
 │   └── voice.py         # Voice WebSocket (legacy/alternate pipeline)
 │
 ├── services/
-│   ├── claude_service.py      # Fast stream + Deep supervisor calls
-│   ├── analyzer_service.py    # Card suggestion extraction from conversation
+│   ├── claude_service.py      # Dispatcher + Worker model orchestration
+│   ├── analyzer_service.py    # Background Analyzer (passive card detection)
 │   ├── rag_service.py         # ChromaDB index/query wrapper
 │   ├── personality_service.py # System prompt builder (loads personality files)
 │   ├── session_store.py       # JSON file session persistence
@@ -298,7 +299,7 @@ All realtime communication goes through `ws://host:8000/ws` (one shared connecti
 // Pong
 { "type": "pong", "timestamp": 1234567890 }
 
-// Token stream (Layer 1 - Fast)
+// Token stream (Chat Agent / Dispatcher)
 {
   "type": "chat:response",
   "payload": {
@@ -323,7 +324,7 @@ All realtime communication goes through `ws://host:8000/ws` (one shared connecti
   }
 }
 
-// Layer 2 enrichment
+// Deep mode enrichment
 {
   "type": "chat:enrichment",
   "payload": {
@@ -335,7 +336,7 @@ All realtime communication goes through `ws://host:8000/ws` (one shared connecti
   }
 }
 
-// Card suggestion (Layer 3)
+// Card suggestion (Analyzer)
 {
   "type": "card:suggestion",
   "payload": {
@@ -376,45 +377,52 @@ All realtime communication goes through `ws://host:8000/ws` (one shared connecti
 
 ---
 
-## Multi-Model Pipeline
+## Dispatcher + Workers Pipeline
 
 ```
 User Message
      │
      ▼
 ┌─────────────────────────────────────────────────┐
-│  _handle_chat_3layer()                          │
+│  Chat Agent (Dispatcher)                        │
 │                                                 │
 │  1. Resolve chat_id from (projectId, cardId)    │
 │  2. Load project/card context from DB           │
 │  3. Check layer toggles (deep, analyzer)        │
 │                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │  asyncio.create_task(deep_supervisor())   │  │
-│  │  asyncio.create_task(analyze_for_cards()) │  │
-│  └───────────────────────────────────────────┘  │
-│                                                 │
-│  ─── Layer 1: Fast ────────────────────────     │
-│  async for token in chat_fast_stream():         │
+│  ─── Dispatcher Response ──────────────────     │
+│  async for token in chat_stream():              │
 │    send(chat:response, streaming=True)          │
 │  send(chat:response, done=True)                 │
+│  NOTE: Dispatcher has ZERO tools                │
 │                                                 │
-│  ─── Tool calls ──────────────────────────      │
-│  Parse <tool_call>{...}</tool_call> from        │
-│  Fast response → execute_tool() → send result  │
+│  ─── Delegate Parsing ─────────────────────     │
+│  Parse <delegate>{...}</delegate> blocks        │
+│  from Dispatcher response                       │
+│  → Launch background Worker (haiku/sonnet/opus) │
+│  → Worker has FULL tool access                  │
+│  → Worker reports results via WebSocket         │
 │                                                 │
-│  ─── Layer 2: Deep (await, 15s timeout) ───     │
-│  deep_result = await deep_task                  │
-│  if action in ("enrich", "correct"):            │
-│    send(chat:enrichment)                        │
-│    save to session_store                        │
-│                                                 │
-│  ─── Layer 3: Analyzer (await, 15s) ───────     │
+│  ─── Analyzer (background, passive) ───────     │
+│  Observes conversation passively                │
 │  cards = await analyzer_task                    │
 │  for card in cards:                             │
 │    send(card:suggestion)                        │
+│                                                 │
+│  KEY: Conversation is NEVER blocked.            │
+│  Workers and Analyzer run in the background.    │
 └─────────────────────────────────────────────────┘
 ```
+
+### Worker Model Routing
+
+| Task Type | Worker Model | Use Case |
+|-----------|-------------|----------|
+| Simple CRUD | Haiku | create/update/delete card, add note, move card |
+| Research | Sonnet | web search, file analysis, git operations |
+| Complex | Opus | multi-step tasks, architecture, code writing |
+
+The Chat Agent selects the appropriate worker model based on task complexity and includes it in the `<delegate>` block.
 
 **Context isolation:** `chat_id` is derived from the incoming payload:
 - `cardId` present → `card:{cardId}` (card-level isolation)

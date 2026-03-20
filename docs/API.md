@@ -35,7 +35,7 @@ Primary real-time channel. One connection per browser session.
 | Type | Payload | Description |
 |------|---------|-------------|
 | `ping` | `{}` | Keepalive |
-| `chat:message` | See below | Send a chat message through 3-layer pipeline |
+| `chat:message` | See below | Send a chat message through the Dispatcher + Workers pipeline |
 | `session:reset` | `{ projectId?, sessionId?, chatLevel? }` | Clear conversation history |
 
 **`chat:message` payload:**
@@ -47,7 +47,7 @@ Primary real-time channel. One connection per browser session.
   "cardId": "string | null",
   "chatLevel": "general | project | card",
   "sessionId": "string",
-  "layers": { "deep": true, "analyzer": true }
+  "mode": { "deep": true, "analyzer": true }
 }
 ```
 
@@ -56,10 +56,10 @@ Primary real-time channel. One connection per browser session.
 | Type | Description |
 |------|-------------|
 | `pong` | Response to ping |
-| `chat:response` | Token chunk or stream-done signal from Fast layer |
-| `chat:enrichment` | Deep layer enrichment/correction |
+| `chat:response` | Token chunk or stream-done signal from Chat Agent (Dispatcher) |
+| `chat:enrichment` | Deep mode enrichment/correction |
 | `card:suggestion` | Analyzer detected a card opportunity |
-| `model:status` | Layer state change (thinking/active/idle/error) |
+| `model:status` | Component state change (thinking/active/idle/error) |
 | `tool:result` | Result of an AI-triggered tool call |
 | `session:reset_ack` | Confirms session was cleared |
 | `ack` | Generic acknowledgment for unknown message types |
@@ -286,7 +286,7 @@ Create cards from extracted meeting action items.
 
 ### `POST /api/projects/{project_id}/brief`
 
-Generate a comprehensive AI project brief / PRD using the Deep (Opus) model.
+Generate a comprehensive AI project brief / PRD using the Opus model.
 
 **Response:** `200`
 ```json
@@ -1451,7 +1451,7 @@ Trigger a job immediately (fire-and-forget).
 
 ### `POST /api/code/review`
 
-Review a code snippet using the Deep (Opus) model. Returns structured analysis.
+Review a code snippet using the Opus model. Returns structured analysis.
 
 **Request:**
 ```json

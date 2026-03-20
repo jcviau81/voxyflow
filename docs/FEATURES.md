@@ -21,25 +21,26 @@ Complete documentation of all shipped features, organized by area.
 
 ## 1. Core Chat
 
-### 3-Layer Multi-Model Orchestration
+### Dispatcher + Workers Architecture
 
-Every chat message triggers three concurrent AI layers:
+Every chat message flows through the Dispatcher + Workers architecture:
 
-| Layer | Role | Model | Timing |
-|-------|------|-------|--------|
-| **Fast** (Layer 1) | Immediate streaming response | Configurable (default: claude-sonnet) | ~1s first token |
-| **Deep** (Layer 2) | Enriches or corrects Fast response if needed | Configurable (default: claude-opus) | 2–5s, background |
-| **Analyzer** (Layer 3) | Detects actionable items → card suggestions | Configurable (default: claude-haiku) | Background |
+| Component | Role | Model | Behavior |
+|-----------|------|-------|----------|
+| **Chat Agent (Dispatcher)** | Conversational interface, zero tools | Fast mode: Sonnet / Deep mode: Opus | Streams response, dispatches work via `<delegate>` blocks |
+| **Workers** | Background task execution with full tool access | Haiku (CRUD), Sonnet (research), Opus (complex) | Launched by Dispatcher, never blocks conversation |
+| **Analyzer** | Passive background observer | Configurable (default: claude-sonnet) | Detects card opportunities, patterns, suggestions |
 
 **Flow:**
 1. User sends message
-2. Deep + Analyzer tasks are launched in parallel (`asyncio.create_task`)
-3. Fast layer streams tokens to the client immediately
-4. When Fast finishes, Deep result is awaited (15s timeout)
-5. If Deep decided to enrich/correct, a `chat:enrichment` event is sent
-6. Analyzer card suggestions arrive as `card:suggestion` events
+2. Chat Agent (Dispatcher) streams a conversational response immediately (zero tools)
+3. If action is needed, Dispatcher includes `<delegate>` blocks in the response
+4. Delegate blocks are parsed and routed to background Workers (Haiku/Sonnet/Opus)
+5. Workers execute with full tool access and report results via WebSocket
+6. Analyzer passively observes and emits `card:suggestion` events
+7. **The conversation is never blocked** — Workers and Analyzer run in the background
 
-**Layer toggles:** Deep and Analyzer can each be disabled per-message via the ModelStatusBar toggle buttons. The Fast layer is always on.
+**Layer toggles:** Deep mode and Analyzer can each be disabled per-message via the ModelStatusBar toggle buttons. Fast mode is always on.
 
 ---
 
@@ -51,12 +52,13 @@ Chat responses stream token-by-token over WebSocket (`/ws`). The client appends 
 
 | Type | When |
 |------|------|
-| `chat:response` | Token chunk from Fast layer (`streaming: true, done: false`) |
+| `chat:response` | Token chunk from Chat Agent/Dispatcher (`streaming: true, done: false`) |
 | `chat:response` | Stream complete signal (`streaming: true, done: true`) |
-| `chat:enrichment` | Deep layer correction/enrichment |
+| `task:started` | Background Worker launched (includes task ID, model) |
+| `task:completed` | Worker finished executing (includes result) |
 | `card:suggestion` | Analyzer detected an actionable card |
 | `model:status` | Model state change (thinking/active/idle/error) |
-| `tool:result` | Tool call executed (navigation, card creation, etc.) |
+| `tool:result` | Worker executed a tool (navigation, card creation, etc.) |
 | `session:reset_ack` | Session cleared |
 
 ---
@@ -117,11 +119,13 @@ Type `/` in the chat input to trigger the slash command menu with keyboard navig
 
 ### Layer Toggles
 
-The Model Status Bar (below the input area) shows live status for each model layer. Deep and Analyzer have checkbox toggles:
+The Model Status Bar (below the input area) shows live status for each component. Deep mode and Analyzer have checkbox toggles:
 
 - Toggle state is persisted in `localStorage` (`voxyflow_layer_toggles`)
 - Each message includes the current `layers` object: `{ deep: bool, analyzer: bool }`
-- Backend respects the toggle — skips the layer entirely if disabled
+- Backend respects the toggle — skips the component entirely if disabled
+- Fast mode = Chat Agent uses Sonnet; Deep mode = Chat Agent uses Opus
+- Workers are independent of mode toggles — they select their own model based on task complexity
 
 ---
 
@@ -165,9 +169,9 @@ The microphone button in the chat input activates Push-to-Talk:
 A dedicated `/ws/voice/{chat_id}` WebSocket handles voice sessions (legacy, pre-general-WS):
 
 - Accepts `WSTranscript` frames (text transcripts from client)
-- Runs the same 3-layer pipeline
+- Runs the same Dispatcher + Workers pipeline
 - Returns `WSAssistantText` + `WSAssistantAudio` (TTS via remote XTTS service)
-- Background enrichment + card detection run as fire-and-forget tasks
+- Workers and Analyzer run as fire-and-forget background tasks
 
 **Note:** Primary UI uses the general `/ws` endpoint. The voice WS is an alternate pipeline for dedicated voice clients.
 
@@ -276,7 +280,7 @@ A sticky-note scratchpad for brainstorming:
 - Quick-add form
 - 6 pastel colors
 - Grid layout with delete and promote actions
-- AI-suggested notes (via Analyzer layer)
+- AI-suggested notes (via background Analyzer)
 
 ---
 
@@ -536,7 +540,7 @@ One-click AI enrichment of a card:
 
 The Opportunities panel appears in each project view and collects AI-suggested cards:
 
-- **Source:** Analyzer layer (Layer 3) emits `card:suggestion` WebSocket events after analyzing each message
+- **Source:** Background Analyzer passively observes and emits `card:suggestion` WebSocket events
 - **Display:** Suggestions queue in the panel with title, description, and suggested agent
 - **Actions:** "Create Card" → calls `POST /api/projects/{id}/cards` with `auto_generated: true`; "Dismiss" removes from panel
 - **Notification:** Tab gets a notification dot when a new suggestion arrives
@@ -719,7 +723,7 @@ The card form renders all 7 agents as clickable chips. Clicking a chip selects t
 
 ### Analyzer Auto-Suggests Agent
 
-When the Analyzer (Layer 3) detects a card suggestion, it also suggests an appropriate agent type based on the card content. This is included in the `card:suggestion` WebSocket event's `agentType` field.
+When the Analyzer detects a card suggestion, it also suggests an appropriate agent type based on the card content. This is included in the `card:suggestion` WebSocket event's `agentType` field.
 
 ### Auto-Routing
 
@@ -779,15 +783,17 @@ The Settings page includes an inline editor for 4 personality files stored in `v
 
 ### Models Configuration
 
-Configure each of the 3 model layers independently:
+Configure each model role independently:
 
-| Layer | Default Provider URL | Default Model |
-|-------|---------------------|---------------|
-| Fast | `http://localhost:3456/v1` | `claude-sonnet-4` |
-| Deep | `http://localhost:3456/v1` | `claude-opus-4` |
-| Analyzer | `http://localhost:3456/v1` | `claude-haiku-4` |
+| Role | Default Provider URL | Default Model | Purpose |
+|------|---------------------|---------------|---------|
+| Fast | `http://localhost:3456/v1` | `claude-sonnet-4` | Chat Agent (Dispatcher) — Fast mode |
+| Deep | `http://localhost:3456/v1` | `claude-opus-4` | Chat Agent (Dispatcher) — Deep mode |
+| Analyzer | `http://localhost:3456/v1` | `claude-haiku-4` | Background Analyzer (passive observer) |
 
-Each layer has: `provider_url`, `api_key`, `model`, `enabled`
+Each role has: `provider_url`, `api_key`, `model`, `enabled`
+
+Workers select their own model (Haiku/Sonnet/Opus) based on task complexity — they are dispatched by the Chat Agent and do not use these model slots directly.
 
 This allows mixing providers (e.g. Ollama for Fast, Anthropic API for Deep).
 

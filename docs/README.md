@@ -2,14 +2,14 @@
 
 **AI-powered voice project assistant.** Talk to your projects. Get things done.
 
-Voxyflow is a voice-first, multi-model project management assistant that lives locally. You speak (or type), it understands the context of your current project or task card, and responds instantly — with a fast layer for immediacy, a deep layer for accuracy, and an analyzer layer that silently detects actionable items from your conversation and turns them into Kanban cards.
+Voxyflow is a voice-first project management assistant that lives locally. You speak (or type), it understands the context of your current project or task card, and responds instantly via the Chat Agent (Dispatcher). Background Workers handle real execution (CRUD, research, code) without ever blocking the conversation. A passive Analyzer watches the conversation and silently detects actionable items, turning them into Kanban card suggestions.
 
 ---
 
 ## Key Features
 
 - **Voice input** — Push-to-Talk via Web Speech API (fr-CA or en-US)
-- **3-layer multi-model chat** — Fast (immediate stream) + Deep (enrichment) + Analyzer (background card detection)
+- **Dispatcher + Workers** — Chat Agent (Dispatcher) responds instantly, Workers execute in background, Analyzer detects opportunities passively
 - **Project management** — Create projects with GitHub integration, tech stack auto-detection, and Kanban boards
 - **Kanban boards** — Per-project boards with drag & drop, 4 columns, agent assignment
 - **7 specialized agents** — Ember, Codeuse, Architecte, Recherchiste, Designer, Rédactrice, QA
@@ -37,15 +37,20 @@ Voxyflow is a voice-first, multi-model project management assistant that lives l
 ┌─────────▼────────────────▼───────────────────▼──────────┐
 │  FastAPI Backend (Python 3.12+)                          │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  WebSocket Handler  — 3-layer orchestration      │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌────────────────┐ │   │
-│  │  │ Layer 1  │  │ Layer 2  │  │   Layer 3      │ │   │
-│  │  │  Fast    │  │  Deep    │  │  Analyzer      │ │   │
-│  │  │  Stream  │  │ Enrich   │  │  Card Detect   │ │   │
-│  │  └────┬─────┘  └────┬─────┘  └───────┬────────┘ │   │
-│  └───────┼─────────────┼────────────────┼───────────┘   │
-│          │             │                │               │
-│  ┌───────▼─────────────▼────────────────▼───────────┐   │
+│  │  Chat Agent (Dispatcher) — zero tools             │   │
+│  │  Converses + emits <delegate> blocks              │   │
+│  │  Fast mode (Sonnet) / Deep mode (Opus)            │   │
+│  └───────┬──────────────────────────┬───────────────┘   │
+│          │ dispatches               │ observes          │
+│  ┌───────▼──────────────────┐ ┌────▼────────────────┐  │
+│  │  Background Workers      │ │  Analyzer            │  │
+│  │  Haiku (CRUD)            │ │  Passive observer    │  │
+│  │  Sonnet (research)       │ │  Card suggestions    │  │
+│  │  Opus (complex)          │ │  Pattern detection   │  │
+│  │  ALL tools live here     │ └─────────────────────┘  │
+│  └───────┬──────────────────┘                           │
+│          │                                              │
+│  ┌───────▼──────────────────────────────────────────┐   │
 │  │  ClaudeService / AnalyzerService / RAGService     │   │
 │  └───────────────────────────┬───────────────────────┘   │
 │                              │                           │
@@ -59,6 +64,8 @@ Voxyflow is a voice-first, multi-model project management assistant that lives l
 │  http://localhost:3456/v1                          │
 └────────────────────────────────────────────────────┘
 ```
+
+**Key principle:** The conversation is never blocked by running tasks. The Chat Agent dispatches, Workers execute in the background, and results stream back via WebSocket.
 
 ---
 
