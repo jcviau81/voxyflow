@@ -4,7 +4,13 @@ Extracted from main.py to separate WebSocket transport from orchestration logic.
 
 Layer 1 — Fast (<1s): Immediate conversational response (streaming).
 Layer 2 — Deep (2-5s): Enriches/corrects if needed, runs in parallel.
+          Also: Deep workers consume ActionIntent events from the event bus.
 Layer 3 — Analyzer (background): Detects actionable items -> card suggestions.
+
+Event Bus Architecture:
+  Fast streams a response and emits ActionIntent events (parsed from <delegate> blocks).
+  Deep workers listen on the per-session bus and execute actions in background.
+  Frontend receives task:started → task:progress → task:completed via WebSocket.
 """
 
 import asyncio
@@ -19,8 +25,159 @@ from fastapi import WebSocket
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
+from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_registry
 
 logger = logging.getLogger("voxyflow.orchestration")
+
+
+# ---------------------------------------------------------------------------
+# Deep Worker Pool — consumes ActionIntent events from the event bus
+# ---------------------------------------------------------------------------
+
+class DeepWorkerPool:
+    """Pool of async workers that consume events from a SessionEventBus
+    and execute them via the Deep layer (Opus) with full tool access.
+
+    Each session gets its own pool. Max workers controls concurrency.
+    """
+
+    MAX_WORKERS = 3
+
+    def __init__(
+        self,
+        claude_service: ClaudeService,
+        bus: SessionEventBus,
+        websocket: WebSocket,
+    ):
+        self._claude = claude_service
+        self._bus = bus
+        self._ws = websocket
+        self._active_tasks: dict[str, asyncio.Task] = {}
+        self._listener_task: asyncio.Task | None = None
+        self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
+
+    def start(self) -> None:
+        """Start listening on the bus for events."""
+        self._listener_task = asyncio.create_task(self._listen_loop())
+        logger.info(f"[DeepWorkerPool] Started for session {self._bus.session_id}")
+
+    async def stop(self) -> None:
+        """Stop the pool and cancel all active tasks."""
+        self._bus.close()
+        if self._listener_task:
+            self._listener_task.cancel()
+            try:
+                await self._listener_task
+            except asyncio.CancelledError:
+                pass
+        for task_id, task in self._active_tasks.items():
+            task.cancel()
+        self._active_tasks.clear()
+        logger.info(f"[DeepWorkerPool] Stopped for session {self._bus.session_id}")
+
+    async def _listen_loop(self) -> None:
+        """Listen on the bus and spawn workers for each event."""
+        try:
+            async for event in self._bus.listen():
+                # Enforce concurrency limit
+                await self._semaphore.acquire()
+                task = asyncio.create_task(self._execute_event(event))
+                self._active_tasks[event.task_id] = task
+                task.add_done_callback(
+                    lambda t, tid=event.task_id: self._on_task_done(tid)
+                )
+        except asyncio.CancelledError:
+            pass
+
+    def _on_task_done(self, task_id: str) -> None:
+        """Cleanup when a task completes."""
+        self._active_tasks.pop(task_id, None)
+        self._semaphore.release()
+
+    async def _execute_event(self, event: ActionIntent) -> None:
+        """Execute a single ActionIntent via the Deep layer."""
+        try:
+            # Notify frontend: task started
+            await self._send_task_event("task:started", event.task_id, {
+                "intent": event.intent,
+                "summary": event.summary,
+                "complexity": event.complexity,
+                "sessionId": event.session_id,
+            })
+
+            logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent}")
+
+            # Build a focused prompt for the Deep layer
+            execution_prompt = (
+                f"Execute this delegated action:\n"
+                f"Intent: {event.intent}\n"
+                f"Summary: {event.summary}\n"
+                f"Complexity: {event.complexity}\n"
+            )
+            if event.data:
+                execution_prompt += f"Data: {json.dumps(event.data)}\n"
+            execution_prompt += (
+                "\nExecute using your tools. Respond with JSON:\n"
+                '{"action": "execute", "content": "summary of what you did"}'
+            )
+
+            # Use a dedicated chat_id for this task to avoid polluting main history
+            task_chat_id = f"task-{event.task_id}"
+
+            # Notify progress
+            await self._send_task_event("task:progress", event.task_id, {
+                "status": "executing",
+                "sessionId": event.session_id,
+            })
+
+            # Call Deep with tools enabled
+            result = await self._claude.chat_deep_supervisor(
+                chat_id=task_chat_id,
+                user_message=execution_prompt,
+                fast_response="",
+                project_name=event.data.get("project_name"),
+                chat_level=event.data.get("chat_level", "general"),
+                project_context=event.data.get("project_context"),
+                card_context=event.data.get("card_context"),
+                project_id=event.data.get("project_id"),
+            )
+
+            result_content = result.get("content", "") if result else ""
+
+            # Notify frontend: task completed
+            await self._send_task_event("task:completed", event.task_id, {
+                "intent": event.intent,
+                "summary": event.summary,
+                "result": result_content,
+                "success": True,
+                "sessionId": event.session_id,
+            })
+
+            logger.info(f"[DeepWorker] Task {event.task_id} completed: {event.intent}")
+
+        except Exception as e:
+            logger.error(f"[DeepWorker] Task {event.task_id} failed: {e}")
+            try:
+                await self._send_task_event("task:completed", event.task_id, {
+                    "intent": event.intent,
+                    "summary": event.summary,
+                    "result": str(e),
+                    "success": False,
+                    "sessionId": event.session_id,
+                })
+            except Exception:
+                pass
+
+    async def _send_task_event(self, event_type: str, task_id: str, payload: dict) -> None:
+        """Send a task event to the frontend via WebSocket."""
+        try:
+            await self._ws.send_json({
+                "type": event_type,
+                "payload": {"taskId": task_id, **payload},
+                "timestamp": int(time.time() * 1000),
+            })
+        except Exception as e:
+            logger.warning(f"[DeepWorkerPool] Failed to send {event_type}: {e}")
 
 
 class ChatOrchestrator:
@@ -29,6 +186,10 @@ class ChatOrchestrator:
     This class owns the *flow* — which layers to call, how to combine results,
     and what WebSocket events to emit.  The actual AI calls are delegated to
     ClaudeService and AnalyzerService.
+
+    Event Bus: After the Fast layer streams, any <delegate> blocks are parsed
+    and emitted onto the session's event bus. Deep workers pick them up and
+    execute them asynchronously.
     """
 
     def __init__(
@@ -38,6 +199,7 @@ class ChatOrchestrator:
     ):
         self._claude = claude_service
         self._analyzer = analyzer_service
+        self._worker_pools: dict[str, DeepWorkerPool] = {}
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -117,6 +279,25 @@ class ChatOrchestrator:
                 analyzer_task.cancel()
             return
 
+        # --- Parse <delegate> blocks and emit to event bus ---
+        if session_id and deep_enabled:
+            fast_response = ""
+            history = self._claude.get_history(chat_id)
+            for msg in reversed(history):
+                if msg.get("role") == "assistant":
+                    fast_response = msg.get("content", "")
+                    break
+            await self._parse_and_emit_delegates(
+                fast_response=fast_response,
+                session_id=session_id,
+                websocket=websocket,
+                project_name=project_name,
+                chat_level=chat_level,
+                project_context=project_context,
+                card_context=card_context,
+                project_id=project_id,
+            )
+
         # --- Layer 2: Deep enrichment/correction (launched after Fast, receives fast_response) ---
         await self._run_deep_layer(
             websocket=websocket,
@@ -151,6 +332,96 @@ class ChatOrchestrator:
         if chat_id in self._claude._histories:
             self._claude._histories[chat_id] = []
         session_store.clear_session(chat_id)
+
+    # ------------------------------------------------------------------
+    # Event Bus: Worker pool lifecycle
+    # ------------------------------------------------------------------
+
+    def start_worker_pool(self, session_id: str, websocket: WebSocket) -> DeepWorkerPool:
+        """Create and start a DeepWorkerPool for a session."""
+        bus = event_bus_registry.get_or_create(session_id)
+        pool = DeepWorkerPool(self._claude, bus, websocket)
+        pool.start()
+        self._worker_pools[session_id] = pool
+        return pool
+
+    async def stop_worker_pool(self, session_id: str) -> None:
+        """Stop and cleanup a session's worker pool."""
+        pool = self._worker_pools.pop(session_id, None)
+        if pool:
+            await pool.stop()
+        event_bus_registry.remove(session_id)
+
+    # ------------------------------------------------------------------
+    # Event Bus: Delegate parsing
+    # ------------------------------------------------------------------
+
+    _DELEGATE_PATTERN = re.compile(
+        r'<delegate>\s*(\{.*?\})\s*</delegate>',
+        re.DOTALL,
+    )
+
+    async def _parse_and_emit_delegates(
+        self,
+        fast_response: str,
+        session_id: str,
+        websocket: WebSocket,
+        project_name: str | None = None,
+        chat_level: str = "general",
+        project_context: dict | None = None,
+        card_context: dict | None = None,
+        project_id: str | None = None,
+    ) -> None:
+        """Parse <delegate> blocks from the Fast response and emit ActionIntent events."""
+        matches = self._DELEGATE_PATTERN.findall(fast_response)
+        if not matches:
+            return
+
+        # Ensure worker pool is running for this session
+        if session_id not in self._worker_pools:
+            self.start_worker_pool(session_id, websocket)
+
+        bus = event_bus_registry.get_or_create(session_id)
+
+        for match in matches:
+            try:
+                data = json.loads(match)
+                intent = data.get("intent", "unknown")
+                summary = data.get("summary", "")
+                complexity = data.get("complexity", "simple")
+
+                task_id = f"task-{uuid4().hex[:8]}"
+
+                # Classify intent type
+                if complexity == "complex":
+                    intent_type = "complex"
+                elif intent in ("create_card", "add_note", "move_card", "update_card"):
+                    intent_type = "crud_simple"
+                else:
+                    intent_type = "complex"
+
+                event = ActionIntent(
+                    task_id=task_id,
+                    intent_type=intent_type,
+                    intent=intent,
+                    summary=summary,
+                    data={
+                        "project_name": project_name,
+                        "chat_level": chat_level,
+                        "project_context": project_context,
+                        "card_context": card_context,
+                        "project_id": project_id,
+                        **data,  # Include original delegate data
+                    },
+                    session_id=session_id,
+                    complexity=complexity,
+                )
+
+                await bus.emit(event)
+                logger.info(f"[Orchestrator] Emitted delegate: {intent} → task {task_id}")
+
+            except (json.JSONDecodeError, Exception) as e:
+                logger.warning(f"[Orchestrator] Failed to parse delegate block: {e}")
 
     # ------------------------------------------------------------------
     # Internal: Context resolution
