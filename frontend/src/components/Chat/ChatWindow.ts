@@ -1090,6 +1090,14 @@ export class ChatWindow {
       sessionId: newSession.id,
     });
 
+    // Auto-greet on new session
+    chatService.sendSystemInit(
+      "User just started a new session. Greet them naturally and briefly — one sentence max. Ask what they want to work on.",
+      undefined,
+      undefined,
+      newSession.id,
+    );
+
     // Update header to show new tab
     this.updateUnifiedHeader();
 
