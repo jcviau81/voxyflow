@@ -17,6 +17,7 @@ import { ChatSearch } from './ChatSearch';
 import { SmartSuggestions } from './SmartSuggestions';
 import { codeReviewService } from '../../services/CodeReviewService';
 import { openMeetingNotesModal } from './MeetingNotesModal';
+import { TaskPanel } from './TaskPanel';
 
 export class ChatWindow {
   private container: HTMLElement;
@@ -33,6 +34,7 @@ export class ChatWindow {
   private sessionTabBar: SessionTabBar | null = null;
   private smartSuggestions: SmartSuggestions | null = null;
   private chatSearch: ChatSearch | null = null;
+  private taskPanel: TaskPanel | null = null;
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
   private currentProjectView: 'chat' | 'kanban' | 'stats' | 'roadmap' | 'wiki' | 'sprint' | 'docs' = 'chat';
@@ -192,6 +194,11 @@ export class ChatWindow {
     }
 
     this.container.appendChild(this.messageList);
+
+    // Task panel — shows active Deep worker tasks above the input
+    this.taskPanel?.destroy();
+    this.taskPanel = new TaskPanel(this.container);
+
     this.container.appendChild(this.inputArea);
 
     // Slash command menu — anchored to the input area, floats above it
@@ -1392,6 +1399,7 @@ export class ChatWindow {
     this.sessionTabBar?.destroy();
     this.smartSuggestions?.destroy();
     this.chatSearch?.destroy();
+    this.taskPanel?.destroy();
     this.messageBubbles.forEach((bubble) => bubble.destroy());
     this.messageBubbles.clear();
     this.container.remove();

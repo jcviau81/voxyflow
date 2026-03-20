@@ -13,6 +13,7 @@ import './styles/responsive.css';
 import './styles/rich-chat.css';
 import './styles/notifications.css';
 import './styles/projects-overview.css';
+import './styles/task-panel.css';
 import { App } from './App';
 import { OnboardingPage } from './components/Onboarding/OnboardingPage';
 import { API_URL } from './utils/constants';

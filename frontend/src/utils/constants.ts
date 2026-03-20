@@ -205,4 +205,9 @@ export const EVENTS = {
 
   // Tool execution (from backend tool:executed WS event)
   TOOL_EXECUTED: 'tool:executed',
+
+  // Deep Worker Tasks (event bus)
+  TASK_STARTED: 'task:started',
+  TASK_PROGRESS: 'task:progress',
+  TASK_COMPLETED: 'task:completed',
 } as const;

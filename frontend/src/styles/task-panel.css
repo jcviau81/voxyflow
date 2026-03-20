@@ -1,0 +1,80 @@
+/* TaskPanel — Active Deep Worker tasks */
+
+.task-panel {
+  padding: 6px 12px;
+  background: var(--bg-secondary, #1a1a2e);
+  border-top: 1px solid var(--border-color, #2a2a4a);
+  font-size: 0.8rem;
+}
+
+.task-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--bg-tertiary, #16162a);
+  color: var(--text-secondary, #a0a0c0);
+  transition: opacity 0.3s ease;
+}
+
+.task-item.task-completed {
+  opacity: 0.6;
+}
+
+.task-item.task-failed {
+  opacity: 0.7;
+  color: var(--error-color, #ff6b6b);
+}
+
+.task-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.task-intent {
+  font-weight: 600;
+  color: var(--accent-color, #7c5bf5);
+  white-space: nowrap;
+}
+
+.task-summary {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-elapsed {
+  font-size: 0.7rem;
+  color: var(--text-tertiary, #666);
+  white-space: nowrap;
+}
+
+/* Spinner animation */
+.task-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--accent-color, #7c5bf5);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: task-spin 1s linear infinite;
+}
+
+.task-spinner-fast {
+  animation-duration: 0.6s;
+}
+
+@keyframes task-spin {
+  to { transform: rotate(360deg); }
+}

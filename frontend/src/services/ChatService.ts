@@ -106,6 +106,44 @@ export class ChatService {
       })
     );
 
+    // Handle Deep Worker task events (event bus architecture)
+    this.unsubscribers.push(
+      apiClient.on('task:started', (payload) => {
+        eventBus.emit(EVENTS.TASK_STARTED, payload);
+      })
+    );
+    this.unsubscribers.push(
+      apiClient.on('task:progress', (payload) => {
+        eventBus.emit(EVENTS.TASK_PROGRESS, payload);
+      })
+    );
+    this.unsubscribers.push(
+      apiClient.on('task:completed', (payload) => {
+        const { intent, summary, result, success, taskId } = payload as {
+          intent: string;
+          summary: string;
+          result: string;
+          success: boolean;
+          taskId: string;
+        };
+        eventBus.emit(EVENTS.TASK_COMPLETED, payload);
+        // Show toast with result
+        if (success) {
+          eventBus.emit(EVENTS.TOAST_SHOW, {
+            message: `✅ ${intent}: ${summary.substring(0, 50)}`,
+            type: 'success',
+            duration: 4000,
+          });
+        } else {
+          eventBus.emit(EVENTS.TOAST_SHOW, {
+            message: `❌ ${intent} failed`,
+            type: 'error',
+            duration: 5000,
+          });
+        }
+      })
+    );
+
     // Handle card suggestions (Layer 3 — Analyzer) → route to Opportunities Panel
     this.unsubscribers.push(
       apiClient.on('card:suggestion', (payload) => {
