@@ -47,8 +47,7 @@ def _resolve_model(name: str, native: bool = True) -> str:
 
 # Read-only tools: Fast layer can read/search but NOT write or execute
 TOOLS_READ_ONLY = {
-    # Fast layer: context/reading only — NO web search/fetch (forces delegate to workers)
-    "file.read", "file.list",
+    # Fast layer: Voxyflow context only — everything else delegates to workers
     "voxyflow.health",
     "voxyflow.note.list",
     "voxyflow.project.list", "voxyflow.project.get",
@@ -56,8 +55,6 @@ TOOLS_READ_ONLY = {
     "voxyflow.wiki.list", "voxyflow.wiki.get",
     "voxyflow.doc.list",
     "voxyflow.jobs.list",
-    "git.status", "git.log", "git.diff", "git.branches",
-    "tmux.list", "tmux.capture",
 }
 
 # CRUD tools: Analyzer (Haiku) can do trivial dashboard actions
