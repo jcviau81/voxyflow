@@ -134,6 +134,8 @@ async def general_websocket(websocket: WebSocket):
     """
     await websocket.accept()
     logger.info("General WebSocket client connected")
+    # Track session IDs that got worker pools for cleanup
+    active_session_ids: set[str] = set()
     try:
         while True:
             raw = await websocket.receive_text()
@@ -173,6 +175,10 @@ async def general_websocket(websocket: WebSocket):
                         chat_level = "general"
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
+
+                    # Ensure worker pool is running for this session
+                    if session_id:
+                        active_session_ids.add(session_id)
 
                     # 3-Layer orchestration (Fast + Deep + Analyzer in parallel)
                     await _orchestrator.handle_message(
@@ -221,6 +227,13 @@ async def general_websocket(websocket: WebSocket):
         logger.info("General WebSocket client disconnected")
     except Exception as e:
         logger.exception(f"General WebSocket error: {e}")
+    finally:
+        # Cleanup worker pools for all sessions used by this WebSocket
+        for sid in active_session_ids:
+            try:
+                await _orchestrator.stop_worker_pool(sid)
+            except Exception as cleanup_err:
+                logger.warning(f"Worker pool cleanup failed for {sid}: {cleanup_err}")
 
 
 # ---------------------------------------------------------------------------
