@@ -33,6 +33,7 @@ export class ModelStatusBar {
   private dotElements: Map<ModelName, HTMLElement> = new Map();
   private labelElements: Map<ModelName, HTMLElement> = new Map();
   private toggleElements: Map<ModelName, HTMLInputElement> = new Map();
+  private modeButtons: Map<string, HTMLButtonElement> = new Map();
   private layerState: Record<string, boolean> = {};
   private unsubscribers: (() => void)[] = [];
 
@@ -74,43 +75,115 @@ export class ModelStatusBar {
     }
   }
 
+  /** Whether deep mode is the active chat responder */
+  private get isDeepMode(): boolean {
+    return this.layerState['deep'] === true;
+  }
+
   private render(): void {
     this.element.innerHTML = '';
 
-    this.models.forEach((model) => {
-      const statusDiv = createElement('div', { className: 'model-status' });
+    // --- Mode pill toggle: Fast / Deep ---
+    const modePill = createElement('div', { className: 'mode-pill' });
 
-      // Layer toggle checkbox (only for toggleable models)
-      if (model.toggleable) {
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'layer-toggle';
-        checkbox.setAttribute('data-layer', model.name);
-        checkbox.setAttribute('data-testid', `layer-toggle-${model.name}`);
-        checkbox.checked = this.layerState[model.name] !== false;
-        checkbox.title = `Enable/disable ${model.label} layer`;
-        checkbox.addEventListener('change', () => {
-          this.handleLayerToggle(model.name, checkbox.checked);
-        });
-        statusDiv.appendChild(checkbox);
-        this.toggleElements.set(model.name, checkbox);
-      }
+    const fastBtn = document.createElement('button');
+    fastBtn.className = `mode-pill-btn mode-fast ${!this.isDeepMode ? 'active' : ''}`;
+    fastBtn.setAttribute('data-testid', 'mode-btn-fast');
+    fastBtn.title = 'Fast mode (Sonnet) — quick responses';
+    fastBtn.innerHTML = '⚡ Fast';
+    fastBtn.addEventListener('click', () => this.setMode('fast'));
+    this.modeButtons.set('fast', fastBtn);
 
-      const dot = createElement('span', { className: `status-dot ${model.state}` });
-      const nameSpan = createElement('span', {}, `${model.emoji} ${model.label}`);
-      const label = createElement('span', { className: 'status-label' }, STATE_LABELS[model.state]);
+    const deepBtn = document.createElement('button');
+    deepBtn.className = `mode-pill-btn mode-deep ${this.isDeepMode ? 'active' : ''}`;
+    deepBtn.setAttribute('data-testid', 'mode-btn-deep');
+    deepBtn.title = 'Deep mode (Opus) — thorough responses';
+    deepBtn.innerHTML = '🧠 Deep';
+    deepBtn.addEventListener('click', () => this.setMode('deep'));
+    this.modeButtons.set('deep', deepBtn);
 
-      statusDiv.appendChild(dot);
-      statusDiv.appendChild(nameSpan);
-      statusDiv.appendChild(label);
+    modePill.appendChild(fastBtn);
+    modePill.appendChild(deepBtn);
+    this.element.appendChild(modePill);
 
-      this.dotElements.set(model.name, dot);
-      this.labelElements.set(model.name, label);
+    // --- Status dots for active models ---
+    const fastModel = this.models.get('fast')!;
+    const deepModel = this.models.get('deep')!;
 
-      this.element.appendChild(statusDiv);
+    // Active model status dot (shown next to pill)
+    const activeDot = createElement('span', {
+      className: `status-dot ${this.isDeepMode ? deepModel.state : fastModel.state}`,
     });
+    this.dotElements.set('fast', activeDot);
+    this.dotElements.set('deep', activeDot);
+    const activeLabel = createElement(
+      'span',
+      { className: 'status-label' },
+      STATE_LABELS[this.isDeepMode ? deepModel.state : fastModel.state]
+    );
+    this.labelElements.set('fast', activeLabel);
+    this.labelElements.set('deep', activeLabel);
+
+    const activeStatus = createElement('div', { className: 'model-status mode-status' });
+    activeStatus.appendChild(activeDot);
+    activeStatus.appendChild(activeLabel);
+    this.element.appendChild(activeStatus);
+
+    // --- Separator ---
+    this.element.appendChild(createElement('span', { className: 'status-separator' }));
+
+    // --- Analyzer toggle ---
+    const analyzerModel = this.models.get('analyzer')!;
+    const analyzerDiv = createElement('div', { className: 'model-status' });
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'layer-toggle';
+    checkbox.setAttribute('data-layer', 'analyzer');
+    checkbox.setAttribute('data-testid', 'layer-toggle-analyzer');
+    checkbox.checked = this.layerState['analyzer'] !== false;
+    checkbox.title = 'Enable/disable Analyzer layer';
+    checkbox.addEventListener('change', () => {
+      this.handleLayerToggle('analyzer', checkbox.checked);
+    });
+    analyzerDiv.appendChild(checkbox);
+    this.toggleElements.set('analyzer', checkbox);
+
+    const analyzerDot = createElement('span', {
+      className: `status-dot ${analyzerModel.state}`,
+    });
+    const analyzerName = createElement('span', {}, `${analyzerModel.emoji} ${analyzerModel.label}`);
+    const analyzerLabel = createElement(
+      'span',
+      { className: 'status-label' },
+      STATE_LABELS[analyzerModel.state]
+    );
+
+    analyzerDiv.appendChild(analyzerDot);
+    analyzerDiv.appendChild(analyzerName);
+    analyzerDiv.appendChild(analyzerLabel);
+
+    this.dotElements.set('analyzer', analyzerDot);
+    this.labelElements.set('analyzer', analyzerLabel);
+
+    this.element.appendChild(analyzerDiv);
 
     this.parentElement.appendChild(this.element);
+  }
+
+  private setMode(mode: 'fast' | 'deep'): void {
+    const deepEnabled = mode === 'deep';
+    if (this.layerState['deep'] === deepEnabled) return;
+
+    this.layerState['deep'] = deepEnabled;
+    this.saveLayerState();
+    eventBus.emit(EVENTS.LAYER_TOGGLE, { layer: 'deep', enabled: deepEnabled });
+
+    // Update pill button classes
+    const fastBtn = this.modeButtons.get('fast');
+    const deepBtn = this.modeButtons.get('deep');
+    if (fastBtn) fastBtn.className = `mode-pill-btn mode-fast ${!deepEnabled ? 'active' : ''}`;
+    if (deepBtn) deepBtn.className = `mode-pill-btn mode-deep ${deepEnabled ? 'active' : ''}`;
   }
 
   private handleLayerToggle(layer: string, enabled: boolean): void {
@@ -143,6 +216,13 @@ export class ModelStatusBar {
     if (label) {
       label.textContent = STATE_LABELS[state] || state;
     }
+
+    // Update pill button state class for active/thinking animation
+    const btn = this.modeButtons.get(modelName);
+    if (btn) {
+      btn.classList.toggle('responding', state === 'active');
+      btn.classList.toggle('thinking', state === 'thinking');
+    }
   }
 
   /** Get the current layer toggle states */
@@ -163,6 +243,7 @@ export class ModelStatusBar {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
     this.toggleElements.clear();
+    this.modeButtons.clear();
     this.element.remove();
   }
 }

@@ -460,6 +460,8 @@ class ClaudeService:
         """Deep layer (streaming): Yield tokens from the deep model directly to chat.
 
         Used when deep_enabled=True — Opus responds directly in chat instead of Fast.
+        Same delegate-first pattern as Fast layer: NO direct tool execution.
+        The model responds conversationally and emits <delegate> blocks for actions.
         """
         self._append_and_persist(chat_id, "user", user_message, model="deep")
         history = self._get_history(chat_id)
@@ -478,7 +480,7 @@ class ClaudeService:
             project=project_context,
             card=card_context,
             project_names=project_names,
-            has_delegation=True,
+            is_chat_responder=True,
         )
 
         if project_id:
@@ -498,7 +500,6 @@ class ClaudeService:
             client_type=self.deep_client_type,
             tool_callback=tool_callback,
             chat_level=chat_level,
-            layer="deep",
         ):
             full_response += token
             yield token

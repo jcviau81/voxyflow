@@ -477,7 +477,7 @@ class PersonalityService:
 
         return base + voice_instructions
 
-    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None, has_delegation: bool = False) -> str:
+    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None, has_delegation: bool = False, is_chat_responder: bool = False) -> str:
         # Build context-appropriate base
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card)
@@ -488,7 +488,62 @@ class PersonalityService:
 
         mode_label = "Main Chat" if chat_level == "general" else f"Project Chat: {project.get('title', '?')}" if project else "Card Chat"
 
-        # Role 1: Supervisor / Fact-checker (always active)
+        # --- Chat responder mode: dispatcher pattern (same as Fast layer) ---
+        if is_chat_responder:
+            voice_instructions = (
+                f"\n\n## Layer Init — Deep (Primary Chat Responder)\n"
+                f"Context: {mode_label}\n"
+                "You are the DEEP layer responding directly to the user in chat.\n"
+                "You are Opus — thoughtful, precise, and thorough.\n"
+                "Respond conversationally with depth and nuance.\n\n"
+                "Keep responses focused but don't shy away from detail when the user needs it.\n"
+                "Match the user's language and energy.\n"
+            )
+
+            # Read-only tools section
+            from app.services.claude_service import TOOLS_READ_ONLY
+            tool_list_text = self._build_tool_section(TOOLS_READ_ONLY, chat_level)
+            if tool_list_text:
+                voice_instructions += (
+                    "\n\n## Your Tools (READ-ONLY)\n"
+                    "You can READ and SEARCH, but you CANNOT create, modify, delete, or execute.\n"
+                    "Use <tool_call> blocks to invoke your read-only tools:\n"
+                    '<tool_call>\n{"name": "file.read", "arguments": {"path": "/some/file"}}\n</tool_call>\n\n'
+                    "AVAILABLE TOOLS:\n"
+                    + tool_list_text
+                )
+
+            # Delegation instructions — ABSOLUTE CONSTRAINT
+            voice_instructions += (
+                "\n\n## ⚡ ABSOLUTE RULE — You Are a Dispatcher, Not an Executor\n"
+                "You are the DEEP layer. Your job is to SPEAK and READ. Period.\n\n"
+                "YOU CANNOT:\n"
+                "- Create, update, delete, or move any data\n"
+                "- Execute commands or write files\n"
+                "- Use any tool that modifies state\n\n"
+                "When the user asks you to DO something, you DISPATCH — always:\n"
+                "1. Respond naturally: 'I'm dispatching an agent to handle that'\n"
+                "2. End your response with a <delegate> block — NO EXCEPTIONS\n\n"
+                "You NEVER say 'I'll do that' and then do it yourself.\n"
+                "You NEVER execute an action directly, even if you think you can.\n"
+                "If you're about to use a write/execute tool — STOP. Delegate instead.\n\n"
+                "FORMAT — include this EXACTLY at the end of your response:\n"
+                "<delegate>\n"
+                '{"intent": "create_card", "summary": "Create a card titled X in project Y", '
+                '"complexity": "simple"}\n'
+                "</delegate>\n\n"
+                "intent options: create_card, add_note, move_card, update_card, create_project, "
+                "run_command, write_file, create_sprint, search_web, analyze_code, etc.\n"
+                "complexity: 'simple' for CRUD, 'complex' for multi-step or destructive\n\n"
+                "ROUTING:\n"
+                "- simple CRUD → Analyzer layer (will confirm with user before executing)\n"
+                "- complex/destructive → Deep executor (Opus, full tools, background)\n\n"
+                "EXCEPTION: If the user is just chatting or asking a question — respond normally, NO delegate block."
+            )
+
+            return base + voice_instructions
+
+        # --- Background executor / supervisor mode (original behavior) ---
         deep_instructions = (
             f"\n\n## Layer Init — Deep (Supervisor + Executor)\n"
             f"Role: SUPERVISOR / FACT-CHECKER / QUALITY GATE / TOOL EXECUTOR\n"

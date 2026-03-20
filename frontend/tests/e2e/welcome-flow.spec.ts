@@ -61,25 +61,27 @@ test.describe('Layer Toggles', () => {
     await page.goto('/');
   });
 
-  test('Layer toggle checkboxes are visible', async ({ page }) => {
-    // Models are: fast (non-toggleable), deep (toggleable), analyzer (toggleable)
-    const deepToggle = page.locator('[data-testid="layer-toggle-deep"]');
+  test('Mode pill and analyzer toggle are visible', async ({ page }) => {
+    // Mode pill has Fast and Deep buttons; Analyzer has a checkbox toggle
+    const fastBtn = page.locator('[data-testid="mode-btn-fast"]');
+    const deepBtn = page.locator('[data-testid="mode-btn-deep"]');
     const analyzerToggle = page.locator('[data-testid="layer-toggle-analyzer"]');
 
-    await expect(deepToggle).toBeVisible();
+    await expect(fastBtn).toBeVisible();
+    await expect(deepBtn).toBeVisible();
     await expect(analyzerToggle).toBeVisible();
 
-    // Both should be checked by default
-    await expect(deepToggle).toBeChecked();
+    // Deep is enabled by default, so deep button should be active
+    await expect(deepBtn).toHaveClass(/active/);
     await expect(analyzerToggle).toBeChecked();
   });
 
-  test('Layer toggles persist to localStorage', async ({ page }) => {
-    const deepToggle = page.locator('[data-testid="layer-toggle-deep"]');
+  test('Mode toggle persists to localStorage', async ({ page }) => {
+    const fastBtn = page.locator('[data-testid="mode-btn-fast"]');
 
-    // Uncheck Deep
-    await deepToggle.uncheck();
-    await expect(deepToggle).not.toBeChecked();
+    // Click Fast to switch mode
+    await fastBtn.click();
+    await expect(fastBtn).toHaveClass(/active/);
 
     // Check localStorage
     const stored = await page.evaluate(() => {
@@ -88,10 +90,10 @@ test.describe('Layer Toggles', () => {
     expect(stored.deep).toBe(false);
     expect(stored.analyzer).toBe(true);
 
-    // Reload page — toggle state should persist
+    // Reload page — mode should persist
     await page.reload();
-    const deepToggleAfter = page.locator('[data-testid="layer-toggle-deep"]');
-    await expect(deepToggleAfter).not.toBeChecked();
+    const fastBtnAfter = page.locator('[data-testid="mode-btn-fast"]');
+    await expect(fastBtnAfter).toHaveClass(/active/);
   });
 
   test('Haiku has no toggle checkbox', async ({ page }) => {

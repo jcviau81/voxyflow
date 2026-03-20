@@ -740,19 +740,12 @@ class ChatOrchestrator:
     ) -> bool:
         """Run the Deep layer as the primary chat responder (streaming).
 
-        Used when deep_enabled=True. Opus streams directly to chat,
-        same pattern as _run_fast_layer but with the deep model.
+        Used when deep_enabled=True. Opus streams directly to chat using the
+        same delegate-first pattern as Fast layer: NO direct tool execution.
+        The model responds conversationally and emits <delegate> blocks for actions,
+        which are parsed by _parse_and_emit_delegates → DeepWorkerPool executes in background.
         Returns True on success, False on failure.
         """
-        pending_tool_events: list[dict] = []
-
-        def on_tool_executed(tool_name: str, arguments: dict, result: dict) -> None:
-            pending_tool_events.append({
-                "tool": tool_name,
-                "arguments": arguments,
-                "result": result,
-            })
-
         await send_model_status("deep", "active")
         start = time.time()
         deep_full_response = ""
@@ -767,7 +760,6 @@ class ChatOrchestrator:
                 project_context=project_context,
                 card_context=card_context,
                 project_id=project_id,
-                tool_callback=on_tool_executed,
                 project_names=project_names,
             ):
                 deep_full_response += token
@@ -788,14 +780,6 @@ class ChatOrchestrator:
                     },
                     "timestamp": int(time.time() * 1000),
                 })
-
-            # Handle fallback tool calls
-            self._handle_fallback_tool_calls(
-                deep_full_response, pending_tool_events
-            )
-            await self._flush_tool_events(
-                websocket, pending_tool_events, deep_full_response, session_id
-            )
 
             # Send stream-done signal
             latency = int((time.time() - start) * 1000)
