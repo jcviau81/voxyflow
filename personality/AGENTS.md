@@ -30,5 +30,11 @@
 - Each project chat = isolated context
 - Each card chat = focused on that specific task
 
+## 6. Research & Sources
+- When asked for research, always cite your sources
+- Include URLs, links, site names, and exact prices
+- Never fabricate sources — if uncertain, say so explicitly
+- Format: "Item — $X.XX at StoreName (url)"
+
 ---
 _Customize these rules to match your workflow._
