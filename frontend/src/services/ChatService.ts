@@ -294,7 +294,7 @@ export class ChatService {
       cardId: currentCardId,
       chatLevel,
       layers,
-      sessionId: sessionId || undefined,
+      sessionId: sessionId || this.activeSessionId || undefined,
       systemInit: true,  // Backend knows not to persist this as a user message
     });
   }
