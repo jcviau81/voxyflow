@@ -47,7 +47,7 @@ def _resolve_model(name: str, native: bool = True) -> str:
 
 # Read-only tools: Fast layer can read/search but NOT write or execute
 TOOLS_READ_ONLY = {
-    "web.search", "web.fetch",
+    # Fast layer: context/reading only — NO web search/fetch (forces delegate to workers)
     "file.read", "file.list",
     "voxyflow.health",
     "voxyflow.note.list",
