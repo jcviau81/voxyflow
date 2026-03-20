@@ -20,6 +20,7 @@ interface WorkerTask {
   result?: string;
   success?: boolean;
   progressMessage?: string;
+  model?: 'haiku' | 'sonnet' | 'opus';
 }
 
 export class WorkerPanel {
@@ -53,6 +54,7 @@ export class WorkerPanel {
           summary: payload.summary || '',
           status: 'started',
           startedAt: Date.now(),
+          model: payload.model || 'sonnet',
         });
         this.render();
       })
@@ -167,6 +169,12 @@ export class WorkerPanel {
     statusEl.innerHTML = this.getStatusIndicator(task.status);
     el.appendChild(statusEl);
 
+    // Model badge
+    const modelBadge = createElement('span', {
+      className: `worker-model-badge worker-model-badge--${task.model || 'sonnet'}`,
+    }, this.getModelEmoji(task.model));
+    el.appendChild(modelBadge);
+
     // Content
     const content = createElement('div', { className: 'worker-task-content' });
 
@@ -237,6 +245,15 @@ export class WorkerPanel {
         return '<span class="worker-dot worker-dot--failed">✕</span>';
       default:
         return '<span class="worker-dot"></span>';
+    }
+  }
+
+  private getModelEmoji(model?: string): string {
+    switch (model) {
+      case 'haiku': return '🟡';
+      case 'sonnet': return '🔵';
+      case 'opus': return '🟣';
+      default: return '🔵';
     }
   }
 

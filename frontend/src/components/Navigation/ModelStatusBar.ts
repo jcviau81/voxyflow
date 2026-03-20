@@ -89,16 +89,16 @@ export class ModelStatusBar {
     const fastBtn = document.createElement('button');
     fastBtn.className = `mode-pill-btn mode-fast ${!this.isDeepMode ? 'active' : ''}`;
     fastBtn.setAttribute('data-testid', 'mode-btn-fast');
-    fastBtn.title = 'Fast mode (Sonnet) — quick responses';
-    fastBtn.innerHTML = '⚡ Fast';
+    fastBtn.title = 'Fast mode — Sonnet responds in chat, workers execute actions';
+    fastBtn.innerHTML = '⚡ Sonnet';
     fastBtn.addEventListener('click', () => this.setMode('fast'));
     this.modeButtons.set('fast', fastBtn);
 
     const deepBtn = document.createElement('button');
     deepBtn.className = `mode-pill-btn mode-deep ${this.isDeepMode ? 'active' : ''}`;
     deepBtn.setAttribute('data-testid', 'mode-btn-deep');
-    deepBtn.title = 'Deep mode (Opus) — thorough responses';
-    deepBtn.innerHTML = '🧠 Deep';
+    deepBtn.title = 'Deep mode — Opus responds in chat, workers execute actions';
+    deepBtn.innerHTML = '🧠 Opus';
     deepBtn.addEventListener('click', () => this.setMode('deep'));
     this.modeButtons.set('deep', deepBtn);
 

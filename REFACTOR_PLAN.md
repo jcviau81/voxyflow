@@ -1,44 +1,33 @@
-Now I have a complete picture. Here's the detailed refactoring plan:
+I see there's already a detailed refactoring plan in `REFACTOR_PLAN.md`. Having read through the codebase, I can confirm this plan is well-structured and covers the key changes needed. Here's a summary:
+
+## Plan Overview
+
+The existing plan in `/home/jcviau/voxyflow/REFACTOR_PLAN.md` is comprehensive and addresses the target architecture:
+
+### Key Backend Changes
+1. **Strip tools from chat layers** — Remove `tool_callback` from `chat_fast_stream()` and `chat_deep_stream()`
+2. **Add `model` field to `ActionIntent`** — Routes delegates to haiku/sonnet/opus workers
+3. **New `execute_worker_task()` method** — Model-specific execution with appropriate tool sets
+4. **Delete dead code** — `_handle_fallback_tool_calls()`, `_flush_tool_events()`
+
+### Prompt Architecture
+- **Chat prompts** — Zero tools, just DISPATCHER.md rules
+- **Worker prompts** — Three variants: Haiku (CRUD), Sonnet (research), Opus (complex)
+
+### Frontend Updates
+- **WorkerPanel** — Add model badge (emoji indicators)
+- **ModelStatusBar** — Clarify Fast/Deep are chat models, not worker models
+
+### Migration Path
+4 phases, 14 steps, each testable independently.
 
 ---
 
-# Voxyflow Chat Pipeline Refactor Plan
-## Target: Zero-Tool Chat + Model-Routed Workers
-
----
-
-## 1. Backend Changes
-
-### 1.1 Remove Tool Injection from Chat Layers
-
-**File: `backend/app/services/claude_service.py`**
-
-| Method | Current Behavior | Change |
-|--------|-----------------|--------|
-| `chat_fast_stream()` | Passes `tool_callback`, calls `_call_api_stream()` with `use_tools=True` implied | Remove `tool_callback` param; call with `use_tools=False` |
-| `chat_deep_stream()` | Same pattern | Remove `tool_callback` param; call with `use_tools=False` |
-| `_call_api_stream()` | Conditionally passes `claude_tools` | Add explicit `use_tools: bool = False` default for streaming calls |
-
-**Specific edits:**
-
-```python
-# Line ~431-442: chat_fast_stream()
-# REMOVE: tool_callback parameter from signature and inner _call_api_stream call
-# SET: use_tools=False explicitly
-
-# Line ~492-503: chat_deep_stream()  
-# REMOVE: tool_callback parameter
-# SET: use_tools=False explicitly
-```
-
-**File: `backend/app/services/chat_orchestration.py`**
-
-| Method | Current Behavior | Change |
-|--------|-----------------|--------|
-| `_run_fast_layer()` | Passes `on_tool_executed` callback | Remove callback; remove `_handle_fallback_tool_calls()` and `_flush_tool_events()` calls |
-
-**Delete methods** (lines 640-720):
-- `_handle_fallback_tool_calls()`
+**The plan is ready to execute.** Would you like me to:
+1. **Start implementation** of Phase 1 (backend foundation)?
+2. **Expand any section** of the plan with more detail?
+3. **Create agent-ready task files** for parallel implementation?
+llback_tool_calls()`
 - `_flush_tool_events()`
 
 ---

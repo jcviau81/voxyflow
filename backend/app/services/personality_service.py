@@ -437,20 +437,7 @@ class PersonalityService:
         else:
             base = self.build_general_prompt(project_names=project_names)
 
-        # Fast layer: READ-ONLY tools only + delegation intent
-        from app.services.claude_service import TOOLS_READ_ONLY
-        tool_list_text = self._build_tool_section(TOOLS_READ_ONLY, chat_level)
-        if tool_list_text:
-            tool_section = (
-                "\n\n## Your Tools (READ-ONLY)\n"
-                "You can READ and SEARCH, but you CANNOT create, modify, delete, or execute.\n"
-                "Use <tool_call> blocks to invoke your read-only tools:\n"
-                '<tool_call>\n{"name": "file.read", "arguments": {"path": "/some/file"}}\n</tool_call>\n\n'
-                "AVAILABLE TOOLS:\n"
-                + tool_list_text
-            )
-            voice_instructions += tool_section
-
+        # Chat layers have ZERO tools — they converse and delegate only.
         # Dispatcher rules — loaded from DISPATCHER.md, injected LAST (highest priority)
         dispatcher = self.load_dispatcher()
         if dispatcher:
@@ -481,19 +468,7 @@ class PersonalityService:
                 "Match the user's language and energy.\n"
             )
 
-            # Read-only tools section
-            from app.services.claude_service import TOOLS_READ_ONLY
-            tool_list_text = self._build_tool_section(TOOLS_READ_ONLY, chat_level)
-            if tool_list_text:
-                voice_instructions += (
-                    "\n\n## Your Tools (READ-ONLY)\n"
-                    "You can READ and SEARCH, but you CANNOT create, modify, delete, or execute.\n"
-                    "Use <tool_call> blocks to invoke your read-only tools:\n"
-                    '<tool_call>\n{"name": "file.read", "arguments": {"path": "/some/file"}}\n</tool_call>\n\n'
-                    "AVAILABLE TOOLS:\n"
-                    + tool_list_text
-                )
-
+            # Chat layers have ZERO tools — they converse and delegate only.
             # Delegation instructions — ABSOLUTE CONSTRAINT
             voice_instructions += (
                 "\n\n## ⚡ ABSOLUTE RULE — You Are a Dispatcher, Not an Executor\n"
@@ -581,6 +556,96 @@ class PersonalityService:
         )
 
         return base + deep_instructions
+
+    # ------------------------------------------------------------------
+    # Worker prompts — model-routed (haiku/sonnet/opus)
+    # ------------------------------------------------------------------
+
+    def build_worker_prompt(
+        self,
+        model: str = "sonnet",
+        chat_level: str = "general",
+        project: Optional[dict] = None,
+        card: Optional[dict] = None,
+    ) -> str:
+        """Build system prompt for background worker execution."""
+        if model == "haiku":
+            return self._build_haiku_worker_prompt(chat_level, project, card)
+        elif model == "opus":
+            return self._build_opus_worker_prompt(chat_level, project, card)
+        else:
+            return self._build_sonnet_worker_prompt(chat_level, project, card)
+
+    def _build_worker_context_section(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
+        """Build context section for worker prompts."""
+        if chat_level == "card" and card and project:
+            return f"Project: {project.get('title', '?')} | Card: {card.get('title', '?')}"
+        elif chat_level == "project" and project:
+            return f"Project: {project.get('title', '?')}"
+        return "Context: Main Chat"
+
+    def _build_haiku_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
+        """Haiku: Simple CRUD only. Fast, cheap, no ambiguity."""
+        from app.services.claude_service import TOOLS_VOXYFLOW_CRUD
+        tool_list = self._build_tool_section(TOOLS_VOXYFLOW_CRUD, chat_level)
+        context = self._build_worker_context_section(chat_level, project, card)
+
+        return (
+            "## Worker: Haiku (CRUD Executor)\n"
+            "You execute simple, single-step CRUD operations in Voxyflow.\n\n"
+            "## Rules\n"
+            "- Execute the requested action immediately using the appropriate tool\n"
+            "- Do NOT ask for confirmation — the user already confirmed via the chat layer\n"
+            "- After executing, respond with a brief (1 sentence) summary\n"
+            "- If the action fails, explain why briefly\n"
+            "- Respond in the same language the user used\n\n"
+            f"## Available Tools\n{tool_list}\n\n"
+            f"## Context\n{context}"
+        )
+
+    def _build_sonnet_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
+        """Sonnet: Research, web, file analysis. Balanced speed/capability."""
+        from app.services.claude_service import TOOLS_FULL
+        tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
+        context = self._build_worker_context_section(chat_level, project, card)
+
+        return (
+            "## Worker: Sonnet (Research & Analysis)\n"
+            "You execute research tasks, web searches, and file analysis for Voxyflow.\n\n"
+            "## Rules\n"
+            "- Execute the requested research/analysis task thoroughly\n"
+            "- ALWAYS include source URLs for every fact, price, or recommendation\n"
+            "- ALWAYS include exact values (not ranges) when found\n"
+            "- Format: 'Item — $X.XX at StoreName (url)'\n"
+            "- If you cannot find a real source URL, say 'Source not verified'\n"
+            "- Never fabricate URLs or data — if uncertain, state it clearly\n"
+            "- Include timestamp of research so the user knows how fresh the info is\n"
+            "- Respond in the same language the user used\n\n"
+            f"## Available Tools\n{tool_list}\n\n"
+            f"## Context\n{context}"
+        )
+
+    def _build_opus_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
+        """Opus: Complex multi-step, architecture, code analysis."""
+        from app.services.claude_service import TOOLS_FULL
+        tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
+        context = self._build_worker_context_section(chat_level, project, card)
+
+        return (
+            "## Worker: Opus (Complex Execution)\n"
+            "You execute complex, multi-step operations that require deep reasoning.\n\n"
+            "## Rules\n"
+            "- Think through the problem before acting\n"
+            "- Break complex tasks into logical steps\n"
+            "- Execute carefully — you have full tool access including destructive operations\n"
+            "- For code changes: read before writing, explain what you changed\n"
+            "- For file operations: verify paths before writing/deleting\n"
+            "- After executing, provide a thorough summary of what you did\n"
+            "- If any step fails, explain why and what recovery was attempted\n"
+            "- Respond in the same language the user used\n\n"
+            f"## Available Tools\n{tool_list}\n\n"
+            f"## Context\n{context}"
+        )
 
     def build_analyzer_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project_names: Optional[list] = None, delegation: Optional[dict] = None) -> str:
         context_note = ""

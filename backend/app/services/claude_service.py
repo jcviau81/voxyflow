@@ -276,6 +276,21 @@ class ClaudeService:
             )
             self.deep_client_type = "openai"
 
+        # --- Haiku worker layer ---
+        haiku_cfg = overrides.get("haiku", {})
+        haiku_model_raw = haiku_cfg.get("model", "").strip()
+        self.haiku_model = _resolve_model(haiku_model_raw or "claude-haiku-4")
+        haiku_key = _get_api_key_from_settings(haiku_cfg) or default_api_key
+        if self.use_native and haiku_key:
+            self.haiku_client = _make_anthropic_client(haiku_key, haiku_cfg.get("provider_url", config.claude_api_base))
+            self.haiku_client_type = "anthropic"
+        else:
+            self.haiku_client = _make_openai_client(
+                haiku_cfg.get("provider_url", config.claude_proxy_url),
+                haiku_cfg.get("api_key", ""),
+            )
+            self.haiku_client_type = "openai"
+
         # --- Analyzer layer ---
         analyzer_cfg = overrides.get("analyzer", {})
         analyzer_model_raw = analyzer_cfg.get("model", "").strip()
@@ -302,7 +317,8 @@ class ClaudeService:
         logger.info(
             f"ClaudeService initialized — native={self.use_native} | "
             f"fast={self.fast_model}({self.fast_client_type}) | "
-            f"deep={self.deep_model}({self.deep_client_type})"
+            f"deep={self.deep_model}({self.deep_client_type}) | "
+            f"haiku={self.haiku_model}({self.haiku_client_type})"
         )
 
     # ------------------------------------------------------------------
@@ -396,10 +412,12 @@ class ClaudeService:
         project_context: Optional[dict] = None,
         card_context: Optional[dict] = None,
         project_id: Optional[str] = None,
-        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         project_names: Optional[list] = None,
     ) -> AsyncIterator[str]:
-        """Layer 1 (streaming): Yield tokens as they arrive from the fast layer."""
+        """Layer 1 (streaming): Yield tokens as they arrive from the fast layer.
+
+        Zero tools — chat layers converse and delegate only.
+        """
         self._append_and_persist(chat_id, "user", user_message, model="fast")
         history = self._get_history(chat_id)
 
@@ -434,7 +452,7 @@ class ClaudeService:
             messages=recent,
             client=self.fast_client,
             client_type=self.fast_client_type,
-            tool_callback=tool_callback,
+            use_tools=False,
             chat_level=chat_level,
         ):
             full_response += token
@@ -451,13 +469,11 @@ class ClaudeService:
         project_context: Optional[dict] = None,
         card_context: Optional[dict] = None,
         project_id: Optional[str] = None,
-        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         project_names: Optional[list] = None,
     ) -> AsyncIterator[str]:
         """Deep layer (streaming): Yield tokens from the deep model directly to chat.
 
-        Used when deep_enabled=True — Opus responds directly in chat instead of Fast.
-        Same delegate-first pattern as Fast layer: NO direct tool execution.
+        Zero tools — chat layers converse and delegate only.
         The model responds conversationally and emits <delegate> blocks for actions.
         """
         self._append_and_persist(chat_id, "user", user_message, model="deep")
@@ -495,7 +511,7 @@ class ClaudeService:
             messages=recent,
             client=self.deep_client,
             client_type=self.deep_client_type,
-            tool_callback=tool_callback,
+            use_tools=False,
             chat_level=chat_level,
         ):
             full_response += token
@@ -664,6 +680,61 @@ class ClaudeService:
         )
 
         return response_text or ""
+
+    async def execute_worker_task(
+        self,
+        chat_id: str,
+        prompt: str,
+        model: str = "sonnet",
+        chat_level: str = "general",
+        project_context: Optional[dict] = None,
+        card_context: Optional[dict] = None,
+        project_id: Optional[str] = None,
+    ) -> str:
+        """Execute a delegated task with the specified worker model (haiku/sonnet/opus)."""
+        # Select client/model based on model param
+        if model == "haiku":
+            client, client_type, model_name = (
+                self.haiku_client, self.haiku_client_type, self.haiku_model
+            )
+            layer = "analyzer"  # Uses TOOLS_VOXYFLOW_CRUD
+        elif model == "opus":
+            client, client_type, model_name = (
+                self.deep_client, self.deep_client_type, self.deep_model
+            )
+            layer = "deep"  # Uses TOOLS_FULL
+        else:  # sonnet (default)
+            client, client_type, model_name = (
+                self.fast_client, self.fast_client_type, self.fast_model
+            )
+            layer = "deep"  # Sonnet worker gets full tools for research
+
+        # Build worker-specific prompt
+        system_prompt = self.personality.build_worker_prompt(
+            model=model,
+            chat_level=chat_level,
+            project=project_context,
+            card=card_context,
+        )
+
+        if project_id:
+            try:
+                rag_context = await get_rag_service().build_rag_context(project_id, prompt)
+                if rag_context:
+                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
+            except Exception as e:
+                logger.warning(f"RAG context injection failed (execute_worker_task): {e}")
+
+        return await self._call_api(
+            model=model_name,
+            system=system_prompt,
+            messages=[{"role": "user", "content": prompt}],
+            client=client,
+            client_type=client_type,
+            use_tools=True,
+            layer=layer,
+            chat_level=chat_level,
+        )
 
     async def chat_deep(
         self,

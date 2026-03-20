@@ -107,17 +107,18 @@ class DeepWorkerPool:
         self._semaphore.release()
 
     async def _execute_event(self, event: ActionIntent) -> None:
-        """Execute a single ActionIntent via the Deep layer."""
+        """Execute a single ActionIntent via model-routed worker (haiku/sonnet/opus)."""
         try:
-            # Notify frontend: task started
+            # Notify frontend: task started (include model for badge)
             await self._send_task_event("task:started", event.task_id, {
                 "intent": event.intent,
                 "summary": event.summary,
                 "complexity": event.complexity,
+                "model": event.model,
                 "sessionId": event.session_id,
             })
 
-            logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent}")
+            logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent} (model={event.model})")
 
             # Build a focused prompt for the executor
             execution_prompt = (
@@ -140,11 +141,11 @@ class DeepWorkerPool:
                 "sessionId": event.session_id,
             })
 
-            # Call the dedicated executor (not the supervisor)
-            result_content = await self._claude.chat_deep_executor(
+            # Route to model-specific worker
+            result_content = await self._claude.execute_worker_task(
                 chat_id=task_chat_id,
-                user_message=execution_prompt,
-                project_name=event.data.get("project_name"),
+                prompt=execution_prompt,
+                model=event.model,
                 chat_level=event.data.get("chat_level", "general"),
                 project_context=event.data.get("project_context"),
                 card_context=event.data.get("card_context"),
@@ -392,16 +393,21 @@ class ChatOrchestrator:
         for match in matches:
             try:
                 data = json.loads(match)
-                intent = data.get("intent", "unknown")
-                summary = data.get("summary", "")
+                intent = data.get("intent", data.get("action", "unknown"))
+                summary = data.get("summary", data.get("description", ""))
                 complexity = data.get("complexity", "simple")
+
+                # Extract model from delegate JSON (haiku/sonnet/opus)
+                model = data.get("model", "sonnet")
+                if model not in ("haiku", "sonnet", "opus"):
+                    model = "sonnet"
 
                 task_id = f"task-{uuid4().hex[:8]}"
 
                 # Classify intent type
-                if complexity == "complex":
+                if complexity == "complex" or model == "opus":
                     intent_type = "complex"
-                elif intent in ("create_card", "add_note", "move_card", "update_card"):
+                elif intent in ("create_card", "add_note", "move_card", "update_card") or model == "haiku":
                     intent_type = "crud_simple"
                 else:
                     intent_type = "complex"
@@ -421,6 +427,7 @@ class ChatOrchestrator:
                     },
                     session_id=session_id,
                     complexity=complexity,
+                    model=model,
                 )
 
                 await bus.emit(event)
@@ -551,17 +558,8 @@ class ChatOrchestrator:
         """Run the fast layer, streaming tokens to the WebSocket.
 
         Returns True on success, False on failure.
+        Chat layers have zero tools — clean streaming only.
         """
-        # Tool callback: collects tool execution events for flushing after stream
-        pending_tool_events: list[dict] = []
-
-        def on_tool_executed(tool_name: str, arguments: dict, result: dict) -> None:
-            pending_tool_events.append({
-                "tool": tool_name,
-                "arguments": arguments,
-                "result": result,
-            })
-
         await send_model_status("fast", "active")
         start = time.time()
         fast_full_response = ""
@@ -576,7 +574,6 @@ class ChatOrchestrator:
                 project_context=project_context,
                 card_context=card_context,
                 project_id=project_id,
-                tool_callback=on_tool_executed,
                 project_names=project_names,
             ):
                 fast_full_response += token
@@ -598,17 +595,7 @@ class ChatOrchestrator:
                     "timestamp": int(time.time() * 1000),
                 })
 
-            # Fallback: parse <tool_call> blocks if proxy didn't support native tools
-            self._handle_fallback_tool_calls(
-                fast_full_response, pending_tool_events
-            )
-
-            # Execute fallback tool calls and flush events
-            await self._flush_tool_events(
-                websocket, pending_tool_events, fast_full_response, session_id
-            )
-
-            # Send stream-done signal (AFTER tool events)
+            # Send stream-done signal
             latency = int((time.time() - start) * 1000)
             logger.info(f"[Layer1-Fast] stream complete in {latency}ms")
             await websocket.send_json({
@@ -636,88 +623,6 @@ class ChatOrchestrator:
                 "timestamp": int(time.time() * 1000),
             })
             return False
-
-    def _handle_fallback_tool_calls(
-        self,
-        response_text: str,
-        pending_events: list[dict],
-    ) -> list[dict]:
-        """Parse <tool_call> blocks from response text as a fallback
-        when the proxy doesn't support native tool_use.
-
-        Returns a list of parsed tool call dicts (name, arguments).
-        Only populates if no native tool events were already collected.
-        """
-        if pending_events:
-            return []
-
-        tool_pattern = re.compile(r'<tool_call>\s*(\{.*?\})\s*</tool_call>', re.DOTALL)
-        matches = tool_pattern.findall(response_text)
-        parsed = []
-        for match in matches:
-            try:
-                call = json.loads(match)
-                tool_name = call.get("name", "")
-                tool_args = call.get("arguments", call.get("params", {}))
-                if tool_name:
-                    parsed.append({"name": tool_name, "arguments": tool_args})
-            except (json.JSONDecodeError, Exception):
-                pass
-        return parsed
-
-    async def _flush_tool_events(
-        self,
-        websocket: WebSocket,
-        pending_events: list[dict],
-        fast_full_response: str,
-        session_id: str | None,
-    ) -> None:
-        """Execute fallback tool calls and flush all tool events to the WebSocket."""
-
-        # Handle fallback <tool_call> blocks (only if no native events exist)
-        if not pending_events:
-            tool_pattern = re.compile(r'<tool_call>\s*(\{.*?\})\s*</tool_call>', re.DOTALL)
-            matches = tool_pattern.findall(fast_full_response)
-            for match in matches:
-                try:
-                    call = json.loads(match)
-                    tool_name = call.get("name", "")
-                    tool_args = call.get("arguments", call.get("params", {}))
-                    if tool_name:
-                        logger.info(f"[ToolCall-Fallback] Executing: {tool_name}")
-                        mcp_name = tool_name.replace("_", ".") if "_" in tool_name else tool_name
-                        from app.mcp_server import _TOOL_DEFINITIONS, _call_api as _mcp_exec
-                        tool_def = next((t for t in _TOOL_DEFINITIONS if t["name"] == mcp_name), None)
-                        if tool_def:
-                            result = await _mcp_exec(tool_def, tool_args)
-                        else:
-                            result = {"error": f"Unknown tool: {mcp_name}"}
-                        logger.info(f"[ToolCall-Fallback] Result: {str(result)[:200]}")
-                        await websocket.send_json({
-                            "type": "tool:executed",
-                            "payload": {
-                                "tool": mcp_name,
-                                "arguments": tool_args,
-                                "result": result,
-                                "sessionId": session_id,
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        })
-                except Exception as e:
-                    logger.warning(f"[ToolCall-Fallback] Failed: {e}")
-
-        # Flush native tool events from streaming
-        for evt in pending_events:
-            await websocket.send_json({
-                "type": "tool:executed",
-                "payload": {
-                    "tool": evt["tool"],
-                    "arguments": evt["arguments"],
-                    "result": evt["result"],
-                    "sessionId": session_id,
-                },
-                "timestamp": int(time.time() * 1000),
-            })
 
     # ------------------------------------------------------------------
     # Internal: Layer 2 — Deep Chat (streaming, direct response)

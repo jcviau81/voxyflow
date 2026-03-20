@@ -151,6 +151,23 @@
   border-left: 3px solid var(--color-error, #ef5350);
 }
 
+/* Model badge */
+.worker-model-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.worker-model-badge--haiku { background: rgba(255, 215, 0, 0.2); }
+.worker-model-badge--sonnet { background: rgba(59, 130, 246, 0.2); }
+.worker-model-badge--opus { background: rgba(147, 51, 234, 0.2); }
+
 /* Status indicator */
 .worker-task-status {
   display: flex;

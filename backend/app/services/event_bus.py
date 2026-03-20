@@ -22,6 +22,7 @@ class ActionIntent:
     data: dict = field(default_factory=dict)
     session_id: str = ""
     complexity: str = "simple"  # "simple" | "complex"
+    model: str = "sonnet"  # "haiku" | "sonnet" | "opus"
 
 
 class SessionEventBus:
