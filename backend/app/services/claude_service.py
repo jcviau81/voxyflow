@@ -445,6 +445,66 @@ class ClaudeService:
 
         self._append_and_persist(chat_id, "assistant", full_response, model="fast")
 
+    async def chat_deep_stream(
+        self,
+        chat_id: str,
+        user_message: str,
+        project_name: Optional[str] = None,
+        chat_level: str = "general",
+        project_context: Optional[dict] = None,
+        card_context: Optional[dict] = None,
+        project_id: Optional[str] = None,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        project_names: Optional[list] = None,
+    ) -> AsyncIterator[str]:
+        """Deep layer (streaming): Yield tokens from the deep model directly to chat.
+
+        Used when deep_enabled=True — Opus responds directly in chat instead of Fast.
+        """
+        self._append_and_persist(chat_id, "user", user_message, model="deep")
+        history = self._get_history(chat_id)
+
+        settings = get_settings()
+        recent = history[-settings.deep_context_messages:]
+
+        memory_context = self.memory.build_memory_context(
+            project_name=project_name,
+            include_long_term=True,
+            include_daily=True,
+        )
+        system_prompt = self.personality.build_deep_prompt(
+            memory_context=memory_context,
+            chat_level=chat_level,
+            project=project_context,
+            card=card_context,
+            project_names=project_names,
+            has_delegation=True,
+        )
+
+        if project_id:
+            try:
+                rag_context = await get_rag_service().build_rag_context(project_id, user_message)
+                if rag_context:
+                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
+            except Exception as e:
+                logger.warning(f"RAG context injection failed (chat_deep_stream): {e}")
+
+        full_response = ""
+        async for token in self._call_api_stream(
+            model=self.deep_model,
+            system=system_prompt,
+            messages=recent,
+            client=self.deep_client,
+            client_type=self.deep_client_type,
+            tool_callback=tool_callback,
+            chat_level=chat_level,
+            layer="deep",
+        ):
+            full_response += token
+            yield token
+
+        self._append_and_persist(chat_id, "assistant", full_response, model="deep")
+
     async def chat_deep_supervisor(
         self,
         chat_id: str,

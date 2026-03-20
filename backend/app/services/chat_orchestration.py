@@ -1,14 +1,22 @@
-"""Chat Orchestration Service — 3-Layer Multi-Model Chat Pipeline.
+"""Chat Orchestration Service — Multi-Model Chat Pipeline.
 
 Extracted from main.py to separate WebSocket transport from orchestration logic.
 
-Layer 1 — Fast (<1s): Immediate conversational response (streaming).
-Layer 2 — Deep (2-5s): Enriches/corrects if needed, runs in parallel.
-          Also: Deep workers consume ActionIntent events from the event bus.
-Layer 3 — Analyzer (background): Detects actionable items -> card suggestions.
+Mode Fast (deep_enabled=False, default):
+  Sonnet streams response directly to chat.
+  <delegate> blocks → EventBus → DeepWorkerPool (silent execution, task WS events only).
+
+Mode Deep (deep_enabled=True):
+  Opus streams response directly to chat (Fast layer skipped).
+  <delegate> blocks → EventBus → DeepWorkerPool (same delegate flow).
+
+Key constraint: Fast and Deep are MUTUALLY EXCLUSIVE for chat output.
+Only one model streams to chat per message — never two simultaneous responses.
+
+Analyzer (background, both modes): Detects actionable items → card suggestions.
 
 Event Bus Architecture:
-  Fast streams a response and emits ActionIntent events (parsed from <delegate> blocks).
+  Chat response (Fast or Deep) emits ActionIntent events (parsed from <delegate> blocks).
   Deep workers listen on the per-session bus and execute actions in background.
   Frontend receives task:started → task:progress → task:completed via WebSocket.
 """
@@ -227,10 +235,12 @@ class ChatOrchestrator:
 
         project_name = project_context.get("title") if project_context else None
 
-        # Resolve layer toggles (default: all enabled)
+        # Resolve layer toggles
+        # deep_enabled=False (default): Fast streams to chat, Deep only for delegate workers
+        # deep_enabled=True: Deep streams to chat directly, Fast is skipped
         if layers is None:
             layers = {}
-        deep_enabled = layers.get("deep", layers.get("opus", True))
+        deep_enabled = layers.get("deep", layers.get("opus", False))
         analyzer_enabled = layers.get("analyzer", True)
 
         # Helper to send model status updates
@@ -241,13 +251,8 @@ class ChatOrchestrator:
                 "timestamp": int(time.time() * 1000),
             })
 
-        # Launch Deep + Analyzer in parallel (only if enabled)
-        deep_task = None
+        # Launch Analyzer in background (both modes)
         analyzer_task = None
-
-        # Deep task will be launched AFTER Fast completes (needs fast_response)
-        # We store the parameters and launch in _run_deep_layer instead
-
         if analyzer_enabled:
             await send_model_status("analyzer", "thinking")
             analyzer_task = asyncio.create_task(
@@ -256,38 +261,55 @@ class ChatOrchestrator:
                 )
             )
 
-        # --- Layer 1: Stream fast response ---
-        fast_success = await self._run_fast_layer(
-            websocket=websocket,
-            content=content,
-            message_id=message_id,
-            chat_id=chat_id,
-            project_name=project_name,
-            project_id=project_id,
-            chat_level=chat_level,
-            project_context=project_context,
-            card_context=card_context,
-            project_names=project_names,
-            session_id=session_id,
-            send_model_status=send_model_status,
-        )
+        # --- Chat response: Fast XOR Deep (mutually exclusive) ---
+        if deep_enabled:
+            # Mode Deep: Opus streams directly to chat
+            chat_success = await self._run_deep_chat_layer(
+                websocket=websocket,
+                content=content,
+                message_id=message_id,
+                chat_id=chat_id,
+                project_name=project_name,
+                project_id=project_id,
+                chat_level=chat_level,
+                project_context=project_context,
+                card_context=card_context,
+                project_names=project_names,
+                session_id=session_id,
+                send_model_status=send_model_status,
+            )
+        else:
+            # Mode Fast (default): Sonnet streams to chat
+            chat_success = await self._run_fast_layer(
+                websocket=websocket,
+                content=content,
+                message_id=message_id,
+                chat_id=chat_id,
+                project_name=project_name,
+                project_id=project_id,
+                chat_level=chat_level,
+                project_context=project_context,
+                card_context=card_context,
+                project_names=project_names,
+                session_id=session_id,
+                send_model_status=send_model_status,
+            )
 
-        if not fast_success:
-            # Cancel background tasks on fast layer failure
+        if not chat_success:
             if analyzer_task:
                 analyzer_task.cancel()
             return
 
-        # --- Parse <delegate> blocks and emit to event bus ---
-        if session_id and deep_enabled:
-            fast_response = ""
+        # --- Parse <delegate> blocks from the chat response and emit to event bus ---
+        if session_id:
+            chat_response = ""
             history = self._claude.get_history(chat_id)
             for msg in reversed(history):
                 if msg.get("role") == "assistant":
-                    fast_response = msg.get("content", "")
+                    chat_response = msg.get("content", "")
                     break
             await self._parse_and_emit_delegates(
-                fast_response=fast_response,
+                fast_response=chat_response,
                 session_id=session_id,
                 websocket=websocket,
                 project_name=project_name,
@@ -296,21 +318,6 @@ class ChatOrchestrator:
                 card_context=card_context,
                 project_id=project_id,
             )
-
-        # --- Layer 2: Deep enrichment/correction (launched after Fast, receives fast_response) ---
-        await self._run_deep_layer(
-            websocket=websocket,
-            content=content,
-            chat_id=chat_id,
-            deep_enabled=deep_enabled,
-            project_name=project_name,
-            chat_level=chat_level,
-            project_context=project_context,
-            card_context=card_context,
-            project_id=project_id,
-            session_id=session_id,
-            send_model_status=send_model_status,
-        )
 
         # --- Layer 3: Analyzer card suggestions ---
         await self._run_analyzer_layer(
@@ -713,88 +720,111 @@ class ChatOrchestrator:
             })
 
     # ------------------------------------------------------------------
-    # Internal: Layer 2 — Deep (enrichment/correction)
+    # Internal: Layer 2 — Deep Chat (streaming, direct response)
     # ------------------------------------------------------------------
 
-    async def _run_deep_layer(
+    async def _run_deep_chat_layer(
         self,
         websocket: WebSocket,
         content: str,
+        message_id: str,
         chat_id: str,
-        deep_enabled: bool,
         project_name: str | None,
+        project_id: str | None,
         chat_level: str,
         project_context: dict | None,
         card_context: dict | None,
-        project_id: str | None,
+        project_names: list[str],
         session_id: str | None,
         send_model_status,
-    ) -> None:
-        """Launch and await the deep layer, passing the fast_response for supervision."""
-        if not deep_enabled:
-            logger.debug("[Layer2-Deep] skipped (disabled by user)")
-            return
+    ) -> bool:
+        """Run the Deep layer as the primary chat responder (streaming).
 
-        # Retrieve fast_response from history (last assistant message)
-        history = self._claude.get_history(chat_id)
-        fast_response = ""
-        for msg in reversed(history):
-            if msg.get("role") == "assistant":
-                fast_response = msg.get("content", "")
-                break
+        Used when deep_enabled=True. Opus streams directly to chat,
+        same pattern as _run_fast_layer but with the deep model.
+        Returns True on success, False on failure.
+        """
+        pending_tool_events: list[dict] = []
 
-        await send_model_status("deep", "thinking")
-        deep_task = asyncio.create_task(
-            self._claude.chat_deep_supervisor(
+        def on_tool_executed(tool_name: str, arguments: dict, result: dict) -> None:
+            pending_tool_events.append({
+                "tool": tool_name,
+                "arguments": arguments,
+                "result": result,
+            })
+
+        await send_model_status("deep", "active")
+        start = time.time()
+        deep_full_response = ""
+
+        try:
+            first_token_sent = False
+            async for token in self._claude.chat_deep_stream(
                 chat_id=chat_id,
                 user_message=content,
-                fast_response=fast_response,
                 project_name=project_name,
                 chat_level=chat_level,
                 project_context=project_context,
                 card_context=card_context,
                 project_id=project_id,
-            )
-        )
-
-        try:
-            deep_result = await asyncio.wait_for(deep_task, timeout=15.0)
-            if deep_result and deep_result.get("action") in ("enrich", "correct"):
-                enrichment_id = str(uuid4())
-                logger.info(f"[Layer2-Deep] action={deep_result['action']}, sending enrichment")
-
-                # Persist enrichment to disk
-                session_store.save_message(chat_id, {
-                    "role": "assistant",
-                    "content": deep_result["content"],
-                    "model": "deep",
-                    "type": "enrichment",
-                    "session_id": session_id,
-                })
+                tool_callback=on_tool_executed,
+                project_names=project_names,
+            ):
+                deep_full_response += token
+                if not first_token_sent:
+                    first_token_latency = int((time.time() - start) * 1000)
+                    logger.info(f"[Layer-Deep-Chat] first token in {first_token_latency}ms")
+                    first_token_sent = True
 
                 await websocket.send_json({
-                    "type": "chat:enrichment",
+                    "type": "chat:response",
                     "payload": {
-                        "messageId": enrichment_id,
-                        "content": deep_result["content"],
+                        "messageId": message_id,
+                        "content": token,
                         "model": "deep",
-                        "action": deep_result["action"],
-                        "done": True,
+                        "streaming": True,
+                        "done": False,
                         "sessionId": session_id,
                     },
                     "timestamp": int(time.time() * 1000),
                 })
-            else:
-                logger.debug("[Layer2-Deep] no enrichment needed")
+
+            # Handle fallback tool calls
+            self._handle_fallback_tool_calls(
+                deep_full_response, pending_tool_events
+            )
+            await self._flush_tool_events(
+                websocket, pending_tool_events, deep_full_response, session_id
+            )
+
+            # Send stream-done signal
+            latency = int((time.time() - start) * 1000)
+            logger.info(f"[Layer-Deep-Chat] stream complete in {latency}ms")
+            await websocket.send_json({
+                "type": "chat:response",
+                "payload": {
+                    "messageId": message_id,
+                    "content": "",
+                    "model": "deep",
+                    "streaming": True,
+                    "done": True,
+                    "latency_ms": latency,
+                    "sessionId": session_id,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
             await send_model_status("deep", "idle")
-        except asyncio.TimeoutError:
-            logger.warning("[Layer2-Deep] timed out after 15s, skipping")
-            await send_model_status("deep", "idle")
-        except asyncio.CancelledError:
-            await send_model_status("deep", "idle")
+            return True
+
         except Exception as e:
-            logger.error(f"[Layer2-Deep] error: {e}")
+            logger.error(f"[Layer-Deep-Chat] error: {e}")
             await send_model_status("deep", "error")
+            await websocket.send_json({
+                "type": "chat:error",
+                "payload": {"messageId": message_id, "error": str(e), "sessionId": session_id},
+                "timestamp": int(time.time() * 1000),
+            })
+            return False
 
     # ------------------------------------------------------------------
     # Internal: Layer 3 — Analyzer (card suggestions)
