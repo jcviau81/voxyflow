@@ -138,6 +138,12 @@
   color: var(--color-text);
 }
 
+.sidebar-all-projects-btn {
+  font-size: 1.25rem;
+  line-height: 1;
+  font-weight: 700;
+}
+
 .sidebar-project-item {
   display: flex;
   align-items: center;
