@@ -84,7 +84,7 @@ export class WelcomePrompt {
         'brainstorm',
         '💡',
         'Brainstorm a new project',
-        'Let's start something new',
+        "Let's start something new",
       ),
     );
     actions.appendChild(
