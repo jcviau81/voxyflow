@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from collections import defaultdict
 from typing import AsyncIterator, Callable, Optional, Union
 
 import httpx
@@ -273,6 +274,8 @@ class ClaudeService:
         self.personality = get_personality_service()
         self.memory = get_memory_service()
         self._histories: dict[str, list[dict]] = {}
+        # Per-chat_id async locks to prevent concurrent history mutations
+        self._history_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
         logger.info(
             f"ClaudeService initialized — native={self.use_native} | "
@@ -288,7 +291,12 @@ class ClaudeService:
     def get_history(self, chat_id: str) -> list[dict]:
         """Return conversation history for *chat_id*, loading from the session
         store on first access.  Because ClaudeService is a singleton, this
-        history is shared across all layers (fast, deep, analyzer)."""
+        history is shared across all layers (fast, deep, analyzer).
+
+        NOTE: Callers that mutate the history (append) should use
+        _append_and_persist() under the per-chat lock instead of
+        manipulating the list directly.
+        """
         if chat_id not in self._histories:
             self._histories[chat_id] = session_store.get_history_for_claude(chat_id, limit=40)
         return self._histories[chat_id]
@@ -296,10 +304,42 @@ class ClaudeService:
     # Keep the underscore alias so existing internal callers don't break.
     _get_history = get_history
 
+    def _get_lock(self, chat_id: str) -> asyncio.Lock:
+        """Return the per-chat_id asyncio.Lock (created on first access)."""
+        return self._history_locks[chat_id]
+
+    async def _append_and_persist_async(self, chat_id: str, role: str, content: str,
+                                        model: str | None = None, msg_type: str | None = None,
+                                        session_id: str | None = None):
+        """Locked, dedup-guarded append + persist.  Prefer this over the sync version."""
+        async with self._get_lock(chat_id):
+            history = self._get_history(chat_id)
+
+            # Dedup guard: skip if last message has same role+content
+            if history and history[-1].get("role") == role and history[-1].get("content") == content:
+                logger.debug(f"[dedup] Skipping duplicate {role} message for {chat_id}")
+                return
+
+            history.append({"role": role, "content": content})
+            msg = {"role": role, "content": content}
+            if model:
+                msg["model"] = model
+            if msg_type:
+                msg["type"] = msg_type
+            if session_id:
+                msg["session_id"] = session_id
+            session_store.save_message(chat_id, msg)
+
     def _append_and_persist(self, chat_id: str, role: str, content: str,
                             model: str | None = None, msg_type: str | None = None,
                             session_id: str | None = None):
+        """Sync version with dedup guard (no async lock).
+        Kept for backward compat — prefer _append_and_persist_async in async code."""
         history = self._get_history(chat_id)
+        # Dedup guard: skip if last message has same role+content
+        if history and history[-1].get("role") == role and history[-1].get("content") == content:
+            logger.debug(f"[dedup] Skipping duplicate {role} message for {chat_id}")
+            return
         history.append({"role": role, "content": content})
         msg = {"role": role, "content": content}
         if model:
@@ -325,7 +365,7 @@ class ClaudeService:
         card_context: Optional[dict] = None,
     ) -> str:
         """Layer 1: Fast conversational response, personality-infused."""
-        self._append_and_persist(chat_id, "user", user_message, model="fast")
+        await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
         history = self._get_history(chat_id)
 
         settings = get_settings()
@@ -360,7 +400,7 @@ class ClaudeService:
             chat_level=chat_level,
         )
 
-        self._append_and_persist(chat_id, "assistant", response_text, model="fast")
+        await self._append_and_persist_async(chat_id, "assistant", response_text, model="fast")
         return response_text
 
     async def chat_fast_stream(
@@ -378,7 +418,7 @@ class ClaudeService:
 
         Zero tools — chat layers converse and delegate only.
         """
-        self._append_and_persist(chat_id, "user", user_message, model="fast")
+        await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
         history = self._get_history(chat_id)
 
         settings = get_settings()
@@ -418,7 +458,7 @@ class ClaudeService:
             full_response += token
             yield token
 
-        self._append_and_persist(chat_id, "assistant", full_response, model="fast")
+        await self._append_and_persist_async(chat_id, "assistant", full_response, model="fast")
 
     async def chat_deep_stream(
         self,
@@ -436,7 +476,7 @@ class ClaudeService:
         Zero tools — chat layers converse and delegate only.
         The model responds conversationally and emits <delegate> blocks for actions.
         """
-        self._append_and_persist(chat_id, "user", user_message, model="deep")
+        await self._append_and_persist_async(chat_id, "user", user_message, model="deep")
         history = self._get_history(chat_id)
 
         settings = get_settings()
@@ -477,7 +517,7 @@ class ClaudeService:
             full_response += token
             yield token
 
-        self._append_and_persist(chat_id, "assistant", full_response, model="deep")
+        await self._append_and_persist_async(chat_id, "assistant", full_response, model="deep")
 
     async def chat_deep_supervisor(
         self,
@@ -746,7 +786,7 @@ class ClaudeService:
         project_name: Optional[str] = None,
     ) -> str:
         """Call Claude with a specialized agent persona."""
-        self._append_and_persist(chat_id, "user", user_message, model="deep")
+        await self._append_and_persist_async(chat_id, "user", user_message, model="deep")
         history = self._get_history(chat_id)
 
         settings = get_settings()
@@ -773,7 +813,7 @@ class ClaudeService:
             layer="deep",
         )
 
-        self._append_and_persist(chat_id, "assistant", response_text, model="deep")
+        await self._append_and_persist_async(chat_id, "assistant", response_text, model="deep")
         return response_text
 
     async def generate_brief(self, prompt: str) -> str:

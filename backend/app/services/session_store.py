@@ -8,6 +8,9 @@ maps to subdirectories via colon → slash translation.
 
 import json
 import os
+import tempfile
+import threading
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -24,6 +27,8 @@ class SessionStore:
     def __init__(self):
         self.sessions_dir = DATA_DIR / "sessions"
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        # Per-chat_id threading locks for file-level atomicity
+        self._file_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
 
     def _get_session_path(self, chat_id: str) -> Path:
         """Get file path for a chat session."""
@@ -34,31 +39,44 @@ class SessionStore:
         return path
 
     def save_message(self, chat_id: str, message: dict):
-        """Append a message to a session file."""
+        """Append a message to a session file (thread-safe, atomic write)."""
         path = self._get_session_path(chat_id)
 
-        # Load existing
-        messages = self.load_session(chat_id)
+        with self._file_locks[chat_id]:
+            # Load existing (under lock to prevent read-modify-write races)
+            messages = self.load_session(chat_id)
 
-        # Add timestamp if not present
-        if "timestamp" not in message:
-            message["timestamp"] = datetime.now().isoformat()
+            # Add timestamp if not present
+            if "timestamp" not in message:
+                message["timestamp"] = datetime.now().isoformat()
 
-        messages.append(message)
+            messages.append(message)
 
-        # Save atomically-ish
-        with open(path, "w") as f:
-            json.dump(
+            # Atomic write: write to temp file, then os.rename
+            data = json.dumps(
                 {
                     "chat_id": chat_id,
                     "updated_at": datetime.now().isoformat(),
                     "message_count": len(messages),
                     "messages": messages,
                 },
-                f,
                 indent=2,
                 ensure_ascii=False,
             )
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(path.parent), suffix=".tmp"
+            )
+            try:
+                with os.fdopen(fd, "w") as f:
+                    f.write(data)
+                os.rename(tmp_path, str(path))
+            except Exception:
+                # Clean up temp file on failure
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
 
     def load_session(self, chat_id: str) -> List[dict]:
         """Load all messages for a session."""

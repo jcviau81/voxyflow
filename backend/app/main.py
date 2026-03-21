@@ -3,6 +3,7 @@
 import json
 import logging
 import time
+from uuid import uuid4
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -187,11 +188,10 @@ async def general_websocket(websocket: WebSocket):
                     chat_level = payload.get("chatLevel", "general")
                     msg_layers = payload.get("layers")  # {deep: bool, analyzer: bool}
 
-                    session_id = payload.get("sessionId")
+                    session_id = payload.get("sessionId") or str(uuid4())
 
                     # Deliver any pending results from previous connection
-                    if session_id:
-                        await _deliver_pending(session_id)
+                    await _deliver_pending(session_id)
 
                     # Derive chat_id from context for conversation isolation
                     if card_id:
@@ -202,7 +202,7 @@ async def general_websocket(websocket: WebSocket):
                         if chat_level == "general":
                             chat_level = "project"
                     else:
-                        chat_id = f"general:{session_id}" if session_id else "general"
+                        chat_id = f"general:{session_id}"
                         chat_level = "general"
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
@@ -227,13 +227,16 @@ async def general_websocket(websocket: WebSocket):
                 elif msg_type == "session:reset":
                     chat_level = payload.get("chatLevel", "general")
                     project_id = payload.get("projectId")
-                    session_id = payload.get("sessionId")
+                    card_id = payload.get("cardId")
+                    session_id = payload.get("sessionId") or str(uuid4())
 
                     # Derive chat_id matching the conversation isolation logic
-                    if project_id:
+                    if card_id:
+                        chat_id = f"card:{card_id}"
+                    elif project_id:
                         chat_id = f"project:{project_id}"
                     else:
-                        chat_id = f"general:{session_id}" if session_id else "general"
+                        chat_id = f"general:{session_id}"
 
                     _orchestrator.reset_session(chat_id)
                     logger.info(f"[WS] session:reset → cleared history for {chat_id}")
