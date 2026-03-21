@@ -2,7 +2,7 @@ import { Card, CardStatus, AgentPersona, AgentInfo } from '../types';
 import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
 import { eventBus } from '../utils/EventBus';
-import { EVENTS } from '../utils/constants';
+import { EVENTS, API_URL } from '../utils/constants';
 
 export class CardService {
   private unsubscribers: (() => void)[] = [];
@@ -46,7 +46,7 @@ export class CardService {
     );
   }
 
-  create(data: {
+  async create(data: {
     title: string;
     description?: string;
     projectId: string;
@@ -54,7 +54,8 @@ export class CardService {
     assignedAgent?: AgentPersona;
     tags?: string[];
     priority?: number;
-  }): Card {
+  }): Promise<Card> {
+    // Optimistic local update
     const card = appState.addCard({
       title: data.title,
       description: data.description || '',
@@ -66,33 +67,86 @@ export class CardService {
       priority: data.priority || 0,
     });
 
-    apiClient.send('card:create', {
-      id: card.id,
-      title: card.title,
-      description: card.description,
-      status: card.status,
-      projectId: card.projectId,
-      assignedAgent: card.assignedAgent,
-      tags: card.tags,
-      priority: card.priority,
-    });
+    // Persist via REST
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${data.projectId}/cards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: card.title,
+          description: card.description,
+          status: card.status,
+          priority: card.priority,
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const raw = await response.json();
+      // Update local card with server-assigned id and fields
+      appState.updateCard(card.id, {
+        id: raw.id,
+        createdAt: raw.created_at ? new Date(raw.created_at).getTime() : card.createdAt,
+        updatedAt: raw.updated_at ? new Date(raw.updated_at).getTime() : card.updatedAt,
+      });
+      card.id = raw.id;
+    } catch (error) {
+      console.error('[CardService] create REST error:', error);
+    }
 
     return card;
   }
 
-  update(id: string, updates: Partial<Card>): void {
+  async update(id: string, updates: Partial<Card>): Promise<void> {
     appState.updateCard(id, updates);
-    apiClient.send('card:update', { id, updates });
+    try {
+      const baseUrl = API_URL || '';
+      const patchBody: Record<string, unknown> = {};
+      if (updates.title !== undefined) patchBody.title = updates.title;
+      if (updates.description !== undefined) patchBody.description = updates.description;
+      if (updates.status !== undefined) patchBody.status = updates.status;
+      if (updates.priority !== undefined) patchBody.priority = updates.priority;
+      if (updates.assignedAgent !== undefined) patchBody.agent_assigned = updates.assignedAgent;
+      if (updates.agentType !== undefined) patchBody.agent_type = updates.agentType;
+      if (updates.recurrence !== undefined) patchBody.recurrence = updates.recurrence;
+      if (Object.keys(patchBody).length > 0) {
+        const response = await fetch(`${baseUrl}/api/cards/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patchBody),
+        });
+        if (!response.ok) console.error(`[CardService] update REST error: HTTP ${response.status}`);
+      }
+    } catch (error) {
+      console.error('[CardService] update REST error:', error);
+    }
   }
 
-  delete(id: string): void {
+  async delete(id: string): Promise<void> {
     appState.deleteCard(id);
-    apiClient.send('card:delete', { id });
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${id}`, { method: 'DELETE' });
+      if (!response.ok && response.status !== 204) {
+        console.error(`[CardService] delete REST error: HTTP ${response.status}`);
+      }
+    } catch (error) {
+      console.error('[CardService] delete REST error:', error);
+    }
   }
 
-  move(cardId: string, newStatus: CardStatus): void {
+  async move(cardId: string, newStatus: CardStatus): Promise<void> {
     appState.moveCard(cardId, newStatus);
-    apiClient.send('card:move', { id: cardId, status: newStatus });
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!response.ok) console.error(`[CardService] move REST error: HTTP ${response.status}`);
+    } catch (error) {
+      console.error('[CardService] move REST error:', error);
+    }
   }
 
   assignAgent(cardId: string, agent: AgentPersona | undefined): void {

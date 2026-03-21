@@ -152,7 +152,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "description": {"type": "string", "description": "Card description"},
                 "status": {
                     "type": "string",
-                    "enum": ["idea", "todo", "in_progress", "done"],
+                    "enum": ["idea", "todo", "in-progress", "done"],
                     "description": "Initial status (default: idea)",
                 },
                 "priority": {
@@ -212,7 +212,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 },
                 "status": {
                     "type": "string",
-                    "enum": ["idea", "todo", "in_progress", "done", "archived"],
+                    "enum": ["idea", "todo", "in-progress", "done", "archived"],
                     "description": "New status",
                 },
             },
@@ -229,7 +229,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "card_id": {"type": "string", "description": "Card ID to move"},
                 "new_status": {
                     "type": "string",
-                    "enum": ["idea", "todo", "in_progress", "done", "archived"],
+                    "enum": ["idea", "todo", "in-progress", "done", "archived"],
                     "description": "Target status column",
                 },
             },

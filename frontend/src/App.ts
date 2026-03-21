@@ -549,75 +549,69 @@ export class App {
     this.switchView(returnView);
   }
 
-  private handleCardFormSubmit(payload: {
+  private async handleCardFormSubmit(payload: {
     mode: string; data: CardFormData; cardId?: string;
     projectId: string; assignedAgent?: AgentPersona; agentType?: string;
-  }): void {
+  }): Promise<void> {
     const { mode, data, cardId, projectId, assignedAgent, agentType } = payload;
     const resolvedAgentType = agentType || data.agentType || undefined;
     if (mode === 'create') {
-      const newCard = cardService.create({
+      const newCard = await cardService.create({
         title: data.title, description: data.description, projectId,
         status: data.status as CardStatus, assignedAgent, tags: data.tags, priority: data.priority,
       });
       // Persist agentType and recurrence via REST after card is created
       if ((resolvedAgentType && resolvedAgentType !== 'ember') || data.recurrence) {
-        // Small delay to let the card be persisted on the backend first
-        setTimeout(() => {
-          const patchData: Record<string, unknown> = {};
-          if (resolvedAgentType && resolvedAgentType !== 'ember') patchData.agent_type = resolvedAgentType;
-          if (data.recurrence) patchData.recurrence = data.recurrence;
-          if (Object.keys(patchData).length > 0) apiClient.patchCard(newCard.id, patchData);
-        }, 500);
+        const patchData: Record<string, unknown> = {};
+        if (resolvedAgentType && resolvedAgentType !== 'ember') patchData.agent_type = resolvedAgentType;
+        if (data.recurrence) patchData.recurrence = data.recurrence;
+        if (Object.keys(patchData).length > 0) await apiClient.patchCard(newCard.id, patchData);
       }
       eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created: "${data.title}"`, type: 'success', duration: 3000 });
 
       // AI Enrich after create (if checkbox was checked)
       if (data.enrichAfterCreate && newCard?.id) {
         const cardIdToEnrich = newCard.id;
-        // Small delay to let the card be persisted on the backend first
-        setTimeout(async () => {
-          try {
-            const result = await apiClient.enrichCard(cardIdToEnrich);
-            if (!result) return;
+        try {
+          const result = await apiClient.enrichCard(cardIdToEnrich);
+          if (!result) return;
 
-            const updates: Record<string, unknown> = {};
+          const updates: Record<string, unknown> = {};
 
-            // Description (only if card still has no description)
-            const currentCard = appState.getCard(cardIdToEnrich);
-            if (currentCard && !currentCard.description?.trim() && result.description) {
-              updates.description = result.description;
-              await apiClient.patchCard(cardIdToEnrich, { description: result.description });
-            }
-
-            // Tags
-            if (result.tags?.length > 0) {
-              const existing = currentCard?.tags || [];
-              const merged = [...new Set([...existing, ...result.tags])];
-              updates.tags = merged;
-              await apiClient.patchCard(cardIdToEnrich, { tags: merged });
-            }
-
-            // Apply state updates
-            if (Object.keys(updates).length > 0) {
-              appState.updateCard(cardIdToEnrich, updates as Partial<Card>);
-            }
-
-            // Checklist items
-            for (const text of result.checklist_items) {
-              await apiClient.addChecklistItem(cardIdToEnrich, text);
-            }
-
-            eventBus.emit(EVENTS.TOAST_SHOW, { message: `✨ Card enriched!`, type: 'success', duration: 3500 });
-            const enrichedCard = appState.getCard(cardIdToEnrich);
-            appState.addNotification({
-              type: 'card_enriched',
-              message: `✨ Card enriched: "${enrichedCard?.title || 'card'}"`,
-            });
-          } catch (err) {
-            console.error('[App] enrichCard after create failed:', err);
+          // Description (only if card still has no description)
+          const currentCard = appState.getCard(cardIdToEnrich);
+          if (currentCard && !currentCard.description?.trim() && result.description) {
+            updates.description = result.description;
+            await apiClient.patchCard(cardIdToEnrich, { description: result.description });
           }
-        }, 1200);
+
+          // Tags
+          if (result.tags?.length > 0) {
+            const existing = currentCard?.tags || [];
+            const merged = [...new Set([...existing, ...result.tags])];
+            updates.tags = merged;
+            await apiClient.patchCard(cardIdToEnrich, { tags: merged });
+          }
+
+          // Apply state updates
+          if (Object.keys(updates).length > 0) {
+            appState.updateCard(cardIdToEnrich, updates as Partial<Card>);
+          }
+
+          // Checklist items
+          for (const text of result.checklist_items) {
+            await apiClient.addChecklistItem(cardIdToEnrich, text);
+          }
+
+          eventBus.emit(EVENTS.TOAST_SHOW, { message: `✨ Card enriched!`, type: 'success', duration: 3500 });
+          const enrichedCard = appState.getCard(cardIdToEnrich);
+          appState.addNotification({
+            type: 'card_enriched',
+            message: `✨ Card enriched: "${enrichedCard?.title || 'card'}"`,
+          });
+        } catch (err) {
+          console.error('[App] enrichCard after create failed:', err);
+        }
       }
     } else if (mode === 'edit' && cardId) {
       cardService.update(cardId, {

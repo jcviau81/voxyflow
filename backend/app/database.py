@@ -220,7 +220,7 @@ class Card(Base):
     project_id = Column(String, ForeignKey("projects.id"), nullable=True)  # NULL = Main Board (unassigned)
     title = Column(String, nullable=False)
     description = Column(Text, default="")
-    status = Column(String, default="idea")  # note | idea | todo | in_progress | done | archived
+    status = Column(String, default="idea")  # note | idea | todo | in-progress | done | archived
     priority = Column(Integer, default=0)  # 0=none, 1=low, 2=medium, 3=high, 4=critical
     color = Column(String, nullable=True)  # yellow|blue|green|pink|purple|orange (for Main Board notes)
     position = Column(Integer, default=0)  # ordering within status column
