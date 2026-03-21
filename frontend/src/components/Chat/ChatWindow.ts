@@ -856,7 +856,7 @@ export class ChatWindow {
 
         // Build a human-readable label for the tool
         const toolLabels: Record<string, string> = {
-          'voxyflow.note.add': 'Note added to Main Board',
+          'voxyflow.card.create_unassigned': 'Card added to Main Board',
           'voxyflow.project.create': 'Project created',
           'voxyflow.card.create': 'Card created',
           'voxyflow.card.move': 'Card moved',
@@ -1096,6 +1096,12 @@ export class ChatWindow {
 
   private showWelcomePrompt(): void {
     if (!this.messageList) return;
+
+    // Destroy previous welcome prompt to prevent duplicates
+    if (this.welcomePrompt) {
+      this.welcomePrompt.destroy();
+      this.welcomePrompt = null;
+    }
 
     const projectId = appState.get('currentProjectId');
     const cardId = appState.get('selectedCardId');

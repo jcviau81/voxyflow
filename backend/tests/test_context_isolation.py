@@ -48,16 +48,16 @@ def _get_claude_tools(chat_level: str = "general") -> list[dict]:
 
     if chat_level == "general":
         allowed = {
-            "voxyflow.note.add",
-            "voxyflow.note.list",
+            "voxyflow.card.create_unassigned",
+            "voxyflow.card.list_unassigned",
             "voxyflow.project.create",
             "voxyflow.project.list",
             "voxyflow.health",
         }
     elif chat_level == "project":
         allowed = {t["name"] for t in all_tools} - {
-            "voxyflow.note.add",
-            "voxyflow.note.list",
+            "voxyflow.card.create_unassigned",
+            "voxyflow.card.list_unassigned",
         }
     else:
         allowed = {t["name"] for t in all_tools}
@@ -92,10 +92,10 @@ class TestToolScoping:
 
     # -- General chat tools --
 
-    def test_general_has_note_tools(self):
+    def test_general_has_card_unassigned_tools(self):
         names = self._tool_names("general")
-        assert "voxyflow_note_add" in names, "General chat should have note_add"
-        assert "voxyflow_note_list" in names, "General chat should have note_list"
+        assert "voxyflow_card_create_unassigned" in names, "General chat should have card_create_unassigned"
+        assert "voxyflow_card_list_unassigned" in names, "General chat should have card_list_unassigned"
 
     def test_general_has_project_tools(self):
         names = self._tool_names("general")
@@ -146,10 +146,10 @@ class TestToolScoping:
         assert "voxyflow_ai_brief" in names, "Project chat should have brief"
         assert "voxyflow_ai_health" in names, "Project chat should have health"
 
-    def test_project_excludes_note_tools(self):
+    def test_project_excludes_unassigned_tools(self):
         names = self._tool_names("project")
-        assert "voxyflow_note_add" not in names, "Project chat should NOT have note_add"
-        assert "voxyflow_note_list" not in names, "Project chat should NOT have note_list"
+        assert "voxyflow_card_create_unassigned" not in names, "Project chat should NOT have card_create_unassigned"
+        assert "voxyflow_card_list_unassigned" not in names, "Project chat should NOT have card_list_unassigned"
 
     def test_project_has_more_tools_than_general(self):
         general = _get_claude_tools("general")
@@ -165,9 +165,9 @@ class TestToolScoping:
             f"Card chat should have ALL tools ({len(all_mcp)}), got {len(card_tools)}"
         )
 
-    def test_card_has_note_and_card_tools(self):
+    def test_card_has_unassigned_and_card_tools(self):
         names = self._tool_names("card")
-        assert "voxyflow_note_add" in names, "Card chat should have note_add (full access)"
+        assert "voxyflow_card_create_unassigned" in names, "Card chat should have card_create_unassigned (full access)"
         assert "voxyflow_card_create" in names, "Card chat should have card_create"
         assert "voxyflow_wiki_create" in names, "Card chat should have wiki_create"
 
@@ -372,8 +372,8 @@ class TestContextIsolation:
         project_names = {t["name"] for t in _get_claude_tools("project")}
 
         # Notes are general-only
-        assert "voxyflow_note_add" in general_names
-        assert "voxyflow_note_add" not in project_names
+        assert "voxyflow_card_create_unassigned" in general_names
+        assert "voxyflow_card_create_unassigned" not in project_names
 
         # Cards are project-only (not in general)
         assert "voxyflow_card_create" not in general_names
@@ -386,22 +386,22 @@ class TestToolCallFallbackParsing:
     PATTERN = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 
     def test_single_tool_call(self):
-        text = 'Sure! <tool_call>{"name": "voxyflow.note.add", "arguments": {"content": "Test note"}}</tool_call> Done!'
+        text = 'Sure! <tool_call>{"name": "voxyflow.card.create_unassigned", "arguments": {"content": "Test note"}}</tool_call> Done!'
         matches = self.PATTERN.findall(text)
         assert len(matches) == 1
         call = json.loads(matches[0])
-        assert call["name"] == "voxyflow.note.add"
+        assert call["name"] == "voxyflow.card.create_unassigned"
         assert call["arguments"]["content"] == "Test note"
 
     def test_multiple_tool_calls(self):
         text = (
-            '<tool_call>{"name": "voxyflow.note.add", "arguments": {"content": "Note 1"}}</tool_call>\n'
+            '<tool_call>{"name": "voxyflow.card.create_unassigned", "arguments": {"content": "Note 1"}}</tool_call>\n'
             'Then also:\n'
             '<tool_call>{"name": "voxyflow.project.create", "arguments": {"title": "New Project"}}</tool_call>'
         )
         matches = self.PATTERN.findall(text)
         assert len(matches) == 2
-        assert json.loads(matches[0])["name"] == "voxyflow.note.add"
+        assert json.loads(matches[0])["name"] == "voxyflow.card.create_unassigned"
         assert json.loads(matches[1])["name"] == "voxyflow.project.create"
 
     def test_no_tool_call(self):
@@ -442,7 +442,7 @@ class TestToolNameConversion:
         assert _mcp_tool_name_from_claude("voxyflow_card_create") == "voxyflow.card.create"
 
     def test_claude_to_mcp_note(self):
-        assert _mcp_tool_name_from_claude("voxyflow_note_add") == "voxyflow.note.add"
+        assert _mcp_tool_name_from_claude("voxyflow_card_create_unassigned") == "voxyflow.card.create_unassigned"
 
     def test_claude_to_mcp_health(self):
         # "voxyflow_health" splits into only 2 parts
@@ -596,7 +596,7 @@ class TestFastPromptToolInjection:
     def test_fast_prompt_general_has_note_tools_text(self):
         ps = self._ps()
         prompt = ps.build_fast_prompt(chat_level="general", project_names=["Test"])
-        assert "voxyflow.note.add" in prompt
+        assert "voxyflow.card.create_unassigned" in prompt
         assert "voxyflow.card.create" not in prompt
 
     def test_fast_prompt_project_has_card_tools_text(self):
@@ -604,7 +604,7 @@ class TestFastPromptToolInjection:
         project = {"title": "TestProject"}
         prompt = ps.build_fast_prompt(chat_level="project", project=project)
         assert "voxyflow.card.create" in prompt
-        assert "voxyflow.note.add" not in prompt
+        assert "voxyflow.card.create_unassigned" not in prompt
 
     def test_fast_prompt_card_has_all_tools_text(self):
         ps = self._ps()
@@ -612,7 +612,7 @@ class TestFastPromptToolInjection:
         card = {"title": "Fix bug"}
         prompt = ps.build_fast_prompt(chat_level="card", project=project, card=card)
         assert "voxyflow.card.create" in prompt
-        assert "voxyflow.note.add" in prompt
+        assert "voxyflow.card.create_unassigned" in prompt
 
     def test_fast_prompt_has_tool_call_xml_instruction(self):
         ps = self._ps()

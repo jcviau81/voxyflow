@@ -162,7 +162,7 @@ async def create_unassigned_card(
     body: UnassignedCardCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a card on the Main Board (no project). Status defaults to 'note'."""
+    """Create a card on the Main Board (no project). Internal status defaults to 'note'."""
     card = Card(
         id=new_uuid(),
         project_id=None,
@@ -188,7 +188,7 @@ async def assign_card_to_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Move a card to a project (assign project_id). Changes status from 'note' to 'idea'."""
+    """Move a card to a project (assign project_id). Changes internal status from 'note' to 'idea'."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found")
@@ -222,7 +222,7 @@ async def unassign_card_from_project(
     card_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Detach a card from its project (back to Main Board). Status becomes 'note'."""
+    """Detach a card from its project (back to Main Board). Internal status becomes 'note'."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found")
@@ -1225,15 +1225,15 @@ async def enrich_card(
 # ── Legacy Note endpoint (deprecated — use /cards/unassigned) ──────────────
 
 @router.post("/notes", deprecated=True)
-async def create_note(body: dict):
+async def create_note_legacy(body: dict):
     """DEPRECATED: Use POST /api/cards/unassigned instead.
-    Kept for backward compatibility with old MCP tool calls."""
+    Kept for backward compatibility with old tool calls."""
     content = body.get("content", "")
     color = body.get("color")
     if not content:
         raise HTTPException(400, "content is required")
     return {
         "success": True,
-        "note": {"content": content, "color": color},
+        "card": {"content": content, "color": color},
         "ui_event": "idea:add",
     }

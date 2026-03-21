@@ -110,7 +110,7 @@ test.describe('FreeBoard', () => {
   test('Empty state shows when no cards exist', async ({ page }) => {
     const emptyState = page.locator('.freeboard-empty');
     await expect(emptyState).toBeVisible({ timeout: 3000 });
-    await expect(emptyState).toContainText('No notes yet');
+    await expect(emptyState).toContainText('No cards yet');
   });
 
   test('Empty state disappears after adding a card', async ({ page }) => {

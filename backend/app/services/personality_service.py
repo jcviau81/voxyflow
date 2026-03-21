@@ -144,11 +144,11 @@ class PersonalityService:
             "Do not start by orienting yourself. Do not explain what you could do. Just be here and act.\n\n"
             "## How You Work\n"
             "When the user says something, you respond and act — in that order. "
-            "If they ask you to create a note, you create it. If they want to brainstorm, you brainstorm. "
+            "If they ask you to create a card, you create it. If they want to brainstorm, you brainstorm. "
             "You don't ask for permission to do what you were clearly asked to do.\n"
             "You use your tools silently and naturally — like someone who knows their workspace.\n\n"
             "## Right Now\n"
-            "You are in the Main Chat — a free space for ideas, notes, and conversation. "
+            "You are in the Main Chat — a free space for ideas, cards, and conversation. "
             "No active project. If the user mentions a project by name, pivot to it. "
             "If they ask to create a card without specifying a project, ask once — briefly.\n\n"
             "Do NOT say 'welcome back' on a first conversation. Greet naturally based on what they said.\n\n"
@@ -473,7 +473,7 @@ class PersonalityService:
                 '{"intent": "create_card", "summary": "Create a card titled X in project Y", '
                 '"complexity": "simple"}\n'
                 "</delegate>\n\n"
-                "intent options: create_card, add_note, move_card, update_card, create_project, "
+                "intent options: create_card, move_card, update_card, create_project, "
                 "run_command, write_file, create_sprint, search_web, analyze_code, etc.\n"
                 "complexity: 'simple' for CRUD, 'complex' for multi-step or destructive\n\n"
                 "ROUTING:\n"
@@ -654,7 +654,7 @@ class PersonalityService:
             context_note = (
                 f"\n\nCurrent context: MAIN CHAT (no project selected).\n"
                 f"User's projects: {projs}\n"
-                "In Main Chat, suggest NOTES (sticky notes for the Main Board) for reminders/quick thoughts.\n"
+                "In Main Chat, suggest CARDS (for the Main Board) for reminders/quick thoughts.\n"
                 "If the user mentions something that belongs in a project, suggest a CARD with the project name.\n"
                 "If the project doesn't exist yet, suggest creating it.\n"
             )
@@ -680,8 +680,8 @@ class PersonalityService:
                 "3. Return a suggestion for the user to confirm\n\n"
                 "## Output Format — JSON ONLY\n"
                 '{"action": "suggest", "suggestions": [\n'
-                '  {"tool": "voxyflow.note.add", "arguments": {"content": "..."}, '
-                '"display": "Add note: ...", "description": "..."}\n'
+                '  {"tool": "voxyflow.card.create_unassigned", "arguments": {"content": "..."}, '
+                '"display": "Add card: ...", "description": "..."}\n'
                 "]}\n\n"
                 "Each suggestion:\n"
                 "- tool: the MCP tool name to call\n"
@@ -727,11 +727,11 @@ class PersonalityService:
             "- 'Create unit tests for the Analyzer prompt builder'\n"
             "- 'Update SOUL.md with FreeBoard nomenclature'\n\n"
             "## Suggestion Types\n"
-            "- **NOTE**: Quick reminder/thought -> Main Board sticky note\n"
-            "- **CARD**: Specific task -> Project kanban (MUST have a clear deliverable)\n"
+            "- **CARD (Main Board)**: Quick reminder/thought -> Main Board card\n"
+            "- **CARD (Project)**: Specific task -> Project kanban (MUST have a clear deliverable)\n"
             "- **PROJECT**: Only if user explicitly discusses a NEW initiative\n\n"
             "## Output Format — JSON ONLY, no text\n"
-            "[{\"type\": \"note|card|project\", \"title\": \"Verb + specific action...\", "
+            "[{\"type\": \"card|project\", \"title\": \"Verb + specific action...\", "
             "\"description\": \"What exactly to do in 1-2 sentences\", "
             "\"project\": \"project_name or null\", \"priority\": \"low|medium|high\", "
             "\"agentType\": \"coder|architect|designer|researcher|writer|qa|ember\"}]\n"

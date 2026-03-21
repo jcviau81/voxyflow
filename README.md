@@ -91,9 +91,9 @@ Cards are the unified data model — everything is a Card:
 
 ### 📝 Main Board (FreeBoard)
 
-- Sticky notes that live outside any project
-- Same Card model underneath — unified and consistent
-- Color-coded notes (yellow, blue, green, pink, purple, orange)
+- Cards that live outside any project (unassigned)
+- Same Card model as project cards — unified and consistent
+- Color-coded cards (yellow, blue, green, pink, purple, orange)
 - Detail modal for expanded view
 
 ### 🤖 Agent Personas (7)
@@ -135,7 +135,7 @@ Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server with 
 
 | Category | Tools |
 |----------|-------|
-| Notes | `note.add`, `note.list` |
+| Main Board | `card.create_unassigned`, `card.list_unassigned` |
 | Projects | `project.create`, `project.list`, `project.get`, `project.delete`, `project.export` |
 | Cards | `card.create`, `card.list`, `card.get`, `card.update`, `card.move`, `card.delete`, `card.duplicate`, `card.enrich` |
 | Wiki | `wiki.list`, `wiki.create`, `wiki.get`, `wiki.update` |
@@ -436,7 +436,7 @@ voxyflow/
 │   │   ├── state/AppState.ts       # Global state management
 │   │   ├── components/
 │   │   │   ├── Chat/               # Chat window, voice, search, sessions
-│   │   │   ├── FreeBoard/          # Main board (sticky notes)
+│   │   │   ├── FreeBoard/          # Main board (unassigned cards)
 │   │   │   ├── FocusMode/          # Pomodoro focus sessions
 │   │   │   ├── Ideas/              # Idea board
 │   │   │   ├── Kanban/             # Kanban board, cards, drag-and-drop

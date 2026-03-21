@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Read-only tools: Fast layer can read/search but NOT write or execute
 TOOLS_READ_ONLY = {
     "voxyflow.health",
-    "voxyflow.note.list",
+    "voxyflow.card.list_unassigned",
     "voxyflow.project.list", "voxyflow.project.get",
     "voxyflow.card.list", "voxyflow.card.get",
     "voxyflow.wiki.list", "voxyflow.wiki.get",
@@ -28,7 +28,7 @@ TOOLS_READ_ONLY = {
 
 # CRUD tools: Analyzer (Haiku) can do trivial dashboard actions
 TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
-    "voxyflow.note.add",
+    "voxyflow.card.create_unassigned",
     "voxyflow.project.create",
     "voxyflow.card.create", "voxyflow.card.update", "voxyflow.card.move",
     "voxyflow.card.duplicate", "voxyflow.card.enrich",

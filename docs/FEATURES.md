@@ -275,12 +275,12 @@ Document upload and knowledge base management (see [RAG / Knowledge Base](#6-rag
 - Upload documents for RAG context injection
 - List and delete indexed documents
 
-#### 📝 Notes Board (formerly Free Board)
-A sticky-note scratchpad for brainstorming:
+#### 📝 Main Board (FreeBoard)
+A card-based scratchpad for brainstorming:
 - Quick-add form
 - 6 pastel colors
 - Grid layout with delete and promote actions
-- AI-suggested notes (via background Analyzer)
+- AI-suggested cards (via background Analyzer)
 
 ---
 
