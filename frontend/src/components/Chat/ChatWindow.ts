@@ -39,10 +39,25 @@ export class ChatWindow {
   private autoScroll = true;
   private currentProjectView: 'chat' | 'kanban' | 'stats' | 'roadmap' | 'wiki' | 'sprint' | 'docs' = 'chat';
 
-  // Session management (general chat only)
-  private sessions: { id: string; label: string }[] = [{ id: 'session-1', label: 'Session 1' }];
-  private activeSessionId = 'session-1';
-  private sessionCounter = 1;
+  // Session management (general chat only) — synced with AppState for persistence
+  private get sessions(): { id: string; label: string }[] {
+    return appState.get('generalSessions');
+  }
+  private set sessions(value: { id: string; label: string }[]) {
+    appState.set('generalSessions', value);
+  }
+  private get activeSessionId(): string {
+    return appState.get('activeGeneralSessionId');
+  }
+  private set activeSessionId(value: string) {
+    appState.set('activeGeneralSessionId', value);
+  }
+  private get sessionCounter(): number {
+    return appState.get('generalSessionCounter');
+  }
+  private set sessionCounter(value: number) {
+    appState.set('generalSessionCounter', value);
+  }
 
   // Code paste detection banner
   private codePasteBanner: HTMLElement | null = null;

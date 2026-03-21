@@ -191,6 +191,10 @@ export interface AppStateData {
   // Notification center
   notifications: NotificationEntry[];
   notificationUnreadCount: number;
+  // General chat session tabs (persisted across navigation)
+  generalSessions: { id: string; label: string }[];
+  activeGeneralSessionId: string;
+  generalSessionCounter: number;
 }
 
 // Session tabs (per project/card context)

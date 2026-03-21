@@ -40,6 +40,9 @@ const defaultState: AppStateData = {
   opportunityBadgeCount: 0,
   notifications: [],
   notificationUnreadCount: 0,
+  generalSessions: [{ id: 'session-1', label: 'Session 1' }],
+  activeGeneralSessionId: 'session-1',
+  generalSessionCounter: 1,
 };
 
 class AppState {
@@ -94,6 +97,17 @@ class AppState {
     }
     if (this.state.notificationUnreadCount === undefined) {
       this.state.notificationUnreadCount = 0;
+    }
+
+    // Ensure general chat sessions are initialized (migration from old state)
+    if (!this.state.generalSessions || this.state.generalSessions.length === 0) {
+      this.state.generalSessions = [{ id: 'session-1', label: 'Session 1' }];
+    }
+    if (!this.state.activeGeneralSessionId) {
+      this.state.activeGeneralSessionId = this.state.generalSessions[0].id;
+    }
+    if (!this.state.generalSessionCounter) {
+      this.state.generalSessionCounter = this.state.generalSessions.length;
     }
 
     // Restore persisted tabs
