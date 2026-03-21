@@ -1,41 +1,600 @@
-"""Memory Service — reads/writes to ~/voxyflow/personality/ for Voxy's own memory."""
+"""Memory Service — ChromaDB-backed hierarchical memory with file-based fallback.
 
+Collections:
+  memory-global              ← user preferences, cross-project decisions, lessons learned
+  memory-project-{slug}      ← project-specific decisions, bugs, tech choices, context
+
+ChromaDB persists to ~/.voxyflow/chroma/ (shared PersistentClient with RAG service).
+Embeddings use all-MiniLM-L6-v2 (local, no API key needed).
+
+IMPORTANT: All ChromaDB operations are wrapped in try/except.
+Memory failure NEVER breaks chat. If chromadb is not installed, memory falls
+back to the original file-based approach (graceful degradation).
+"""
+
+import hashlib
 import logging
 import os
-from datetime import datetime, timezone
+import re
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Graceful degradation: if chromadb is not installed, fall back to file-based
+# ---------------------------------------------------------------------------
+
+try:
+    import chromadb
+    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+
+    _CHROMADB_AVAILABLE = True
+    logger.info("chromadb available — ChromaDB memory enabled")
+except ImportError:
+    _CHROMADB_AVAILABLE = False
+    logger.warning(
+        "chromadb not installed — falling back to file-based memory "
+        "(install chromadb + sentence-transformers to enable semantic memory)"
+    )
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 WORKSPACE_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow"))) / "personality"
 MEMORY_FILE = WORKSPACE_DIR / "MEMORY.md"
 MEMORY_DIR = WORKSPACE_DIR / "memory"
 
+CHROMA_PERSIST_DIR = os.path.expanduser("~/.voxyflow/chroma")
+MIGRATION_FLAG_FILE = Path(CHROMA_PERSIST_DIR) / ".memory_migrated"
+
+GLOBAL_COLLECTION = "memory-global"
+
+VALID_TYPES = {"decision", "preference", "lesson", "fact", "context"}
+VALID_SOURCES = {"chat", "manual", "auto-extract"}
+VALID_IMPORTANCE = {"high", "medium", "low"}
+
+# ---------------------------------------------------------------------------
+# Keyword patterns for auto-extraction (MVP heuristic)
+# ---------------------------------------------------------------------------
+
+_DECISION_PATTERNS = [
+    re.compile(r"(?:I|we|let'?s)\s+(?:decided?|chose?|go(?:ing)?\s+with|picked|settled\s+on)", re.I),
+    re.compile(r"(?:the\s+)?decision\s+(?:is|was)\s+to", re.I),
+    re.compile(r"(?:I|we)\s+(?:will|'ll)\s+(?:use|go\s+with|stick\s+with)", re.I),
+]
+
+_PREFERENCE_PATTERNS = [
+    re.compile(r"(?:I|we)\s+prefer", re.I),
+    re.compile(r"(?:I|we)\s+(?:like|want|need)\s+(?:to\s+)?(?:use|have|keep)", re.I),
+    re.compile(r"(?:always|never|don'?t)\s+(?:use|do|want)", re.I),
+]
+
+_BUG_PATTERNS = [
+    re.compile(r"(?:bug|issue|problem|error|crash|broken|fix(?:ed)?)\b", re.I),
+    re.compile(r"(?:doesn'?t|does\s+not|isn'?t|is\s+not)\s+work", re.I),
+]
+
+_TECH_PATTERNS = [
+    re.compile(r"(?:using|switched?\s+to|migrated?\s+to|installed?|upgraded?)\s+\w+", re.I),
+    re.compile(r"(?:stack|framework|library|tool|dependency|version)\b", re.I),
+]
+
+_LESSON_PATTERNS = [
+    re.compile(r"(?:lesson|learned|takeaway|insight|realized?|turns?\s+out)\b", re.I),
+    re.compile(r"(?:important|remember|note\s+to\s+self)\b", re.I),
+]
+
+
+def _classify_text(text: str) -> tuple[str, str]:
+    """Classify text into (type, importance) using keyword heuristics.
+
+    Returns one of the VALID_TYPES and VALID_IMPORTANCE values.
+    """
+    text_lower = text.lower()
+
+    # Check patterns in priority order
+    for pat in _DECISION_PATTERNS:
+        if pat.search(text):
+            return "decision", "high"
+
+    for pat in _BUG_PATTERNS:
+        if pat.search(text):
+            return "fact", "high"
+
+    for pat in _PREFERENCE_PATTERNS:
+        if pat.search(text):
+            return "preference", "medium"
+
+    for pat in _TECH_PATTERNS:
+        if pat.search(text):
+            return "fact", "medium"
+
+    for pat in _LESSON_PATTERNS:
+        if pat.search(text):
+            return "lesson", "high"
+
+    return "context", "low"
+
+
+def _slugify(name: str) -> str:
+    """Convert a project name to a collection-safe slug."""
+    slug = name.lower().strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = slug.strip("-")
+    return slug or "default"
+
+
+def _project_collection(project_slug: str) -> str:
+    """Return the collection name for a project."""
+    return f"memory-project-{project_slug}"
+
 
 class MemoryService:
-    """
-    Reads and writes to the OpenClaw workspace memory system.
+    """ChromaDB-backed hierarchical memory with file-based fallback.
 
     Memory hierarchy:
-    - MEMORY.md — long-term curated memories (loaded for context)
-    - memory/YYYY-MM-DD.md — daily logs (recent days loaded for context)
-    - memory/projects/<name>.md — project-specific notes
+    - memory-global: user preferences, cross-project decisions, lessons learned
+    - memory-project-{slug}: project-specific decisions, bugs, tech choices
 
-    This is the shared source of truth between Ember (OpenClaw) and Voxyflow.
+    Falls back to file-based memory (MEMORY.md, daily .md files) if ChromaDB
+    is unavailable or not installed.
     """
 
-    def __init__(self, max_memory_chars: int = 4000, daily_lookback_days: int = 3):
+    def __init__(
+        self,
+        max_memory_chars: int = 4000,
+        daily_lookback_days: int = 3,
+        persist_dir: str = CHROMA_PERSIST_DIR,
+    ):
         self.max_memory_chars = max_memory_chars
         self.daily_lookback_days = daily_lookback_days
+        self._chromadb_enabled = False
+        self._client = None
+        self._ef = None
 
-    def load_long_term_memory(self) -> str:
+        if _CHROMADB_AVAILABLE:
+            try:
+                persist_path = os.path.expanduser(persist_dir)
+                os.makedirs(persist_path, exist_ok=True)
+                self._client = chromadb.PersistentClient(path=persist_path)
+                self._ef = SentenceTransformerEmbeddingFunction(
+                    model_name="all-MiniLM-L6-v2"
+                )
+                self._chromadb_enabled = True
+                logger.info(f"MemoryService ChromaDB initialized, persist_dir={persist_path!r}")
+            except Exception as e:
+                self._chromadb_enabled = False
+                logger.error(f"MemoryService ChromaDB init failed — file-based fallback: {e}")
+
+    # ------------------------------------------------------------------
+    # ChromaDB collection helpers
+    # ------------------------------------------------------------------
+
+    def _get_or_create_collection(self, name: str):
+        """Get or create a ChromaDB collection with the default embedding function."""
+        return self._client.get_or_create_collection(
+            name=name,
+            embedding_function=self._ef,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+    # ------------------------------------------------------------------
+    # Store / Delete / Search / List (new ChromaDB methods)
+    # ------------------------------------------------------------------
+
+    def store_memory(
+        self,
+        text: str,
+        collection: str = GLOBAL_COLLECTION,
+        metadata: Optional[dict] = None,
+    ) -> Optional[str]:
+        """Store a memory entry in a ChromaDB collection.
+
+        Returns the document ID on success, None on failure.
+        """
+        if not self._chromadb_enabled:
+            logger.debug("store_memory: ChromaDB not available, skipping")
+            return None
+
+        try:
+            col = self._get_or_create_collection(collection)
+            doc_id = f"mem-{uuid.uuid4().hex[:12]}"
+
+            meta = metadata or {}
+            # Ensure required fields with defaults
+            meta.setdefault("type", "context")
+            meta.setdefault("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+            meta.setdefault("source", "manual")
+            meta.setdefault("importance", "medium")
+            # ChromaDB metadata values must be str, int, float, or bool
+            # Remove None values
+            meta = {k: v for k, v in meta.items() if v is not None}
+
+            col.upsert(ids=[doc_id], documents=[text], metadatas=[meta])
+            logger.info(f"store_memory: stored doc {doc_id} in {collection}")
+            return doc_id
+        except Exception as e:
+            logger.error(f"store_memory failed: {e}")
+            return None
+
+    def delete_memory(self, doc_id: str, collection: str = GLOBAL_COLLECTION) -> bool:
+        """Delete a specific memory by ID from a collection."""
+        if not self._chromadb_enabled:
+            return False
+
+        try:
+            col = self._get_or_create_collection(collection)
+            col.delete(ids=[doc_id])
+            logger.info(f"delete_memory: deleted {doc_id} from {collection}")
+            return True
+        except Exception as e:
+            logger.error(f"delete_memory failed: {e}")
+            return False
+
+    def search_memory(
+        self,
+        query: str,
+        collections: Optional[list[str]] = None,
+        filters: Optional[dict] = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Semantic search across specified collections.
+
+        Returns list of {id, text, score, metadata, collection}.
+        """
+        if not self._chromadb_enabled:
+            # Fall back to keyword search
+            return self._keyword_search(query, limit)
+
+        if not query or not query.strip():
+            return []
+
+        if collections is None:
+            collections = [GLOBAL_COLLECTION]
+
+        all_results: list[dict] = []
+
+        for col_name in collections:
+            try:
+                col = self._get_or_create_collection(col_name)
+                count = col.count()
+                if count == 0:
+                    continue
+
+                query_kwargs = {
+                    "query_texts": [query],
+                    "n_results": min(limit, count),
+                }
+                if filters:
+                    query_kwargs["where"] = filters
+
+                results = col.query(**query_kwargs)
+
+                docs = results.get("documents", [[]])[0]
+                distances = results.get("distances", [[]])[0]
+                metas = results.get("metadatas", [[]])[0]
+                ids = results.get("ids", [[]])[0]
+
+                for doc_id, doc, dist, meta in zip(ids, docs, distances, metas):
+                    score = max(0.0, 1.0 - dist)
+                    all_results.append({
+                        "id": doc_id,
+                        "text": doc,
+                        "score": score,
+                        "metadata": meta or {},
+                        "collection": col_name,
+                    })
+            except Exception as e:
+                logger.warning(f"search_memory: error querying {col_name}: {e}")
+                continue
+
+        all_results.sort(key=lambda r: r["score"], reverse=True)
+        return all_results[:limit]
+
+    def list_memories(
+        self,
+        collection: str = GLOBAL_COLLECTION,
+        filters: Optional[dict] = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """List recent memories from a collection.
+
+        Returns list of {id, text, metadata}.
+        """
+        if not self._chromadb_enabled:
+            return []
+
+        try:
+            col = self._get_or_create_collection(collection)
+            count = col.count()
+            if count == 0:
+                return []
+
+            get_kwargs = {"limit": min(limit, count)}
+            if filters:
+                get_kwargs["where"] = filters
+
+            results = col.get(**get_kwargs)
+
+            docs = results.get("documents", [])
+            metas = results.get("metadatas", [])
+            ids = results.get("ids", [])
+
+            return [
+                {"id": doc_id, "text": doc, "metadata": meta or {}}
+                for doc_id, doc, meta in zip(ids, docs, metas)
+            ]
+        except Exception as e:
+            logger.error(f"list_memories failed: {e}")
+            return []
+
+    # ------------------------------------------------------------------
+    # Auto-extraction from conversations (MVP: keyword heuristics)
+    # ------------------------------------------------------------------
+
+    async def auto_extract_memories(
+        self,
+        chat_id: str,
+        messages: list[dict],
+        project_slug: Optional[str] = None,
+    ) -> list[str]:
+        """Analyze conversation messages and auto-store important facts/decisions.
+
+        Uses keyword-based heuristics (MVP) to identify what's worth remembering.
+        Returns list of stored document IDs.
+        """
+        if not self._chromadb_enabled:
+            return []
+
+        stored_ids: list[str] = []
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        # Determine target collection
+        collection = (
+            _project_collection(project_slug)
+            if project_slug
+            else GLOBAL_COLLECTION
+        )
+
+        # Process each message (focus on user + assistant content)
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if not content or role == "system":
+                continue
+
+            # Split into sentences for granular extraction
+            sentences = re.split(r'(?<=[.!?])\s+', content)
+
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if len(sentence) < 20:  # Skip trivially short
+                    continue
+
+                mem_type, importance = _classify_text(sentence)
+
+                # Only store if classified as something meaningful (not low-importance context)
+                if mem_type == "context" and importance == "low":
+                    continue
+
+                metadata = {
+                    "type": mem_type,
+                    "date": today,
+                    "source": "auto-extract",
+                    "importance": importance,
+                }
+                if project_slug:
+                    metadata["project"] = project_slug
+
+                # Dedup: check if very similar memory already exists
+                existing = self.search_memory(
+                    query=sentence,
+                    collections=[collection],
+                    limit=1,
+                )
+                if existing and existing[0]["score"] > 0.85:
+                    logger.debug(f"auto_extract: skipping duplicate (score={existing[0]['score']:.2f})")
+                    continue
+
+                doc_id = self.store_memory(
+                    text=sentence,
+                    collection=collection,
+                    metadata=metadata,
+                )
+                if doc_id:
+                    stored_ids.append(doc_id)
+                    logger.info(f"auto_extract: stored {mem_type} ({importance}): {sentence[:80]}...")
+
+        return stored_ids
+
+    # ------------------------------------------------------------------
+    # build_memory_context — backward-compatible, now with semantic search
+    # ------------------------------------------------------------------
+
+    def build_memory_context(
+        self,
+        project_name: Optional[str] = None,
+        include_long_term: bool = True,
+        include_daily: bool = True,
+        query: Optional[str] = None,
+        card_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Build a combined memory context string for injection into system prompts.
+
+        If ChromaDB is available and a query is provided, uses semantic search.
+        Otherwise falls back to file-based memory loading.
+
+        Returns None if no memory available.
+        """
+        # If ChromaDB is available and we have a query, use semantic search
+        if self._chromadb_enabled and query:
+            return self._build_chromadb_context(
+                query=query,
+                project_name=project_name,
+                card_id=card_id,
+                include_long_term=include_long_term,
+            )
+
+        # Fallback: file-based memory
+        return self._build_file_context(
+            project_name=project_name,
+            include_long_term=include_long_term,
+            include_daily=include_daily,
+        )
+
+    def _build_chromadb_context(
+        self,
+        query: str,
+        project_name: Optional[str] = None,
+        card_id: Optional[str] = None,
+        include_long_term: bool = True,
+    ) -> Optional[str]:
+        """Build memory context using ChromaDB semantic search.
+
+        Hierarchy:
+        - General Chat → memory-global (top 10)
+        - Project Chat → memory-global (top 5) + memory-project-{slug} (top 10)
+        - Card Chat → memory-global (top 3) + memory-project-{slug} w/ card_id filter (top 5) + unfiltered project (top 5)
+        """
+        sections: list[str] = []
+
+        try:
+            if project_name and card_id:
+                # Card Chat mode
+                slug = _slugify(project_name)
+                proj_col = _project_collection(slug)
+
+                if include_long_term:
+                    global_results = self.search_memory(
+                        query=query, collections=[GLOBAL_COLLECTION], limit=3
+                    )
+                    if global_results:
+                        texts = [r["text"] for r in global_results]
+                        sections.append("**Global memory:**\n" + "\n".join(f"- {t}" for t in texts))
+
+                # Card-scoped project memories
+                card_results = self.search_memory(
+                    query=query,
+                    collections=[proj_col],
+                    filters={"card_id": card_id},
+                    limit=5,
+                )
+                if card_results:
+                    texts = [r["text"] for r in card_results]
+                    sections.append(
+                        f"**Card memory ({project_name}):**\n" + "\n".join(f"- {t}" for t in texts)
+                    )
+
+                # Unfiltered project memories
+                proj_results = self.search_memory(
+                    query=query, collections=[proj_col], limit=5
+                )
+                if proj_results:
+                    # Deduplicate against card results
+                    card_ids = {r["id"] for r in card_results}
+                    proj_unique = [r for r in proj_results if r["id"] not in card_ids]
+                    if proj_unique:
+                        texts = [r["text"] for r in proj_unique]
+                        sections.append(
+                            f"**Project memory ({project_name}):**\n"
+                            + "\n".join(f"- {t}" for t in texts)
+                        )
+
+            elif project_name:
+                # Project Chat mode
+                slug = _slugify(project_name)
+                proj_col = _project_collection(slug)
+
+                if include_long_term:
+                    global_results = self.search_memory(
+                        query=query, collections=[GLOBAL_COLLECTION], limit=5
+                    )
+                    if global_results:
+                        texts = [r["text"] for r in global_results]
+                        sections.append("**Global memory:**\n" + "\n".join(f"- {t}" for t in texts))
+
+                proj_results = self.search_memory(
+                    query=query, collections=[proj_col], limit=10
+                )
+                if proj_results:
+                    texts = [r["text"] for r in proj_results]
+                    sections.append(
+                        f"**Project memory ({project_name}):**\n"
+                        + "\n".join(f"- {t}" for t in texts)
+                    )
+
+            else:
+                # General Chat mode
+                if include_long_term:
+                    global_results = self.search_memory(
+                        query=query, collections=[GLOBAL_COLLECTION], limit=10
+                    )
+                    if global_results:
+                        texts = [r["text"] for r in global_results]
+                        sections.append("**Relevant memory:**\n" + "\n".join(f"- {t}" for t in texts))
+
+        except Exception as e:
+            logger.error(f"_build_chromadb_context failed: {e}")
+            # Fall back to file-based
+            return self._build_file_context(
+                project_name=project_name,
+                include_long_term=include_long_term,
+                include_daily=True,
+            )
+
+        if not sections:
+            # If ChromaDB returned nothing, try file-based as fallback
+            return self._build_file_context(
+                project_name=project_name,
+                include_long_term=include_long_term,
+                include_daily=True,
+            )
+
+        return "\n\n---\n\n".join(sections)
+
+    # ------------------------------------------------------------------
+    # File-based fallback (original implementation)
+    # ------------------------------------------------------------------
+
+    def _build_file_context(
+        self,
+        project_name: Optional[str] = None,
+        include_long_term: bool = True,
+        include_daily: bool = True,
+    ) -> Optional[str]:
+        """Build memory context from files (original approach, now a fallback)."""
+        sections = []
+
+        if include_long_term:
+            ltm = self._load_long_term_memory()
+            if ltm:
+                sections.append(f"**Long-term memory:**\n{ltm}")
+
+        if include_daily:
+            daily = self._load_daily_logs()
+            if daily:
+                sections.append(f"**Recent daily logs:**\n{daily}")
+
+        if project_name:
+            proj = self._load_project_memory(project_name)
+            if proj:
+                sections.append(f"**Project notes ({project_name}):**\n{proj}")
+
+        if not sections:
+            return None
+
+        return "\n\n---\n\n".join(sections)
+
+    def _load_long_term_memory(self) -> str:
         """Load MEMORY.md — curated long-term memories."""
         if not MEMORY_FILE.exists():
             return ""
         try:
             content = MEMORY_FILE.read_text(encoding="utf-8").strip()
-            # Truncate if too large (take the most recent entries — bottom of file)
             if len(content) > self.max_memory_chars:
                 content = "...[earlier memories truncated]...\n" + content[-self.max_memory_chars:]
             return content
@@ -43,7 +602,7 @@ class MemoryService:
             logger.warning(f"Failed to read MEMORY.md: {e}")
             return ""
 
-    def load_daily_logs(self, days: Optional[int] = None) -> str:
+    def _load_daily_logs(self, days: Optional[int] = None) -> str:
         """Load recent daily logs for context."""
         days = days or self.daily_lookback_days
         if not MEMORY_DIR.exists():
@@ -53,14 +612,12 @@ class MemoryService:
         entries = []
 
         for i in range(days):
-            from datetime import timedelta
             date = now - timedelta(days=i)
             date_str = date.strftime("%Y-%m-%d")
             daily_file = MEMORY_DIR / f"{date_str}.md"
             if daily_file.exists():
                 try:
                     content = daily_file.read_text(encoding="utf-8").strip()
-                    # Keep reasonable size per day
                     if len(content) > 1500:
                         content = content[-1500:]
                     entries.append(f"### {date_str}\n{content}")
@@ -69,12 +626,11 @@ class MemoryService:
 
         return "\n\n".join(entries)
 
-    def load_project_memory(self, project_name: str) -> str:
+    def _load_project_memory(self, project_name: str) -> str:
         """Load project-specific memory notes if they exist."""
         project_file = MEMORY_DIR / "projects" / f"{project_name}.md"
         if not project_file.exists():
-            # Try slugified version
-            slug = project_name.lower().replace(" ", "-").replace("_", "-")
+            slug = _slugify(project_name)
             project_file = MEMORY_DIR / "projects" / f"{slug}.md"
 
         if not project_file.exists():
@@ -89,43 +645,76 @@ class MemoryService:
             logger.warning(f"Failed to read project memory {project_file}: {e}")
             return ""
 
-    def build_memory_context(
-        self,
-        project_name: Optional[str] = None,
-        include_long_term: bool = True,
-        include_daily: bool = True,
-    ) -> Optional[str]:
-        """
-        Build a combined memory context string for injection into system prompts.
-        Returns None if no memory available.
-        """
-        sections = []
+    # ------------------------------------------------------------------
+    # Keyword-based search fallback (original)
+    # ------------------------------------------------------------------
 
-        if include_long_term:
-            ltm = self.load_long_term_memory()
-            if ltm:
-                sections.append(f"**Long-term memory:**\n{ltm}")
+    def _keyword_search(self, query: str, max_results: int = 5) -> list[dict]:
+        """Simple keyword-based memory search across all memory files."""
+        results = []
+        query_lower = query.lower()
+        query_terms = query_lower.split()
 
-        if include_daily:
-            daily = self.load_daily_logs()
-            if daily:
-                sections.append(f"**Recent daily logs:**\n{daily}")
+        if not MEMORY_DIR.exists():
+            return results
 
-        if project_name:
-            proj = self.load_project_memory(project_name)
-            if proj:
-                sections.append(f"**Project notes ({project_name}):**\n{proj}")
+        for md_file in sorted(MEMORY_DIR.rglob("*.md"), reverse=True):
+            try:
+                content = md_file.read_text(encoding="utf-8")
+                content_lower = content.lower()
 
-        if not sections:
-            return None
+                hits = sum(1 for term in query_terms if term in content_lower)
+                if hits == 0:
+                    continue
 
-        return "\n\n---\n\n".join(sections)
+                score = hits / len(query_terms)
+
+                snippet = ""
+                for para in content.split("\n\n"):
+                    if any(term in para.lower() for term in query_terms):
+                        snippet = para.strip()[:300]
+                        break
+
+                results.append({
+                    "id": str(md_file),
+                    "text": snippet,
+                    "score": score,
+                    "metadata": {"file": str(md_file.relative_to(WORKSPACE_DIR))},
+                    "collection": "file-based",
+                })
+            except Exception:
+                continue
+
+        if MEMORY_FILE.exists():
+            try:
+                content = MEMORY_FILE.read_text(encoding="utf-8")
+                content_lower = content.lower()
+                hits = sum(1 for term in query_terms if term in content_lower)
+                if hits > 0:
+                    score = hits / len(query_terms)
+                    for para in content.split("\n\n"):
+                        if any(term in para.lower() for term in query_terms):
+                            snippet = para.strip()[:300]
+                            results.append({
+                                "id": "MEMORY.md",
+                                "text": snippet,
+                                "score": score,
+                                "metadata": {"file": "MEMORY.md"},
+                                "collection": "file-based",
+                            })
+                            break
+            except Exception:
+                pass
+
+        results.sort(key=lambda r: r["score"], reverse=True)
+        return results[:max_results]
+
+    # ------------------------------------------------------------------
+    # Daily log / project memory (kept for backward compat + auto-extract)
+    # ------------------------------------------------------------------
 
     async def append_to_daily_log(self, content: str, date: Optional[datetime] = None) -> bool:
-        """
-        Append an entry to today's daily log.
-        Used to record decisions, learnings, and significant events from Voxyflow sessions.
-        """
+        """Append an entry to today's daily log."""
         date = date or datetime.now(timezone.utc)
         date_str = date.strftime("%Y-%m-%d")
         daily_file = MEMORY_DIR / f"{date_str}.md"
@@ -149,7 +738,7 @@ class MemoryService:
 
     async def update_project_memory(self, project_name: str, content: str) -> bool:
         """Update or create a project-specific memory file."""
-        slug = project_name.lower().replace(" ", "-").replace("_", "-")
+        slug = _slugify(project_name)
         project_dir = MEMORY_DIR / "projects"
         project_file = project_dir / f"{slug}.md"
 
@@ -162,74 +751,148 @@ class MemoryService:
             logger.error(f"Failed to update project memory: {e}")
             return False
 
-    def search_memory(self, query: str, max_results: int = 5) -> list[dict]:
+    # ------------------------------------------------------------------
+    # Migration: file-based → ChromaDB (one-time)
+    # ------------------------------------------------------------------
+
+    async def migrate_from_files(self) -> int:
+        """One-time migration from file-based memory to ChromaDB.
+
+        Reads MEMORY.md and daily logs, chunks them, and inserts into the
+        global collection. Idempotent — skips if already migrated.
+
+        Returns number of documents inserted.
         """
-        Simple keyword-based memory search across all memory files.
+        if not self._chromadb_enabled:
+            logger.info("migrate_from_files: ChromaDB not available, skipping")
+            return 0
 
-        MVP: substring matching with relevance scoring.
-        Future: semantic search with embeddings.
-        """
-        results = []
-        query_lower = query.lower()
-        query_terms = query_lower.split()
+        if MIGRATION_FLAG_FILE.exists():
+            logger.info("migrate_from_files: already migrated, skipping")
+            return 0
 
-        # Search all .md files in memory/
-        if not MEMORY_DIR.exists():
-            return results
+        inserted = 0
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        for md_file in sorted(MEMORY_DIR.rglob("*.md"), reverse=True):
-            try:
-                content = md_file.read_text(encoding="utf-8")
-                content_lower = content.lower()
-
-                # Score: how many query terms appear
-                hits = sum(1 for term in query_terms if term in content_lower)
-                if hits == 0:
-                    continue
-
-                score = hits / len(query_terms)
-
-                # Extract relevant snippet (first paragraph containing a match)
-                snippet = ""
-                for para in content.split("\n\n"):
-                    if any(term in para.lower() for term in query_terms):
-                        snippet = para.strip()[:300]
-                        break
-
-                results.append({
-                    "file": str(md_file.relative_to(WORKSPACE_DIR)),
-                    "score": score,
-                    "snippet": snippet,
-                })
-            except Exception:
-                continue
-
-        # Also search MEMORY.md
+        # Migrate MEMORY.md
         if MEMORY_FILE.exists():
             try:
-                content = MEMORY_FILE.read_text(encoding="utf-8")
-                content_lower = content.lower()
-                hits = sum(1 for term in query_terms if term in content_lower)
-                if hits > 0:
-                    score = hits / len(query_terms)
-                    for para in content.split("\n\n"):
-                        if any(term in para.lower() for term in query_terms):
-                            snippet = para.strip()[:300]
-                            results.append({
-                                "file": "MEMORY.md",
-                                "score": score,
-                                "snippet": snippet,
-                            })
-                            break
-            except Exception:
-                pass
+                content = MEMORY_FILE.read_text(encoding="utf-8").strip()
+                if content:
+                    # Split by double newlines (paragraphs)
+                    chunks = [c.strip() for c in content.split("\n\n") if c.strip() and len(c.strip()) > 20]
+                    for chunk in chunks:
+                        mem_type, importance = _classify_text(chunk)
+                        doc_id = self.store_memory(
+                            text=chunk,
+                            collection=GLOBAL_COLLECTION,
+                            metadata={
+                                "type": mem_type,
+                                "date": today,
+                                "source": "manual",
+                                "importance": importance,
+                                "migrated_from": "MEMORY.md",
+                            },
+                        )
+                        if doc_id:
+                            inserted += 1
+                    logger.info(f"migrate_from_files: migrated {inserted} chunks from MEMORY.md")
+            except Exception as e:
+                logger.error(f"migrate_from_files: failed to read MEMORY.md: {e}")
 
-        # Sort by score descending, take top N
-        results.sort(key=lambda r: r["score"], reverse=True)
-        return results[:max_results]
+        # Migrate daily logs
+        if MEMORY_DIR.exists():
+            for md_file in sorted(MEMORY_DIR.glob("*.md")):
+                try:
+                    content = md_file.read_text(encoding="utf-8").strip()
+                    if not content:
+                        continue
+
+                    # Extract date from filename
+                    file_date = md_file.stem  # e.g., "2026-03-21"
+
+                    chunks = [c.strip() for c in content.split("\n\n") if c.strip() and len(c.strip()) > 20]
+                    for chunk in chunks:
+                        # Skip markdown headers like "# 2026-03-21"
+                        if chunk.startswith("# ") and len(chunk) < 20:
+                            continue
+
+                        mem_type, importance = _classify_text(chunk)
+                        doc_id = self.store_memory(
+                            text=chunk,
+                            collection=GLOBAL_COLLECTION,
+                            metadata={
+                                "type": mem_type,
+                                "date": file_date,
+                                "source": "manual",
+                                "importance": importance,
+                                "migrated_from": f"memory/{md_file.name}",
+                            },
+                        )
+                        if doc_id:
+                            inserted += 1
+                except Exception as e:
+                    logger.warning(f"migrate_from_files: failed to process {md_file}: {e}")
+
+            # Migrate project-specific files
+            projects_dir = MEMORY_DIR / "projects"
+            if projects_dir.exists():
+                for proj_file in projects_dir.glob("*.md"):
+                    try:
+                        content = proj_file.read_text(encoding="utf-8").strip()
+                        if not content:
+                            continue
+
+                        project_slug = proj_file.stem
+                        proj_col = _project_collection(project_slug)
+
+                        chunks = [c.strip() for c in content.split("\n\n") if c.strip() and len(c.strip()) > 20]
+                        for chunk in chunks:
+                            mem_type, importance = _classify_text(chunk)
+                            doc_id = self.store_memory(
+                                text=chunk,
+                                collection=proj_col,
+                                metadata={
+                                    "type": mem_type,
+                                    "date": today,
+                                    "source": "manual",
+                                    "importance": importance,
+                                    "project": project_slug,
+                                    "migrated_from": f"memory/projects/{proj_file.name}",
+                                },
+                            )
+                            if doc_id:
+                                inserted += 1
+                    except Exception as e:
+                        logger.warning(f"migrate_from_files: failed to process {proj_file}: {e}")
+
+        # Write migration flag
+        try:
+            Path(CHROMA_PERSIST_DIR).mkdir(parents=True, exist_ok=True)
+            MIGRATION_FLAG_FILE.write_text(
+                f"Migrated on {today}. {inserted} documents inserted.\n",
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning(f"migrate_from_files: could not write flag file: {e}")
+
+        logger.info(f"migrate_from_files: completed — {inserted} documents inserted")
+        return inserted
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def chromadb_enabled(self) -> bool:
+        """Whether ChromaDB memory is available and initialized."""
+        return self._chromadb_enabled
 
 
+# ---------------------------------------------------------------------------
 # Module-level singleton
+# ---------------------------------------------------------------------------
+
 _memory_service: Optional[MemoryService] = None
 
 

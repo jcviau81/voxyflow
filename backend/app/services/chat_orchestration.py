@@ -352,6 +352,15 @@ class ChatOrchestrator:
                 )
             )
 
+        # --- Memory auto-extraction (BACKGROUND — non-blocking) ---
+        asyncio.create_task(
+            self._auto_extract_memories_safe(
+                chat_id=chat_id,
+                user_message=content,
+                project_name=project_name,
+            )
+        )
+
         # handle_message returns HERE — WS handler is free for next message
         logger.debug("[Orchestrator] handle_message returning (delegates + analyzer in background)")
 
@@ -394,6 +403,41 @@ class ChatOrchestrator:
             await self._parse_and_emit_delegates(**kwargs)
         except Exception as e:
             logger.error(f"[Orchestrator] Background delegate parsing failed: {e}", exc_info=True)
+
+    async def _auto_extract_memories_safe(
+        self,
+        chat_id: str,
+        user_message: str,
+        project_name: str | None = None,
+    ) -> None:
+        """Background-safe wrapper for memory auto-extraction."""
+        try:
+            from app.services.memory_service import get_memory_service
+            memory = get_memory_service()
+            if not memory.chromadb_enabled:
+                return
+
+            # Build a minimal messages list with the latest exchange
+            history = self._claude.get_history(chat_id)
+            # Take last 4 messages (2 user + 2 assistant turns) for extraction
+            recent = history[-4:] if len(history) >= 4 else history
+
+            project_slug = None
+            if project_name:
+                import re
+                slug = project_name.lower().strip()
+                slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")
+                project_slug = slug or None
+
+            stored = await memory.auto_extract_memories(
+                chat_id=chat_id,
+                messages=recent,
+                project_slug=project_slug,
+            )
+            if stored:
+                logger.info(f"[Orchestrator] Auto-extracted {len(stored)} memories from chat {chat_id}")
+        except Exception as e:
+            logger.error(f"[Orchestrator] Memory auto-extraction failed: {e}", exc_info=True)
 
     async def _run_analyzer_layer_safe(
         self,

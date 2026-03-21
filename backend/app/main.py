@@ -49,6 +49,20 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️  RAGService disabled (chromadb not installed — install chromadb + sentence-transformers to enable)")
 
+    # Initialize MemoryService and run one-time migration if needed
+    from app.services.memory_service import get_memory_service
+    memory = get_memory_service()
+    if memory.chromadb_enabled:
+        logger.info("✅ MemoryService ChromaDB initialized")
+        try:
+            migrated = await memory.migrate_from_files()
+            if migrated > 0:
+                logger.info(f"✅ Migrated {migrated} memory entries from files to ChromaDB")
+        except Exception as e:
+            logger.warning(f"⚠️  Memory migration failed (non-fatal): {e}")
+    else:
+        logger.info("ℹ️  MemoryService using file-based fallback")
+
     # Start scheduler (heartbeat + RAG indexer)
     scheduler = get_scheduler_service()
     _app_settings = get_settings()
