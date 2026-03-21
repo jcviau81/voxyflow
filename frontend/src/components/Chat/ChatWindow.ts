@@ -207,14 +207,14 @@ export class ChatWindow {
     this.githubPanel?.destroy();
     this.githubPanel = null;
 
+    // Chat controls (title, session tabs, board toggle) — TOP of chat
+    this.container.appendChild(headerRow);
+
     this.container.appendChild(this.messageList);
 
     // Task panel — shows active Deep worker tasks above the input
     this.taskPanel?.destroy();
     this.taskPanel = new TaskPanel(this.container);
-
-    // Chat controls (model status, session tabs, actions) — above the input area
-    this.container.appendChild(headerRow);
 
     this.container.appendChild(this.inputArea);
 
