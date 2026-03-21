@@ -16,6 +16,7 @@ from app.services.analyzer_service import AnalyzerService
 from app.services.chat_orchestration import ChatOrchestrator
 from app.services.rag_service import get_rag_service
 from app.services.scheduler_service import get_scheduler_service
+from app.services.pending_results import pending_store
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +137,32 @@ async def general_websocket(websocket: WebSocket):
     logger.info("General WebSocket client connected")
     # Track session IDs that got worker pools for cleanup
     active_session_ids: set[str] = set()
+    # Track sessions that already had pending results delivered
+    _pending_delivered: set[str] = set()
+
+    async def _deliver_pending(sid: str) -> None:
+        """Deliver any pending worker results for this session."""
+        if sid in _pending_delivered:
+            return
+        _pending_delivered.add(sid)
+        try:
+            pending = await pending_store.get_pending(sid)
+            for result in pending:
+                try:
+                    # Remove internal tracking key before sending
+                    pending_file = result.pop("_pending_file", None)
+                    await websocket.send_json(result)
+                    logger.info(f"[WS] Delivered pending result: {result.get('type')} task={result.get('payload', {}).get('taskId')}")
+                    # Re-add for cleanup
+                    if pending_file:
+                        result["_pending_file"] = pending_file
+                    await pending_store.mark_delivered(result)
+                except Exception as e:
+                    logger.warning(f"[WS] Failed to deliver pending result: {e}")
+                    break  # WS probably closed, stop trying
+        except Exception as e:
+            logger.warning(f"[WS] Error checking pending results: {e}")
+
     try:
         while True:
             raw = await websocket.receive_text()
@@ -161,6 +188,10 @@ async def general_websocket(websocket: WebSocket):
                     msg_layers = payload.get("layers")  # {deep: bool, analyzer: bool}
 
                     session_id = payload.get("sessionId")
+
+                    # Deliver any pending results from previous connection
+                    if session_id:
+                        await _deliver_pending(session_id)
 
                     # Derive chat_id from context for conversation isolation
                     if card_id:

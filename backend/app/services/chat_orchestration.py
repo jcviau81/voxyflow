@@ -34,6 +34,7 @@ from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
 from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_registry
+from app.services.pending_results import pending_store
 
 logger = logging.getLogger("voxyflow.orchestration")
 
@@ -177,15 +178,29 @@ class DeepWorkerPool:
                 pass
 
     async def _send_task_event(self, event_type: str, task_id: str, payload: dict) -> None:
-        """Send a task event to the frontend via WebSocket."""
+        """Send a task event to the frontend via WebSocket.
+
+        If the WebSocket is closed, store the result in pending_results
+        for delivery on the next connection.
+        """
+        message = {
+            "type": event_type,
+            "payload": {"taskId": task_id, **payload},
+            "timestamp": int(time.time() * 1000),
+        }
         try:
-            await self._ws.send_json({
-                "type": event_type,
-                "payload": {"taskId": task_id, **payload},
-                "timestamp": int(time.time() * 1000),
-            })
+            await self._ws.send_json(message)
         except Exception as e:
-            logger.warning(f"[DeepWorkerPool] Failed to send {event_type}: {e}")
+            logger.warning(f"[DeepWorkerPool] Failed to send {event_type} via WS: {e}")
+            # Store completed results for later delivery (skip started/progress — only final matters)
+            if event_type == "task:completed":
+                session_id = payload.get("sessionId", self._bus.session_id)
+                if session_id:
+                    try:
+                        await pending_store.store(session_id, message)
+                        logger.info(f"[DeepWorkerPool] Stored pending result for task {task_id}")
+                    except Exception as store_err:
+                        logger.error(f"[DeepWorkerPool] Failed to store pending result: {store_err}")
 
 
 class ChatOrchestrator:
@@ -301,7 +316,7 @@ class ChatOrchestrator:
                 analyzer_task.cancel()
             return
 
-        # --- Parse <delegate> blocks from the chat response and emit to event bus ---
+        # --- Parse <delegate> blocks and emit to event bus (BACKGROUND — non-blocking) ---
         if session_id:
             chat_response = ""
             history = self._claude.get_history(chat_id)
@@ -309,26 +324,36 @@ class ChatOrchestrator:
                 if msg.get("role") == "assistant":
                     chat_response = msg.get("content", "")
                     break
-            await self._parse_and_emit_delegates(
-                fast_response=chat_response,
-                session_id=session_id,
-                websocket=websocket,
-                project_name=project_name,
-                chat_level=chat_level,
-                project_context=project_context,
-                card_context=card_context,
-                project_id=project_id,
+
+            # Fire and forget — delegates execute in background via DeepWorkerPool
+            if chat_response:
+                asyncio.create_task(
+                    self._parse_and_emit_delegates_safe(
+                        fast_response=chat_response,
+                        session_id=session_id,
+                        websocket=websocket,
+                        project_name=project_name,
+                        chat_level=chat_level,
+                        project_context=project_context,
+                        card_context=card_context,
+                        project_id=project_id,
+                    )
+                )
+
+        # --- Layer 3: Analyzer card suggestions (BACKGROUND — non-blocking) ---
+        if analyzer_enabled and analyzer_task is not None:
+            asyncio.create_task(
+                self._run_analyzer_layer_safe(
+                    websocket=websocket,
+                    analyzer_task=analyzer_task,
+                    project_id=project_id,
+                    session_id=session_id,
+                    send_model_status=send_model_status,
+                )
             )
 
-        # --- Layer 3: Analyzer card suggestions ---
-        await self._run_analyzer_layer(
-            websocket=websocket,
-            analyzer_enabled=analyzer_enabled,
-            analyzer_task=analyzer_task,
-            project_id=project_id,
-            session_id=session_id,
-            send_model_status=send_model_status,
-        )
+        # handle_message returns HERE — WS handler is free for next message
+        logger.debug("[Orchestrator] handle_message returning (delegates + analyzer in background)")
 
     # ------------------------------------------------------------------
     # Session management
@@ -358,6 +383,38 @@ class ChatOrchestrator:
         if pool:
             await pool.stop()
         event_bus_registry.remove(session_id)
+
+    # ------------------------------------------------------------------
+    # Background-safe wrappers (fire-and-forget with error handling)
+    # ------------------------------------------------------------------
+
+    async def _parse_and_emit_delegates_safe(self, **kwargs) -> None:
+        """Wrapper that catches errors so background task doesn't crash silently."""
+        try:
+            await self._parse_and_emit_delegates(**kwargs)
+        except Exception as e:
+            logger.error(f"[Orchestrator] Background delegate parsing failed: {e}", exc_info=True)
+
+    async def _run_analyzer_layer_safe(
+        self,
+        websocket: WebSocket,
+        analyzer_task: asyncio.Task,
+        project_id: str | None,
+        session_id: str | None,
+        send_model_status,
+    ) -> None:
+        """Wrapper for analyzer that catches errors in background."""
+        try:
+            await self._run_analyzer_layer(
+                websocket=websocket,
+                analyzer_enabled=True,
+                analyzer_task=analyzer_task,
+                project_id=project_id,
+                session_id=session_id,
+                send_model_status=send_model_status,
+            )
+        except Exception as e:
+            logger.error(f"[Orchestrator] Background analyzer failed: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
     # Event Bus: Delegate parsing
