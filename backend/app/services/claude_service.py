@@ -375,6 +375,7 @@ class ClaudeService:
             project_name=project_name,
             include_long_term=False,
             include_daily=True,
+            query=user_message,
         )
         system_prompt = self.personality.build_fast_prompt(
             memory_context=memory_context,
@@ -428,6 +429,7 @@ class ClaudeService:
             project_name=project_name,
             include_long_term=False,
             include_daily=True,
+            query=user_message,
         )
         system_prompt = self.personality.build_fast_prompt(
             memory_context=memory_context,
@@ -486,6 +488,7 @@ class ClaudeService:
             project_name=project_name,
             include_long_term=True,
             include_daily=True,
+            query=user_message,
         )
         system_prompt = self.personality.build_deep_prompt(
             memory_context=memory_context,
@@ -540,6 +543,7 @@ class ClaudeService:
             project_name=project_name,
             include_long_term=True,
             include_daily=True,
+            query=user_message,
         )
 
         supervisor_base = (
@@ -630,6 +634,7 @@ class ClaudeService:
             project_name=project_name,
             include_long_term=False,
             include_daily=False,
+            query=user_message,
         )
 
         executor_base = (
@@ -753,6 +758,7 @@ class ClaudeService:
             project_name=project_name,
             include_long_term=True,
             include_daily=True,
+            query=user_message,
         )
         system_prompt = self.personality.build_deep_prompt(memory_context=memory_context)
 
@@ -797,6 +803,7 @@ class ClaudeService:
             project_name=project_name,
             include_long_term=True,
             include_daily=True,
+            query=user_message,
         )
         system_prompt = self.personality.build_agent_prompt(
             agent_persona=agent_persona_prompt,
