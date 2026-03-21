@@ -376,45 +376,12 @@ class PersonalityService:
     def _build_tool_section(self, tool_names: set, chat_level: str = "general") -> str:
         """Build a tool instruction text block for a given set of tool names.
 
-        Filters by both the provided tool name set AND the chat_level context.
-        Returns an empty string if no tools match or the MCP server is unavailable.
+        Delegates to ToolPromptBuilder for consistent tool listing.
+        Returns an empty string if no tools match.
         """
-        from app.mcp_server import get_tool_list
         try:
-            all_tools = get_tool_list()
-
-            # Context-based secondary filter
-            if chat_level == "general":
-                context_allowed = {
-                    "voxyflow.note.add", "voxyflow.note.list",
-                    "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
-                    "voxyflow.health",
-                    # System/infra tools pass through context filter
-                    "system.exec", "web.search", "web.fetch",
-                    "file.read", "file.write", "file.list",
-                    "git.status", "git.log", "git.diff", "git.branches", "git.commit",
-                    "tmux.list", "tmux.capture", "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
-                    "voxyflow.jobs.list", "voxyflow.jobs.create",
-                    "voxyflow.doc.list", "voxyflow.doc.delete",
-                }
-            elif chat_level == "project":
-                context_allowed = {t["name"] for t in all_tools} - {
-                    "voxyflow.note.add", "voxyflow.note.list",
-                }
-            else:
-                context_allowed = {t["name"] for t in all_tools}
-
-            allowed = tool_names & context_allowed
-            filtered = [t for t in all_tools if t["name"] in allowed]
-            if not filtered:
-                return ""
-
-            lines = []
-            for t in filtered:
-                params = t.get("inputSchema", {}).get("properties", {})
-                param_str = ", ".join(f'{k}: {v.get("type","")}' for k, v in params.items())
-                lines.append(f'- **{t["name"]}**({param_str}) -- {t["description"]}')
-            return "\n".join(lines)
+            from app.tools.prompt_builder import get_prompt_builder
+            return get_prompt_builder().build_tool_list_text(tool_names, chat_level)
         except Exception:
             return ""
 
@@ -561,7 +528,7 @@ class PersonalityService:
         )
 
         # Inject full tool set
-        from app.services.claude_service import TOOLS_FULL
+        from app.tools.registry import TOOLS_FULL
         tool_list_text = self._build_tool_section(TOOLS_FULL, chat_level)
         if tool_list_text:
             deep_instructions += (
@@ -619,7 +586,7 @@ class PersonalityService:
 
     def _build_haiku_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Haiku: Simple CRUD only. Fast, cheap, no ambiguity."""
-        from app.services.claude_service import TOOLS_VOXYFLOW_CRUD
+        from app.tools.registry import TOOLS_VOXYFLOW_CRUD
         tool_list = self._build_tool_section(TOOLS_VOXYFLOW_CRUD, chat_level)
         context = self._build_worker_context_section(chat_level, project, card)
 
@@ -638,7 +605,7 @@ class PersonalityService:
 
     def _build_sonnet_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Sonnet: Research, web, file analysis. Balanced speed/capability."""
-        from app.services.claude_service import TOOLS_FULL
+        from app.tools.registry import TOOLS_FULL
         tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
         context = self._build_worker_context_section(chat_level, project, card)
 
@@ -660,7 +627,7 @@ class PersonalityService:
 
     def _build_opus_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Opus: Complex multi-step, architecture, code analysis."""
-        from app.services.claude_service import TOOLS_FULL
+        from app.tools.registry import TOOLS_FULL
         tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
         context = self._build_worker_context_section(chat_level, project, card)
 
@@ -725,7 +692,7 @@ class PersonalityService:
                 '{"action": "none", "reason": "..."}\n'
             )
             # Add available CRUD tools
-            from app.services.claude_service import TOOLS_VOXYFLOW_CRUD
+            from app.tools.registry import TOOLS_VOXYFLOW_CRUD
             tool_list_text = self._build_tool_section(TOOLS_VOXYFLOW_CRUD, chat_level)
             if tool_list_text:
                 base += (

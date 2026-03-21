@@ -209,7 +209,7 @@ async def general_websocket(websocket: WebSocket):
 
                     await websocket.send_json({
                         "type": "session:reset_ack",
-                        "payload": {"chatId": chat_id},
+                        "payload": {"chatId": chat_id, "sessionId": session_id},
                         "timestamp": int(time.time() * 1000),
                     })
 
@@ -217,7 +217,7 @@ async def general_websocket(websocket: WebSocket):
                     # Ack unknown message types
                     await websocket.send_json({
                         "type": "ack",
-                        "payload": {"received": msg_type},
+                        "payload": {"received": msg_type, "sessionId": payload.get("sessionId")},
                         "timestamp": data.get("timestamp"),
                     })
 

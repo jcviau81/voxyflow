@@ -13,6 +13,9 @@ from app.services.memory_service import get_memory_service
 from app.services.agent_personas import AgentType, get_persona_prompt
 from app.services.session_store import session_store
 from app.services.rag_service import get_rag_service
+from app.tools.registry import (
+    TOOLS_READ_ONLY, TOOLS_VOXYFLOW_CRUD, TOOLS_FULL, _LAYER_TOOL_SETS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,50 +44,7 @@ def _resolve_model(name: str, native: bool = True) -> str:
 # MCP Tool bridge — converts Voxyflow MCP tools to Claude native tool_use
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Tool sets by layer — controls which tools each AI layer can use
-# ---------------------------------------------------------------------------
-
-# Read-only tools: Fast layer can read/search but NOT write or execute
-TOOLS_READ_ONLY = {
-    # Fast layer: Voxyflow context only — everything else delegates to workers
-    "voxyflow.health",
-    "voxyflow.note.list",
-    "voxyflow.project.list", "voxyflow.project.get",
-    "voxyflow.card.list", "voxyflow.card.get",
-    "voxyflow.wiki.list", "voxyflow.wiki.get",
-    "voxyflow.doc.list",
-    "voxyflow.jobs.list",
-}
-
-# CRUD tools: Analyzer (Haiku) can do trivial dashboard actions
-TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
-    "voxyflow.note.add",
-    "voxyflow.project.create",
-    "voxyflow.card.create", "voxyflow.card.update", "voxyflow.card.move",
-    "voxyflow.card.duplicate", "voxyflow.card.enrich",
-    "voxyflow.wiki.create", "voxyflow.wiki.update",
-}
-
-# Full tools: Deep (Opus) can do everything including exec, write, delete
-TOOLS_FULL = TOOLS_VOXYFLOW_CRUD | {
-    "system.exec",
-    "file.write",
-    "voxyflow.project.delete", "voxyflow.project.export",
-    "voxyflow.card.delete",
-    "voxyflow.doc.delete",
-    "voxyflow.ai.standup", "voxyflow.ai.brief", "voxyflow.ai.health",
-    "voxyflow.ai.prioritize", "voxyflow.ai.review_code",
-    "voxyflow.jobs.create",
-    "git.commit",
-    "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
-}
-
-_LAYER_TOOL_SETS = {
-    "fast": TOOLS_READ_ONLY,
-    "analyzer": TOOLS_VOXYFLOW_CRUD,
-    "deep": TOOLS_FULL,
-}
+# Tool sets are now in app.tools.registry — imported above
 
 
 def get_claude_tools(
@@ -1362,8 +1322,280 @@ class ClaudeService:
             raise
 
     # ------------------------------------------------------------------
+    # Internal: Server-side tool handling (for proxy / generic providers)
+    # ------------------------------------------------------------------
+
+    def _load_tool_settings(self) -> dict:
+        """Load tool settings from settings.json."""
+        import os
+        from pathlib import Path
+        settings_path = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow"))) / "settings.json"
+        if not settings_path.exists():
+            return {}
+        try:
+            with open(settings_path) as f:
+                data = json.load(f)
+            return data.get("tools", {})
+        except Exception:
+            return {}
+
+    async def _call_api_server_tools(
+        self,
+        model: str,
+        system: str,
+        messages: list[dict],
+        client,
+        layer: str = "fast",
+        chat_level: str = "general",
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+    ) -> str:
+        """Server-side tool execution loop for providers without native tool support.
+
+        1. Inject tool definitions into system prompt
+        2. Call LLM
+        3. Parse <tool_call> blocks from response
+        4. Execute tools
+        5. Inject <tool_result> blocks as next user message
+        6. Loop until no more tool calls or max_rounds reached
+        """
+        from app.tools.prompt_builder import get_prompt_builder
+        from app.tools.response_parser import ToolResponseParser
+        from app.tools.executor import get_executor
+
+        parser = ToolResponseParser()
+        executor = get_executor()
+
+        tool_settings = self._load_tool_settings()
+        max_rounds = tool_settings.get("max_rounds", 10)
+        timeout_per_tool = tool_settings.get("timeout_per_tool_seconds", 30)
+        warn_at_round = tool_settings.get("warn_at_round", max_rounds - 2)
+
+        # Inject tool definitions into system prompt
+        tool_prompt = get_prompt_builder().build_tool_prompt(layer, chat_level)
+        augmented_system = system + "\n\n" + tool_prompt if tool_prompt else system
+
+        api_messages = [{"role": "system", "content": augmented_system}]
+        api_messages.extend(messages)
+
+        response_text = ""
+
+        for round_num in range(max_rounds):
+            # Inject warning near the end
+            if round_num == warn_at_round:
+                api_messages.append({
+                    "role": "user",
+                    "content": "[SYSTEM] You are running low on tool rounds. Wrap up now.",
+                })
+
+            response = await asyncio.to_thread(
+                lambda msgs=list(api_messages): client.chat.completions.create(
+                    model=model,
+                    max_tokens=self.max_tokens,
+                    messages=msgs,
+                )
+            )
+
+            response_text = response.choices[0].message.content or ""
+
+            # Parse tool calls
+            text_content, tool_calls = parser.parse(response_text)
+
+            if not tool_calls:
+                return response_text
+
+            # Execute tools
+            results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
+
+            # Fire callbacks
+            if tool_callback:
+                for tc, result in zip(tool_calls, results):
+                    try:
+                        tool_callback(tc.name, tc.arguments, result)
+                    except Exception:
+                        pass
+
+            # Build result injection
+            result_blocks = []
+            for tc, result in zip(tool_calls, results):
+                result_json = json.dumps(result, default=str, ensure_ascii=False)
+                result_blocks.append(
+                    f'<tool_result name="{tc.name}">\n{result_json}\n</tool_result>'
+                )
+
+            # Append assistant response + tool results to conversation
+            api_messages.append({"role": "assistant", "content": response_text})
+            api_messages.append({"role": "user", "content": "\n\n".join(result_blocks)})
+
+            logger.info(f"[ServerTools] Round {round_num + 1}: {len(tool_calls)} tool calls executed")
+
+        logger.warning("_call_api_server_tools: tool loop exceeded max rounds")
+        return response_text
+
+    async def _call_api_stream_server_tools(
+        self,
+        model: str,
+        system: str,
+        messages: list[dict],
+        client,
+        layer: str = "fast",
+        chat_level: str = "general",
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+    ) -> AsyncIterator[str]:
+        """Server-side tool handling with streaming.
+
+        Streams the first response, then if tool calls are detected,
+        executes them and does a non-streaming continuation loop.
+        """
+        import queue
+        import threading
+
+        from app.tools.prompt_builder import get_prompt_builder
+        from app.tools.response_parser import ToolResponseParser
+        from app.tools.executor import get_executor
+
+        parser = ToolResponseParser()
+        executor = get_executor()
+
+        tool_settings = self._load_tool_settings()
+        max_rounds = tool_settings.get("max_rounds", 10)
+        timeout_per_tool = tool_settings.get("timeout_per_tool_seconds", 30)
+        warn_at_round = tool_settings.get("warn_at_round", max_rounds - 2)
+
+        # Inject tool definitions into system prompt
+        tool_prompt = get_prompt_builder().build_tool_prompt(layer, chat_level)
+        augmented_system = system + "\n\n" + tool_prompt if tool_prompt else system
+
+        api_messages = [{"role": "system", "content": augmented_system}]
+        api_messages.extend(messages)
+
+        # Stream the first response
+        token_queue: queue.Queue[str | None] = queue.Queue()
+        content_parts: list[str] = []
+
+        def _consume_stream():
+            try:
+                stream = client.chat.completions.create(
+                    model=model,
+                    max_tokens=self.max_tokens,
+                    messages=list(api_messages),
+                    stream=True,
+                )
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        content_parts.append(delta.content)
+                        token_queue.put(delta.content)
+            except Exception as e:
+                logger.error(f"Server-tools stream error: {e}")
+            finally:
+                token_queue.put(None)
+
+        thread = threading.Thread(target=_consume_stream, daemon=True)
+        thread.start()
+
+        while True:
+            token = await asyncio.to_thread(token_queue.get)
+            if token is None:
+                break
+            yield token
+
+        # Check streamed response for tool calls
+        full_response = "".join(content_parts)
+        text_content, tool_calls = parser.parse(full_response)
+
+        if not tool_calls:
+            return  # No tools, streaming is complete
+
+        # Execute tool calls from the streamed response
+        results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
+
+        if tool_callback:
+            for tc, result in zip(tool_calls, results):
+                try:
+                    tool_callback(tc.name, tc.arguments, result)
+                except Exception:
+                    pass
+
+        # Build result injection
+        result_blocks = []
+        for tc, result in zip(tool_calls, results):
+            result_json = json.dumps(result, default=str, ensure_ascii=False)
+            result_blocks.append(
+                f'<tool_result name="{tc.name}">\n{result_json}\n</tool_result>'
+            )
+
+        api_messages.append({"role": "assistant", "content": full_response})
+        api_messages.append({"role": "user", "content": "\n\n".join(result_blocks)})
+        logger.info(f"[ServerTools stream] Round 1: {len(tool_calls)} tool calls executed")
+
+        # Continue with non-streaming tool loop for remaining rounds
+        for round_num in range(1, max_rounds):
+            if round_num == warn_at_round:
+                api_messages.append({
+                    "role": "user",
+                    "content": "[SYSTEM] You are running low on tool rounds. Wrap up now.",
+                })
+
+            response = await asyncio.to_thread(
+                lambda msgs=list(api_messages): client.chat.completions.create(
+                    model=model,
+                    max_tokens=self.max_tokens,
+                    messages=msgs,
+                )
+            )
+
+            response_text = response.choices[0].message.content or ""
+            text_content, tool_calls = parser.parse(response_text)
+
+            if not tool_calls:
+                # Final text response — yield it
+                if response_text:
+                    yield "\n\n" + response_text
+                return
+
+            results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
+
+            if tool_callback:
+                for tc, result in zip(tool_calls, results):
+                    try:
+                        tool_callback(tc.name, tc.arguments, result)
+                    except Exception:
+                        pass
+
+            result_blocks = []
+            for tc, result in zip(tool_calls, results):
+                result_json = json.dumps(result, default=str, ensure_ascii=False)
+                result_blocks.append(
+                    f'<tool_result name="{tc.name}">\n{result_json}\n</tool_result>'
+                )
+
+            api_messages.append({"role": "assistant", "content": response_text})
+            api_messages.append({"role": "user", "content": "\n\n".join(result_blocks)})
+            logger.info(f"[ServerTools stream] Round {round_num + 1}: {len(tool_calls)} tool calls executed")
+
+        logger.warning("_call_api_stream_server_tools: tool loop exceeded max rounds")
+
+    # ------------------------------------------------------------------
     # Dispatcher: routes to native or fallback based on client_type
     # ------------------------------------------------------------------
+
+    def _should_use_server_tools(self, client_type: str) -> bool:
+        """Determine if server-side tool handling should be used.
+
+        Returns True for OpenAI-compatible clients (proxy), False for native Anthropic.
+        Can be overridden via settings.json tool_mode.
+        """
+        tool_settings = self._load_tool_settings()
+        tool_mode = tool_settings.get("tool_mode", "auto")
+
+        if tool_mode == "native":
+            return False
+        elif tool_mode == "server":
+            return True
+        else:  # "auto"
+            return client_type == "openai"
 
     async def _call_api(
         self,
@@ -1377,7 +1609,7 @@ class ClaudeService:
         chat_level: str = "general",
         layer: str = "fast",
     ) -> str:
-        """Dispatch to native Anthropic SDK or OpenAI-compat fallback."""
+        """Dispatch to native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
         ct = client_type if client is not None else self.fast_client_type
 
@@ -1386,6 +1618,11 @@ class ClaudeService:
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
                 layer=layer,
+            )
+        elif use_tools and self._should_use_server_tools(ct):
+            return await self._call_api_server_tools(
+                model=model, system=system, messages=messages, client=api_client,
+                layer=layer, chat_level=chat_level, tool_callback=tool_callback,
             )
         else:
             return await self._call_api_openai(
@@ -1406,7 +1643,7 @@ class ClaudeService:
         chat_level: str = "general",
         layer: str = "fast",
     ) -> AsyncIterator[str]:
-        """Dispatch streaming to native Anthropic SDK or OpenAI-compat fallback."""
+        """Dispatch streaming to native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
         ct = client_type if client is not None else self.fast_client_type
 
@@ -1415,6 +1652,12 @@ class ClaudeService:
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
                 layer=layer,
+            ):
+                yield token
+        elif use_tools and self._should_use_server_tools(ct):
+            async for token in self._call_api_stream_server_tools(
+                model=model, system=system, messages=messages, client=api_client,
+                layer=layer, chat_level=chat_level, tool_callback=tool_callback,
             ):
                 yield token
         else:

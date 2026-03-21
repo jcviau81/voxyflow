@@ -48,6 +48,12 @@
     "tts_speed": 1.0,
     "volume": 80
   },
+  "tools": {
+    "max_rounds": 10,
+    "tool_mode": "server",
+    "timeout_per_tool_seconds": 30,
+    "warn_at_round": 8
+  },
   "onboarding_complete": true,
   "user_name": "",
   "assistant_name": "Voxy"

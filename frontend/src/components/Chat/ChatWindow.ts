@@ -530,16 +530,19 @@ export class ChatWindow {
 
   /**
    * Check if a message belongs to the currently active view/session.
-   * - General chat: must match activeSessionId.
-   * - Project/card chat: if sessions exist, must match the active project/card session.
-   *   If no sessions exist yet, allow messages with no sessionId (legacy/unsessioned project chat).
+   * Messages without a sessionId are rejected — they cannot be routed reliably.
    */
   private shouldRenderMessage(message: Message): boolean {
+    if (!message.sessionId) {
+      console.warn('[ChatWindow] Rejecting message without sessionId', message.id);
+      return false;
+    }
+
     const chatLevel = this.getChatLevel();
 
     if (chatLevel === 'general') {
       // General chat: only render if sessionId matches the active general session
-      return !message.sessionId || message.sessionId === this.activeSessionId;
+      return message.sessionId === this.activeSessionId;
     }
 
     // Project / card chat
@@ -547,16 +550,9 @@ export class ChatWindow {
     const contextTabId = chatLevel === 'card'
       ? (appState.get('selectedCardId') || activeTabId)
       : activeTabId;
-    const sessions = appState.getSessions(contextTabId);
-
-    if (sessions.length === 0) {
-      // No sessions yet — allow messages that have no sessionId or belong to the project
-      return !message.sessionId;
-    }
 
     const activeChatId = appState.getActiveChatId(contextTabId);
-    // Allow messages with no sessionId only when there's no active session constraint
-    return !message.sessionId || message.sessionId === activeChatId;
+    return message.sessionId === activeChatId;
   }
 
   /**
@@ -626,6 +622,7 @@ export class ChatWindow {
       chatLevel,
       projectId: currentProjectId || undefined,
       cardId: cardId || undefined,
+      sessionId: this.activeSessionId,
     });
 
     // Focus input
@@ -1124,10 +1121,17 @@ export class ChatWindow {
 
   private handleNewSession(): void {
     // Reset the CURRENT session in-place (clear history, fresh start — no new tab)
+    const oldSessionId = this.activeSessionId;
     const freshId = generateId();
 
+    // Notify backend to reset conversation context for the OLD session
+    apiClient.send('session:reset', {
+      chatLevel: 'general',
+      sessionId: oldSessionId,
+    });
+
     // Update session id in-place
-    const currentSession = this.sessions.find((s) => s.id === this.activeSessionId);
+    const currentSession = this.sessions.find((s) => s.id === oldSessionId);
     if (currentSession) {
       currentSession.id = freshId;
     }
@@ -1144,12 +1148,6 @@ export class ChatWindow {
     this.welcomePrompt?.destroy();
     this.welcomePrompt = null;
     this.showWelcomePrompt();
-
-    // Notify backend to reset conversation context
-    apiClient.send('session:reset', {
-      chatLevel: 'general',
-      sessionId: freshId,
-    });
 
     // Auto-greet on new session
     chatService.sendSystemInit(

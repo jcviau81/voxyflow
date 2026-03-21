@@ -28,17 +28,20 @@ export class ChatService {
           done: boolean;
           sessionId?: string;
         };
-        const responseSessionId = sessionId || this.getActiveContextSessionId();
+        if (!sessionId) {
+          console.warn('[ChatService] chat:response arrived without sessionId — dropping message', { messageId });
+          return;
+        }
 
         if (streaming && !done) {
           // Streaming chunk — accumulate
-          this.handleStreamingChunk(messageId, content, responseSessionId);
+          this.handleStreamingChunk(messageId, content, sessionId);
         } else if (done && this.streamingMessages.has(messageId)) {
           // Final chunk of an in-progress stream
           this.handleStreamComplete(messageId, content as string);
         } else {
           // Non-streaming full response (or done without prior stream state)
-          this.handleFullResponse(content, responseSessionId);
+          this.handleFullResponse(content, sessionId);
         }
       })
     );
@@ -55,13 +58,18 @@ export class ChatService {
           sessionId?: string;
         };
 
+        if (!sessionId) {
+          console.warn('[ChatService] chat:enrichment arrived without sessionId — dropping message', { messageId });
+          return;
+        }
+
         const message = appState.addMessage({
           role: 'assistant',
           content,
           enrichment: true,
           enrichmentAction: action as 'enrich' | 'correct',
           model,
-          sessionId: sessionId || this.getActiveContextSessionId(),
+          sessionId,
         });
         eventBus.emit(EVENTS.MESSAGE_ENRICHMENT, message);
       })
@@ -213,33 +221,6 @@ export class ChatService {
     );
   }
 
-  /**
-   * Returns the active session ID for the current chat context.
-   * For general chat → returns this.activeSessionId (the general session tab).
-   * For project/card chat → returns the active project/card session from appState.
-   * This prevents responses from being mis-attributed to the general session when no
-   * explicit sessionId is returned by the backend.
-   */
-  private getActiveContextSessionId(): string | undefined {
-    const cardId = appState.get('selectedCardId') as string | undefined;
-    if (cardId) {
-      const sessions = appState.getSessions(cardId);
-      if (sessions.length > 0) {
-        return appState.getActiveChatId(cardId) || undefined;
-      }
-      return undefined; // Card context, no sessions yet — don't fall back to general
-    }
-    const activeTabId = appState.getActiveTab();
-    if (activeTabId && activeTabId !== 'main') {
-      const sessions = appState.getSessions(activeTabId);
-      if (sessions.length > 0) {
-        return appState.getActiveChatId(activeTabId) || undefined;
-      }
-      return undefined; // Project context, no sessions yet — don't fall back to general
-    }
-    return this.activeSessionId; // General chat
-  }
-
   sendMessage(content: string, projectId?: string, cardId?: string, sessionId?: string): Message {
     const message = appState.addMessage({
       role: 'user',
@@ -308,7 +289,7 @@ export class ChatService {
         role: 'assistant',
         content: '',
         streaming: true,
-        sessionId: sessionId || this.getActiveContextSessionId(),
+        sessionId,
       });
       stream = { content: '', messageId: message.id };
       this.streamingMessages.set(streamId, stream);
@@ -351,7 +332,7 @@ export class ChatService {
     const message = appState.addMessage({
       role: 'assistant',
       content: content as string,
-      sessionId: sessionId || this.getActiveContextSessionId(),
+      sessionId,
     });
     eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);
 
