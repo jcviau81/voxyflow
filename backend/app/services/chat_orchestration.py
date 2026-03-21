@@ -660,22 +660,108 @@ class ChatOrchestrator:
         project_context: dict | None,
         card_context: dict | None,
         project_names: list[str] | None,
-    ) -> str | None:
+    ) -> bool:
         """Check streamed response for <tool_call> blocks. If found:
-        1. Execute them via the tool executor
-        2. Send tool:executed events to the frontend
-        3. Make a follow-up streaming LLM call with tool results
-        4. Stream the follow-up response on the same message_id
+        1. Strip <tool_call> blocks and update history with clean text
+        2. Launch async background task for tool execution + follow-up
+        3. Return immediately so the user sees the response right away
 
-        Returns the follow-up response text if tools were executed, or None.
+        Returns True if tool calls were detected (async task launched), False otherwise.
         """
         parser = ToolResponseParser()
         text_content, tool_calls = parser.parse(full_response)
 
         if not tool_calls:
-            return None
+            return False
 
-        logger.info(f"[ToolCallFallback] Found {len(tool_calls)} <tool_call> blocks in {model_label} response")
+        logger.info(f"[ToolCallFallback] Found {len(tool_calls)} <tool_call> blocks in {model_label} response — launching async execution")
+
+        # Strip <tool_call> blocks from the original response for history
+        clean_response = TOOL_CALL_PATTERN.sub("", full_response).strip()
+
+        # Overwrite the last assistant message in history with the clean version
+        history = self._claude.get_history(chat_id)
+        if history and history[-1].get("role") == "assistant":
+            history[-1]["content"] = clean_response
+
+        # Fire-and-forget: launch tool execution + follow-up as background task
+        asyncio.create_task(
+            self._execute_tools_and_followup_safe(
+                tool_calls=tool_calls,
+                websocket=websocket,
+                message_id=message_id,
+                chat_id=chat_id,
+                model_label=model_label,
+                session_id=session_id,
+                project_name=project_name,
+                project_id=project_id,
+                chat_level=chat_level,
+                project_context=project_context,
+                card_context=card_context,
+                project_names=project_names,
+            )
+        )
+
+        return True
+
+    async def _execute_tools_and_followup_safe(self, **kwargs) -> None:
+        """Background-safe wrapper for tool execution + follow-up."""
+        try:
+            await self._execute_tools_and_followup(**kwargs)
+        except Exception as e:
+            logger.error(f"[ToolCallFallback] Background tool execution failed: {e}", exc_info=True)
+            # Try to notify the user of the failure
+            ws = kwargs.get("websocket")
+            session_id = kwargs.get("session_id")
+            message_id = kwargs.get("message_id")
+            if ws:
+                try:
+                    await ws.send_json({
+                        "type": "chat:error",
+                        "payload": {
+                            "messageId": message_id,
+                            "error": f"Tool execution failed: {e}",
+                            "sessionId": session_id,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    })
+                except Exception:
+                    pass
+
+    async def _execute_tools_and_followup(
+        self,
+        tool_calls: list,
+        websocket: WebSocket,
+        message_id: str,
+        chat_id: str,
+        model_label: str,
+        session_id: str | None,
+        project_name: str | None,
+        project_id: str | None,
+        chat_level: str,
+        project_context: dict | None,
+        card_context: dict | None,
+        project_names: list[str] | None,
+    ) -> None:
+        """Background async task: execute tools, then stream a follow-up LLM response.
+
+        This runs AFTER the initial response has already been sent to the user,
+        so the chat is non-blocking. Results arrive as a new streamed message.
+        """
+        # Send tool:status events for each tool
+        for tc in tool_calls:
+            try:
+                await websocket.send_json({
+                    "type": "tool:status",
+                    "payload": {
+                        "tool": tc.name,
+                        "state": "executing",
+                        "sessionId": session_id,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
+            except Exception as e:
+                logger.warning(f"[ToolCallFallback] Failed to send tool:status: {e}")
 
         # Execute tools
         executor = get_executor()
@@ -716,15 +802,8 @@ class ChatOrchestrator:
             )
         tool_context = "\n\n".join(tool_context_parts)
 
-        # Strip <tool_call> blocks from the original response for history
-        clean_response = TOOL_CALL_PATTERN.sub("", full_response).strip()
-
-        # Overwrite the last assistant message in history with the clean version
-        history = self._claude.get_history(chat_id)
-        if history and history[-1].get("role") == "assistant":
-            history[-1]["content"] = clean_response
-
         # Build follow-up messages: existing history + tool results as user context
+        history = self._claude.get_history(chat_id)
         followup_messages = list(history) + [
             {
                 "role": "user",
@@ -762,7 +841,10 @@ class ChatOrchestrator:
             project_names=project_names,
         )
 
-        # Stream follow-up response
+        # Generate a new message ID for the follow-up response
+        followup_message_id = f"followup-{uuid4().hex[:8]}"
+
+        # Stream follow-up response as a NEW message
         followup_full = ""
         try:
             async for token in self._claude._call_api_stream(
@@ -778,7 +860,7 @@ class ChatOrchestrator:
                 await websocket.send_json({
                     "type": "chat:response",
                     "payload": {
-                        "messageId": message_id,
+                        "messageId": followup_message_id,
                         "content": token,
                         "model": model_label,
                         "streaming": True,
@@ -788,18 +870,45 @@ class ChatOrchestrator:
                     },
                     "timestamp": int(time.time() * 1000),
                 })
+
+            # Send stream-done for the follow-up
+            await websocket.send_json({
+                "type": "chat:response",
+                "payload": {
+                    "messageId": followup_message_id,
+                    "content": "",
+                    "model": model_label,
+                    "streaming": True,
+                    "done": True,
+                    "sessionId": session_id,
+                    "isToolFollowup": True,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
         except Exception as e:
             logger.error(f"[ToolCallFallback] Follow-up streaming failed: {e}")
 
-        # Persist the follow-up response
+        # Persist the follow-up response in session history
         if followup_full:
             self._claude._append_and_persist(
                 chat_id, "assistant", followup_full,
                 model=model_label, session_id=session_id,
             )
 
-        logger.info(f"[ToolCallFallback] Follow-up response streamed ({len(followup_full)} chars)")
-        return followup_full
+        # Send final tool:status complete
+        try:
+            await websocket.send_json({
+                "type": "tool:status",
+                "payload": {
+                    "state": "complete",
+                    "sessionId": session_id,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
+        except Exception:
+            pass
+
+        logger.info(f"[ToolCallFallback] Async follow-up complete ({len(followup_full)} chars)")
 
     # ------------------------------------------------------------------
     # Internal: Layer 1 — Fast (streaming)
