@@ -65,7 +65,7 @@ export class Sidebar {
       title: 'All projects',
     });
     projectsHeader.appendChild(createElement('span', {}, 'PROJECTS'));
-    projectsHeader.appendChild(createElement('span', { className: 'sidebar-all-projects-btn' }, '⊞'));
+    projectsHeader.appendChild(createElement('span', { className: 'sidebar-all-projects-btn' }, '›'));
     projectsHeader.addEventListener('click', () => appState.setView('projects'));
     projectSection.appendChild(projectsHeader);
 
