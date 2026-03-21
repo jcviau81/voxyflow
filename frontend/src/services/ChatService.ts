@@ -89,7 +89,7 @@ export class ChatService {
         const { tool, success, data, error, ui_action } = payload as {
           tool: string;
           success: boolean;
-          data: any;
+          data: Record<string, unknown> | null;
           error: string | null;
           ui_action: string | null;
         };
@@ -433,7 +433,7 @@ export class ChatService {
     appState.clearMessages();
   }
 
-  private handleToolUiAction(uiAction: string, data: any): void {
+  private handleToolUiAction(uiAction: string, data: Record<string, unknown> | null): void {
     switch (uiAction) {
       case 'open_project_tab':
         if (data?.id || data?.project_id) {

@@ -1,7 +1,7 @@
 // Voxyflow Type Definitions
 
 export type MessageRole = 'user' | 'assistant' | 'system';
-export type CardStatus = 'note' | 'idea' | 'todo' | 'in-progress' | 'done';
+export type CardStatus = 'card' | 'idea' | 'todo' | 'in-progress' | 'done';
 export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings' | 'stats' | 'roadmap' | 'wiki' | 'sprint' | 'docs' | 'knowledge';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'coder' | 'architect' | 'designer' | 'devops' | 'analyst' | 'tester' | 'writer';
@@ -308,7 +308,7 @@ export interface CardSuggestion {
 }
 
 /**
- * @deprecated Use Card with `projectId = null` and `status = 'note'` instead.
+ * @deprecated Use Card with `projectId = null` and `status = 'card'` instead.
  * Kept temporarily for localStorage migration.
  */
 export interface Idea {

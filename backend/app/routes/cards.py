@@ -6,6 +6,7 @@ from pathlib import Path
 
 import json
 
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
@@ -162,13 +163,13 @@ async def create_unassigned_card(
     body: UnassignedCardCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a card on the Main Board (no project). Internal status defaults to 'note'."""
+    """Create a card on the Main Board (no project). Internal status defaults to 'card'."""
     card = Card(
         id=new_uuid(),
         project_id=None,
         title=body.title,
         description=body.description,
-        status="note",
+        status="card",
         priority=body.priority,
         color=body.color,
     )
@@ -188,7 +189,7 @@ async def assign_card_to_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Move a card to a project (assign project_id). Changes internal status from 'note' to 'idea'."""
+    """Move a card to a project (assign project_id). Changes internal status from 'card' to 'idea'."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found")
@@ -198,7 +199,7 @@ async def assign_card_to_project(
 
     old_status = card.status
     card.project_id = project_id
-    if card.status == "note":
+    if card.status == "card":
         card.status = "idea"
     card.updated_at = utcnow()
 
@@ -222,7 +223,7 @@ async def unassign_card_from_project(
     card_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Detach a card from its project (back to Main Board). Internal status becomes 'note'."""
+    """Detach a card from its project (back to Main Board). Internal status becomes 'card'."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found")
@@ -230,12 +231,12 @@ async def unassign_card_from_project(
     old_project_id = card.project_id
     old_status = card.status
     card.project_id = None
-    card.status = "note"
+    card.status = "card"
     card.updated_at = utcnow()
 
-    if old_status != "note":
+    if old_status != "card":
         db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="status",
-                           old_value=old_status, new_value="note", changed_at=utcnow(), changed_by="User"))
+                           old_value=old_status, new_value="card", changed_at=utcnow(), changed_by="User"))
     db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="project_id",
                        old_value=old_project_id, new_value=None, changed_at=utcnow(), changed_by="User"))
 
@@ -1217,23 +1218,13 @@ async def enrich_card(
             effort=str(data.get("effort", "M")),
             tags=[str(t) for t in data.get("tags", [])],
         )
-    except (json.JSONDecodeError, KeyError, Exception) as e:
-        logger.error(f"enrich_card: failed for card_id={card_id!r}: {e}")
-        raise HTTPException(500, f"Enrichment failed: {e}")
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.error(f"enrich_card: parse error for card_id={card_id!r}: {e}")
+        raise HTTPException(500, f"Enrichment failed: could not parse AI response")
+    except httpx.HTTPError as e:
+        logger.error(f"enrich_card: HTTP error for card_id={card_id!r}: {e}")
+        raise HTTPException(502, f"Enrichment failed: upstream API error")
+    except httpx.TimeoutException as e:
+        logger.error(f"enrich_card: timeout for card_id={card_id!r}: {e}")
+        raise HTTPException(504, f"Enrichment failed: upstream timeout")
 
-
-# ── Legacy Note endpoint (deprecated — use /cards/unassigned) ──────────────
-
-@router.post("/notes", deprecated=True)
-async def create_note_legacy(body: dict):
-    """DEPRECATED: Use POST /api/cards/unassigned instead.
-    Kept for backward compatibility with old tool calls."""
-    content = body.get("content", "")
-    color = body.get("color")
-    if not content:
-        raise HTTPException(400, "content is required")
-    return {
-        "success": True,
-        "card": {"content": content, "color": color},
-        "ui_event": "idea:add",
-    }

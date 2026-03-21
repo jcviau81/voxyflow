@@ -119,13 +119,6 @@ class AppState {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const data = JSON.parse(stored) as AppStateData;
-        // Normalize projects: backend uses 'title', frontend type uses 'name'
-        if (data.projects) {
-          data.projects = data.projects.map((p) => ({
-            ...p,
-            name: p.name || (p as unknown as Record<string, string>).title || 'Untitled',
-          })) as AppStateData['projects'];
-        }
         return data;
       }
     } catch (e) {
@@ -670,7 +663,7 @@ class AppState {
     if (this.state.activeSession[tabId] === sessionId) {
       this.state.activeSession = {
         ...this.state.activeSession,
-        [tabId]: updatedList[0].id,
+        [tabId]: updatedList.length > 0 ? updatedList[0].id : '',
       };
     }
     this.saveToStorage();
@@ -705,6 +698,7 @@ class AppState {
   getActiveSession(tabId: string): SessionInfo {
     const sessions = this.getSessions(tabId);
     const activeId = this.state.activeSession[tabId];
+    if (sessions.length === 0) return { id: '', chatId: '', title: 'Session 1', createdAt: Date.now() };
     return sessions.find((s) => s.id === activeId) || sessions[0];
   }
 

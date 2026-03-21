@@ -201,7 +201,7 @@ export class MainBoardService {
       id: raw.id as string,
       title: raw.title as string,
       description: (raw.description as string) || '',
-      status: (raw.status as Card['status']) || 'note',
+      status: (raw.status as Card['status']) || 'card',
       projectId: (raw.project_id as string | null) ?? null,
       color: (raw.color as Card['color']) || null,
       assignedAgent: undefined,

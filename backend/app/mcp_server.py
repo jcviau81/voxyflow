@@ -45,7 +45,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Main Board Cards (unassigned) ─────────────────────────────────────
     {
         "name": "voxyflow.card.create_unassigned",
-        "description": "Create a card on the Voxyflow Main Board (no project). Status defaults to 'note' internally.",
+        "description": "Create a card on the Voxyflow Main Board (no project). Status defaults to 'card' internally.",
         "inputSchema": {
             "type": "object",
             "required": ["content"],

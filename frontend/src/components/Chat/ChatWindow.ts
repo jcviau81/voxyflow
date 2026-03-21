@@ -62,6 +62,10 @@ export class ChatWindow {
   // Code paste detection banner
   private codePasteBanner: HTMLElement | null = null;
   private pendingPastedCode = '';
+  private boundHandleScroll: ((e: Event) => void) | null = null;
+  private boundHandleKeyDown: ((e: KeyboardEvent) => void) | null = null;
+  private boundHandleInputChange: (() => void) | null = null;
+  private boundHandlePaste: ((e: ClipboardEvent) => void) | null = null;
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'chat-window', 'data-testid': 'chat-window' });
@@ -78,7 +82,8 @@ export class ChatWindow {
 
     // === Message list ===
     this.messageList = createElement('div', { className: 'chat-messages' });
-    this.messageList.addEventListener('scroll', this.handleScroll.bind(this));
+    this.boundHandleScroll = this.handleScroll.bind(this);
+    this.messageList.addEventListener('scroll', this.boundHandleScroll);
 
     // Render existing messages or welcome prompt
     const chatLevel = this.getChatLevel();
@@ -126,9 +131,12 @@ export class ChatWindow {
       'data-testid': 'chat-input',
     }) as HTMLTextAreaElement;
     this.textInput.rows = 1;
-    this.textInput.addEventListener('keydown', this.handleKeyDown.bind(this));
-    this.textInput.addEventListener('input', this.handleInputChange.bind(this));
-    this.textInput.addEventListener('paste', this.handlePaste.bind(this));
+    this.boundHandleKeyDown = this.handleKeyDown.bind(this);
+    this.boundHandleInputChange = this.handleInputChange.bind(this);
+    this.boundHandlePaste = this.handlePaste.bind(this);
+    this.textInput.addEventListener('keydown', this.boundHandleKeyDown);
+    this.textInput.addEventListener('input', this.boundHandleInputChange);
+    this.textInput.addEventListener('paste', this.boundHandlePaste);
 
     const sendBtn = createElement('button', { className: 'chat-send-btn' }, '→');
     sendBtn.addEventListener('click', () => this.sendCurrentMessage());
@@ -1448,6 +1456,14 @@ export class ChatWindow {
   destroy(): void {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
+    if (this.messageList && this.boundHandleScroll) {
+      this.messageList.removeEventListener('scroll', this.boundHandleScroll);
+    }
+    if (this.textInput) {
+      if (this.boundHandleKeyDown) this.textInput.removeEventListener('keydown', this.boundHandleKeyDown);
+      if (this.boundHandleInputChange) this.textInput.removeEventListener('input', this.boundHandleInputChange);
+      if (this.boundHandlePaste) this.textInput.removeEventListener('paste', this.boundHandlePaste);
+    }
     this.voiceInput?.destroy();
     this.emojiPicker?.destroy();
     this.modelStatusBar?.destroy();

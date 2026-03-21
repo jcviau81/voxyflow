@@ -28,9 +28,9 @@ export const MAX_MESSAGE_LENGTH = 10000;
 
 // Kanban
 export const CARD_STATUSES = ['idea', 'todo', 'in-progress', 'done'] as const;
-export const ALL_CARD_STATUSES = ['note', 'idea', 'todo', 'in-progress', 'done'] as const;
+export const ALL_CARD_STATUSES = ['card', 'idea', 'todo', 'in-progress', 'done'] as const;
 export const CARD_STATUS_LABELS: Record<string, string> = {
-  'note': '📝 Card',
+  'card': '📝 Card',
   'idea': '💡 Idea',
   'todo': '📋 Todo',
   'in-progress': '🔨 In Progress',

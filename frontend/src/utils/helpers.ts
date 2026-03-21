@@ -63,8 +63,13 @@ export function markdownToHtml(text: string): string {
   html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
 
-  // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Links (validate URL scheme to prevent XSS)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text, url) => {
+    if (/^(https?:\/\/|mailto:)/i.test(url)) {
+      return `<a href="${url}" target="_blank" rel="noopener">${text}</a>`;
+    }
+    return text;
+  });
 
   // Line breaks
   html = html.replace(/\n/g, '<br>');

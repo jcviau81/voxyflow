@@ -3,6 +3,8 @@ import { appState } from '../state/AppState';
 import { eventBus } from '../utils/EventBus';
 import { EVENTS } from '../utils/constants';
 
+const API_URL_BASE = process.env.VOXYFLOW_API_URL || '';
+
 /**
  * ProjectService — uses REST API (fetch) for all CRUD operations.
  * Projects are persisted in the backend database.
@@ -16,8 +18,8 @@ export class ProjectService {
   async requestSync(): Promise<void> {
     try {
       const [activeResp, archivedResp] = await Promise.all([
-        fetch('/api/projects?archived=false'),
-        fetch('/api/projects?archived=true'),
+        fetch(`${API_URL_BASE}/api/projects?archived=false`),
+        fetch(`${API_URL_BASE}/api/projects?archived=true`),
       ]);
       if (!activeResp.ok) return;
       const activeRaw = await activeResp.json();
@@ -44,7 +46,7 @@ export class ProjectService {
    */
   async create(name: string, description: string = ''): Promise<Project> {
     try {
-      const resp = await fetch('/api/projects', {
+      const resp = await fetch(`${API_URL_BASE}/api/projects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: name, description }),
@@ -88,7 +90,7 @@ export class ProjectService {
     if (Object.keys(body).length === 0) return;
 
     try {
-      const resp = await fetch(`/api/projects/${id}`, {
+      const resp = await fetch(`${API_URL_BASE}/api/projects/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -111,7 +113,7 @@ export class ProjectService {
   async delete(id: string): Promise<void> {
     appState.deleteProject(id);
     try {
-      const resp = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+      const resp = await fetch(`${API_URL_BASE}/api/projects/${id}`, { method: 'DELETE' });
       if (!resp.ok && resp.status !== 204) {
         console.error('[ProjectService] DELETE failed:', resp.status);
       }
@@ -134,7 +136,7 @@ export class ProjectService {
 
   async archive(id: string): Promise<void> {
     try {
-      const resp = await fetch(`/api/projects/${id}/archive`, { method: 'POST' });
+      const resp = await fetch(`${API_URL_BASE}/api/projects/${id}/archive`, { method: 'POST' });
       if (resp.ok) {
         appState.updateProject(id, { archived: true });
         eventBus.emit(EVENTS.PROJECT_UPDATED, { id });
@@ -146,7 +148,7 @@ export class ProjectService {
 
   async unarchive(id: string): Promise<void> {
     try {
-      const resp = await fetch(`/api/projects/${id}/restore`, { method: 'POST' });
+      const resp = await fetch(`${API_URL_BASE}/api/projects/${id}/restore`, { method: 'POST' });
       if (resp.ok) {
         appState.updateProject(id, { archived: false });
         eventBus.emit(EVENTS.PROJECT_UPDATED, { id });

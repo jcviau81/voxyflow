@@ -14,6 +14,11 @@ export class VoiceInput {
   private errorEl: HTMLElement | null = null;
   private unsubscribers: (() => void)[] = [];
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private boundMouseDown: (() => void) | null = null;
+  private boundMouseUp: (() => void) | null = null;
+  private boundMouseLeave: (() => void) | null = null;
+  private boundTouchStart: ((e: Event) => void) | null = null;
+  private boundTouchEnd: ((e: Event) => void) | null = null;
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'voice-input', 'data-testid': 'voice-input-btn' });
@@ -32,21 +37,17 @@ export class VoiceInput {
       'data-tooltip': 'Push to Talk (Alt+V)',
     }) as HTMLButtonElement;
     this.button.innerHTML = '🎤';
-    this.button.addEventListener('mousedown', () => this.startRecording());
-    this.button.addEventListener('mouseup', () => this.stopRecording());
-    this.button.addEventListener('mouseleave', () => {
-      if (sttService.recording) this.stopRecording();
-    });
+    this.boundMouseDown = () => this.startRecording();
+    this.boundMouseUp = () => this.stopRecording();
+    this.boundMouseLeave = () => { if (sttService.recording) this.stopRecording(); };
+    this.boundTouchStart = (e: Event) => { e.preventDefault(); this.startRecording(); };
+    this.boundTouchEnd = (e: Event) => { e.preventDefault(); this.stopRecording(); };
 
-    // Touch support
-    this.button.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      this.startRecording();
-    });
-    this.button.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      this.stopRecording();
-    });
+    this.button.addEventListener('mousedown', this.boundMouseDown);
+    this.button.addEventListener('mouseup', this.boundMouseUp);
+    this.button.addEventListener('mouseleave', this.boundMouseLeave);
+    this.button.addEventListener('touchstart', this.boundTouchStart);
+    this.button.addEventListener('touchend', this.boundTouchEnd);
 
     // Recording indicator
     this.indicator = createElement('div', { className: 'voice-indicator hidden' });
@@ -286,6 +287,13 @@ export class VoiceInput {
     this.unsubscribers = [];
     if (this.keyHandler) {
       document.removeEventListener('keydown', this.keyHandler);
+    }
+    if (this.button) {
+      if (this.boundMouseDown) this.button.removeEventListener('mousedown', this.boundMouseDown);
+      if (this.boundMouseUp) this.button.removeEventListener('mouseup', this.boundMouseUp);
+      if (this.boundMouseLeave) this.button.removeEventListener('mouseleave', this.boundMouseLeave);
+      if (this.boundTouchStart) this.button.removeEventListener('touchstart', this.boundTouchStart);
+      if (this.boundTouchEnd) this.button.removeEventListener('touchend', this.boundTouchEnd);
     }
     sttService.destroy();
     this.container.remove();

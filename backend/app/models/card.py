@@ -10,7 +10,7 @@ RecurrenceType = Optional[Literal["daily", "weekly", "monthly"]]
 class CardCreate(BaseModel):
     title: str
     description: Optional[str] = ""
-    status: str = Field(default="idea", pattern="^(note|idea|todo|in-progress|done|archived)$")
+    status: str = Field(default="idea", pattern="^(card|idea|todo|in-progress|done|archived)$")
     priority: int = Field(default=0, ge=0, le=4)
     color: Optional[str] = Field(None, pattern="^(yellow|blue|green|pink|purple|orange)$")
     source_message_id: Optional[str] = None
@@ -33,7 +33,7 @@ class CardCreate(BaseModel):
 class CardUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    status: Optional[str] = Field(None, pattern="^(note|idea|todo|in-progress|done|archived)$")
+    status: Optional[str] = Field(None, pattern="^(card|idea|todo|in-progress|done|archived)$")
     priority: Optional[int] = Field(None, ge=0, le=4)
     position: Optional[int] = None
     color: Optional[str] = Field(None, pattern="^(yellow|blue|green|pink|purple|orange)$")

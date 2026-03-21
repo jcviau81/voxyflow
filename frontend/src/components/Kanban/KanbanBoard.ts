@@ -1,7 +1,7 @@
 import { Card, CardStatus } from '../../types';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_TYPE_EMOJI, AGENT_TYPE_INFO } from '../../utils/constants';
-import { createElement } from '../../utils/helpers';
+import { createElement, debounce } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { cardService } from '../../services/CardService';
 import { apiClient } from '../../services/ApiClient';
@@ -83,10 +83,13 @@ export class KanbanBoard {
     this.searchInput.type = 'text';
     this.searchInput.className = 'kanban-search-input';
     this.searchInput.placeholder = 'Search cards...';
+    const debouncedFilter = debounce(() => {
+      this.applyFilters();
+    }, 200);
     this.searchInput.addEventListener('input', () => {
       this.searchQuery = this.searchInput!.value;
       this.updateClearBtn();
-      this.applyFilters();
+      debouncedFilter();
     });
 
     this.clearBtn = createElement('button', { className: 'kanban-search-clear' }, '×');
