@@ -69,3 +69,22 @@ Intégrer le `openclaw-embeddings` service (port 18790/18791) dans Voxyflow avec
 
 ### Dépend de
 - Server-side tool system (implémenté ✅)
+
+## Memory Context Pollution Protection (2026-03-21 brainstorm)
+
+### Problem
+Users may talk off-topic in project chats (especially at 4am with beer 🍺). This pollutes project memory/embeddings with irrelevant data.
+
+### Solutions to explore
+1. **Chat général as default** — the safe "catch-all" channel, always the landing page
+2. **Off-topic detection** — Analyzer detects messages unrelated to project context, suggests moving to general chat
+3. **Selective indexing** — not every message gets embedded. Filter: technical/decision content → long-term memory. Small talk → session history only, not indexed
+4. **"Wrong chat" button** — UX to move recent messages to the correct chat
+5. **Context-based auto-routing** — system determines scope from active chat, user never picks manually
+
+### Design principle
+The system must be **tolerant of user error** — don't blame the user, build forgiveness into the architecture. Same as the dispatcher: structural enforcement > behavioral expectations.
+
+### Depends on
+- Multi-scope embedding memory (backlog item above)
+- Server-side tool system (implemented ✅)
