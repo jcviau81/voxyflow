@@ -35,6 +35,8 @@ from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
 from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_registry
 from app.services.pending_results import pending_store
+from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
+from app.tools.executor import get_executor
 
 logger = logging.getLogger("voxyflow.orchestration")
 
@@ -597,6 +599,165 @@ class ChatOrchestrator:
         return project_context, card_context, project_names
 
     # ------------------------------------------------------------------
+    # Internal: <tool_call> text fallback — parse, execute, follow-up
+    # ------------------------------------------------------------------
+
+    async def _handle_tool_call_fallback(
+        self,
+        full_response: str,
+        websocket: WebSocket,
+        message_id: str,
+        chat_id: str,
+        model_label: str,
+        session_id: str | None,
+        project_name: str | None,
+        project_id: str | None,
+        chat_level: str,
+        project_context: dict | None,
+        card_context: dict | None,
+        project_names: list[str] | None,
+    ) -> str | None:
+        """Check streamed response for <tool_call> blocks. If found:
+        1. Execute them via the tool executor
+        2. Send tool:executed events to the frontend
+        3. Make a follow-up streaming LLM call with tool results
+        4. Stream the follow-up response on the same message_id
+
+        Returns the follow-up response text if tools were executed, or None.
+        """
+        parser = ToolResponseParser()
+        text_content, tool_calls = parser.parse(full_response)
+
+        if not tool_calls:
+            return None
+
+        logger.info(f"[ToolCallFallback] Found {len(tool_calls)} <tool_call> blocks in {model_label} response")
+
+        # Execute tools
+        executor = get_executor()
+        executed_tools: list[dict] = []
+
+        for tc in tool_calls:
+            logger.info(f"[ToolCallFallback] Executing: {tc.name}({tc.arguments})")
+            result = await executor.execute(tc, timeout=30)
+            executed_tools.append({
+                "tool": tc.name,
+                "args": tc.arguments,
+                "result": result,
+            })
+
+            # Send tool:executed event to frontend
+            try:
+                await websocket.send_json({
+                    "type": "tool:executed",
+                    "payload": {
+                        "messageId": message_id,
+                        "tool": tc.name,
+                        "args": tc.arguments,
+                        "result": result,
+                        "sessionId": session_id,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
+            except Exception as e:
+                logger.warning(f"[ToolCallFallback] Failed to send tool:executed event: {e}")
+
+        # Build tool results context for follow-up
+        tool_context_parts = []
+        for evt in executed_tools:
+            tool_context_parts.append(
+                f"Tool: {evt['tool']}\n"
+                f"Args: {json.dumps(evt['args'], default=str)}\n"
+                f"Result: {json.dumps(evt['result'], default=str)}"
+            )
+        tool_context = "\n\n".join(tool_context_parts)
+
+        # Strip <tool_call> blocks from the original response for history
+        clean_response = TOOL_CALL_PATTERN.sub("", full_response).strip()
+
+        # Overwrite the last assistant message in history with the clean version
+        history = self._claude.get_history(chat_id)
+        if history and history[-1].get("role") == "assistant":
+            history[-1]["content"] = clean_response
+
+        # Build follow-up messages: existing history + tool results as user context
+        followup_messages = list(history) + [
+            {
+                "role": "user",
+                "content": (
+                    f"[SYSTEM: Tool execution results — incorporate these into your response]\n\n"
+                    f"{tool_context}\n\n"
+                    "Now provide your response to the user incorporating the tool results above. "
+                    "Do NOT mention tool calls, <tool_call> blocks, or system internals. "
+                    "Just answer naturally with the information."
+                ),
+            }
+        ]
+
+        # Determine which client/model to use
+        if model_label == "deep":
+            client = self._claude.deep_client
+            client_type = self._claude.deep_client_type
+            model = self._claude.deep_model
+        else:
+            client = self._claude.fast_client
+            client_type = self._claude.fast_client_type
+            model = self._claude.fast_model
+
+        # Build a simple system prompt for the follow-up
+        memory_context = self._claude.memory.build_memory_context(
+            project_name=project_name,
+            include_long_term=False,
+            include_daily=True,
+        )
+        system_prompt = self._claude.personality.build_fast_prompt(
+            memory_context=memory_context,
+            chat_level=chat_level,
+            project=project_context,
+            card=card_context,
+            project_names=project_names,
+        )
+
+        # Stream follow-up response
+        followup_full = ""
+        try:
+            async for token in self._claude._call_api_stream(
+                model=model,
+                system=system_prompt,
+                messages=followup_messages,
+                client=client,
+                client_type=client_type,
+                use_tools=False,
+                chat_level=chat_level,
+            ):
+                followup_full += token
+                await websocket.send_json({
+                    "type": "chat:response",
+                    "payload": {
+                        "messageId": message_id,
+                        "content": token,
+                        "model": model_label,
+                        "streaming": True,
+                        "done": False,
+                        "sessionId": session_id,
+                        "isToolFollowup": True,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
+        except Exception as e:
+            logger.error(f"[ToolCallFallback] Follow-up streaming failed: {e}")
+
+        # Persist the follow-up response
+        if followup_full:
+            self._claude._append_and_persist(
+                chat_id, "assistant", followup_full,
+                model=model_label, session_id=session_id,
+            )
+
+        logger.info(f"[ToolCallFallback] Follow-up response streamed ({len(followup_full)} chars)")
+        return followup_full
+
+    # ------------------------------------------------------------------
     # Internal: Layer 1 — Fast (streaming)
     # ------------------------------------------------------------------
 
@@ -654,6 +815,23 @@ class ChatOrchestrator:
                     },
                     "timestamp": int(time.time() * 1000),
                 })
+
+            # Check for <tool_call> text blocks and handle them
+            if TOOL_CALL_PATTERN.search(fast_full_response):
+                await self._handle_tool_call_fallback(
+                    full_response=fast_full_response,
+                    websocket=websocket,
+                    message_id=message_id,
+                    chat_id=chat_id,
+                    model_label="fast",
+                    session_id=session_id,
+                    project_name=project_name,
+                    project_id=project_id,
+                    chat_level=chat_level,
+                    project_context=project_context,
+                    card_context=card_context,
+                    project_names=project_names,
+                )
 
             # Send stream-done signal
             latency = int((time.time() - start) * 1000)
@@ -757,6 +935,23 @@ class ChatOrchestrator:
                     },
                     "timestamp": int(time.time() * 1000),
                 })
+
+            # Check for <tool_call> text blocks and handle them
+            if TOOL_CALL_PATTERN.search(deep_full_response):
+                await self._handle_tool_call_fallback(
+                    full_response=deep_full_response,
+                    websocket=websocket,
+                    message_id=message_id,
+                    chat_id=chat_id,
+                    model_label="deep",
+                    session_id=session_id,
+                    project_name=project_name,
+                    project_id=project_id,
+                    chat_level=chat_level,
+                    project_context=project_context,
+                    card_context=card_context,
+                    project_names=project_names,
+                )
 
             # Send stream-done signal
             latency = int((time.time() - start) * 1000)
