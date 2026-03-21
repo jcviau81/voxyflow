@@ -77,8 +77,10 @@ export class ChatWindow {
   render(): void {
     this.container.innerHTML = '';
 
-    // === Unified header row — adapts to 3 chat levels ===
-    const headerRow = this.renderChatControls();
+    // === Top bar: Title + Tabs + Board toggle ===
+    const topBar = this.renderTopBar();
+    // === Bottom bar: Status + New + Clear + Search + Model Selector + Analyzer ===
+    const bottomBar = this.renderBottomBar();
 
     // === Message list ===
     this.messageList = createElement('div', { className: 'chat-messages' });
@@ -207,14 +209,17 @@ export class ChatWindow {
     this.githubPanel?.destroy();
     this.githubPanel = null;
 
-    // Chat controls (title, session tabs, board toggle) — TOP of chat
-    this.container.appendChild(headerRow);
+    // TOP: Title + Tabs + Board toggle
+    this.container.appendChild(topBar);
 
     this.container.appendChild(this.messageList);
 
     // Task panel — shows active Deep worker tasks above the input
     this.taskPanel?.destroy();
     this.taskPanel = new TaskPanel(this.container);
+
+    // BOTTOM: Status + New + Clear + Search + Model Selector + Analyzer
+    this.container.appendChild(bottomBar);
 
     this.container.appendChild(this.inputArea);
 
@@ -238,15 +243,13 @@ export class ChatWindow {
     return 'general';
   }
 
-  private renderChatControls(): HTMLElement {
-    const headerRow = createElement('div', {
-      className: 'chat-controls',
-      'data-testid': 'chat-controls',
+  private renderTopBar(): HTMLElement {
+    const topBar = createElement('div', {
+      className: 'chat-top-bar',
+      'data-testid': 'chat-top-bar',
     });
 
     const chatLevel = this.getChatLevel();
-    const projectId = appState.get('currentProjectId');
-    const project = projectId ? appState.getProject(projectId) : null;
     const cardId = appState.get('selectedCardId');
     const card = cardId ? appState.getCard(cardId) : null;
 
@@ -265,25 +268,35 @@ export class ChatWindow {
     } else if (chatLevel === 'project') {
       // Project name + tabs are in shared ProjectHeader — don't duplicate here
     } else {
-      // General chat: show a small indicator
       const title = createElement('span', { className: 'header-title' });
       title.textContent = '💬 Main Chat';
       titleSection.appendChild(title);
     }
 
-    headerRow.appendChild(titleSection);
+    topBar.appendChild(titleSection);
 
-    // CENTER: Session tabs (general only) — project view toggle is now in shared ProjectHeader
+    // CENTER: Session tabs
     if (chatLevel === 'general') {
       const sessionTabs = this.renderSessionTabs();
-      headerRow.appendChild(sessionTabs);
-      const generalToggle = this.renderGeneralViewToggle();
-      headerRow.appendChild(generalToggle);
+      topBar.appendChild(sessionTabs);
     }
-    // Project + Card: view toggle handled by ProjectHeader
 
-    // RIGHT: Actions + Model status
-    const actions = createElement('div', { className: 'header-actions' });
+    // RIGHT: Board/View toggle
+    if (chatLevel === 'general') {
+      const generalToggle = this.renderGeneralViewToggle();
+      topBar.appendChild(generalToggle);
+    }
+
+    return topBar;
+  }
+
+  private renderBottomBar(): HTMLElement {
+    const bottomBar = createElement('div', {
+      className: 'chat-bottom-bar',
+      'data-testid': 'chat-bottom-bar',
+    });
+
+    const chatLevel = this.getChatLevel();
 
     // Connection status indicator
     const connState = appState.get('connectionState');
@@ -296,7 +309,7 @@ export class ChatWindow {
     );
     connIndicator.appendChild(connDot);
     connIndicator.appendChild(connLabel);
-    actions.appendChild(connIndicator);
+    bottomBar.appendChild(connIndicator);
 
     // New Session button (general chat only)
     if (chatLevel === 'general') {
@@ -311,11 +324,10 @@ export class ChatWindow {
         newBtn.disabled = true;
       }
       newBtn.addEventListener('click', () => this.handleNewSession());
-      actions.appendChild(newBtn);
+      bottomBar.appendChild(newBtn);
     }
 
     if (chatLevel === 'project' && this.currentProjectView === 'kanban') {
-      // Kanban mode: only show New Card button
       const newCardBtn = createElement('button', {
         className: 'header-btn header-btn-primary',
         'data-testid': 'new-card-btn',
@@ -324,38 +336,37 @@ export class ChatWindow {
       newCardBtn.addEventListener('click', () => {
         eventBus.emit(EVENTS.CARD_FORM_SHOW, { mode: 'create', projectId: appState.get('currentProjectId') });
       });
-      actions.appendChild(newCardBtn);
-    } else {
-      // Chat mode: show Search + Clear + Model Status
-      const searchBtn = createElement('button', {
-        className: 'header-btn',
-        title: 'Search Chat History (Ctrl+Shift+F)',
-        'data-testid': 'chat-search-btn',
-      });
-      searchBtn.textContent = '🔍';
-      searchBtn.addEventListener('click', () => {
-        eventBus.emit(EVENTS.CHAT_SEARCH_OPEN, {});
-      });
-      actions.appendChild(searchBtn);
-
-      const clearBtn = createElement('button', {
-        className: 'header-btn',
-        title: 'Clear Chat',
-        'data-testid': 'clear-chat-btn',
-      });
-      clearBtn.textContent = '🗑️ Clear';
-      clearBtn.addEventListener('click', () => this.handleClearChat());
-      actions.appendChild(clearBtn);
-
-      // Model status bar (inline)
-      const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
-      this.modelStatusBar = new ModelStatusBar(statusBarContainer);
-      actions.appendChild(statusBarContainer);
+      bottomBar.appendChild(newCardBtn);
     }
 
-    headerRow.appendChild(actions);
+    // Clear button
+    const clearBtn = createElement('button', {
+      className: 'header-btn',
+      title: 'Clear Chat',
+      'data-testid': 'clear-chat-btn',
+    });
+    clearBtn.textContent = '🗑️';
+    clearBtn.addEventListener('click', () => this.handleClearChat());
+    bottomBar.appendChild(clearBtn);
 
-    return headerRow;
+    // Search button
+    const searchBtn = createElement('button', {
+      className: 'header-btn',
+      title: 'Search Chat History (Ctrl+Shift+F)',
+      'data-testid': 'chat-search-btn',
+    });
+    searchBtn.textContent = '🔍';
+    searchBtn.addEventListener('click', () => {
+      eventBus.emit(EVENTS.CHAT_SEARCH_OPEN, {});
+    });
+    bottomBar.appendChild(searchBtn);
+
+    // Model status bar (model selector + analyzer)
+    const statusBarContainer = createElement('div', { className: 'model-status-bar-container' });
+    this.modelStatusBar = new ModelStatusBar(statusBarContainer);
+    bottomBar.appendChild(statusBarContainer);
+
+    return bottomBar;
   }
 
   private renderSessionTabs(): HTMLElement {
@@ -1015,15 +1026,20 @@ export class ChatWindow {
   }
 
   private updateChatControls(): void {
-    // Re-render the entire header to reflect current chat level
-    const oldHeader = this.container.querySelector('[data-testid="chat-controls"]');
-    if (oldHeader) {
-      // Destroy old model status bar before replacing
-      this.modelStatusBar?.destroy();
-      this.modelStatusBar = null;
+    // Re-render top bar and bottom bar to reflect current chat level
+    this.modelStatusBar?.destroy();
+    this.modelStatusBar = null;
 
-      const newHeader = this.renderChatControls();
-      oldHeader.replaceWith(newHeader);
+    const oldTopBar = this.container.querySelector('[data-testid="chat-top-bar"]');
+    if (oldTopBar) {
+      const newTopBar = this.renderTopBar();
+      oldTopBar.replaceWith(newTopBar);
+    }
+
+    const oldBottomBar = this.container.querySelector('[data-testid="chat-bottom-bar"]');
+    if (oldBottomBar) {
+      const newBottomBar = this.renderBottomBar();
+      oldBottomBar.replaceWith(newBottomBar);
     }
   }
 
