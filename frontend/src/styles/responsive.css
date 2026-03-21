@@ -187,28 +187,28 @@
   }
 
   /* Unified header: wrap on mobile */
-  .unified-header {
+  .chat-controls {
     flex-wrap: wrap;
     padding: 6px 12px;
     min-height: 40px;
     gap: 8px;
   }
 
-  .unified-header .header-spacer {
+  .chat-controls .header-spacer {
     display: none; /* On mobile, natural wrapping handles layout */
   }
 
-  .unified-header .header-actions {
+  .chat-controls .header-actions {
     margin-left: auto;
   }
 
-  .unified-header .model-status-bar {
+  .chat-controls .model-status-bar {
     flex-wrap: wrap;
     gap: 6px;
   }
 
   /* Hide model status labels on small screens, keep dots */
-  .unified-header .model-status .status-label {
+  .chat-controls .model-status .status-label {
     display: none;
   }
 
@@ -231,12 +231,12 @@
 
 /* Small mobile: < 375px */
 @media (max-width: 375px) {
-  .unified-header {
+  .chat-controls {
     padding: 6px 10px;
     gap: 6px;
   }
 
-  .unified-header .context-indicator {
+  .chat-controls .context-indicator {
     font-size: 0.8125rem;
   }
 

@@ -74,7 +74,7 @@ export class ChatWindow {
     this.container.innerHTML = '';
 
     // === Unified header row — adapts to 3 chat levels ===
-    const headerRow = this.renderUnifiedHeader();
+    const headerRow = this.renderChatControls();
 
     // === Message list ===
     this.messageList = createElement('div', { className: 'chat-messages' });
@@ -180,8 +180,6 @@ export class ChatWindow {
     this.inputArea.appendChild(this.codePasteBanner);
     this.inputArea.appendChild(inputRow);
 
-    this.container.appendChild(headerRow);
-
     // Session Tab Bar — show for project and card levels
     this.sessionTabBar?.destroy();
     this.sessionTabBar = null;
@@ -197,26 +195,18 @@ export class ChatWindow {
       this.sessionTabBar = new SessionTabBar(sessionTabBarContainer, sessionTabId);
     }
 
-    // GitHub Panel — show when project has a github_url and we're in project chat level
+    // GitHub Panel — moved to project properties (no longer shown above chat)
     this.githubPanel?.destroy();
     this.githubPanel = null;
-    const chatLevelForGH = this.getChatLevel();
-    if (chatLevelForGH === 'project') {
-      const projectIdForGH = appState.get('currentProjectId');
-      const projectForGH = projectIdForGH ? appState.getProject(projectIdForGH) : null;
-      const ghUrl = projectForGH?.githubUrl || projectForGH?.githubRepo;
-      if (ghUrl) {
-        const ghContainer = createElement('div', { className: 'github-panel-wrap' });
-        this.container.appendChild(ghContainer);
-        this.githubPanel = new GitHubPanel(ghContainer, ghUrl);
-      }
-    }
 
     this.container.appendChild(this.messageList);
 
     // Task panel — shows active Deep worker tasks above the input
     this.taskPanel?.destroy();
     this.taskPanel = new TaskPanel(this.container);
+
+    // Chat controls (model status, session tabs, actions) — above the input area
+    this.container.appendChild(headerRow);
 
     this.container.appendChild(this.inputArea);
 
@@ -240,10 +230,10 @@ export class ChatWindow {
     return 'general';
   }
 
-  private renderUnifiedHeader(): HTMLElement {
+  private renderChatControls(): HTMLElement {
     const headerRow = createElement('div', {
-      className: 'unified-header',
-      'data-testid': 'unified-header',
+      className: 'chat-controls',
+      'data-testid': 'chat-controls',
     });
 
     const chatLevel = this.getChatLevel();
@@ -264,13 +254,8 @@ export class ChatWindow {
         ? card.title.substring(0, 40) + '...'
         : card.title;
       titleSection.appendChild(title);
-    } else if (chatLevel === 'project' && project) {
-      const emoji = createElement('span', { className: 'context-emoji header-emoji' });
-      emoji.textContent = project.emoji || '📁';
-      const name = createElement('span', { className: 'header-title' });
-      name.textContent = project.name;
-      titleSection.appendChild(emoji);
-      titleSection.appendChild(name);
+    } else if (chatLevel === 'project') {
+      // Project name is already shown in ProjectHeader — don't duplicate here
     } else {
       // General chat: show a small indicator
       const title = createElement('span', { className: 'header-title' });
@@ -392,13 +377,13 @@ export class ChatWindow {
           if (this.activeSessionId === session.id) {
             this.activeSessionId = this.sessions[0]?.id || '';
           }
-          this.updateUnifiedHeader();
+          this.updateChatControls();
           this.reloadMessages();
         } else {
           // Last session: reset
           this.sessions = [{ id: generateId(), label: 'Session 1' }];
           this.activeSessionId = this.sessions[0].id;
-          this.updateUnifiedHeader();
+          this.updateChatControls();
           this.reloadMessages();
         }
       });
@@ -520,7 +505,7 @@ export class ChatWindow {
     // Clear unread indicator for this session
     this.clearSessionUnread(sessionId);
     this.reloadMessages();
-    this.updateUnifiedHeader();
+    this.updateChatControls();
   }
 
   /**
@@ -779,7 +764,7 @@ export class ChatWindow {
         if (v === 'chat' || v === 'kanban' || v === 'stats' || v === 'roadmap' || v === 'wiki' || v === 'sprint' || v === 'docs') {
           this.currentProjectView = v;
         }
-        this.updateUnifiedHeader();
+        this.updateChatControls();
       })
     );
 
@@ -789,7 +774,7 @@ export class ChatWindow {
         this.currentProjectView = 'chat';
         this.refreshContextComponents();
         this.reloadMessages();
-        this.updateUnifiedHeader();
+        this.updateChatControls();
       })
     );
 
@@ -799,7 +784,7 @@ export class ChatWindow {
         this.currentProjectView = 'chat';
         this.refreshContextComponents();
         this.reloadMessages();
-        this.updateUnifiedHeader();
+        this.updateChatControls();
         this.smartSuggestions?.refresh();
       })
     );
@@ -808,7 +793,7 @@ export class ChatWindow {
     this.unsubscribers.push(
       eventBus.on(EVENTS.CARD_SELECTED, () => {
         this.reloadMessages();
-        this.updateUnifiedHeader();
+        this.updateChatControls();
         this.smartSuggestions?.refresh();
       })
     );
@@ -1021,15 +1006,15 @@ export class ChatWindow {
     }
   }
 
-  private updateUnifiedHeader(): void {
+  private updateChatControls(): void {
     // Re-render the entire header to reflect current chat level
-    const oldHeader = this.container.querySelector('[data-testid="unified-header"]');
+    const oldHeader = this.container.querySelector('[data-testid="chat-controls"]');
     if (oldHeader) {
       // Destroy old model status bar before replacing
       this.modelStatusBar?.destroy();
       this.modelStatusBar = null;
 
-      const newHeader = this.renderUnifiedHeader();
+      const newHeader = this.renderChatControls();
       oldHeader.replaceWith(newHeader);
     }
   }
@@ -1076,26 +1061,17 @@ export class ChatWindow {
       this.sessionTabBar = new SessionTabBar(sessionTabBarContainer, sessionTabId);
     }
 
-    // Recreate GitHub panel only for project context with a github_url
-    if (chatLevel === 'project') {
-      const projectId = appState.get('currentProjectId');
-      const project = projectId ? appState.getProject(projectId) : null;
-      const ghUrl = project?.githubUrl || (project as unknown as Record<string, string>)?.githubRepo;
-      if (ghUrl) {
-        const ghContainer = createElement('div', { className: 'github-panel-wrap' });
-        // Insert before the message list (after session tab bar if present)
-        if (this.messageList && this.messageList.parentElement === this.container) {
-          this.container.insertBefore(ghContainer, this.messageList);
-        } else {
-          this.container.appendChild(ghContainer);
-        }
-        this.githubPanel = new GitHubPanel(ghContainer, ghUrl);
-      }
-    }
+    // GitHub panel moved to project properties — no longer rendered in chat
   }
 
   private showWelcomePrompt(): void {
     if (!this.messageList) return;
+
+    // Destroy any existing welcome prompt to prevent duplicates
+    if (this.welcomePrompt) {
+      this.welcomePrompt.destroy();
+      this.welcomePrompt = null;
+    }
 
     const projectId = appState.get('currentProjectId');
     const cardId = appState.get('selectedCardId');
@@ -1173,7 +1149,7 @@ export class ChatWindow {
     );
 
     // Update header
-    this.updateUnifiedHeader();
+    this.updateChatControls();
 
     // Focus input
     if (this.textInput) {

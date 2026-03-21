@@ -214,6 +214,17 @@ export class App {
       })
     );
 
+    // Project properties — open project form in edit mode
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.PROJECT_PROPERTIES_OPEN, (payload: unknown) => {
+        const { projectId } = payload as { projectId: string };
+        const project = appState.getProject(projectId);
+        if (project) {
+          this.showProjectForm({ mode: 'edit', project });
+        }
+      })
+    );
+
     // Card form events
     this.unsubscribers.push(
       eventBus.on(EVENTS.CARD_FORM_SHOW, (event: unknown) => {

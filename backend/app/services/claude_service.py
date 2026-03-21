@@ -447,11 +447,35 @@ class ClaudeService:
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_fast_stream): {e}")
 
+        # Inject identity priming exchange at the start of conversations.
+        # Claude Code CLI has a built-in identity that overrides system prompts.
+        # This fake user/assistant exchange anchors the model as Voxy BEFORE
+        # real messages arrive, preventing it from falling back to "I'm Claude Code".
+        # Skip priming for auto-greetings (the first system-generated message).
+        primed_messages = list(recent)
+        is_auto_greeting = "greet" in user_message.lower() and "naturally" in user_message.lower()
+        if len(history) <= 4 and not is_auto_greeting:
+            priming = [
+                {"role": "user", "content": (
+                    "[SYSTEM INIT] Confirm your identity and operating mode. "
+                    "Who are you, where are you running, and how do you handle action requests?"
+                )},
+                {"role": "assistant", "content": (
+                    "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
+                    "I converse with you directly and delegate all actions to background workers "
+                    "via <delegate> blocks. I never execute tools myself. When you ask me to do "
+                    "something like a web search or create a card, I respond briefly and include "
+                    "a <delegate> block at the end of my message to trigger the worker. "
+                    "The worker handles it in the background and the result appears in the chat."
+                )},
+            ]
+            primed_messages = priming + primed_messages
+
         full_response = ""
         async for token in self._call_api_stream(
             model=self.fast_model,
             system=system_prompt,
-            messages=recent,
+            messages=primed_messages,
             client=self.fast_client,
             client_type=self.fast_client_type,
             use_tools=False,
@@ -507,11 +531,31 @@ class ClaudeService:
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_deep_stream): {e}")
 
+        # Identity priming for deep chat layer (same as fast — see chat_fast_stream)
+        primed_messages = list(recent)
+        is_auto_greeting = "greet" in user_message.lower() and "naturally" in user_message.lower()
+        if len(history) <= 4 and not is_auto_greeting:
+            priming = [
+                {"role": "user", "content": (
+                    "[SYSTEM INIT] Confirm your identity and operating mode. "
+                    "Who are you, where are you running, and how do you handle action requests?"
+                )},
+                {"role": "assistant", "content": (
+                    "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
+                    "I converse with you directly and delegate all actions to background workers "
+                    "via <delegate> blocks. I never execute tools myself. When you ask me to do "
+                    "something like a web search or create a card, I respond briefly and include "
+                    "a <delegate> block at the end of my message to trigger the worker. "
+                    "The worker handles it in the background and the result appears in the chat."
+                )},
+            ]
+            primed_messages = priming + primed_messages
+
         full_response = ""
         async for token in self._call_api_stream(
             model=self.deep_model,
             system=system_prompt,
-            messages=recent,
+            messages=primed_messages,
             client=self.deep_client,
             client_type=self.deep_client_type,
             use_tools=False,
@@ -1178,6 +1222,10 @@ class ClaudeService:
                 if claude_tools:
                     kwargs["tools"] = claude_tools
 
+                # Tell the proxy to disable CLI tools for chat layers
+                if not use_tools:
+                    kwargs["extra_body"] = {"disable_tools": True}
+
                 response = await asyncio.to_thread(
                     lambda kw=kwargs: client.chat.completions.create(**kw)
                 )
@@ -1256,6 +1304,10 @@ class ClaudeService:
             }
             if claude_tools:
                 kwargs["tools"] = claude_tools
+
+            # Tell the proxy to disable CLI tools for chat layers (no tools = converse only)
+            if not use_tools:
+                kwargs["extra_body"] = {"disable_tools": True}
 
             stream = client.chat.completions.create(**kwargs)
 

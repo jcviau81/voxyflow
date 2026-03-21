@@ -313,12 +313,8 @@ export class CardDetailModal {
     this.modal.appendChild(header);
     this.modal.appendChild(body);
 
-    // Seed context on first open (no prior messages for this card session)
-    const existingMessages = appState.getMessages(undefined, this.sessionId);
-    if (existingMessages.length === 0) {
-      const ctx = `Discussing card: ${this.card.title}\nDescription: ${this.card.description || '(empty)'}`;
-      chatService.sendSystemInit(ctx, undefined, undefined, this.sessionId);
-    }
+    // Card context is injected via the system prompt (Chat Init block) when the user
+    // sends their first message. No auto-greeting — wait for user interaction.
 
     // Populate existing chat history
     this.refreshChat();

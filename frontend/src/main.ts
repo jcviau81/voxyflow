@@ -24,14 +24,31 @@ import { themeService as _themeService } from './services/ThemeService';
 void _themeService; // ensure module is loaded and settings applied
 
 async function needsOnboarding(): Promise<boolean> {
-  try {
-    const response = await fetch(`${API_URL}/api/settings`);
-    if (!response.ok) return true; // Backend down or no settings → show onboarding
-    const data = await response.json();
-    return !data.onboarding_complete;
-  } catch {
-    return true; // Can't reach backend → show onboarding
+  // Retry up to 3 times with increasing delay — backend may still be starting
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(`${API_URL}/api/settings`);
+      if (!response.ok) {
+        // Backend responded but with error — wait and retry
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      const data = await response.json();
+      return !data.onboarding_complete;
+    } catch {
+      // Backend not ready — wait and retry
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
   }
+  // After 3 retries, also check if projects exist (fallback — already-onboarded user)
+  try {
+    const res = await fetch(`${API_URL}/api/projects`);
+    if (res.ok) {
+      const projects = await res.json();
+      if (Array.isArray(projects) && projects.length > 0) return false; // Has projects → skip onboarding
+    }
+  } catch { /* ignore */ }
+  return true;
 }
 
 // Initialize app when DOM is ready

@@ -116,6 +116,7 @@ export const EVENTS = {
   PROJECT_UPDATED: 'project:updated',
   PROJECT_DELETED: 'project:deleted',
   PROJECT_SELECTED: 'project:selected',
+  PROJECT_PROPERTIES_OPEN: 'project:properties:open',
   CARD_CREATED: 'card:created',
   CARD_UPDATED: 'card:updated',
   CARD_DELETED: 'card:deleted',

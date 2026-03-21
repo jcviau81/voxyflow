@@ -15,7 +15,7 @@
     "fast": {
       "provider_url": "http://localhost:3457/v1",
       "api_key": "sk-any",
-      "model": "claude-sonnet-4-5",
+      "model": "claude-test-model",
       "enabled": true
     },
     "deep": {
@@ -48,13 +48,7 @@
     "tts_speed": 1.0,
     "volume": 80
   },
-  "tools": {
-    "max_rounds": 10,
-    "tool_mode": "server",
-    "timeout_per_tool_seconds": 30,
-    "warn_at_round": 8
-  },
-  "onboarding_complete": true,
+  "onboarding_complete": false,
   "user_name": "",
   "assistant_name": "Voxy"
 }

@@ -249,9 +249,24 @@ async def create_project_from_template(
 
 @router.post("", response_model=ProjectResponse, status_code=201)
 async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)):
+    # Prevent duplicate project names (case-insensitive, active projects only)
+    from sqlalchemy import func
+    existing = await db.execute(
+        select(Project).where(
+            func.lower(Project.title) == body.title.strip().lower(),
+            Project.status != "archived",
+        )
+    )
+    if existing.scalar_one_or_none():
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=409,
+            detail=f"A project named '{body.title.strip()}' already exists."
+        )
+
     project = Project(
         id=new_uuid(),
-        title=body.title,
+        title=body.title.strip(),
         description=body.description or "",
         context=body.context or "",
         github_repo=body.github_repo,

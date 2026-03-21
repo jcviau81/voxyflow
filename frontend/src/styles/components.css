@@ -2754,13 +2754,13 @@
 }
 
 /* ============= UNIFIED HEADER (single row: context + view toggle + actions) ============= */
-.unified-header {
+.chat-controls {
   display: flex;
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border);
   min-height: 44px;
   gap: 8px 12px;
   flex-shrink: 0;
@@ -2768,17 +2768,17 @@
 }
 
 /* Spacer that pushes actions to the right */
-.unified-header .header-spacer {
+.chat-controls .header-spacer {
   flex: 1;
   min-width: 0;
 }
 
-.unified-header .header-actions {
+.chat-controls .header-actions {
   margin-left: auto;
   flex-shrink: 0;
 }
 
-.unified-header .context-indicator {
+.chat-controls .context-indicator {
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-text);
@@ -2793,7 +2793,7 @@
 }
 
 /* Make model status bar inline and compact inside unified header */
-.unified-header .model-status-bar {
+.chat-controls .model-status-bar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2803,11 +2803,11 @@
   background: transparent;
 }
 
-.unified-header .model-status {
+.chat-controls .model-status {
   padding: 0;
 }
 
-.unified-header .mode-pill {
+.chat-controls .mode-pill {
   margin: 0;
 }
 

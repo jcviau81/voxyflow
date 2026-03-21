@@ -1,6 +1,6 @@
 # USER.md — About You
 
-- **Name:** Jim
+- **Name:** JC
 - **Preferred Language:** 
 - **Timezone:** 
 - **Notes:**

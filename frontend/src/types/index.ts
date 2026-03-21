@@ -29,6 +29,8 @@ export interface Message {
   enrichmentAction?: 'enrich' | 'correct';
   /** Which model produced this message */
   model?: string;
+  /** True if this message is a background worker result (delegate execution) */
+  isWorkerResult?: boolean;
 }
 
 export interface TechInfo {

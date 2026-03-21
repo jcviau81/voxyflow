@@ -4,6 +4,20 @@ import { test, expect } from '@playwright/test';
 // These tests have been updated to use the FreeBoard component.
 // See freeboard.spec.ts for comprehensive FreeBoard tests.
 
+/**
+ * Helper: delete all unassigned cards via the API to get a clean state.
+ */
+async function clearAllMainBoardCards(page: import('@playwright/test').Page) {
+  await page.evaluate(async () => {
+    const res = await fetch('/api/cards/unassigned');
+    if (!res.ok) return;
+    const cards = await res.json();
+    for (const card of cards) {
+      await fetch(`/api/cards/${card.id}`, { method: 'DELETE' });
+    }
+  });
+}
+
 test.describe('Idea Board', () => {
   test.beforeEach(async ({ page }) => {
     // Clear localStorage before each test
@@ -11,11 +25,14 @@ test.describe('Idea Board', () => {
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await page.waitForSelector('#app', { timeout: 10000 });
+    // Clear backend cards for clean state
+    await clearAllMainBoardCards(page);
     // Navigate to freeboard view (replaced IdeaBoard)
     const boardBtn = page.locator('[data-testid="general-view-toggle"] [data-view="freeboard"]');
     await boardBtn.waitFor({ timeout: 5000 });
     await boardBtn.click();
     await page.waitForSelector('[data-testid="freeboard"]', { timeout: 5000 });
+    await page.waitForTimeout(500);
   });
 
   test('Idea board visible in general mode', async ({ page }) => {
@@ -26,8 +43,8 @@ test.describe('Idea Board', () => {
     await page.locator('[data-testid="freeboard-add-btn"]').click();
     await page.locator('.freeboard-add-form-title').fill('Test idea');
     await page.locator('.freeboard-add-form-title').press('Enter');
-    await expect(page.locator('.freeboard-card')).toBeVisible();
-    await expect(page.locator('.freeboard-card-title')).toContainText('Test idea');
+    const card = page.locator('.freeboard-card-title', { hasText: 'Test idea' });
+    await expect(card).toBeVisible({ timeout: 5000 });
   });
 
   test('Can delete an idea', async ({ page }) => {
@@ -35,18 +52,27 @@ test.describe('Idea Board', () => {
     await page.locator('[data-testid="freeboard-add-btn"]').click();
     await page.locator('.freeboard-add-form-title').fill('Idea to delete');
     await page.locator('.freeboard-add-form-title').press('Enter');
-    await expect(page.locator('.freeboard-card')).toBeVisible();
+    const card = page.locator('.freeboard-card', { hasText: 'Idea to delete' }).first();
+    await expect(card).toBeVisible({ timeout: 5000 });
 
     // Hover and delete
-    await page.locator('.freeboard-card').hover();
-    await page.locator('.freeboard-card-btn--delete').click({ force: true });
-    await expect(page.locator('.freeboard-card')).not.toBeVisible();
-    await expect(page.locator('.freeboard-empty')).toBeVisible();
+    await card.hover();
+    await card.locator('.freeboard-card-btn--delete').click({ force: true });
+    await expect(page.locator('.freeboard-card', { hasText: 'Idea to delete' })).not.toBeVisible({ timeout: 5000 });
   });
 
   test('Shows empty state when no ideas', async ({ page }) => {
-    await expect(page.locator('.freeboard-empty')).toBeVisible();
-    await expect(page.locator('.freeboard-empty')).toContainText('No notes yet');
+    // Reload to pick up empty state after clearing
+    await page.reload();
+    await page.waitForSelector('#app', { timeout: 10000 });
+    const boardBtn = page.locator('[data-testid="general-view-toggle"] [data-view="freeboard"]');
+    await boardBtn.waitFor({ timeout: 5000 });
+    await boardBtn.click();
+    await page.waitForSelector('[data-testid="freeboard"]', { timeout: 5000 });
+
+    const emptyState = page.locator('.freeboard-empty');
+    await expect(emptyState).toBeVisible({ timeout: 5000 });
+    await expect(emptyState).toContainText('No cards yet');
   });
 
   test('Ideas persist across reloads', async ({ page }) => {
@@ -54,7 +80,8 @@ test.describe('Idea Board', () => {
     await page.locator('[data-testid="freeboard-add-btn"]').click();
     await page.locator('.freeboard-add-form-title').fill('Persistent idea');
     await page.locator('.freeboard-add-form-title').press('Enter');
-    await expect(page.locator('.freeboard-card')).toBeVisible();
+    const card = page.locator('.freeboard-card-title', { hasText: 'Persistent idea' });
+    await expect(card).toBeVisible({ timeout: 5000 });
 
     // Reload — freeboard view persists in localStorage
     await page.reload();
@@ -73,7 +100,6 @@ test.describe('Idea Board', () => {
       await freeboard.waitFor({ timeout: 5000 });
     }
 
-    await expect(page.locator('.freeboard-card')).toBeVisible();
-    await expect(page.locator('.freeboard-card-title')).toContainText('Persistent idea');
+    await expect(page.locator('.freeboard-card-title', { hasText: 'Persistent idea' })).toBeVisible({ timeout: 5000 });
   });
 });

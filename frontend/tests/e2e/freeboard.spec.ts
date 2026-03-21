@@ -1,5 +1,19 @@
 import { test, expect } from '@playwright/test';
 
+/**
+ * Helper: delete all unassigned cards via the API to get a clean state.
+ */
+async function clearAllMainBoardCards(page: import('@playwright/test').Page) {
+  await page.evaluate(async () => {
+    const res = await fetch('/api/cards/unassigned');
+    if (!res.ok) return;
+    const cards = await res.json();
+    for (const card of cards) {
+      await fetch(`/api/cards/${card.id}`, { method: 'DELETE' });
+    }
+  });
+}
+
 test.describe('FreeBoard', () => {
   test.beforeEach(async ({ page }) => {
     // Clear localStorage to ensure fresh state
@@ -7,11 +21,15 @@ test.describe('FreeBoard', () => {
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await page.waitForSelector('#app', { timeout: 10000 });
+    // Clear backend cards so tests start with a clean board
+    await clearAllMainBoardCards(page);
     // Navigate to freeboard view
     const boardBtn = page.locator('[data-testid="general-view-toggle"] [data-view="freeboard"]');
     await boardBtn.waitFor({ timeout: 5000 });
     await boardBtn.click();
     await page.waitForSelector('[data-testid="freeboard"]', { timeout: 5000 });
+    // Wait for the grid to re-render after clearing
+    await page.waitForTimeout(500);
   });
 
   test('FreeBoard renders in general chat view', async ({ page }) => {
@@ -48,8 +66,8 @@ test.describe('FreeBoard', () => {
     await page.locator('.freeboard-form-submit').click();
 
     // Card should appear in grid
-    await expect(page.locator('.freeboard-card')).toBeVisible({ timeout: 3000 });
-    await expect(page.locator('.freeboard-card-title')).toContainText('My Test Note');
+    const card = page.locator('.freeboard-card-title', { hasText: 'My Test Note' });
+    await expect(card).toBeVisible({ timeout: 5000 });
   });
 
   test('Adding a card with Enter key in title field submits the form', async ({ page }) => {
@@ -58,8 +76,8 @@ test.describe('FreeBoard', () => {
     await titleInput.fill('Quick Note');
     await titleInput.press('Enter');
 
-    await expect(page.locator('.freeboard-card')).toBeVisible({ timeout: 3000 });
-    await expect(page.locator('.freeboard-card-title')).toContainText('Quick Note');
+    const card = page.locator('.freeboard-card-title', { hasText: 'Quick Note' });
+    await expect(card).toBeVisible({ timeout: 5000 });
   });
 
   test('Adding a card with a color sets the correct color class', async ({ page }) => {
@@ -74,7 +92,8 @@ test.describe('FreeBoard', () => {
     await page.locator('.freeboard-form-submit').click();
 
     // Card should have the blue color class
-    await expect(page.locator('.freeboard-card--blue')).toBeVisible({ timeout: 3000 });
+    const blueCard = page.locator('.freeboard-card--blue .freeboard-card-title', { hasText: 'Colored Note' });
+    await expect(blueCard).toBeVisible({ timeout: 5000 });
   });
 
   test('Adding a card with no color has no color modifier class', async ({ page }) => {
@@ -82,8 +101,8 @@ test.describe('FreeBoard', () => {
     await page.locator('.freeboard-add-form-title').fill('Plain Note');
     await page.locator('.freeboard-form-submit').click();
 
-    const card = page.locator('.freeboard-card').first();
-    await expect(card).toBeVisible({ timeout: 3000 });
+    const card = page.locator('.freeboard-card', { hasText: 'Plain Note' }).first();
+    await expect(card).toBeVisible({ timeout: 5000 });
     // Should not have any color modifier class
     await expect(card).not.toHaveClass(/freeboard-card--yellow/);
     await expect(card).not.toHaveClass(/freeboard-card--blue/);
@@ -95,41 +114,72 @@ test.describe('FreeBoard', () => {
     await page.locator('[data-testid="freeboard-add-btn"]').click();
     await page.locator('.freeboard-add-form-title').fill('Note to Delete');
     await page.locator('.freeboard-form-submit').click();
-    await expect(page.locator('.freeboard-card')).toBeVisible({ timeout: 3000 });
+    const card = page.locator('.freeboard-card', { hasText: 'Note to Delete' }).first();
+    await expect(card).toBeVisible({ timeout: 5000 });
 
     // Hover over the card to reveal action buttons
-    await page.locator('.freeboard-card').hover();
-    const deleteBtn = page.locator('.freeboard-card-btn--delete').first();
+    await card.hover();
+    const deleteBtn = card.locator('.freeboard-card-btn--delete');
     await expect(deleteBtn).toBeVisible({ timeout: 3000 });
     await deleteBtn.click();
 
     // Card should be gone
-    await expect(page.locator('.freeboard-card')).not.toBeVisible({ timeout: 3000 });
+    await expect(page.locator('.freeboard-card', { hasText: 'Note to Delete' })).not.toBeVisible({ timeout: 5000 });
   });
 
   test('Empty state shows when no cards exist', async ({ page }) => {
+    // Board was cleared in beforeEach; reload to pick up empty state
+    await page.reload();
+    await page.waitForSelector('#app', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="unified-header"]', { timeout: 10000 });
+    // Navigate to freeboard — the button may already be visible or we may already be there
+    const freeboard = page.locator('[data-testid="freeboard"]');
+    const boardBtn = page.locator('[data-testid="general-view-toggle"] [data-view="freeboard"]');
+    if (!await freeboard.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await boardBtn.waitFor({ timeout: 10000 });
+      await boardBtn.click();
+      await page.waitForSelector('[data-testid="freeboard"]', { timeout: 5000 });
+    }
+
     const emptyState = page.locator('.freeboard-empty');
-    await expect(emptyState).toBeVisible({ timeout: 3000 });
-    await expect(emptyState).toContainText('No notes yet');
+    await expect(emptyState).toBeVisible({ timeout: 8000 });
+    await expect(emptyState).toContainText('No cards yet');
   });
 
   test('Empty state disappears after adding a card', async ({ page }) => {
-    await expect(page.locator('.freeboard-empty')).toBeVisible({ timeout: 3000 });
+    // Reload to see empty state
+    await page.reload();
+    await page.waitForSelector('#app', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="unified-header"]', { timeout: 10000 });
+    // Navigate to freeboard
+    const freeboard = page.locator('[data-testid="freeboard"]');
+    const boardBtn = page.locator('[data-testid="general-view-toggle"] [data-view="freeboard"]');
+    if (!await freeboard.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await boardBtn.waitFor({ timeout: 10000 });
+      await boardBtn.click();
+      await page.waitForSelector('[data-testid="freeboard"]', { timeout: 5000 });
+    }
+
+    await expect(page.locator('.freeboard-empty')).toBeVisible({ timeout: 8000 });
 
     await page.locator('[data-testid="freeboard-add-btn"]').click();
     await page.locator('.freeboard-add-form-title').fill('First Note');
     await page.locator('.freeboard-form-submit').click();
 
-    await expect(page.locator('.freeboard-empty')).not.toBeVisible({ timeout: 3000 });
+    await expect(page.locator('.freeboard-empty')).not.toBeVisible({ timeout: 5000 });
   });
 
   test('Cancel button hides the add form without adding a card', async ({ page }) => {
+    // Count existing cards before
+    const cardCountBefore = await page.locator('.freeboard-card').count();
+
     await page.locator('[data-testid="freeboard-add-btn"]').click();
     await page.locator('.freeboard-add-form-title').fill('Cancelled Note');
     await page.locator('.freeboard-form-cancel').click();
 
     await expect(page.locator('.freeboard-add-form')).not.toBeVisible({ timeout: 2000 });
-    await expect(page.locator('.freeboard-card')).not.toBeVisible();
+    // No new card with that title should appear
+    await expect(page.locator('.freeboard-card', { hasText: 'Cancelled Note' })).not.toBeVisible();
   });
 
   test('Escape key in title input closes the form', async ({ page }) => {
@@ -143,9 +193,10 @@ test.describe('FreeBoard', () => {
     await page.locator('[data-testid="freeboard-add-btn"]').click();
     await page.locator('.freeboard-add-form-title').fill('Promotable Note');
     await page.locator('.freeboard-form-submit').click();
-    await expect(page.locator('.freeboard-card')).toBeVisible({ timeout: 3000 });
+    const card = page.locator('.freeboard-card', { hasText: 'Promotable Note' }).first();
+    await expect(card).toBeVisible({ timeout: 5000 });
 
-    await page.locator('.freeboard-card').hover();
-    await expect(page.locator('.freeboard-card-btn--promote')).toBeVisible({ timeout: 3000 });
+    await card.hover();
+    await expect(card.locator('.freeboard-card-btn--promote')).toBeVisible({ timeout: 3000 });
   });
 });

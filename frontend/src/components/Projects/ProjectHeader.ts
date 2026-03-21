@@ -40,8 +40,16 @@ export class ProjectHeader {
     this.container.innerHTML = '';
     this.tabButtons.clear();
 
-    // Left: project icon + name
+    // Left: project icon + name (clickable → opens project properties)
     const projectInfo = createElement('div', { className: 'project-header-info' });
+    projectInfo.style.cursor = 'pointer';
+    projectInfo.title = 'Project properties';
+    projectInfo.addEventListener('click', () => {
+      const projectId = appState.get('currentProjectId');
+      if (projectId) {
+        eventBus.emit(EVENTS.PROJECT_PROPERTIES_OPEN, { projectId });
+      }
+    });
     this.emojiEl = createElement('span', { className: 'project-header-emoji' });
     this.nameEl = createElement('span', { className: 'project-header-name' });
     projectInfo.appendChild(this.emojiEl);

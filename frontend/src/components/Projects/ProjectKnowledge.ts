@@ -130,7 +130,8 @@ export class ProjectKnowledge {
       const baseUrl = API_URL || '';
       const res = await fetch(`${baseUrl}/api/projects/${this.projectId}/documents`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      this.docs = await res.json();
+      const data = await res.json();
+      this.docs = Array.isArray(data) ? data : (data.documents || []);
     } catch (err) {
       console.error('[ProjectKnowledge] loadDocs error:', err);
       this.docs = [];

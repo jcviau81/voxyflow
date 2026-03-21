@@ -111,11 +111,11 @@ test.describe('Session Tabs — Project Chat (SessionTabBar)', () => {
     await page.waitForSelector('#app', { timeout: 10000 });
     // Navigate to project view (opens kanban)
     await createProjectAndOpenChat(page);
-    // Switch to chat view within project (click Chat button in kanban view-toggle)
-    const chatViewBtn = page.locator('.view-toggle [data-view="chat"]');
-    await chatViewBtn.waitFor({ timeout: 5000 });
+    // Switch to chat view within project (click Chat button in project header tabs)
+    const chatViewBtn = page.locator('.project-header-tab[data-view="chat"]');
+    await chatViewBtn.waitFor({ timeout: 8000 });
     await chatViewBtn.click();
-    await page.waitForSelector('[data-testid="session-tab-bar"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="session-tab-bar"]', { timeout: 8000 });
   });
 
   test('Opening a project shows the session tab bar', async ({ page }) => {

@@ -127,15 +127,38 @@ export class ChatService {
     );
     this.unsubscribers.push(
       apiClient.on('task:completed', (payload) => {
-        const { intent, summary, result, success, taskId } = payload as {
+        const { intent, summary, result, success, taskId, sessionId } = payload as {
           intent: string;
           summary: string;
           result: string;
           success: boolean;
           taskId: string;
+          sessionId?: string;
         };
         eventBus.emit(EVENTS.TASK_COMPLETED, payload);
-        // Show toast with result
+
+        // Inject worker result as a chat message so the user sees it
+        if (result && result.trim()) {
+          const resultContent = success
+            ? result
+            : `⚠️ Task failed (${intent}): ${result}`;
+
+          const message = appState.addMessage({
+            role: 'assistant',
+            content: resultContent,
+            model: 'worker',
+            sessionId: sessionId || this.activeSessionId,
+            isWorkerResult: true,
+          });
+          eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);
+
+          // Auto-play TTS for worker results
+          if (success) {
+            ttsService.speakIfAutoPlay(result);
+          }
+        }
+
+        // Toast as secondary notification
         if (success) {
           eventBus.emit(EVENTS.TOAST_SHOW, {
             message: `✅ ${intent}: ${summary.substring(0, 50)}`,
