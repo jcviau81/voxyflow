@@ -41,3 +41,31 @@ To re-enable: uncomment in `frontend/src/components/Chat/SlashCommands.ts`
 JC decision (2026-03-20): Focus on core kanban flow + concrete tools first.
 Agile methodology features (sprints, roadmaps, standups, velocity) are premature until
 the base interface is fluid and functional. These are not deleted — just deferred.
+
+## Embedding Memory — Multi-Scope Search (2026-03-20 brainstorm)
+
+### Concept
+Intégrer le `openclaw-embeddings` service (port 18790/18791) dans Voxyflow avec support multi-scope.
+
+### Scope parameter
+- `scope=project:voxyflow` → query seulement la collection du projet
+- `scope=project:voxyflow,project:openclaw-embeddings` → cross-projet
+- `scope=project:*` → tous les projets
+- `scope=global` → mémoire partagée (identité, préférences)
+- Default: `scope=project:{current},global`
+
+### Changements requis
+1. **embedding_server.py** — ajouter paramètre `scope` qui map vers une collection ChromaDB
+   - Créer la collection à la volée si elle existe pas
+   - Multi-scope = query chaque collection, merge par score de similarité
+2. **openai_proxy.py** — forward le scope param
+3. **Voxyflow tools** — `memory.search(query, scope)` et `memory.save(content, scope)`
+4. **Auto-scope expansion** — le dispatcher détecte quand une question touche un autre projet
+
+### Data isolation
+- Par défaut: un projet voit seulement ses propres embeddings
+- Cross-projet: choix explicite (pas un default)
+- Global: toujours accessible (préférences, identité)
+
+### Dépend de
+- Server-side tool system (implémenté ✅)
