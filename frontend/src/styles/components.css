@@ -117,12 +117,25 @@
 }
 
 .sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 0.8125rem;
   text-transform: uppercase;
   color: var(--color-text-muted);
   padding: 8px 10px 6px;
   letter-spacing: 0.08em;
   font-weight: 600;
+}
+
+.sidebar-section-header--clickable {
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+}
+
+.sidebar-section-header--clickable:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
 }
 
 .sidebar-project-item {
