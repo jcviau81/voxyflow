@@ -61,7 +61,7 @@ export class WelcomePrompt {
     // Header
     const header = createElement('div', { className: 'welcome-header' });
     const emoji = createElement('div', { className: 'welcome-emoji' }, '🔥');
-    const title = createElement('h2', {}, "Hey! Qu'est-ce qu'on fait?");
+    const title = createElement('h2', {}, "Hey! What are we working on?");
     header.appendChild(emoji);
     header.appendChild(title);
 
@@ -69,14 +69,14 @@ export class WelcomePrompt {
     const actions = createElement('div', { className: 'welcome-actions' });
 
     actions.appendChild(
-      this.createButton('chat', '💬', 'Just chatting', 'Conversation libre avec Ember'),
+      this.createButton('chat', '💬', 'Just chatting', 'Free conversation with Voxy'),
     );
     actions.appendChild(
       this.createButton(
         'existing-project',
         '🏗️',
         'Work on an existing project',
-        'Ouvre un projet existant',
+        'Open an existing project',
       ),
     );
     actions.appendChild(
@@ -84,11 +84,11 @@ export class WelcomePrompt {
         'brainstorm',
         '💡',
         'Brainstorm a new project',
-        'Commençons quelque chose de nouveau',
+        'Let's start something new',
       ),
     );
     actions.appendChild(
-      this.createButton('review', '📋', 'Review my tasks', "Vue d'ensemble de toutes les cartes"),
+      this.createButton('review', '📋', 'Review my tasks', "Overview of all cards"),
     );
 
     const hint = createElement('p', { className: 'welcome-hint' }, 'Or just start typing...');
@@ -163,11 +163,11 @@ export class WelcomePrompt {
         'brainstorm-task',
         '💡',
         'Brainstorm a new task',
-        'Ajouter quelque chose au projet',
+        'Add something to the project',
       ),
     );
     actions.appendChild(
-      this.createButton('chat-project', '💬', 'Just chat about the project', 'Discussion libre'),
+      this.createButton('chat-project', '💬', 'Just chat about the project', 'Free discussion'),
     );
 
     const hint = createElement('p', { className: 'welcome-hint' }, 'Or just start typing...');
