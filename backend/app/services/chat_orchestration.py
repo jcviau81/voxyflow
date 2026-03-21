@@ -513,7 +513,7 @@ class ChatOrchestrator:
                 # Classify intent type
                 if complexity == "complex" or model == "opus":
                     intent_type = "complex"
-                elif intent in ("create_card", "add_note", "move_card", "update_card") or model == "haiku":
+                elif intent in ("create_card", "move_card", "update_card") or model == "haiku":
                     intent_type = "crud_simple"
                 else:
                     intent_type = "complex"

@@ -142,7 +142,7 @@ test.describe('FreeBoard', () => {
     }
 
     const emptyState = page.locator('.freeboard-empty');
-    await expect(emptyState).toBeVisible({ timeout: 8000 });
+    await expect(emptyState).toBeVisible({ timeout: 3000 });
     await expect(emptyState).toContainText('No cards yet');
   });
 

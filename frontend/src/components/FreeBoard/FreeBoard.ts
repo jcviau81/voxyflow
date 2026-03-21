@@ -73,7 +73,7 @@ export class FreeBoard {
         if (suggestion.content) {
           mainBoardService.createCard(suggestion.content).then(() => {
             eventBus.emit(EVENTS.TOAST_SHOW, {
-              message: '💡 Note captured',
+              message: '💡 Card created',
               type: 'info',
               duration: 2000,
             });
@@ -289,7 +289,7 @@ export class FreeBoard {
     const cancelBtn = createElement('button', { className: 'freeboard-form-cancel', type: 'button' }, 'Cancel');
     cancelBtn.addEventListener('click', () => this.hideForm());
 
-    const submitBtn = createElement('button', { className: 'freeboard-form-submit', type: 'button' }, 'Add note');
+    const submitBtn = createElement('button', { className: 'freeboard-form-submit', type: 'button' }, 'Add card');
     submitBtn.addEventListener('click', () => this.submitForm(titleInput, bodyInput));
 
     actionsRow.appendChild(cancelBtn);

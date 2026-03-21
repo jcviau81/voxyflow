@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Context-based secondary filter (mirrors get_claude_tools logic)
 _GENERAL_CONTEXT_TOOLS = {
-    "voxyflow.note.add", "voxyflow.note.list",
+    "voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned",
     "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
     "voxyflow.health",
     "system.exec", "web.search", "web.fetch",
@@ -25,7 +25,7 @@ _GENERAL_CONTEXT_TOOLS = {
     "voxyflow.doc.list", "voxyflow.doc.delete",
 }
 
-_PROJECT_EXCLUDED_TOOLS = {"voxyflow.note.add", "voxyflow.note.list"}
+_PROJECT_EXCLUDED_TOOLS = {"voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned"}
 
 
 class ToolPromptBuilder:

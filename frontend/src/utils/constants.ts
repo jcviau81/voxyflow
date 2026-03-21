@@ -30,7 +30,7 @@ export const MAX_MESSAGE_LENGTH = 10000;
 export const CARD_STATUSES = ['idea', 'todo', 'in-progress', 'done'] as const;
 export const ALL_CARD_STATUSES = ['note', 'idea', 'todo', 'in-progress', 'done'] as const;
 export const CARD_STATUS_LABELS: Record<string, string> = {
-  'note': '📝 Note',
+  'note': '📝 Card',
   'idea': '💡 Idea',
   'todo': '📋 Todo',
   'in-progress': '🔨 In Progress',

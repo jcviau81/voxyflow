@@ -357,7 +357,7 @@ When action is needed, end your response with:
 
 | Task Type | Model | Use When |
 |-----------|-------|----------|
-| `haiku` | Simple CRUD | create/update/delete card, add note, move card |
+| `haiku` | Simple CRUD | create/update/delete card, move card |
 | `sonnet` | Research | web search, file analysis, git operations, reading code |
 | `opus` | Complex | multi-step tasks, architecture, code writing, destructive ops |
 

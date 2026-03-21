@@ -485,7 +485,7 @@ class PersonalityService:
                 '{"intent": "create_card", "summary": "Create a card titled X in project Y", '
                 '"complexity": "simple"}\n'
                 "</delegate>\n\n"
-                "intent options: create_card, add_note, move_card, update_card, create_project, "
+                "intent options: create_card, move_card, update_card, create_project, "
                 "run_command, write_file, create_sprint, search_web, analyze_code, etc.\n"
                 "complexity: 'simple' for CRUD, 'complex' for multi-step or destructive\n\n"
                 "ROUTING:\n"
@@ -666,7 +666,7 @@ class PersonalityService:
             context_note = (
                 f"\n\nCurrent context: MAIN CHAT (no project selected).\n"
                 f"User's projects: {projs}\n"
-                "In Main Chat, suggest CARDS for the Main Board (free-floating cards, no project).\n"
+                "In Main Chat, suggest CARDS for the Main Board (reminders/quick thoughts, no project).\n"
                 "If the user mentions something that belongs in a project, suggest a CARD with the project name.\n"
                 "If the project doesn't exist yet, suggest creating it.\n"
             )
@@ -692,8 +692,8 @@ class PersonalityService:
                 "3. Return a suggestion for the user to confirm\n\n"
                 "## Output Format — JSON ONLY\n"
                 '{"action": "suggest", "suggestions": [\n'
-                '  {"tool": "voxyflow.note.add", "arguments": {"content": "..."}, '
-                '"display": "Add note: ...", "description": "..."}\n'
+                '  {"tool": "voxyflow.card.create_unassigned", "arguments": {"content": "..."}, '
+                '"display": "Add card: ...", "description": "..."}\n'
                 "]}\n\n"
                 "Each suggestion:\n"
                 "- tool: the MCP tool name to call\n"
@@ -740,7 +740,7 @@ class PersonalityService:
             "- 'Update SOUL.md with FreeBoard nomenclature'\n\n"
             "## Suggestion Types\n"
             "- **CARD (Main Board)**: Quick reminder/thought -> Main Board card (no project)\n"
-            "- **CARD**: Specific task -> Project kanban (MUST have a clear deliverable)\n"
+            "- **CARD (Project)**: Specific task -> Project kanban (MUST have a clear deliverable)\n"
             "- **PROJECT**: Only if user explicitly discusses a NEW initiative\n\n"
             "## Output Format — JSON ONLY, no text\n"
             "[{\"type\": \"card-mainboard|card|project\", \"title\": \"Verb + specific action...\", "

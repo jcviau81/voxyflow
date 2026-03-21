@@ -53,7 +53,7 @@ export class IdeaBoard {
 
     // Header
     const header = createElement('div', { className: 'idea-board-header' });
-    const title = createElement('h3', {}, '💡 Ideas & Notes');
+    const title = createElement('h3', {}, '💡 Ideas & Cards');
     const addBtn = createElement('button', { className: 'btn-sm' }, '+ Add');
     addBtn.setAttribute('data-testid', 'add-idea-btn');
     addBtn.addEventListener('click', () => this.toggleInput());
@@ -88,7 +88,7 @@ export class IdeaBoard {
     this.inputRow = createElement('div', { className: 'idea-input-row' });
     const input = createElement('input', {
       type: 'text',
-      placeholder: 'Quick note or idea...',
+      placeholder: 'Quick card or idea...',
       className: 'idea-input',
     }) as HTMLInputElement;
 

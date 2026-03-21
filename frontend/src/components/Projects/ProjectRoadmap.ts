@@ -17,7 +17,7 @@ const TOTAL_WEEKS = WEEKS_BEFORE + 1 + WEEKS_AFTER; // 9
 const MS_PER_DAY = 86_400_000;
 const MS_PER_WEEK = 7 * MS_PER_DAY;
 const STATUS_DURATION: Record<CardStatus, number> = {
-  note:           0, // Main Board notes don't appear on roadmap
+  note:           0, // Main Board cards don't appear on roadmap
   idea:           MS_PER_WEEK * 1,
   todo:           MS_PER_WEEK * 1,
   'in-progress':  MS_PER_WEEK * 2,
@@ -251,7 +251,7 @@ export class ProjectRoadmap {
     if (!this.tooltip) return;
 
     const statusLabels: Record<CardStatus, string> = {
-      'note':        '📝 Note',
+      'note':        '📝 Card',
       'idea':        '💡 Idea',
       'todo':        '📋 Todo',
       'in-progress': '🔨 In Progress',

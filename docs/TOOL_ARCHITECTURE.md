@@ -229,8 +229,8 @@ Reuses the existing sets from `claude_service.py`:
 
 ```python
 # Existing sets — moved to registry.py
-TOOLS_READ_ONLY = {"voxyflow.health", "voxyflow.note.list", ...}
-TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {"voxyflow.note.add", ...}
+TOOLS_READ_ONLY = {"voxyflow.health", "voxyflow.card.list_unassigned", ...}
+TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {"voxyflow.card.create_unassigned", ...}
 TOOLS_FULL = TOOLS_VOXYFLOW_CRUD | {"system.exec", "file.write", ...}
 ```
 
@@ -611,8 +611,8 @@ These exist in `system_tools.py` and `mcp_server.py`:
 | `voxyflow.project.create` | REST API `/api/projects` | mcp_server.py |
 | `voxyflow.project.list` | REST API `/api/projects` | mcp_server.py |
 | `voxyflow.project.get` | REST API `/api/projects/{id}` | mcp_server.py |
-| `voxyflow.note.add` | REST API `/api/cards/unassigned` | mcp_server.py |
-| `voxyflow.note.list` | REST API `/api/cards/unassigned` | mcp_server.py |
+| `voxyflow.card.create_unassigned` | REST API `/api/cards/unassigned` | mcp_server.py |
+| `voxyflow.card.list_unassigned` | REST API `/api/cards/unassigned` | mcp_server.py |
 | `system.exec` | Direct async | system_tools.py |
 | `web.search` | Brave API | system_tools.py |
 | `web.fetch` | httpx + HTML extract | system_tools.py |

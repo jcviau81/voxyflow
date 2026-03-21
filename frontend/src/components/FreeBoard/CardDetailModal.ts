@@ -105,7 +105,7 @@ export class CardDetailModal {
 
     if (messages.length === 0) {
       const hint = createElement('div', { className: 'note-mini-chat-empty' },
-        'Ask Voxy anything about this note…');
+        'Ask Voxy anything about this card…');
       this.chatMessagesEl.appendChild(hint);
       return;
     }
@@ -193,7 +193,7 @@ export class CardDetailModal {
 
     const deleteBtn = createElement('button', {
       className: 'note-detail-btn note-detail-btn--delete',
-      title: 'Delete note',
+      title: 'Delete card',
       type: 'button',
     }, '🗑️') as HTMLButtonElement;
     deleteBtn.addEventListener('click', async () => {
@@ -224,7 +224,7 @@ export class CardDetailModal {
     // ── Left/Top: Card content ───────────────────────────────────
     const contentSection = createElement('div', { className: 'note-detail-content' });
 
-    const contentLabel = createElement('div', { className: 'note-detail-section-label' }, '📝 Note');
+    const contentLabel = createElement('div', { className: 'note-detail-section-label' }, '📝 Card');
 
     const contentTextarea = createElement('textarea', {
       className: 'note-detail-content-textarea',
@@ -276,7 +276,7 @@ export class CardDetailModal {
     const chatInput = createElement('input', {
       type: 'text',
       className: 'note-mini-chat-input-field',
-      placeholder: 'Ask Voxy about this note…',
+      placeholder: 'Ask Voxy about this card…',
     }) as HTMLInputElement;
 
     const sendBtn = createElement('button', {

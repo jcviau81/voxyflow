@@ -63,12 +63,12 @@ export class ApiClient {
     if (!result?.success) return; // Skip failed tools
 
     switch (tool) {
-      case 'voxyflow.note.add': {
-        // New unified model: result is a Card, refresh the main board
-        const title = (result.title as string) || (args.content as string) || 'Note';
+      case 'voxyflow.card.create_unassigned': {
+        // Unified model: result is a Card, refresh the main board
+        const title = (result.title as string) || (args.content as string) || 'Card';
         eventBus.emit(EVENTS.MAIN_BOARD_UPDATED, null);
         eventBus.emit(EVENTS.TOAST_SHOW, {
-          message: `📝 Note added: ${title.substring(0, 30)}...`,
+          message: `📝 Card added: ${title.substring(0, 30)}...`,
           type: 'success',
         });
         break;

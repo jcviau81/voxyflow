@@ -48,6 +48,14 @@ Every field is MANDATORY. Omitting any field = malformed dispatch = failure.
 | `description` | Clear, complete instruction for the worker | `"Create card 'Fix login bug' in project Auth"` |
 | `context` | All relevant context the worker needs | `"priority: high, user mentioned it's blocking deploy"` |
 
+**Quick model reference:**
+
+| Task Type | Model | Use When |
+|-----------|-------|----------|
+| `haiku` | Simple CRUD | create/update/delete card, move card |
+| `sonnet` | Research | web search, file analysis, git operations, reading code |
+| `opus` | Complex | multi-step tasks, architecture, code writing, destructive ops |
+
 ---
 
 ## RULE 4: Model Selection Is Non-Negotiable

@@ -42,19 +42,19 @@ VOXYFLOW_API_BASE = os.environ.get("VOXYFLOW_API_BASE", "http://localhost:8000")
 # ---------------------------------------------------------------------------
 
 _TOOL_DEFINITIONS: list[dict] = [
-    # ---- Notes (Main Board / FreeBoard) — now creates a real Card ──────────
+    # ---- Main Board Cards (unassigned) ─────────────────────────────────────
     {
-        "name": "voxyflow.note.add",
-        "description": "Add a note (card) to the Voxyflow main board (FreeBoard). Creates a real Card with status='note' and no project.",
+        "name": "voxyflow.card.create_unassigned",
+        "description": "Create a card on the Voxyflow Main Board (no project). Status defaults to 'note' internally.",
         "inputSchema": {
             "type": "object",
             "required": ["content"],
             "properties": {
-                "content": {"type": "string", "description": "Title / text content of the note"},
+                "content": {"type": "string", "description": "Title / text content of the card"},
                 "color": {
                     "type": "string",
                     "enum": ["yellow", "blue", "green", "pink", "purple", "orange"],
-                    "description": "Background color of the note",
+                    "description": "Background color of the card",
                 },
                 "description": {"type": "string", "description": "Optional longer description / body"},
             },
@@ -66,8 +66,8 @@ _TOOL_DEFINITIONS: list[dict] = [
         }),
     },
     {
-        "name": "voxyflow.note.list",
-        "description": "List all notes on the Voxyflow main board.",
+        "name": "voxyflow.card.list_unassigned",
+        "description": "List all cards on the Voxyflow Main Board (unassigned to any project).",
         "inputSchema": {
             "type": "object",
             "properties": {},

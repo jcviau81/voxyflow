@@ -35,12 +35,12 @@ async def test_jobs_list():
 
 
 @pytest.mark.asyncio
-async def test_note_add():
+async def test_card_create_unassigned():
     async with httpx.AsyncClient() as c:
-        r = await c.post(f"{BASE}/api/notes", json={"content": "Test note E2E", "color": "blue"})
+        r = await c.post(f"{BASE}/api/notes", json={"content": "Test card E2E", "color": "blue"})
         assert r.status_code == 200, f"Got {r.status_code}: {r.text}"
         data = r.json()
-        assert data.get("success") == True or "id" in data or "note" in data
+        assert data.get("success") == True or "id" in data or "card" in data
 
 
 @pytest.mark.asyncio

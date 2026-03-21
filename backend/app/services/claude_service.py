@@ -68,7 +68,7 @@ def get_claude_tools(
         # Context-based filtering (secondary gate)
         if chat_level == "general":
             context_allowed = {
-                "voxyflow.note.add", "voxyflow.note.list",
+                "voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned",
                 "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
                 "voxyflow.health",
             } | {
@@ -82,7 +82,7 @@ def get_claude_tools(
             }
         elif chat_level == "project":
             context_allowed = {t["name"] for t in all_tools} - {
-                "voxyflow.note.add", "voxyflow.note.list",
+                "voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned",
             }
         else:
             context_allowed = {t["name"] for t in all_tools}
@@ -671,7 +671,7 @@ class ClaudeService:
         """Execute a delegated action from the Fast layer using tools.
 
         Unlike chat_deep_supervisor (which evaluates), this method is designed
-        to carry out concrete actions (create cards, add notes, etc.) via MCP tools.
+        to carry out concrete actions (create cards, update cards, etc.) via MCP tools.
         Returns a plain-text summary of what was done.
         """
         memory_context = self.memory.build_memory_context(

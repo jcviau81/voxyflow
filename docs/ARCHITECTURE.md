@@ -418,7 +418,7 @@ User Message
 
 | Task Type | Worker Model | Use Case |
 |-----------|-------------|----------|
-| Simple CRUD | Haiku | create/update/delete card, add note, move card |
+| Simple CRUD | Haiku | create/update/delete card, move card |
 | Research | Sonnet | web search, file analysis, git operations |
 | Complex | Opus | multi-step tasks, architecture, code writing |
 
