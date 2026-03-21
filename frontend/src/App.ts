@@ -28,6 +28,7 @@ import { ProjectStats } from './components/Projects/ProjectStats';
 import { ProjectRoadmap } from './components/Projects/ProjectRoadmap';
 import { ProjectKnowledge } from './components/Projects/ProjectKnowledge';
 import { SprintPlanner } from './components/Projects/SprintPlanner';
+import { ProjectDocuments } from './components/Projects/ProjectDocuments';
 
 export class App {
   private root: HTMLElement;
@@ -82,12 +83,13 @@ export class App {
 
     // Tab bar goes inside main area (above top bar, not full width)
     mainArea.appendChild(tabBarContainer);
-    mainArea.appendChild(topBarContainer);
 
-    // Project header (shared tabs for project views — auto-shows/hides)
+    // Shared project header (project name + view tabs) — visible only in project mode
     const projectHeaderContainer = createElement('div', { className: 'project-header-container' });
     this.projectHeader = new ProjectHeader(projectHeaderContainer);
     mainArea.appendChild(projectHeaderContainer);
+
+    mainArea.appendChild(topBarContainer);
 
     mainArea.appendChild(this.mainContent);
 
@@ -686,6 +688,9 @@ export class App {
       case 'sprint':
         component = new SprintPlanner(this.mainContent);
         break;
+      case 'docs':
+        component = new ProjectDocuments(this.mainContent);
+        break;
     }
 
     this.currentView = { component, view };
@@ -759,6 +764,7 @@ export class App {
     this.sidebar?.destroy();
     this.topBar?.destroy();
     this.tabBar?.destroy();
+    this.projectHeader?.destroy();
     this.toast?.destroy();
     this.keyboardShortcutsModal?.destroy();
     this.commandPalette?.destroy();

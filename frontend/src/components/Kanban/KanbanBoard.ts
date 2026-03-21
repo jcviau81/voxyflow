@@ -70,7 +70,7 @@ export class KanbanBoard {
     this.tagFilter = null;
     this.sortMode = 'default';
 
-    // Header row (title + search + add button)
+    // Header row (action buttons — project name + view tabs are in shared ProjectHeader)
     const header = createElement('div', { className: 'kanban-header' });
     const projectId = appState.get('currentProjectId');
     const project = projectId ? appState.getProject(projectId) : null;

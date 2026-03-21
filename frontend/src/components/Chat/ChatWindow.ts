@@ -255,7 +255,7 @@ export class ChatWindow {
         : card.title;
       titleSection.appendChild(title);
     } else if (chatLevel === 'project') {
-      // Project name is already shown in ProjectHeader — don't duplicate here
+      // Project name + tabs are in shared ProjectHeader — don't duplicate here
     } else {
       // General chat: show a small indicator
       const title = createElement('span', { className: 'header-title' });
@@ -265,7 +265,7 @@ export class ChatWindow {
 
     headerRow.appendChild(titleSection);
 
-    // CENTER: Session tabs (general) + view toggle (general = chat/freeboard, project = chat/kanban)
+    // CENTER: Session tabs (general only) — project view toggle is now in shared ProjectHeader
     if (chatLevel === 'general') {
       const sessionTabs = this.renderSessionTabs();
       headerRow.appendChild(sessionTabs);
