@@ -1,25 +1,26 @@
 #!/bin/bash
 # Voxyflow full restart — backend + frontend + proxy
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "🔄 Restarting Voxyflow..."
 
-# Kill existing processes
-kill $(lsof -ti:8000) 2>/dev/null
-kill $(lsof -ti:3000) 2>/dev/null
-kill $(lsof -ti:3457) 2>/dev/null
+# Kill existing processes (guard against empty PID)
+PID=$(lsof -ti:8000) && [ -n "$PID" ] && kill "$PID"
+PID=$(lsof -ti:3000) && [ -n "$PID" ] && kill "$PID"
+PID=$(lsof -ti:3457) && [ -n "$PID" ] && kill "$PID"
 sleep 2
 
 # Proxy
-cd ~/voxyflow
+cd "$SCRIPT_DIR"
 nohup node ~/voxyflow-proxy-fork/dist/server/warm-standalone.js 3457 > /tmp/claude-max-api-voxyflow.log 2>&1 &
 echo "  Proxy starting (port 3457)..."
 
 # Backend
-cd ~/voxyflow/backend
+cd "$SCRIPT_DIR/backend"
 nohup venv/bin/uvicorn app.main:app --port 8000 --host 0.0.0.0 >> /tmp/voxyflow-backend.log 2>&1 &
 echo "  Backend starting (port 8000)..."
 
 # Frontend
-cd ~/voxyflow/frontend
+cd "$SCRIPT_DIR/frontend"
 nohup npx webpack serve --mode development --port 3000 >> /tmp/voxyflow-frontend.log 2>&1 &
 echo "  Frontend starting (port 3000)..."
 

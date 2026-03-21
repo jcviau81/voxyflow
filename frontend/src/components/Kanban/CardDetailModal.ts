@@ -73,7 +73,7 @@ export class CardDetailModal {
     // Load agents from API (for richer descriptions)
     cardService.getAgents().then((agents) => {
       if (agents.length > 0) this.agents = agents;
-    }).catch(() => {/* fallback already set */});
+    }).catch((err) => { console.warn('[CardDetailModal] Failed to load agents:', err); });
   }
 
   private setupListeners(): void {
@@ -1103,7 +1103,7 @@ export class CardDetailModal {
     const STATUS_COLORS: Record<string, string> = {
       idea: '#94a3b8',
       todo: '#60a5fa',
-      in_progress: '#f59e0b',
+      'in-progress': '#f59e0b',
       done: '#34d399',
       archived: '#6b7280',
     };

@@ -5597,7 +5597,7 @@
 }
 
 .relation-status-dot--done { background: #22c55e; }
-.relation-status-dot--in_progress { background: #3b82f6; }
+.relation-status-dot--in-progress { background: #3b82f6; }
 .relation-status-dot--todo { background: #f59e0b; }
 .relation-status-dot--idea { background: #9ca3af; }
 .relation-status-dot--archived { background: #6b7280; }

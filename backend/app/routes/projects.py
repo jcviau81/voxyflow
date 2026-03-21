@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 logger = logging.getLogger(__name__)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -250,7 +250,6 @@ async def create_project_from_template(
 @router.post("", response_model=ProjectResponse, status_code=201)
 async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)):
     # Prevent duplicate project names (case-insensitive, active projects only)
-    from sqlalchemy import func
     existing = await db.execute(
         select(Project).where(
             func.lower(Project.title) == body.title.strip().lower(),
@@ -258,7 +257,7 @@ async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)
         )
     )
     if existing.scalar_one_or_none():
-        from fastapi import HTTPException
+        logger.warning("Duplicate project name rejected: %s", body.title.strip())
         raise HTTPException(
             status_code=409,
             detail=f"A project named '{body.title.strip()}' already exists."
@@ -1253,7 +1252,6 @@ async def list_sprints(project_id: str, db: AsyncSession = Depends(get_db)):
     sprints = result.scalars().all()
 
     # Count cards per sprint
-    from sqlalchemy import func
     count_stmt = (
         select(Card.sprint_id, func.count(Card.id).label("cnt"))
         .where(Card.project_id == project_id)
@@ -1332,7 +1330,6 @@ async def update_sprint(
     await db.refresh(sprint)
 
     # Get card count
-    from sqlalchemy import func
     count_result = await db.execute(
         select(func.count(Card.id)).where(Card.sprint_id == sprint_id)
     )
@@ -1386,7 +1383,6 @@ async def start_sprint(
     await db.commit()
     await db.refresh(sprint)
 
-    from sqlalchemy import func
     count_result = await db.execute(
         select(func.count(Card.id)).where(Card.sprint_id == sprint_id)
     )
@@ -1601,7 +1597,6 @@ async def complete_sprint(
     await db.commit()
     await db.refresh(sprint)
 
-    from sqlalchemy import func
     count_result = await db.execute(
         select(func.count(Card.id)).where(Card.sprint_id == sprint_id)
     )

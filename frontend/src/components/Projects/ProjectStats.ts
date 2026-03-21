@@ -515,8 +515,8 @@ export class ProjectStats {
         this.standupScheduled = !!(data && data.enabled);
         this._refreshStandupSection();
       }
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      console.warn('[ProjectStats] Failed to load standup schedule:', err);
     }
   }
 

@@ -4,9 +4,7 @@ import { EVENTS } from '../utils/constants';
 
 /**
  * STT engine type.
- * - 'webspeech': Browser Web Speech API (works on mobile + desktop Chrome/Edge)
- * - 'whisper': Server-side Whisper (future)
- * - 'whisper_local': Local Whisper WASM (in-browser)
+ * Only 'webspeech' is currently implemented. Whisper variants are reserved for future use.
  */
 type SttEngine = 'webspeech' | 'whisper' | 'whisper_local';
 
@@ -18,7 +16,7 @@ export const STT_EVENTS = {
   MODEL_PROGRESS: 'stt:model_progress',
 } as const;
 
-/** Available Whisper model presets for local WASM inference */
+/** Available Whisper model presets (reserved for future local WASM inference) */
 export const WHISPER_MODEL_PRESETS = [
   { id: 'Xenova/whisper-tiny', label: 'Whisper Tiny (~40MB, fastest)' },
   { id: 'Xenova/whisper-base', label: 'Whisper Base (~75MB, fast)' },
@@ -180,18 +178,17 @@ export class SttService {
     return this._lang;
   }
 
-  /** Get the current whisper model ID (null if none set) */
   get whisperModel(): string | null {
     return this._whisperModel;
   }
 
-  /** Whether the local whisper model is loaded and ready */
   get modelReady(): boolean {
     return this._modelReady;
   }
 
   /**
    * Switch STT engine. Stops any active recording first.
+   * Note: only 'webspeech' is functional. Whisper engines are no-ops until implemented.
    */
   setEngine(newEngine: SttEngine): void {
     if (this.isRecording) {
@@ -203,54 +200,31 @@ export class SttService {
     if (newEngine === 'webspeech') {
       this.initWebSpeech();
     }
-    // whisper / whisper_local engines will be initialized when setWhisperModel is called
   }
 
   /**
-   * Set and (in future) load a local Whisper WASM model by ID or from a local File.
-   * Emits MODEL_STATUS events so the UI can track loading state.
-   *
-   * @param modelIdOrFile - HuggingFace model ID string, or a File object from a file picker
+   * Set a Whisper model by ID or File. Currently a no-op placeholder —
+   * emits MODEL_STATUS 'ready' so the Settings UI flow completes.
    */
   setWhisperModel(modelIdOrFile: string | File): void {
     this._modelReady = false;
 
     if (modelIdOrFile instanceof File) {
-      const file = modelIdOrFile;
-      this._whisperModel = `local:${file.name}`;
-      this._whisperModelFile = file;
-
-      eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message: `Loading local file ${file.name}…` });
-
-      // Read the file into an ArrayBuffer for future WebWorker use
-      const reader = new FileReader();
-      reader.onload = () => {
-        // TODO: Pass reader.result (ArrayBuffer) to the Whisper WebWorker
-        // const arrayBuffer = reader.result as ArrayBuffer;
-        this._modelReady = true;
-        eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'ready', message: `Local model ${file.name} loaded` });
-      };
-      reader.onerror = () => {
-        eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'error', message: `Failed to read ${file.name}` });
-      };
-      reader.readAsArrayBuffer(file);
+      this._whisperModel = `local:${modelIdOrFile.name}`;
+      this._whisperModelFile = modelIdOrFile;
     } else {
-      const modelId = modelIdOrFile;
-      this._whisperModel = modelId;
+      this._whisperModel = modelIdOrFile;
       this._whisperModelFile = null;
-
-      eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message: `Loading model ${modelId}…` });
-
-      // TODO: Actual Whisper WASM loading logic goes here.
-      // For now, emit a placeholder "ready" after a tick so the UI flow works.
-      setTimeout(() => {
-        this._modelReady = true;
-        eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'ready' });
-      }, 100);
     }
+
+    eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message: `Loading model ${this._whisperModel}…` });
+    // No-op: emit ready so Settings UI doesn't hang
+    setTimeout(() => {
+      this._modelReady = true;
+      eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'ready' });
+    }, 100);
   }
 
-  /** Get the current whisper model File object (null if using HuggingFace ID) */
   get whisperModelFile(): File | null {
     return this._whisperModelFile;
   }

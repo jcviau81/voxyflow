@@ -66,8 +66,8 @@ export class ProjectForm {
       if (this.templateSectionEl) {
         this.renderTemplateCards(this.templateSectionEl);
       }
-    } catch {
-      // Silent fail — templates are a nice-to-have
+    } catch (err) {
+      console.warn('[ProjectForm] Failed to load templates:', err);
     }
   }
 
