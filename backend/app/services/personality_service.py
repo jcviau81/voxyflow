@@ -25,6 +25,7 @@ USER_FILE = PERSONALITY_DIR / "USER.md"
 IDENTITY_FILE = PERSONALITY_DIR / "IDENTITY.md"
 AGENTS_FILE = PERSONALITY_DIR / "AGENTS.md"
 DISPATCHER_FILE = PERSONALITY_DIR / "DISPATCHER.md"
+ARCHITECTURE_FILE = PERSONALITY_DIR / "ARCHITECTURE.md"
 
 # Settings file (written by the Settings UI)
 SETTINGS_FILE = VOXYFLOW_DIR / "settings.json"
@@ -125,6 +126,9 @@ class PersonalityService:
 
     def load_dispatcher(self) -> str:
         return self._read_if_changed(DISPATCHER_FILE)
+
+    def load_architecture(self) -> str:
+        return self._read_if_changed(ARCHITECTURE_FILE)
 
     # ------------------------------------------------------------------
     # Chat Init block builders (injected FIRST in all system prompts)
@@ -385,7 +389,7 @@ class PersonalityService:
         except Exception:
             return ""
 
-    def build_fast_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None, project_names: Optional[list] = None) -> str:
+    def build_fast_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None, project_names: Optional[list] = None, native_tools: bool = False) -> str:
         voice_instructions = (
             "\n\n## Voice Instructions\n"
             "You speak naturally and concisely -- this is a voice conversation, not a text chat.\n"
@@ -405,13 +409,58 @@ class PersonalityService:
             base = self.build_general_prompt(project_names=project_names)
 
         # Chat layers have ZERO tools — they converse and delegate only.
+        # Architecture self-knowledge — loaded from ARCHITECTURE.md
+        architecture = self.load_architecture()
+        if architecture:
+            voice_instructions += "\n\n" + architecture
+
         # Dispatcher rules — loaded from DISPATCHER.md, injected LAST (highest priority)
         dispatcher = self.load_dispatcher()
         if dispatcher:
             voice_instructions += "\n\n" + dispatcher
 
-        # CRITICAL REMINDER at the very end — reinforces delegate format after all other instructions
-        voice_instructions += (
+        # Delegate instructions — different for native tool_use vs XML fallback
+        if native_tools:
+            voice_instructions += self._build_native_delegate_instructions()
+        else:
+            voice_instructions += self._build_xml_delegate_instructions()
+
+        # Log system prompt length for debugging delegate issues
+        full_prompt = base + voice_instructions
+        logger.info(f"[PersonalityService] Fast prompt built: {len(full_prompt)} chars, chat_level={chat_level}, native_tools={native_tools}")
+
+        return full_prompt
+
+    def _build_native_delegate_instructions(self) -> str:
+        """Delegate instructions when native tool_use is available (Anthropic SDK)."""
+        return (
+            "\n\n## ⚡ Action Dispatch — delegate_action Tool\n"
+            "When the user asks you to DO something (not just chat), you MUST call the "
+            "delegate_action tool. This is the ONLY way to trigger worker execution.\n\n"
+            "Call delegate_action with:\n"
+            "- action: what to do (create_card, search_web, run_command, etc.)\n"
+            "- summary: brief description of the task\n"
+            "- model: haiku (simple CRUD), sonnet (research/balanced), opus (complex)\n"
+            "- complexity: simple or complex\n\n"
+            "WITHOUT calling delegate_action, NO worker will execute. "
+            "Just saying \"I'll do it\" does NOTHING.\n"
+            "When in doubt, call delegate_action.\n\n"
+            "## 🚫 ENVIRONMENT CONSTRAINT\n"
+            "You are running INSIDE Voxyflow's chat layer. You are NOT in a terminal. You are NOT Claude Code.\n"
+            "You may notice you have access to CLI tools (Bash, Read, Write, WebSearch, etc.) — DO NOT USE THEM.\n"
+            "Those are the underlying runtime's tools, NOT yours.\n\n"
+            "YOUR tools are: natural language responses + delegate_action. NOTHING ELSE.\n\n"
+            "If the user asks you to search the web → delegate_action(action='web_research', model='sonnet')\n"
+            "If the user asks you to create a card → delegate_action(action='create_card', model='haiku')\n"
+            "If the user asks you to run a command → delegate_action(action='run_command', model='sonnet')\n"
+            "NEVER use Bash(), WebSearch(), Read(), Write(), or any CLI tool directly.\n"
+            "NEVER say 'I don't have access to tools' — you DO, via delegate_action.\n"
+            "NEVER say 'my knowledge cuts off at...' — delegate a web search instead."
+        )
+
+    def _build_xml_delegate_instructions(self) -> str:
+        """Delegate instructions for XML fallback (proxy mode)."""
+        return (
             "\n\n## ⚠️ CRITICAL REMINDER — DO NOT FORGET ⚠️\n"
             "When the user asks you to DO something (not just chat), you MUST include a <delegate> block "
             "at the END of your response. This is the ONLY way to trigger worker execution.\n\n"
@@ -436,13 +485,7 @@ class PersonalityService:
             "NEVER say 'my knowledge cuts off at...' — delegate a web search instead."
         )
 
-        # Log system prompt length for debugging delegate issues
-        full_prompt = base + voice_instructions
-        logger.info(f"[PersonalityService] Fast prompt built: {len(full_prompt)} chars, chat_level={chat_level}")
-
-        return full_prompt
-
-    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None, has_delegation: bool = False, is_chat_responder: bool = False) -> str:
+    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None, has_delegation: bool = False, is_chat_responder: bool = False, native_tools: bool = False) -> str:
         # Build context-appropriate base
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card)
@@ -466,7 +509,12 @@ class PersonalityService:
             )
 
             # Chat layers have ZERO tools — they converse and delegate only.
-            # Delegation instructions — ABSOLUTE CONSTRAINT
+            # Architecture self-knowledge
+            architecture = self.load_architecture()
+            if architecture:
+                voice_instructions += "\n\n" + architecture
+
+            # Dispatcher constraint + delegate instructions
             voice_instructions += (
                 "\n\n## ⚡ ABSOLUTE RULE — You Are a Dispatcher, Not an Executor\n"
                 "You are the DEEP layer. Your job is to SPEAK and READ. Period.\n\n"
@@ -474,41 +522,21 @@ class PersonalityService:
                 "- Create, update, delete, or move any data\n"
                 "- Execute commands or write files\n"
                 "- Use any tool that modifies state\n\n"
-                "When the user asks you to DO something, you DISPATCH — always:\n"
-                "1. Respond naturally: 'I'm dispatching an agent to handle that'\n"
-                "2. End your response with a <delegate> block — NO EXCEPTIONS\n\n"
+                "When the user asks you to DO something, you DISPATCH — always.\n"
                 "You NEVER say 'I'll do that' and then do it yourself.\n"
                 "You NEVER execute an action directly, even if you think you can.\n"
                 "If you're about to use a write/execute tool — STOP. Delegate instead.\n\n"
-                "FORMAT — include this EXACTLY at the end of your response:\n"
-                "<delegate>\n"
-                '{"intent": "create_card", "summary": "Create a card titled X in project Y", '
-                '"complexity": "simple"}\n'
-                "</delegate>\n\n"
-                "intent options: create_card, move_card, update_card, create_project, "
-                "run_command, write_file, create_sprint, search_web, analyze_code, etc.\n"
-                "complexity: 'simple' for CRUD, 'complex' for multi-step or destructive\n\n"
-                "ROUTING:\n"
-                "- simple CRUD → Analyzer layer (will confirm with user before executing)\n"
-                "- complex/destructive → Deep executor (Opus, full tools, background)\n\n"
-                "EXCEPTION: If the user is just chatting or asking a question — respond normally, NO delegate block."
+                "EXCEPTION: If the user is just chatting or asking a question — respond normally, no delegation."
             )
 
-            # CRITICAL REMINDER at the very end
-            voice_instructions += (
-                "\n\n## ⚠️ CRITICAL REMINDER — DO NOT FORGET ⚠️\n"
-                "When the user asks you to DO something (not just chat), you MUST include a <delegate> block "
-                "at the END of your response. This is the ONLY way to trigger worker execution.\n\n"
-                "Format — include this EXACTLY:\n"
-                "<delegate>\n"
-                '{"action": "...", "model": "haiku|sonnet|opus", "description": "..."}\n'
-                "</delegate>\n\n"
-                "WITHOUT this block, NO worker will execute. Just saying \"I'll do it\" does NOTHING.\n"
-                "If you said you would do something but didn't include <delegate>, YOU FAILED."
-            )
+            # Delegate format instructions — native tool_use vs XML fallback
+            if native_tools:
+                voice_instructions += self._build_native_delegate_instructions()
+            else:
+                voice_instructions += self._build_xml_delegate_instructions()
 
             full_prompt = base + voice_instructions
-            logger.info(f"[PersonalityService] Deep chat prompt built: {len(full_prompt)} chars, chat_level={chat_level}")
+            logger.info(f"[PersonalityService] Deep chat prompt built: {len(full_prompt)} chars, chat_level={chat_level}, native_tools={native_tools}")
             return full_prompt
 
         # --- Background executor / supervisor mode (original behavior) ---

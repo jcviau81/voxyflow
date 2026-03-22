@@ -42,6 +42,66 @@ def _resolve_model(name: str, native: bool = True) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Delegate tool — native tool_use for dispatching actions to workers
+# ---------------------------------------------------------------------------
+
+DELEGATE_ACTION_TOOL = {
+    "name": "delegate_action",
+    "description": (
+        "Dispatch an action to a background worker for execution. "
+        "Use this whenever the user asks you to DO something (create cards, search the web, "
+        "run commands, write files, etc.). You CANNOT execute actions yourself — you MUST "
+        "delegate them. The worker will execute the action and report results back to the user."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": (
+                    "The action to perform. Examples: create_card, move_card, update_card, "
+                    "create_project, search_web, run_command, write_file, analyze_code, "
+                    "create_sprint, web_research"
+                ),
+            },
+            "summary": {
+                "type": "string",
+                "description": "Brief human-readable description of what the worker should do",
+            },
+            "model": {
+                "type": "string",
+                "enum": ["haiku", "sonnet", "opus"],
+                "description": (
+                    "Which worker model to use. haiku=simple CRUD, "
+                    "sonnet=research/web/balanced, opus=complex multi-step"
+                ),
+                "default": "sonnet",
+            },
+            "complexity": {
+                "type": "string",
+                "enum": ["simple", "complex"],
+                "description": "simple=single-step CRUD, complex=multi-step or destructive",
+                "default": "simple",
+            },
+            "project_name": {
+                "type": "string",
+                "description": "Target project name (if applicable)",
+            },
+            "card_title": {
+                "type": "string",
+                "description": "Target card title (if applicable)",
+            },
+            "description": {
+                "type": "string",
+                "description": "Detailed description or content for the action",
+            },
+        },
+        "required": ["action", "summary"],
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # MCP Tool bridge — converts Voxyflow MCP tools to Claude native tool_use
 # ---------------------------------------------------------------------------
 
@@ -276,6 +336,9 @@ class ClaudeService:
         self._histories: dict[str, list[dict]] = {}
         # Per-chat_id async locks to prevent concurrent history mutations
         self._history_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        # Native delegate tool_use blocks collected during streaming (keyed by chat_id)
+        # Populated by chat_fast_stream / chat_deep_stream, consumed by orchestrator
+        self._pending_delegates: dict[str, list[dict]] = {}
 
         logger.info(
             f"ClaudeService initialized — native={self.use_native} | "
@@ -351,6 +414,15 @@ class ClaudeService:
         session_store.save_message(chat_id, msg)
 
     # ------------------------------------------------------------------
+    # Native delegate helpers
+    # ------------------------------------------------------------------
+
+    def pop_pending_delegates(self, chat_id: str) -> list[dict]:
+        """Return and clear any native delegate_action tool_use blocks
+        collected during the last streaming call for this chat_id."""
+        return self._pending_delegates.pop(chat_id, [])
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -417,8 +489,11 @@ class ClaudeService:
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer.
 
-        Zero tools — chat layers converse and delegate only.
+        Native Anthropic path: uses delegate_action tool_use for dispatching.
+        Proxy path: zero tools, relies on <delegate> XML blocks in text.
         """
+        use_native_delegate = self.fast_client_type == "anthropic"
+
         await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
         history = self._get_history(chat_id)
 
@@ -437,6 +512,7 @@ class ClaudeService:
             project=project_context,
             card=card_context,
             project_names=project_names,
+            native_tools=use_native_delegate,
         )
 
         if project_id:
@@ -448,41 +524,66 @@ class ClaudeService:
                 logger.warning(f"RAG context injection failed (chat_fast_stream): {e}")
 
         # Inject identity priming exchange at the start of conversations.
-        # Claude Code CLI has a built-in identity that overrides system prompts.
-        # This fake user/assistant exchange anchors the model as Voxy BEFORE
-        # real messages arrive, preventing it from falling back to "I'm Claude Code".
-        # Skip priming for auto-greetings (the first system-generated message).
         primed_messages = list(recent)
         is_auto_greeting = "greet" in user_message.lower() and "naturally" in user_message.lower()
         if len(history) <= 4 and not is_auto_greeting:
-            priming = [
-                {"role": "user", "content": (
-                    "[SYSTEM INIT] Confirm your identity and operating mode. "
-                    "Who are you, where are you running, and how do you handle action requests?"
-                )},
-                {"role": "assistant", "content": (
+            if use_native_delegate:
+                priming_assistant = (
+                    "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
+                    "I converse with you directly and delegate all actions to background workers "
+                    "using the delegate_action tool. I never execute actions myself. When you ask "
+                    "me to do something like a web search or create a card, I respond briefly and "
+                    "call delegate_action to trigger the worker. The worker handles it in the "
+                    "background and the result appears in the chat."
+                )
+            else:
+                priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
                     "I converse with you directly and delegate all actions to background workers "
                     "via <delegate> blocks. I never execute tools myself. When you ask me to do "
                     "something like a web search or create a card, I respond briefly and include "
                     "a <delegate> block at the end of my message to trigger the worker. "
                     "The worker handles it in the background and the result appears in the chat."
+                )
+            priming = [
+                {"role": "user", "content": (
+                    "[SYSTEM INIT] Confirm your identity and operating mode. "
+                    "Who are you, where are you running, and how do you handle action requests?"
                 )},
+                {"role": "assistant", "content": priming_assistant},
             ]
             primed_messages = priming + primed_messages
 
-        full_response = ""
-        async for token in self._call_api_stream(
-            model=self.fast_model,
-            system=system_prompt,
-            messages=primed_messages,
-            client=self.fast_client,
-            client_type=self.fast_client_type,
-            use_tools=False,
-            chat_level=chat_level,
-        ):
-            full_response += token
-            yield token
+        # Clear any previous pending delegates for this chat
+        self._pending_delegates.pop(chat_id, None)
+
+        if use_native_delegate:
+            # Native Anthropic: stream with delegate_action tool
+            full_response = ""
+            async for token in self._call_api_stream_with_delegate(
+                model=self.fast_model,
+                system=system_prompt,
+                messages=primed_messages,
+                client=self.fast_client,
+                chat_id=chat_id,
+            ):
+                full_response += token
+                yield token
+            logger.info(f"[chat_fast_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
+        else:
+            # Proxy fallback: no tools, XML delegate blocks
+            full_response = ""
+            async for token in self._call_api_stream(
+                model=self.fast_model,
+                system=system_prompt,
+                messages=primed_messages,
+                client=self.fast_client,
+                client_type=self.fast_client_type,
+                use_tools=False,
+                chat_level=chat_level,
+            ):
+                full_response += token
+                yield token
 
         await self._append_and_persist_async(chat_id, "assistant", full_response, model="fast")
 
@@ -499,9 +600,11 @@ class ClaudeService:
     ) -> AsyncIterator[str]:
         """Deep layer (streaming): Yield tokens from the deep model directly to chat.
 
-        Zero tools — chat layers converse and delegate only.
-        The model responds conversationally and emits <delegate> blocks for actions.
+        Native Anthropic path: uses delegate_action tool_use for dispatching.
+        Proxy path: zero tools, relies on <delegate> XML blocks in text.
         """
+        use_native_delegate = self.deep_client_type == "anthropic"
+
         await self._append_and_persist_async(chat_id, "user", user_message, model="deep")
         history = self._get_history(chat_id)
 
@@ -521,6 +624,7 @@ class ClaudeService:
             card=card_context,
             project_names=project_names,
             is_chat_responder=True,
+            native_tools=use_native_delegate,
         )
 
         if project_id:
@@ -535,34 +639,59 @@ class ClaudeService:
         primed_messages = list(recent)
         is_auto_greeting = "greet" in user_message.lower() and "naturally" in user_message.lower()
         if len(history) <= 4 and not is_auto_greeting:
-            priming = [
-                {"role": "user", "content": (
-                    "[SYSTEM INIT] Confirm your identity and operating mode. "
-                    "Who are you, where are you running, and how do you handle action requests?"
-                )},
-                {"role": "assistant", "content": (
+            if use_native_delegate:
+                priming_assistant = (
+                    "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
+                    "I converse with you directly and delegate all actions to background workers "
+                    "using the delegate_action tool. I never execute actions myself. When you ask "
+                    "me to do something, I respond briefly and call delegate_action to trigger the worker."
+                )
+            else:
+                priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
                     "I converse with you directly and delegate all actions to background workers "
                     "via <delegate> blocks. I never execute tools myself. When you ask me to do "
                     "something like a web search or create a card, I respond briefly and include "
                     "a <delegate> block at the end of my message to trigger the worker. "
                     "The worker handles it in the background and the result appears in the chat."
+                )
+            priming = [
+                {"role": "user", "content": (
+                    "[SYSTEM INIT] Confirm your identity and operating mode. "
+                    "Who are you, where are you running, and how do you handle action requests?"
                 )},
+                {"role": "assistant", "content": priming_assistant},
             ]
             primed_messages = priming + primed_messages
 
-        full_response = ""
-        async for token in self._call_api_stream(
-            model=self.deep_model,
-            system=system_prompt,
-            messages=primed_messages,
-            client=self.deep_client,
-            client_type=self.deep_client_type,
-            use_tools=False,
-            chat_level=chat_level,
-        ):
-            full_response += token
-            yield token
+        # Clear any previous pending delegates for this chat
+        self._pending_delegates.pop(chat_id, None)
+
+        if use_native_delegate:
+            full_response = ""
+            async for token in self._call_api_stream_with_delegate(
+                model=self.deep_model,
+                system=system_prompt,
+                messages=primed_messages,
+                client=self.deep_client,
+                chat_id=chat_id,
+            ):
+                full_response += token
+                yield token
+            logger.info(f"[chat_deep_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
+        else:
+            full_response = ""
+            async for token in self._call_api_stream(
+                model=self.deep_model,
+                system=system_prompt,
+                messages=primed_messages,
+                client=self.deep_client,
+                client_type=self.deep_client_type,
+                use_tools=False,
+                chat_level=chat_level,
+            ):
+                full_response += token
+                yield token
 
         await self._append_and_persist_async(chat_id, "assistant", full_response, model="deep")
 
@@ -1067,6 +1196,126 @@ class ClaudeService:
 
         except Exception as e:
             logger.error(f"Anthropic native API call failed: {e}")
+            raise
+
+    async def _call_api_stream_with_delegate(
+        self,
+        model: str,
+        system: str,
+        messages: list[dict],
+        client,
+        chat_id: str,
+    ) -> AsyncIterator[str]:
+        """Anthropic streaming with ONLY the delegate_action tool.
+
+        Streams text tokens normally. When Claude emits a delegate_action tool_use,
+        it is NOT executed — instead it's collected into self._pending_delegates[chat_id]
+        for the orchestrator to process. Claude receives a synthetic "acknowledged" result
+        so it can finish its text response naturally.
+        """
+        clean_messages = [m for m in messages if m.get("role") != "system"]
+        if not clean_messages:
+            clean_messages = [{"role": "user", "content": "(empty)"}]
+
+        kwargs = {
+            "model": model,
+            "max_tokens": self.max_tokens,
+            "system": system,
+            "messages": clean_messages,
+            "tools": [DELEGATE_ACTION_TOOL],
+        }
+
+        try:
+            # Collect streamed content and tool_use blocks
+            streamed_text_parts: list[str] = []
+            tool_use_blocks: list = []
+
+            def _do_stream():
+                events = []
+                with client.messages.stream(**kwargs) as stream:
+                    for text in stream.text_stream:
+                        events.append(("text", text))
+                    final_msg = stream.get_final_message()
+                    for block in final_msg.content:
+                        if block.type == "tool_use":
+                            events.append(("tool_use", block))
+                    events.append(("stop_reason", final_msg.stop_reason))
+                return events
+
+            events = await asyncio.to_thread(_do_stream)
+
+            stop_reason = "end_turn"
+            for event_type, data in events:
+                if event_type == "text":
+                    streamed_text_parts.append(data)
+                    yield data
+                elif event_type == "tool_use":
+                    tool_use_blocks.append(data)
+                elif event_type == "stop_reason":
+                    stop_reason = data
+
+            if not tool_use_blocks:
+                # No delegates — done
+                return
+
+            # Collect delegate tool_use blocks (don't execute — orchestrator handles them)
+            delegates = []
+            for block in tool_use_blocks:
+                if block.name == "delegate_action":
+                    delegates.append(block.input or {})
+                    logger.info(
+                        f"[NativeDelegate] Collected delegate_action: "
+                        f"action={block.input.get('action')}, summary={block.input.get('summary', '')!r}"
+                    )
+                else:
+                    logger.warning(f"[NativeDelegate] Unexpected tool_use: {block.name} — ignoring")
+
+            if delegates:
+                self._pending_delegates[chat_id] = delegates
+
+            # If Claude stopped for tool_use, we need to send back a synthetic result
+            # so it can finish its response (it may want to say something after delegating).
+            if stop_reason == "tool_use":
+                # Build the continuation: acknowledge the delegate(s)
+                assistant_content = []
+                if streamed_text_parts:
+                    assistant_content.append({"type": "text", "text": "".join(streamed_text_parts)})
+                for block in tool_use_blocks:
+                    assistant_content.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    })
+
+                continuation_messages = list(clean_messages) + [
+                    {"role": "assistant", "content": assistant_content},
+                    {"role": "user", "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": json.dumps({"status": "delegated", "message": "Action dispatched to background worker."}),
+                        }
+                        for block in tool_use_blocks
+                    ]},
+                ]
+
+                # Get the final response (no tools this time — just let Claude finish talking)
+                final_kwargs = {
+                    "model": model,
+                    "max_tokens": self.max_tokens,
+                    "system": system,
+                    "messages": continuation_messages,
+                }
+                final_response = await asyncio.to_thread(
+                    lambda kw=final_kwargs: client.messages.create(**kw)
+                )
+                for block in final_response.content:
+                    if block.type == "text" and block.text:
+                        yield block.text
+
+        except Exception as e:
+            logger.error(f"Anthropic delegate streaming call failed: {e}")
             raise
 
     async def _call_api_stream_anthropic(
