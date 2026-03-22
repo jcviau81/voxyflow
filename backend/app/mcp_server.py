@@ -127,6 +127,24 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_http": ("DELETE", "/api/projects/{project_id}", None),
     },
     {
+        "name": "voxyflow.project.update",
+        "description": "Update an existing project (title, description, status, context, github_url, etc.).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["project_id"],
+            "properties": {
+                "project_id": {"type": "string", "description": "Project ID to update"},
+                "title": {"type": "string", "description": "New project title"},
+                "description": {"type": "string", "description": "New project description"},
+                "status": {"type": "string", "enum": ["active", "archived"], "description": "Project status"},
+                "context": {"type": "string", "description": "Additional context for the AI"},
+                "github_url": {"type": "string", "description": "GitHub repository URL"},
+                "local_path": {"type": "string", "description": "Local filesystem path"},
+            },
+        },
+        "_http": ("PATCH", "/api/projects/{project_id}", None),
+    },
+    {
         "name": "voxyflow.project.export",
         "description": "Export a project as a JSON snapshot (all cards, wiki, metadata).",
         "inputSchema": {
