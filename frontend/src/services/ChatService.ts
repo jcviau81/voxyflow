@@ -1,6 +1,6 @@
 import { Message } from '../types';
 import { eventBus } from '../utils/EventBus';
-import { EVENTS, STREAMING_CHAR_DELAY, AGENT_PERSONAS } from '../utils/constants';
+import { EVENTS, STREAMING_CHAR_DELAY, STREAMING_SAFETY_TIMEOUT, AGENT_PERSONAS } from '../utils/constants';
 import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
 import { generateId, sleep } from '../utils/helpers';
@@ -9,6 +9,8 @@ import { ttsService } from './TtsService';
 
 export class ChatService {
   private streamingMessages: Map<string, { content: string; messageId: string }> = new Map();
+  /** Safety timers that force-end streaming after STREAMING_SAFETY_TIMEOUT */
+  private streamingTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private unsubscribers: (() => void)[] = [];
   /** Active session ID for general chat, set by ChatWindow */
   activeSessionId: string | undefined;
@@ -242,6 +244,14 @@ export class ChatService {
         }
       })
     );
+
+    // FIX: When WebSocket disconnects, force-end all streaming messages.
+    // Without this, a disconnect during streaming leaves the blinking cursor forever.
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.WS_DISCONNECTED, () => {
+        this.forceEndAllStreaming();
+      })
+    );
   }
 
   sendMessage(content: string, projectId?: string, cardId?: string, sessionId?: string): Message {
@@ -329,6 +339,10 @@ export class ChatService {
       content: stream.content,
       chunk,
     });
+
+    // FIX: Reset safety timeout on each chunk — if no chunk arrives for
+    // STREAMING_SAFETY_TIMEOUT, force-end this stream to prevent stuck indicators.
+    this.resetStreamingTimer(streamId);
   }
 
   private handleStreamComplete(streamId: string, finalContent: string): void {
@@ -340,6 +354,7 @@ export class ChatService {
         streaming: false,
       });
       this.streamingMessages.delete(streamId);
+      this.clearStreamingTimer(streamId);
 
       eventBus.emit(EVENTS.MESSAGE_STREAM_END, {
         messageId: stream.messageId,
@@ -472,9 +487,46 @@ export class ChatService {
     return persona?.emoji || '🤖';
   }
 
+  /**
+   * FIX: Force-end all in-progress streaming messages.
+   * Called on WS disconnect to prevent stuck blinking cursors.
+   */
+  private forceEndAllStreaming(): void {
+    if (this.streamingMessages.size === 0) return;
+    console.log(`[ChatService] Force-ending ${this.streamingMessages.size} streaming message(s)`);
+
+    for (const [streamId, stream] of this.streamingMessages) {
+      appState.updateMessage(stream.messageId, { streaming: false });
+      eventBus.emit(EVENTS.MESSAGE_STREAM_END, {
+        messageId: stream.messageId,
+        content: stream.content,
+      });
+      this.clearStreamingTimer(streamId);
+    }
+    this.streamingMessages.clear();
+  }
+
+  /** Reset the safety timeout for a streaming message */
+  private resetStreamingTimer(streamId: string): void {
+    this.clearStreamingTimer(streamId);
+    this.streamingTimers.set(streamId, setTimeout(() => {
+      console.warn(`[ChatService] Streaming safety timeout for ${streamId}`);
+      this.handleStreamComplete(streamId, '');
+    }, STREAMING_SAFETY_TIMEOUT));
+  }
+
+  private clearStreamingTimer(streamId: string): void {
+    const timer = this.streamingTimers.get(streamId);
+    if (timer) {
+      clearTimeout(timer);
+      this.streamingTimers.delete(streamId);
+    }
+  }
+
   destroy(): void {
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
+    this.forceEndAllStreaming();
     this.streamingMessages.clear();
   }
 }

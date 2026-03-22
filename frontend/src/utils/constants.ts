@@ -24,6 +24,7 @@ export const MOBILE_BREAKPOINT = 768;
 export const TABLET_BREAKPOINT = 1024;
 export const TOAST_DURATION = 4000; // ms
 export const STREAMING_CHAR_DELAY = 15; // ms per character for streaming effect
+export const STREAMING_SAFETY_TIMEOUT = 30000; // 30s — force-end streaming if no completion arrives
 export const MAX_MESSAGE_LENGTH = 10000;
 
 // Kanban
