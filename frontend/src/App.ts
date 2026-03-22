@@ -11,7 +11,7 @@ import { TopBar } from './components/Navigation/TopBar';
 import { TabBar } from './components/Navigation/TabBar';
 import { ChatWindow } from './components/Chat/ChatWindow';
 import { KanbanBoard } from './components/Kanban/KanbanBoard';
-import { CardDetailModal } from './components/Kanban/CardDetailModal';
+import { CardDetailModal } from './components/shared/CardDetailModal';
 import { CardForm, CardFormShowEvent, CardFormData } from './components/Kanban/CardForm';
 import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';

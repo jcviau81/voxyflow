@@ -1,5 +1,23 @@
-import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType, CardHistoryEntry } from '../../types';
-import { CodeMirrorEditor } from './CodeMirrorEditor';
+/**
+ * Unified CardDetailModal — handles both Main Board cards (projectId=null)
+ * and project cards (projectId set). Single component, single template.
+ *
+ * Opens via:
+ *   a) Event-based: eventBus MODAL_OPEN with {type: 'card-detail', cardId}
+ *   b) Direct:      modal.open(card)  — receives a Card object (used by FreeBoard)
+ */
+
+import { Card, Message, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType, CardHistoryEntry } from '../../types';
+import { CodeMirrorEditor } from '../Kanban/CodeMirrorEditor';
+import { eventBus } from '../../utils/EventBus';
+import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO } from '../../utils/constants';
+import { createElement, formatTime } from '../../utils/helpers';
+import { appState } from '../../state/AppState';
+import { cardService } from '../../services/CardService';
+import { mainBoardService } from '../../services/MainBoardService';
+import { chatService } from '../../services/ChatService';
+import { apiClient } from '../../services/ApiClient';
+import { FocusMode } from '../FocusMode/FocusMode';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -20,13 +38,6 @@ function getTagColorModal(tag: string): [string, string] {
   }
   return TAG_COLORS_MODAL[hash % TAG_COLORS_MODAL.length];
 }
-import { eventBus } from '../../utils/EventBus';
-import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO } from '../../utils/constants';
-import { createElement, formatTime } from '../../utils/helpers';
-import { appState } from '../../state/AppState';
-import { cardService } from '../../services/CardService';
-import { apiClient } from '../../services/ApiClient';
-import { FocusMode } from '../FocusMode/FocusMode';
 
 // ── Assignee/Watcher helpers ─────────────────────────────────────────────────
 function getInitials(name: string): string {
@@ -51,10 +62,27 @@ function nameToColor(name: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
+// ── Color options (for mainboard cards) ──────────────────────────────────────
+type CardColor = 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange';
+
+const COLOR_OPTIONS: { value: CardColor | null; label: string }[] = [
+  { value: null,     label: 'None'   },
+  { value: 'yellow', label: 'Yellow' },
+  { value: 'blue',   label: 'Blue'   },
+  { value: 'green',  label: 'Green'  },
+  { value: 'pink',   label: 'Pink'   },
+  { value: 'purple', label: 'Purple' },
+  { value: 'orange', label: 'Orange' },
+];
+
+const MAX_CHAT_MESSAGES = 10;
+
 export class CardDetailModal {
   private overlay: HTMLElement;
   private modal: HTMLElement;
   private card: Card | null = null;
+  private sessionId = '';
+  private chatMessagesEl: HTMLElement | null = null;
   private unsubscribers: (() => void)[] = [];
   private codeMirrorEditor: CodeMirrorEditor | null = null;
   private themeObserver: MutationObserver | null = null;
@@ -66,6 +94,15 @@ export class CardDetailModal {
     strengths: [],
     keywords: [],
   }));
+
+  // Callbacks so FreeBoard can react to mutations
+  onDeleted?: (cardId: string) => void;
+  onUpdated?: (card: Card) => void;
+
+  /** True when card has no projectId (mainboard card) */
+  private get isMainBoard(): boolean {
+    return !this.card?.projectId;
+  }
 
   constructor(private parentElement: HTMLElement) {
     this.overlay = createElement('div', { className: 'modal-overlay hidden' });
@@ -84,11 +121,13 @@ export class CardDetailModal {
       if (e.target === this.overlay) this.close();
     });
 
+    // Event-based open (used by App.ts / Kanban)
     this.unsubscribers.push(
       eventBus.on(EVENTS.MODAL_OPEN, (data: unknown) => {
         const { type, cardId } = data as { type: string; cardId: string };
         if (type === 'card-detail') {
-          this.open(cardId);
+          const card = appState.getCard(cardId);
+          if (card) this.open(card);
         }
       })
     );
@@ -107,18 +146,28 @@ export class CardDetailModal {
       })
     );
 
+    // Chat events — refresh chat when messages arrive
+    const refreshIfRelevant = () => { if (this.card) this.refreshChat(); };
+    this.unsubscribers.push(eventBus.on(EVENTS.MESSAGE_RECEIVED, refreshIfRelevant));
+    this.unsubscribers.push(eventBus.on(EVENTS.MESSAGE_STREAM_END, refreshIfRelevant));
+    this.unsubscribers.push(eventBus.on(EVENTS.MESSAGE_STREAMING, refreshIfRelevant));
+
     // ESC to close
-    document.addEventListener('keydown', (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !this.overlay.classList.contains('hidden')) {
         this.close();
       }
-    });
+    };
+    document.addEventListener('keydown', onKey);
+    this.unsubscribers.push(() => document.removeEventListener('keydown', onKey));
   }
 
-  open(cardId: string): void {
-    this.card = appState.getCard(cardId) || null;
-    if (!this.card) return;
+  // ── Public API ────────────────────────────────────────────────────────────
 
+  /** Open modal with a Card object (used by both FreeBoard direct call and event-based) */
+  open(card: Card): void {
+    this.card = card;
+    this.sessionId = `card:${card.id}`;
     this.renderContent();
     this.overlay.classList.remove('hidden');
   }
@@ -126,8 +175,19 @@ export class CardDetailModal {
   close(): void {
     this.destroyCodeMirror();
     this.overlay.classList.add('hidden');
+    this.card = null;
+    this.chatMessagesEl = null;
     appState.selectCard(null);
   }
+
+  update(): void {
+    if (this.card) {
+      this.card = appState.getCard(this.card.id) || null;
+      if (this.card) this.renderContent();
+    }
+  }
+
+  // ── CodeMirror lifecycle ──────────────────────────────────────────────────
 
   private destroyCodeMirror(): void {
     if (this.codeMirrorEditor) {
@@ -140,6 +200,71 @@ export class CardDetailModal {
     }
   }
 
+  // ── Save/Delete helpers ───────────────────────────────────────────────────
+
+  private async saveCard(updates: Partial<Card>): Promise<void> {
+    if (!this.card) return;
+    if (this.isMainBoard) {
+      const updated = await mainBoardService.updateCard(this.card.id, updates);
+      if (updated) {
+        this.card = updated;
+        this.onUpdated?.(updated);
+      }
+    } else {
+      cardService.update(this.card.id, updates);
+    }
+  }
+
+  private async deleteCard(): Promise<void> {
+    if (!this.card) return;
+    if (!confirm(`Delete "${this.card.title}"?`)) return;
+    const id = this.card.id;
+    if (this.isMainBoard) {
+      await mainBoardService.deleteCard(id);
+      this.onDeleted?.(id);
+    } else {
+      cardService.delete(id);
+    }
+    this.close();
+  }
+
+  // ── Chat helpers ──────────────────────────────────────────────────────────
+
+  private refreshChat(): void {
+    if (!this.chatMessagesEl || !this.card) return;
+
+    const messages = appState
+      .getMessages(undefined, this.sessionId)
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .slice(-MAX_CHAT_MESSAGES);
+
+    this.chatMessagesEl.innerHTML = '';
+
+    if (messages.length === 0) {
+      const hint = createElement('div', { className: 'card-chat-empty' },
+        'Ask Voxy anything about this card\u2026');
+      this.chatMessagesEl.appendChild(hint);
+      return;
+    }
+
+    messages.forEach((msg: Message) => {
+      const bubble = createElement('div', {
+        className: `card-chat-bubble card-chat-bubble--${msg.role}`,
+      });
+      bubble.textContent = msg.streaming ? msg.content + '\u258b' : msg.content;
+      this.chatMessagesEl!.appendChild(bubble);
+    });
+
+    this.chatMessagesEl.scrollTop = this.chatMessagesEl.scrollHeight;
+  }
+
+  private sendChatMessage(content: string): void {
+    if (!content.trim() || !this.card) return;
+    chatService.sendMessage(content.trim(), undefined, undefined, this.sessionId);
+  }
+
+  // ── Time helpers ──────────────────────────────────────────────────────────
+
   private formatMinutes(minutes: number): string {
     if (minutes <= 0) return '0m';
     const h = Math.floor(minutes / 60);
@@ -149,22 +274,21 @@ export class CardDetailModal {
     return `${h}h ${m}m`;
   }
 
+  // ── Section builders (project-card features) ──────────────────────────────
+
   private buildTimeSection(cardId: string, totalMinutes: number): HTMLElement {
     const section = createElement('div', { className: 'modal-section time-tracking-section' });
-    const label = createElement('label', { className: 'modal-label' }, '⏱ Time Tracking');
+    const label = createElement('label', { className: 'modal-label' }, '\u23f1 Time Tracking');
 
-    // Total summary
     const totalEl = createElement(
       'div',
       { className: 'time-total' },
-      totalMinutes > 0 ? `⏱ ${this.formatMinutes(totalMinutes)} total` : '⏱ No time logged yet'
+      totalMinutes > 0 ? `\u23f1 ${this.formatMinutes(totalMinutes)} total` : '\u23f1 No time logged yet'
     );
 
-    // Log time toggle button
     let formVisible = false;
     const logBtn = createElement('button', { className: 'log-time-btn' }, '+ Log Time');
 
-    // Inline form (hidden by default)
     const form = createElement('div', { className: 'time-log-form hidden' });
     const durationInput = createElement('input', {
       type: 'number',
@@ -188,17 +312,15 @@ export class CardDetailModal {
         return;
       }
       durationInput.classList.remove('error');
-      submitBtn.textContent = '…';
+      submitBtn.textContent = '\u2026';
       (submitBtn as HTMLButtonElement).disabled = true;
 
       const note = noteInput.value.trim() || undefined;
       const entry = await apiClient.logTime(cardId, mins, note);
       if (entry) {
-        // Refresh the section
         const updatedTotal = totalMinutes + mins;
         const newSection = this.buildTimeSection(cardId, updatedTotal);
         section.replaceWith(newSection);
-        // Update card totalMinutes in state
         const card = appState.getCard(cardId);
         if (card) appState.updateCard(cardId, { totalMinutes: updatedTotal });
       } else {
@@ -210,7 +332,7 @@ export class CardDetailModal {
     logBtn.addEventListener('click', () => {
       formVisible = !formVisible;
       form.classList.toggle('hidden', !formVisible);
-      logBtn.textContent = formVisible ? '− Cancel' : '+ Log Time';
+      logBtn.textContent = formVisible ? '\u2212 Cancel' : '+ Log Time';
       if (formVisible) durationInput.focus();
     });
 
@@ -231,9 +353,8 @@ export class CardDetailModal {
     form.appendChild(submitBtn);
     form.appendChild(cancelBtn);
 
-    // Entry list (loaded async)
     const listEl = createElement('div', { className: 'time-entry-list' });
-    listEl.textContent = 'Loading…';
+    listEl.textContent = 'Loading\u2026';
 
     apiClient.fetchTimeEntries(cardId).then((entries) => {
       listEl.innerHTML = '';
@@ -241,10 +362,9 @@ export class CardDetailModal {
         listEl.appendChild(createElement('div', { className: 'empty-text' }, 'No entries yet.'));
         return;
       }
-      // Recompute total from actual entries
       const fetchedTotal = entries.reduce((sum, e) => sum + e.durationMinutes, 0);
       if (fetchedTotal !== totalMinutes) {
-        totalEl.textContent = fetchedTotal > 0 ? `⏱ ${this.formatMinutes(fetchedTotal)} total` : '⏱ No time logged yet';
+        totalEl.textContent = fetchedTotal > 0 ? `\u23f1 ${this.formatMinutes(fetchedTotal)} total` : '\u23f1 No time logged yet';
         totalMinutes = fetchedTotal;
       }
       entries.forEach((entry) => {
@@ -257,14 +377,13 @@ export class CardDetailModal {
         const noteEl = entry.note
           ? createElement('span', { className: 'time-entry-note' }, entry.note)
           : null;
-        const delBtn = createElement('button', { className: 'time-entry-delete', title: 'Delete entry' }, '×');
+        const delBtn = createElement('button', { className: 'time-entry-delete', title: 'Delete entry' }, '\u00d7');
         delBtn.addEventListener('click', async () => {
           const ok = await apiClient.deleteTimeEntry(cardId, entry.id);
           if (ok) {
             item.remove();
             const newTotal = Math.max(0, totalMinutes - entry.durationMinutes);
-            totalEl.textContent = newTotal > 0 ? `⏱ ${this.formatMinutes(newTotal)} total` : '⏱ No time logged yet';
-            // Update state
+            totalEl.textContent = newTotal > 0 ? `\u23f1 ${this.formatMinutes(newTotal)} total` : '\u23f1 No time logged yet';
             const card = appState.getCard(cardId);
             if (card) appState.updateCard(cardId, { totalMinutes: newTotal });
           }
@@ -288,25 +407,18 @@ export class CardDetailModal {
 
   private buildCommentsSection(cardId: string): HTMLElement {
     const section = createElement('div', { className: 'modal-section comments-section' });
-
-    // Header with count placeholder
-    const headerEl = createElement('label', { className: 'modal-label comments-header' }, '💬 Comments');
-
-    // Comment list container
+    const headerEl = createElement('label', { className: 'modal-label comments-header' }, '\ud83d\udcac Comments');
     const listEl = createElement('div', { className: 'comments-list' });
-    listEl.textContent = 'Loading…';
+    listEl.textContent = 'Loading\u2026';
 
-    // Optimistic local cache
     let localComments: CardComment[] = [];
 
     const updateHeader = () => {
-      headerEl.textContent = `💬 Comments (${localComments.length})`;
+      headerEl.textContent = `\ud83d\udcac Comments (${localComments.length})`;
     };
 
     const renderComment = (comment: CardComment): HTMLElement => {
       const item = createElement('div', { className: 'comment-item' });
-
-      // Avatar with initials
       const initials = comment.author
         .split(' ')
         .map((w) => w[0] ?? '')
@@ -314,17 +426,14 @@ export class CardDetailModal {
         .toUpperCase()
         .slice(0, 2);
       const avatar = createElement('div', { className: 'comment-avatar', title: comment.author }, initials);
-
       const body = createElement('div', { className: 'comment-content' });
       const meta = createElement('div', { className: 'comment-meta' });
       const dateStr = new Date(comment.createdAt).toLocaleDateString(undefined, {
         month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
       });
-      meta.textContent = `${comment.author} · ${dateStr}`;
-
+      meta.textContent = `${comment.author} \u00b7 ${dateStr}`;
       const text = createElement('div', { className: 'comment-text' }, comment.content);
-
-      const delBtn = createElement('button', { className: 'comment-delete', title: 'Delete comment' }, '×');
+      const delBtn = createElement('button', { className: 'comment-delete', title: 'Delete comment' }, '\u00d7');
       delBtn.addEventListener('click', async () => {
         const ok = await apiClient.deleteComment(cardId, comment.id);
         if (ok) {
@@ -333,7 +442,6 @@ export class CardDetailModal {
           updateHeader();
         }
       });
-
       body.appendChild(meta);
       body.appendChild(text);
       item.appendChild(avatar);
@@ -342,7 +450,6 @@ export class CardDetailModal {
       return item;
     };
 
-    // Load comments async
     apiClient.fetchComments(cardId).then((comments) => {
       localComments = [...comments];
       listEl.innerHTML = '';
@@ -354,11 +461,10 @@ export class CardDetailModal {
       comments.forEach((c) => listEl.appendChild(renderComment(c)));
     });
 
-    // Input row
     const inputRow = createElement('div', { className: 'comment-input-row' });
     const textarea = createElement('textarea', {
       className: 'comment-textarea',
-      placeholder: 'Add a comment…',
+      placeholder: 'Add a comment\u2026',
       rows: '2',
     }) as HTMLTextAreaElement;
     const submitBtn = createElement('button', { className: 'comment-submit-btn' }, 'Post') as HTMLButtonElement;
@@ -367,8 +473,6 @@ export class CardDetailModal {
     const submitComment = async () => {
       const content = textarea.value.trim();
       if (!content) return;
-
-      // Optimistic UI — add immediately
       const optimisticComment: CardComment = {
         id: `optimistic-${Date.now()}`,
         cardId,
@@ -376,10 +480,8 @@ export class CardDetailModal {
         content,
         createdAt: Date.now(),
       };
-      // Remove empty-text placeholder if present
       const emptyEl = listEl.querySelector('.empty-text');
       if (emptyEl) emptyEl.remove();
-
       const optimisticEl = renderComment(optimisticComment);
       optimisticEl.classList.add('comment-optimistic');
       listEl.insertBefore(optimisticEl, listEl.firstChild);
@@ -387,11 +489,8 @@ export class CardDetailModal {
       updateHeader();
       textarea.value = '';
       submitBtn.disabled = true;
-
-      // Confirm with server
       const saved = await apiClient.addComment(cardId, content);
       if (saved) {
-        // Replace optimistic entry
         optimisticEl.remove();
         localComments = localComments.filter((c) => c.id !== optimisticComment.id);
         const confirmedEl = renderComment(saved);
@@ -399,7 +498,6 @@ export class CardDetailModal {
         localComments.unshift(saved);
         updateHeader();
       } else {
-        // Rollback on failure
         optimisticEl.remove();
         localComments = localComments.filter((c) => c.id !== optimisticComment.id);
         updateHeader();
@@ -426,11 +524,8 @@ export class CardDetailModal {
 
   private buildChecklistSection(cardId: string): HTMLElement {
     const section = createElement('div', { className: 'modal-section checklist-section' });
+    const headerEl = createElement('label', { className: 'modal-label checklist-header' }, '\u2611\ufe0f Checklist');
 
-    // Header
-    const headerEl = createElement('label', { className: 'modal-label checklist-header' }, '☑️ Checklist');
-
-    // Progress bar container
     const progressContainer = createElement('div', { className: 'checklist-progress-bar-container' });
     const progressTrack = createElement('div', { className: 'checklist-progress-track' });
     const progressBar = createElement('div', { className: 'checklist-progress-bar' });
@@ -439,11 +534,9 @@ export class CardDetailModal {
     progressContainer.appendChild(progressTrack);
     progressContainer.appendChild(progressLabel);
 
-    // List container
     const listEl = createElement('div', { className: 'checklist-list' });
-    listEl.textContent = 'Loading…';
+    listEl.textContent = 'Loading\u2026';
 
-    // Local items cache
     let localItems: ChecklistItem[] = [];
 
     const updateProgress = () => {
@@ -462,7 +555,6 @@ export class CardDetailModal {
 
     const renderItem = (item: ChecklistItem): HTMLElement => {
       const row = createElement('div', { className: `checklist-item${item.completed ? ' completed' : ''}`, 'data-item-id': item.id });
-
       const checkbox = createElement('input', {
         type: 'checkbox',
         className: 'checklist-checkbox',
@@ -471,14 +563,12 @@ export class CardDetailModal {
 
       checkbox.addEventListener('change', async () => {
         const newCompleted = checkbox.checked;
-        // Optimistic update
         row.classList.toggle('completed', newCompleted);
         item.completed = newCompleted;
         updateProgress();
         await apiClient.updateChecklistItem(cardId, item.id, { completed: newCompleted });
       });
 
-      // Inline editable text
       const textEl = createElement('span', { className: 'checklist-item-text' }, item.text);
       textEl.contentEditable = 'true';
       textEl.spellcheck = false;
@@ -498,8 +588,7 @@ export class CardDetailModal {
         }
       });
 
-      // Delete button
-      const delBtn = createElement('button', { className: 'checklist-item-delete', title: 'Remove item' }, '×');
+      const delBtn = createElement('button', { className: 'checklist-item-delete', title: 'Remove item' }, '\u00d7');
       delBtn.addEventListener('click', async () => {
         const ok = await apiClient.deleteChecklistItem(cardId, item.id);
         if (ok) {
@@ -518,7 +607,6 @@ export class CardDetailModal {
       return row;
     };
 
-    // Load items async
     apiClient.fetchChecklistItems(cardId).then((items) => {
       localItems = [...items];
       listEl.innerHTML = '';
@@ -530,12 +618,11 @@ export class CardDetailModal {
       }
     });
 
-    // Add item row
     const addRow = createElement('div', { className: 'checklist-add-row' });
     const addInput = createElement('input', {
       type: 'text',
       className: 'form-input checklist-add-input',
-      placeholder: 'Add item… (Enter to add)',
+      placeholder: 'Add item\u2026 (Enter to add)',
     }) as HTMLInputElement;
 
     const submitAdd = async () => {
@@ -544,7 +631,6 @@ export class CardDetailModal {
       addInput.value = '';
       const saved = await apiClient.addChecklistItem(cardId, text);
       if (saved) {
-        // Remove empty placeholder
         const emptyEl = listEl.querySelector('.empty-text');
         if (emptyEl) emptyEl.remove();
         localItems.push(saved);
@@ -566,14 +652,14 @@ export class CardDetailModal {
   }
 
   private getAttachmentIcon(mimeType: string): string {
-    if (mimeType.startsWith('image/')) return '🖼️';
-    if (mimeType.includes('pdf')) return '📄';
-    if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) return '📊';
-    if (mimeType.includes('word') || mimeType.includes('document')) return '📝';
-    if (mimeType.includes('zip') || mimeType.includes('archive') || mimeType.includes('tar') || mimeType.includes('gzip')) return '🗜️';
-    if (mimeType.startsWith('video/')) return '🎬';
-    if (mimeType.startsWith('audio/')) return '🎵';
-    return '📄';
+    if (mimeType.startsWith('image/')) return '\ud83d\uddbc\ufe0f';
+    if (mimeType.includes('pdf')) return '\ud83d\udcc4';
+    if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) return '\ud83d\udcca';
+    if (mimeType.includes('word') || mimeType.includes('document')) return '\ud83d\udcdd';
+    if (mimeType.includes('zip') || mimeType.includes('archive') || mimeType.includes('tar') || mimeType.includes('gzip')) return '\ud83d\udddc\ufe0f';
+    if (mimeType.startsWith('video/')) return '\ud83c\udfac';
+    if (mimeType.startsWith('audio/')) return '\ud83c\udfb5';
+    return '\ud83d\udcc4';
   }
 
   private formatFileSize(bytes: number): string {
@@ -584,31 +670,25 @@ export class CardDetailModal {
 
   private buildAttachmentsSection(cardId: string): HTMLElement {
     const section = createElement('div', { className: 'modal-section attachments-section' });
-
-    const headerEl = createElement('label', { className: 'modal-label attachments-header' }, '📎 Attachments');
-
-    // List container
+    const headerEl = createElement('label', { className: 'modal-label attachments-header' }, '\ud83d\udcce Attachments');
     const listEl = createElement('div', { className: 'attachment-list' });
-    listEl.textContent = 'Loading…';
+    listEl.textContent = 'Loading\u2026';
 
     let localAttachments: CardAttachment[] = [];
 
     const updateHeader = () => {
-      headerEl.textContent = `📎 Attachments (${localAttachments.length})`;
+      headerEl.textContent = `\ud83d\udcce Attachments (${localAttachments.length})`;
     };
 
     const renderAttachment = (att: CardAttachment): HTMLElement => {
       const item = createElement('div', { className: 'attachment-item' });
-
       const icon = createElement('span', { className: 'attachment-icon' }, this.getAttachmentIcon(att.mimeType));
-
       const info = createElement('div', { className: 'attachment-info' });
       const nameEl = createElement('span', { className: 'attachment-name' }, att.filename);
       const sizeEl = createElement('span', { className: 'attachment-size' }, this.formatFileSize(att.fileSize));
       info.appendChild(nameEl);
       info.appendChild(sizeEl);
 
-      // Image thumbnail preview
       if (att.mimeType.startsWith('image/')) {
         const preview = createElement('img', {
           className: 'attachment-preview',
@@ -625,12 +705,12 @@ export class CardDetailModal {
         href: apiClient.getAttachmentDownloadUrl(cardId, att.id),
         download: att.filename,
         title: `Download ${att.filename}`,
-      }, '⬇️') as HTMLAnchorElement;
+      }, '\u2b07\ufe0f') as HTMLAnchorElement;
 
       const delBtn = createElement('button', {
         className: 'attachment-delete-btn',
         title: `Delete ${att.filename}`,
-      }, '×') as HTMLButtonElement;
+      }, '\u00d7') as HTMLButtonElement;
 
       delBtn.addEventListener('click', async () => {
         if (!confirm(`Delete "${att.filename}"?`)) return;
@@ -652,7 +732,6 @@ export class CardDetailModal {
       return item;
     };
 
-    // Load attachments async
     apiClient.fetchAttachments(cardId).then((attachments) => {
       localAttachments = [...attachments];
       listEl.innerHTML = '';
@@ -664,9 +743,8 @@ export class CardDetailModal {
       }
     });
 
-    // Drop zone
     const dropZone = createElement('div', { className: 'attachment-drop-zone' });
-    dropZone.innerHTML = '<span>📎 Drop files here or <strong>click to upload</strong></span>';
+    dropZone.innerHTML = '<span>\ud83d\udcce Drop files here or <strong>click to upload</strong></span>';
 
     const fileInput = createElement('input', {
       type: 'file',
@@ -678,9 +756,8 @@ export class CardDetailModal {
     const uploadFiles = async (files: FileList | File[]) => {
       const fileArray = Array.from(files);
       for (const file of fileArray) {
-        // Optimistic placeholder
         const placeholder = createElement('div', { className: 'attachment-item attachment-uploading' });
-        placeholder.textContent = `⬆️ Uploading ${file.name}…`;
+        placeholder.textContent = `\u2b06\ufe0f Uploading ${file.name}\u2026`;
         const emptyEl = listEl.querySelector('.empty-text');
         if (emptyEl) emptyEl.remove();
         listEl.insertBefore(placeholder, listEl.firstChild);
@@ -694,9 +771,8 @@ export class CardDetailModal {
           listEl.insertBefore(el, listEl.firstChild);
           updateHeader();
         } else {
-          // Show error placeholder
           const errEl = createElement('div', { className: 'attachment-item attachment-error' });
-          errEl.textContent = `❌ Failed to upload ${file.name}`;
+          errEl.textContent = `\u274c Failed to upload ${file.name}`;
           listEl.insertBefore(errEl, listEl.firstChild);
           setTimeout(() => errEl.remove(), 4000);
         }
@@ -736,15 +812,13 @@ export class CardDetailModal {
 
   private buildAssigneeWatchersSection(card: Card): HTMLElement {
     const section = createElement('div', { className: 'modal-section assignee-section' });
-    const sectionLabel = createElement('label', { className: 'modal-label' }, '👤 People');
+    const sectionLabel = createElement('label', { className: 'modal-label' }, '\ud83d\udc64 People');
 
     // ── Assignee ──────────────────────────────────────────────────────────────
     const assigneeRow = createElement('div', { className: 'assignee-row' });
-    const assigneeLabel = createElement('span', { className: 'assignee-field-label' }, '👤 Assigned to:');
+    const assigneeLabel = createElement('span', { className: 'assignee-field-label' }, '\ud83d\udc64 Assigned to:');
 
     let currentAssignee = card.assignee ?? null;
-
-    // Chip container (shows chip or input)
     const assigneeInputArea = createElement('div', { className: 'assignee-input-area' });
 
     const renderAssigneeChip = () => {
@@ -754,12 +828,16 @@ export class CardDetailModal {
         const circle = createElement('span', { className: 'assignee-chip-avatar' }, getInitials(currentAssignee));
         circle.style.background = nameToColor(currentAssignee);
         const nameEl = createElement('span', { className: 'assignee-chip-name' }, currentAssignee);
-        const clearBtn = createElement('button', { className: 'assignee-chip-clear', title: 'Clear assignee' }, '×');
+        const clearBtn = createElement('button', { className: 'assignee-chip-clear', title: 'Clear assignee' }, '\u00d7');
         clearBtn.addEventListener('click', () => {
           currentAssignee = null;
           if (this.card) {
-            cardService.update(this.card.id, { assignee: null } as Partial<Card>);
-            apiClient.patchCard(this.card.id, { assignee: null });
+            if (this.isMainBoard) {
+              this.saveCard({ assignee: null } as Partial<Card>);
+            } else {
+              cardService.update(this.card.id, { assignee: null } as Partial<Card>);
+              apiClient.patchCard(this.card.id, { assignee: null });
+            }
           }
           renderAssigneeChip();
         });
@@ -771,13 +849,17 @@ export class CardDetailModal {
         const input = createElement('input', {
           type: 'text',
           className: 'form-input assignee-input',
-          placeholder: 'Type name and press Enter…',
+          placeholder: 'Type name and press Enter\u2026',
         }) as HTMLInputElement;
         const saveAssignee = (name: string) => {
           currentAssignee = name;
           if (this.card) {
-            cardService.update(this.card.id, { assignee: name } as Partial<Card>);
-            apiClient.patchCard(this.card.id, { assignee: name });
+            if (this.isMainBoard) {
+              this.saveCard({ assignee: name } as Partial<Card>);
+            } else {
+              cardService.update(this.card.id, { assignee: name } as Partial<Card>);
+              apiClient.patchCard(this.card.id, { assignee: name });
+            }
           }
           renderAssigneeChip();
         };
@@ -804,10 +886,9 @@ export class CardDetailModal {
 
     // ── Watchers ──────────────────────────────────────────────────────────────
     const watchersRow = createElement('div', { className: 'watchers-row' });
-    const watchersLabel = createElement('span', { className: 'assignee-field-label' }, '👁 Watchers:');
+    const watchersLabel = createElement('span', { className: 'assignee-field-label' }, '\ud83d\udc41 Watchers:');
 
     let watcherList: string[] = (card.watchers || '').split(',').map((w) => w.trim()).filter(Boolean);
-
     const watcherChipsContainer = createElement('div', { className: 'watcher-chips-container' });
 
     const renderWatcherChips = () => {
@@ -815,12 +896,16 @@ export class CardDetailModal {
       watcherList.forEach((watcher) => {
         const chip = createElement('span', { className: 'watcher-chip' });
         const nameEl = createElement('span', {}, watcher);
-        const removeBtn = createElement('button', { className: 'watcher-chip-remove', title: `Remove ${watcher}` }, '×');
+        const removeBtn = createElement('button', { className: 'watcher-chip-remove', title: `Remove ${watcher}` }, '\u00d7');
         removeBtn.addEventListener('click', () => {
           watcherList = watcherList.filter((w) => w !== watcher);
           if (this.card) {
-            cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
-            apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
+            if (this.isMainBoard) {
+              this.saveCard({ watchers: watcherList.join(',') } as Partial<Card>);
+            } else {
+              cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
+              apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
+            }
           }
           renderWatcherChips();
         });
@@ -829,11 +914,10 @@ export class CardDetailModal {
         watcherChipsContainer.appendChild(chip);
       });
 
-      // Input for adding new watcher
       const addInput = createElement('input', {
         type: 'text',
         className: 'form-input watcher-input',
-        placeholder: 'Add watcher…',
+        placeholder: 'Add watcher\u2026',
       }) as HTMLInputElement;
 
       const commitWatcher = () => {
@@ -842,8 +926,12 @@ export class CardDetailModal {
         if (newNames.length > 0) {
           watcherList = [...watcherList, ...newNames];
           if (this.card) {
-            cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
-            apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
+            if (this.isMainBoard) {
+              this.saveCard({ watchers: watcherList.join(',') } as Partial<Card>);
+            } else {
+              cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
+              apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
+            }
           }
           renderWatcherChips();
         } else {
@@ -874,16 +962,16 @@ export class CardDetailModal {
 
   private buildVoteSection(card: Card): HTMLElement {
     const section = createElement('div', { className: 'modal-section vote-section' });
-    const label = createElement('label', { className: 'modal-label' }, '▲ Priority Votes');
+    const label = createElement('label', { className: 'modal-label' }, '\u25b2 Priority Votes');
 
     const voteCount = card.votes ?? 0;
     const voted = localStorage.getItem(`voxy_voted_${card.id}`) === 'true';
 
-    const countEl = createElement('span', { className: 'vote-count-display' }, `▲ ${voteCount} vote${voteCount !== 1 ? 's' : ''}`);
+    const countEl = createElement('span', { className: 'vote-count-display' }, `\u25b2 ${voteCount} vote${voteCount !== 1 ? 's' : ''}`);
 
     const voteBtn = createElement('button', {
       className: 'vote-btn vote-btn-modal' + (voted ? ' voted' : ''),
-    }, voted ? 'Un-vote' : 'Vote ▲') as HTMLButtonElement;
+    }, voted ? 'Un-vote' : 'Vote \u25b2') as HTMLButtonElement;
 
     voteBtn.addEventListener('click', async () => {
       const currentlyVoted = localStorage.getItem(`voxy_voted_${card.id}`) === 'true';
@@ -898,11 +986,10 @@ export class CardDetailModal {
         } else {
           localStorage.removeItem(`voxy_voted_${card.id}`);
         }
-        countEl.textContent = `▲ ${newCount} vote${newCount !== 1 ? 's' : ''}`;
-        voteBtn.textContent = nowVoted ? 'Un-vote' : 'Vote ▲';
+        countEl.textContent = `\u25b2 ${newCount} vote${newCount !== 1 ? 's' : ''}`;
+        voteBtn.textContent = nowVoted ? 'Un-vote' : 'Vote \u25b2';
         voteBtn.className = 'vote-btn vote-btn-modal' + (nowVoted ? ' voted' : '');
         appState.updateCard(card.id, { votes: newCount });
-        // Update in-memory card reference
         if (this.card) this.card = { ...this.card, votes: newCount };
       }
       voteBtn.disabled = false;
@@ -921,15 +1008,15 @@ export class CardDetailModal {
 
   private getRelationIcon(type: CardRelationType | string): string {
     const icons: Record<string, string> = {
-      duplicates: '🔁',
-      duplicated_by: '🔁',
-      blocks: '⛔',
-      is_blocked_by: '🔒',
-      relates_to: '🔗',
-      cloned_from: '🧬',
-      cloned_to: '🧬',
+      duplicates: '\ud83d\udd01',
+      duplicated_by: '\ud83d\udd01',
+      blocks: '\u26d4',
+      is_blocked_by: '\ud83d\udd12',
+      relates_to: '\ud83d\udd17',
+      cloned_from: '\ud83e\uddec',
+      cloned_to: '\ud83e\uddec',
     };
-    return icons[type] ?? '🔗';
+    return icons[type] ?? '\ud83d\udd17';
   }
 
   private getRelationLabel(type: CardRelationType | string): string {
@@ -960,34 +1047,29 @@ export class CardDetailModal {
 
   private buildRelationsSection(card: Card): HTMLElement {
     const section = createElement('div', { className: 'modal-section relations-section' });
-    const headerEl = createElement('label', { className: 'modal-label relations-header' }, '🔗 Related Cards');
+    const headerEl = createElement('label', { className: 'modal-label relations-header' }, '\ud83d\udd17 Related Cards');
 
     const listEl = createElement('div', { className: 'relations-list' });
-    listEl.textContent = 'Loading…';
+    listEl.textContent = 'Loading\u2026';
 
     let localRelations: CardRelation[] = [];
 
     const updateHeader = () => {
-      headerEl.textContent = `🔗 Related Cards (${localRelations.length})`;
+      headerEl.textContent = `\ud83d\udd17 Related Cards (${localRelations.length})`;
     };
 
     const renderRelationItem = (rel: CardRelation): HTMLElement => {
       const item = createElement('div', { className: 'relation-item' });
-
       const icon = createElement('span', { className: 'relation-icon' }, this.getRelationIcon(rel.relationType));
-
       const badge = createElement('span', {
         className: `relation-type-badge ${this.getRelationBadgeClass(rel.relationType)}`,
       }, this.getRelationLabel(rel.relationType));
-
       const titleEl = createElement('span', { className: 'relation-card-title' }, rel.relatedCardTitle);
-
       const statusDot = createElement('span', {
         className: `relation-status-dot relation-status-dot--${rel.relatedCardStatus}`,
         title: rel.relatedCardStatus,
       });
-
-      const delBtn = createElement('button', { className: 'relation-delete-btn', title: 'Remove relation' }, '×') as HTMLButtonElement;
+      const delBtn = createElement('button', { className: 'relation-delete-btn', title: 'Remove relation' }, '\u00d7') as HTMLButtonElement;
       delBtn.addEventListener('click', async () => {
         const ok = await apiClient.deleteRelation(card.id, rel.id);
         if (ok) {
@@ -999,7 +1081,6 @@ export class CardDetailModal {
           }
         }
       });
-
       item.appendChild(icon);
       item.appendChild(badge);
       item.appendChild(statusDot);
@@ -1008,7 +1089,6 @@ export class CardDetailModal {
       return item;
     };
 
-    // Load async
     apiClient.fetchRelations(card.id).then((relations) => {
       localRelations = [...relations];
       listEl.innerHTML = '';
@@ -1020,7 +1100,6 @@ export class CardDetailModal {
       }
     });
 
-    // Add relation form
     const addRow = createElement('div', { className: 'relation-add-row' });
 
     const RELATION_TYPES: CardRelationType[] = ['relates_to', 'blocks', 'is_blocked_by', 'duplicates', 'cloned_from'];
@@ -1028,7 +1107,7 @@ export class CardDetailModal {
     const cardSelect = createElement('select', { className: 'relation-card-select' }) as HTMLSelectElement;
     const cardPlaceholder = document.createElement('option');
     cardPlaceholder.value = '';
-    cardPlaceholder.textContent = 'Select card…';
+    cardPlaceholder.textContent = 'Select card\u2026';
     cardPlaceholder.disabled = true;
     cardPlaceholder.selected = true;
     cardSelect.appendChild(cardPlaceholder);
@@ -1037,7 +1116,7 @@ export class CardDetailModal {
     projectCards.forEach((c) => {
       const opt = document.createElement('option');
       opt.value = c.id;
-      opt.textContent = `${c.status === 'done' ? '✅' : '⏳'} ${c.title}`;
+      opt.textContent = `${c.status === 'done' ? '\u2705' : '\u23f3'} ${c.title}`;
       cardSelect.appendChild(opt);
     });
 
@@ -1057,7 +1136,7 @@ export class CardDetailModal {
       if (!targetId) return;
 
       addBtn.disabled = true;
-      addBtn.textContent = '…';
+      addBtn.textContent = '\u2026';
 
       const saved = await apiClient.addRelation(card.id, targetId, relType);
       if (saved) {
@@ -1068,7 +1147,7 @@ export class CardDetailModal {
         updateHeader();
         cardSelect.value = '';
       } else {
-        eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Could not add relation', type: 'error', duration: 3000 });
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u274c Could not add relation', type: 'error', duration: 3000 });
       }
 
       addBtn.disabled = false;
@@ -1092,14 +1171,12 @@ export class CardDetailModal {
   private buildHistorySection(cardId: string): HTMLElement {
     const section = createElement('div', { className: 'modal-section history-section' });
 
-    // Collapsible header
     const headerEl = createElement('div', { className: 'history-section-header' });
-    const titleEl = createElement('label', { className: 'modal-label history-label' }, '📜 History');
-    const toggleEl = createElement('span', { className: 'history-toggle' }, '▶');
+    const titleEl = createElement('label', { className: 'modal-label history-label' }, '\ud83d\udcdc History');
+    const toggleEl = createElement('span', { className: 'history-toggle' }, '\u25b6');
     headerEl.appendChild(titleEl);
     headerEl.appendChild(toggleEl);
 
-    // Collapsible body (hidden by default)
     const body = createElement('div', { className: 'history-section-body hidden' });
     let expanded = false;
 
@@ -1107,7 +1184,7 @@ export class CardDetailModal {
     headerEl.addEventListener('click', () => {
       expanded = !expanded;
       body.classList.toggle('hidden', !expanded);
-      toggleEl.textContent = expanded ? '▼' : '▶';
+      toggleEl.textContent = expanded ? '\u25bc' : '\u25b6';
       if (expanded && body.dataset.loaded !== 'true') {
         loadHistory();
       }
@@ -1137,21 +1214,18 @@ export class CardDetailModal {
     };
 
     const formatValue = (field: string, value: string | null): string => {
-      if (value === null || value === 'None' || value === 'null') return '—';
+      if (value === null || value === 'None' || value === 'null') return '\u2014';
       if (field === 'priority') return PRIORITY_LABELS[value] ?? value;
       if (field === 'description') {
-        return value.length > 60 ? value.slice(0, 57) + '…' : value;
+        return value.length > 60 ? value.slice(0, 57) + '\u2026' : value;
       }
       return value;
     };
 
     const renderEntry = (entry: CardHistoryEntry): HTMLElement => {
       const item = createElement('div', { className: 'history-item' });
-
       const fieldLabel = FIELD_LABELS[entry.fieldChanged] ?? entry.fieldChanged;
-
       const fieldEl = createElement('span', { className: 'history-field' }, fieldLabel);
-
       const changeEl = createElement('span', { className: 'history-change' });
 
       if (entry.fieldChanged === 'status') {
@@ -1165,14 +1239,14 @@ export class CardDetailModal {
           (newBadge as HTMLElement).style.color = STATUS_COLORS[entry.newValue];
           (newBadge as HTMLElement).style.borderColor = STATUS_COLORS[entry.newValue];
         }
-        const arrow = createElement('span', { className: 'history-arrow' }, ' → ');
+        const arrow = createElement('span', { className: 'history-arrow' }, ' \u2192 ');
         changeEl.appendChild(oldBadge);
         changeEl.appendChild(arrow);
         changeEl.appendChild(newBadge);
       } else {
         const oldText = formatValue(entry.fieldChanged, entry.oldValue);
         const newText = formatValue(entry.fieldChanged, entry.newValue);
-        changeEl.textContent = `${oldText} → ${newText}`;
+        changeEl.textContent = `${oldText} \u2192 ${newText}`;
       }
 
       const dateStr = new Date(entry.changedAt).toLocaleDateString(undefined, {
@@ -1188,7 +1262,7 @@ export class CardDetailModal {
 
     const loadHistory = () => {
       listEl.innerHTML = '';
-      listEl.appendChild(createElement('div', { className: 'empty-text' }, 'Loading…'));
+      listEl.appendChild(createElement('div', { className: 'empty-text' }, 'Loading\u2026'));
       apiClient.fetchCardHistory(cardId).then((entries) => {
         body.dataset.loaded = 'true';
         listEl.innerHTML = '';
@@ -1213,71 +1287,81 @@ export class CardDetailModal {
 
     enrichBtn.disabled = true;
     enrichBtn.classList.add('enrich-loading');
-    enrichBtn.textContent = '⏳';
+    enrichBtn.textContent = '\u23f3';
 
     try {
       const result = await apiClient.enrichCard(cardId);
       if (!result) throw new Error('No result');
 
-      // Pre-fill description if empty
       if (!descInput.value.trim() && result.description) {
         descInput.value = result.description;
-        // Persist
-        if (this.card) cardService.update(this.card.id, { description: result.description });
+        if (this.card) {
+          if (this.isMainBoard) {
+            this.saveCard({ description: result.description });
+          } else {
+            cardService.update(this.card.id, { description: result.description });
+          }
+        }
       }
 
-      // Add checklist items
       for (const text of result.checklist_items) {
         const saved = await apiClient.addChecklistItem(cardId, text);
         if (saved) {
-          // Refresh checklist section by triggering a re-render
           const newChecklist = this.buildChecklistSection(cardId);
           checklistSection.replaceWith(newChecklist);
-          // reference updated — break here, re-render will handle the rest
           break;
         }
       }
-      // Bulk-add remaining items (after section replaced, we can't reuse old ref — use direct API)
       for (let i = 1; i < result.checklist_items.length; i++) {
         await apiClient.addChecklistItem(cardId, result.checklist_items[i]);
       }
 
-      // Show effort badge
       const existingBadge = this.modal.querySelector('.effort-badge');
       if (existingBadge) existingBadge.remove();
       if (result.effort) {
-        const badge = createElement('span', { className: `effort-badge effort-badge--${result.effort.toLowerCase()}` }, `⚡ ${result.effort}`);
+        const badge = createElement('span', { className: `effort-badge effort-badge--${result.effort.toLowerCase()}` }, `\u26a1 ${result.effort}`);
         enrichBtn.insertAdjacentElement('afterend', badge);
       }
 
-      // Add suggested tags
       if (result.tags && result.tags.length > 0 && this.card) {
         const existingTags = this.card.tags || [];
         const newTags = result.tags.filter((t) => !existingTags.includes(t));
         if (newTags.length > 0) {
           const updatedTags = [...existingTags, ...newTags];
-          cardService.update(this.card.id, { tags: updatedTags });
+          if (this.isMainBoard) {
+            this.saveCard({ tags: updatedTags });
+          } else {
+            cardService.update(this.card.id, { tags: updatedTags });
+          }
         }
       }
 
-      // Toast
-      eventBus.emit(EVENTS.TOAST_SHOW, { message: '✨ Card enriched!', type: 'success', duration: 3000 });
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u2728 Card enriched!', type: 'success', duration: 3000 });
     } catch (err) {
       console.error('[CardDetailModal] enrichCard error:', err);
-      eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Enrichment failed', type: 'error', duration: 3000 });
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u274c Enrichment failed', type: 'error', duration: 3000 });
     } finally {
       enrichBtn.disabled = false;
       enrichBtn.classList.remove('enrich-loading');
-      enrichBtn.textContent = '✨ AI Enrich';
+      enrichBtn.textContent = '\u2728 AI Enrich';
     }
   }
+
+  // ── Main render ───────────────────────────────────────────────────────────
 
   private renderContent(): void {
     if (!this.card) return;
     this.destroyCodeMirror();
     this.modal.innerHTML = '';
+    this.chatMessagesEl = null;
 
-    // Header
+    // Apply color class for mainboard cards
+    this.modal.className = 'modal card-detail-modal';
+    if (this.isMainBoard && this.card.color) {
+      this.modal.classList.add(`card-detail-modal--${this.card.color}`);
+    }
+
+    // ── Header ──────────────────────────────────────────────────────────────
     const header = createElement('div', { className: 'modal-header' });
     const titleInput = createElement('input', {
       className: 'modal-title-input',
@@ -1285,36 +1369,37 @@ export class CardDetailModal {
     }) as HTMLInputElement;
     titleInput.addEventListener('change', () => {
       if (this.card) {
-        cardService.update(this.card.id, { title: titleInput.value });
+        this.saveCard({ title: titleInput.value });
       }
     });
 
     // AI Enrich button
-    const enrichBtn = createElement('button', { className: 'enrich-btn', title: 'AI-generate description, checklist, effort & tags' }, '✨ AI Enrich') as HTMLButtonElement;
+    const enrichBtn = createElement('button', { className: 'enrich-btn', title: 'AI-generate description, checklist, effort & tags' }, '\u2728 AI Enrich') as HTMLButtonElement;
     enrichBtn.type = 'button';
 
     // Duplicate button
-    const duplicateBtn = createElement('button', { className: 'duplicate-btn', title: 'Duplicate this card' }, '📋 Duplicate') as HTMLButtonElement;
+    const duplicateBtn = createElement('button', { className: 'duplicate-btn', title: 'Duplicate this card' }, '\ud83d\udccb Duplicate') as HTMLButtonElement;
     duplicateBtn.type = 'button';
     duplicateBtn.addEventListener('click', async () => {
       if (!this.card) return;
       duplicateBtn.disabled = true;
-      duplicateBtn.textContent = '⏳';
+      duplicateBtn.textContent = '\u23f3';
       const newCard = await apiClient.duplicateCard(this.card.id);
       if (newCard) {
-        const cards = appState.get('cards') as import('../../types').Card[];
+        const cards = appState.get('cards') as Card[];
         appState.set('cards', [...cards, newCard]);
         eventBus.emit(EVENTS.CARD_CREATED, newCard);
-        eventBus.emit(EVENTS.TOAST_SHOW, { message: `📋 Duplicated: "${newCard.title}"`, type: 'success', duration: 3000 });
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: `\ud83d\udccb Duplicated: "${newCard.title}"`, type: 'success', duration: 3000 });
+        this.onUpdated?.(newCard);
         this.close();
       } else {
-        eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Duplication failed', type: 'error', duration: 3000 });
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u274c Duplication failed', type: 'error', duration: 3000 });
       }
       duplicateBtn.disabled = false;
-      duplicateBtn.textContent = '📋 Duplicate';
+      duplicateBtn.textContent = '\ud83d\udccb Duplicate';
     });
 
-    const closeBtn = createElement('button', { className: 'modal-close-btn' }, '✕');
+    const closeBtn = createElement('button', { className: 'modal-close-btn' }, '\u2715');
     closeBtn.addEventListener('click', () => this.close());
 
     header.appendChild(titleInput);
@@ -1325,20 +1410,19 @@ export class CardDetailModal {
     // ── Two-column body ──────────────────────────────────────────────────────
     const body = createElement('div', { className: 'modal-body-columns' });
 
-    // ── LEFT COLUMN (65%): Description editor + Chat ─────────────────────────
+    // ── LEFT COLUMN: Description editor + Chat ──────────────────────────────
     const leftCol = createElement('div', { className: 'modal-col-left' });
 
     // Description — CodeMirror 6 editor
     const descSection = createElement('div', { className: 'modal-section modal-desc-section' });
     const descLabel = createElement('label', { className: 'modal-label' }, 'Description');
 
-    const cardIdForSave = this.card.id;
     this.codeMirrorEditor = new CodeMirrorEditor({
       initialValue: this.card.description || '',
       placeholderText: 'Write card description... (Markdown supported)',
       onSave: (value: string) => {
         if (this.card) {
-          cardService.update(this.card.id, { description: value });
+          this.saveCard({ description: value });
         }
       },
     });
@@ -1357,70 +1441,115 @@ export class CardDetailModal {
       attributeFilter: ['data-theme'],
     });
 
-    // Chat placeholder (card-level chat)
+    // ── Card Chat with Voxy (functional, scoped to card) ────────────────────
     const chatSection = createElement('div', { className: 'modal-section modal-chat-section' });
-    const chatLabel = createElement('label', { className: 'modal-label' }, '💬 Card Chat');
-    const chatPlaceholder = createElement('div', { className: 'card-chat-placeholder' }, 'Chat coming soon…');
-    chatSection.appendChild(chatLabel);
-    chatSection.appendChild(chatPlaceholder);
+    const chatLabel = createElement('label', { className: 'modal-label' }, '\ud83d\udcac Card Chat');
+    const chatHint = createElement('span', { className: 'card-chat-hint' }, 'scoped to this card');
+
+    const chatMessages = createElement('div', { className: 'card-chat-messages' });
+    this.chatMessagesEl = chatMessages;
+
+    const chatInputRow = createElement('div', { className: 'card-chat-input-row' });
+    const chatInput = createElement('input', {
+      type: 'text',
+      className: 'card-chat-input-field',
+      placeholder: 'Ask Voxy about this card\u2026',
+    }) as HTMLInputElement;
+
+    const sendBtn = createElement('button', {
+      className: 'card-chat-send-btn',
+      type: 'button',
+      title: 'Send',
+    }, '\u2191') as HTMLButtonElement;
+
+    const doSend = () => {
+      const val = chatInput.value.trim();
+      if (!val) return;
+      chatInput.value = '';
+      sendBtn.disabled = true;
+      this.sendChatMessage(val);
+      setTimeout(() => { sendBtn.disabled = false; }, 500);
+    };
+
+    sendBtn.addEventListener('click', doSend);
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doSend(); }
+    });
+
+    chatInputRow.appendChild(chatInput);
+    chatInputRow.appendChild(sendBtn);
+
+    const chatHeaderRow = createElement('div', { className: 'card-chat-header' });
+    chatHeaderRow.appendChild(chatLabel);
+    chatHeaderRow.appendChild(chatHint);
+
+    chatSection.appendChild(chatHeaderRow);
+    chatSection.appendChild(chatMessages);
+    chatSection.appendChild(chatInputRow);
 
     leftCol.appendChild(descSection);
     leftCol.appendChild(chatSection);
 
-    // ── RIGHT COLUMN (35%): Metadata ─────────────────────────────────────────
+    // ── RIGHT COLUMN: Metadata ──────────────────────────────────────────────
     const rightCol = createElement('div', { className: 'modal-col-right' });
 
-    // Status buttons
-    const statusRow = createElement('div', { className: 'modal-status-row' });
-    for (const status of CARD_STATUSES) {
-      const btn = createElement(
-        'button',
-        {
-          className: `status-btn ${this.card.status === status ? 'active' : ''}`,
-          'data-status': status,
-        },
-        CARD_STATUS_LABELS[status]
-      );
-      btn.addEventListener('click', () => {
-        if (this.card) {
-          cardService.move(this.card.id, status as CardStatus);
-        }
-      });
-      statusRow.appendChild(btn);
+    // Status buttons (project cards only — mainboard cards don't have kanban statuses)
+    if (!this.isMainBoard) {
+      const statusRow = createElement('div', { className: 'modal-status-row' });
+      for (const status of CARD_STATUSES) {
+        const btn = createElement(
+          'button',
+          {
+            className: `status-btn ${this.card.status === status ? 'active' : ''}`,
+            'data-status': status,
+          },
+          CARD_STATUS_LABELS[status]
+        );
+        btn.addEventListener('click', () => {
+          if (this.card) {
+            cardService.move(this.card.id, status as CardStatus);
+          }
+        });
+        statusRow.appendChild(btn);
+      }
+      rightCol.appendChild(statusRow);
     }
 
-    // Vote section (priority)
+    // Vote section
     const voteSection = this.buildVoteSection(this.card);
 
-    // Agent assignment — chip selector
-    const currentAgentType = this.card.agentType || 'ember';
-    const agentSection = createElement('div', { className: 'modal-section' });
-    const agentLabel = createElement('label', { className: 'modal-label' }, 'Agent');
-    const agentSelector = createElement('div', { className: 'agent-selector agent-selector--modal' });
+    // Agent assignment (project cards)
+    if (!this.isMainBoard) {
+      const currentAgentType = this.card.agentType || 'ember';
+      const agentSection = createElement('div', { className: 'modal-section' });
+      const agentLabel = createElement('label', { className: 'modal-label' }, 'Agent');
+      const agentSelector = createElement('div', { className: 'agent-selector agent-selector--modal' });
 
-    this.agents.forEach((agent) => {
-      const chip = createElement('button', {
-        className: 'agent-chip' + (currentAgentType === agent.type ? ' selected' : ''),
-        'data-agent-type': agent.type,
-        title: agent.description,
-      }, `${agent.emoji} ${agent.name}`);
-      (chip as HTMLButtonElement).type = 'button';
-      chip.addEventListener('click', () => {
-        if (!this.card) return;
-        agentSelector.querySelectorAll('.agent-chip').forEach((el) => el.classList.remove('selected'));
-        chip.classList.add('selected');
-        cardService.updateAgentType(this.card.id, agent.type);
+      this.agents.forEach((agent) => {
+        const chip = createElement('button', {
+          className: 'agent-chip' + (currentAgentType === agent.type ? ' selected' : ''),
+          'data-agent-type': agent.type,
+          title: agent.description,
+        }, `${agent.emoji} ${agent.name}`);
+        (chip as HTMLButtonElement).type = 'button';
+        chip.addEventListener('click', () => {
+          if (!this.card) return;
+          agentSelector.querySelectorAll('.agent-chip').forEach((el) => el.classList.remove('selected'));
+          chip.classList.add('selected');
+          cardService.updateAgentType(this.card.id, agent.type);
+        });
+        agentSelector.appendChild(chip);
       });
-      agentSelector.appendChild(chip);
-    });
 
-    agentSection.appendChild(agentLabel);
-    agentSection.appendChild(agentSelector);
+      agentSection.appendChild(agentLabel);
+      agentSection.appendChild(agentSelector);
+      rightCol.appendChild(agentSection);
+    }
 
     // Assignee & Watchers
     const assigneeWatchersSection = this.buildAssigneeWatchersSection(this.card);
 
-    // Tags — colored pills with × to remove + inline input (Enter or comma to add)
+    // Tags
     const tagsSection = createElement('div', { className: 'modal-section' });
     const tagsLabel = createElement('label', { className: 'modal-label' }, 'Tags');
     const tagsContainer = createElement('div', { className: 'modal-tags' });
@@ -1435,28 +1564,39 @@ export class CardDetailModal {
         tagEl.style.background = bg;
         tagEl.style.color = color;
         const labelSpan = createElement('span', {}, tag);
-        const removeBtn = createElement('span', { className: 'tag-remove', title: `Remove "${tag}"` }, '×');
+        const removeBtn = createElement('span', { className: 'tag-remove', title: `Remove "${tag}"` }, '\u00d7');
         removeBtn.addEventListener('click', () => {
-          if (this.card) cardService.removeTag(this.card.id, tag);
+          if (this.card) {
+            if (this.isMainBoard) {
+              const updatedTags = this.card.tags.filter((t) => t !== tag);
+              this.saveCard({ tags: updatedTags });
+            } else {
+              cardService.removeTag(this.card.id, tag);
+            }
+          }
         });
         tagEl.appendChild(labelSpan);
         tagEl.appendChild(removeBtn);
         tagsContainer.appendChild(tagEl);
       });
 
-      // Tag input wrapper
       const inputWrapper = createElement('div', { className: 'tag-input-wrapper' });
       const tagInput = createElement('input', {
         type: 'text',
         className: 'tag-input-field',
-        placeholder: 'Add tag…',
+        placeholder: 'Add tag\u2026',
       }) as HTMLInputElement;
 
       const commitTags = (raw: string) => {
         const tags = raw.split(',').map((t) => t.trim()).filter(Boolean);
         tags.forEach((tag) => {
           if (this.card && !this.card.tags.includes(tag)) {
-            cardService.addTag(this.card.id, tag);
+            if (this.isMainBoard) {
+              const updatedTags = [...this.card.tags, tag];
+              this.saveCard({ tags: updatedTags });
+            } else {
+              cardService.addTag(this.card.id, tag);
+            }
           }
         });
         tagInput.value = '';
@@ -1474,7 +1614,6 @@ export class CardDetailModal {
         }
       });
 
-      // Commit on comma typed mid-string too
       tagInput.addEventListener('input', () => {
         if (tagInput.value.includes(',')) {
           commitTags(tagInput.value);
@@ -1486,98 +1625,153 @@ export class CardDetailModal {
     };
 
     renderTagPills();
-
     tagsSection.appendChild(tagsLabel);
     tagsSection.appendChild(tagsContainer);
 
-    // Dependencies — multi-select with chips
-    const depsSection = createElement('div', { className: 'modal-section' });
-    const depsLabel = createElement('label', { className: 'modal-label' }, 'Dependencies');
+    // Dependencies (project cards only)
+    if (!this.isMainBoard) {
+      const depsSection = createElement('div', { className: 'modal-section' });
+      const depsLabel = createElement('label', { className: 'modal-label' }, 'Dependencies');
 
-    // Chips for currently selected dependencies
-    const chipsContainer = createElement('div', { className: 'dependency-chips-container' });
-
-    const renderChips = () => {
-      chipsContainer.innerHTML = '';
-      if (!this.card) return;
-      if (this.card.dependencies.length === 0) {
-        chipsContainer.appendChild(createElement('span', { className: 'empty-text' }, 'No dependencies'));
-        return;
-      }
-      this.card.dependencies.forEach((depId) => {
-        const depCard = appState.getCard(depId);
-        const chip = createElement('span', { className: 'dependency-chip' });
-        const statusIcon = depCard ? (depCard.status === 'done' ? '✅ ' : '⏳ ') : '';
-        const label = createElement('span', {}, statusIcon + (depCard ? depCard.title : depId));
-        const removeBtn = createElement('button', { className: 'dep-chip-remove', title: 'Remove dependency' }, '×');
-        removeBtn.addEventListener('click', () => {
-          if (this.card) cardService.removeDependency(this.card.id, depId);
-        });
-        chip.appendChild(label);
-        chip.appendChild(removeBtn);
-        chipsContainer.appendChild(chip);
-      });
-    };
-    renderChips();
-
-    // Dropdown to add dependencies
-    const addDepRow = createElement('div', { className: 'dep-add-row' });
-    const projectId = this.card.projectId;
-    const allProjectCards = projectId ? appState.getCardsByProject(projectId)
-      .filter((c) => c.id !== this.card!.id) : [];
-
-    if (allProjectCards.length > 0) {
-      const select = createElement('select', { className: 'dep-add-select' }) as HTMLSelectElement;
-      const placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = '+ Add dependency…';
-      placeholder.disabled = true;
-      placeholder.selected = true;
-      select.appendChild(placeholder);
-
-      allProjectCards.forEach((c) => {
-        const opt = document.createElement('option');
-        opt.value = c.id;
-        const already = this.card!.dependencies.includes(c.id);
-        opt.textContent = `${c.status === 'done' ? '✅' : '⏳'} ${c.title}`;
-        opt.disabled = already;
-        select.appendChild(opt);
-      });
-
-      select.addEventListener('change', () => {
-        const depId = select.value;
-        if (depId && this.card) {
-          cardService.addDependency(this.card.id, depId);
-          select.value = '';
+      const chipsContainer = createElement('div', { className: 'dependency-chips-container' });
+      const renderChips = () => {
+        chipsContainer.innerHTML = '';
+        if (!this.card) return;
+        if (this.card.dependencies.length === 0) {
+          chipsContainer.appendChild(createElement('span', { className: 'empty-text' }, 'No dependencies'));
+          return;
         }
-      });
+        this.card.dependencies.forEach((depId) => {
+          const depCard = appState.getCard(depId);
+          const chip = createElement('span', { className: 'dependency-chip' });
+          const statusIcon = depCard ? (depCard.status === 'done' ? '\u2705 ' : '\u23f3 ') : '';
+          const label = createElement('span', {}, statusIcon + (depCard ? depCard.title : depId));
+          const removeBtn = createElement('button', { className: 'dep-chip-remove', title: 'Remove dependency' }, '\u00d7');
+          removeBtn.addEventListener('click', () => {
+            if (this.card) cardService.removeDependency(this.card.id, depId);
+          });
+          chip.appendChild(label);
+          chip.appendChild(removeBtn);
+          chipsContainer.appendChild(chip);
+        });
+      };
+      renderChips();
 
-      addDepRow.appendChild(select);
-    } else {
-      addDepRow.appendChild(createElement('span', { className: 'empty-text' }, 'No other cards in this project'));
+      const addDepRow = createElement('div', { className: 'dep-add-row' });
+      const projectId = this.card.projectId;
+      const allProjectCards = projectId ? appState.getCardsByProject(projectId)
+        .filter((c) => c.id !== this.card!.id) : [];
+
+      if (allProjectCards.length > 0) {
+        const select = createElement('select', { className: 'dep-add-select' }) as HTMLSelectElement;
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '+ Add dependency\u2026';
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        select.appendChild(placeholder);
+
+        allProjectCards.forEach((c) => {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          const already = this.card!.dependencies.includes(c.id);
+          opt.textContent = `${c.status === 'done' ? '\u2705' : '\u23f3'} ${c.title}`;
+          opt.disabled = already;
+          select.appendChild(opt);
+        });
+
+        select.addEventListener('change', () => {
+          const depId = select.value;
+          if (depId && this.card) {
+            cardService.addDependency(this.card.id, depId);
+            select.value = '';
+          }
+        });
+
+        addDepRow.appendChild(select);
+      } else {
+        addDepRow.appendChild(createElement('span', { className: 'empty-text' }, 'No other cards in this project'));
+      }
+
+      depsSection.appendChild(depsLabel);
+      depsSection.appendChild(chipsContainer);
+      depsSection.appendChild(addDepRow);
+      rightCol.appendChild(depsSection);
     }
-
-    depsSection.appendChild(depsLabel);
-    depsSection.appendChild(chipsContainer);
-    depsSection.appendChild(addDepRow);
 
     // Checklist
     const checklistSection = this.buildChecklistSection(this.card.id);
 
-    // Attachments section
+    // Attachments
     const attachmentsSection = this.buildAttachmentsSection(this.card.id);
 
-    // Relations section
-    const relationsSection = this.buildRelationsSection(this.card);
+    // Relations (project cards only — need sibling cards)
+    if (!this.isMainBoard) {
+      rightCol.appendChild(this.buildRelationsSection(this.card));
+    }
 
     // Time tracking
     const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
 
-    // Comments section
+    // Comments
     const commentsSection = this.buildCommentsSection(this.card.id);
 
-    // History / Audit Log section
+    // History
     const historySection = this.buildHistorySection(this.card.id);
+
+    // Color picker (mainboard cards only)
+    if (this.isMainBoard) {
+      const colorSection = createElement('div', { className: 'modal-section' });
+      const colorLabel = createElement('label', { className: 'modal-label' }, 'Color');
+      const colorRow = createElement('div', { className: 'card-detail-color-row' });
+      let selectedSwatch: HTMLElement | null = null;
+      const currentColor = this.card.color ?? null;
+
+      COLOR_OPTIONS.forEach(({ value, label }) => {
+        const cls = value
+          ? `freeboard-color-swatch freeboard-color-swatch--${value}`
+          : 'freeboard-color-swatch freeboard-color-swatch--none';
+        const swatch = createElement('button', { className: cls, title: label, type: 'button' }) as HTMLButtonElement;
+
+        if (value === currentColor || (!value && !currentColor)) {
+          swatch.classList.add('selected');
+          selectedSwatch = swatch;
+        }
+
+        swatch.addEventListener('click', () => {
+          if (selectedSwatch) selectedSwatch.classList.remove('selected');
+          swatch.classList.add('selected');
+          selectedSwatch = swatch;
+          this.saveCard({ color: value } as Partial<Card>);
+          this.modal.className = 'modal card-detail-modal';
+          if (value) this.modal.classList.add(`card-detail-modal--${value}`);
+        });
+        colorRow.appendChild(swatch);
+      });
+
+      colorSection.appendChild(colorLabel);
+      colorSection.appendChild(colorRow);
+      rightCol.appendChild(colorSection);
+    }
+
+    // "Assign to Project" button (mainboard cards only)
+    if (this.isMainBoard) {
+      const promoteSection = createElement('div', { className: 'modal-section' });
+      const promoteBtn = createElement('button', {
+        className: 'note-detail-promote-btn',
+        type: 'button',
+        title: 'Assign to a Project',
+      }, '\ud83d\ude80 Assign to Project') as HTMLButtonElement;
+      promoteBtn.addEventListener('click', () => {
+        if (!this.card) return;
+        eventBus.emit(EVENTS.PROJECT_FORM_SHOW, {
+          mode: 'create',
+          prefillTitle: this.card.title,
+        });
+      });
+      promoteSection.appendChild(promoteBtn);
+      rightCol.appendChild(promoteSection);
+    }
 
     // Metadata
     const metaSection = createElement('div', { className: 'modal-meta' });
@@ -1590,7 +1784,7 @@ export class CardDetailModal {
 
     // Focus Mode button
     const focusSection = createElement('div', { className: 'modal-section modal-focus-section' });
-    const focusBtn = createElement('button', { className: 'focus-mode-btn' }, '🎯 Focus Mode');
+    const focusBtn = createElement('button', { className: 'focus-mode-btn' }, '\ud83c\udfaf Focus Mode');
     focusBtn.addEventListener('click', () => {
       if (!this.card) return;
       this.close();
@@ -1606,16 +1800,11 @@ export class CardDetailModal {
 
     // Delete button
     const dangerZone = createElement('div', { className: 'modal-danger' });
-    const deleteBtn = createElement('button', { className: 'delete-btn' }, '🗑️ Delete Card');
-    deleteBtn.addEventListener('click', () => {
-      if (this.card && confirm(`Delete "${this.card.title}"?`)) {
-        cardService.delete(this.card.id);
-        this.close();
-      }
-    });
+    const deleteBtn = createElement('button', { className: 'delete-btn' }, '\ud83d\uddd1\ufe0f Delete Card');
+    deleteBtn.addEventListener('click', () => this.deleteCard());
     dangerZone.appendChild(deleteBtn);
 
-    // Wire up enrich button — create a dummy textarea adapter for backward compat
+    // Wire up enrich button
     const descTextareaAdapter = document.createElement('textarea') as HTMLTextAreaElement;
     Object.defineProperty(descTextareaAdapter, 'value', {
       get: () => this.codeMirrorEditor ? this.codeMirrorEditor.getValue() : '',
@@ -1627,13 +1816,9 @@ export class CardDetailModal {
     });
 
     // ── Assemble right column ────────────────────────────────────────────────
-    rightCol.appendChild(statusRow);
     rightCol.appendChild(voteSection);
-    rightCol.appendChild(agentSection);
     rightCol.appendChild(assigneeWatchersSection);
     rightCol.appendChild(tagsSection);
-    rightCol.appendChild(depsSection);
-    rightCol.appendChild(relationsSection);
     rightCol.appendChild(checklistSection);
     rightCol.appendChild(attachmentsSection);
     rightCol.appendChild(timeSection);
@@ -1648,14 +1833,15 @@ export class CardDetailModal {
     body.appendChild(rightCol);
     this.modal.appendChild(header);
     this.modal.appendChild(body);
+
+    // Populate existing chat history
+    this.refreshChat();
+
+    // Focus the chat input
+    setTimeout(() => chatInput.focus(), 80);
   }
 
-  update(): void {
-    if (this.card) {
-      this.card = appState.getCard(this.card.id) || null;
-      if (this.card) this.renderContent();
-    }
-  }
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   destroy(): void {
     this.destroyCodeMirror();

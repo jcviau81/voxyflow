@@ -4,7 +4,7 @@ import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { mainBoardService } from '../../services/MainBoardService';
-import { CardDetailModal } from './CardDetailModal';
+import { CardDetailModal } from '../shared/CardDetailModal';
 
 type CardColor = 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange';
 
