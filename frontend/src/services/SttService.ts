@@ -4,7 +4,9 @@ import { EVENTS } from '../utils/constants';
 
 /**
  * STT engine type.
- * Only 'webspeech' is currently implemented. Whisper variants are reserved for future use.
+ * 'webspeech' uses browser Web Speech API (requires internet).
+ * 'whisper_local' uses Whisper WASM via WebWorker (private, offline).
+ * 'whisper' reserved for remote whisper server (not implemented).
  */
 type SttEngine = 'webspeech' | 'whisper' | 'whisper_local';
 
@@ -16,7 +18,7 @@ export const STT_EVENTS = {
   MODEL_PROGRESS: 'stt:model_progress',
 } as const;
 
-/** Available Whisper model presets (reserved for future local WASM inference) */
+/** Available Whisper model presets */
 export const WHISPER_MODEL_PRESETS = [
   { id: 'Xenova/whisper-tiny', label: 'Whisper Tiny (~40MB, fastest)' },
   { id: 'Xenova/whisper-base', label: 'Whisper Base (~75MB, fast)' },
@@ -33,6 +35,13 @@ export class SttService {
   private _whisperModel: string | null = null;
   private _whisperModelFile: File | null = null;
   private _modelReady = false;
+
+  // Whisper WASM worker
+  private whisperWorker: Worker | null = null;
+  private mediaStream: MediaStream | null = null;
+  private audioContext: AudioContext | null = null;
+  private audioChunks: Float32Array[] = [];
+  private scriptProcessor: ScriptProcessorNode | null = null;
 
   constructor() {
     this.engine = 'webspeech';
@@ -117,12 +126,174 @@ export class SttService {
     };
   }
 
+  // ── Whisper WASM Worker ──────────────────────────────────────────────
+
+  private initWhisperWorker(): void {
+    if (this.whisperWorker) return;
+
+    this.whisperWorker = new Worker(
+      new URL('../workers/whisper.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+
+    this.whisperWorker.onmessage = (event: MessageEvent) => {
+      const { type, status, message, progress, text } = event.data;
+
+      switch (type) {
+        case 'status':
+          if (status === 'ready') {
+            this._modelReady = true;
+            console.log('[SttService] Whisper model ready');
+            eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'ready' });
+          } else if (status === 'loading') {
+            console.log('[SttService] Whisper model loading:', message);
+            eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message });
+          } else if (status === 'error') {
+            console.error('[SttService] Whisper model error:', message);
+            this._modelReady = false;
+            eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'error', message });
+          }
+          break;
+
+        case 'progress':
+          eventBus.emit(STT_EVENTS.MODEL_PROGRESS, { progress });
+          break;
+
+        case 'result':
+          console.log('[SttService] Whisper transcription result:', text);
+          eventBus.emit(STT_EVENTS.TRANSCRIBE_DONE);
+          if (text) {
+            this._transcript = text;
+            const sttResult: SttResult = {
+              transcript: text,
+              confidence: 1.0,
+              isFinal: true,
+            };
+            eventBus.emit(EVENTS.VOICE_TRANSCRIPT, sttResult);
+          }
+          break;
+
+        case 'error':
+          console.error('[SttService] Whisper worker error:', message);
+          eventBus.emit(STT_EVENTS.TRANSCRIBE_DONE);
+          eventBus.emit(EVENTS.VOICE_ERROR, { error: 'whisper-error', message: message || 'Whisper transcription failed' });
+          break;
+      }
+    };
+
+    this.whisperWorker.onerror = (err) => {
+      console.error('[SttService] Whisper worker fatal error:', err);
+      eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'error', message: 'Worker crashed' });
+    };
+  }
+
+  private async startWhisperRecording(): Promise<void> {
+    try {
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, sampleRate: 16000 },
+      });
+
+      this.audioContext = new AudioContext({ sampleRate: 16000 });
+      const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+
+      // Collect audio chunks via ScriptProcessor (widely supported)
+      this.audioChunks = [];
+      this.scriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+      this.scriptProcessor.onaudioprocess = (e: AudioProcessingEvent) => {
+        if (this.isRecording) {
+          const data = e.inputBuffer.getChannelData(0);
+          this.audioChunks.push(new Float32Array(data));
+        }
+      };
+
+      source.connect(this.scriptProcessor);
+      this.scriptProcessor.connect(this.audioContext.destination);
+
+      this.isRecording = true;
+      eventBus.emit(EVENTS.VOICE_START);
+      console.log('[SttService] Whisper recording started');
+    } catch (err) {
+      console.error('[SttService] Failed to start Whisper recording:', err);
+      this.isRecording = false;
+      eventBus.emit(EVENTS.VOICE_ERROR, {
+        error: 'mic-error',
+        message: err instanceof Error ? err.message : 'Failed to access microphone',
+      });
+    }
+  }
+
+  private stopWhisperRecording(): void {
+    this.isRecording = false;
+    eventBus.emit(EVENTS.VOICE_STOP);
+
+    // Stop mic and audio context
+    if (this.scriptProcessor) {
+      this.scriptProcessor.disconnect();
+      this.scriptProcessor = null;
+    }
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(t => t.stop());
+      this.mediaStream = null;
+    }
+    if (this.audioContext) {
+      this.audioContext.close().catch(() => {});
+      this.audioContext = null;
+    }
+
+    // Merge audio chunks into a single Float32Array
+    if (this.audioChunks.length === 0) {
+      console.warn('[SttService] No audio captured');
+      return;
+    }
+
+    const totalLength = this.audioChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const merged = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of this.audioChunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+    this.audioChunks = [];
+
+    console.log(`[SttService] Sending ${(totalLength / 16000).toFixed(1)}s of audio to Whisper worker`);
+    eventBus.emit(STT_EVENTS.TRANSCRIBING);
+
+    // Determine language for Whisper
+    const langMap: Record<string, string> = { 'en-US': 'english', 'fr-CA': 'french', 'fr-FR': 'french' };
+    const whisperLang = langMap[this._lang] || undefined;
+
+    // Send to worker
+    if (this.whisperWorker) {
+      this.whisperWorker.postMessage(
+        { type: 'transcribe', audio: merged, language: whisperLang },
+        [merged.buffer] // Transfer buffer for performance
+      );
+    }
+  }
+
+  // ── Public API ───────────────────────────────────────────────────────
+
   async startRecording(): Promise<void> {
     if (this.isRecording) return;
-
     this._transcript = '';
-    this.isRecording = true;
 
+    if (this.engine === 'whisper_local' && this._modelReady) {
+      await this.startWhisperRecording();
+    } else if (this.engine === 'whisper_local' && !this._modelReady) {
+      // Model not loaded yet — fall back to webspeech with a warning
+      console.warn('[SttService] Whisper model not ready, falling back to Web Speech');
+      eventBus.emit(EVENTS.VOICE_ERROR, {
+        error: 'model-not-ready',
+        message: 'Whisper model not loaded yet. Using Web Speech API as fallback.',
+      });
+      this.startWebSpeechRecording();
+    } else {
+      this.startWebSpeechRecording();
+    }
+  }
+
+  private startWebSpeechRecording(): void {
+    this.isRecording = true;
     if (this.recognition) {
       try {
         this.recognition.start();
@@ -141,11 +312,14 @@ export class SttService {
   stopRecording(): void {
     if (!this.isRecording) return;
 
-    this.isRecording = false;
-
-    if (this.recognition) {
-      this.recognition.stop();
-      eventBus.emit(EVENTS.VOICE_STOP);
+    if (this.engine === 'whisper_local' && this.audioContext) {
+      this.stopWhisperRecording();
+    } else {
+      this.isRecording = false;
+      if (this.recognition) {
+        this.recognition.stop();
+        eventBus.emit(EVENTS.VOICE_STOP);
+      }
     }
   }
 
@@ -188,7 +362,6 @@ export class SttService {
 
   /**
    * Switch STT engine. Stops any active recording first.
-   * Note: only 'webspeech' is functional. Whisper engines are no-ops until implemented.
    */
   setEngine(newEngine: SttEngine): void {
     if (this.isRecording) {
@@ -199,12 +372,17 @@ export class SttService {
 
     if (newEngine === 'webspeech') {
       this.initWebSpeech();
+    } else if (newEngine === 'whisper_local') {
+      this.initWhisperWorker();
+      // If a model was already set, reload it
+      if (this._whisperModel) {
+        this.loadModelInWorker(this._whisperModel);
+      }
     }
   }
 
   /**
-   * Set a Whisper model by ID or File. Currently a no-op placeholder —
-   * emits MODEL_STATUS 'ready' so the Settings UI flow completes.
+   * Set a Whisper model by ID or File. Loads the model in the worker.
    */
   setWhisperModel(modelIdOrFile: string | File): void {
     this._modelReady = false;
@@ -212,17 +390,29 @@ export class SttService {
     if (modelIdOrFile instanceof File) {
       this._whisperModel = `local:${modelIdOrFile.name}`;
       this._whisperModelFile = modelIdOrFile;
-    } else {
-      this._whisperModel = modelIdOrFile;
-      this._whisperModelFile = null;
+      // Local file models aren't supported by the HuggingFace pipeline directly.
+      // For now, show an error — only HuggingFace model IDs work with WASM.
+      eventBus.emit(STT_EVENTS.MODEL_STATUS, {
+        status: 'error',
+        message: 'Local file loading not supported yet. Use a HuggingFace model ID instead.',
+      });
+      return;
     }
 
-    eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message: `Loading model ${this._whisperModel}…` });
-    // No-op: emit ready so Settings UI doesn't hang
-    setTimeout(() => {
-      this._modelReady = true;
-      eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'ready' });
-    }, 100);
+    this._whisperModel = modelIdOrFile;
+    this._whisperModelFile = null;
+
+    this.initWhisperWorker();
+    this.loadModelInWorker(modelIdOrFile);
+  }
+
+  private loadModelInWorker(modelId: string): void {
+    if (!this.whisperWorker) {
+      this.initWhisperWorker();
+    }
+    console.log('[SttService] Loading Whisper model in worker:', modelId);
+    eventBus.emit(STT_EVENTS.MODEL_STATUS, { status: 'loading', message: `Loading model ${modelId}…` });
+    this.whisperWorker!.postMessage({ type: 'load', modelId });
   }
 
   get whisperModelFile(): File | null {
@@ -239,6 +429,19 @@ export class SttService {
   destroy(): void {
     this.stopRecording();
     this.recognition = null;
+
+    if (this.whisperWorker) {
+      this.whisperWorker.terminate();
+      this.whisperWorker = null;
+    }
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(t => t.stop());
+      this.mediaStream = null;
+    }
+    if (this.audioContext) {
+      this.audioContext.close().catch(() => {});
+      this.audioContext = null;
+    }
   }
 }
 

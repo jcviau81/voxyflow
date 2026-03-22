@@ -1,18 +1,19 @@
 /**
- * TtsService — Text-to-speech via browser speechSynthesis API.
+ * TtsService — Text-to-speech with two backends:
+ *   1. Browser speechSynthesis (default, no setup needed)
+ *   2. Remote XTTS server (higher quality, configurable URL)
  *
  * Usage:
- *   ttsService.speak("Hello!")   // Uses browser speechSynthesis
- *   ttsService.stop()            // Stops current playback
- *   ttsService.isSpeaking        // true while audio is playing
- *
- * NOTE: Server-side TTS (XTTS on Corsair) has been removed.
- * TTS is now 100% client-side via the Web Speech API.
+ *   ttsService.speak("Hello!")        // Uses configured backend
+ *   ttsService.stop()                 // Stops current playback
+ *   ttsService.isSpeaking             // true while audio is playing
+ *   ttsService.speakIfAutoPlay(text)  // Only speaks if auto-play is on
  */
 
 class TtsService {
   private _isSpeaking = false;
   private _onEndCallbacks: Array<() => void> = [];
+  private _currentAudio: HTMLAudioElement | null = null;
 
   get isSpeaking(): boolean {
     return this._isSpeaking;
@@ -35,24 +36,118 @@ class TtsService {
     }
   }
 
+  /** Read voice settings from localStorage */
+  private getVoiceSettings(): { tts_url: string; tts_voice: string; tts_speed: number; tts_auto_play: boolean } {
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        const v = settings?.voice;
+        if (v) {
+          return {
+            tts_url: v.tts_url || '',
+            tts_voice: v.tts_voice || 'default',
+            tts_speed: v.tts_speed ?? 1.0,
+            tts_auto_play: v.tts_auto_play ?? false,
+          };
+        }
+      }
+    } catch { /* ignore */ }
+    return { tts_url: '', tts_voice: 'default', tts_speed: 1.0, tts_auto_play: false };
+  }
+
   /**
-   * Synthesize and play the given text using browser speechSynthesis.
-   * Returns immediately if TTS is disabled or text is empty.
+   * Synthesize and play the given text.
+   * Uses server TTS if a URL is configured, otherwise falls back to browser speechSynthesis.
    */
   async speak(text: string): Promise<void> {
     if (!text.trim()) return;
+
+    // Stop previous playback
+    this.stop();
+
+    const { tts_url, tts_speed } = this.getVoiceSettings();
+
+    if (tts_url) {
+      await this.speakServer(text, tts_url, tts_speed);
+    } else {
+      await this.speakBrowser(text, tts_speed);
+    }
+  }
+
+  /** Play via remote XTTS server */
+  private async speakServer(text: string, serverUrl: string, speed: number): Promise<void> {
+    const lang = this.detectLanguage();
+    const langShort = lang.split('-')[0]; // 'en-US' → 'en'
+
+    console.log(`[TtsService] Speaking via server: ${serverUrl}`);
+    this._isSpeaking = true;
+
+    try {
+      const endpoint = serverUrl.replace(/\/+$/, '') + '/speak';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, language: langShort }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`TTS server returned ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+
+      return new Promise<void>((resolve) => {
+        const audio = new Audio(url);
+        this._currentAudio = audio;
+        audio.playbackRate = speed;
+
+        audio.onended = () => {
+          this._isSpeaking = false;
+          this._currentAudio = null;
+          URL.revokeObjectURL(url);
+          this._notifyEnd();
+          resolve();
+        };
+
+        audio.onerror = () => {
+          console.warn('[TtsService] Server audio playback error, falling back to browser');
+          this._isSpeaking = false;
+          this._currentAudio = null;
+          URL.revokeObjectURL(url);
+          this._notifyEnd();
+          // Fallback to browser TTS
+          this.speakBrowser(text, speed).then(resolve);
+        };
+
+        audio.play().catch((err) => {
+          console.warn('[TtsService] Failed to play server audio:', err);
+          this._isSpeaking = false;
+          this._currentAudio = null;
+          URL.revokeObjectURL(url);
+          this._notifyEnd();
+          resolve();
+        });
+      });
+    } catch (err) {
+      console.warn('[TtsService] Server TTS failed, falling back to browser:', err);
+      this._isSpeaking = false;
+      // Fallback to browser
+      await this.speakBrowser(text, speed);
+    }
+  }
+
+  /** Play via browser speechSynthesis */
+  private async speakBrowser(text: string, speed: number): Promise<void> {
     if (!('speechSynthesis' in window)) {
       console.warn('[TtsService] speechSynthesis not available in this browser');
       return;
     }
 
-    // Stop previous playback
-    this.stop();
-
     return new Promise<void>((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
 
-      // Try to pick a good voice
       const lang = this.detectLanguage();
       utterance.lang = lang;
 
@@ -62,7 +157,7 @@ class TtsService {
         if (preferred) utterance.voice = preferred;
       }
 
-      utterance.rate = 1.0;
+      utterance.rate = speed;
       utterance.pitch = 1.0;
 
       this._isSpeaking = true;
@@ -86,6 +181,13 @@ class TtsService {
 
   /** Stop current audio playback. */
   stop(): void {
+    // Stop server audio
+    if (this._currentAudio) {
+      this._currentAudio.pause();
+      this._currentAudio.src = '';
+      this._currentAudio = null;
+    }
+    // Stop browser speechSynthesis
     if ('speechSynthesis' in window) {
       speechSynthesis.cancel();
     }
@@ -125,14 +227,49 @@ class TtsService {
   /** Speak only if auto-play is enabled in settings. */
   async speakIfAutoPlay(text: string): Promise<void> {
     try {
-      const autoPlay = localStorage.getItem('tts_auto_play') !== 'false';
-      if (autoPlay && this.isEnabled) {
+      const { tts_auto_play } = this.getVoiceSettings();
+      if (tts_auto_play && this.isEnabled) {
         await this.speak(text);
       }
     } catch {
       // ignore
     }
   }
+
+  /**
+   * Strip markdown, code blocks, and system artifacts from text before speaking.
+   * Returns clean spoken text.
+   */
+  static cleanForSpeech(text: string): string {
+    let clean = text;
+    // Remove code blocks (```...```)
+    clean = clean.replace(/```[\s\S]*?```/g, '');
+    // Remove inline code (`...`)
+    clean = clean.replace(/`[^`]*`/g, '');
+    // Remove markdown headers
+    clean = clean.replace(/^#{1,6}\s+/gm, '');
+    // Remove markdown bold/italic
+    clean = clean.replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1');
+    clean = clean.replace(/_{1,3}([^_]+)_{1,3}/g, '$1');
+    // Remove markdown links [text](url) → text
+    clean = clean.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    // Remove markdown images
+    clean = clean.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
+    // Remove HTML tags
+    clean = clean.replace(/<[^>]+>/g, '');
+    // Remove delegate blocks
+    clean = clean.replace(/<delegate[\s\S]*?<\/delegate>/gi, '');
+    // Collapse whitespace
+    clean = clean.replace(/\n{2,}/g, '. ');
+    clean = clean.replace(/\n/g, ' ');
+    clean = clean.replace(/\s{2,}/g, ' ');
+    return clean.trim();
+  }
 }
 
 export const ttsService = new TtsService();
+
+/** Strip markdown, code blocks, and system artifacts from text before speaking. */
+export function cleanTextForSpeech(text: string): string {
+  return TtsService.cleanForSpeech(text);
+}

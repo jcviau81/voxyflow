@@ -16,6 +16,7 @@ import { SessionTabBar } from './SessionTabBar';
 import { ChatSearch } from './ChatSearch';
 import { SmartSuggestions } from './SmartSuggestions';
 import { codeReviewService } from '../../services/CodeReviewService';
+import { ttsService, cleanTextForSpeech } from '../../services/TtsService';
 import { openMeetingNotesModal } from './MeetingNotesModal';
 import { TaskPanel } from './TaskPanel';
 
@@ -551,6 +552,18 @@ export class ChatWindow {
    * Check if a message belongs to the currently active view/session.
    * Messages without a sessionId are rejected — they cannot be routed reliably.
    */
+  /** Auto-play TTS for assistant messages (skips enrichment/worker messages) */
+  private speakAssistantMessage(msg: Message): void {
+    if (msg.role !== 'assistant') return;
+    // Don't speak enrichment/deep layer or worker messages
+    if (msg.enrichment || msg.isWorkerResult) return;
+
+    const cleaned = cleanTextForSpeech(msg.content);
+    if (cleaned) {
+      ttsService.speakIfAutoPlay(cleaned);
+    }
+  }
+
   private shouldRenderMessage(message: Message): boolean {
     if (!message.sessionId) {
       console.warn('[ChatWindow] Rejecting message without sessionId', message.id);
@@ -692,6 +705,8 @@ export class ChatWindow {
           // Update smart suggestions based on AI response
           if (msg.role === 'assistant') {
             this.smartSuggestions?.onAiResponse(msg.content);
+            // Auto-play TTS for assistant responses (non-streamed)
+            this.speakAssistantMessage(msg);
           }
         } else {
           // Mark the session tab as having unread messages
@@ -742,6 +757,11 @@ export class ChatWindow {
         }
         // Update smart suggestions after stream ends
         this.smartSuggestions?.onAiResponse(content);
+        // Auto-play TTS for streamed assistant responses
+        const streamMsg = appState.getMessages().find((m) => m.id === messageId);
+        if (streamMsg) {
+          this.speakAssistantMessage(streamMsg);
+        }
       })
     );
 
