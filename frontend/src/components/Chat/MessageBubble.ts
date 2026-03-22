@@ -38,7 +38,11 @@ export class MessageBubble {
 
     // Avatar
     const avatar = createElement('div', { className: 'message-avatar' });
-    avatar.textContent = this.message.role === 'user' ? '👤' : this.message.enrichment ? '💭' : '🔥';
+    avatar.textContent = this.message.role === 'user' ? '👤' : this.message.enrichment ? '💭' : '🛡️';
+
+    // Sender name
+    const senderName = createElement('div', { className: 'message-sender-name' });
+    senderName.textContent = this.message.role === 'user' ? 'JC' : this.message.enrichment ? 'Deep' : 'Voxy';
 
     // Content wrapper
     const wrapper = createElement('div', { className: 'message-content-wrapper' });
@@ -83,6 +87,7 @@ export class MessageBubble {
     }
 
     this.element.appendChild(avatar);
+    wrapper.insertBefore(senderName, wrapper.firstChild);
     this.element.appendChild(wrapper);
 
     this.parentElement.appendChild(this.element);

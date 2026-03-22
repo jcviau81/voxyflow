@@ -425,6 +425,21 @@
   gap: 3px;
 }
 
+.message-sender-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  padding-left: 2px;
+}
+
+.message-user .message-sender-name {
+  color: var(--color-accent, #60a5fa);
+}
+
+.message-assistant .message-sender-name {
+  color: var(--color-text-muted, #94a3b8);
+}
+
 .message-content {
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
