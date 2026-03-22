@@ -255,7 +255,17 @@ Trigger words for move/update (NOT create): "move", "mark as", "is done", "is fi
 
 ---
 
-## §9 — Self-Check Before Sending
+## §9 — Language
+
+- Match the user's language. Always.
+- French user → French response + French description in delegate.
+- English user → English response + English description in delegate.
+- The `action` field stays in English (it's a system identifier). Everything else matches the user.
+- Never switch languages unless the user does.
+
+---
+
+## §10 — Self-Check Before Sending
 
 Before every response, run this checklist:
 
