@@ -1,4 +1,5 @@
 import { Card, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType, CardHistoryEntry } from '../../types';
+import { CodeMirrorEditor } from './CodeMirrorEditor';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -55,6 +56,8 @@ export class CardDetailModal {
   private modal: HTMLElement;
   private card: Card | null = null;
   private unsubscribers: (() => void)[] = [];
+  private codeMirrorEditor: CodeMirrorEditor | null = null;
+  private themeObserver: MutationObserver | null = null;
   private agents: AgentInfo[] = Object.entries(AGENT_TYPE_INFO).map(([type, info]) => ({
     type,
     name: info.name,
@@ -121,8 +124,20 @@ export class CardDetailModal {
   }
 
   close(): void {
+    this.destroyCodeMirror();
     this.overlay.classList.add('hidden');
     appState.selectCard(null);
+  }
+
+  private destroyCodeMirror(): void {
+    if (this.codeMirrorEditor) {
+      this.codeMirrorEditor.destroy();
+      this.codeMirrorEditor = null;
+    }
+    if (this.themeObserver) {
+      this.themeObserver.disconnect();
+      this.themeObserver = null;
+    }
   }
 
   private formatMinutes(minutes: number): string {
@@ -1259,6 +1274,7 @@ export class CardDetailModal {
 
   private renderContent(): void {
     if (!this.card) return;
+    this.destroyCodeMirror();
     this.modal.innerHTML = '';
 
     // Header
@@ -1306,6 +1322,54 @@ export class CardDetailModal {
     header.appendChild(duplicateBtn);
     header.appendChild(closeBtn);
 
+    // ── Two-column body ──────────────────────────────────────────────────────
+    const body = createElement('div', { className: 'modal-body-columns' });
+
+    // ── LEFT COLUMN (65%): Description editor + Chat ─────────────────────────
+    const leftCol = createElement('div', { className: 'modal-col-left' });
+
+    // Description — CodeMirror 6 editor
+    const descSection = createElement('div', { className: 'modal-section modal-desc-section' });
+    const descLabel = createElement('label', { className: 'modal-label' }, 'Description');
+
+    const cardIdForSave = this.card.id;
+    this.codeMirrorEditor = new CodeMirrorEditor({
+      initialValue: this.card.description || '',
+      placeholderText: 'Write card description... (Markdown supported)',
+      onSave: (value: string) => {
+        if (this.card) {
+          cardService.update(this.card.id, { description: value });
+        }
+      },
+    });
+
+    descSection.appendChild(descLabel);
+    descSection.appendChild(this.codeMirrorEditor.getElement());
+
+    // Watch for theme changes to refresh CodeMirror
+    this.themeObserver = new MutationObserver(() => {
+      if (this.codeMirrorEditor) {
+        this.codeMirrorEditor.refreshTheme();
+      }
+    });
+    this.themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+
+    // Chat placeholder (card-level chat)
+    const chatSection = createElement('div', { className: 'modal-section modal-chat-section' });
+    const chatLabel = createElement('label', { className: 'modal-label' }, '💬 Card Chat');
+    const chatPlaceholder = createElement('div', { className: 'card-chat-placeholder' }, 'Chat coming soon…');
+    chatSection.appendChild(chatLabel);
+    chatSection.appendChild(chatPlaceholder);
+
+    leftCol.appendChild(descSection);
+    leftCol.appendChild(chatSection);
+
+    // ── RIGHT COLUMN (35%): Metadata ─────────────────────────────────────────
+    const rightCol = createElement('div', { className: 'modal-col-right' });
+
     // Status buttons
     const statusRow = createElement('div', { className: 'modal-status-row' });
     for (const status of CARD_STATUSES) {
@@ -1325,21 +1389,8 @@ export class CardDetailModal {
       statusRow.appendChild(btn);
     }
 
-    // Description
-    const descSection = createElement('div', { className: 'modal-section' });
-    const descLabel = createElement('label', { className: 'modal-label' }, 'Description');
-    const descInput = createElement('textarea', {
-      className: 'modal-description',
-      placeholder: 'Add a description...',
-    }) as HTMLTextAreaElement;
-    descInput.value = this.card.description;
-    descInput.addEventListener('change', () => {
-      if (this.card) {
-        cardService.update(this.card.id, { description: descInput.value });
-      }
-    });
-    descSection.appendChild(descLabel);
-    descSection.appendChild(descInput);
+    // Vote section (priority)
+    const voteSection = this.buildVoteSection(this.card);
 
     // Agent assignment — chip selector
     const currentAgentType = this.card.agentType || 'ember';
@@ -1365,6 +1416,79 @@ export class CardDetailModal {
 
     agentSection.appendChild(agentLabel);
     agentSection.appendChild(agentSelector);
+
+    // Assignee & Watchers
+    const assigneeWatchersSection = this.buildAssigneeWatchersSection(this.card);
+
+    // Tags — colored pills with × to remove + inline input (Enter or comma to add)
+    const tagsSection = createElement('div', { className: 'modal-section' });
+    const tagsLabel = createElement('label', { className: 'modal-label' }, 'Tags');
+    const tagsContainer = createElement('div', { className: 'modal-tags' });
+
+    const renderTagPills = () => {
+      tagsContainer.innerHTML = '';
+      if (!this.card) return;
+
+      this.card.tags.forEach((tag) => {
+        const [bg, color] = getTagColorModal(tag);
+        const tagEl = createElement('span', { className: 'card-tag modal-card-tag', title: tag });
+        tagEl.style.background = bg;
+        tagEl.style.color = color;
+        const labelSpan = createElement('span', {}, tag);
+        const removeBtn = createElement('span', { className: 'tag-remove', title: `Remove "${tag}"` }, '×');
+        removeBtn.addEventListener('click', () => {
+          if (this.card) cardService.removeTag(this.card.id, tag);
+        });
+        tagEl.appendChild(labelSpan);
+        tagEl.appendChild(removeBtn);
+        tagsContainer.appendChild(tagEl);
+      });
+
+      // Tag input wrapper
+      const inputWrapper = createElement('div', { className: 'tag-input-wrapper' });
+      const tagInput = createElement('input', {
+        type: 'text',
+        className: 'tag-input-field',
+        placeholder: 'Add tag…',
+      }) as HTMLInputElement;
+
+      const commitTags = (raw: string) => {
+        const tags = raw.split(',').map((t) => t.trim()).filter(Boolean);
+        tags.forEach((tag) => {
+          if (this.card && !this.card.tags.includes(tag)) {
+            cardService.addTag(this.card.id, tag);
+          }
+        });
+        tagInput.value = '';
+      };
+
+      tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitTags(tagInput.value);
+        } else if (e.key === ',') {
+          e.preventDefault();
+          commitTags(tagInput.value);
+        } else if (e.key === 'Escape') {
+          tagInput.value = '';
+        }
+      });
+
+      // Commit on comma typed mid-string too
+      tagInput.addEventListener('input', () => {
+        if (tagInput.value.includes(',')) {
+          commitTags(tagInput.value);
+        }
+      });
+
+      inputWrapper.appendChild(tagInput);
+      tagsContainer.appendChild(inputWrapper);
+    };
+
+    renderTagPills();
+
+    tagsSection.appendChild(tagsLabel);
+    tagsSection.appendChild(tagsContainer);
 
     // Dependencies — multi-select with chips
     const depsSection = createElement('div', { className: 'modal-section' });
@@ -1437,75 +1561,23 @@ export class CardDetailModal {
     depsSection.appendChild(chipsContainer);
     depsSection.appendChild(addDepRow);
 
-    // Tags — colored pills with × to remove + inline input (Enter or comma to add)
-    const tagsSection = createElement('div', { className: 'modal-section' });
-    const tagsLabel = createElement('label', { className: 'modal-label' }, 'Tags');
-    const tagsContainer = createElement('div', { className: 'modal-tags' });
+    // Checklist
+    const checklistSection = this.buildChecklistSection(this.card.id);
 
-    const renderTagPills = () => {
-      tagsContainer.innerHTML = '';
-      if (!this.card) return;
+    // Attachments section
+    const attachmentsSection = this.buildAttachmentsSection(this.card.id);
 
-      this.card.tags.forEach((tag) => {
-        const [bg, color] = getTagColorModal(tag);
-        const tagEl = createElement('span', { className: 'card-tag modal-card-tag', title: tag });
-        tagEl.style.background = bg;
-        tagEl.style.color = color;
-        const labelSpan = createElement('span', {}, tag);
-        const removeBtn = createElement('span', { className: 'tag-remove', title: `Remove "${tag}"` }, '×');
-        removeBtn.addEventListener('click', () => {
-          if (this.card) cardService.removeTag(this.card.id, tag);
-        });
-        tagEl.appendChild(labelSpan);
-        tagEl.appendChild(removeBtn);
-        tagsContainer.appendChild(tagEl);
-      });
+    // Relations section
+    const relationsSection = this.buildRelationsSection(this.card);
 
-      // Tag input wrapper
-      const inputWrapper = createElement('div', { className: 'tag-input-wrapper' });
-      const tagInput = createElement('input', {
-        type: 'text',
-        className: 'tag-input-field',
-        placeholder: 'Add tag…',
-      }) as HTMLInputElement;
+    // Time tracking
+    const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
 
-      const commitTags = (raw: string) => {
-        const tags = raw.split(',').map((t) => t.trim()).filter(Boolean);
-        tags.forEach((tag) => {
-          if (this.card && !this.card.tags.includes(tag)) {
-            cardService.addTag(this.card.id, tag);
-          }
-        });
-        tagInput.value = '';
-      };
+    // Comments section
+    const commentsSection = this.buildCommentsSection(this.card.id);
 
-      tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          commitTags(tagInput.value);
-        } else if (e.key === ',') {
-          e.preventDefault();
-          commitTags(tagInput.value);
-        } else if (e.key === 'Escape') {
-          tagInput.value = '';
-        }
-      });
-
-      // Commit on comma typed mid-string too
-      tagInput.addEventListener('input', () => {
-        if (tagInput.value.includes(',')) {
-          commitTags(tagInput.value);
-        }
-      });
-
-      inputWrapper.appendChild(tagInput);
-      tagsContainer.appendChild(inputWrapper);
-    };
-
-    renderTagPills();
-
-    tagsSection.appendChild(tagsLabel);
-    tagsSection.appendChild(tagsContainer);
+    // History / Audit Log section
+    const historySection = this.buildHistorySection(this.card.id);
 
     // Metadata
     const metaSection = createElement('div', { className: 'modal-meta' });
@@ -1515,36 +1587,6 @@ export class CardDetailModal {
     metaSection.appendChild(
       createElement('span', {}, `Updated: ${formatTime(this.card.updatedAt)}`)
     );
-
-    // Assignee & Watchers
-    const assigneeWatchersSection = this.buildAssigneeWatchersSection(this.card);
-
-    // Checklist
-    const checklistSection = this.buildChecklistSection(this.card.id);
-
-    // Wire up enrich button now that descInput and checklistSection exist
-    const cardIdForEnrich = this.card.id;
-    enrichBtn.addEventListener('click', () => {
-      this.handleEnrich(cardIdForEnrich, descInput, checklistSection);
-    });
-
-    // Vote section
-    const voteSection = this.buildVoteSection(this.card);
-
-    // Time tracking
-    const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
-
-    // Comments section
-    const commentsSection = this.buildCommentsSection(this.card.id);
-
-    // Attachments section
-    const attachmentsSection = this.buildAttachmentsSection(this.card.id);
-
-    // Relations section
-    const relationsSection = this.buildRelationsSection(this.card);
-
-    // History / Audit Log section
-    const historySection = this.buildHistorySection(this.card.id);
 
     // Focus Mode button
     const focusSection = createElement('div', { className: 'modal-section modal-focus-section' });
@@ -1573,24 +1615,39 @@ export class CardDetailModal {
     });
     dangerZone.appendChild(deleteBtn);
 
-    // Assemble
+    // Wire up enrich button — create a dummy textarea adapter for backward compat
+    const descTextareaAdapter = document.createElement('textarea') as HTMLTextAreaElement;
+    Object.defineProperty(descTextareaAdapter, 'value', {
+      get: () => this.codeMirrorEditor ? this.codeMirrorEditor.getValue() : '',
+      set: (v: string) => { if (this.codeMirrorEditor) this.codeMirrorEditor.setValue(v); },
+    });
+    const cardIdForEnrich = this.card.id;
+    enrichBtn.addEventListener('click', () => {
+      this.handleEnrich(cardIdForEnrich, descTextareaAdapter, checklistSection);
+    });
+
+    // ── Assemble right column ────────────────────────────────────────────────
+    rightCol.appendChild(statusRow);
+    rightCol.appendChild(voteSection);
+    rightCol.appendChild(agentSection);
+    rightCol.appendChild(assigneeWatchersSection);
+    rightCol.appendChild(tagsSection);
+    rightCol.appendChild(depsSection);
+    rightCol.appendChild(relationsSection);
+    rightCol.appendChild(checklistSection);
+    rightCol.appendChild(attachmentsSection);
+    rightCol.appendChild(timeSection);
+    rightCol.appendChild(commentsSection);
+    rightCol.appendChild(historySection);
+    rightCol.appendChild(focusSection);
+    rightCol.appendChild(metaSection);
+    rightCol.appendChild(dangerZone);
+
+    // ── Assemble modal ───────────────────────────────────────────────────────
+    body.appendChild(leftCol);
+    body.appendChild(rightCol);
     this.modal.appendChild(header);
-    this.modal.appendChild(statusRow);
-    this.modal.appendChild(voteSection);
-    this.modal.appendChild(descSection);
-    this.modal.appendChild(agentSection);
-    this.modal.appendChild(assigneeWatchersSection);
-    this.modal.appendChild(depsSection);
-    this.modal.appendChild(relationsSection);
-    this.modal.appendChild(tagsSection);
-    this.modal.appendChild(checklistSection);
-    this.modal.appendChild(attachmentsSection);
-    this.modal.appendChild(timeSection);
-    this.modal.appendChild(commentsSection);
-    this.modal.appendChild(historySection);
-    this.modal.appendChild(focusSection);
-    this.modal.appendChild(metaSection);
-    this.modal.appendChild(dangerZone);
+    this.modal.appendChild(body);
   }
 
   update(): void {
@@ -1601,6 +1658,7 @@ export class CardDetailModal {
   }
 
   destroy(): void {
+    this.destroyCodeMirror();
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
     this.overlay.remove();
