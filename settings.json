@@ -12,7 +12,6 @@
     "warmth": "warm"
   },
   "models": {
-    "_comment": "api_key values are placeholders — routed through local proxy on :3457",
     "fast": {
       "provider_url": "http://localhost:3457/v1",
       "api_key": "sk-any",
@@ -44,12 +43,12 @@
     "whisper_model_id": "",
     "tts_enabled": true,
     "tts_auto_play": false,
-    "tts_url": "http://192.168.1.59:5500",  "_tts_comment": "Corsair local IP on JC's home network",
+    "tts_url": "http://192.168.1.59:5500",
     "tts_voice": "default",
     "tts_speed": 1.0,
     "volume": 80
   },
   "onboarding_complete": true,
-  "user_name": "Jim",
+  "user_name": "JC",
   "assistant_name": "Voxy"
 }

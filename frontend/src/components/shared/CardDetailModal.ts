@@ -260,7 +260,12 @@ export class CardDetailModal {
 
   private sendChatMessage(content: string): void {
     if (!content.trim() || !this.card) return;
-    chatService.sendMessage(content.trim(), undefined, undefined, this.sessionId);
+    chatService.sendMessage(
+      content.trim(),
+      this.card.projectId || undefined,
+      this.card.id,
+      this.sessionId
+    );
   }
 
   // ── Time helpers ──────────────────────────────────────────────────────────

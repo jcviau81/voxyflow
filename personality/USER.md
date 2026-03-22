@@ -1,8 +1,8 @@
 # USER.md — About You
 
 - **Name:** JC
-- **Preferred Language:** FR
-- **Timezone:** Montreal Eastern Time
+- **Preferred Language:** 
+- **Timezone:** 
 - **Notes:**
 
 ## Preferences
