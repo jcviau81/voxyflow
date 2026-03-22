@@ -399,20 +399,17 @@ class ChatOrchestrator:
                 analyzer_task.cancel()
             return
 
-        # --- Parse <delegate> blocks and emit to event bus (BACKGROUND — non-blocking) ---
+        # --- Parse delegates and emit to event bus (BACKGROUND — non-blocking) ---
         if session_id:
-            chat_response = ""
-            history = self._claude.get_history(chat_id)
-            for msg in reversed(history):
-                if msg.get("role") == "assistant":
-                    chat_response = msg.get("content", "")
-                    break
+            # Check for native tool_use delegates FIRST (collected by claude_service)
+            native_delegates = self._claude.pop_pending_delegates(chat_id)
 
-            # Fire and forget — delegates execute in background via DeepWorkerPool
-            if chat_response:
+            if native_delegates:
+                # Native path: structured delegate_action tool_use blocks
+                logger.info(f"[Orchestrator] Native delegate path: {len(native_delegates)} delegate(s) from tool_use")
                 asyncio.create_task(
-                    self._parse_and_emit_delegates_safe(
-                        fast_response=chat_response,
+                    self._emit_native_delegates_safe(
+                        delegates=native_delegates,
                         session_id=session_id,
                         websocket=websocket,
                         project_name=project_name,
@@ -422,6 +419,28 @@ class ChatOrchestrator:
                         project_id=project_id,
                     )
                 )
+            else:
+                # Fallback: parse <delegate> XML blocks from text response
+                chat_response = ""
+                history = self._claude.get_history(chat_id)
+                for msg in reversed(history):
+                    if msg.get("role") == "assistant":
+                        chat_response = msg.get("content", "")
+                        break
+
+                if chat_response:
+                    asyncio.create_task(
+                        self._parse_and_emit_delegates_safe(
+                            fast_response=chat_response,
+                            session_id=session_id,
+                            websocket=websocket,
+                            project_name=project_name,
+                            chat_level=chat_level,
+                            project_context=project_context,
+                            card_context=card_context,
+                            project_id=project_id,
+                        )
+                    )
 
         # --- Layer 3: Analyzer card suggestions (BACKGROUND — non-blocking) ---
         if analyzer_enabled and analyzer_task is not None:
@@ -487,6 +506,13 @@ class ChatOrchestrator:
         except Exception as e:
             logger.error(f"[Orchestrator] Background delegate parsing failed: {e}", exc_info=True)
 
+    async def _emit_native_delegates_safe(self, **kwargs) -> None:
+        """Wrapper for native delegate emission."""
+        try:
+            await self._emit_native_delegates(**kwargs)
+        except Exception as e:
+            logger.error(f"[Orchestrator] Native delegate emission failed: {e}", exc_info=True)
+
     async def _auto_extract_memories_safe(
         self,
         chat_id: str,
@@ -544,7 +570,78 @@ class ChatOrchestrator:
             logger.error(f"[Orchestrator] Background analyzer failed: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
-    # Event Bus: Delegate parsing
+    # Event Bus: Native delegate emission (tool_use path)
+    # ------------------------------------------------------------------
+
+    async def _emit_native_delegates(
+        self,
+        delegates: list[dict],
+        session_id: str,
+        websocket: "WebSocket",
+        project_name: str | None = None,
+        chat_level: str = "general",
+        project_context: dict | None = None,
+        card_context: dict | None = None,
+        project_id: str | None = None,
+    ) -> None:
+        """Convert native delegate_action tool_use blocks to ActionIntent events.
+
+        This is the structured counterpart to _parse_and_emit_delegates — same output,
+        but the input is already parsed JSON from Claude's tool_use (no regex needed).
+        """
+        if not delegates:
+            return
+
+        # Ensure worker pool is running for this session
+        if session_id not in self._worker_pools:
+            self.start_worker_pool(session_id, websocket)
+
+        bus = event_bus_registry.get_or_create(session_id)
+
+        for data in delegates:
+            intent = data.get("action", "unknown")
+            summary = data.get("summary", data.get("description", ""))
+            complexity = data.get("complexity", "simple")
+            model = data.get("model", "sonnet")
+            if model not in ("haiku", "sonnet", "opus"):
+                model = "sonnet"
+
+            task_id = f"task-{uuid4().hex[:8]}"
+
+            # Classify intent type (same logic as XML path)
+            if complexity == "complex" or model == "opus":
+                intent_type = "complex"
+            elif intent in ("create_card", "move_card", "update_card") or model == "haiku":
+                intent_type = "crud_simple"
+            else:
+                intent_type = "complex"
+
+            card_id = card_context.get("id") if card_context else None
+
+            event = ActionIntent(
+                task_id=task_id,
+                intent_type=intent_type,
+                intent=intent,
+                summary=summary,
+                data={
+                    "project_name": project_name,
+                    "chat_level": chat_level,
+                    "project_context": project_context,
+                    "card_context": card_context,
+                    "project_id": project_id,
+                    "card_id": card_id,
+                    **data,  # Include all fields from delegate_action
+                },
+                session_id=session_id,
+                complexity=complexity,
+                model=model,
+            )
+
+            await bus.emit(event)
+            logger.info(f"[Orchestrator] Emitted native delegate: {intent} → task {task_id} (model={model})")
+
+    # ------------------------------------------------------------------
+    # Event Bus: Delegate parsing (XML fallback)
     # ------------------------------------------------------------------
 
     _DELEGATE_PATTERN = re.compile(
