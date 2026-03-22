@@ -262,6 +262,27 @@ export class KanbanBoard {
     this.selectModeActive = false;
     this.selectedCardIds.clear();
 
+    // Fetch cards from backend into appState, then refresh
+    if (projectId) {
+      this.fetchAndSyncCards(projectId);
+    } else {
+      this.refreshCards();
+    }
+  }
+
+  private async fetchAndSyncCards(projectId: string): Promise<void> {
+    try {
+      const { apiClient } = await import('../../services/ApiClient');
+      const freshCards = await apiClient.fetchCards(projectId);
+      // Merge into appState: replace cards for this project
+      const currentCards = appState.get('cards');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const otherCards = currentCards.filter((c: any) => c.projectId !== projectId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      appState.set('cards', [...otherCards, ...freshCards] as any);
+    } catch (e) {
+      console.error('[KanbanBoard] fetchAndSyncCards error:', e);
+    }
     this.refreshCards();
   }
 

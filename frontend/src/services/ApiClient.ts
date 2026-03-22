@@ -1,4 +1,4 @@
-import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment } from '../types';
+import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, Card } from '../types';
 
 export interface SearchResult {
   message_id: string;
@@ -75,12 +75,15 @@ export class ApiClient {
       }
 
       case 'voxyflow.project.create':
-        eventBus.emit(EVENTS.PROJECT_SELECTED, null);
+        // Re-sync project list from backend so sidebar updates
+        this.syncProjectsFromBackend();
         eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Project created`, type: 'success' });
         break;
 
       case 'voxyflow.card.create':
-        eventBus.emit(EVENTS.CARD_CREATED, null);
+        // Re-sync project list (card counts) and re-fetch cards into appState
+        this.syncProjectsFromBackend();
+        this.syncCardsFromBackend(args.project_id as string);
         eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created`, type: 'success' });
         break;
 
@@ -96,6 +99,74 @@ export class ApiClient {
         eventBus.emit(EVENTS.TOAST_SHOW, { message: `🔧 Action: ${tool}`, type: 'info' });
         break;
     }
+  }
+
+  /**
+   * Re-fetch project list from backend and update AppState + sidebar.
+   * Debounced to avoid hammering when a worker creates many items at once.
+   */
+  private _syncTimer: ReturnType<typeof setTimeout> | null = null;
+  private syncProjectsFromBackend(): void {
+    if (this._syncTimer) clearTimeout(this._syncTimer);
+    this._syncTimer = setTimeout(async () => {
+      try {
+        const API_URL_BASE = process.env.VOXYFLOW_API_URL || '';
+        const [activeResp, archivedResp] = await Promise.all([
+          fetch(`${API_URL_BASE}/api/projects?archived=false`),
+          fetch(`${API_URL_BASE}/api/projects?archived=true`),
+        ]);
+        if (!activeResp.ok) return;
+        const activeRaw = await activeResp.json();
+        const archivedRaw = archivedResp.ok ? await archivedResp.json() : [];
+
+        const mapProject = (p: Record<string, unknown>) => ({
+          id: p.id as string,
+          name: (p.name || p.title || 'Untitled') as string,
+          description: (p.description || '') as string,
+          emoji: p.emoji as string | undefined,
+          color: p.color as string | undefined,
+          localPath: p.local_path as string | undefined,
+          createdAt: p.created_at ? new Date(p.created_at as string).getTime() : Date.now(),
+          updatedAt: p.updated_at ? new Date(p.updated_at as string).getTime() : Date.now(),
+          cards: (p.cards as string[]) || [],
+          archived: p.status === 'archived' || (p.archived as boolean) || false,
+        });
+
+        const projects = [
+          ...(Array.isArray(activeRaw) ? activeRaw.map(mapProject) : []),
+          ...(Array.isArray(archivedRaw) ? archivedRaw.map(mapProject) : []),
+        ];
+        appState.set('projects', projects);
+        eventBus.emit(EVENTS.PROJECT_CREATED);  // triggers sidebar re-render
+      } catch (e) {
+        console.error('[ApiClient] syncProjectsFromBackend failed:', e);
+      }
+    }, 500);  // 500ms debounce
+  }
+
+  /**
+   * Re-fetch cards for a specific project from backend and update AppState.
+   * Debounced per-project to avoid hammering when a worker creates many cards at once.
+   */
+  private _cardSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private syncCardsFromBackend(projectId?: string): void {
+    if (!projectId) return;
+    const existing = this._cardSyncTimers.get(projectId);
+    if (existing) clearTimeout(existing);
+    this._cardSyncTimers.set(projectId, setTimeout(async () => {
+      this._cardSyncTimers.delete(projectId);
+      try {
+        const freshCards = await this.fetchCards(projectId) as Card[];
+        // Replace cards for this project in appState
+        const otherCards = appState.get('cards').filter(
+          (c: Card) => c.projectId !== projectId
+        );
+        appState.set('cards', [...otherCards, ...freshCards] as Card[]);
+        eventBus.emit(EVENTS.CARD_CREATED, null); // triggers KanbanBoard.refreshCards()
+      } catch (e) {
+        console.error('[ApiClient] syncCardsFromBackend failed:', e);
+      }
+    }, 800));  // 800ms debounce — lets batch tool calls settle
   }
 
   connect(): void {

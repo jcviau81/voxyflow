@@ -94,10 +94,50 @@ function stripInternalBlocks(content: string): string {
 }
 
 /**
- * Render markdown string to sanitized HTML
+ * Close unclosed markdown fences/backticks so partial streaming content
+ * doesn't break the parser (marked treats a lone ` as the start of
+ * inline code and swallows everything after it).
  */
-export function renderMarkdown(content: string): string {
-  const cleaned = stripInternalBlocks(content);
+function closeUnmatchedBackticks(text: string): string {
+  // 1. Handle unclosed fenced code blocks (``` without closing ```)
+  const fenceMatches = text.match(/^```/gm);
+  if (fenceMatches && fenceMatches.length % 2 !== 0) {
+    text += '\n```';
+  }
+
+  // 2. Handle unclosed inline backticks.
+  //    Count backticks that are NOT inside fenced blocks.
+  //    We do a simple approach: after closing fences above,
+  //    check for unmatched single/double backticks outside fences.
+  const withoutFences = text.replace(/```[\s\S]*?```/g, '');
+  // Count double backticks first
+  const doubles = (withoutFences.match(/``/g) || []).length;
+  let remaining = withoutFences;
+  if (doubles % 2 !== 0) {
+    text += '``';
+    remaining = remaining.replace(/``/g, '');
+  } else {
+    remaining = remaining.replace(/``/g, '');
+  }
+  // Then single backticks
+  const singles = (remaining.match(/`/g) || []).length;
+  if (singles % 2 !== 0) {
+    text += '`';
+  }
+
+  return text;
+}
+
+/**
+ * Render markdown string to sanitized HTML.
+ * When streaming=true, unclosed backticks are auto-closed so the parser
+ * doesn't swallow trailing content.
+ */
+export function renderMarkdown(content: string, streaming = false): string {
+  let cleaned = stripInternalBlocks(content);
+  if (streaming) {
+    cleaned = closeUnmatchedBackticks(cleaned);
+  }
   const rawHtml = marked.parse(cleaned) as string;
   return DOMPurify.sanitize(rawHtml, PURIFY_CONFIG);
 }

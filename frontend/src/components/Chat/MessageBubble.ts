@@ -151,7 +151,7 @@ export class MessageBubble {
     if (!this.contentEl) return;
     const processed = replaceEmojiShortcodes(content);
     if (this.message.role === 'assistant') {
-      this.contentEl.innerHTML = renderMarkdown(processed);
+      this.contentEl.innerHTML = renderMarkdown(processed, !!this.message.streaming);
       addCodeCopyButtons(this.contentEl);
       enhanceImages(this.contentEl);
       this.addCodeReviewButtons(this.contentEl);

@@ -589,12 +589,32 @@ class PersonalityService:
             return self._build_sonnet_worker_prompt(chat_level, project, card)
 
     def _build_worker_context_section(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
-        """Build context section for worker prompts."""
+        """Build context section for worker prompts with full IDs and details."""
+        parts = []
         if chat_level == "card" and card and project:
-            return f"Project: {project.get('title', '?')} | Card: {card.get('title', '?')}"
+            parts.append(f"Project: {project.get('title', '?')} (project_id: {project.get('id', '?')})")
+            parts.append(f"Card: {card.get('title', '?')} (card_id: {card.get('id', '?')})")
+            parts.append(f"Card status: {card.get('status', '?')} | Priority: {card.get('priority', '?')}")
+            if card.get("description"):
+                parts.append(f"Card description: {card['description'][:300]}")
+            parts.append(
+                f"\nYou are operating on this specific card. "
+                f"Use card_id={card.get('id', '?')} for any card operations. "
+                f"Use project_id={project.get('id', '?')} for any project operations. "
+                f"Do NOT ask the user which card — you already know."
+            )
+            return "\n".join(parts)
         elif chat_level == "project" and project:
-            return f"Project: {project.get('title', '?')}"
-        return "Context: Main Chat"
+            parts.append(f"Project: {project.get('title', '?')} (project_id: {project.get('id', '?')})")
+            if project.get("description"):
+                parts.append(f"Description: {project['description'][:200]}")
+            parts.append(
+                f"\nYou are operating in this project's context. "
+                f"Use project_id={project.get('id', '?')} for any project/card operations. "
+                f"Do NOT ask the user which project — you already know."
+            )
+            return "\n".join(parts)
+        return "Context: Main Chat (no specific project or card selected)"
 
     def _build_haiku_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Haiku: Simple CRUD only. Fast, cheap, no ambiguity."""

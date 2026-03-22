@@ -739,6 +739,7 @@ class ClaudeService:
         project_context: Optional[dict] = None,
         card_context: Optional[dict] = None,
         project_id: Optional[str] = None,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
     ) -> str:
         """Execute a delegated task with the specified worker model (haiku/sonnet/opus)."""
         # Select client/model based on model param
@@ -781,6 +782,7 @@ class ClaudeService:
             client=client,
             client_type=client_type,
             use_tools=True,
+            tool_callback=tool_callback,
             layer=layer,
             chat_level=chat_level,
         )
@@ -1473,6 +1475,8 @@ class ClaudeService:
         tool_prompt = get_prompt_builder().build_tool_prompt(layer, chat_level)
         augmented_system = system + "\n\n" + tool_prompt if tool_prompt else system
 
+        logger.info(f"[ServerTools] layer={layer}, chat_level={chat_level}, tool_prompt_len={len(tool_prompt) if tool_prompt else 0}")
+
         api_messages = [{"role": "system", "content": augmented_system}]
         api_messages.extend(messages)
 
@@ -1499,19 +1503,25 @@ class ClaudeService:
             # Parse tool calls
             text_content, tool_calls = parser.parse(response_text)
 
+            logger.info(f"[ServerTools] Round {round_num + 1}: response_len={len(response_text)}, tool_calls={len(tool_calls)}, has_tool_call_tag={'<tool_call>' in response_text}")
+            if not tool_calls and '<tool_call>' not in response_text:
+                logger.info(f"[ServerTools] No tool calls found. Response tail: {response_text[-200:]!r}")
+
             if not tool_calls:
                 return response_text
 
             # Execute tools
             results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
 
-            # Fire callbacks
+            # Fire callbacks (supports both sync and async callbacks)
             if tool_callback:
                 for tc, result in zip(tool_calls, results):
                     try:
-                        tool_callback(tc.name, tc.arguments, result)
-                    except Exception:
-                        pass
+                        ret = tool_callback(tc.name, tc.arguments, result)
+                        if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
+                            await ret
+                    except Exception as e:
+                        logger.warning(f"[ServerTools] tool_callback error: {e}")
 
             # Build result injection
             result_blocks = []

@@ -124,16 +124,57 @@ class DeepWorkerPool:
             logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent} (model={event.model})")
 
             # Build a focused prompt for the executor
+            intent_lower = event.intent.lower()
+            is_move_or_update = any(kw in intent_lower for kw in [
+                "move", "update", "change_status", "complete", "finish",
+                "start_work", "mark_done", "mark_complete"
+            ])
+            
             execution_prompt = (
                 f"Execute this action:\n"
                 f"Intent: {event.intent}\n"
                 f"Summary: {event.summary}\n"
             )
+            
+            if is_move_or_update:
+                execution_prompt += (
+                    "\n⚠️ IMPORTANT: This is a MOVE/UPDATE operation on EXISTING cards.\n"
+                    "1. First call card.list to find the existing card(s) by name\n"
+                    "2. Then call card.move (for status change) or card.update (for content change)\n"
+                    "3. Do NOT create new cards — the cards already exist\n\n"
+                )
             if event.data:
                 # Pass relevant data but exclude internal context objects
                 action_data = {k: v for k, v in event.data.items()
                                if k not in ("project_context", "card_context")}
                 execution_prompt += f"Data: {json.dumps(action_data)}\n"
+
+            # Inject explicit card/project context so the worker knows
+            # exactly which card/project it is operating on.
+            _project_ctx = event.data.get("project_context")
+            _card_ctx = event.data.get("card_context")
+            if _card_ctx and _project_ctx:
+                execution_prompt += (
+                    f"\n## Current Context\n"
+                    f"You are operating in the context of card \"{_card_ctx.get('title', '?')}\" "
+                    f"(card_id: {_card_ctx.get('id', '?')}) in project \"{_project_ctx.get('title', '?')}\" "
+                    f"(project_id: {_project_ctx.get('id', '?')}).\n"
+                    f"Card status: {_card_ctx.get('status', '?')} | "
+                    f"Priority: {_card_ctx.get('priority', '?')}\n"
+                )
+                if _card_ctx.get("description"):
+                    execution_prompt += f"Card description: {_card_ctx['description'][:500]}\n"
+                execution_prompt += (
+                    f"Use card_id={_card_ctx.get('id', '?')} for any card operations. "
+                    f"Use project_id={_project_ctx.get('id', '?')} for any project operations.\n"
+                )
+            elif _project_ctx:
+                execution_prompt += (
+                    f"\n## Current Context\n"
+                    f"You are operating in the context of project \"{_project_ctx.get('title', '?')}\" "
+                    f"(project_id: {_project_ctx.get('id', '?')}).\n"
+                    f"Use project_id={_project_ctx.get('id', '?')} for any project/card operations.\n"
+                )
 
             # Use a dedicated chat_id for this task to avoid polluting main history
             task_chat_id = f"task-{event.task_id}"
@@ -144,15 +185,55 @@ class DeepWorkerPool:
                 "sessionId": event.session_id,
             })
 
+            # Infer chat_level from context — if we have a project, the worker
+            # needs project-level tools (card.create, card.update, etc.)
+            chat_level = event.data.get("chat_level", "general")
+            if chat_level == "general":
+                # Upgrade to project level if we have a project_id OR if the
+                # intent involves project/card operations (e.g. creating a
+                # project with cards from the main chat).
+                # EXCEPTION: "main_board" intents stay general so they get
+                # voxyflow.card.create_unassigned instead of card.create.
+                intent_lower = event.intent.lower()
+                is_main_board = "main_board" in intent_lower or "mainboard" in intent_lower
+                if not is_main_board and (
+                    event.data.get("project_id")
+                    or "project" in intent_lower
+                    or "card" in intent_lower
+                ):
+                    chat_level = "project"
+
+            # Build an async tool_callback that forwards tool:executed events
+            # to the frontend so the UI can refresh cards/projects in real-time.
+            async def _tool_callback(tool_name: str, arguments: dict, result: dict):
+                try:
+                    await self._ws.send_json({
+                        "type": "tool:executed",
+                        "payload": {
+                            "tool": tool_name,
+                            "args": arguments,
+                            "result": result,
+                            "sessionId": event.session_id,
+                            "taskId": event.task_id,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    })
+                    logger.info(f"[DeepWorker] Sent tool:executed for {tool_name}")
+                except Exception as e:
+                    logger.warning(f"[DeepWorker] Failed to send tool:executed event: {e}")
+
+            tool_callback = _tool_callback
+
             # Route to model-specific worker
             result_content = await self._claude.execute_worker_task(
                 chat_id=task_chat_id,
                 prompt=execution_prompt,
                 model=event.model,
-                chat_level=event.data.get("chat_level", "general"),
+                chat_level=chat_level,
                 project_context=event.data.get("project_context"),
                 card_context=event.data.get("card_context"),
                 project_id=event.data.get("project_id"),
+                tool_callback=tool_callback,
             )
 
             # Notify frontend: task completed
@@ -518,6 +599,9 @@ class ChatOrchestrator:
                 else:
                     intent_type = "complex"
 
+                # Extract card_id from card_context for direct access
+                card_id = card_context.get("id") if card_context else None
+
                 event = ActionIntent(
                     task_id=task_id,
                     intent_type=intent_type,
@@ -529,6 +613,7 @@ class ChatOrchestrator:
                         "project_context": project_context,
                         "card_context": card_context,
                         "project_id": project_id,
+                        "card_id": card_id,
                         **data,  # Include original delegate data
                     },
                     session_id=session_id,

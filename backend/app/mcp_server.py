@@ -814,6 +814,10 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
             "detail": data,
         }
 
+    # Ensure success flag is present so the frontend tool:executed handler
+    # can distinguish successes (it checks result.success).
+    if isinstance(data, dict) and "success" not in data:
+        data["success"] = True
     return data
 
 
