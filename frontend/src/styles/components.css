@@ -3962,6 +3962,49 @@
   50% { opacity: 0.5; }
 }
 
+/* ============= MESSAGE REACTIONS ============= */
+.message-reactions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.message-bubble:hover .message-reactions {
+  opacity: 0.4;
+}
+
+.message-bubble:hover .message-reactions:hover {
+  opacity: 1;
+}
+
+.reaction-btn {
+  font-size: 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  line-height: 1;
+}
+
+.reaction-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.reaction-btn.reaction-selected {
+  transform: scale(1.2);
+  opacity: 1 !important;
+}
+
+/* Keep selected reactions always visible */
+.message-reactions:has(.reaction-selected) {
+  opacity: 1;
+}
+
 /* ============= KEYBOARD SHORTCUTS MODAL ============= */
 .shortcuts-modal-overlay {
   position: fixed;

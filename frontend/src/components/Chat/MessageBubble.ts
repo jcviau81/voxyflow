@@ -3,6 +3,7 @@ import { createElement, formatTime } from '../../utils/helpers';
 import { renderMarkdown, addCodeCopyButtons, enhanceImages, replaceEmojiShortcodes } from '../../utils/markdown';
 import { ttsService } from '../../services/TtsService';
 import { codeReviewService } from '../../services/CodeReviewService';
+import { EVENTS } from '../../utils/constants';
 
 export class MessageBubble {
   private element: HTMLElement;
@@ -76,6 +77,11 @@ export class MessageBubble {
     wrapper.appendChild(this.contentEl);
     wrapper.appendChild(meta);
 
+    // Reaction buttons — assistant messages only (not enrichments)
+    if (this.message.role === 'assistant' && !this.message.enrichment) {
+      wrapper.appendChild(this.buildReactions());
+    }
+
     this.element.appendChild(avatar);
     this.element.appendChild(wrapper);
 
@@ -139,6 +145,54 @@ export class MessageBubble {
     });
 
     return btn;
+  }
+
+  private buildReactions(): HTMLElement {
+    const container = createElement('div', { className: 'message-reactions' });
+    const storageKey = `reaction:${this.message.id}`;
+    const saved = localStorage.getItem(storageKey);
+
+    const emojis = ['👍', '👎'] as const;
+    const buttons: HTMLButtonElement[] = [];
+
+    emojis.forEach((emoji) => {
+      const btn = createElement('button', {
+        className: 'reaction-btn',
+        type: 'button',
+        title: emoji,
+      }, emoji) as HTMLButtonElement;
+
+      if (saved === emoji) {
+        btn.classList.add('reaction-selected');
+      }
+
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const wasSelected = btn.classList.contains('reaction-selected');
+
+        // Clear all selections
+        buttons.forEach((b) => b.classList.remove('reaction-selected'));
+
+        if (wasSelected) {
+          localStorage.removeItem(storageKey);
+        } else {
+          btn.classList.add('reaction-selected');
+          localStorage.setItem(storageKey, emoji);
+        }
+
+        window.dispatchEvent(new CustomEvent(EVENTS.MESSAGE_REACTION, {
+          detail: {
+            messageId: this.message.id,
+            reaction: wasSelected ? null : emoji,
+          },
+        }));
+      });
+
+      buttons.push(btn);
+      container.appendChild(btn);
+    });
+
+    return container;
   }
 
   /** Extract plain text from rendered message content. */

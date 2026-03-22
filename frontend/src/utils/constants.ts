@@ -212,4 +212,7 @@ export const EVENTS = {
   TASK_STARTED: 'task:started',
   TASK_PROGRESS: 'task:progress',
   TASK_COMPLETED: 'task:completed',
+
+  // Message Reactions
+  MESSAGE_REACTION: 'chat:message:reaction',
 } as const;
