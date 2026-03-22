@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     fast_context_messages: int = 20
     deep_context_messages: int = 100
     analyzer_enabled: bool = True
+    delegate_safety_net_enabled: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

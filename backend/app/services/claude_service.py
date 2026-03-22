@@ -787,6 +787,39 @@ class ClaudeService:
             chat_level=chat_level,
         )
 
+    async def safety_net_generate_delegate(self, assistant_message: str) -> Optional[str]:
+        """Quick Haiku call to extract a missing delegate from an action-promising message.
+
+        Returns raw JSON string for the delegate, or None if extraction fails.
+        """
+        prompt = (
+            "The following assistant message promised an action but didn't include a "
+            "<delegate> block. Generate ONLY the JSON for the delegate.\n"
+            "Response must be a single JSON object with these fields:\n"
+            '  - "intent": action name (e.g. "create_card", "web_search", "run_command")\n'
+            '  - "model": "haiku" | "sonnet" | "opus" (pick the cheapest that fits)\n'
+            '  - "summary": one-line description of the action\n'
+            '  - "complexity": "simple" | "complex"\n'
+            "Include any extra fields relevant to the action (title, query, etc).\n"
+            "Output ONLY valid JSON, no markdown, no explanation.\n\n"
+            f"Message:\n{assistant_message}"
+        )
+        try:
+            result = await self._call_api(
+                model=self.haiku_model,
+                system="You are a JSON extraction tool. Output only valid JSON.",
+                messages=[{"role": "user", "content": prompt}],
+                client=self.haiku_client,
+                client_type=self.haiku_client_type,
+                use_tools=False,
+                layer="analyzer",
+                chat_level="general",
+            )
+            return result.strip() if result else None
+        except Exception as e:
+            logger.warning(f"[SafetyNet] Haiku delegate generation failed: {e}")
+            return None
+
     async def chat_deep(
         self,
         chat_id: str,

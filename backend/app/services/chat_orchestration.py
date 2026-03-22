@@ -569,6 +569,17 @@ class ChatOrchestrator:
         logger.info(f"[Orchestrator] Parsing delegates from response (len={len(fast_response)}), tail: {response_preview!r}")
         matches = self._DELEGATE_PATTERN.findall(fast_response)
         if not matches:
+            # Safety net: detect promised actions without delegate blocks
+            await self._detect_missing_delegate(
+                fast_response=fast_response,
+                session_id=session_id,
+                websocket=websocket,
+                project_name=project_name,
+                chat_level=chat_level,
+                project_context=project_context,
+                card_context=card_context,
+                project_id=project_id,
+            )
             return
 
         # Ensure worker pool is running for this session
@@ -626,6 +637,132 @@ class ChatOrchestrator:
 
             except (json.JSONDecodeError, Exception) as e:
                 logger.warning(f"[Orchestrator] Failed to parse delegate block: {e}")
+
+    # ------------------------------------------------------------------
+    # Safety Net: Detect missing delegates
+    # ------------------------------------------------------------------
+
+    # Action-intent phrases — if Voxy says these but no <delegate> was emitted,
+    # the safety net kicks in.
+    _ACTION_INTENT_PHRASES_FR = re.compile(
+        r"je\s+vais|je\s+te\s+cr[ée]e|je\s+cherche|je\s+lance|laisse[- ]moi"
+        r"|je\s+m['\u2019]en\s+occupe|je\s+regarde|je\s+v[ée]rifie",
+        re.IGNORECASE,
+    )
+    _ACTION_INTENT_PHRASES_EN = re.compile(
+        r"let\s+me|i['\u2019]ll\b|i\s+will\b|creating\b|searching\b"
+        r"|looking\s+into|checking\b",
+        re.IGNORECASE,
+    )
+    _ACTION_NOUNS = re.compile(
+        r"carte|card|recherche|search|fichier|file|commande|command",
+        re.IGNORECASE,
+    )
+
+    def _has_action_intent(self, text: str) -> bool:
+        """Return True if the text contains action-intent signals."""
+        if self._ACTION_INTENT_PHRASES_FR.search(text):
+            return True
+        if self._ACTION_INTENT_PHRASES_EN.search(text):
+            return True
+        return False
+
+    async def _detect_missing_delegate(
+        self,
+        fast_response: str,
+        session_id: str,
+        websocket: WebSocket,
+        project_name: str | None = None,
+        chat_level: str = "general",
+        project_context: dict | None = None,
+        card_context: dict | None = None,
+        project_id: str | None = None,
+    ) -> None:
+        """Safety net: if no <delegate> was found but the response promises an action,
+        use a quick Haiku call to generate the missing delegate and emit it."""
+        from app.config import get_settings
+        settings = get_settings()
+        if not settings.delegate_safety_net_enabled:
+            return
+
+        if not self._has_action_intent(fast_response):
+            logger.debug("[SafetyNet] No action-intent phrases detected, skipping")
+            return
+
+        logger.info("[SafetyNet] Detected action-intent without delegate — auto-generating")
+
+        raw_json = await self._claude.safety_net_generate_delegate(fast_response)
+        if not raw_json:
+            logger.warning("[SafetyNet] Haiku returned empty response, aborting")
+            return
+
+        # Strip markdown fences if Haiku wraps it
+        cleaned = raw_json.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
+
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            logger.warning(f"[SafetyNet] Failed to parse Haiku JSON: {e} — raw: {cleaned[:200]}")
+            return
+
+        intent = data.get("intent", data.get("action", "unknown"))
+        summary = data.get("summary", data.get("description", ""))
+        complexity = data.get("complexity", "simple")
+        model = data.get("model", "sonnet")
+        if model not in ("haiku", "sonnet", "opus"):
+            model = "sonnet"
+
+        task_id = f"task-{uuid4().hex[:8]}"
+
+        if complexity == "complex" or model == "opus":
+            intent_type = "complex"
+        elif intent in ("create_card", "move_card", "update_card") or model == "haiku":
+            intent_type = "crud_simple"
+        else:
+            intent_type = "complex"
+
+        card_id = card_context.get("id") if card_context else None
+
+        event = ActionIntent(
+            task_id=task_id,
+            intent_type=intent_type,
+            intent=intent,
+            summary=summary,
+            data={
+                "project_name": project_name,
+                "chat_level": chat_level,
+                "project_context": project_context,
+                "card_context": card_context,
+                "project_id": project_id,
+                "card_id": card_id,
+                "auto_recovered": True,
+                **data,
+            },
+            session_id=session_id,
+            complexity=complexity,
+            model=model,
+        )
+
+        # Ensure worker pool is running
+        if session_id not in self._worker_pools:
+            self.start_worker_pool(session_id, websocket)
+
+        bus = event_bus_registry.get_or_create(session_id)
+        await bus.emit(event)
+        logger.info(f"[SafetyNet] Emitted auto-recovered delegate: {intent} → task {task_id}")
+
+        # Notify frontend about the auto-recovery
+        try:
+            await websocket.send_json({
+                "type": "delegate:auto_recovered",
+                "payload": {"intent": intent, "taskId": task_id, "summary": summary},
+                "timestamp": int(time.time() * 1000),
+            })
+        except Exception as e:
+            logger.warning(f"[SafetyNet] Failed to send auto_recovered WS event: {e}")
 
     # ------------------------------------------------------------------
     # Internal: Context resolution
