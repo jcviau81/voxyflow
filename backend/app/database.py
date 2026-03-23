@@ -112,6 +112,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE projects ADD COLUMN is_system BOOLEAN NOT NULL DEFAULT 0"))
         if "deletable" not in proj_columns:
             await conn.execute(text("ALTER TABLE projects ADD COLUMN deletable BOOLEAN NOT NULL DEFAULT 1"))
+        if "is_favorite" not in proj_columns:
+            await conn.execute(text("ALTER TABLE projects ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT 0"))
 
         # Ensure the system "Main" project exists
         SYSTEM_MAIN_ID = "system-main"
@@ -214,6 +216,7 @@ class Project(Base):
     github_branch = Column(String, nullable=True)     # "main"
     github_language = Column(String, nullable=True)    # "TypeScript"
     local_path = Column(String, nullable=True)         # "~/projects/voxyflow"
+    is_favorite = Column(Boolean, default=False, nullable=False)  # User-pinned favorite
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

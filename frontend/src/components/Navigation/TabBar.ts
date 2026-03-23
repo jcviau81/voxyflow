@@ -3,6 +3,8 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { apiClient } from '../../services/ApiClient';
+import { showConfirmDialog } from '../Shared/ConfirmDialog';
 
 export class TabBar {
   private container: HTMLElement;
@@ -77,7 +79,7 @@ export class TabBar {
       }, '×');
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        appState.closeTab(tab.id);
+        this.handleCloseTab(tab);
       });
       tabEl.appendChild(closeBtn);
     }
@@ -91,11 +93,43 @@ export class TabBar {
     tabEl.addEventListener('auxclick', (e) => {
       if (e.button === 1 && tab.closable) {
         e.preventDefault();
-        appState.closeTab(tab.id);
+        this.handleCloseTab(tab);
       }
     });
 
     return tabEl;
+  }
+
+  /**
+   * Close a tab — if it has active sessions, show a confirmation dialog first.
+   */
+  private async handleCloseTab(tab: Tab): Promise<void> {
+    const sessions = appState.get('sessions')[tab.id] || [];
+
+    if (sessions.length > 0) {
+      const confirmed = await showConfirmDialog({
+        title: `Close ${tab.label}?`,
+        body: `This will close ${sessions.length} active session${sessions.length > 1 ? 's' : ''} for this project.`,
+        confirmLabel: 'Close',
+        cancelLabel: 'Cancel',
+        danger: true,
+      });
+      if (!confirmed) return;
+
+      // Send session:reset for all sessions in this project
+      for (const session of sessions) {
+        apiClient.send('session:reset', {
+          sessionId: session.chatId,
+          tabId: tab.id,
+        });
+      }
+      // Clear all sessions for this tab
+      for (const session of sessions) {
+        appState.closeSession(tab.id, session.id);
+      }
+    }
+
+    appState.closeTab(tab.id);
   }
 
   private handleNewProject(): void {
@@ -152,7 +186,7 @@ export class TabBar {
       const activeTab = tabs.find(t => t.id === activeId);
       if (activeTab?.closable) {
         e.preventDefault();
-        appState.closeTab(activeId);
+        this.handleCloseTab(activeTab);
       }
     }
   }

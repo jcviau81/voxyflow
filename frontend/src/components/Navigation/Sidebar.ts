@@ -1,8 +1,9 @@
-import { ViewMode } from '../../types';
+import { ViewMode, Project, SessionInfo } from '../../types';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, SYSTEM_PROJECT_ID } from '../../utils/constants';
 import { createElement, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { apiClient } from '../../services/ApiClient';
 interface FooterIcon {
   action: string;
   icon: string;
@@ -58,7 +59,76 @@ export class Sidebar {
     generalSection.appendChild(generalItem);
     content.appendChild(generalSection);
 
-    // Projects section
+    // Filter out the system project — it's represented by the "Main" entry at top
+    const allProjects = appState.get('projects').filter(p => !p.archived && p.id !== SYSTEM_PROJECT_ID);
+
+    // ── FAVORITES SECTION ──
+    const favorites = allProjects.filter(p => p.isFavorite);
+    if (favorites.length > 0) {
+      const favSection = createElement('div', { className: 'sidebar-favorites' });
+      const favHeader = createElement('div', { className: 'sidebar-section-header' });
+      favHeader.appendChild(createElement('span', {}, '⭐ FAVORITES'));
+      favSection.appendChild(favHeader);
+
+      favorites.forEach((proj) => {
+        favSection.appendChild(this.createProjectItem(proj, activeTabId));
+      });
+
+      content.appendChild(favSection);
+    }
+
+    // ── ACTIVE SESSIONS SECTION ──
+    const sessionEntries = this.getActiveSessionEntries();
+    if (sessionEntries.length > 0) {
+      const sessSection = createElement('div', { className: 'sidebar-sessions' });
+      const sessHeader = createElement('div', { className: 'sidebar-section-header' });
+      sessHeader.appendChild(createElement('span', {}, '💬 ACTIVE SESSIONS'));
+      sessSection.appendChild(sessHeader);
+
+      sessionEntries.forEach((entry) => {
+        const isCurrent = entry.tabId === activeTabId &&
+          appState.getActiveSession(entry.tabId).id === entry.session.id;
+
+        const item = createElement('div', {
+          className: cn('sidebar-session-item', isCurrent && 'active'),
+          title: entry.label,
+        });
+
+        // Status dot
+        const dot = createElement('span', {
+          className: 'sidebar-session-dot',
+        }, isCurrent ? '🟢' : '⚫');
+        item.appendChild(dot);
+
+        // Breadcrumb label
+        const label = createElement('span', { className: 'sidebar-session-label' }, entry.label);
+        item.appendChild(label);
+
+        // Close button
+        const closeBtn = createElement('span', {
+          className: 'sidebar-session-close',
+          title: 'Close session',
+        }, '×');
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.closeSession(entry.tabId, entry.session);
+        });
+        item.appendChild(closeBtn);
+
+        // Click to switch
+        item.addEventListener('click', () => {
+          appState.switchTab(entry.tabId);
+          appState.setActiveSession(entry.tabId, entry.session.id);
+          appState.setView('chat');
+        });
+
+        sessSection.appendChild(item);
+      });
+
+      content.appendChild(sessSection);
+    }
+
+    // ── PROJECTS SECTION ──
     const projectSection = createElement('div', { className: 'sidebar-projects' });
     const projectsHeader = createElement('div', {
       className: 'sidebar-section-header sidebar-section-header--clickable',
@@ -69,45 +139,12 @@ export class Sidebar {
     projectsHeader.addEventListener('click', () => appState.setView('projects'));
     projectSection.appendChild(projectsHeader);
 
-    // Filter out the system project — it's represented by the "Main" entry at top
-    const projects = appState.get('projects').filter(p => !p.archived && p.id !== SYSTEM_PROJECT_ID);
+    // Show non-favorite projects in the PROJECTS section
+    const nonFavorites = allProjects.filter(p => !p.isFavorite);
     const openTabs = appState.getOpenTabs();
 
-    projects.forEach((proj) => {
-      const isTabOpen = openTabs.some(t => t.id === proj.id);
-      const isActive = activeTabId === proj.id;
-
-      // Compute progress for this project
-      const cards = appState.getCardsByProject(proj.id);
-      const total = cards.length;
-      const done = cards.filter((c) => c.status === 'done').length;
-      const inProgress = cards.filter((c) => c.status === 'in-progress').length;
-      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      const dotColor = pct === 100 ? 'done' : pct >= 50 ? 'halfway' : pct > 0 ? 'started' : 'empty';
-      const tooltipText = total > 0
-        ? `${total} cards · ${done} done · ${inProgress} in progress · ${pct}%`
-        : 'No cards yet';
-
-      const item = createElement('div', {
-        className: cn('sidebar-project-item', isActive && 'active', isTabOpen && 'has-tab'),
-        'data-testid': `sidebar-project-${proj.id}`,
-        title: tooltipText,
-      });
-      item.appendChild(createElement('span', {}, proj.emoji || '📁'));
-      item.appendChild(createElement('span', { className: 'sidebar-project-name-text' }, proj.name || (proj as unknown as Record<string, string>).title || 'Untitled'));
-
-      // Progress dot (replaces plain active/tab dot)
-      const progressDot = createElement('span', {
-        className: `sidebar-progress-dot ${dotColor}`,
-        title: tooltipText,
-      });
-      item.appendChild(progressDot);
-
-      item.addEventListener('click', () => {
-        appState.openProjectTab(proj.id, proj.name || (proj as unknown as Record<string, string>).title || 'Untitled', proj.emoji);
-        appState.setView('chat');
-      });
-      projectSection.appendChild(item);
+    nonFavorites.forEach((proj) => {
+      projectSection.appendChild(this.createProjectItem(proj, activeTabId));
     });
 
     // New project button
@@ -221,6 +258,106 @@ export class Sidebar {
     }
   }
 
+  /**
+   * Create a project sidebar item with progress dot and favorite star.
+   */
+  private createProjectItem(proj: Project, activeTabId: string): HTMLElement {
+    const openTabs = appState.getOpenTabs();
+    const isTabOpen = openTabs.some(t => t.id === proj.id);
+    const isActive = activeTabId === proj.id;
+
+    // Compute progress for this project
+    const cards = appState.getCardsByProject(proj.id);
+    const total = cards.length;
+    const done = cards.filter((c) => c.status === 'done').length;
+    const inProgress = cards.filter((c) => c.status === 'in-progress').length;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const dotColor = pct === 100 ? 'done' : pct >= 50 ? 'halfway' : pct > 0 ? 'started' : 'empty';
+    const tooltipText = total > 0
+      ? `${total} cards · ${done} done · ${inProgress} in progress · ${pct}%`
+      : 'No cards yet';
+
+    const item = createElement('div', {
+      className: cn('sidebar-project-item', isActive && 'active', isTabOpen && 'has-tab'),
+      'data-testid': `sidebar-project-${proj.id}`,
+      title: tooltipText,
+    });
+
+    // Favorite star (toggle on click, stopPropagation to avoid opening project)
+    const star = createElement('span', {
+      className: 'sidebar-favorite-star',
+      title: proj.isFavorite ? 'Remove from favorites' : 'Add to favorites',
+    }, proj.isFavorite ? '⭐' : '☆');
+    star.addEventListener('click', (e) => {
+      e.stopPropagation();
+      apiClient.toggleFavorite(proj.id);
+    });
+    item.appendChild(star);
+
+    item.appendChild(createElement('span', { className: 'sidebar-project-name-text' }, proj.name || (proj as unknown as Record<string, string>).title || 'Untitled'));
+
+    // Progress dot
+    const progressDot = createElement('span', {
+      className: `sidebar-progress-dot ${dotColor}`,
+      title: tooltipText,
+    });
+    item.appendChild(progressDot);
+
+    item.addEventListener('click', () => {
+      appState.openProjectTab(proj.id, proj.name || (proj as unknown as Record<string, string>).title || 'Untitled', proj.emoji);
+      appState.setView('chat');
+    });
+
+    return item;
+  }
+
+  /**
+   * Collect all active sessions across all open tabs for the sidebar sessions section.
+   */
+  private getActiveSessionEntries(): Array<{ tabId: string; session: SessionInfo; label: string }> {
+    const entries: Array<{ tabId: string; session: SessionInfo; label: string }> = [];
+    const openTabs = appState.getOpenTabs();
+
+    for (const tab of openTabs) {
+      const sessions = appState.get('sessions')[tab.id];
+      if (!sessions || sessions.length === 0) continue;
+
+      for (const session of sessions) {
+        let label: string;
+        if (tab.id === 'main') {
+          label = session.title || 'Main Chat';
+        } else {
+          const project = appState.getProject(tab.id);
+          const projectName = project?.name || tab.label || 'Project';
+          label = `${projectName} > ${session.title || 'Session'}`;
+        }
+        entries.push({ tabId: tab.id, session, label });
+      }
+    }
+
+    return entries;
+  }
+
+  /**
+   * Close a session from the sidebar — sends session:reset via WS and removes from state.
+   */
+  private closeSession(tabId: string, session: SessionInfo): void {
+    apiClient.send('session:reset', {
+      sessionId: session.chatId,
+      tabId,
+    });
+
+    const sessions = appState.get('sessions')[tabId] || [];
+    if (sessions.length <= 1) {
+      // Last session: reset it (clear history, create fresh session)
+      appState.closeSession(tabId, session.id);
+      appState.createSession(tabId);
+    } else {
+      appState.closeSession(tabId, session.id);
+    }
+    this.render();
+  }
+
   private setupListeners(): void {
     this.unsubscribers.push(
       appState.subscribe('connectionState', (state) => {
@@ -259,6 +396,20 @@ export class Sidebar {
     // Re-render on notification count change (to update badge)
     this.unsubscribers.push(
       eventBus.on(EVENTS.NOTIFICATION_COUNT, () => this.render())
+    );
+
+    // Re-render on session changes (to update active sessions section)
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.SESSION_TAB_SWITCH, () => this.render())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.SESSION_TAB_CLOSE, () => this.render())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.SESSION_TAB_NEW, () => this.render())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.SESSION_TAB_UPDATE, () => this.render())
     );
 
     // Toggle sidebar shortcut (Ctrl+B)

@@ -31,6 +31,7 @@ class ProjectUpdate(BaseModel):
     github_branch: Optional[str] = None
     github_language: Optional[str] = None
     local_path: Optional[str] = None
+    is_favorite: Optional[bool] = None
 
 
 class ProjectResponse(BaseModel):
@@ -41,6 +42,7 @@ class ProjectResponse(BaseModel):
     context: str
     is_system: bool = False
     deletable: bool = True
+    is_favorite: bool = False
     github_repo: Optional[str] = None
     github_url: Optional[str] = None
     github_branch: Optional[str] = None

@@ -132,6 +132,7 @@ export class ApiClient {
           archived: p.status === 'archived' || (p.archived as boolean) || false,
           isSystem: (p.is_system as boolean) || false,
           deletable: p.deletable !== undefined ? (p.deletable as boolean) : true,
+          isFavorite: (p.is_favorite as boolean) || false,
         });
 
         const allProjects = [
@@ -463,6 +464,24 @@ export class ApiClient {
     } catch (error) {
       console.error('[ApiClient] patchCard error:', error);
       return null;
+    }
+  }
+
+  async toggleFavorite(projectId: string): Promise<boolean> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/favorite`, { method: 'PATCH' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      // Update local state
+      const project = appState.getProject(projectId);
+      if (project) {
+        appState.updateProject(projectId, { isFavorite: !!data.is_favorite });
+      }
+      return !!data.is_favorite;
+    } catch (error) {
+      console.error('[ApiClient] toggleFavorite error:', error);
+      return false;
     }
   }
 

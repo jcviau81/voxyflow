@@ -247,25 +247,23 @@ export class ChatWindow {
     const cardId = appState.get('selectedCardId');
     const card = cardId ? appState.getCard(cardId) : null;
 
-    // LEFT: Context title
-    const titleSection = createElement('div', {
-      className: 'header-title-section',
-      'data-testid': 'context-indicator',
-    });
-
+    // Only show top bar content for card-level chat (card title context)
+    // For general and project levels, ProjectHeader handles everything
     if (chatLevel === 'card' && card) {
+      const titleSection = createElement('div', {
+        className: 'header-title-section',
+        'data-testid': 'context-indicator',
+      });
       const title = createElement('span', { className: 'header-title' });
       title.textContent = card.title.length > 40
         ? card.title.substring(0, 40) + '...'
         : card.title;
       titleSection.appendChild(title);
-    } else if (chatLevel === 'project' && !this.isMainTab) {
-      // Project name + tabs are in shared ProjectHeader — don't duplicate here
+      topBar.appendChild(titleSection);
     } else {
-      // Main tab: ProjectHeader now handles title + view tabs — don't duplicate here
+      // Hide the bar entirely when not in card context
+      topBar.style.display = 'none';
     }
-
-    topBar.appendChild(titleSection);
 
     return topBar;
   }

@@ -67,6 +67,7 @@ export interface Project {
   githubUrl?: string;        // "https://github.com/owner/repo"
   githubBranch?: string;     // "main"
   githubLanguage?: string;   // "TypeScript"
+  isFavorite?: boolean;       // User-pinned favorite
 }
 
 export interface GitHubRepoInfo {

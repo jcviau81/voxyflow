@@ -387,6 +387,22 @@ async def update_project(
     return project
 
 
+@router.patch("/{project_id}/favorite", response_model=ProjectResponse)
+async def toggle_favorite(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle the is_favorite flag on a project."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    project.is_favorite = not project.is_favorite
+    project.updated_at = utcnow()
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
