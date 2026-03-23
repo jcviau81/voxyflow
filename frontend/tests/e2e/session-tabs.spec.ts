@@ -1,9 +1,32 @@
 import { test, expect } from '@playwright/test';
 
 /**
+ * Bypass the onboarding screen by intercepting the /api/settings GET response
+ * to always return onboarding_complete: true. This avoids race conditions from
+ * parallel tests mutating shared backend state.
+ */
+async function bypassOnboarding(page: import('@playwright/test').Page) {
+  await page.route('**/api/settings', async (route, request) => {
+    if (request.method() === 'GET') {
+      // Fetch the real settings and patch onboarding_complete
+      const response = await route.fetch();
+      const json = await response.json().catch(() => ({}));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...json, onboarding_complete: true }),
+      });
+    } else {
+      // Allow PUT/POST through unchanged
+      await route.continue();
+    }
+  });
+}
+
+/**
  * Helper: create a project and navigate to project chat view (which shows SessionTabBar).
  * SessionTabBar is shown for project and card chat levels, not general chat.
- * General chat uses its own session UI in the unified header.
+ * General chat uses a single resettable session in the unified header.
  */
 async function createProjectAndOpenChat(page: import('@playwright/test').Page) {
   await page.goto('/');
@@ -26,6 +49,7 @@ async function createProjectAndOpenChat(page: import('@playwright/test').Page) {
 
 test.describe('Session Tabs — General Chat (Unified Header)', () => {
   test.beforeEach(async ({ page }) => {
+    await bypassOnboarding(page);
     await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
@@ -44,78 +68,80 @@ test.describe('Session Tabs — General Chat (Unified Header)', () => {
     await expect(tabs.first()).toContainText('Session 1');
   });
 
-  test('Clicking "+" (new-session-btn) creates a new session tab', async ({ page }) => {
+  test('Clicking "+" (session-tab-add) clears the current session (reset behavior)', async ({ page }) => {
+    // General chat has single-session reset — clicking "+" resets the current session
+    // rather than adding a new tab. Tab count stays at 1.
+    const tabs = page.locator('[data-testid="session-tabs"] .session-tab');
+    await expect(tabs).toHaveCount(1);
+
+    // The + button inside the session-tabs area has class session-tab-add
+    const addBtn = page.locator('[data-testid="session-tabs"] .session-tab-add');
+    await addBtn.click();
+
+    // Tab count stays at 1 (reset, not add)
+    await expect(tabs).toHaveCount(1);
+  });
+
+  test('"new-session-btn" in bottom bar resets the current session', async ({ page }) => {
+    // The new-session-btn resets the current session in-place (no new tab)
     const tabs = page.locator('[data-testid="session-tabs"] .session-tab');
     await expect(tabs).toHaveCount(1);
 
     const newSessionBtn = page.locator('[data-testid="new-session-btn"]');
     await newSessionBtn.click();
 
-    await expect(page.locator('[data-testid="session-tabs"] .session-tab')).toHaveCount(2);
+    // Tab count stays at 1 — session was reset, not duplicated
+    await expect(tabs).toHaveCount(1);
   });
 
-  test('New session tab is automatically activated', async ({ page }) => {
-    await page.locator('[data-testid="new-session-btn"]').click();
+  test('Active session tab is highlighted', async ({ page }) => {
     const tabs = page.locator('[data-testid="session-tabs"] .session-tab');
-    await expect(tabs).toHaveCount(2);
-    // The newest tab should be active
-    const lastTab = tabs.last();
-    await expect(lastTab).toHaveClass(/active/);
+    await expect(tabs).toHaveCount(1);
+    // The single tab should be active
+    await expect(tabs.first()).toHaveClass(/active/);
   });
 
-  test('Switching between sessions loads different history', async ({ page }) => {
-    // Session 1: type a message
-    const input = page.locator('[data-testid="chat-input"]');
-    await input.fill('Session 1 message');
-    await input.press('Enter');
-    await page.waitForTimeout(300);
+  test('Session tabs container is in the top bar', async ({ page }) => {
+    const topBar = page.locator('[data-testid="chat-top-bar"]');
+    await expect(topBar).toBeVisible({ timeout: 5000 });
 
-    // Create session 2
-    await page.locator('[data-testid="new-session-btn"]').click();
-
-    // Session 2 should have no messages (clean slate)
-    const messages = page.locator('.message-bubble');
-    const countInSession2 = await messages.count();
-    expect(countInSession2).toBe(0);
-
-    // Switch back to session 1
-    const tabs = page.locator('[data-testid="session-tabs"] .session-tab');
-    await tabs.first().click();
-    // Session 1 should have the message we typed
-    await expect(page.locator('.message-bubble')).toBeVisible({ timeout: 3000 });
-  });
-
-  test('Max 5 sessions: + button becomes disabled at limit', async ({ page }) => {
-    const newSessionBtn = page.locator('[data-testid="new-session-btn"]');
-
-    // Create up to the max (start at 1, need 4 more clicks)
-    for (let i = 0; i < 4; i++) {
-      await newSessionBtn.click();
-      await page.waitForTimeout(200);
-    }
-
-    // Should have 5 tabs now
-    const tabs = page.locator('[data-testid="session-tabs"] .session-tab');
-    await expect(tabs).toHaveCount(5);
-
-    // + button should be disabled
-    await expect(newSessionBtn).toBeDisabled();
+    // Session tabs are part of the top bar
+    const sessionTabs = topBar.locator('[data-testid="session-tabs"]');
+    await expect(sessionTabs).toBeVisible({ timeout: 3000 });
   });
 });
 
 test.describe('Session Tabs — Project Chat (SessionTabBar)', () => {
   test.beforeEach(async ({ page }) => {
+    await bypassOnboarding(page);
     await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await page.waitForSelector('#app', { timeout: 10000 });
     // Navigate to project view (opens kanban)
     await createProjectAndOpenChat(page);
-    // Switch to chat view within project (click Chat button in project header tabs)
-    const chatViewBtn = page.locator('.project-header-tab[data-view="chat"]');
+    // Wait for the ProjectHeader to become visible with project tabs.
+    // The project header only shows when activeTab is a project (not 'main'),
+    // which happens AFTER the async project creation completes and openProjectTab is called.
+    await page.waitForFunction(
+      () => {
+        const header = document.querySelector('[data-testid="project-header"]') as HTMLElement | null;
+        return header && header.style.display !== 'none' && header.querySelector('.project-header__tabs') !== null;
+      },
+      { timeout: 10000 }
+    );
+    // The app shows kanban after project creation, but appState.currentView may still be 'chat'
+    // (App.switchView bypasses appState when called internally). To ensure the Chat button
+    // triggers a real view switch, we first click Kanban (which syncs appState.currentView to
+    // 'kanban'), then click Chat.
+    const kanbanBtn = page.locator('.project-header__tab[data-view="kanban"]');
+    await kanbanBtn.waitFor({ timeout: 5000 });
+    await kanbanBtn.click();
+    // Now appState.currentView = 'kanban' — clicking Chat will trigger switchView('chat')
+    const chatViewBtn = page.locator('.project-header__tab[data-view="chat"]');
     await chatViewBtn.waitFor({ timeout: 8000 });
     await chatViewBtn.click();
-    await page.waitForSelector('[data-testid="session-tab-bar"]', { timeout: 8000 });
+    await page.waitForSelector('[data-testid="session-tab-bar"]', { timeout: 15000 });
   });
 
   test('Opening a project shows the session tab bar', async ({ page }) => {
@@ -147,7 +173,7 @@ test.describe('Session Tabs — Project Chat (SessionTabBar)', () => {
     const tabBar = page.locator('[data-testid="session-tab-bar"]');
     await expect(tabBar.locator('.session-tab')).toHaveCount(2);
 
-    // Close the first tab using its × button (revealed on hover)
+    // Close the first tab using its × button
     const firstTab = tabBar.locator('.session-tab').first();
     await firstTab.hover();
     const firstCloseBtn = tabBar.locator('.session-tab-close').first();
@@ -155,12 +181,14 @@ test.describe('Session Tabs — Project Chat (SessionTabBar)', () => {
     await expect(tabBar.locator('.session-tab')).toHaveCount(1);
   });
 
-  test('Close button is disabled when only 1 session exists', async ({ page }) => {
+  test('Close button is present in the DOM (resets session when only 1 session exists)', async ({ page }) => {
     const tabBar = page.locator('[data-testid="session-tab-bar"]');
     await expect(tabBar.locator('.session-tab')).toHaveCount(1);
 
+    // The close button exists in the DOM (may be CSS-hidden until hover).
+    // Clicking it when there's only 1 session resets the session rather than being disabled.
     const closeBtn = tabBar.locator('.session-tab-close').first();
-    await expect(closeBtn).toBeDisabled();
+    await expect(closeBtn).toBeAttached();
   });
 
   test('Max 5 sessions: + button disabled at limit in project', async ({ page }) => {

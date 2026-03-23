@@ -392,6 +392,11 @@ export class ChatWindow {
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (this.sessions.length > 1) {
+          // Notify backend BEFORE removing from local state so sessionId is still valid
+          apiClient.send('session:reset', {
+            chatLevel: 'general',
+            sessionId: session.id,
+          });
           // Remove session, switch to another
           this.sessions = this.sessions.filter(s => s.id !== session.id);
           if (this.activeSessionId === session.id) {
@@ -400,7 +405,11 @@ export class ChatWindow {
           this.updateChatControls();
           this.reloadMessages();
         } else {
-          // Last session: reset
+          // Last session: notify backend BEFORE resetting
+          apiClient.send('session:reset', {
+            chatLevel: 'general',
+            sessionId: session.id,
+          });
           this.sessions = [{ id: generateId(), label: 'Session 1' }];
           this.activeSessionId = this.sessions[0].id;
           this.updateChatControls();
@@ -814,6 +823,22 @@ export class ChatWindow {
         this.refreshContextComponents();
         this.reloadMessages();
         this.updateChatControls();
+      })
+    );
+
+    // Tab close — send session:reset for ALL sessions belonging to the closed tab
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TAB_CLOSE, (data: unknown) => {
+        const tabId = typeof data === 'string' ? data : (data as { tabId?: string })?.tabId;
+        if (!tabId) return;
+        // Retrieve all sessions for this tab before they are cleaned up
+        const closedSessions = appState.getSessions(tabId);
+        closedSessions.forEach((session) => {
+          apiClient.send('session:reset', {
+            sessionId: session.chatId,
+            tabId,
+          });
+        });
       })
     );
 

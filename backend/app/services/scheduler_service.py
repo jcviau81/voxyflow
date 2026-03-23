@@ -109,12 +109,25 @@ class SchedulerService:
             misfire_grace_time=300,
         )
 
+        # Session cleanup job — runs once per day at 03:00 UTC
+        self._scheduler.add_job(
+            self._session_cleanup_job,
+            trigger="cron",
+            hour=3,
+            minute=0,
+            id="session_cleanup",
+            name="Session File Cleanup (30-day TTL)",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+
         self._scheduler.start()
         logger.info(
             f"✅ SchedulerService started "
             f"(heartbeat every {heartbeat_interval_minutes}m, "
             f"RAG index every {rag_index_interval_minutes}m, "
-            f"recurrence check every 1h)"
+            f"recurrence check every 1h, "
+            f"session cleanup daily at 03:00 UTC)"
         )
 
     def stop(self) -> None:
@@ -378,6 +391,56 @@ class SchedulerService:
 
         except Exception as e:
             logger.error(f"[RAGIndex] unexpected error: {e}", exc_info=True)
+
+    async def _session_cleanup_job(self, max_age_days: int = 30) -> None:
+        """
+        Periodic cleanup of session files older than *max_age_days* (default 30).
+
+        Walks the session store directory recursively and removes any .json
+        session files whose modification time is older than the threshold.
+        Archived files (.archived-*.json) are also cleaned up.
+
+        Safe: errors per-file are caught individually so one bad file never
+        aborts the whole cleanup pass.
+        """
+        try:
+            import os
+            import time as _time
+            from pathlib import Path
+
+            from app.services.session_store import session_store
+
+            cutoff_epoch = _time.time() - (max_age_days * 86400)
+            sessions_dir: Path = session_store.sessions_dir
+
+            if not sessions_dir.exists():
+                logger.debug("[SessionCleanup] sessions dir does not exist — skipping")
+                return
+
+            deleted = 0
+            errors = 0
+
+            for path in sessions_dir.rglob("*.json"):
+                try:
+                    mtime = path.stat().st_mtime
+                    if mtime < cutoff_epoch:
+                        path.unlink(missing_ok=True)
+                        deleted += 1
+                        logger.debug(f"[SessionCleanup] Deleted stale session file: {path}")
+                except Exception as file_err:
+                    errors += 1
+                    logger.warning(f"[SessionCleanup] Could not remove {path}: {file_err}")
+
+            if deleted or errors:
+                logger.info(
+                    f"[SessionCleanup] Done — deleted {deleted} stale file(s) "
+                    f"(>{max_age_days}d), {errors} error(s)"
+                )
+            else:
+                logger.debug(f"[SessionCleanup] No stale session files found (threshold: {max_age_days}d)")
+
+        except Exception as e:
+            logger.error(f"[SessionCleanup] unexpected error: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
     # Health status

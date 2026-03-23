@@ -322,8 +322,13 @@ class ChatOrchestrator:
         chat_level: str = "general",
         card_id: str | None = None,
         session_id: str | None = None,
-    ) -> None:
-        """Full 3-layer orchestration for a single user message."""
+    ) -> list[asyncio.Task]:
+        """Full 3-layer orchestration for a single user message.
+
+        Returns a list of background asyncio.Task objects created during this
+        invocation so the caller can cancel them on disconnect (Fix 3).
+        """
+        _bg_tasks: list[asyncio.Task] = []
 
         # Resolve project/card context from the database
         project_context, card_context, project_names = await self._resolve_context(
@@ -359,6 +364,7 @@ class ChatOrchestrator:
                     chat_id=chat_id, message=content, project_context=""
                 )
             )
+            _bg_tasks.append(analyzer_task)
 
         # --- Chat response: Fast XOR Deep (mutually exclusive) ---
         if deep_enabled:
@@ -397,7 +403,7 @@ class ChatOrchestrator:
         if not chat_success:
             if analyzer_task:
                 analyzer_task.cancel()
-            return
+            return _bg_tasks
 
         # --- Parse delegates and emit to event bus (BACKGROUND — non-blocking) ---
         if session_id:
@@ -407,7 +413,7 @@ class ChatOrchestrator:
             if native_delegates:
                 # Native path: structured delegate_action tool_use blocks
                 logger.info(f"[Orchestrator] Native delegate path: {len(native_delegates)} delegate(s) from tool_use")
-                asyncio.create_task(
+                _t = asyncio.create_task(
                     self._emit_native_delegates_safe(
                         delegates=native_delegates,
                         session_id=session_id,
@@ -419,6 +425,7 @@ class ChatOrchestrator:
                         project_id=project_id,
                     )
                 )
+                _bg_tasks.append(_t)
             else:
                 # Fallback: parse <delegate> XML blocks from text response
                 chat_response = ""
@@ -429,7 +436,7 @@ class ChatOrchestrator:
                         break
 
                 if chat_response:
-                    asyncio.create_task(
+                    _t = asyncio.create_task(
                         self._parse_and_emit_delegates_safe(
                             fast_response=chat_response,
                             session_id=session_id,
@@ -441,10 +448,11 @@ class ChatOrchestrator:
                             project_id=project_id,
                         )
                     )
+                    _bg_tasks.append(_t)
 
         # --- Layer 3: Analyzer card suggestions (BACKGROUND — non-blocking) ---
         if analyzer_enabled and analyzer_task is not None:
-            asyncio.create_task(
+            _t = asyncio.create_task(
                 self._run_analyzer_layer_safe(
                     websocket=websocket,
                     analyzer_task=analyzer_task,
@@ -453,18 +461,21 @@ class ChatOrchestrator:
                     send_model_status=send_model_status,
                 )
             )
+            _bg_tasks.append(_t)
 
         # --- Memory auto-extraction (BACKGROUND — non-blocking) ---
-        asyncio.create_task(
+        _t = asyncio.create_task(
             self._auto_extract_memories_safe(
                 chat_id=chat_id,
                 user_message=content,
                 project_name=project_name,
             )
         )
+        _bg_tasks.append(_t)
 
         # handle_message returns HERE — WS handler is free for next message
         logger.debug("[Orchestrator] handle_message returning (delegates + analyzer in background)")
+        return _bg_tasks
 
     # ------------------------------------------------------------------
     # Session management
@@ -481,7 +492,17 @@ class ChatOrchestrator:
     # ------------------------------------------------------------------
 
     def start_worker_pool(self, session_id: str, websocket: WebSocket) -> DeepWorkerPool:
-        """Create and start a DeepWorkerPool for a session."""
+        """Create and start a DeepWorkerPool for a session.
+
+        If a pool already exists for this session_id (e.g. rapid reconnect),
+        stop it first to prevent orphaned listener tasks.
+        """
+        # Fix 2: stop any existing pool before creating a new one
+        existing = self._worker_pools.pop(session_id, None)
+        if existing:
+            logger.info(f"[ChatOrchestrator] Stopping existing pool for {session_id} before creating new one")
+            asyncio.create_task(existing.stop())
+
         bus = event_bus_registry.get_or_create(session_id)
         pool = DeepWorkerPool(self._claude, bus, websocket)
         pool.start()
