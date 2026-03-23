@@ -36,7 +36,7 @@ PERSONAS: dict[AgentType, AgentPersona] = {
     AgentType.GENERAL: AgentPersona(
         agent_type=AgentType.GENERAL,
         name="General",
-        emoji="🛡️",
+        emoji="⚡",
         description="Default assistant. Handles general tasks and coordinates specialists.",
         system_prompt=(
             "You are the default assistant. Handle this task with your natural personality.\n"
