@@ -1,7 +1,6 @@
 """Agent Personas — specialized Claude variants for different task types."""
 
 from enum import Enum
-from typing import Optional
 from pydantic import BaseModel
 
 

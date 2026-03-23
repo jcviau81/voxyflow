@@ -13,7 +13,7 @@ import threading
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List
 
 DATA_DIR = Path(os.environ.get(
     "VOXYFLOW_DATA",

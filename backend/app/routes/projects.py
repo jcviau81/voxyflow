@@ -889,7 +889,7 @@ async def project_health_check(project_id: str, db: AsyncSession = Depends(get_d
     """Analyse project health and return a score, grade, strengths, issues, and recommendations."""
     from sqlalchemy.orm import selectinload as slo
 
-    from app.database import CardRelation, ChecklistItem
+    from app.database import CardRelation
     stmt = (
         select(Project)
         .options(

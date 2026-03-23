@@ -12,7 +12,6 @@ Memory failure NEVER breaks chat. If chromadb is not installed, memory falls
 back to the original file-based approach (graceful degradation).
 """
 
-import hashlib
 import logging
 import os
 import re

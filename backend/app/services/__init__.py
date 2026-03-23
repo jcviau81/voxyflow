@@ -2,7 +2,6 @@
 #
 # Core services:
 #   claude_service     — Claude API calls (Fast + Deep layers), personality-infused
-#   chat_service       — Conversation management and persistence
 #   analyzer_service   — Card detection from conversation + agent routing
 #
 # Personality layer:

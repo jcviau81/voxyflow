@@ -7,8 +7,6 @@ Provides:
 - Health status dict with timestamps exposed via /api/health
 """
 
-from __future__ import annotations
-
 import logging
 from datetime import datetime, timezone
 from typing import Optional

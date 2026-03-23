@@ -14,8 +14,6 @@ RAG failure NEVER breaks chat. If chromadb is not installed, RAG silently
 disables itself (graceful degradation via ImportError catch at module load).
 """
 
-from __future__ import annotations
-
 import hashlib
 import logging
 import os

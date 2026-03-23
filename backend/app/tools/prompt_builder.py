@@ -7,7 +7,7 @@ and lists the available tools with their parameters.
 import logging
 from typing import Optional
 
-from app.tools.registry import ToolRegistry, ToolDefinition, get_registry, _LAYER_TOOL_SETS, TOOLS_READ_ONLY
+from app.tools.registry import ToolRegistry, ToolDefinition, get_registry
 
 logger = logging.getLogger(__name__)
 

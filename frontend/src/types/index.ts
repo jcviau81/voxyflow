@@ -224,15 +224,6 @@ export interface SttResult {
   isFinal: boolean;
 }
 
-export interface StorageQuery {
-  field?: string;
-  value?: unknown;
-  limit?: number;
-  offset?: number;
-  orderBy?: string;
-  order?: 'asc' | 'desc';
-}
-
 export interface ToastOptions {
   message: string;
   type: 'info' | 'success' | 'warning' | 'error';

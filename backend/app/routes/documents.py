@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import Document, Project, async_session, get_db, new_uuid, utcnow
+from app.database import Document, Project, get_db, new_uuid, utcnow
 from app.models.document import DocumentListResponse, DocumentResponse
 from app.services.document_parser import UnsupportedFileType, get_document_parser_registry
 from app.services.rag_service import get_rag_service

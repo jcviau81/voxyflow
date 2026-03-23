@@ -3,7 +3,7 @@
 import logging
 from typing import Optional
 
-from app.services.agent_personas import AgentType, AgentPersona, PERSONAS, get_persona
+from app.services.agent_personas import AgentType, get_persona
 
 logger = logging.getLogger(__name__)
 
@@ -156,33 +156,6 @@ class AgentRouter:
             "all_scores": all_scores,
         }
 
-    def suggest_reassignment(
-        self,
-        current_agent: AgentType,
-        title: str,
-        description: str = "",
-        context: str = "",
-    ) -> Optional[AgentType]:
-        """
-        Check if a card should be reassigned to a different agent.
-
-        Returns new agent type if a better match exists, None otherwise.
-        Only suggests if the new agent is significantly better.
-        """
-        new_agent, new_confidence = self.route(title, description, context)
-
-        if new_agent == current_agent:
-            return None
-
-        # Only suggest reassignment if new agent is clearly better
-        if new_confidence > 0.6:
-            logger.info(
-                f"Suggesting reassignment: {current_agent.value} → {new_agent.value} "
-                f"(confidence={new_confidence:.2f})"
-            )
-            return new_agent
-
-        return None
 
 
 # Module-level singleton

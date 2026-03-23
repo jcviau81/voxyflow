@@ -9,8 +9,6 @@ POST   /api/jobs/{id}/run → trigger job immediately
 Jobs are persisted to ~/.voxyflow/jobs.json.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import os

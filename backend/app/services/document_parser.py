@@ -5,8 +5,6 @@ Phase 1: .txt, .md, .markdown support.
 Phase 2: PDF, DOCX, XLSX support (graceful — skipped if deps missing).
 """
 
-from __future__ import annotations
-
 import re
 import logging
 from abc import ABC, abstractmethod

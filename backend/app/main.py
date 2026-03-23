@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db, SYSTEM_MAIN_PROJECT_ID
-from app.routes import chats, projects, cards, voice, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace
+from app.routes import chats, projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.chat_orchestration import ChatOrchestrator
@@ -131,7 +131,6 @@ app.add_middleware(
 app.include_router(chats.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(cards.router, prefix="/api")
-app.include_router(voice.router, prefix="/api")
 app.include_router(techdetect.router)
 app.include_router(github.router, prefix="/api")
 app.include_router(settings.router)

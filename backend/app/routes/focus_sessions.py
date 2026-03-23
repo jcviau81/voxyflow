@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, FocusSession, Card, Project, new_uuid, utcnow
+from app.database import get_db, FocusSession, Card, Project, new_uuid
 
 router = APIRouter(tags=["focus-sessions"])
 

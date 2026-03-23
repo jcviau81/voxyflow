@@ -8,7 +8,6 @@ This module provides the HTTP transport layer for the MCP server.
 The actual tool logic lives in app/mcp_server.py.
 """
 
-import json
 import logging
 from typing import AsyncGenerator
 

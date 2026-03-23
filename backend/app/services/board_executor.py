@@ -15,7 +15,6 @@ from uuid import uuid4
 from fastapi import WebSocket
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Card, Project, async_session
 

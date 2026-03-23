@@ -16,15 +16,7 @@ export const RECONNECT_BASE_DELAY = 1000; // ms
 export const RECONNECT_MAX_DELAY = 30000; // ms
 export const HEARTBEAT_INTERVAL = 30000; // 30s
 
-// Storage
-export const DB_NAME = 'voxyflow';
-export const DB_VERSION = 1;
-export const STORAGE_TABLES = ['messages', 'projects', 'cards', 'settings'] as const;
-export const AUTO_BACKUP_INTERVAL = 300000; // 5 min
-
 // UI
-export const MOBILE_BREAKPOINT = 768;
-export const TABLET_BREAKPOINT = 1024;
 export const TOAST_DURATION = 4000; // ms
 export const STREAMING_CHAR_DELAY = 15; // ms per character for streaming effect
 export const STREAMING_SAFETY_TIMEOUT = 30000; // 30s — force-end streaming if no completion arrives
@@ -32,7 +24,6 @@ export const MAX_MESSAGE_LENGTH = 10000;
 
 // Kanban
 export const CARD_STATUSES = ['idea', 'todo', 'in-progress', 'done'] as const;
-export const ALL_CARD_STATUSES = ['card', 'idea', 'todo', 'in-progress', 'done'] as const;
 export const CARD_STATUS_LABELS: Record<string, string> = {
   'card': '📝 Card',
   'idea': '💡 Idea',
@@ -71,17 +62,6 @@ export const AGENT_TYPE_INFO: Record<string, { name: string; emoji: string; desc
   writer: { name: 'Writer', emoji: '✍️', description: 'Content & documentation' },
   qa: { name: 'QA', emoji: '🧪', description: 'Testing & quality assurance' },
 };
-
-// Keyboard shortcuts
-export const SHORTCUTS = {
-  VOICE_TOGGLE: 'Alt+V',
-  SEND_MESSAGE: 'Enter',
-  NEW_LINE: 'Shift+Enter',
-  TOGGLE_SIDEBAR: 'Ctrl+B',
-  SWITCH_CHAT: 'Ctrl+1',
-  SWITCH_KANBAN: 'Ctrl+2',
-  SWITCH_PROJECTS: 'Ctrl+3',
-} as const;
 
 // Events
 export const EVENTS = {
@@ -152,7 +132,6 @@ export const EVENTS = {
   IDEA_SUGGESTION: 'ideas:suggestion',
   IDEA_ADDED: 'ideas:added',
   IDEA_DELETED: 'ideas:deleted',
-  IDEA_PROMOTE: 'ideas:promote',
 
   // Main Board Cards
   MAIN_BOARD_UPDATED: 'mainboard:updated',
@@ -161,7 +140,6 @@ export const EVENTS = {
 
   // Settings
   SETTINGS_OPEN: 'settings:open',
-  SETTINGS_CLOSE: 'settings:close',
   DOCS_OPEN: 'settings:docs:open',
   HELP_OPEN: 'settings:help:open',
 

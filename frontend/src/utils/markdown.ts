@@ -242,13 +242,3 @@ const EMOJI_SHORTCODES: Record<string, string> = {
 export function replaceEmojiShortcodes(text: string): string {
   return text.replace(/:[a-z_]+:/g, (match) => EMOJI_SHORTCODES[match] || match);
 }
-
-/**
- * Auto-detect and linkify bare URLs in plain text
- */
-export function linkifyUrls(text: string): string {
-  const urlRegex = /(?<!["\(=])https?:\/\/[^\s<>\])"']+/g;
-  return text.replace(urlRegex, (url) => {
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
-  });
-}
