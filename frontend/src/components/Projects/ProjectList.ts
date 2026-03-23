@@ -404,8 +404,9 @@ export class ProjectList {
       }
       deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (confirm(`Delete project "${project.name}"?`)) {
-          projectService.delete(project.id);
+        // Active projects get archived (safe), not deleted
+        if (confirm(`Archive project "${project.name}"? You can restore it later from the Archived tab.`)) {
+          projectService.archive(project.id);
         }
       });
 
