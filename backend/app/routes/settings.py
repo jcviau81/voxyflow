@@ -7,13 +7,50 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import json
 import os
+import logging
 from pathlib import Path
+from sqlalchemy import text
+
+from app.database import async_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow")))
 SETTINGS_FILE = str(VOXYFLOW_DIR / "settings.json")
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
+
+
+async def _load_settings_from_db() -> dict | None:
+    """Load settings from SQLite. Returns None if not found."""
+    try:
+        async with async_session() as session:
+            result = await session.execute(
+                text("SELECT value FROM app_settings WHERE key = 'app_settings'")
+            )
+            row = result.fetchone()
+            if row:
+                return json.loads(row[0])
+    except Exception as e:
+        logger.warning("Failed to load settings from DB: %s", e)
+    return None
+
+
+async def _save_settings_to_db(data: dict):
+    """Save settings to SQLite (upsert)."""
+    try:
+        async with async_session() as session:
+            await session.execute(
+                text(
+                    "INSERT INTO app_settings (key, value) VALUES ('app_settings', :val) "
+                    "ON CONFLICT(key) DO UPDATE SET value = :val"
+                ),
+                {"val": json.dumps(data)},
+            )
+            await session.commit()
+    except Exception as e:
+        logger.warning("Failed to save settings to DB: %s", e)
 
 
 class PersonalitySettings(BaseModel):
@@ -99,30 +136,51 @@ def _resolve_personality_path(rel_path: str) -> Path:
 
 @router.get("")
 async def get_settings():
-    """Load settings from file."""
+    """Load settings: DB first, then settings.json fallback, then defaults.
+
+    If DB is empty but settings.json exists, migrate into DB automatically.
+    """
+    # 1. Try DB (source of truth)
+    db_data = await _load_settings_from_db()
+    if db_data is not None:
+        return db_data
+
+    # 2. Fallback to settings.json — and migrate into DB
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE) as f:
-            return json.load(f)
+            file_data = json.load(f)
+        await _save_settings_to_db(file_data)
+        logger.info("Migrated settings from settings.json into SQLite")
+        return file_data
+
+    # 3. Defaults
     return AppSettings().dict()
 
 
 @router.put("")
 async def save_settings(settings: AppSettings):
-    """Save settings to file."""
+    """Save settings to DB (source of truth) and settings.json (backup)."""
+    data = settings.dict()
+
+    # Write to DB
+    await _save_settings_to_db(data)
+
+    # Dual-write to settings.json for backward compat
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings.dict(), f, indent=2)
+        json.dump(data, f, indent=2)
+
     return {"status": "saved"}
 
 
 @router.get("/personality/preview")
 async def preview_personality():
     """Preview current personality files content."""
-    settings = AppSettings()
-    if os.path.exists(SETTINGS_FILE):
+    data = await _load_settings_from_db()
+    if data is None and os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE) as f:
             data = json.load(f)
-            settings = AppSettings(**data)
+    settings = AppSettings(**data) if data else AppSettings()
 
     previews = {}
     for field, label in [

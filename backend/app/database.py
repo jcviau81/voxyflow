@@ -96,6 +96,13 @@ async def init_db():
                 ended_at DATETIME NOT NULL
             )
         """))
+        # Ensure app_settings table exists (key-value store for app config)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """))
 
 
 # ---------------------------------------------------------------------------
