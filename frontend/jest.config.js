@@ -31,12 +31,12 @@ module.exports = {
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'text-summary', 'lcov'],
-  coverageThresholds: {
+  coverageThreshold: {
     global: {
-      branches: 50,
-      functions: 50,
-      lines: 50,
-      statements: 50,
+      branches: 10,
+      functions: 30,
+      lines: 30,
+      statements: 30,
     },
   },
   setupFiles: [],

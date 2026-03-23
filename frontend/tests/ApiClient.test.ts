@@ -66,6 +66,7 @@ describe('ApiClient', () => {
 
   afterEach(() => {
     client.close();
+    jest.clearAllTimers();
     jest.useRealTimers();
   });
 
@@ -73,13 +74,13 @@ describe('ApiClient', () => {
 
   test('should connect to WebSocket', () => {
     client.connect();
-    jest.runAllTimers();
+    jest.advanceTimersByTime(100);
     expect(client.connected).toBe(true);
   });
 
   test('should emit connected state', () => {
     client.connect();
-    jest.runAllTimers();
+    jest.advanceTimersByTime(100);
     expect(client.connected).toBe(true);
   });
 
@@ -89,7 +90,7 @@ describe('ApiClient', () => {
     const handler = jest.fn();
     client.on('chat:response', handler);
     client.connect();
-    jest.runAllTimers();
+    jest.advanceTimersByTime(100);
 
     // Get the mock WebSocket instance — it was created during connect()
     // We can't easily access it here, so we test the handler registration
@@ -143,7 +144,7 @@ describe('ApiClient', () => {
 
   test('should close cleanly', () => {
     client.connect();
-    jest.runAllTimers();
+    jest.advanceTimersByTime(100);
     client.close();
     expect(client.connected).toBe(false);
   });
@@ -152,7 +153,7 @@ describe('ApiClient', () => {
 
   test('should attempt reconnection on disconnect', () => {
     client.connect();
-    jest.runAllTimers();
+    jest.advanceTimersByTime(100);
 
     // The actual reconnection logic is hard to test without deeper mocking
     // but we verify the client handles close gracefully
