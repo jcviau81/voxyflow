@@ -3,6 +3,7 @@ import { eventBus } from '../utils/EventBus';
 import { EVENTS, STREAMING_CHAR_DELAY, STREAMING_SAFETY_TIMEOUT, AGENT_PERSONAS, SYSTEM_PROJECT_ID } from '../utils/constants';
 import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
+import { sttService } from './SttService';
 import { generateId, sleep } from '../utils/helpers';
 import { ModelStatusBar } from '../components/Navigation/ModelStatusBar';
 // TTS auto-play is handled centrally by ChatWindow (via MESSAGE_RECEIVED / MESSAGE_STREAM_END events)
@@ -279,26 +280,24 @@ export class ChatService {
       })
     );
 
-    // Handle voice transcripts — debounce auto-send to avoid sending fragments
-    // Wait 3.5s of true silence before sending so natural pauses between sentences
-    // don't trigger premature sends (was 2s, caused 10+ fragmented messages).
+    // Handle voice transcripts — SttService now sends the full accumulated text.
+    // On isFinal: start/reset a 3s silence timer. When it fires, auto-send the message.
     this.unsubscribers.push(
       eventBus.on(EVENTS.VOICE_TRANSCRIPT, (result: unknown) => {
         const { transcript, isFinal } = result as { transcript: string; isFinal: boolean };
+        const autoSend = this.getVoiceSetting('stt_auto_send', false);
+
+        // Always fill the textarea with the current combined text
+        eventBus.emit('voice:fill-input', { text: transcript.trim() });
+
         if (isFinal && transcript.trim()) {
-          const autoSend = this.getVoiceSetting('stt_auto_send', false);
           if (autoSend) {
-            // Accumulate final fragments and wait for sustained silence before sending
-            this.voiceAutoSendBuffer += (this.voiceAutoSendBuffer ? ' ' : '') + transcript.trim();
+            // Store the full accumulated transcript from SttService
+            this.voiceAutoSendBuffer = transcript.trim();
             if (this.voiceAutoSendTimer) clearTimeout(this.voiceAutoSendTimer);
             this.voiceAutoSendTimer = setTimeout(() => {
               this.flushVoiceAutoSend();
-            }, 3500);
-            // Broadcast accumulated buffer so UI can show the full pending message
-            eventBus.emit('voice:buffer-update', { text: this.voiceAutoSendBuffer });
-          } else {
-            // Fill the input box instead of auto-sending
-            eventBus.emit('voice:fill-input', { text: transcript.trim() });
+            }, 3000);
           }
         }
       })
@@ -571,7 +570,13 @@ export class ChatService {
     if (this.voiceAutoSendBuffer) {
       this.sendMessage(this.voiceAutoSendBuffer, undefined, undefined, this.activeSessionId);
       this.voiceAutoSendBuffer = '';
+      // Clear SttService's finalized buffer so next recording starts fresh
+      sttService.clearBuffer();
+      // Clear the textarea and transcript display
+      eventBus.emit('voice:fill-input', { text: '' });
       eventBus.emit('voice:buffer-update', { text: '' });
+      // Stop recording for a clean cycle: tap → speak → auto-send → mic stops → tap again
+      eventBus.emit('voice:recording-stop');
     }
   }
 

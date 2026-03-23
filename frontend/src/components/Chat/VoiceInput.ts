@@ -91,7 +91,7 @@ export class VoiceInput {
   }
 
   private setupListeners(): void {
-    // Transcript updates — show individual fragments as they arrive
+    // Transcript updates — SttService now sends the full combined text (finalized + interim)
     this.unsubscribers.push(
       eventBus.on(EVENTS.VOICE_TRANSCRIPT, (result: unknown) => {
         const { transcript, isFinal } = result as SttResult;
@@ -100,23 +100,15 @@ export class VoiceInput {
           this.transcriptEl.classList.remove('hidden');
           this.transcriptEl.classList.toggle('final', isFinal);
         }
-        // Don't auto-hide on isFinal — buffer-update will manage visibility
       })
     );
 
-    // Show the accumulated auto-send buffer so user sees the full pending message
+    // Buffer flushed after auto-send — hide transcript display
     this.unsubscribers.push(
       eventBus.on('voice:buffer-update', (data: unknown) => {
         const { text } = data as { text: string };
-        if (this.transcriptEl) {
-          if (text) {
-            this.transcriptEl.textContent = text;
-            this.transcriptEl.classList.remove('hidden');
-            this.transcriptEl.classList.add('final');
-          } else {
-            // Buffer flushed (sent) — hide transcript
-            this.transcriptEl.classList.add('hidden');
-          }
+        if (this.transcriptEl && !text) {
+          this.transcriptEl.classList.add('hidden');
         }
       })
     );
@@ -166,6 +158,15 @@ export class VoiceInput {
     this.unsubscribers.push(
       eventBus.on(STT_EVENTS.TRANSCRIBE_DONE, () => {
         this.setTranscribingState(false);
+      })
+    );
+
+    // Auto-send completed — stop recording for a clean cycle
+    this.unsubscribers.push(
+      eventBus.on('voice:recording-stop', () => {
+        if (sttService.recording) {
+          this.stopRecording();
+        }
       })
     );
 

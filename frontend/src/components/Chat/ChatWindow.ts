@@ -60,6 +60,9 @@ export class ChatWindow {
   private boundHandleInputChange: (() => void) | null = null;
   private boundHandlePaste: ((e: ClipboardEvent) => void) | null = null;
 
+  // Mode 2: Native dictation / paste auto-send debounce timer
+  private dictationAutoSendTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'chat-window', 'data-testid': 'chat-window' });
     chatService.activeSessionId = this.activeSessionId;
@@ -632,13 +635,15 @@ export class ChatWindow {
     this.unsubscribers.push(
       eventBus.on('voice:fill-input', (data: unknown) => {
         const { text } = data as { text: string };
-        if (this.textInput && text) {
-          this.textInput.value = text;
-          this.textInput.focus();
+        if (this.textInput) {
+          this.textInput.value = text || '';
           // Trigger auto-resize
           this.textInput.style.height = 'auto';
           this.textInput.style.height = Math.min(this.textInput.scrollHeight, 150) + 'px';
-          this.hideWelcomeIfNeeded();
+          if (text) {
+            this.textInput.focus();
+            this.hideWelcomeIfNeeded();
+          }
         }
       })
     );
@@ -1170,6 +1175,33 @@ export class ChatWindow {
     } else {
       this.slashMenu?.hide();
     }
+
+    // Mode 2: Native dictation / paste auto-send
+    // When auto-send is ON and the custom mic (Mode 1) is NOT active,
+    // debounce-send after 3s of inactivity. Works with Android/iOS native
+    // dictation, paste, or any keyboard input.
+    if (this.dictationAutoSendTimer) {
+      clearTimeout(this.dictationAutoSendTimer);
+      this.dictationAutoSendTimer = null;
+    }
+    if (val.trim() && !appState.get('voiceActive') && this.isAutoSendEnabled()) {
+      this.dictationAutoSendTimer = setTimeout(() => {
+        this.dictationAutoSendTimer = null;
+        this.sendCurrentMessage();
+      }, 3000);
+    }
+  }
+
+  /** Check if voice auto-send is enabled in settings */
+  private isAutoSendEnabled(): boolean {
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        return settings?.voice?.stt_auto_send === true;
+      }
+    } catch { /* ignore */ }
+    return false;
   }
 
   private executeSlashCommand(cmd: SlashCommand): void {
@@ -1288,6 +1320,12 @@ export class ChatWindow {
     const content = this.textInput.value.trim();
     if (!content) return;
 
+    // Clear Mode 2 dictation debounce timer (manual send or Enter key)
+    if (this.dictationAutoSendTimer) {
+      clearTimeout(this.dictationAutoSendTimer);
+      this.dictationAutoSendTimer = null;
+    }
+
     const contextTabId = this.getContextTabId();
     const sessionId = appState.getActiveChatId(contextTabId);
 
@@ -1402,6 +1440,10 @@ export class ChatWindow {
   }
 
   destroy(): void {
+    if (this.dictationAutoSendTimer) {
+      clearTimeout(this.dictationAutoSendTimer);
+      this.dictationAutoSendTimer = null;
+    }
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
     if (this.messageList && this.boundHandleScroll) {

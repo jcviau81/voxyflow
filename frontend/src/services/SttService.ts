@@ -42,6 +42,10 @@ export class SttService {
   private audioContext: AudioContext | null = null;
   private audioChunks: Float32Array[] = [];
   private scriptProcessor: ScriptProcessorNode | null = null;
+  /** Track last finalized result index to avoid re-processing on mobile (resultIndex stays 0) */
+  private lastFinalResultIndex = -1;
+  /** Accumulated finalized transcript segments across multiple onresult events */
+  private finalizedBuffer = '';
 
   constructor() {
     this.engine = 'webspeech';
@@ -61,34 +65,38 @@ export class SttService {
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimTranscript = '';
-      let finalTranscript = '';
+      let hasNewFinal = false;
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
-          finalTranscript += result[0].transcript;
+          // Skip final results we've already processed — on mobile Chrome,
+          // resultIndex can stay at 0, causing old finals to be re-emitted
+          if (i <= this.lastFinalResultIndex) continue;
+          const text = result[0].transcript.trim();
+          if (text) {
+            this.finalizedBuffer += (this.finalizedBuffer ? ' ' : '') + text;
+            hasNewFinal = true;
+          }
+          this.lastFinalResultIndex = i;
         } else {
           interimTranscript += result[0].transcript;
         }
       }
 
-      if (finalTranscript) {
-        this._transcript = finalTranscript;
-        const sttResult: SttResult = {
-          transcript: finalTranscript,
-          confidence: event.results[event.results.length - 1][0].confidence,
-          isFinal: true,
-        };
-        eventBus.emit(EVENTS.VOICE_TRANSCRIPT, sttResult);
-      } else if (interimTranscript) {
-        this._transcript = interimTranscript;
-        const sttResult: SttResult = {
-          transcript: interimTranscript,
-          confidence: 0,
-          isFinal: false,
-        };
-        eventBus.emit(EVENTS.VOICE_TRANSCRIPT, sttResult);
-      }
+      // Build display text: all finalized segments + current interim
+      const displayText = this.finalizedBuffer
+        + (interimTranscript ? (this.finalizedBuffer ? ' ' : '') + interimTranscript : '');
+
+      if (!displayText) return;
+
+      this._transcript = displayText;
+      const sttResult: SttResult = {
+        transcript: displayText,
+        confidence: hasNewFinal ? event.results[event.results.length - 1][0].confidence : 0,
+        isFinal: hasNewFinal,
+      };
+      eventBus.emit(EVENTS.VOICE_TRANSCRIPT, sttResult);
     };
 
     this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -117,6 +125,8 @@ export class SttService {
     this.recognition.onend = () => {
       if (this.isRecording) {
         // Auto-restart if still recording (continuous mode)
+        // Reset final index — new session starts result indices from 0
+        this.lastFinalResultIndex = -1;
         try {
           this.recognition?.start();
         } catch {
@@ -276,6 +286,7 @@ export class SttService {
   async startRecording(): Promise<void> {
     if (this.isRecording) return;
     this._transcript = '';
+    this.finalizedBuffer = '';
 
     if (this.engine === 'whisper_local' && this._modelReady) {
       await this.startWhisperRecording();
@@ -294,6 +305,7 @@ export class SttService {
 
   private startWebSpeechRecording(): void {
     this.isRecording = true;
+    this.lastFinalResultIndex = -1;
     if (this.recognition) {
       // Re-detect language on every recording start (settings may have changed)
       this._lang = this.detectLanguage();
@@ -325,6 +337,13 @@ export class SttService {
         eventBus.emit(EVENTS.VOICE_STOP);
       }
     }
+  }
+
+  /** Clear the finalized buffer (called after auto-send flushes the message) */
+  clearBuffer(): void {
+    this.finalizedBuffer = '';
+    this._transcript = '';
+    this.lastFinalResultIndex = -1;
   }
 
   get transcript(): string {
