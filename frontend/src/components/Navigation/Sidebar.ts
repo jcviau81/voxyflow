@@ -49,8 +49,8 @@ export class Sidebar {
       'data-testid': 'sidebar-general',
       'data-tab': 'main',
     });
-    const generalIcon = createElement('span', { className: 'sidebar-item-icon' }, '💬');
-    const generalLabel = createElement('span', { className: 'sidebar-item-label' }, 'Main Chat');
+    const generalIcon = createElement('span', { className: 'sidebar-item-icon' }, '🏠');
+    const generalLabel = createElement('span', { className: 'sidebar-item-label' }, 'Main');
     generalItem.appendChild(generalIcon);
     generalItem.appendChild(generalLabel);
     generalItem.addEventListener('click', () => {
