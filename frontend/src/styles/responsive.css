@@ -35,7 +35,7 @@
     top: 0;
     right: 0;
     width: 280px;
-    height: 100vh;
+    height: 100vh; height: 100dvh;
     z-index: 900;
     transform: translateX(100%);
     transition: transform var(--transition);
@@ -74,7 +74,7 @@
     top: 0;
     left: 0;
     width: 280px;
-    height: 100vh;
+    height: 100vh; height: 100dvh;
     z-index: 900;
     transform: translateX(-100%);
     transition: transform var(--transition);
@@ -150,7 +150,7 @@
   .modal {
     width: 100%;
     max-width: none;
-    max-height: 100vh;
+    max-height: 100vh; max-height: 100dvh; height: 100dvh;
     border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
     margin: 0;
   }
