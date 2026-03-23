@@ -114,13 +114,12 @@ class TtsService {
         };
 
         audio.onerror = () => {
-          console.warn('[TtsService] Server audio playback error, falling back to browser');
+          console.warn('[TtsService] Server audio playback error (not falling back — server audio was received)');
           this._isSpeaking = false;
           this._currentAudio = null;
           URL.revokeObjectURL(url);
           this._notifyEnd();
-          // Fallback to browser TTS
-          this.speakBrowser(text, speed).then(resolve);
+          resolve();
         };
 
         audio.play().catch((err) => {
