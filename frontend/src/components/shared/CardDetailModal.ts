@@ -1531,6 +1531,16 @@ export class CardDetailModal {
       duplicateBtn.textContent = '\ud83d\udccb Duplicate';
     });
 
+    // Archive button
+    const archiveBtn = createElement('button', { className: 'archive-btn', title: 'Archive this card' }, '\ud83d\udce6 Archive') as HTMLButtonElement;
+    archiveBtn.type = 'button';
+    archiveBtn.addEventListener('click', async () => {
+      if (!this.card) return;
+      cardService.archive(this.card.id);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `\ud83d\udce6 "${this.card.title}" archived`, type: 'success', duration: 3000 });
+      this.close();
+    });
+
     const closeBtn = createElement('button', { className: 'modal-close-btn' }, '\u2715');
     closeBtn.addEventListener('click', () => this.close());
 
@@ -1538,12 +1548,13 @@ export class CardDetailModal {
     header.appendChild(enrichBtn);
     header.appendChild(executeBtn);
     header.appendChild(duplicateBtn);
+    header.appendChild(archiveBtn);
     header.appendChild(closeBtn);
 
-    // ── Two-column body ──────────────────────────────────────────────────────
+    // ── Three-column body ────────────────────────────────────────────────────
     const body = createElement('div', { className: 'modal-body-columns' });
 
-    // ── LEFT COLUMN: Description editor + Chat ──────────────────────────────
+    // ── LEFT COLUMN: Description editor ─────────────────────────────────────
     const leftCol = createElement('div', { className: 'modal-col-left' });
 
     // Description — CodeMirror 6 editor
@@ -1621,7 +1632,10 @@ export class CardDetailModal {
     chatSection.appendChild(chatInputRow);
 
     leftCol.appendChild(descSection);
-    leftCol.appendChild(chatSection);
+
+    // ── CENTER COLUMN: Chat (main focus) ────────────────────────────────────
+    const centerCol = createElement('div', { className: 'modal-col-center' });
+    centerCol.appendChild(chatSection);
 
     // ── RIGHT COLUMN: Metadata ──────────────────────────────────────────────
     const rightCol = createElement('div', { className: 'modal-col-right' });
@@ -1949,6 +1963,7 @@ export class CardDetailModal {
 
     // ── Assemble modal ───────────────────────────────────────────────────────
     body.appendChild(leftCol);
+    body.appendChild(centerCol);
     body.appendChild(rightCol);
     this.modal.appendChild(header);
     this.modal.appendChild(body);

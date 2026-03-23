@@ -439,6 +439,7 @@ export class App {
       if (data.githubUrl !== undefined) updates.githubUrl = data.githubUrl;
       if (data.githubBranch !== undefined) updates.githubBranch = data.githubBranch;
       if (data.githubLanguage !== undefined) updates.githubLanguage = data.githubLanguage;
+      if (data.inheritMainContext !== undefined) updates.inheritMainContext = data.inheritMainContext;
 
       projectService.update(projectId, updates as Partial<import('./types').Project>);
     }

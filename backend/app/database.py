@@ -62,6 +62,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN color TEXT"))
         if "files" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN files TEXT NOT NULL DEFAULT '[]'"))
+        if "archived_at" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN archived_at DATETIME"))
         # Migrate: rename status='note' to status='card' (nomenclature cleanup)
         await conn.execute(text("UPDATE cards SET status='card' WHERE status='note'"))
         # Ensure card_relations table exists (created via create_all above, but explicit for safety)
@@ -114,6 +116,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE projects ADD COLUMN deletable BOOLEAN NOT NULL DEFAULT 1"))
         if "is_favorite" not in proj_columns:
             await conn.execute(text("ALTER TABLE projects ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT 0"))
+        if "inherit_main_context" not in proj_columns:
+            await conn.execute(text("ALTER TABLE projects ADD COLUMN inherit_main_context BOOLEAN NOT NULL DEFAULT 1"))
 
         # Ensure the system "Main" project exists
         SYSTEM_MAIN_ID = "system-main"
@@ -217,6 +221,7 @@ class Project(Base):
     github_language = Column(String, nullable=True)    # "TypeScript"
     local_path = Column(String, nullable=True)         # "~/projects/voxyflow"
     is_favorite = Column(Boolean, default=False, nullable=False)  # User-pinned favorite
+    inherit_main_context = Column(Boolean, default=True, nullable=False)  # Include Main project RAG context
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -279,6 +284,7 @@ class Card(Base):
     recurrence = Column(String, nullable=True)  # "daily" | "weekly" | "monthly" | None
     recurrence_next = Column(DateTime, nullable=True)  # next occurrence datetime
     files = Column(Text, nullable=False, default="[]")  # JSON array of relative file paths
+    archived_at = Column(DateTime, nullable=True)  # set when archived, NULL = active
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

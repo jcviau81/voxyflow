@@ -269,6 +269,70 @@ export class KanbanBoard {
     // Setup drag & drop on board
     this.setupDragDrop(board);
 
+    // Archived cards section (collapsible)
+    const archivedSection = createElement('div', { className: 'kanban-archived-section' });
+    const archivedToggle = createElement('button', {
+      className: 'kanban-archived-toggle',
+    }, '📦 Archived Cards');
+    const archivedList = createElement('div', { className: 'kanban-archived-list' });
+    archivedList.style.display = 'none';
+    let archivedOpen = false;
+    let archivedLoaded = false;
+
+    archivedToggle.addEventListener('click', async () => {
+      archivedOpen = !archivedOpen;
+      archivedList.style.display = archivedOpen ? '' : 'none';
+      archivedToggle.textContent = archivedOpen ? '📦 Archived Cards ▾' : '📦 Archived Cards';
+      if (archivedOpen && !archivedLoaded && projectId) {
+        archivedLoaded = true;
+        archivedList.innerHTML = '<div class="kanban-archived-loading">Loading...</div>';
+        const archived = await cardService.listArchived(projectId);
+        archivedList.innerHTML = '';
+        if (archived.length === 0) {
+          archivedList.innerHTML = '<div class="kanban-archived-empty">No archived cards</div>';
+        } else {
+          archived.forEach((card) => {
+            const row = createElement('div', { className: 'kanban-archived-card' });
+            const info = createElement('div', { className: 'kanban-archived-card-info' });
+            info.innerHTML = `<span class="kanban-archived-card-title">${this.escapeHtml(card.title)}</span>
+              <span class="kanban-archived-card-date">${card.archivedAt ? new Date(card.archivedAt).toLocaleDateString() : ''}</span>`;
+            const actions = createElement('div', { className: 'kanban-archived-card-actions' });
+            const restoreBtn = createElement('button', { className: 'kanban-archived-btn restore', title: 'Restore card' }, '↩ Restore');
+            restoreBtn.addEventListener('click', async () => {
+              const restored = await cardService.restore(card.id);
+              if (restored) {
+                row.remove();
+                eventBus.emit(EVENTS.TOAST_SHOW, { message: `↩ "${card.title}" restored`, type: 'success', duration: 3000 });
+                if (archivedList.children.length === 0) {
+                  archivedList.innerHTML = '<div class="kanban-archived-empty">No archived cards</div>';
+                }
+              }
+            });
+            const deleteBtn = createElement('button', { className: 'kanban-archived-btn delete', title: 'Permanently delete' }, '🗑 Delete');
+            deleteBtn.addEventListener('click', () => {
+              if (confirm(`Permanently delete "${card.title}"? This cannot be undone.`)) {
+                cardService.delete(card.id);
+                row.remove();
+                eventBus.emit(EVENTS.TOAST_SHOW, { message: `🗑 "${card.title}" permanently deleted`, type: 'success', duration: 3000 });
+                if (archivedList.children.length === 0) {
+                  archivedList.innerHTML = '<div class="kanban-archived-empty">No archived cards</div>';
+                }
+              }
+            });
+            actions.appendChild(restoreBtn);
+            actions.appendChild(deleteBtn);
+            row.appendChild(info);
+            row.appendChild(actions);
+            archivedList.appendChild(row);
+          });
+        }
+      }
+    });
+
+    archivedSection.appendChild(archivedToggle);
+    archivedSection.appendChild(archivedList);
+    this.container.appendChild(archivedSection);
+
     // Activity Feed at the bottom
     if (this.activityFeed) {
       this.activityFeed.destroy();

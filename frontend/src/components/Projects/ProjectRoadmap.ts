@@ -22,6 +22,7 @@ const STATUS_DURATION: Record<CardStatus, number> = {
   todo:           MS_PER_WEEK * 1,
   'in-progress':  MS_PER_WEEK * 2,
   done:           0, // computed from updatedAt
+  archived:       0, // archived cards don't appear on roadmap
 };
 
 // Priority label → class suffix
@@ -256,6 +257,7 @@ export class ProjectRoadmap {
       'todo':        '📋 Todo',
       'in-progress': '🔨 In Progress',
       'done':        '✅ Done',
+      'archived':    '📦 Archived',
     };
     const priorityLabels: Record<number, string> = { 3: '🔴 Critical', 2: '🟠 High', 1: '🟡 Medium', 0: '🟢 Low' };
     const created = new Date(card.createdAt).toLocaleDateString();

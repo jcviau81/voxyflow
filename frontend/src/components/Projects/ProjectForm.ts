@@ -21,6 +21,7 @@ export class ProjectForm {
   private selectedEmoji: string = DEFAULT_EMOJI;
   private selectedColor: string = '';
   private selectedStatus: 'active' | 'archived' = 'active';
+  private inheritMainContext: boolean = true;
   private githubInfo: GitHubRepoInfo | null = null;
   private selectedTemplateId: string | null = null;
   private templates: ProjectTemplate[] = [];
@@ -47,6 +48,7 @@ export class ProjectForm {
       this.selectedEmoji = this.project.emoji || DEFAULT_EMOJI;
       this.selectedColor = this.project.color || '';
       this.selectedStatus = this.project.archived ? 'archived' : 'active';
+      this.inheritMainContext = this.project.inheritMainContext !== false;
     }
 
     this.container = createElement('div', { className: 'project-form-wrapper' });
@@ -117,6 +119,11 @@ export class ProjectForm {
       this.techStackComponent.detect(this.project.localPath);
     } else if (this.project?.techStack) {
       this.techStackComponent.setData(this.project.techStack);
+    }
+
+    // Inherit Main Context toggle (edit only, non-system projects)
+    if (this.mode === 'edit' && !this.project?.isSystem) {
+      form.appendChild(this.renderInheritMainContextToggle());
     }
 
     // Status (edit only)
@@ -557,6 +564,40 @@ export class ProjectForm {
     await this.techStackComponent.detect(path);
   }
 
+  private renderInheritMainContextToggle(): HTMLElement {
+    const group = createElement('div', { className: 'form-group' });
+    const row = createElement('div', { className: 'setting-row' });
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '0.5rem';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'setting-checkbox';
+    checkbox.checked = this.inheritMainContext;
+    checkbox.id = 'inherit-main-context';
+    checkbox.setAttribute('data-testid', 'inherit-main-context-toggle');
+    checkbox.addEventListener('change', () => {
+      this.inheritMainContext = checkbox.checked;
+    });
+
+    const label = createElement('label', {}, 'Include Main Board context');
+    label.setAttribute('for', 'inherit-main-context');
+    label.style.cursor = 'pointer';
+
+    const hint = createElement('div', { className: 'form-hint' });
+    hint.textContent = 'When enabled, AI responses also use knowledge from the Main Board.';
+    hint.style.fontSize = '0.75rem';
+    hint.style.opacity = '0.6';
+    hint.style.marginTop = '0.25rem';
+
+    row.appendChild(checkbox);
+    row.appendChild(label);
+    group.appendChild(row);
+    group.appendChild(hint);
+    return group;
+  }
+
   private renderStatusField(): HTMLElement {
     const group = createElement('div', { className: 'form-group' });
     const label = createElement('label', {}, 'Status');
@@ -676,6 +717,9 @@ export class ProjectForm {
 
     if (this.mode === 'edit') {
       data.status = this.selectedStatus;
+      if (!this.project?.isSystem) {
+        data.inheritMainContext = this.inheritMainContext;
+      }
     }
 
     // Pass template selection to App handler

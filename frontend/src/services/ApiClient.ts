@@ -218,6 +218,7 @@ export class ApiClient {
           isSystem: (p.is_system as boolean) || false,
           deletable: p.deletable !== undefined ? (p.deletable as boolean) : true,
           isFavorite: (p.is_favorite as boolean) || false,
+          inheritMainContext: p.inherit_main_context !== undefined ? (p.inherit_main_context as boolean) : true,
         });
 
         const allProjects = [

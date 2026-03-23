@@ -134,6 +134,69 @@ export class CardService {
     }
   }
 
+  async archive(id: string): Promise<void> {
+    // Optimistic: remove from active view
+    appState.deleteCard(id);
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${id}/archive`, { method: 'POST' });
+      if (!response.ok) console.error(`[CardService] archive REST error: HTTP ${response.status}`);
+    } catch (error) {
+      console.error('[CardService] archive REST error:', error);
+    }
+  }
+
+  async restore(id: string): Promise<Card | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${id}/restore`, { method: 'POST' });
+      if (!response.ok) {
+        console.error(`[CardService] restore REST error: HTTP ${response.status}`);
+        return null;
+      }
+      const raw = await response.json();
+      const card = this.mapRawToCard(raw);
+      appState.set('cards', [...appState.get('cards'), card]);
+      return card;
+    } catch (error) {
+      console.error('[CardService] restore REST error:', error);
+      return null;
+    }
+  }
+
+  async listArchived(projectId: string): Promise<Card[]> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/cards/archived`);
+      if (!response.ok) return [];
+      const raw = await response.json();
+      return raw.map((r: Record<string, unknown>) => this.mapRawToCard(r));
+    } catch (error) {
+      console.error('[CardService] listArchived REST error:', error);
+      return [];
+    }
+  }
+
+  private mapRawToCard(raw: Record<string, unknown>): Card {
+    return {
+      id: raw.id as string,
+      title: raw.title as string,
+      description: (raw.description as string) || '',
+      status: (raw.status as CardStatus) || 'idea',
+      projectId: (raw.project_id as string) || null,
+      priority: (raw.priority as number) || 0,
+      dependencies: (raw.dependency_ids as string[]) || [],
+      tags: (raw.tags as string[]) || [],
+      chatHistory: [],
+      createdAt: raw.created_at ? new Date(raw.created_at as string).getTime() : Date.now(),
+      updatedAt: raw.updated_at ? new Date(raw.updated_at as string).getTime() : Date.now(),
+      archivedAt: (raw.archived_at as string) || null,
+      agentType: (raw.agent_type as string) || undefined,
+      assignee: (raw.assignee as string) || null,
+      votes: (raw.votes as number) || 0,
+    } as Card;
+  }
+
   async move(cardId: string, newStatus: CardStatus): Promise<void> {
     appState.moveCard(cardId, newStatus);
     try {

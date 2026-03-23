@@ -1662,20 +1662,28 @@
   animation: slide-up 0.2s ease;
 }
 
-/* ── Two-column layout ── */
+/* ── Three-column layout ── */
 .modal-body-columns {
   display: flex;
-  gap: 24px;
+  gap: 20px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
 .modal-col-left {
-  flex: 3;
+  flex: 2;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modal-col-center {
+  flex: 3;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
@@ -1687,9 +1695,9 @@
   min-height: 0;
 }
 
-/* Description section grows to fill available space */
+/* Description section fills the left column */
 .modal-desc-section {
-  flex: 3;
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1718,12 +1726,12 @@
   overflow: auto;
 }
 
-/* Chat section in left column */
+/* Chat section fills the center column */
 .modal-chat-section {
-  flex: 2;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 250px;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius-sm);
@@ -1873,6 +1881,11 @@
     overflow: visible;
   }
 
+  .modal-col-center {
+    flex: none;
+    overflow: visible;
+  }
+
   .modal-col-right {
     flex: none;
     overflow: visible;
@@ -1889,7 +1902,7 @@
 
   .modal-chat-section {
     flex: none;
-    min-height: 150px;
+    min-height: 250px;
   }
 }
 

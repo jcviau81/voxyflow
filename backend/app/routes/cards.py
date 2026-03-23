@@ -129,7 +129,7 @@ async def list_cards(
 ):
     stmt = (
         select(Card)
-        .where(Card.project_id == project_id)
+        .where(Card.project_id == project_id, Card.archived_at.is_(None))
         .options(selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items))
         .order_by(Card.position)
     )
@@ -513,6 +513,77 @@ async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
     ws_broadcast.emit_sync("cards:changed", {"projectId": project_id, "cardId": card_id})
 
 
+@router.post("/cards/{card_id}/archive", response_model=CardResponse)
+async def archive_card(card_id: str, db: AsyncSession = Depends(get_db)):
+    """Archive a card (soft-delete). Sets archived_at timestamp."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+    if card.archived_at:
+        raise HTTPException(400, "Card is already archived")
+
+    old_status = card.status
+    card.archived_at = utcnow()
+    card.updated_at = utcnow()
+
+    db.add(CardHistory(
+        id=new_uuid(), card_id=card_id, field_changed="archived_at",
+        old_value=None, new_value=str(card.archived_at),
+        changed_at=utcnow(), changed_by="User",
+    ))
+
+    await db.commit()
+    stmt = select(Card).where(Card.id == card_id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
+    result = await db.execute(stmt)
+    card = result.scalar_one()
+    _broadcast_card_change(card)
+    return _card_to_response(card)
+
+
+@router.post("/cards/{card_id}/restore", response_model=CardResponse)
+async def restore_card(card_id: str, db: AsyncSession = Depends(get_db)):
+    """Restore an archived card back to active."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+    if not card.archived_at:
+        raise HTTPException(400, "Card is not archived")
+
+    old_archived = str(card.archived_at)
+    card.archived_at = None
+    card.updated_at = utcnow()
+
+    db.add(CardHistory(
+        id=new_uuid(), card_id=card_id, field_changed="archived_at",
+        old_value=old_archived, new_value=None,
+        changed_at=utcnow(), changed_by="User",
+    ))
+
+    await db.commit()
+    stmt = select(Card).where(Card.id == card_id).options(
+        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
+    )
+    result = await db.execute(stmt)
+    card = result.scalar_one()
+    _broadcast_card_change(card)
+    return _card_to_response(card)
+
+
+@router.get("/projects/{project_id}/cards/archived", response_model=list[CardResponse])
+async def list_archived_cards(project_id: str, db: AsyncSession = Depends(get_db)):
+    """List archived cards for a project."""
+    stmt = (
+        select(Card)
+        .where(Card.project_id == project_id, Card.archived_at.isnot(None))
+        .options(selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items))
+        .order_by(Card.archived_at.desc())
+    )
+    result = await db.execute(stmt)
+    return [_card_to_response(c) for c in result.scalars().all()]
+
+
 @router.post("/cards/{card_id}/clone-to/{target_project_id}", response_model=CardResponse, status_code=201)
 async def clone_card_to_project(
     card_id: str,
@@ -728,6 +799,7 @@ def _card_to_response(card: Card) -> CardResponse:
         recurrence=card.recurrence,
         recurrence_next=card.recurrence_next,
         files=json.loads(card.files) if card.files else [],
+        archived_at=card.archived_at,
     )
 
 

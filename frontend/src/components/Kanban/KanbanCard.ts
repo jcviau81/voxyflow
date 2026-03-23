@@ -239,11 +239,19 @@ export class KanbanCard {
           await this.handleMoveTo(projectId, projectTitle);
         }),
         {
+          icon: '📦',
+          label: 'Archive',
+          action: () => {
+            cardService.archive(this.card.id);
+            eventBus.emit(EVENTS.TOAST_SHOW, { message: `📦 "${this.card.title}" archived`, type: 'success', duration: 3000 });
+          },
+        },
+        {
           icon: '🗑️',
           label: 'Delete',
           danger: true,
           action: () => {
-            if (confirm(`Delete "${this.card.title}"?`)) {
+            if (confirm(`Delete "${this.card.title}"? This is permanent and cannot be undone.`)) {
               cardService.delete(this.card.id);
             }
           },

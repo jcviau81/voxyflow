@@ -1,7 +1,7 @@
 // Voxyflow Type Definitions
 
 export type MessageRole = 'user' | 'assistant' | 'system';
-export type CardStatus = 'card' | 'idea' | 'todo' | 'in-progress' | 'done';
+export type CardStatus = 'card' | 'idea' | 'todo' | 'in-progress' | 'done' | 'archived';
 export type ViewMode = 'chat' | 'kanban' | 'freeboard' | 'projects' | 'settings' | 'stats' | 'roadmap' | 'wiki' | 'sprint' | 'docs' | 'knowledge';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'coder' | 'architect' | 'designer' | 'devops' | 'analyst' | 'tester' | 'writer';
@@ -68,6 +68,7 @@ export interface Project {
   githubBranch?: string;     // "main"
   githubLanguage?: string;   // "TypeScript"
   isFavorite?: boolean;       // User-pinned favorite
+  inheritMainContext?: boolean; // Include Main Board RAG context (default true)
 }
 
 export interface GitHubRepoInfo {
@@ -168,6 +169,7 @@ export interface Card {
   recurrence?: 'daily' | 'weekly' | 'monthly' | null;  // recurring schedule
   recurrenceNext?: string | null;  // ISO datetime of next occurrence
   files?: string[];  // relative file paths linked to this card
+  archivedAt?: string | null;  // ISO datetime when archived, null = active
 }
 
 export interface AppStateData {
@@ -275,6 +277,7 @@ export interface ProjectFormData {
   githubBranch?: string;
   githubLanguage?: string;
   templateId?: string;
+  inheritMainContext?: boolean;
 }
 
 export interface ProjectTemplate {

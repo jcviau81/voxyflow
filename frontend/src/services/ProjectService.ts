@@ -88,6 +88,7 @@ export class ProjectService {
     if (updates.githubUrl !== undefined) body.github_url = updates.githubUrl;
     if (updates.githubBranch !== undefined) body.github_branch = updates.githubBranch;
     if (updates.githubLanguage !== undefined) body.github_language = updates.githubLanguage;
+    if (updates.inheritMainContext !== undefined) body.inherit_main_context = updates.inheritMainContext;
     // Note: emoji and color are frontend-only (not in backend schema)
     // They are stored in AppState but not sent to the backend
 
@@ -189,6 +190,7 @@ export class ProjectService {
       githubUrl: p.github_url as string | undefined,
       githubBranch: p.github_branch as string | undefined,
       githubLanguage: p.github_language as string | undefined,
+      inheritMainContext: p.inherit_main_context !== undefined ? (p.inherit_main_context as boolean) : true,
     };
   }
 

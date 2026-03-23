@@ -14,6 +14,7 @@ RAG failure NEVER breaks chat. If chromadb is not installed, RAG silently
 disables itself (graceful degradation via ImportError catch at module load).
 """
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -356,6 +357,21 @@ class RAGService:
     # Context building
     # -----------------------------------------------------------------------
 
+    async def _get_inherit_main_context(self, project_id: str) -> bool:
+        """Look up the project's inherit_main_context setting from the database."""
+        try:
+            from app.database import async_session, Project, SYSTEM_MAIN_PROJECT_ID
+            if project_id == SYSTEM_MAIN_PROJECT_ID:
+                return False
+            async with async_session() as session:
+                project = await session.get(Project, project_id)
+                if project is None:
+                    return True  # default
+                return bool(project.inherit_main_context)
+        except Exception as e:
+            logger.warning(f"_get_inherit_main_context failed: {e}")
+            return True  # default to inheriting
+
     async def build_rag_context(
         self, project_id: str, query: str, max_chars: int = 2000
     ) -> Optional[str]:
@@ -363,13 +379,37 @@ class RAGService:
         Query the project knowledge base and format results into a context string
         suitable for injection into a system prompt.
 
+        When the project's inherit_main_context is True and the project is not
+        system-main, also queries the Main project's collections in parallel
+        and merges results.
+
         Returns None if no relevant results found or RAG is disabled.
         """
         if not self._enabled:
             return None
 
         try:
-            results = await self.query(project_id, query, n_results=8)
+            from app.database import SYSTEM_MAIN_PROJECT_ID
+
+            inherit = await self._get_inherit_main_context(project_id)
+
+            # Query current project (and optionally Main project in parallel)
+            should_query_main = inherit and project_id != SYSTEM_MAIN_PROJECT_ID
+
+            if should_query_main:
+                project_results, main_results = await asyncio.gather(
+                    self.query(project_id, query, n_results=8),
+                    self.query(SYSTEM_MAIN_PROJECT_ID, query, n_results=4),
+                )
+                # Merge and deduplicate (project results take priority)
+                seen_texts: dict[str, dict] = {}
+                for item in project_results + main_results:
+                    text_key = item["text"][:200]
+                    if text_key not in seen_texts or item["score"] > seen_texts[text_key]["score"]:
+                        seen_texts[text_key] = item
+                results = sorted(seen_texts.values(), key=lambda x: x["score"], reverse=True)[:8]
+            else:
+                results = await self.query(project_id, query, n_results=8)
 
             # Filter to reasonably relevant results (score > 0.3)
             relevant = [r for r in results if r["score"] > 0.3]

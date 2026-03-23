@@ -91,6 +91,7 @@ class CardResponse(BaseModel):
     recurrence: RecurrenceType = None
     recurrence_next: Optional[datetime] = None
     files: list[str] = []
+    archived_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

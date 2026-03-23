@@ -30,6 +30,7 @@ export const CARD_STATUS_LABELS: Record<string, string> = {
   'todo': '📋 Todo',
   'in-progress': '🔨 In Progress',
   'done': '✅ Done',
+  'archived': '📦 Archived',
 };
 
 // Agent Personas (legacy, used by old assignedAgent field)
