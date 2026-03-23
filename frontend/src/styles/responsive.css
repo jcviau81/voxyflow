@@ -434,3 +434,10 @@
     z-index: 899;
   }
 }
+
+/* Hide voice toggles in chat input on mobile — they're in the top bar */
+@media (max-width: 768px) {
+  .voice-toggles {
+    display: none !important;
+  }
+}
