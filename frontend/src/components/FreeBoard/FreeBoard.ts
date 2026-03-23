@@ -1,12 +1,10 @@
 import { Card, Project } from '../../types';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS, SYSTEM_PROJECT_ID } from '../../utils/constants';
+import { EVENTS, SYSTEM_PROJECT_ID, AGENT_TYPE_INFO, CARD_STATUS_LABELS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { mainBoardService } from '../../services/MainBoardService';
 import { apiClient } from '../../services/ApiClient';
-import { CardDetailModal } from '../shared/CardDetailModal';
-
 type CardColor = 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange';
 
 const COLOR_OPTIONS: { value: CardColor | null; label: string }[] = [
@@ -25,7 +23,6 @@ export class FreeBoard {
   private showingForm = false;
   private selectedColor: CardColor | null = null;
   private unsubscribers: (() => void)[] = [];
-  private cardDetailModal: CardDetailModal;
   private initialLoadDone = false;
   private activePickerCleanup: (() => void) | null = null;
 
@@ -33,10 +30,6 @@ export class FreeBoard {
     this.container = createElement('div', { className: 'freeboard-container' });
     this.container.setAttribute('data-testid', 'freeboard');
     parentElement.appendChild(this.container);
-    // Mount card detail modal once on body so it overlays everything
-    this.cardDetailModal = new CardDetailModal(document.body);
-    this.cardDetailModal.onDeleted = () => this.renderGrid();
-    this.cardDetailModal.onUpdated = () => this.renderGrid();
     this.render();
     this.setupListeners();
     this.loadCards();
@@ -67,6 +60,12 @@ export class FreeBoard {
     );
     this.unsubscribers.push(
       eventBus.on(EVENTS.MAIN_BOARD_CARD_DELETED, () => this.renderGrid())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_UPDATED, () => this.renderGrid())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.CARD_DELETED, () => this.renderGrid())
     );
     // Legacy: still listen for analyzer suggestions
     this.unsubscribers.push(
@@ -153,7 +152,7 @@ export class FreeBoard {
       // Only open modal if not clicking an action button
       const target = e.target as HTMLElement;
       if (target.closest('.freeboard-card-btn')) return;
-      this.cardDetailModal.open(card);
+      eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', cardId: card.id });
     });
 
     // Title row (with optional color dot)
@@ -171,13 +170,48 @@ export class FreeBoard {
       el.appendChild(bodyEl);
     }
 
-    // Checklist progress (if any)
-    if (card.checklistProgress && card.checklistProgress.total > 0) {
-      const prog = card.checklistProgress;
-      const progressEl = createElement('div', { className: 'freeboard-card-progress' },
-        `✅ ${prog.completed}/${prog.total}`);
-      el.appendChild(progressEl);
+    // Footer with status, agent badge, checklist progress
+    const footer = createElement('div', { className: 'freeboard-card-footer' });
+    let hasFooter = false;
+
+    // Status indicator
+    if (card.status && card.status !== 'card' && card.status !== 'idea') {
+      const statusLabel = CARD_STATUS_LABELS[card.status] || card.status;
+      const statusEl = createElement('span', {
+        className: `freeboard-card-status freeboard-card-status--${card.status}`,
+        title: statusLabel,
+      }, statusLabel);
+      footer.appendChild(statusEl);
+      hasFooter = true;
     }
+
+    // Agent badge
+    const agentType = card.agentType;
+    if (agentType) {
+      const info = AGENT_TYPE_INFO[agentType];
+      if (info) {
+        const badge = createElement('span', {
+          className: 'agent-badge',
+          title: info.name,
+        }, info.emoji);
+        footer.appendChild(badge);
+        hasFooter = true;
+      }
+    }
+
+    // Checklist progress
+    if (card.checklistProgress && card.checklistProgress.total > 0) {
+      const { total, completed } = card.checklistProgress;
+      const isDone = completed === total;
+      const checklistBadge = createElement('span', {
+        className: `checklist-badge${isDone ? ' checklist-badge--done' : ''}`,
+        title: `Checklist: ${completed}/${total}`,
+      }, `☑ ${completed}/${total}`);
+      footer.appendChild(checklistBadge);
+      hasFooter = true;
+    }
+
+    if (hasFooter) el.appendChild(footer);
 
     // Actions (shown on hover via CSS)
     const actions = createElement('div', { className: 'freeboard-card-actions' });
@@ -419,7 +453,6 @@ export class FreeBoard {
 
   destroy(): void {
     this.unsubscribers.forEach(unsub => unsub());
-    this.cardDetailModal.destroy();
     this.container.remove();
   }
 }

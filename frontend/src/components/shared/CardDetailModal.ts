@@ -1,10 +1,10 @@
 /**
- * Unified CardDetailModal — handles both Main Board cards (projectId=null)
- * and project cards (projectId set). Single component, single template.
+ * Unified CardDetailModal — renders the same full-featured UI for ALL cards,
+ * regardless of project. Main IS a project now.
  *
  * Opens via:
  *   a) Event-based: eventBus MODAL_OPEN with {type: 'card-detail', cardId}
- *   b) Direct:      modal.open(card)  — receives a Card object (used by FreeBoard)
+ *   b) Direct:      modal.open(card)  — receives a Card object
  */
 
 import { Card, Message, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType, CardHistoryEntry, Project } from '../../types';
@@ -101,10 +101,6 @@ export class CardDetailModal {
   onDeleted?: (cardId: string) => void;
   onUpdated?: (card: Card) => void;
 
-  /** True when card belongs to the system/Main project */
-  private get isMainBoard(): boolean {
-    return !this.card?.projectId || this.card?.projectId === SYSTEM_PROJECT_ID;
-  }
 
   constructor(private parentElement: HTMLElement) {
     this.overlay = createElement('div', { className: 'modal-overlay hidden' });
@@ -961,12 +957,8 @@ export class CardDetailModal {
         clearBtn.addEventListener('click', () => {
           currentAssignee = null;
           if (this.card) {
-            if (this.isMainBoard) {
-              this.saveCard({ assignee: null } as Partial<Card>);
-            } else {
-              cardService.update(this.card.id, { assignee: null } as Partial<Card>);
-              apiClient.patchCard(this.card.id, { assignee: null });
-            }
+            cardService.update(this.card.id, { assignee: null } as Partial<Card>);
+            apiClient.patchCard(this.card.id, { assignee: null });
           }
           renderAssigneeChip();
         });
@@ -983,12 +975,8 @@ export class CardDetailModal {
         const saveAssignee = (name: string) => {
           currentAssignee = name;
           if (this.card) {
-            if (this.isMainBoard) {
-              this.saveCard({ assignee: name } as Partial<Card>);
-            } else {
-              cardService.update(this.card.id, { assignee: name } as Partial<Card>);
-              apiClient.patchCard(this.card.id, { assignee: name });
-            }
+            cardService.update(this.card.id, { assignee: name } as Partial<Card>);
+            apiClient.patchCard(this.card.id, { assignee: name });
           }
           renderAssigneeChip();
         };
@@ -1029,12 +1017,8 @@ export class CardDetailModal {
         removeBtn.addEventListener('click', () => {
           watcherList = watcherList.filter((w) => w !== watcher);
           if (this.card) {
-            if (this.isMainBoard) {
-              this.saveCard({ watchers: watcherList.join(',') } as Partial<Card>);
-            } else {
-              cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
-              apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
-            }
+            cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
+            apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
           }
           renderWatcherChips();
         });
@@ -1055,12 +1039,8 @@ export class CardDetailModal {
         if (newNames.length > 0) {
           watcherList = [...watcherList, ...newNames];
           if (this.card) {
-            if (this.isMainBoard) {
-              this.saveCard({ watchers: watcherList.join(',') } as Partial<Card>);
-            } else {
-              cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
-              apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
-            }
+            cardService.update(this.card.id, { watchers: watcherList.join(',') } as Partial<Card>);
+            apiClient.patchCard(this.card.id, { watchers: watcherList.join(',') });
           }
           renderWatcherChips();
         } else {
@@ -1425,11 +1405,7 @@ export class CardDetailModal {
       if (!descInput.value.trim() && result.description) {
         descInput.value = result.description;
         if (this.card) {
-          if (this.isMainBoard) {
-            this.saveCard({ description: result.description });
-          } else {
-            cardService.update(this.card.id, { description: result.description });
-          }
+          cardService.update(this.card.id, { description: result.description });
         }
       }
 
@@ -1457,11 +1433,7 @@ export class CardDetailModal {
         const newTags = result.tags.filter((t) => !existingTags.includes(t));
         if (newTags.length > 0) {
           const updatedTags = [...existingTags, ...newTags];
-          if (this.isMainBoard) {
-            this.saveCard({ tags: updatedTags });
-          } else {
-            cardService.update(this.card.id, { tags: updatedTags });
-          }
+          cardService.update(this.card.id, { tags: updatedTags });
         }
       }
 
@@ -1484,9 +1456,9 @@ export class CardDetailModal {
     this.modal.innerHTML = '';
     this.chatMessagesEl = null;
 
-    // Apply color class for mainboard cards
+    // Apply color class
     this.modal.className = 'modal card-detail-modal';
-    if (this.isMainBoard && this.card.color) {
+    if (this.card.color) {
       this.modal.classList.add(`card-detail-modal--${this.card.color}`);
     }
 
@@ -1645,58 +1617,54 @@ export class CardDetailModal {
     // ── RIGHT COLUMN: Metadata ──────────────────────────────────────────────
     const rightCol = createElement('div', { className: 'modal-col-right' });
 
-    // Status buttons (project cards only — mainboard cards don't have kanban statuses)
-    if (!this.isMainBoard) {
-      const statusRow = createElement('div', { className: 'modal-status-row' });
-      for (const status of CARD_STATUSES) {
-        const btn = createElement(
-          'button',
-          {
-            className: `status-btn ${this.card.status === status ? 'active' : ''}`,
-            'data-status': status,
-          },
-          CARD_STATUS_LABELS[status]
-        );
-        btn.addEventListener('click', () => {
-          if (this.card) {
-            cardService.move(this.card.id, status as CardStatus);
-          }
-        });
-        statusRow.appendChild(btn);
-      }
-      rightCol.appendChild(statusRow);
+    // Status buttons
+    const statusRow = createElement('div', { className: 'modal-status-row' });
+    for (const status of CARD_STATUSES) {
+      const btn = createElement(
+        'button',
+        {
+          className: `status-btn ${this.card.status === status ? 'active' : ''}`,
+          'data-status': status,
+        },
+        CARD_STATUS_LABELS[status]
+      );
+      btn.addEventListener('click', () => {
+        if (this.card) {
+          cardService.move(this.card.id, status as CardStatus);
+        }
+      });
+      statusRow.appendChild(btn);
     }
+    rightCol.appendChild(statusRow);
 
     // Vote section
     const voteSection = this.buildVoteSection(this.card);
 
-    // Agent assignment (project cards)
-    if (!this.isMainBoard) {
-      const currentAgentType = this.card.agentType || 'ember';
-      const agentSection = createElement('div', { className: 'modal-section' });
-      const agentLabel = createElement('label', { className: 'modal-label' }, 'Agent');
-      const agentSelector = createElement('div', { className: 'agent-selector agent-selector--modal' });
+    // Agent assignment
+    const currentAgentType = this.card.agentType || 'ember';
+    const agentSection = createElement('div', { className: 'modal-section' });
+    const agentLabel = createElement('label', { className: 'modal-label' }, 'Agent');
+    const agentSelector = createElement('div', { className: 'agent-selector agent-selector--modal' });
 
-      this.agents.forEach((agent) => {
-        const chip = createElement('button', {
-          className: 'agent-chip' + (currentAgentType === agent.type ? ' selected' : ''),
-          'data-agent-type': agent.type,
-          title: agent.description,
-        }, `${agent.emoji} ${agent.name}`);
-        (chip as HTMLButtonElement).type = 'button';
-        chip.addEventListener('click', () => {
-          if (!this.card) return;
-          agentSelector.querySelectorAll('.agent-chip').forEach((el) => el.classList.remove('selected'));
-          chip.classList.add('selected');
-          cardService.updateAgentType(this.card.id, agent.type);
-        });
-        agentSelector.appendChild(chip);
+    this.agents.forEach((agent) => {
+      const chip = createElement('button', {
+        className: 'agent-chip' + (currentAgentType === agent.type ? ' selected' : ''),
+        'data-agent-type': agent.type,
+        title: agent.description,
+      }, `${agent.emoji} ${agent.name}`);
+      (chip as HTMLButtonElement).type = 'button';
+      chip.addEventListener('click', () => {
+        if (!this.card) return;
+        agentSelector.querySelectorAll('.agent-chip').forEach((el) => el.classList.remove('selected'));
+        chip.classList.add('selected');
+        cardService.updateAgentType(this.card.id, agent.type);
       });
+      agentSelector.appendChild(chip);
+    });
 
-      agentSection.appendChild(agentLabel);
-      agentSection.appendChild(agentSelector);
-      rightCol.appendChild(agentSection);
-    }
+    agentSection.appendChild(agentLabel);
+    agentSection.appendChild(agentSelector);
+    rightCol.appendChild(agentSection);
 
     // Assignee & Watchers
     const assigneeWatchersSection = this.buildAssigneeWatchersSection(this.card);
@@ -1719,12 +1687,7 @@ export class CardDetailModal {
         const removeBtn = createElement('span', { className: 'tag-remove', title: `Remove "${tag}"` }, '\u00d7');
         removeBtn.addEventListener('click', () => {
           if (this.card) {
-            if (this.isMainBoard) {
-              const updatedTags = this.card.tags.filter((t) => t !== tag);
-              this.saveCard({ tags: updatedTags });
-            } else {
-              cardService.removeTag(this.card.id, tag);
-            }
+            cardService.removeTag(this.card.id, tag);
           }
         });
         tagEl.appendChild(labelSpan);
@@ -1743,12 +1706,7 @@ export class CardDetailModal {
         const tags = raw.split(',').map((t) => t.trim()).filter(Boolean);
         tags.forEach((tag) => {
           if (this.card && !this.card.tags.includes(tag)) {
-            if (this.isMainBoard) {
-              const updatedTags = [...this.card.tags, tag];
-              this.saveCard({ tags: updatedTags });
-            } else {
-              cardService.addTag(this.card.id, tag);
-            }
+            cardService.addTag(this.card.id, tag);
           }
         });
         tagInput.value = '';
@@ -1780,8 +1738,8 @@ export class CardDetailModal {
     tagsSection.appendChild(tagsLabel);
     tagsSection.appendChild(tagsContainer);
 
-    // Dependencies (project cards only)
-    if (!this.isMainBoard) {
+    // Dependencies
+    {
       const depsSection = createElement('div', { className: 'modal-section' });
       const depsLabel = createElement('label', { className: 'modal-label' }, 'Dependencies');
 
@@ -1857,10 +1815,8 @@ export class CardDetailModal {
     // Attachments
     const attachmentsSection = this.buildAttachmentsSection(this.card.id);
 
-    // Relations (project cards only — need sibling cards)
-    if (!this.isMainBoard) {
-      rightCol.appendChild(this.buildRelationsSection(this.card));
-    }
+    // Relations
+    rightCol.appendChild(this.buildRelationsSection(this.card));
 
     // Time tracking
     const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
@@ -1871,8 +1827,8 @@ export class CardDetailModal {
     // History
     const historySection = this.buildHistorySection(this.card.id);
 
-    // Color picker (mainboard cards only)
-    if (this.isMainBoard) {
+    // Color picker
+    {
       const colorSection = createElement('div', { className: 'modal-section' });
       const colorLabel = createElement('label', { className: 'modal-label' }, 'Color');
       const colorRow = createElement('div', { className: 'card-detail-color-row' });
@@ -1906,8 +1862,8 @@ export class CardDetailModal {
       rightCol.appendChild(colorSection);
     }
 
-    // "Assign to Project" button (mainboard cards only)
-    if (this.isMainBoard) {
+    // Assign to Project
+    {
       const promoteSection = createElement('div', { className: 'modal-section', style: 'position: relative;' });
       const promoteBtn = createElement('button', {
         className: 'note-detail-promote-btn',
