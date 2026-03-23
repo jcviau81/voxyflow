@@ -1024,6 +1024,18 @@ export class ApiClient {
     }
   }
 
+  async executeCard(cardId: string): Promise<{ prompt: string; projectName?: string } | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/cards/${cardId}/execute`, { method: 'POST' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as { prompt: string; projectName?: string };
+    } catch (error) {
+      console.error('[ApiClient] executeCard error:', error);
+      return null;
+    }
+  }
+
   // --- Sprint API ---
 
   async listSprints(projectId: string): Promise<import('../types').Sprint[]> {

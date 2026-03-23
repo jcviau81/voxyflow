@@ -1512,6 +1512,28 @@ export class CardDetailModal {
     const enrichBtn = createElement('button', { className: 'enrich-btn', title: 'AI-generate description, checklist, effort & tags' }, '\u2728 AI Enrich') as HTMLButtonElement;
     enrichBtn.type = 'button';
 
+    // Execute button
+    const executeBtn = createElement('button', { className: 'execute-btn', title: 'Voxy reads and executes this card' }, '\u25b6 Execute') as HTMLButtonElement;
+    executeBtn.type = 'button';
+    executeBtn.addEventListener('click', async () => {
+      if (!this.card) return;
+      executeBtn.disabled = true;
+      executeBtn.textContent = '\u25b6 Executing\u2026';
+      executeBtn.classList.add('execute-loading');
+
+      const result = await apiClient.executeCard(this.card.id);
+      if (result) {
+        // Send the execution prompt through the card chat
+        this.sendChatMessage(result.prompt);
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: `\u25b6 Executing: "${this.card.title}"`, type: 'success', duration: 3000 });
+      } else {
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u274c Execution failed', type: 'error', duration: 3000 });
+      }
+      executeBtn.disabled = false;
+      executeBtn.textContent = '\u25b6 Execute';
+      executeBtn.classList.remove('execute-loading');
+    });
+
     // Duplicate button
     const duplicateBtn = createElement('button', { className: 'duplicate-btn', title: 'Duplicate this card' }, '\ud83d\udccb Duplicate') as HTMLButtonElement;
     duplicateBtn.type = 'button';
@@ -1539,6 +1561,7 @@ export class CardDetailModal {
 
     header.appendChild(titleInput);
     header.appendChild(enrichBtn);
+    header.appendChild(executeBtn);
     header.appendChild(duplicateBtn);
     header.appendChild(closeBtn);
 

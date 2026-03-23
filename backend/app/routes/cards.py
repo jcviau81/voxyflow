@@ -404,6 +404,58 @@ async def duplicate_card(card_id: str, db: AsyncSession = Depends(get_db)):
     return _card_to_response(new_card)
 
 
+@router.post("/cards/{card_id}/execute")
+async def execute_card(card_id: str, db: AsyncSession = Depends(get_db)):
+    """Build an execution prompt from card content and optionally move to in-progress."""
+    stmt = select(Card).where(Card.id == card_id).options(
+        selectinload(Card.checklist_items),
+    )
+    result = await db.execute(stmt)
+    card = result.scalar_one_or_none()
+    if not card:
+        raise HTTPException(404, "Card not found")
+
+    # Build checklist section
+    checklist_lines = []
+    if card.checklist_items:
+        for item in card.checklist_items:
+            mark = "x" if item.completed else " "
+            checklist_lines.append(f"- [{mark}] {item.text}")
+
+    # Build linked files section
+    files = json.loads(card.files) if card.files else []
+
+    # Look up project name if card belongs to a project
+    project_name = None
+    if card.project_id:
+        project = await db.get(Project, card.project_id)
+        if project:
+            project_name = project.title
+        # Move card to in-progress for project cards
+        if card.status in ("idea", "todo"):
+            card.status = "in-progress"
+            await db.commit()
+
+    # Build structured prompt
+    parts = ["[CARD EXECUTION]"]
+    parts.append(f"Title: {card.title}")
+    if card.description:
+        parts.append(f"Description: {card.description}")
+    if checklist_lines:
+        parts.append("\nChecklist:\n" + "\n".join(checklist_lines))
+    if files:
+        parts.append(f"\nLinked files: {', '.join(files)}")
+    if project_name:
+        parts.append(f"\nProject: {project_name}")
+    parts.append("\nExecute this card. Read the description carefully and do what it asks.")
+    parts.append("If anything is unclear, ask for clarification in the card chat.")
+    parts.append("When you complete checklist items, check them off.")
+    parts.append("When done, summarize what you did.")
+
+    prompt = "\n".join(parts)
+    return {"prompt": prompt, "projectName": project_name}
+
+
 @router.delete("/cards/{card_id}", status_code=204)
 async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
     card = await db.get(Card, card_id)

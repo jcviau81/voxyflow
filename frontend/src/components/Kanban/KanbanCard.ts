@@ -6,6 +6,7 @@ import { EVENTS } from '../../utils/constants';
 import { appState } from '../../state/AppState';
 import { apiClient } from '../../services/ApiClient';
 import { cardService } from '../../services/CardService';
+import { chatService } from '../../services/ChatService';
 
 // ── Vote localStorage helpers ─────────────────────────────────────────────────
 function isVoted(cardId: string): boolean {
@@ -182,6 +183,19 @@ export class KanbanCard {
       };
 
       const items: Array<{ icon: string; label: string; action: () => void; danger?: boolean } | HTMLElement> = [
+        {
+          icon: '▶',
+          label: 'Execute',
+          action: async () => {
+            const result = await apiClient.executeCard(this.card.id);
+            if (result) {
+              chatService.sendMessage(result.prompt, this.card.projectId || undefined, this.card.id);
+              eventBus.emit(EVENTS.TOAST_SHOW, { message: `▶ Executing: "${this.card.title}"`, type: 'success', duration: 3000 });
+            } else {
+              eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Execution failed', type: 'error', duration: 3000 });
+            }
+          },
+        },
         {
           icon: '📋',
           label: 'Duplicate',
