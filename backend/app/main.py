@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db
-from app.routes import chats, projects, cards, voice, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes
+from app.routes import chats, projects, cards, voice, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.chat_orchestration import ChatOrchestrator
@@ -41,6 +41,12 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Voxyflow starting up...")
     await init_db()
     logger.info("✅ Database initialized")
+
+    # Ensure workspace directory exists
+    from app.services.workspace_service import get_workspace_service
+    ws_service = get_workspace_service()
+    ws_path = await ws_service.ensure_workspace()
+    logger.info("✅ Workspace ready: %s", ws_path)
 
     # Initialize RAGService singleton (chromadb + sentence-transformers)
     rag = get_rag_service()
@@ -134,6 +140,7 @@ app.include_router(health.router)
 app.include_router(jobs.router)
 app.include_router(code.router, prefix="/api")
 app.include_router(focus_sessions.router, prefix="/api")
+app.include_router(workspace.router)
 app.include_router(mcp_routes.router)  # MCP server (SSE + stdio, no /api prefix)
 
 

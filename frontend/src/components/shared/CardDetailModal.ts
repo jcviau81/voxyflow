@@ -10,7 +10,7 @@
 import { Card, Message, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType, CardHistoryEntry } from '../../types';
 import { CodeMirrorEditor } from '../Kanban/CodeMirrorEditor';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO } from '../../utils/constants';
+import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO, API_URL } from '../../utils/constants';
 import { createElement, formatTime } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { cardService } from '../../services/CardService';
@@ -671,6 +671,136 @@ export class CardDetailModal {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  private buildFilesSection(): HTMLElement {
+    const section = createElement('div', { className: 'modal-section files-section' });
+    const headerEl = createElement('label', { className: 'modal-label' }, '\uD83D\uDCC1 Files');
+    const listEl = createElement('div', { className: 'file-ref-list' });
+
+    const files = this.card?.files ?? [];
+
+    if (files.length === 0) {
+      listEl.innerHTML = '<span style="opacity:0.5;font-size:12px;">No linked files</span>';
+    } else {
+      for (const filePath of files) {
+        const item = createElement('div', { className: 'file-ref-item' });
+        item.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;font-size:13px;';
+
+        const nameSpan = createElement('span', { title: filePath });
+        nameSpan.textContent = filePath.split('/').pop() || filePath;
+        nameSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;';
+
+        const removeBtn = createElement('button', {
+          className: 'file-ref-remove-btn',
+          title: 'Unlink file',
+          type: 'button',
+        }, '\u2715') as HTMLButtonElement;
+        removeBtn.style.cssText = 'background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px;padding:2px 4px;opacity:0.6;';
+        removeBtn.addEventListener('click', async () => {
+          if (!this.card) return;
+          try {
+            const baseUrl = API_URL || '';
+            const resp = await fetch(`${baseUrl}/api/cards/${this.card.id}/files?path=${encodeURIComponent(filePath)}`, { method: 'DELETE' });
+            if (resp.ok) {
+              const updated = await resp.json() as string[];
+              this.card.files = updated;
+              this.refreshFilesSection(section);
+            }
+          } catch (e) { console.error('Failed to unlink file:', e); }
+        });
+
+        item.appendChild(nameSpan);
+        item.appendChild(removeBtn);
+        listEl.appendChild(item);
+      }
+    }
+
+    // "Link file" button
+    const linkBtn = createElement('button', {
+      className: 'modal-btn-secondary',
+      type: 'button',
+    }, '+ Link file') as HTMLButtonElement;
+    linkBtn.style.cssText = 'margin-top:6px;font-size:12px;padding:4px 10px;';
+    linkBtn.addEventListener('click', () => this.showFilePicker(section));
+
+    section.appendChild(headerEl);
+    section.appendChild(listEl);
+    section.appendChild(linkBtn);
+    return section;
+  }
+
+  private async showFilePicker(filesSection: HTMLElement): Promise<void> {
+    if (!this.card) return;
+    try {
+      const baseUrl = API_URL || '';
+      const resp = await fetch(`${baseUrl}/api/workspace/files`);
+      if (!resp.ok) return;
+      const entries = await resp.json() as Array<{ name: string; path: string; is_dir: boolean }>;
+
+      // Create a simple dropdown picker
+      const existing = filesSection.querySelector('.file-picker-dropdown');
+      if (existing) { existing.remove(); return; }
+
+      const dropdown = createElement('div', { className: 'file-picker-dropdown' });
+      dropdown.style.cssText = 'border:1px solid var(--border-color);border-radius:6px;max-height:160px;overflow-y:auto;margin-top:4px;background:var(--bg-secondary);';
+
+      if (entries.length === 0) {
+        dropdown.innerHTML = '<div style="padding:8px;font-size:12px;opacity:0.5;">Workspace is empty</div>';
+      } else {
+        for (const entry of entries) {
+          if (entry.is_dir) continue; // only files for now
+          const currentFiles = this.card.files ?? [];
+          if (currentFiles.includes(entry.path)) continue; // already linked
+          const opt = createElement('div', { className: 'file-picker-option' });
+          opt.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:12px;';
+          opt.textContent = entry.name;
+          opt.title = entry.path;
+          opt.addEventListener('mouseenter', () => { opt.style.background = 'var(--bg-hover)'; });
+          opt.addEventListener('mouseleave', () => { opt.style.background = ''; });
+          opt.addEventListener('click', async () => {
+            if (!this.card) return;
+            try {
+              const addResp = await fetch(`${baseUrl}/api/cards/${this.card.id}/files`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: entry.path }),
+              });
+              if (addResp.ok) {
+                const updated = await addResp.json() as string[];
+                this.card.files = updated;
+                this.refreshFilesSection(filesSection);
+              }
+            } catch (e) { console.error('Failed to link file:', e); }
+            dropdown.remove();
+          });
+          dropdown.appendChild(opt);
+        }
+        if (dropdown.children.length === 0) {
+          dropdown.innerHTML = '<div style="padding:8px;font-size:12px;opacity:0.5;">All workspace files already linked</div>';
+        }
+      }
+
+      filesSection.appendChild(dropdown);
+      // Close on outside click
+      const closeHandler = (ev: Event) => {
+        if (!dropdown.contains(ev.target as Node) && !filesSection.contains(ev.target as Node)) {
+          dropdown.remove();
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      setTimeout(() => document.addEventListener('click', closeHandler), 10);
+    } catch (e) {
+      console.error('Failed to load workspace files:', e);
+    }
+  }
+
+  private refreshFilesSection(section: HTMLElement): void {
+    // Re-build the files section content in-place
+    const newSection = this.buildFilesSection();
+    section.innerHTML = newSection.innerHTML;
+    // Re-attach event listeners by replacing the section
+    section.replaceWith(newSection);
   }
 
   private buildAttachmentsSection(cardId: string): HTMLElement {
@@ -1820,11 +1950,15 @@ export class CardDetailModal {
       this.handleEnrich(cardIdForEnrich, descTextareaAdapter, checklistSection);
     });
 
+    // ── Workspace Files section ──────────────────────────────────────────────
+    const filesSection = this.buildFilesSection();
+
     // ── Assemble right column ────────────────────────────────────────────────
     rightCol.appendChild(voteSection);
     rightCol.appendChild(assigneeWatchersSection);
     rightCol.appendChild(tagsSection);
     rightCol.appendChild(checklistSection);
+    rightCol.appendChild(filesSection);
     rightCol.appendChild(attachmentsSection);
     rightCol.appendChild(timeSection);
     rightCol.appendChild(commentsSection);

@@ -60,6 +60,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN recurrence_next DATETIME"))
         if "color" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN color TEXT"))
+        if "files" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN files TEXT NOT NULL DEFAULT '[]'"))
         # Migrate: rename status='note' to status='card' (nomenclature cleanup)
         await conn.execute(text("UPDATE cards SET status='card' WHERE status='note'"))
         # Ensure card_relations table exists (created via create_all above, but explicit for safety)
@@ -244,6 +246,7 @@ class Card(Base):
     sprint_id = Column(String, ForeignKey("sprints.id"), nullable=True)  # sprint assignment
     recurrence = Column(String, nullable=True)  # "daily" | "weekly" | "monthly" | None
     recurrence_next = Column(DateTime, nullable=True)  # next occurrence datetime
+    files = Column(Text, nullable=False, default="[]")  # JSON array of relative file paths
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

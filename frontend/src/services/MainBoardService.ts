@@ -217,6 +217,7 @@ export class MainBoardService {
       assignee: (raw.assignee as string) || null,
       watchers: (raw.watchers as string) || '',
       votes: (raw.votes as number) || 0,
+      files: (raw.files as string[]) || [],
     };
   }
 

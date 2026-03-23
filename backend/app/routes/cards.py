@@ -625,6 +625,7 @@ def _card_to_response(card: Card) -> CardResponse:
         votes=card.votes or 0,
         recurrence=card.recurrence,
         recurrence_next=card.recurrence_next,
+        files=json.loads(card.files) if card.files else [],
     )
 
 
@@ -1227,4 +1228,53 @@ async def enrich_card(
     except httpx.TimeoutException as e:
         logger.error(f"enrich_card: timeout for card_id={card_id!r}: {e}")
         raise HTTPException(504, f"Enrichment failed: upstream timeout")
+
+
+# ── Card File References ─────────────────────────────────────────────────────
+
+
+class FileRefRequest(BaseModel):
+    path: str  # relative path (e.g. "workspace/notes.md")
+
+
+@router.get("/cards/{card_id}/files")
+async def list_card_files(card_id: str, db: AsyncSession = Depends(get_db)):
+    """List file references for a card."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+    return json.loads(card.files) if card.files else []
+
+
+@router.post("/cards/{card_id}/files")
+async def add_card_file(card_id: str, body: FileRefRequest, db: AsyncSession = Depends(get_db)):
+    """Add a file reference to a card."""
+    # Reject path traversal
+    if ".." in body.path:
+        raise HTTPException(400, "Path traversal not allowed")
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+    files = json.loads(card.files) if card.files else []
+    if body.path not in files:
+        files.append(body.path)
+        card.files = json.dumps(files)
+        card.updated_at = utcnow()
+        await db.commit()
+    return files
+
+
+@router.delete("/cards/{card_id}/files")
+async def remove_card_file(card_id: str, path: str, db: AsyncSession = Depends(get_db)):
+    """Remove a file reference from a card."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found")
+    files = json.loads(card.files) if card.files else []
+    if path in files:
+        files.remove(path)
+        card.files = json.dumps(files)
+        card.updated_at = utcnow()
+        await db.commit()
+    return files
 

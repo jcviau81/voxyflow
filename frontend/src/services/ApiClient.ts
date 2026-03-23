@@ -434,6 +434,7 @@ export class ApiClient {
         watchers: c.watchers ?? '',
         votes: (c.votes as number) ?? 0,
         sprintId: c.sprint_id ?? null,
+        files: (c.files as string[]) ?? [],
       }));
     } catch (error) {
       console.error('[ApiClient] fetchCards error:', error);
@@ -953,6 +954,7 @@ export class ApiClient {
         watchers: (c.watchers as string) ?? '',
         votes: (c.votes as number) ?? 0,
         sprintId: (c.sprint_id as string) ?? null,
+        files: (c.files as string[]) ?? [],
       } as import('../types').Card;
     } catch (error) {
       console.error('[ApiClient] cloneCardToProject error:', error);
@@ -983,6 +985,7 @@ export class ApiClient {
         watchers: (c.watchers as string) ?? '',
         votes: (c.votes as number) ?? 0,
         sprintId: (c.sprint_id as string) ?? null,
+        files: (c.files as string[]) ?? [],
       } as import('../types').Card;
     } catch (error) {
       console.error('[ApiClient] moveCardToProject error:', error);
@@ -1013,6 +1016,7 @@ export class ApiClient {
         watchers: (c.watchers as string) ?? '',
         votes: (c.votes as number) ?? 0,
         sprintId: (c.sprint_id as string) ?? null,
+        files: (c.files as string[]) ?? [],
       } as import('../types').Card;
     } catch (error) {
       console.error('[ApiClient] duplicateCard error:', error);

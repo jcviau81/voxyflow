@@ -121,6 +121,7 @@ class AppSettings(BaseModel):
     onboarding_complete: bool = False
     user_name: str = ""
     assistant_name: str = "Voxy"
+    workspace_path: str = "workspace"  # relative to VOXYFLOW_DIR, or absolute
 
 
 def _resolve_personality_path(rel_path: str) -> Path:

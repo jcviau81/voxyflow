@@ -44,6 +44,9 @@ htmlcov/
 # Session data (persisted conversations)
 data/
 
+# Workspace (Voxy managed files)
+workspace/
+
 # Playwright
 frontend/test-results/
 frontend/playwright-report/

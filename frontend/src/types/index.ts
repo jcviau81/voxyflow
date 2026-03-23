@@ -164,6 +164,7 @@ export interface Card {
   sprintId?: string | null;  // sprint assignment
   recurrence?: 'daily' | 'weekly' | 'monthly' | null;  // recurring schedule
   recurrenceNext?: string | null;  // ISO datetime of next occurrence
+  files?: string[];  // relative file paths linked to this card
 }
 
 export interface AppStateData {

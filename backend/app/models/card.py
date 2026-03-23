@@ -90,6 +90,7 @@ class CardResponse(BaseModel):
     sprint_id: Optional[str] = None
     recurrence: RecurrenceType = None
     recurrence_next: Optional[datetime] = None
+    files: list[str] = []
 
     model_config = {"from_attributes": True}
 

@@ -65,6 +65,7 @@ interface AppSettings {
   personality: PersonalitySettings;
   models?: ModelsSettings;
   voice?: VoiceSettings;
+  workspace_path?: string;
 }
 
 interface FilePreview {
@@ -123,6 +124,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     analyzer: { ...DEFAULT_MODEL_LAYER, model: 'claude-haiku-4' },
   },
   voice: { ...DEFAULT_VOICE_SETTINGS },
+  workspace_path: 'workspace',
 };
 
 export class SettingsPage {
@@ -238,6 +240,7 @@ export class SettingsPage {
     this.root.insertAdjacentHTML('beforeend', this.renderModelsSection());
     this.root.insertAdjacentHTML('beforeend', this.renderGitHubSection());
     this.root.insertAdjacentHTML('beforeend', this.renderVoiceSection());
+    this.root.insertAdjacentHTML('beforeend', this.renderWorkspaceSection());
     this.root.insertAdjacentHTML('beforeend', this.renderConnectionSection());
     this.root.insertAdjacentHTML('beforeend', this.renderDataSection());
     this.root.insertAdjacentHTML('beforeend', this.renderJobsSection());
@@ -850,6 +853,30 @@ export class SettingsPage {
     `;
   }
 
+  private renderWorkspaceSection(): string {
+    const wsPath = this.settings.workspace_path || 'workspace';
+    return `
+      <div class="settings-section">
+        <h3>📁 Workspace</h3>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Workspace Path</div>
+            <div class="setting-description">Directory where Voxy stores files. Relative to ~/voxyflow/ or absolute.</div>
+          </div>
+          <input type="text" class="settings-input" id="workspace-path-input" value="${this.escapeHtml(wsPath)}" placeholder="workspace" />
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Resolved Path</div>
+            <div class="setting-description" id="workspace-resolved-hint" style="font-family: monospace; opacity: 0.7;">
+              ${wsPath.startsWith('/') ? wsPath : '~/voxyflow/' + wsPath}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   private renderConnectionSection(): string {
     const state = appState.get('connectionState');
     const stateEmoji = state === 'connected' ? '\uD83D\uDFE2' : state === 'connecting' ? '\uD83D\uDFE1' : '\uD83D\uDD34';
@@ -1217,6 +1244,19 @@ export class SettingsPage {
     });
 
     this.bindVoiceEvents();
+
+    // Workspace path
+    const wsInput = this.root.querySelector('#workspace-path-input') as HTMLInputElement;
+    if (wsInput) {
+      wsInput.addEventListener('input', () => {
+        this.markDirty();
+        const hint = this.root.querySelector('#workspace-resolved-hint');
+        if (hint) {
+          const val = wsInput.value || 'workspace';
+          hint.textContent = val.startsWith('/') ? val : '~/voxyflow/' + val;
+        }
+      });
+    }
 
     const reconnectBtn = this.root.querySelector('#reconnect-btn');
     if (reconnectBtn) {
@@ -1728,10 +1768,15 @@ export class SettingsPage {
       volume: volSliderEl ? parseInt(volSliderEl.value) : (this.settings.voice?.volume ?? 80),
     };
 
+    // Workspace path
+    const wsInput = this.root.querySelector('#workspace-path-input') as HTMLInputElement;
+    const workspace_path = wsInput?.value.trim() || 'workspace';
+
     return {
       personality: { ...this.settings.personality, ...personality } as PersonalitySettings,
       models,
       voice,
+      workspace_path,
     };
   }
 
