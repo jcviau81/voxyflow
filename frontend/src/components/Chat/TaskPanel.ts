@@ -29,6 +29,9 @@ export class TaskPanel {
   private tasks: Map<string, ActiveTask> = new Map();
   private unsubscribers: (() => void)[] = [];
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private onVisibilityChange = () => {
+    if (document.visibilityState === 'visible') this.cleanupCompleted();
+  };
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'task-panel' });
@@ -38,8 +41,10 @@ export class TaskPanel {
     this.parentElement.appendChild(this.container);
     this.setupListeners();
 
-    // Cleanup completed tasks after 8 seconds
+    // Cleanup completed tasks after 8 seconds (fallback timer)
     this.cleanupTimer = setInterval(() => this.cleanupCompleted(), 2000);
+    // Also cleanup when tab regains focus (mobile throttles setInterval)
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   private setupListeners(): void {
@@ -109,19 +114,26 @@ export class TaskPanel {
     apiClient.send('task:cancel', { taskId, sessionId });
   }
 
-  private cleanupCompleted(): void {
+  /** Remove expired tasks from the map (no render). */
+  private purgeExpired(): void {
     const now = Date.now();
-    let changed = false;
     for (const [taskId, task] of this.tasks) {
       if (task.completedAt && now - task.completedAt > 8000) {
         this.tasks.delete(taskId);
-        changed = true;
       }
     }
-    if (changed) this.render();
+  }
+
+  private cleanupCompleted(): void {
+    const sizeBefore = this.tasks.size;
+    this.purgeExpired();
+    if (this.tasks.size !== sizeBefore) this.render();
   }
 
   private render(): void {
+    // Eagerly clean expired tasks on every render (immune to timer throttling)
+    this.purgeExpired();
+
     if (this.tasks.size === 0) {
       this.container.style.display = 'none';
       return;
@@ -196,6 +208,7 @@ export class TaskPanel {
   destroy(): void {
     this.unsubscribers.forEach((unsub) => unsub());
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.container.remove();
   }
 }
