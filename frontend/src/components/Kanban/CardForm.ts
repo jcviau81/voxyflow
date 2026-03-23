@@ -27,7 +27,7 @@ export interface CardFormData {
   recurrence?: 'daily' | 'weekly' | 'monthly' | null;
 }
 
-// Fallback static agents if API isn't available yet (ember is the default fallback, not shown as a selectable option)
+// Fallback static agents if API isn't available yet (general is the default fallback, not shown as a selectable option)
 const FALLBACK_AGENTS: AgentInfo[] = [
   { type: 'researcher', name: 'Researcher', emoji: '🔍', description: 'Research & analysis', strengths: [], keywords: [] },
   { type: 'coder', name: 'Coder', emoji: '💻', description: 'Code implementation', strengths: [], keywords: [] },
@@ -64,7 +64,7 @@ export class CardForm {
   private selectedDependencies: Set<string> = new Set();
   private titleInput: HTMLInputElement | null = null;
   private descInput: HTMLTextAreaElement | null = null;
-  private selectedAgentType: string = 'ember';
+  private selectedAgentType: string = 'general';
   private agentSelectorEl: HTMLElement | null = null;
   private prioritySelect: HTMLSelectElement | null = null;
   private tagsInput: HTMLInputElement | null = null;
@@ -80,7 +80,7 @@ export class CardForm {
     if (this.card) {
       this.selectedStatus = this.card.status;
       this.selectedDependencies = new Set(this.card.dependencies);
-      this.selectedAgentType = this.card.agentType || 'ember';
+      this.selectedAgentType = this.card.agentType || 'general';
     }
     if (event.prefillStatus) this.selectedStatus = event.prefillStatus;
     if (event.prefillAgentType) this.selectedAgentType = event.prefillAgentType;
@@ -327,7 +327,7 @@ export class CardForm {
     if (this.card.agentType) {
       this.selectedAgentType = this.card.agentType;
     } else if (this.card.assignedAgent) {
-      const val = Object.entries(AGENT_TO_PERSONA).find(([, p]) => p === this.card!.assignedAgent)?.[0] || 'ember';
+      const val = Object.entries(AGENT_TO_PERSONA).find(([, p]) => p === this.card!.assignedAgent)?.[0] || 'general';
       this.selectedAgentType = val;
     }
     // Update chip selection
@@ -364,7 +364,7 @@ export class CardForm {
     if (!this.validateTitle()) return;
     const tagsRaw = this.tagsInput?.value.trim() || '';
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
-    const agentType = this.selectedAgentType || 'ember';
+    const agentType = this.selectedAgentType || 'general';
     const enrichAfterCreate = this.mode === 'create' ? (this.enrichCheckbox?.checked ?? true) : undefined;
     const recurrenceRaw = this.recurrenceSelect?.value || '';
     const recurrence = (recurrenceRaw as 'daily' | 'weekly' | 'monthly') || null;

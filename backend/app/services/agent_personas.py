@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 class AgentType(str, Enum):
     """Available specialized agent types."""
-    EMBER = "ember"           # Default: no specialization, pure personality
+    GENERAL = "general"           # Default: no specialization, pure personality
     RESEARCHER = "researcher"  # Deep analysis, fact-checking, long-form
     CODER = "coder"           # Code generation, debugging, optimization
     DESIGNER = "designer"     # UI/UX thinking, visual design guidance
@@ -33,11 +33,11 @@ class AgentPersona(BaseModel):
 
 PERSONAS: dict[AgentType, AgentPersona] = {
 
-    AgentType.EMBER: AgentPersona(
-        agent_type=AgentType.EMBER,
-        name="Ember",
-        emoji="🔥",
-        description="Default persona. Handles general conversation, quick tasks, and anything that doesn't need a specialist.",
+    AgentType.GENERAL: AgentPersona(
+        agent_type=AgentType.GENERAL,
+        name="Voxy",
+        emoji="🛡️",
+        description="Default assistant. Handles general tasks and coordinates specialists.",
         system_prompt=(
             "You are the default assistant. Handle this task with your natural personality.\n"
             "No special role — just be helpful, direct, and yourself."
@@ -224,7 +224,7 @@ PERSONAS: dict[AgentType, AgentPersona] = {
 
 def get_persona(agent_type: AgentType) -> AgentPersona:
     """Get persona definition for an agent type."""
-    return PERSONAS.get(agent_type, PERSONAS[AgentType.EMBER])
+    return PERSONAS.get(agent_type, PERSONAS[AgentType.GENERAL])
 
 
 def get_all_personas() -> dict[AgentType, AgentPersona]:

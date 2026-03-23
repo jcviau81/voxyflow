@@ -104,14 +104,14 @@ class AgentRouter:
                     scores[agent_type] = min(0.6, 0.15 + (score * 0.05))
 
         if not scores:
-            return AgentType.EMBER, 0.0
+            return AgentType.GENERAL, 0.0
 
         # Get highest scoring agent
         best_agent = max(scores, key=scores.get)  # type: ignore
         best_score = scores[best_agent]
 
         if best_score < self.min_confidence:
-            return AgentType.EMBER, best_score
+            return AgentType.GENERAL, best_score
 
         logger.info(f"Routed to {best_agent.value} (confidence={best_score:.2f}): {title[:60]}")
         return best_agent, best_score
@@ -134,7 +134,7 @@ class AgentRouter:
         text = f"{title} {description} {context}".lower()
         all_scores = {}
         for at in AgentType:
-            if at == AgentType.EMBER:
+            if at == AgentType.GENERAL:
                 continue
             score_val = 0.0
             weights = ROUTING_WEIGHTS.get(at, {})

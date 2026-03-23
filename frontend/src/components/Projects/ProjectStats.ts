@@ -267,7 +267,7 @@ export class ProjectStats {
     const chart = createElement('div', { className: 'bar-chart' });
 
     const AGENT_COLORS: Record<string, string> = {
-      ember: '#ff6b6b',
+      general: '#ff6b6b',
       coder: '#60a5fa',
       architect: '#a78bfa',
       researcher: '#34d399',

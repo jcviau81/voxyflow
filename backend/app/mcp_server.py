@@ -181,7 +181,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 },
                 "agent_type": {
                     "type": "string",
-                    "enum": ["ember", "researcher", "coder", "designer", "architect", "writer", "qa"],
+                    "enum": ["general", "researcher", "coder", "designer", "architect", "writer", "qa"],
                     "description": "Agent type to assign (auto-routed if omitted)",
                 },
             },

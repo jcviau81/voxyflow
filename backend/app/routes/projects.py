@@ -64,7 +64,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             {"title": "Design architecture", "status": "todo", "priority": 2, "agent_type": "architect"},
             {"title": "Implement features", "status": "todo", "priority": 3, "agent_type": "coder"},
             {"title": "Write tests", "status": "todo", "priority": 4, "agent_type": "qa"},
-            {"title": "Deploy", "status": "todo", "priority": 5, "agent_type": "ember"},
+            {"title": "Deploy", "status": "todo", "priority": 5, "agent_type": "general"},
         ],
     },
     "research": {
@@ -88,11 +88,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "From brainstorm to published content, end to end.",
         "color": "#ff9ff3",
         "cards": [
-            {"title": "Brainstorm topics", "status": "idea", "priority": 1, "agent_type": "ember"},
+            {"title": "Brainstorm topics", "status": "idea", "priority": 1, "agent_type": "general"},
             {"title": "Outline", "status": "todo", "priority": 2, "agent_type": "writer"},
             {"title": "Draft", "status": "todo", "priority": 3, "agent_type": "writer"},
             {"title": "Review & edit", "status": "todo", "priority": 4, "agent_type": "qa"},
-            {"title": "Publish", "status": "todo", "priority": 5, "agent_type": "ember"},
+            {"title": "Publish", "status": "todo", "priority": 5, "agent_type": "general"},
         ],
     },
     "bugfix": {
@@ -106,7 +106,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             {"title": "Root cause analysis", "status": "todo", "priority": 2, "agent_type": "architect"},
             {"title": "Implement fix", "status": "todo", "priority": 3, "agent_type": "coder"},
             {"title": "Write regression test", "status": "todo", "priority": 4, "agent_type": "qa"},
-            {"title": "Deploy fix", "status": "todo", "priority": 5, "agent_type": "ember"},
+            {"title": "Deploy fix", "status": "todo", "priority": 5, "agent_type": "general"},
         ],
     },
     "launch": {
@@ -120,7 +120,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             {"title": "MVP definition", "status": "todo", "priority": 2, "agent_type": "architect"},
             {"title": "Build MVP", "status": "todo", "priority": 3, "agent_type": "coder"},
             {"title": "Beta testing", "status": "todo", "priority": 4, "agent_type": "qa"},
-            {"title": "Launch", "status": "todo", "priority": 5, "agent_type": "ember"},
+            {"title": "Launch", "status": "todo", "priority": 5, "agent_type": "general"},
         ],
     },
 }
@@ -572,7 +572,7 @@ async def extract_meeting_notes(
                 title=str(item.get("title", "Untitled action"))[:200],
                 description=str(item.get("description", ""))[:1000],
                 priority=max(0, min(3, int(item.get("priority", 1)))),
-                agent_type=str(item.get("agent_type", "ember")),
+                agent_type=str(item.get("agent_type", "general")),
             )
         )
 

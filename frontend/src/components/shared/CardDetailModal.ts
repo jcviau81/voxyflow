@@ -1641,7 +1641,7 @@ export class CardDetailModal {
     const voteSection = this.buildVoteSection(this.card);
 
     // Agent assignment
-    const currentAgentType = this.card.agentType || 'ember';
+    const currentAgentType = this.card.agentType || 'general';
     const agentSection = createElement('div', { className: 'modal-section' });
     const agentLabel = createElement('label', { className: 'modal-label' }, 'Agent');
     const agentSelector = createElement('div', { className: 'agent-selector agent-selector--modal' });

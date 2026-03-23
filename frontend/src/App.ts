@@ -562,9 +562,9 @@ export class App {
         status: data.status as CardStatus, assignedAgent, tags: data.tags, priority: data.priority,
       });
       // Persist agentType and recurrence via REST after card is created
-      if ((resolvedAgentType && resolvedAgentType !== 'ember') || data.recurrence) {
+      if ((resolvedAgentType && resolvedAgentType !== 'general') || data.recurrence) {
         const patchData: Record<string, unknown> = {};
-        if (resolvedAgentType && resolvedAgentType !== 'ember') patchData.agent_type = resolvedAgentType;
+        if (resolvedAgentType && resolvedAgentType !== 'general') patchData.agent_type = resolvedAgentType;
         if (data.recurrence) patchData.recurrence = data.recurrence;
         if (Object.keys(patchData).length > 0) await apiClient.patchCard(newCard.id, patchData);
       }

@@ -955,7 +955,7 @@ class ChatOrchestrator:
                                 "description": c.description or "",
                                 "status": c.status or "idea",
                                 "priority": str(c.priority) if c.priority is not None else "medium",
-                                "agent_type": getattr(c, "agent_type", None) or "ember",
+                                "agent_type": getattr(c, "agent_type", None) or "general",
                                 "assignee": getattr(c, "assignee", None),
                                 "checklist_items": [
                                     {"done": getattr(item, "done", False) or getattr(item, "completed", False)}
@@ -1513,7 +1513,7 @@ class ChatOrchestrator:
                         "payload": {
                             "title": card["title"],
                             "description": card.get("description", ""),
-                            "agentType": card.get("agent_type", "ember"),
+                            "agentType": card.get("agent_type", "general"),
                             "agentName": card.get("agent_name", "Ember"),
                             "projectId": project_id or "",
                             "sessionId": session_id,

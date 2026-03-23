@@ -104,7 +104,7 @@ class CardSuggestion(BaseModel):
     suggested_dependencies: list[str] = []
     confidence: float = Field(ge=0.0, le=1.0)
     # Agent routing
-    agent_type: str = "ember"
+    agent_type: str = "general"
     agent_name: str = "🔥 Ember"
 
 

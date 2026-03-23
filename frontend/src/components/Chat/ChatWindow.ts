@@ -1113,7 +1113,7 @@ export class ChatWindow {
           '`/clear` — Clear chat messages visually',
           '`/help` — Show this help message',
           '`/agent [name]` — Switch agent persona',
-          '  Agents: `ember`, `coder`, `architect`, `researcher`, `designer`, `writer`, `qa`',
+          '  Agents: `general`, `coder`, `architect`, `researcher`, `designer`, `writer`, `qa`',
         ].join('\n');
 
         // Inject as an assistant message locally (no round-trip to server)
@@ -1134,7 +1134,7 @@ export class ChatWindow {
         const parts = input.split(/\s+/);
         const agentName = parts[1]?.toLowerCase() || '';
 
-        const validAgents = ['ember', 'coder', 'architect', 'researcher', 'designer', 'writer', 'qa'];
+        const validAgents = ['general', 'coder', 'architect', 'researcher', 'designer', 'writer', 'qa'];
         if (!agentName || !validAgents.includes(agentName)) {
           const errMsg: Message = {
             id: `slash-agent-err-${Date.now()}`,

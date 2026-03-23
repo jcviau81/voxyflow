@@ -1256,7 +1256,7 @@ async def enrich_card(
     from app.services.claude_service import ClaudeService
     claude = ClaudeService()
 
-    agent_type = card.agent_type or "ember"
+    agent_type = card.agent_type or "general"
     title = card.title
     existing_desc = (card.description or "").strip()
 

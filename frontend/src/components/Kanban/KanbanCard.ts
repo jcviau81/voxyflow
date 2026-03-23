@@ -445,7 +445,7 @@ export class KanbanCard {
 
     // Agent badge — show emoji for non-ember agent types
     const agentType = this.card.agentType;
-    if (agentType && agentType !== 'ember') {
+    if (agentType && agentType !== 'general') {
       const emoji = AGENT_TYPE_EMOJI[agentType];
       if (emoji) {
         const badge = createElement('span', { className: 'agent-badge', title: agentType }, emoji);
@@ -622,7 +622,7 @@ export class KanbanCard {
       ? this.card.priority === priorityFilter
       : true;
     const agentMatch = agentFilter
-      ? (this.card.agentType || 'ember') === agentFilter
+      ? (this.card.agentType || 'general') === agentFilter
       : true;
     // Tag filter: OR semantics — card visible if it has the tag (single tag selected)
     const tagMatch = tagFilter

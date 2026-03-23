@@ -215,7 +215,7 @@ class PersonalityService:
         card_id = card.get("id", "")
         status = card.get("status", "idea")
         priority = card.get("priority", "medium")
-        agent_type = card.get("agent_type") or "ember"
+        agent_type = card.get("agent_type") or "general"
         description = card.get("description") or "No description"
         assignee = card.get("assignee") or "Unassigned"
 

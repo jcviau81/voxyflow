@@ -152,7 +152,7 @@ export interface Card {
   projectId: string | null;  // 'system-main' = Main Board (system project)
   color?: 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange' | null;
   assignedAgent?: AgentPersona;
-  agentType?: string;  // ember|researcher|coder|designer|architect|writer|qa
+  agentType?: string;  // general|researcher|coder|designer|architect|writer|qa
   dependencies: string[];
   tags: string[];
   priority: number;

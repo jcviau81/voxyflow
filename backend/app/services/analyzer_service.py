@@ -49,7 +49,7 @@ def suggest_agent_type(title: str, description: str) -> str:
       normalized by keyword list length to avoid agents with longer lists dominating
 
     Returns the highest-scoring agent type value (e.g. "coder", "qa", …),
-    or "ember" as fallback when no matches or there is a tie.
+    or "general" as fallback when no matches or there is a tie.
     """
     combined = f"{title} {description}".lower()
     # Tokenise on word boundaries for pattern matching
@@ -65,7 +65,7 @@ def suggest_agent_type(title: str, description: str) -> str:
 
     # --- Persona keyword matching (1 pt each, normalised) ---
     for agent_type, persona in PERSONAS.items():
-        if agent_type == AgentType.EMBER or not persona.keywords:
+        if agent_type == AgentType.GENERAL or not persona.keywords:
             continue
         kw_hits = sum(1 for kw in persona.keywords if kw in combined)
         if kw_hits:
@@ -75,7 +75,7 @@ def suggest_agent_type(title: str, description: str) -> str:
             scores[agent_type] = scores.get(agent_type, 0.0) + normalized
 
     if not scores:
-        return AgentType.EMBER.value
+        return AgentType.GENERAL.value
 
     best_score = max(scores.values())
     # Collect all agents tied at the top score
@@ -91,7 +91,7 @@ def suggest_agent_type(title: str, description: str) -> str:
         if at in best_agents:
             return at.value
 
-    return AgentType.EMBER.value
+    return AgentType.GENERAL.value
 
 
 class AnalyzerService:
@@ -180,11 +180,11 @@ class AnalyzerService:
                 return None
 
             # Get agent type from LLM suggestion
-            agent_type_str = data.get("agent_type", "ember")
+            agent_type_str = data.get("agent_type", "general")
             try:
                 agent_type = AgentType(agent_type_str)
             except ValueError:
-                agent_type = AgentType.EMBER
+                agent_type = AgentType.GENERAL
 
             card_title = data.get("title", "")
             card_desc = data.get("description", "")
@@ -210,7 +210,7 @@ class AnalyzerService:
                     f"router prefers {router_agent.value} (conf={router_confidence:.2f})"
                 )
                 agent_type = router_agent
-            elif pattern_agent != AgentType.EMBER and agent_type == AgentType.EMBER:
+            elif pattern_agent != AgentType.GENERAL and agent_type == AgentType.GENERAL:
                 logger.info(
                     f"Pattern override: LLM returned ember, "
                     f"pattern scorer prefers {pattern_agent.value}"
@@ -285,7 +285,7 @@ class AnalyzerService:
         # Resolution: high-confidence router result takes priority
         if router_confidence >= 0.6:
             agent_type = router_type
-        elif suggested_type != AgentType.EMBER:
+        elif suggested_type != AgentType.GENERAL:
             # suggest_agent_type found a strong signal; prefer it
             agent_type = suggested_type
         else:

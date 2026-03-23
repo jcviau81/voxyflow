@@ -52,7 +52,7 @@ export const AGENT_PERSONAS: Record<string, { name: string; emoji: string; descr
   writer: { name: 'Writer', emoji: '📝', description: 'Documentation & specs' },
 };
 
-// Agent type → emoji mapping for the 6 specialized agent types (ember is the default fallback, not a selectable persona)
+// Agent type → emoji mapping for the 6 specialized agent types (general is the default fallback, not a selectable persona)
 export const AGENT_TYPE_EMOJI: Record<string, string> = {
   researcher: '🔍',
   coder: '💻',
@@ -62,7 +62,7 @@ export const AGENT_TYPE_EMOJI: Record<string, string> = {
   qa: '🧪',
 };
 
-// Agent type → display info (ember is the default fallback, not a selectable persona)
+// Agent type → display info (general is the default fallback, not a selectable persona)
 export const AGENT_TYPE_INFO: Record<string, { name: string; emoji: string; description: string }> = {
   researcher: { name: 'Researcher', emoji: '🔍', description: 'Research & analysis' },
   coder: { name: 'Coder', emoji: '💻', description: 'Code implementation & debugging' },
