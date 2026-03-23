@@ -26,10 +26,15 @@ export class TopBar {
 
   private setDeepMode(deep: boolean): void {
     const state = this.getLayerState();
+    const changed = state.deep !== deep;
     state.deep = deep;
     localStorage.setItem(LAYER_STORAGE_KEY, JSON.stringify(state));
     eventBus.emit(EVENTS.STATE_CHANGED, { key: 'layerToggles', value: state });
     this.render();
+    // On mobile, switching modes resets the session to avoid stale model state
+    if (changed && window.innerWidth <= 768) {
+      eventBus.emit('mobile:clear-chat');
+    }
   }
 
   private getVoiceSetting(key: string, defaultVal: boolean): boolean {

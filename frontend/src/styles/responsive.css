@@ -445,3 +445,29 @@
     display: none !important;
   }
 }
+
+/* New chat button above input on mobile */
+@media (max-width: 768px) {
+  .chat-new-session-mobile {
+    display: flex !important;
+    justify-content: center;
+    padding: 4px 12px;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+  }
+
+  .chat-new-session-mobile button {
+    font-size: 0.75rem;
+    padding: 4px 16px;
+    border-radius: var(--border-radius-sm);
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+
+  .chat-new-session-mobile button:active {
+    background: var(--color-primary);
+    color: white;
+  }
+}

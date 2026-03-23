@@ -210,6 +210,13 @@ export class ChatWindow {
     // BOTTOM: Status + New + Clear + Search + Model Selector + Analyzer
     this.container.appendChild(bottomBar);
 
+    // Mobile-only new chat button above input
+    const newChatMobile = createElement('div', { className: 'chat-new-session-mobile', style: 'display:none' });
+    const newChatBtn = createElement('button', {}, '✨ New Chat');
+    newChatBtn.addEventListener('click', () => this.handleClearChat());
+    newChatMobile.appendChild(newChatBtn);
+    this.container.appendChild(newChatMobile);
+
     this.container.appendChild(this.inputArea);
 
     // Slash command menu — anchored to the input area, floats above it
@@ -606,6 +613,11 @@ export class ChatWindow {
   }
 
   private setupListeners(): void {
+    // Mobile: clear chat when mode switches (from TopBar)
+    this.unsubscribers.push(
+      eventBus.on('mobile:clear-chat', () => this.handleClearChat())
+    );
+
     // Keyboard shortcut: Ctrl+Shift+N → New Session
     const keyboardHandler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'N') {
