@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from typing import AsyncIterator, Callable, Optional, Union
 
 import httpx
@@ -19,6 +19,48 @@ from app.tools.registry import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# LRU Dict — bounded dict that evicts the oldest entry on overflow
+# ---------------------------------------------------------------------------
+
+class _LRUDict(OrderedDict):
+    """An OrderedDict subclass that enforces a maximum size by evicting the
+    least-recently-used (oldest) entry whenever the limit is exceeded.
+
+    Usage: drop-in replacement for plain dict / defaultdict in cases where
+    the key space is theoretically unbounded (e.g. chat_id per user session).
+    """
+
+    def __init__(self, maxsize: int = 500, default_factory=None):
+        super().__init__()
+        self._maxsize = maxsize
+        self._default_factory = default_factory
+
+    def __getitem__(self, key):
+        value = super().__getitem__(key)
+        # Move to end so it is treated as most-recently-used
+        self.move_to_end(key)
+        return value
+
+    def __setitem__(self, key, value):
+        if key in self:
+            self.move_to_end(key)
+        super().__setitem__(key, value)
+        # Evict oldest entries until we are within the size limit
+        while len(self) > self._maxsize:
+            oldest_key, _ = next(iter(self.items()))
+            logger.debug(f"[LRUDict] Evicting key: {oldest_key!r} (maxsize={self._maxsize})")
+            super().__delitem__(oldest_key)
+
+    def __missing__(self, key):
+        """Support defaultdict-style default_factory."""
+        if self._default_factory is None:
+            raise KeyError(key)
+        value = self._default_factory()
+        self[key] = value
+        return value
 
 # ---------------------------------------------------------------------------
 # Model name mapping: short names → Anthropic full names
@@ -333,9 +375,11 @@ class ClaudeService:
 
         self.personality = get_personality_service()
         self.memory = get_memory_service()
-        self._histories: dict[str, list[dict]] = {}
-        # Per-chat_id async locks to prevent concurrent history mutations
-        self._history_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        # LRU-bounded dicts: max 500 entries to prevent unbounded RAM growth.
+        # Oldest chat_ids are evicted automatically when the limit is exceeded.
+        self._histories: _LRUDict = _LRUDict(maxsize=500)
+        # Per-chat_id async locks — also LRU-bounded so orphaned locks get evicted too.
+        self._history_locks: _LRUDict = _LRUDict(maxsize=500, default_factory=asyncio.Lock)
         # Native delegate tool_use blocks collected during streaming (keyed by chat_id)
         # Populated by chat_fast_stream / chat_deep_stream, consumed by orchestrator
         self._pending_delegates: dict[str, list[dict]] = {}

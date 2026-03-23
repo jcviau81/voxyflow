@@ -161,6 +161,8 @@ async def general_websocket(websocket: WebSocket):
     active_session_ids: set[str] = set()
     # Track sessions that already had pending results delivered
     _pending_delivered: set[str] = set()
+    # Fix 3: track fire-and-forget background tasks for cancellation on disconnect
+    bg_tasks: list[asyncio.Task] = []
 
     async def _deliver_pending(sid: str) -> None:
         """Deliver any pending worker results for this session."""
@@ -233,7 +235,8 @@ async def general_websocket(websocket: WebSocket):
                         active_session_ids.add(session_id)
 
                     # 3-Layer orchestration (Fast + Deep + Analyzer in parallel)
-                    await _orchestrator.handle_message(
+                    # Fix 3: collect returned background tasks for cleanup on disconnect
+                    new_tasks = await _orchestrator.handle_message(
                         websocket=websocket,
                         content=content,
                         message_id=message_id,
@@ -244,6 +247,8 @@ async def general_websocket(websocket: WebSocket):
                         card_id=card_id,
                         session_id=session_id,
                     )
+                    if new_tasks:
+                        bg_tasks.extend(new_tasks)
 
                 elif msg_type == "session:reset":
                     chat_level = payload.get("chatLevel", "general")
@@ -258,6 +263,16 @@ async def general_websocket(websocket: WebSocket):
                         chat_id = f"project:{project_id}"
                     else:
                         chat_id = f"general:{session_id}"
+
+                    # Fix 5: full session teardown — stop worker pool, clear event bus,
+                    # remove from active_session_ids, then clear chat history.
+                    if session_id in active_session_ids:
+                        active_session_ids.discard(session_id)
+                        try:
+                            await _orchestrator.stop_worker_pool(session_id)
+                            logger.info(f"[WS] session:reset → stopped worker pool for {session_id}")
+                        except Exception as _e:
+                            logger.warning(f"[WS] session:reset worker pool stop failed: {_e}")
 
                     _orchestrator.reset_session(chat_id)
                     logger.info(f"[WS] session:reset → cleared history for {chat_id}")
@@ -283,6 +298,13 @@ async def general_websocket(websocket: WebSocket):
     except Exception as e:
         logger.exception(f"General WebSocket error: {e}")
     finally:
+        # Fix 3: Cancel all tracked background tasks on disconnect
+        for task in bg_tasks:
+            if not task.done():
+                task.cancel()
+        if bg_tasks:
+            logger.info(f"[WS] Cancelled {len(bg_tasks)} background task(s) on disconnect")
+
         # Cleanup worker pools for all sessions used by this WebSocket
         for sid in active_session_ids:
             try:
