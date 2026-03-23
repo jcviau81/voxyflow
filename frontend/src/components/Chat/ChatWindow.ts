@@ -262,18 +262,10 @@ export class ChatWindow {
     } else if (chatLevel === 'project' && !this.isMainTab) {
       // Project name + tabs are in shared ProjectHeader — don't duplicate here
     } else {
-      const title = createElement('span', { className: 'header-title' });
-      title.textContent = '💬 Main Chat';
-      titleSection.appendChild(title);
+      // Main tab: ProjectHeader now handles title + view tabs — don't duplicate here
     }
 
     topBar.appendChild(titleSection);
-
-    // RIGHT: Board/View toggle (for Main tab)
-    if (this.isMainTab && chatLevel !== 'card') {
-      const generalToggle = this.renderGeneralViewToggle();
-      topBar.appendChild(generalToggle);
-    }
 
     return topBar;
   }
