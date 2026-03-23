@@ -50,5 +50,6 @@
   },
   "onboarding_complete": true,
   "user_name": "JC",
-  "assistant_name": "Voxy"
+  "assistant_name": "Voxy",
+  "workspace_path": "workspace"
 }

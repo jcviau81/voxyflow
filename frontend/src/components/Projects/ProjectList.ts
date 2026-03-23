@@ -233,6 +233,22 @@ export class ProjectList {
     cardHeader.appendChild(emojiEl);
     cardHeader.appendChild(titleWrap);
 
+    // Favorite star toggle
+    const starBtn = createElement('span', {
+      className: 'sidebar-favorite-star',
+      title: project.isFavorite ? 'Remove from favorites' : 'Add to favorites',
+    }, project.isFavorite ? '⭐' : '☆');
+    starBtn.style.cursor = 'pointer';
+    starBtn.style.fontSize = '1.2rem';
+    starBtn.style.marginLeft = 'auto';
+    starBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const { apiClient } = await import('../../services/ApiClient');
+      await apiClient.toggleFavorite(project.id);
+      this.render();
+    });
+    cardHeader.appendChild(starBtn);
+
     // Archived badge
     if (project.archived) {
       const badge = createElement('span', { className: 'project-archived-badge' }, '📦 Archived');

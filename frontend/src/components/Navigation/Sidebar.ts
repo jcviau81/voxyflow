@@ -128,24 +128,17 @@ export class Sidebar {
       content.appendChild(sessSection);
     }
 
-    // ── PROJECTS SECTION ──
+    // ── PROJECTS LINK ──
+    // Sidebar shows ONLY favorites — all projects are accessible via the Projects page
     const projectSection = createElement('div', { className: 'sidebar-projects' });
-    const projectsHeader = createElement('div', {
+    const projectsLink = createElement('div', {
       className: 'sidebar-section-header sidebar-section-header--clickable',
       title: 'All projects',
     });
-    projectsHeader.appendChild(createElement('span', {}, 'PROJECTS'));
-    projectsHeader.appendChild(createElement('span', { className: 'sidebar-all-projects-btn' }, '›'));
-    projectsHeader.addEventListener('click', () => appState.setView('projects'));
-    projectSection.appendChild(projectsHeader);
-
-    // Show non-favorite projects in the PROJECTS section
-    const nonFavorites = allProjects.filter(p => !p.isFavorite);
-    const openTabs = appState.getOpenTabs();
-
-    nonFavorites.forEach((proj) => {
-      projectSection.appendChild(this.createProjectItem(proj, activeTabId));
-    });
+    projectsLink.appendChild(createElement('span', {}, '📁 All Projects'));
+    projectsLink.appendChild(createElement('span', { className: 'sidebar-all-projects-btn' }, '›'));
+    projectsLink.addEventListener('click', () => appState.setView('projects'));
+    projectSection.appendChild(projectsLink);
 
     // New project button
     const newProjectItem = createElement('div', {
