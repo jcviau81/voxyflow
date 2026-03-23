@@ -734,11 +734,10 @@ export class ChatWindow {
           if (loading) {
             loading.remove();
           }
-          // Load history from backend on (re)connection
-          const msgs = chatService.getHistory(appState.get('currentProjectId') || undefined);
-          if (msgs.length === 0) {
-            this.loadHistoryFromBackend();
-          }
+          // Always reload history from backend on connect/reconnect.
+          // This ensures we have the latest persisted messages, including any that
+          // may have been lost due to localStorage staleness or session mismatch.
+          this.loadHistoryFromBackend();
           // Reset all model status pills to idle on reconnection (safety net)
           this.modelStatusBar?.resetAllStatuses();
         }
@@ -936,7 +935,9 @@ export class ChatWindow {
 
   /**
    * Load chat history from the backend and render it.
-   * Called when in-memory messages are empty (page refresh, new session load).
+   * Called on page load, reconnect, or when switching to an empty session.
+   * Always replaces in-memory messages with authoritative backend data so that
+   * stale localStorage snapshots don't hide recent messages after a page refresh.
    */
   private async loadHistoryFromBackend(): Promise<void> {
     const chatLevel = this.getChatLevel();
@@ -954,18 +955,14 @@ export class ChatWindow {
       projectId = appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
     } else {
       // Project chat (including Main/system-main)
-      const sessions = appState.getSessions(contextTabId);
-      if (sessions.length > 0) {
-        const activeChatId = appState.getActiveChatId(contextTabId);
-        backendChatId = `project:${contextTabId}`;
-        sessionId = activeChatId;
-      } else {
-        backendChatId = `project:${contextTabId}`;
-      }
+      const activeChatId = appState.getActiveChatId(contextTabId);
+      backendChatId = `project:${contextTabId}`;
+      sessionId = activeChatId;
       projectId = appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
     }
 
-    const loaded = await chatService.loadHistory(backendChatId, projectId, cardId, sessionId);
+    // Use replace=true: authoritative backend data replaces any stale localStorage snapshot.
+    const loaded = await chatService.loadHistory(backendChatId, projectId, cardId, sessionId, true);
 
     if (!this.messageList) return;
 
@@ -973,6 +970,8 @@ export class ChatWindow {
       // Re-render with loaded messages
       this.messageList.innerHTML = '';
       this.messageBubbles.clear();
+      this.welcomePrompt?.destroy();
+      this.welcomePrompt = null;
       loaded.forEach((msg) => this.renderMessage(msg));
       this.scrollToBottom();
     } else {

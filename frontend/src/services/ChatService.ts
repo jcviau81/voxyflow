@@ -72,6 +72,7 @@ export class ChatService {
           enrichmentAction: action as 'enrich' | 'correct',
           model,
           sessionId,
+          projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
         });
         eventBus.emit(EVENTS.MESSAGE_ENRICHMENT, message);
       })
@@ -365,12 +366,13 @@ export class ChatService {
     let stream = this.streamingMessages.get(streamId);
 
     if (!stream) {
-      // Create new streaming message
+      // Create new streaming message — include projectId so messages survive reload filtering
       const message = appState.addMessage({
         role: 'assistant',
         content: '',
         streaming: true,
         sessionId,
+        projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
       });
       stream = { content: '', messageId: message.id };
       this.streamingMessages.set(streamId, stream);
@@ -417,6 +419,7 @@ export class ChatService {
       role: 'assistant',
       content: content as string,
       sessionId,
+      projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
     });
     eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);
     // TTS handled by ChatWindow via MESSAGE_RECEIVED listener
@@ -445,7 +448,13 @@ export class ChatService {
    * Load chat history from the backend API and inject into AppState.
    * Returns the loaded messages (empty array on failure).
    */
-  async loadHistory(chatId: string, projectId?: string, cardId?: string, sessionId?: string): Promise<Message[]> {
+  async loadHistory(
+    chatId: string,
+    projectId?: string,
+    cardId?: string,
+    sessionId?: string,
+    replaceSession = false,
+  ): Promise<Message[]> {
     try {
       const resp = await fetch(`/api/sessions/${chatId}?limit=50`);
       if (!resp.ok) return [];
@@ -475,7 +484,13 @@ export class ChatService {
         }));
 
       if (converted.length > 0) {
-        appState.setMessages(converted);
+        if (replaceSession) {
+          // Replace stale in-memory messages for this specific session so a page
+          // refresh always shows the authoritative backend state.
+          appState.replaceSessionMessages(converted, sessionId, projectId, cardId);
+        } else {
+          appState.setMessages(converted);
+        }
       }
       return converted;
     } catch (e) {

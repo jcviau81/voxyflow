@@ -215,6 +215,9 @@ class AppState {
   /**
    * Replace messages in bulk — used to inject history from backend without N re-renders.
    * Merges with existing messages, deduplicating by timestamp + role.
+   *
+   * replace=false (default): merge, dedup by timestamp+role+content prefix.
+   * replace=true: replace ALL messages globally (use with care).
    */
   setMessages(newMessages: Message[], replace = false): void {
     if (replace) {
@@ -232,6 +235,23 @@ class AppState {
     if (toAdd.length > 0) {
       this.set('messages', [...existing, ...toAdd]);
     }
+  }
+
+  /**
+   * Replace messages for a specific session (identified by sessionId or projectId+cardId),
+   * preserving messages from other sessions/contexts.
+   * Used when reloading history from the backend to ensure stale snapshots are evicted.
+   */
+  replaceSessionMessages(newMessages: Message[], sessionId?: string, projectId?: string, cardId?: string): void {
+    const existing = this.state.messages;
+    // Keep messages that don't belong to this session/context
+    const kept = existing.filter((m) => {
+      if (sessionId && m.sessionId === sessionId) return false;
+      if (!sessionId && cardId && m.cardId === cardId) return false;
+      if (!sessionId && !cardId && projectId && m.projectId === projectId) return false;
+      return true;
+    });
+    this.set('messages', [...kept, ...newMessages]);
   }
 
   clearMessages(): void {
