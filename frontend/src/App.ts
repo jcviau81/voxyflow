@@ -79,15 +79,16 @@ export class App {
     const topBarContainer = createElement('div', { className: 'top-bar-container' });
     this.topBar = new TopBar(topBarContainer);
 
-    // Tab bar goes inside main area (above top bar, not full width)
+    // Top bar first (hamburger menu on mobile — must be above tabs)
+    mainArea.appendChild(topBarContainer);
+
+    // Tab bar goes inside main area
     mainArea.appendChild(tabBarContainer);
 
     // Shared project header (project name + view tabs) — visible only in project mode
     const projectHeaderContainer = createElement('div', { className: 'project-header-container' });
     this.projectHeader = new ProjectHeader(projectHeaderContainer);
     mainArea.appendChild(projectHeaderContainer);
-
-    mainArea.appendChild(topBarContainer);
 
     mainArea.appendChild(this.mainContent);
 
@@ -167,6 +168,11 @@ export class App {
     this.unsubscribers.push(
       eventBus.on(EVENTS.SIDEBAR_TOGGLE, () => {
         this.root.classList.toggle('sidebar-collapsed');
+        // On mobile: toggle .open class on sidebar-container for slide-in
+        const sidebarEl = this.root.querySelector('.sidebar-container');
+        if (sidebarEl) {
+          sidebarEl.classList.toggle('open');
+        }
       })
     );
 
