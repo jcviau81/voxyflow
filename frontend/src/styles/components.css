@@ -818,6 +818,42 @@
   padding: 4px 8px;
 }
 
+/* Voice toggle buttons (auto-send, auto-play) in chat input area */
+.voice-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+
+.voice-toggle-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  opacity: 0.5;
+  padding: 0;
+}
+
+.voice-toggle-btn:hover {
+  opacity: 0.8;
+  border-color: var(--color-accent);
+}
+
+.voice-toggle-btn.active {
+  opacity: 1;
+  background: rgba(var(--color-accent-rgb, 99, 102, 241), 0.15);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 /* ============= KANBAN ============= */
 .kanban-board {
   display: flex;

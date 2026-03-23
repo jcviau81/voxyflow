@@ -146,6 +146,13 @@ export class ChatWindow {
     emojiBtn.addEventListener('click', () => this.emojiPicker?.toggle());
     emojiContainer.appendChild(emojiBtn);
 
+    // Voice toggle buttons (auto-send + auto-play)
+    const voiceToggles = createElement('div', { className: 'voice-toggles' });
+    const autoSendBtn = this.createVoiceToggle('stt_auto_send', '📤', 'Auto-send voice', false);
+    const autoPlayBtn = this.createVoiceToggle('tts_auto_play', '🔊', 'Auto-play responses', false);
+    voiceToggles.appendChild(autoSendBtn);
+    voiceToggles.appendChild(autoPlayBtn);
+
     // Voice input
     const voiceContainer = createElement('div', { className: 'voice-input-container' });
     this.voiceInput = new VoiceInput(voiceContainer);
@@ -164,10 +171,11 @@ export class ChatWindow {
     // Code paste detection banner (hidden by default)
     this.codePasteBanner = this.buildCodePasteBanner();
 
-    // Input row: emoji + textarea + voice + send
+    // Input row: emoji + textarea + voice toggles + voice + send
     const inputRow = createElement('div', { className: 'chat-input-row' });
     inputRow.appendChild(emojiContainer);
     inputRow.appendChild(this.textInput);
+    inputRow.appendChild(voiceToggles);
     inputRow.appendChild(voiceContainer);
     inputRow.appendChild(sendBtn);
 
@@ -214,6 +222,53 @@ export class ChatWindow {
     // Chat history search panel (attached to parentElement so it overlays the window)
     this.chatSearch?.destroy();
     this.chatSearch = new ChatSearch(this.parentElement);
+  }
+
+  /** Create a small toggle button for a voice setting stored in voxyflow_settings.voice */
+  private createVoiceToggle(settingKey: string, emoji: string, tooltip: string, defaultValue: boolean): HTMLButtonElement {
+    const btn = createElement('button', {
+      className: 'voice-toggle-btn',
+      title: tooltip,
+      'data-voice-setting': settingKey,
+    }) as HTMLButtonElement;
+    btn.textContent = emoji;
+
+    // Read current state
+    const isActive = this.getVoiceSetting(settingKey, defaultValue);
+    if (isActive) btn.classList.add('active');
+
+    btn.addEventListener('click', () => {
+      const current = this.getVoiceSetting(settingKey, defaultValue);
+      const newValue = !current;
+      this.setVoiceSetting(settingKey, newValue);
+      btn.classList.toggle('active', newValue);
+    });
+
+    return btn;
+  }
+
+  /** Read a voice setting from localStorage */
+  private getVoiceSetting<T>(key: string, defaultValue: T): T {
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        const val = settings?.voice?.[key];
+        if (val !== undefined) return val as T;
+      }
+    } catch { /* ignore */ }
+    return defaultValue;
+  }
+
+  /** Write a voice setting to localStorage */
+  private setVoiceSetting(key: string, value: unknown): void {
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      const settings = stored ? JSON.parse(stored) : {};
+      if (!settings.voice) settings.voice = {};
+      settings.voice[key] = value;
+      localStorage.setItem('voxyflow_settings', JSON.stringify(settings));
+    } catch { /* ignore */ }
   }
 
   private getChatLevel(): 'project' | 'card' {
@@ -560,6 +615,21 @@ export class ChatWindow {
     };
     document.addEventListener('keydown', keyboardHandler);
     this.unsubscribers.push(() => document.removeEventListener('keydown', keyboardHandler));
+
+    // Voice fill-input: put transcript text into the textarea instead of auto-sending
+    this.unsubscribers.push(
+      eventBus.on('voice:fill-input', (data: unknown) => {
+        const { text } = data as { text: string };
+        if (this.textInput && text) {
+          this.textInput.value = text;
+          this.textInput.focus();
+          // Trigger auto-resize
+          this.textInput.style.height = 'auto';
+          this.textInput.style.height = Math.min(this.textInput.scrollHeight, 150) + 'px';
+          this.hideWelcomeIfNeeded();
+        }
+      })
+    );
 
     // New messages
     this.unsubscribers.push(

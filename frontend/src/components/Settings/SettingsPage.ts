@@ -48,6 +48,7 @@ interface VoiceSettings {
   stt_engine: 'native' | 'whisper' | 'whisper_local';
   stt_model: string;
   stt_language: string;
+  stt_auto_send: boolean;
   whisper_model_id: string;
   /** 'huggingface' or 'local' — tracks which model source tab is active */
   whisper_model_source: 'huggingface' | 'local';
@@ -95,6 +96,7 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   stt_engine: 'native',
   stt_model: 'medium',
   stt_language: 'auto',
+  stt_auto_send: false,
   whisper_model_id: '',
   whisper_model_source: 'huggingface',
   whisper_local_filename: '',
@@ -783,6 +785,14 @@ export class SettingsPage {
           </select>
         </div>
 
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Auto-send transcripts</div>
+            <div class="setting-description">When OFF, voice transcripts fill the input box for review before sending</div>
+          </div>
+          <input type="checkbox" class="setting-checkbox" id="voice-stt-auto-send" ${v.stt_auto_send ? 'checked' : ''} />
+        </div>
+
         <!-- ── TTS subsection ─────────────────────────────────── -->
         <div class="settings-subsection-label" style="margin-top: 20px;">Text-to-Speech (TTS)</div>
 
@@ -815,11 +825,14 @@ export class SettingsPage {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Voice</div>
-            <div class="setting-description">Browser voice for text-to-speech</div>
+            <div class="setting-description">Browser voice for text-to-speech (grouped by language)</div>
           </div>
-          <select class="setting-input" id="voice-tts-voice">
-            <option value="default" ${(!v.tts_voice || v.tts_voice === 'default') ? 'selected' : ''}>Default</option>
-          </select>
+          <div style="display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0;">
+            <select class="setting-input" id="voice-tts-voice" style="flex: 1; min-width: 0;">
+              <option value="default" ${(!v.tts_voice || v.tts_voice === 'default') ? 'selected' : ''}>Default</option>
+            </select>
+            <button class="btn-ghost btn-sm" id="voice-tts-preview-btn" title="Preview selected voice" style="white-space: nowrap;">🔊 Preview</button>
+          </div>
         </div>
 
         <div class="setting-row">
@@ -1625,7 +1638,13 @@ export class SettingsPage {
       ttsAutoplay.addEventListener('change', () => this.markDirty());
     }
 
-    // TTS voice dropdown — populate with browser voices
+    // STT auto-send
+    const sttAutoSendEl = this.root.querySelector<HTMLInputElement>('#voice-stt-auto-send');
+    if (sttAutoSendEl) {
+      sttAutoSendEl.addEventListener('change', () => this.markDirty());
+    }
+
+    // TTS voice dropdown — populate with browser voices grouped by language
     const ttsVoiceSelect = this.root.querySelector<HTMLSelectElement>('#voice-tts-voice');
     if (ttsVoiceSelect) {
       const populateVoices = () => {
@@ -1634,21 +1653,67 @@ export class SettingsPage {
         while (ttsVoiceSelect.options.length > 1) {
           ttsVoiceSelect.remove(1);
         }
+        // Group by language prefix
+        const groups: Record<string, SpeechSynthesisVoice[]> = {};
         voices.forEach((voice) => {
-          const opt = document.createElement('option');
-          opt.value = voice.name;
-          opt.textContent = `${voice.name} (${voice.lang})`;
-          if (voice.name === (this.settings.voice?.tts_voice ?? 'default')) {
-            opt.selected = true;
-          }
-          ttsVoiceSelect.appendChild(opt);
+          const langKey = voice.lang.split('-')[0].toUpperCase();
+          if (!groups[langKey]) groups[langKey] = [];
+          groups[langKey].push(voice);
         });
+        // Sort groups alphabetically, but put common langs first
+        const priority = ['FR', 'EN', 'ES', 'DE'];
+        const sortedKeys = Object.keys(groups).sort((a, b) => {
+          const ai = priority.indexOf(a);
+          const bi = priority.indexOf(b);
+          if (ai !== -1 && bi !== -1) return ai - bi;
+          if (ai !== -1) return -1;
+          if (bi !== -1) return 1;
+          return a.localeCompare(b);
+        });
+        for (const langKey of sortedKeys) {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = langKey;
+          for (const voice of groups[langKey]) {
+            const opt = document.createElement('option');
+            opt.value = voice.name;
+            opt.textContent = `${voice.name} (${voice.lang})`;
+            if (voice.name === (this.settings.voice?.tts_voice ?? 'default')) {
+              opt.selected = true;
+            }
+            optgroup.appendChild(opt);
+          }
+          ttsVoiceSelect.appendChild(optgroup);
+        }
       };
       populateVoices();
       if (typeof speechSynthesis !== 'undefined') {
         speechSynthesis.onvoiceschanged = populateVoices;
       }
       ttsVoiceSelect.addEventListener('change', () => this.markDirty());
+    }
+
+    // Voice preview button
+    const previewBtn = this.root.querySelector('#voice-tts-preview-btn');
+    if (previewBtn && ttsVoiceSelect) {
+      previewBtn.addEventListener('click', () => {
+        const voiceName = ttsVoiceSelect.value;
+        if ('speechSynthesis' in window) {
+          speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance('Hello! This is a voice preview.');
+          if (voiceName && voiceName !== 'default') {
+            const voices = speechSynthesis.getVoices();
+            const match = voices.find(v => v.name === voiceName);
+            if (match) {
+              utterance.voice = match;
+              // Adapt preview text to language
+              if (match.lang.startsWith('fr')) {
+                utterance.text = 'Bonjour! Ceci est un aperçu de la voix.';
+              }
+            }
+          }
+          speechSynthesis.speak(utterance);
+        }
+      });
     }
 
     // TTS URL (if still present)
@@ -1745,6 +1810,7 @@ export class SettingsPage {
     const sttEngine = (sttEngineEl?.dataset.sttEngine ?? this.settings.voice?.stt_engine ?? 'native') as 'native' | 'whisper' | 'whisper_local';
     const sttModelEl = this.root.querySelector<HTMLInputElement>('#voice-stt-model');
     const sttLangEl = this.root.querySelector<HTMLSelectElement>('#voice-stt-language');
+    const sttAutoSendEl = this.root.querySelector<HTMLInputElement>('#voice-stt-auto-send');
     const whisperModelIdEl = this.root.querySelector<HTMLInputElement>('#voice-whisper-model-id');
     const ttsEnabledEl = this.root.querySelector<HTMLInputElement>('#voice-tts-enabled');
     const ttsAutoPlayEl = this.root.querySelector<HTMLInputElement>('#voice-tts-autoplay');
@@ -1757,6 +1823,7 @@ export class SettingsPage {
       stt_engine: sttEngine,
       stt_model: sttModelEl?.value.trim() ?? this.settings.voice?.stt_model ?? 'medium',
       stt_language: sttLangEl?.value ?? this.settings.voice?.stt_language ?? 'auto',
+      stt_auto_send: sttAutoSendEl ? sttAutoSendEl.checked : (this.settings.voice?.stt_auto_send ?? false),
       whisper_model_id: whisperModelIdEl?.value.trim() ?? (this.settings.voice as VoiceSettings & { whisper_model_id?: string })?.whisper_model_id ?? '',
       whisper_model_source: (this.root.querySelector<HTMLButtonElement>('[data-whisper-source].active')?.dataset.whisperSource as 'huggingface' | 'local') ?? this.settings.voice?.whisper_model_source ?? 'huggingface',
       whisper_local_filename: sttService.whisperModelFile?.name ?? this.settings.voice?.whisper_local_filename ?? '',

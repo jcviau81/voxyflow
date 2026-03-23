@@ -284,7 +284,13 @@ export class ChatService {
       eventBus.on(EVENTS.VOICE_TRANSCRIPT, (result: unknown) => {
         const { transcript, isFinal } = result as { transcript: string; isFinal: boolean };
         if (isFinal && transcript.trim()) {
-          this.sendMessage(transcript.trim(), undefined, undefined, this.activeSessionId);
+          const autoSend = this.getVoiceSetting('stt_auto_send', false);
+          if (autoSend) {
+            this.sendMessage(transcript.trim(), undefined, undefined, this.activeSessionId);
+          } else {
+            // Fill the input box instead of auto-sending
+            eventBus.emit('voice:fill-input', { text: transcript.trim() });
+          }
         }
       })
     );
@@ -525,6 +531,19 @@ export class ChatService {
         eventBus.emit(EVENTS.VIEW_CHANGE, { view: 'chat' });
         break;
     }
+  }
+
+  /** Read a single voice setting from localStorage */
+  private getVoiceSetting<T>(key: string, defaultValue: T): T {
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        const val = settings?.voice?.[key];
+        if (val !== undefined) return val as T;
+      }
+    } catch { /* ignore */ }
+    return defaultValue;
   }
 
   private getAgentEmoji(agentType?: string): string {

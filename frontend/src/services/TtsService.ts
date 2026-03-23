@@ -153,8 +153,19 @@ class TtsService {
 
       const voices = speechSynthesis.getVoices();
       if (voices.length > 0) {
-        const preferred = voices.find(v => v.lang.startsWith(lang.split('-')[0]) && v.localService);
-        if (preferred) utterance.voice = preferred;
+        const { tts_voice } = this.getVoiceSettings();
+        // Try to use the saved voice by name
+        if (tts_voice && tts_voice !== 'default') {
+          const savedVoice = voices.find(v => v.name === tts_voice);
+          if (savedVoice) {
+            utterance.voice = savedVoice;
+          }
+        }
+        // If no saved voice matched, fall back to first local voice matching language
+        if (!utterance.voice) {
+          const preferred = voices.find(v => v.lang.startsWith(lang.split('-')[0]) && v.localService);
+          if (preferred) utterance.voice = preferred;
+        }
       }
 
       utterance.rate = speed;
