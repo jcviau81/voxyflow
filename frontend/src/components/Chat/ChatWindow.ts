@@ -651,8 +651,11 @@ export class ChatWindow {
           // Update smart suggestions based on AI response
           if (msg.role === 'assistant') {
             this.smartSuggestions?.onAiResponse(msg.content);
-            // Auto-play TTS for assistant responses (non-streamed)
-            this.speakAssistantMessage(msg);
+            // Auto-play TTS for assistant responses — only if NOT streaming
+            // (streamed messages get spoken at MESSAGE_STREAM_END instead)
+            if (!msg.streaming) {
+              this.speakAssistantMessage(msg);
+            }
           }
         } else {
           // Mark the session tab as having unread messages
