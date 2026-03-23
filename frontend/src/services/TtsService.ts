@@ -84,8 +84,10 @@ class TtsService {
     this._isSpeaking = true;
 
     try {
-      const endpoint = serverUrl.replace(/\/+$/, '') + '/speak';
-      const response = await fetch(endpoint, {
+      // Route through backend proxy to avoid mixed-content (HTTPS→HTTP) and CORS issues
+      const proxyEndpoint = '/api/tts/speak';
+      console.log(`[TtsService] Using backend TTS proxy (server: ${serverUrl})`);
+      const response = await fetch(proxyEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, language: langShort }),

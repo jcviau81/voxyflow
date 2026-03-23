@@ -3,7 +3,8 @@
 Personality files are stored in voxyflow/personality/ (NOT OpenClaw workspace).
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
 import json
 import os
@@ -340,3 +341,48 @@ async def reset_personality_file(filename: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(template, encoding="utf-8")
     return {"status": "reset", "filename": filename, "size": len(template)}
+
+
+@router.post("/tts/speak")
+async def tts_speak(request: Request):
+    """Proxy TTS requests to the configured XTTS server.
+
+    This avoids mixed-content (HTTPS frontend → HTTP XTTS) and CORS issues.
+    The frontend calls /api/tts/speak, the backend forwards to the XTTS server.
+    """
+    import httpx
+
+    body = await request.json()
+    text = body.get("text", "")
+    language = body.get("language", "en")
+
+    if not text.strip():
+        return Response(content=b"", status_code=204)
+
+    # Read TTS URL from settings
+    settings_data = await _load_settings_from_db()
+    tts_url = ""
+    if settings_data:
+        tts_url = settings_data.get("voice", {}).get("tts_url", "")
+
+    if not tts_url:
+        return Response(
+            content=json.dumps({"error": "No TTS server configured"}).encode(),
+            status_code=400,
+            media_type="application/json",
+        )
+
+    endpoint = tts_url.rstrip("/") + "/speak"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(endpoint, json={"text": text, "language": language})
+            resp.raise_for_status()
+        return Response(content=resp.content, media_type="audio/wav")
+    except Exception as e:
+        logger.warning("TTS proxy error: %s", e)
+        return Response(
+            content=json.dumps({"error": str(e)}).encode(),
+            status_code=502,
+            media_type="application/json",
+        )
