@@ -3,6 +3,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_TYPE_EMOJI, AGENT_TYPE_INFO } from '../../utils/constants';
 import { createElement, debounce } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { cardStore } from '../../state/ReactiveCardStore';
 import { cardService } from '../../services/CardService';
 import { apiClient } from '../../services/ApiClient';
 import { KanbanColumn } from './KanbanColumn';
@@ -301,13 +302,9 @@ export class KanbanBoard {
   private async fetchAndSyncCards(projectId: string): Promise<void> {
     try {
       const { apiClient } = await import('../../services/ApiClient');
-      const freshCards = await apiClient.fetchCards(projectId);
-      // Merge into appState: replace cards for this project
-      const currentCards = appState.get('cards');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const otherCards = currentCards.filter((c: any) => c.projectId !== projectId);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      appState.set('cards', [...otherCards, ...freshCards] as any);
+      const freshCards = await apiClient.fetchCards(projectId) as Card[];
+      // Replace cards for this project in the reactive store
+      cardStore.setForProject(projectId, freshCards);
     } catch (e) {
       console.error('[KanbanBoard] fetchAndSyncCards error:', e);
     }
@@ -315,17 +312,9 @@ export class KanbanBoard {
   }
 
   private setupListeners(): void {
+    // Reactive card store subscription — replaces CARD_CREATED/UPDATED/DELETED/MOVED listeners
     this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_CREATED, () => this.refreshCards())
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_UPDATED, () => this.refreshCards())
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_DELETED, () => this.refreshCards())
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_MOVED, () => this.refreshCards())
+      cardStore.subscribe(() => this.refreshCards())
     );
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_SELECTED, () => this.render())

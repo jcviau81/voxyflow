@@ -9,6 +9,7 @@
 
 import { Card, Idea } from '../types';
 import { appState } from '../state/AppState';
+import { cardStore } from '../state/ReactiveCardStore';
 import { apiClient } from './ApiClient';
 import { eventBus } from '../utils/EventBus';
 import { EVENTS, SYSTEM_PROJECT_ID } from '../utils/constants';
@@ -142,12 +143,8 @@ export class MainBoardService {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const raw = await response.json();
       const card = this.mapApiCardToCard(raw);
-      // Remove from main board since it now has a different project
-      appState.deleteMainBoardCard(cardId);
-      // Add to the project cards list
-      const projectCards = [...appState.get('cards'), card];
-      appState.set('cards', projectCards);
-      eventBus.emit(EVENTS.CARD_CREATED, card);
+      // Update in the unified store — remove old, add new
+      cardStore.upsert(card);
       return card;
     } catch (error) {
       console.error('[MainBoardService] assignToProject error:', error);
@@ -163,11 +160,8 @@ export class MainBoardService {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const raw = await response.json();
       const card = this.mapApiCardToCard(raw);
-      // Remove from project cards
-      const projectCards = appState.get('cards').filter((c) => c.id !== cardId);
-      appState.set('cards', projectCards);
-      // Add to main board
-      appState.addMainBoardCard(card);
+      // Update in the unified store (projectId changed to system-main)
+      cardStore.upsert(card);
       return card;
     } catch (error) {
       console.error('[MainBoardService] unassignFromProject error:', error);

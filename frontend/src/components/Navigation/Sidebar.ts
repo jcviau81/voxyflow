@@ -3,6 +3,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS, SYSTEM_PROJECT_ID } from '../../utils/constants';
 import { createElement, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { cardStore } from '../../state/ReactiveCardStore';
 import { apiClient } from '../../services/ApiClient';
 interface FooterIcon {
   action: string;
@@ -352,6 +353,11 @@ export class Sidebar {
   }
 
   private setupListeners(): void {
+    // Reactive card store — re-render sidebar when card counts change (progress dots)
+    this.unsubscribers.push(
+      cardStore.subscribe(() => this.render())
+    );
+
     this.unsubscribers.push(
       appState.subscribe('connectionState', (state) => {
         const dot = this.container.querySelector('.status-dot');

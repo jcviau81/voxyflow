@@ -13,6 +13,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO, API_URL, SYSTEM_PROJECT_ID } from '../../utils/constants';
 import { createElement, formatTime } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { cardStore } from '../../state/ReactiveCardStore';
 import { cardService } from '../../services/CardService';
 import { chatService } from '../../services/ChatService';
 import { apiClient } from '../../services/ApiClient';
@@ -84,6 +85,7 @@ export class CardDetailModal {
   private sessionId = '';
   private chatMessagesEl: HTMLElement | null = null;
   private unsubscribers: (() => void)[] = [];
+  private cardStoreUnsub: (() => void) | null = null;
   private codeMirrorEditor: CodeMirrorEditor | null = null;
   private themeObserver: MutationObserver | null = null;
   private agents: AgentInfo[] = Object.entries(AGENT_TYPE_INFO).map(([type, info]) => ({
@@ -134,16 +136,7 @@ export class CardDetailModal {
       eventBus.on(EVENTS.MODAL_CLOSE, () => this.close())
     );
 
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_UPDATED, (data: unknown) => {
-        const d = data as { id?: string; cardId?: string };
-        const cardId = d.id || d.cardId;
-        if (this.card && cardId && this.card.id === cardId) {
-          this.card = appState.getCard(cardId) || null;
-          if (this.card) this.renderContent();
-        }
-      })
-    );
+    // Card updates are handled via cardStore.subscribeToCard in open()
 
     // Chat events — refresh chat when messages arrive
     const refreshIfRelevant = () => { if (this.card) this.refreshChat(); };
@@ -165,14 +158,29 @@ export class CardDetailModal {
 
   /** Open modal with a Card object (used by both FreeBoard direct call and event-based) */
   open(card: Card): void {
+    // Unsubscribe from previous card if any
+    if (this.cardStoreUnsub) {
+      this.cardStoreUnsub();
+      this.cardStoreUnsub = null;
+    }
     this.card = card;
     this.sessionId = `card:${card.id}`;
+    // Subscribe to reactive updates for this card
+    this.cardStoreUnsub = cardStore.subscribeToCard(card.id, (updatedCard) => {
+      this.card = updatedCard;
+      this.renderContent();
+    });
     this.renderContent();
     this.overlay.classList.remove('hidden');
   }
 
   close(): void {
     this.destroyCodeMirror();
+    // Unsubscribe from card-specific updates
+    if (this.cardStoreUnsub) {
+      this.cardStoreUnsub();
+      this.cardStoreUnsub = null;
+    }
     this.overlay.classList.add('hidden');
     this.card = null;
     this.chatMessagesEl = null;

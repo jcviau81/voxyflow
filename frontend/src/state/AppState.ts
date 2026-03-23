@@ -2,6 +2,7 @@ import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab, I
 import { eventBus } from '../utils/EventBus';
 import { EVENTS, SYSTEM_PROJECT_ID } from '../utils/constants';
 import { generateId, deepClone } from '../utils/helpers';
+import { cardStore } from './ReactiveCardStore';
 
 const MAX_ACTIVITIES_PER_PROJECT = 50;
 const MAX_NOTIFICATIONS = 100;
@@ -265,9 +266,11 @@ class AppState {
 
   deleteProject(id: string): void {
     const projects = this.state.projects.filter((p) => p.id !== id);
-    const cards = this.state.cards.filter((c) => c.projectId !== id);
     this.set('projects', projects);
-    this.set('cards', cards);
+    // Remove all cards for this project from the reactive store
+    for (const card of cardStore.getByProject(id)) {
+      cardStore.remove(card.id);
+    }
     if (this.state.currentProjectId === id) {
       this.set('currentProjectId', null);
     }
@@ -278,7 +281,7 @@ class AppState {
     return this.state.projects.find((p) => p.id === id);
   }
 
-  // --- Cards ---
+  // --- Cards (delegated to ReactiveCardStore) ---
 
   addCard(card: Omit<Card, 'id' | 'createdAt' | 'updatedAt' | 'chatHistory'>): Card {
     const fullCard: Card = {
@@ -288,8 +291,7 @@ class AppState {
       updatedAt: Date.now(),
       chatHistory: [],
     };
-    const cards = [...this.state.cards, fullCard];
-    this.set('cards', cards);
+    cardStore.upsert(fullCard);
 
     // Add card ID to project (only for project-assigned cards)
     if (card.projectId) {
@@ -301,20 +303,18 @@ class AppState {
       }
     }
 
-    eventBus.emit(EVENTS.CARD_CREATED, fullCard);
     return fullCard;
   }
 
   updateCard(id: string, updates: Partial<Card>): void {
-    const cards = this.state.cards.map((c) =>
-      c.id === id ? { ...c, ...updates, updatedAt: Date.now() } : c
-    );
-    this.set('cards', cards);
-    eventBus.emit(EVENTS.CARD_UPDATED, { id, updates });
+    const existing = cardStore.get(id);
+    if (existing) {
+      cardStore.upsert({ ...existing, ...updates, updatedAt: Date.now() });
+    }
   }
 
   deleteCard(id: string): void {
-    const card = this.state.cards.find((c) => c.id === id);
+    const card = cardStore.get(id);
     if (card && card.projectId) {
       const project = this.getProject(card.projectId);
       if (project) {
@@ -323,24 +323,19 @@ class AppState {
         });
       }
     }
-    const cards = this.state.cards.filter((c) => c.id !== id);
-    this.set('cards', cards);
-    eventBus.emit(EVENTS.CARD_DELETED, id);
+    cardStore.remove(id);
   }
 
   getCard(id: string): Card | undefined {
-    return this.state.cards.find((c) => c.id === id)
-      || this.state.mainBoardCards.find((c) => c.id === id);
+    return cardStore.get(id);
   }
 
   getCardsByProject(projectId: string): Card[] {
-    return this.state.cards.filter((c) => c.projectId === projectId);
+    return cardStore.getByProject(projectId);
   }
 
   getCardsByStatus(projectId: string, status: string): Card[] {
-    return this.state.cards.filter(
-      (c) => c.projectId === projectId && c.status === status
-    );
+    return cardStore.getByStatus(projectId, status);
   }
 
   moveCard(cardId: string, newStatus: string): void {
@@ -523,39 +518,37 @@ class AppState {
     return this.state.ideas || [];
   }
 
-  // --- Main Board Cards ---
+  // --- Main Board Cards (delegated to ReactiveCardStore, SYSTEM_PROJECT_ID) ---
 
   setMainBoardCards(cards: Card[]): void {
-    this.set('mainBoardCards', cards);
+    cardStore.setForProject(SYSTEM_PROJECT_ID, cards);
     eventBus.emit(EVENTS.MAIN_BOARD_UPDATED, cards);
   }
 
   getMainBoardCards(): Card[] {
-    return this.state.mainBoardCards || [];
+    return cardStore.getByProject(SYSTEM_PROJECT_ID);
   }
 
   addMainBoardCard(card: Card): void {
-    const cards = [...this.getMainBoardCards(), card];
-    this.set('mainBoardCards', cards);
+    cardStore.upsert(card);
     eventBus.emit(EVENTS.MAIN_BOARD_CARD_CREATED, card);
   }
 
   updateMainBoardCard(id: string, updates: Partial<Card>): void {
-    const cards = this.state.mainBoardCards.map((c) =>
-      c.id === id ? { ...c, ...updates, updatedAt: Date.now() } : c
-    );
-    this.set('mainBoardCards', cards);
-    eventBus.emit(EVENTS.MAIN_BOARD_UPDATED, cards);
+    const existing = cardStore.get(id);
+    if (existing) {
+      cardStore.upsert({ ...existing, ...updates, updatedAt: Date.now() });
+    }
+    eventBus.emit(EVENTS.MAIN_BOARD_UPDATED, cardStore.getByProject(SYSTEM_PROJECT_ID));
   }
 
   deleteMainBoardCard(id: string): void {
-    const cards = this.state.mainBoardCards.filter((c) => c.id !== id);
-    this.set('mainBoardCards', cards);
+    cardStore.remove(id);
     eventBus.emit(EVENTS.MAIN_BOARD_CARD_DELETED, id);
   }
 
   getMainBoardCard(id: string): Card | undefined {
-    return this.state.mainBoardCards.find((c) => c.id === id);
+    return cardStore.get(id);
   }
 
   // --- Activity Feed ---

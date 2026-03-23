@@ -3,6 +3,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS, SYSTEM_PROJECT_ID, AGENT_TYPE_INFO, CARD_STATUS_LABELS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { cardStore } from '../../state/ReactiveCardStore';
 import { mainBoardService } from '../../services/MainBoardService';
 import { apiClient } from '../../services/ApiClient';
 type CardColor = 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange';
@@ -52,20 +53,9 @@ export class FreeBoard {
   // ── Lifecycle ────────────────────────────────────────────────
 
   private setupListeners(): void {
+    // Reactive card store subscription — replaces MAIN_BOARD_*/CARD_UPDATED/CARD_DELETED listeners
     this.unsubscribers.push(
-      eventBus.on(EVENTS.MAIN_BOARD_UPDATED, () => this.renderGrid())
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.MAIN_BOARD_CARD_CREATED, () => this.renderGrid())
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.MAIN_BOARD_CARD_DELETED, () => this.renderGrid())
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_UPDATED, () => this.renderGrid())
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_DELETED, () => this.renderGrid())
+      cardStore.subscribe(() => this.renderGrid())
     );
     // Legacy: still listen for analyzer suggestions
     this.unsubscribers.push(
@@ -325,10 +315,9 @@ export class FreeBoard {
   private async moveToKanban(card: Card): Promise<void> {
     const result = await apiClient.patchCard(card.id, { status: 'todo' });
     if (result) {
-      appState.deleteMainBoardCard(card.id);
-      eventBus.emit(EVENTS.CARD_UPDATED, { id: card.id });
+      // Update in the reactive store — status change triggers subscribers
+      cardStore.upsert({ ...card, status: 'todo', updatedAt: Date.now() });
       eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Card moved to Kanban', type: 'success', duration: 3000 });
-      this.renderGrid();
     } else {
       eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to move card', type: 'error', duration: 3000 });
     }

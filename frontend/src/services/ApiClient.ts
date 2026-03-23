@@ -12,6 +12,7 @@ import { eventBus } from '../utils/EventBus';
 import { EVENTS, WS_URL, API_URL, RECONNECT_MAX_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, HEARTBEAT_INTERVAL, SYSTEM_PROJECT_ID } from '../utils/constants';
 import { generateId } from '../utils/helpers';
 import { appState } from '../state/AppState';
+import { cardStore } from '../state/ReactiveCardStore';
 
 type MessageHandler = (payload: Record<string, unknown>) => void;
 
@@ -179,12 +180,8 @@ export class ApiClient {
       this._cardSyncTimers.delete(projectId);
       try {
         const freshCards = await this.fetchCards(projectId) as Card[];
-        // Replace cards for this project in appState
-        const otherCards = appState.get('cards').filter(
-          (c: Card) => c.projectId !== projectId
-        );
-        appState.set('cards', [...otherCards, ...freshCards] as Card[]);
-        eventBus.emit(EVENTS.CARD_CREATED, null); // triggers KanbanBoard.refreshCards()
+        // Replace cards for this project in the reactive store
+        cardStore.setForProject(projectId, freshCards);
       } catch (e) {
         console.error('[ApiClient] syncCardsFromBackend failed:', e);
       }
