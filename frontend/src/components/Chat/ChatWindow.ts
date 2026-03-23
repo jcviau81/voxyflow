@@ -113,7 +113,7 @@ export class ChatWindow {
 
     this.textInput = createElement('textarea', {
       className: 'chat-input',
-      placeholder: 'Type a message or press Alt+V for voice...',
+      placeholder: window.innerWidth <= 768 ? 'Message...' : 'Type a message or press Alt+V for voice...',
       'data-maxlength': MAX_MESSAGE_LENGTH.toString(),
       'data-testid': 'chat-input',
     }) as HTMLTextAreaElement;
