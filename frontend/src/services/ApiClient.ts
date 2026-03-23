@@ -118,11 +118,12 @@ export class ApiClient {
       streaming: false,
     });
 
-    // Emit event so ChatWindow can re-render if this is the active session
-    eventBus.emit(EVENTS.WS_MESSAGE, {
-      type: 'chat:message:new',
-      payload: { chatId, sessionId, message: msg },
-    });
+    // Emit MESSAGE_RECEIVED so ChatWindow re-renders the new message
+    const addedMessages = appState.getMessages();
+    const lastAdded = addedMessages[addedMessages.length - 1];
+    if (lastAdded) {
+      eventBus.emit(EVENTS.MESSAGE_RECEIVED, lastAdded);
+    }
 
     console.log('[ApiClient] cross-device message added:', msg.role, chatId);
   }
