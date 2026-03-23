@@ -59,7 +59,7 @@ export class ProjectHeader {
     const titleSection = createElement('div', { className: 'project-header__title' });
     if (isMainTab) {
       const emoji = createElement('span', { className: 'project-header__emoji' });
-      emoji.textContent = '💬';
+      emoji.textContent = '🏠';
       const name = createElement('span', { className: 'project-header__name' });
       name.textContent = 'Main';
       titleSection.appendChild(emoji);

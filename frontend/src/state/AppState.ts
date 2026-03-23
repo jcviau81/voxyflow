@@ -399,6 +399,12 @@ class AppState {
         if (!hasMain) {
           tabs.unshift({ ...DEFAULT_MAIN_TAB });
         }
+        // Always sync main tab emoji/label with defaults (migration)
+        const mainTab = tabs.find(t => t.id === 'main');
+        if (mainTab) {
+          mainTab.emoji = DEFAULT_MAIN_TAB.emoji;
+          mainTab.label = DEFAULT_MAIN_TAB.label;
+        }
         this.state.openTabs = tabs;
         // Ensure active tab is valid
         const activeValid = tabs.some(t => t.id === this.state.activeTab);
