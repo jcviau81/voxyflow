@@ -91,7 +91,7 @@ export class VoiceInput {
   }
 
   private setupListeners(): void {
-    // Transcript updates
+    // Transcript updates — show individual fragments as they arrive
     this.unsubscribers.push(
       eventBus.on(EVENTS.VOICE_TRANSCRIPT, (result: unknown) => {
         const { transcript, isFinal } = result as SttResult;
@@ -100,10 +100,23 @@ export class VoiceInput {
           this.transcriptEl.classList.remove('hidden');
           this.transcriptEl.classList.toggle('final', isFinal);
         }
-        if (isFinal) {
-          setTimeout(() => {
-            this.transcriptEl?.classList.add('hidden');
-          }, 2000);
+        // Don't auto-hide on isFinal — buffer-update will manage visibility
+      })
+    );
+
+    // Show the accumulated auto-send buffer so user sees the full pending message
+    this.unsubscribers.push(
+      eventBus.on('voice:buffer-update', (data: unknown) => {
+        const { text } = data as { text: string };
+        if (this.transcriptEl) {
+          if (text) {
+            this.transcriptEl.textContent = text;
+            this.transcriptEl.classList.remove('hidden');
+            this.transcriptEl.classList.add('final');
+          } else {
+            // Buffer flushed (sent) — hide transcript
+            this.transcriptEl.classList.add('hidden');
+          }
         }
       })
     );
@@ -315,7 +328,7 @@ export class VoiceInput {
       if (this.boundTouchStart) this.button.removeEventListener('touchstart', this.boundTouchStart);
       if (this.boundTouchEnd) this.button.removeEventListener('touchend', this.boundTouchEnd);
     }
-    sttService.destroy();
+    // Do NOT destroy sttService — it's a shared singleton
     this.container.remove();
   }
 }

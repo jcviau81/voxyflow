@@ -14,6 +14,9 @@ export class ChatService {
   private unsubscribers: (() => void)[] = [];
   /** Active session ID for general chat, set by ChatWindow */
   activeSessionId: string | undefined;
+  /** Debounce timer for voice auto-send — waits for silence before sending */
+  private voiceAutoSendTimer: ReturnType<typeof setTimeout> | null = null;
+  private voiceAutoSendBuffer = '';
 
   constructor() {
     this.setupHandlers();
@@ -276,18 +279,37 @@ export class ChatService {
       })
     );
 
-    // Handle voice transcripts
+    // Handle voice transcripts — debounce auto-send to avoid sending fragments
+    // Wait 3.5s of true silence before sending so natural pauses between sentences
+    // don't trigger premature sends (was 2s, caused 10+ fragmented messages).
     this.unsubscribers.push(
       eventBus.on(EVENTS.VOICE_TRANSCRIPT, (result: unknown) => {
         const { transcript, isFinal } = result as { transcript: string; isFinal: boolean };
         if (isFinal && transcript.trim()) {
           const autoSend = this.getVoiceSetting('stt_auto_send', false);
           if (autoSend) {
-            this.sendMessage(transcript.trim(), undefined, undefined, this.activeSessionId);
+            // Accumulate final fragments and wait for sustained silence before sending
+            this.voiceAutoSendBuffer += (this.voiceAutoSendBuffer ? ' ' : '') + transcript.trim();
+            if (this.voiceAutoSendTimer) clearTimeout(this.voiceAutoSendTimer);
+            this.voiceAutoSendTimer = setTimeout(() => {
+              this.flushVoiceAutoSend();
+            }, 3500);
+            // Broadcast accumulated buffer so UI can show the full pending message
+            eventBus.emit('voice:buffer-update', { text: this.voiceAutoSendBuffer });
           } else {
             // Fill the input box instead of auto-sending
             eventBus.emit('voice:fill-input', { text: transcript.trim() });
           }
+        }
+      })
+    );
+
+    // When the user manually stops recording (tap-to-stop), flush buffer immediately
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.VOICE_STOP, () => {
+        if (this.voiceAutoSendBuffer) {
+          // Small delay to catch any last isFinal event that arrives right after stop
+          setTimeout(() => this.flushVoiceAutoSend(), 300);
         }
       })
     );
@@ -537,6 +559,19 @@ export class ChatService {
       case 'show_chat':
         eventBus.emit(EVENTS.VIEW_CHANGE, { view: 'chat' });
         break;
+    }
+  }
+
+  /** Flush the accumulated voice auto-send buffer and send the message */
+  private flushVoiceAutoSend(): void {
+    if (this.voiceAutoSendTimer) {
+      clearTimeout(this.voiceAutoSendTimer);
+      this.voiceAutoSendTimer = null;
+    }
+    if (this.voiceAutoSendBuffer) {
+      this.sendMessage(this.voiceAutoSendBuffer, undefined, undefined, this.activeSessionId);
+      this.voiceAutoSendBuffer = '';
+      eventBus.emit('voice:buffer-update', { text: '' });
     }
   }
 

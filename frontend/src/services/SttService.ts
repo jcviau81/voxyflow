@@ -295,6 +295,10 @@ export class SttService {
   private startWebSpeechRecording(): void {
     this.isRecording = true;
     if (this.recognition) {
+      // Re-detect language on every recording start (settings may have changed)
+      this._lang = this.detectLanguage();
+      this.recognition.lang = this._lang;
+      console.log(`[SttService] Recording with lang: ${this._lang}`);
       try {
         this.recognition.start();
         eventBus.emit(EVENTS.VOICE_START);
