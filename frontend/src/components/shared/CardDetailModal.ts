@@ -136,9 +136,10 @@ export class CardDetailModal {
 
     this.unsubscribers.push(
       eventBus.on(EVENTS.CARD_UPDATED, (data: unknown) => {
-        const { id } = data as { id: string };
-        if (this.card && this.card.id === id) {
-          this.card = appState.getCard(id) || null;
+        const d = data as { id?: string; cardId?: string };
+        const cardId = d.id || d.cardId;
+        if (this.card && cardId && this.card.id === cardId) {
+          this.card = appState.getCard(cardId) || null;
           if (this.card) this.renderContent();
         }
       })
