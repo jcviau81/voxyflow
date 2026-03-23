@@ -1,14 +1,17 @@
 /**
- * MainBoardService — manages Main Board cards (unassigned, projectId = null).
- * Replaces the old localStorage-based Ideas system with real DB-backed Cards.
+ * MainBoardService — manages Main Board cards (system project "system-main").
+ *
+ * Post-refactor: Main Board cards are simply the cards belonging to the
+ * system project (SYSTEM_PROJECT_ID). This service wraps regular project
+ * card endpoints for backward compatibility with FreeBoard and other
+ * consumers.
  */
 
 import { Card, Idea } from '../types';
 import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
 import { eventBus } from '../utils/EventBus';
-import { EVENTS } from '../utils/constants';
-import { generateId } from '../utils/helpers';
+import { EVENTS, SYSTEM_PROJECT_ID } from '../utils/constants';
 
 const API_URL_BASE = process.env.VOXYFLOW_API_URL || '';
 
@@ -23,7 +26,7 @@ export class MainBoardService {
     // Listen for card:sync events that might affect main board cards
     apiClient.on('card:sync', (payload) => {
       const { action, card } = payload as { action: string; card: Card };
-      if (card && card.projectId === null) {
+      if (card && (card.projectId === SYSTEM_PROJECT_ID || card.projectId === null)) {
         switch (action) {
           case 'created':
             if (!appState.getMainBoardCard(card.id)) {
@@ -45,7 +48,8 @@ export class MainBoardService {
 
   async fetchCards(): Promise<Card[]> {
     try {
-      const response = await fetch(`${API_URL_BASE}/api/cards/unassigned`);
+      // Use the system project endpoint instead of /cards/unassigned
+      const response = await fetch(`${API_URL_BASE}/api/projects/${SYSTEM_PROJECT_ID}/cards`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const raw = await response.json();
       const cards: Card[] = raw.map(this.mapApiCardToCard);
@@ -69,7 +73,8 @@ export class MainBoardService {
 
   async createCard(title: string, description?: string, color?: string, priority?: number): Promise<Card | null> {
     try {
-      const response = await fetch(`${API_URL_BASE}/api/cards/unassigned`, {
+      // Create card in the system project
+      const response = await fetch(`${API_URL_BASE}/api/projects/${SYSTEM_PROJECT_ID}/cards`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -77,6 +82,7 @@ export class MainBoardService {
           description: description || '',
           color: color || null,
           priority: priority || 0,
+          status: 'card',
         }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -136,7 +142,7 @@ export class MainBoardService {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const raw = await response.json();
       const card = this.mapApiCardToCard(raw);
-      // Remove from main board since it now has a project
+      // Remove from main board since it now has a different project
       appState.deleteMainBoardCard(cardId);
       // Add to the project cards list
       const projectCards = [...appState.get('cards'), card];
@@ -202,7 +208,7 @@ export class MainBoardService {
       title: raw.title as string,
       description: (raw.description as string) || '',
       status: (raw.status as Card['status']) || 'card',
-      projectId: (raw.project_id as string | null) ?? null,
+      projectId: (raw.project_id as string | null) ?? SYSTEM_PROJECT_ID,
       color: (raw.color as Card['color']) || null,
       assignedAgent: undefined,
       agentType: (raw.agent_type as string) || undefined,

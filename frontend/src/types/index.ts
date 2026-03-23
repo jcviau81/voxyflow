@@ -60,6 +60,8 @@ export interface Project {
   updatedAt: number;
   cards: string[];
   archived: boolean;
+  isSystem?: boolean;     // True for system-main project
+  deletable?: boolean;    // False for system projects
   techStack?: TechDetectResult;
   githubRepo?: string;      // "owner/repo"
   githubUrl?: string;        // "https://github.com/owner/repo"
@@ -146,7 +148,7 @@ export interface Card {
   title: string;
   description: string;
   status: CardStatus;
-  projectId: string | null;  // null = Main Board (unassigned)
+  projectId: string | null;  // 'system-main' = Main Board (system project)
   color?: 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange' | null;
   assignedAgent?: AgentPersona;
   agentType?: string;  // ember|researcher|coder|designer|architect|writer|qa
@@ -182,7 +184,7 @@ export interface AppStateData {
   activeTab: string;
   openTabs: Tab[];
   ideas: Idea[];  // @deprecated — kept for migration only
-  mainBoardCards: Card[];  // Cards with projectId = null (Main Board)
+  mainBoardCards: Card[];  // @deprecated — kept for migration. Use getCardsByProject(SYSTEM_PROJECT_ID)
   // Session tabs per context (tabId → SessionInfo[])
   sessions: Record<string, SessionInfo[]>;
   // Active session per context (tabId → sessionId)
@@ -194,7 +196,7 @@ export interface AppStateData {
   // Notification center
   notifications: NotificationEntry[];
   notificationUnreadCount: number;
-  // General chat session tabs (persisted across navigation)
+  // @deprecated — General chat now uses project session system with SYSTEM_PROJECT_ID. Kept for migration.
   generalSessions: { id: string; label: string }[];
   activeGeneralSessionId: string;
   generalSessionCounter: number;

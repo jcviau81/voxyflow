@@ -1,6 +1,6 @@
 import { Message } from '../types';
 import { eventBus } from '../utils/EventBus';
-import { EVENTS, STREAMING_CHAR_DELAY, STREAMING_SAFETY_TIMEOUT, AGENT_PERSONAS } from '../utils/constants';
+import { EVENTS, STREAMING_CHAR_DELAY, STREAMING_SAFETY_TIMEOUT, AGENT_PERSONAS, SYSTEM_PROJECT_ID } from '../utils/constants';
 import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
 import { generateId, sleep } from '../utils/helpers';
@@ -267,14 +267,16 @@ export class ChatService {
     const layers = ModelStatusBar.getStoredLayerState();
 
     // Determine chat context level for backend isolation
-    const currentProjectId = message.projectId || appState.get('currentProjectId');
+    // Main chat now maps to the system project (system-main)
+    const currentProjectId = message.projectId || appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
     const currentCardId = message.cardId || appState.get('selectedCardId');
     let chatLevel: 'general' | 'project' | 'card' = 'general';
     if (currentCardId) {
       chatLevel = 'card';
-    } else if (currentProjectId) {
+    } else if (currentProjectId && currentProjectId !== SYSTEM_PROJECT_ID) {
       chatLevel = 'project';
     }
+    // Note: chatLevel 'general' is kept for backward compat — backend maps it to system-main
 
     apiClient.send('chat:message', {
       content,
@@ -296,11 +298,11 @@ export class ChatService {
    */
   sendSystemInit(contextHint: string, projectId?: string, cardId?: string, sessionId?: string): void {
     const layers = ModelStatusBar.getStoredLayerState();
-    const currentProjectId = projectId || appState.get('currentProjectId') || undefined;
+    const currentProjectId = projectId || appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
     const currentCardId = cardId || appState.get('selectedCardId') || undefined;
     let chatLevel: 'general' | 'project' | 'card' = 'general';
     if (currentCardId) chatLevel = 'card';
-    else if (currentProjectId) chatLevel = 'project';
+    else if (currentProjectId && currentProjectId !== SYSTEM_PROJECT_ID) chatLevel = 'project';
 
     apiClient.send('chat:message', {
       content: contextHint,

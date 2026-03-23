@@ -9,7 +9,7 @@ export interface SearchResult {
   created_at: string | null;
 }
 import { eventBus } from '../utils/EventBus';
-import { EVENTS, WS_URL, API_URL, RECONNECT_MAX_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, HEARTBEAT_INTERVAL } from '../utils/constants';
+import { EVENTS, WS_URL, API_URL, RECONNECT_MAX_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, HEARTBEAT_INTERVAL, SYSTEM_PROJECT_ID } from '../utils/constants';
 import { generateId } from '../utils/helpers';
 import { appState } from '../state/AppState';
 
@@ -64,9 +64,9 @@ export class ApiClient {
 
     switch (tool) {
       case 'voxyflow.card.create_unassigned': {
-        // Unified model: result is a Card, refresh the main board
+        // Cards previously "unassigned" now belong to the system project
         const title = (result.title as string) || (args.content as string) || 'Card';
-        eventBus.emit(EVENTS.MAIN_BOARD_UPDATED, null);
+        this.syncCardsFromBackend(SYSTEM_PROJECT_ID);
         eventBus.emit(EVENTS.TOAST_SHOW, {
           message: `📝 Card added: ${title.substring(0, 30)}...`,
           type: 'success',
@@ -130,13 +130,21 @@ export class ApiClient {
           updatedAt: p.updated_at ? new Date(p.updated_at as string).getTime() : Date.now(),
           cards: (p.cards as string[]) || [],
           archived: p.status === 'archived' || (p.archived as boolean) || false,
+          isSystem: (p.is_system as boolean) || false,
+          deletable: p.deletable !== undefined ? (p.deletable as boolean) : true,
         });
 
-        const projects = [
+        const allProjects = [
           ...(Array.isArray(activeRaw) ? activeRaw.map(mapProject) : []),
           ...(Array.isArray(archivedRaw) ? archivedRaw.map(mapProject) : []),
         ];
-        appState.set('projects', projects);
+        // Ensure system project is always first
+        const sysIdx = allProjects.findIndex(p => p.id === SYSTEM_PROJECT_ID);
+        if (sysIdx > 0) {
+          const [sysProject] = allProjects.splice(sysIdx, 1);
+          allProjects.unshift(sysProject);
+        }
+        appState.set('projects', allProjects);
         eventBus.emit(EVENTS.PROJECT_CREATED);  // triggers sidebar re-render
       } catch (e) {
         console.error('[ApiClient] syncProjectsFromBackend failed:', e);

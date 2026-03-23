@@ -1,6 +1,6 @@
 import { ViewMode } from '../../types';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS } from '../../utils/constants';
+import { EVENTS, SYSTEM_PROJECT_ID } from '../../utils/constants';
 import { createElement, cn } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 interface FooterIcon {
@@ -69,7 +69,8 @@ export class Sidebar {
     projectsHeader.addEventListener('click', () => appState.setView('projects'));
     projectSection.appendChild(projectsHeader);
 
-    const projects = appState.get('projects').filter(p => !p.archived);
+    // Filter out the system project — it's represented by the "Main" entry at top
+    const projects = appState.get('projects').filter(p => !p.archived && p.id !== SYSTEM_PROJECT_ID);
     const openTabs = appState.getOpenTabs();
 
     projects.forEach((proj) => {
@@ -122,7 +123,7 @@ export class Sidebar {
     projectSection.appendChild(newProjectItem);
 
     // Archived projects link
-    const archivedProjects = appState.get('projects').filter(p => p.archived);
+    const archivedProjects = appState.get('projects').filter(p => p.archived && p.id !== SYSTEM_PROJECT_ID);
     if (archivedProjects.length > 0) {
       const archivedItem = createElement('div', {
         className: 'sidebar-project-item sidebar-archived-link',
