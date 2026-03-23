@@ -172,7 +172,16 @@ class SessionStore:
                 if updated_at < cutoff:
                     continue
 
+                chat_id = data.get("chat_id", "")
                 messages = data.get("messages", [])
+                message_count = data.get("message_count", len(messages))
+
+                # Filter: skip card sessions, skip sessions with ≤1 message
+                if chat_id.startswith("card:"):
+                    continue
+                if message_count <= 1:
+                    continue
+
                 last_message = None
                 # Find last user or assistant message
                 for msg in reversed(messages):
@@ -185,9 +194,9 @@ class SessionStore:
                         break
 
                 sessions.append({
-                    "chatId": data.get("chat_id", ""),
+                    "chatId": chat_id,
                     "lastMessage": last_message,
-                    "messageCount": data.get("message_count", 0),
+                    "messageCount": message_count,
                     "updatedAt": updated_at_str,
                 })
             except (json.JSONDecodeError, IOError):
