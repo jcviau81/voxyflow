@@ -313,7 +313,9 @@ export class Sidebar {
     const openTabs = appState.getOpenTabs();
 
     for (const tab of openTabs) {
-      const sessions = appState.get('sessions')[tab.id] || [];
+      // Main tab stores sessions under 'system-main', not 'main'
+      const sessionKey = tab.id === 'main' ? 'system-main' : tab.id;
+      const sessions = appState.get('sessions')[sessionKey] || [];
       if (sessions.length === 0) continue;
 
       for (const session of sessions) {
