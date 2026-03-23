@@ -7,7 +7,7 @@
  *   b) Direct:      modal.open(card)  — receives a Card object (used by FreeBoard)
  */
 
-import { Card, Message, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType, CardHistoryEntry } from '../../types';
+import { Card, Message, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType, CardHistoryEntry, Project } from '../../types';
 import { CodeMirrorEditor } from '../Kanban/CodeMirrorEditor';
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO, API_URL, SYSTEM_PROJECT_ID } from '../../utils/constants';
@@ -17,6 +17,7 @@ import { cardService } from '../../services/CardService';
 import { chatService } from '../../services/ChatService';
 import { apiClient } from '../../services/ApiClient';
 import { FocusMode } from '../FocusMode/FocusMode';
+import { mainBoardService } from '../../services/MainBoardService';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -93,6 +94,8 @@ export class CardDetailModal {
     strengths: [],
     keywords: [],
   }));
+
+  private activePickerCleanup: (() => void) | null = null;
 
   // Callbacks so FreeBoard can react to mutations
   onDeleted?: (cardId: string) => void;

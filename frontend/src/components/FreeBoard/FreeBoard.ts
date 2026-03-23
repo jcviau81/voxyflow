@@ -1,9 +1,10 @@
-import { Card } from '../../types';
+import { Card, Project } from '../../types';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS } from '../../utils/constants';
+import { EVENTS, SYSTEM_PROJECT_ID } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { mainBoardService } from '../../services/MainBoardService';
+import { apiClient } from '../../services/ApiClient';
 import { CardDetailModal } from '../shared/CardDetailModal';
 
 type CardColor = 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange';
@@ -26,6 +27,7 @@ export class FreeBoard {
   private unsubscribers: (() => void)[] = [];
   private cardDetailModal: CardDetailModal;
   private initialLoadDone = false;
+  private activePickerCleanup: (() => void) | null = null;
 
   constructor(parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'freeboard-container' });
@@ -88,22 +90,13 @@ export class FreeBoard {
   private render(): void {
     this.container.innerHTML = '';
 
-    // Header — same pattern as KanbanBoard
+    // Header — just the add button (view tabs are in ProjectHeader now)
     const header = createElement('div', { className: 'freeboard-header kanban-header' });
-
-    // View toggle (like Chat/Kanban in project view)
-    const viewToggle = createElement('div', { className: 'view-toggle' });
-    const chatBtn = createElement('button', { className: 'view-btn', 'data-view': 'chat' }, '💬 Chat');
-    chatBtn.addEventListener('click', () => appState.setView('chat'));
-    const boardBtn = createElement('button', { className: 'view-btn active', 'data-view': 'freeboard' }, '📝 Board');
-    viewToggle.appendChild(chatBtn);
-    viewToggle.appendChild(boardBtn);
 
     const addBtn = createElement('button', { className: 'freeboard-add-btn kanban-add-btn' }, '+ Add Card');
     addBtn.setAttribute('data-testid', 'freeboard-add-btn');
     addBtn.addEventListener('click', () => this.toggleForm());
 
-    header.appendChild(viewToggle);
     header.appendChild(addBtn);
     this.container.appendChild(header);
 
@@ -195,7 +188,16 @@ export class FreeBoard {
     }, '🚀');
     promoteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.promoteCard(card);
+      this.showProjectPicker(promoteBtn, card);
+    });
+
+    const kanbanBtn = createElement('button', {
+      className: 'freeboard-card-btn freeboard-card-btn--kanban',
+      title: 'Move to Kanban',
+    }, '📋');
+    kanbanBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.moveToKanban(card);
     });
 
     const deleteBtn = createElement('button', {
@@ -208,6 +210,7 @@ export class FreeBoard {
     });
 
     actions.appendChild(promoteBtn);
+    actions.appendChild(kanbanBtn);
     actions.appendChild(deleteBtn);
     el.appendChild(actions);
 
@@ -216,14 +219,85 @@ export class FreeBoard {
 
   // ── Promote (assign to project) ───────────────────────────────
 
-  private promoteCard(card: Card): void {
-    // Show project form pre-filled (creates project and assigns card)
-    eventBus.emit(EVENTS.PROJECT_FORM_SHOW, {
-      mode: 'create',
-      prefillTitle: card.title,
+  private showProjectPicker(anchor: HTMLElement, card: Card): void {
+    // Close any existing picker
+    this.closeProjectPicker();
+
+    const projects = ((appState.get('projects') as Project[]) ?? [])
+      .filter(p => p.id !== SYSTEM_PROJECT_ID);
+
+    const dropdown = createElement('div', { className: 'project-picker-dropdown' });
+
+    if (projects.length === 0) {
+      const empty = createElement('div', { className: 'project-picker-item project-picker-item--empty' }, 'No projects yet');
+      dropdown.appendChild(empty);
+    } else {
+      projects.forEach(project => {
+        const item = createElement('div', { className: 'project-picker-item' });
+        item.textContent = `${project.emoji || '📁'} ${project.name}`;
+        item.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          this.closeProjectPicker();
+          const result = await mainBoardService.assignToProject(card.id, project.id);
+          if (result) {
+            eventBus.emit(EVENTS.TOAST_SHOW, { message: `Card moved to ${project.name}`, type: 'success', duration: 3000 });
+            this.renderGrid();
+          } else {
+            eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to assign card', type: 'error', duration: 3000 });
+          }
+        });
+        dropdown.appendChild(item);
+      });
+    }
+
+    // + New Project fallback
+    const newItem = createElement('div', { className: 'project-picker-item project-picker-item--new' });
+    newItem.textContent = '+ New Project';
+    newItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeProjectPicker();
+      eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'create', prefillTitle: card.title });
     });
-    // Note: The card stays on main board; user can assign it after creating/selecting a project.
-    // For a more advanced UX, a project picker modal would be needed.
+    dropdown.appendChild(newItem);
+
+    // Position below anchor
+    const rect = anchor.getBoundingClientRect();
+    dropdown.style.position = 'fixed';
+    dropdown.style.left = `${rect.left}px`;
+    dropdown.style.top = `${rect.bottom + 4}px`;
+    document.body.appendChild(dropdown);
+
+    // Close on outside click
+    const onOutsideClick = (e: MouseEvent) => {
+      if (!dropdown.contains(e.target as Node)) {
+        this.closeProjectPicker();
+      }
+    };
+    setTimeout(() => document.addEventListener('click', onOutsideClick), 0);
+
+    this.activePickerCleanup = () => {
+      dropdown.remove();
+      document.removeEventListener('click', onOutsideClick);
+      this.activePickerCleanup = null;
+    };
+  }
+
+  private closeProjectPicker(): void {
+    if (this.activePickerCleanup) this.activePickerCleanup();
+  }
+
+  // ── Move to Kanban ──────────────────────────────────────────────
+
+  private async moveToKanban(card: Card): Promise<void> {
+    const result = await apiClient.patchCard(card.id, { status: 'todo' });
+    if (result) {
+      appState.deleteMainBoardCard(card.id);
+      eventBus.emit(EVENTS.CARD_UPDATED, { id: card.id });
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Card moved to Kanban', type: 'success', duration: 3000 });
+      this.renderGrid();
+    } else {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to move card', type: 'error', duration: 3000 });
+    }
   }
 
   // ── Add form ──────────────────────────────────────────────────
