@@ -8,6 +8,7 @@ import json
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from app.services.ws_broadcast import ws_broadcast
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from sqlalchemy import select, func
@@ -32,6 +33,12 @@ MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024  # 50 MB
 ATTACHMENTS_BASE = Path.home() / ".voxyflow" / "attachments"
 
 router = APIRouter(tags=["cards"])
+
+
+def _broadcast_card_change(card):
+    """Notify all WS clients that a card changed."""
+    project_id = getattr(card, 'project_id', None) or 'system-main'
+    ws_broadcast.emit_sync("cards:changed", {"projectId": project_id, "cardId": card.id})
 
 
 @router.get("/agents")
@@ -109,6 +116,7 @@ async def create_card(
     result = await db.execute(stmt)
     card = result.scalar_one()
 
+    _broadcast_card_change(card)
     return _card_to_response(card)
 
 
@@ -181,6 +189,7 @@ async def create_unassigned_card(
     )
     result = await db.execute(stmt)
     card = result.scalar_one()
+    _broadcast_card_change(card)
     return _card_to_response(card)
 
 
@@ -216,6 +225,7 @@ async def assign_card_to_project(
     )
     result = await db.execute(stmt)
     card = result.scalar_one()
+    _broadcast_card_change(card)
     return _card_to_response(card)
 
 
@@ -247,6 +257,7 @@ async def unassign_card_from_project(
     )
     result = await db.execute(stmt)
     card = result.scalar_one()
+    _broadcast_card_change(card)
     return _card_to_response(card)
 
 
@@ -262,6 +273,7 @@ async def get_card(card_id: str, db: AsyncSession = Depends(get_db)):
     card = result.scalar_one_or_none()
     if not card:
         raise HTTPException(404, "Card not found")
+    _broadcast_card_change(card)
     return _card_to_response(card)
 
 
@@ -312,6 +324,7 @@ async def update_card(
     )
     result = await db.execute(stmt)
     card = result.scalar_one()
+    _broadcast_card_change(card)
     return _card_to_response(card)
 
 
@@ -342,6 +355,7 @@ async def assign_agent(
     )
     result = await db.execute(stmt)
     card = result.scalar_one()
+    _broadcast_card_change(card)
     return _card_to_response(card)
 
 
@@ -402,6 +416,7 @@ async def duplicate_card(card_id: str, db: AsyncSession = Depends(get_db)):
     )
     result = await db.execute(stmt)
     new_card = result.scalar_one()
+    _broadcast_card_change(new_card)
     return _card_to_response(new_card)
 
 
@@ -492,8 +507,10 @@ async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found")
+    project_id = card.project_id or 'system-main'
     await db.delete(card)
     await db.commit()
+    ws_broadcast.emit_sync("cards:changed", {"projectId": project_id, "cardId": card_id})
 
 
 @router.post("/cards/{card_id}/clone-to/{target_project_id}", response_model=CardResponse, status_code=201)
@@ -569,6 +586,7 @@ async def clone_card_to_project(
     )
     result = await db.execute(stmt)
     new_card = result.scalar_one()
+    _broadcast_card_change(new_card)
     return _card_to_response(new_card)
 
 
@@ -601,6 +619,7 @@ async def move_card_to_project(
     )
     result = await db.execute(stmt)
     card = result.scalar_one()
+    _broadcast_card_change(card)
     return _card_to_response(card)
 
 

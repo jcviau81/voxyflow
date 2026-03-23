@@ -55,6 +55,14 @@ export class ApiClient {
       };
       this.handleToolExecuted(tool, args ?? {}, result ?? {});
     });
+
+    // Handle cards:changed — backend broadcast when any card mutates via REST
+    this.on('cards:changed', (payload: Record<string, unknown>) => {
+      const projectId = payload.projectId as string;
+      if (projectId) {
+        this.syncCardsFromBackend(projectId);
+      }
+    });
   }
 
   handleToolExecuted(tool: string, args: Record<string, unknown>, result: Record<string, unknown>): void {

@@ -158,6 +158,9 @@ async def general_websocket(websocket: WebSocket):
     """
     await websocket.accept()
     logger.info("General WebSocket client connected")
+    # Register for broadcast events (card changes from REST routes)
+    from app.services.ws_broadcast import ws_broadcast
+    ws_broadcast.register(websocket)
     # Track session IDs that got worker pools for cleanup
     active_session_ids: set[str] = set()
     # Track sessions that already had pending results delivered
@@ -345,6 +348,8 @@ async def general_websocket(websocket: WebSocket):
     except Exception as e:
         logger.exception(f"General WebSocket error: {e}")
     finally:
+        # Unregister from broadcast
+        ws_broadcast.unregister(websocket)
         # Fix 3: Cancel all tracked background tasks on disconnect
         for task in bg_tasks:
             if not task.done():
