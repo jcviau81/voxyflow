@@ -405,3 +405,20 @@
     display: none !important;
   }
 }
+
+/* Hide bottom bar on mobile — too many bars push input off screen */
+@media (max-width: 768px) {
+  .chat-bottom-bar {
+    display: none !important;
+  }
+
+  .chat-top-bar {
+    padding: 4px 12px;
+    min-height: 36px;
+    gap: 6px;
+  }
+
+  .session-tab-bar-wrap {
+    flex-shrink: 0;
+  }
+}
