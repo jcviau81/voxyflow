@@ -1908,7 +1908,7 @@ export class CardDetailModal {
 
     // "Assign to Project" button (mainboard cards only)
     if (this.isMainBoard) {
-      const promoteSection = createElement('div', { className: 'modal-section' });
+      const promoteSection = createElement('div', { className: 'modal-section', style: 'position: relative;' });
       const promoteBtn = createElement('button', {
         className: 'note-detail-promote-btn',
         type: 'button',
@@ -1916,10 +1916,7 @@ export class CardDetailModal {
       }, '\ud83d\ude80 Assign to Project') as HTMLButtonElement;
       promoteBtn.addEventListener('click', () => {
         if (!this.card) return;
-        eventBus.emit(EVENTS.PROJECT_FORM_SHOW, {
-          mode: 'create',
-          prefillTitle: this.card.title,
-        });
+        this.showProjectPicker(promoteBtn, this.card);
       });
       promoteSection.appendChild(promoteBtn);
       rightCol.appendChild(promoteSection);
@@ -1997,9 +1994,76 @@ export class CardDetailModal {
     setTimeout(() => chatInput.focus(), 80);
   }
 
+  // ── Project picker ───────────────────────────────────────────────────────
+
+  private showProjectPicker(anchor: HTMLElement, card: Card): void {
+    this.closeProjectPicker();
+
+    const projects = ((appState.get('projects') as Project[]) ?? [])
+      .filter(p => p.id !== SYSTEM_PROJECT_ID);
+
+    const dropdown = createElement('div', { className: 'project-picker-dropdown' });
+
+    if (projects.length === 0) {
+      const empty = createElement('div', { className: 'project-picker-item project-picker-item--empty' }, 'No projects yet');
+      dropdown.appendChild(empty);
+    } else {
+      projects.forEach(project => {
+        const item = createElement('div', { className: 'project-picker-item' });
+        item.textContent = `${project.emoji || '📁'} ${project.name}`;
+        item.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          this.closeProjectPicker();
+          const result = await mainBoardService.assignToProject(card.id, project.id);
+          if (result) {
+            eventBus.emit(EVENTS.TOAST_SHOW, { message: `Card moved to ${project.name}`, type: 'success', duration: 3000 });
+            this.close();
+            this.onUpdated?.(result);
+          } else {
+            eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Failed to assign card', type: 'error', duration: 3000 });
+          }
+        });
+        dropdown.appendChild(item);
+      });
+    }
+
+    const newItem = createElement('div', { className: 'project-picker-item project-picker-item--new' });
+    newItem.textContent = '+ New Project';
+    newItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeProjectPicker();
+      eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'create', prefillTitle: card.title });
+    });
+    dropdown.appendChild(newItem);
+
+    const rect = anchor.getBoundingClientRect();
+    dropdown.style.position = 'fixed';
+    dropdown.style.left = `${rect.left}px`;
+    dropdown.style.top = `${rect.bottom + 4}px`;
+    document.body.appendChild(dropdown);
+
+    const onOutsideClick = (e: MouseEvent) => {
+      if (!dropdown.contains(e.target as Node)) {
+        this.closeProjectPicker();
+      }
+    };
+    setTimeout(() => document.addEventListener('click', onOutsideClick), 0);
+
+    this.activePickerCleanup = () => {
+      dropdown.remove();
+      document.removeEventListener('click', onOutsideClick);
+      this.activePickerCleanup = null;
+    };
+  }
+
+  private closeProjectPicker(): void {
+    if (this.activePickerCleanup) this.activePickerCleanup();
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   destroy(): void {
+    this.closeProjectPicker();
     this.destroyCodeMirror();
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];

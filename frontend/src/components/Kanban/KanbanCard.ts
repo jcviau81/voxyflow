@@ -197,6 +197,22 @@ export class KanbanCard {
           },
         },
         {
+          icon: '📌',
+          label: 'Move to Board',
+          action: async () => {
+            const result = await apiClient.patchCard(this.card.id, { status: 'card' });
+            if (result) {
+              const cards = appState.get('cards') as Card[];
+              appState.set('cards', cards.filter(c => c.id !== this.card.id));
+              eventBus.emit(EVENTS.CARD_UPDATED, { id: this.card.id });
+              eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Card moved to Board', type: 'success', duration: 3000 });
+              this.destroy();
+            } else {
+              eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Move failed', type: 'error', duration: 3000 });
+            }
+          },
+        },
+        {
           icon: '📋',
           label: 'Duplicate',
           action: () => this.handleDuplicate(),
