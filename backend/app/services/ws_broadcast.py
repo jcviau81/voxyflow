@@ -39,6 +39,28 @@ class WSBroadcast:
         for ws in dead:
             self._connections.discard(ws)
 
+    async def emit_to_others(self, exclude: WebSocket, event_type: str, payload: dict) -> None:
+        """Send an event to all connected WebSocket clients EXCEPT the sender.
+
+        Used for cross-device sync: the originating device already has the data,
+        so we only forward to other connected clients (other devices/tabs).
+        """
+        message = {
+            "type": event_type,
+            "payload": payload,
+            "timestamp": int(time.time() * 1000),
+        }
+        dead: list[WebSocket] = []
+        for ws in self._connections:
+            if ws is exclude:
+                continue
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self._connections.discard(ws)
+
     def emit_sync(self, event_type: str, payload: dict) -> None:
         """Fire-and-forget emit from sync context (FastAPI route handlers)."""
         try:

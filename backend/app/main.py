@@ -239,6 +239,17 @@ async def general_websocket(websocket: WebSocket):
                     if session_id:
                         active_session_ids.add(session_id)
 
+                    # Broadcast user message to OTHER connected clients (cross-device sync)
+                    await ws_broadcast.emit_to_others(websocket, "chat:message:new", {
+                        "chatId": chat_id,
+                        "sessionId": session_id,
+                        "message": {
+                            "role": "user",
+                            "content": content,
+                            "timestamp": time.time(),
+                        },
+                    })
+
                     # 3-Layer orchestration (Fast + Deep + Analyzer in parallel)
                     # Fix 3: collect returned background tasks for cleanup on disconnect
                     new_tasks = await _orchestrator.handle_message(
@@ -254,6 +265,29 @@ async def general_websocket(websocket: WebSocket):
                     )
                     if new_tasks:
                         bg_tasks.extend(new_tasks)
+
+                    # Broadcast completed assistant response to OTHER connected clients
+                    # (after orchestrator returns — fast layer is complete at this point)
+                    try:
+                        history = _orchestrator._claude.get_history(chat_id)
+                        last_assistant = None
+                        for msg in reversed(history):
+                            if msg.get("role") == "assistant" and msg.get("content"):
+                                last_assistant = msg
+                                break
+                        if last_assistant:
+                            await ws_broadcast.emit_to_others(websocket, "chat:message:new", {
+                                "chatId": chat_id,
+                                "sessionId": session_id,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": last_assistant.get("content", ""),
+                                    "timestamp": time.time(),
+                                    "model": last_assistant.get("model"),
+                                },
+                            })
+                    except Exception as _broadcast_err:
+                        logger.warning(f"[WS] Failed to broadcast assistant message: {_broadcast_err}")
 
                 elif msg_type == "session:reset":
                     chat_level = payload.get("chatLevel", "general")

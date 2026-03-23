@@ -731,6 +731,35 @@ class AppState {
   }
 
   /**
+   * Inject a server-sourced session into a tabId's session list.
+   * Used for cross-device sync: if a session exists on the server but not locally,
+   * we add it so the user can switch to it and see the history.
+   * Does NOT auto-activate it (keeps current active session unchanged).
+   */
+  injectServerSession(tabId: string, opts: { chatId: string; title: string; messageCount: number }): void {
+    const existing = this.state.sessions[tabId] || [];
+
+    // Guard: if chatId already exists, skip
+    if (existing.some((s) => s.chatId === opts.chatId)) return;
+    // Guard: max 5 sessions per tab
+    if (existing.length >= 5) return;
+
+    const session: SessionInfo = {
+      id: generateId(),
+      chatId: opts.chatId,
+      title: opts.title,
+      createdAt: Date.now(),
+    };
+    this.state.sessions = {
+      ...this.state.sessions,
+      [tabId]: [...existing, session],
+    };
+    // Don't change activeSession — keep user's current session
+    this.saveToStorage();
+    eventBus.emit(EVENTS.SESSION_TAB_UPDATE, { tabId, sessionId: session.id, title: opts.title });
+  }
+
+  /**
    * Update a session's title (e.g. after first message).
    */
   updateSessionTitle(tabId: string, sessionId: string, title: string): void {

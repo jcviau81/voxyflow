@@ -63,6 +63,68 @@ export class ApiClient {
         this.syncCardsFromBackend(projectId);
       }
     });
+
+    // Handle cross-device chat sync — another device sent or received a message
+    this.on('chat:message:new', (payload: Record<string, unknown>) => {
+      this.handleCrossDeviceMessage(payload);
+    });
+  }
+
+  /**
+   * Handle a chat:message:new event from another device.
+   * Adds the message to AppState if not already present (dedup by timestamp + content).
+   */
+  private handleCrossDeviceMessage(payload: Record<string, unknown>): void {
+    const chatId = payload.chatId as string;
+    const sessionId = payload.sessionId as string;
+    const msg = payload.message as { role: string; content: string; timestamp?: number; model?: string } | undefined;
+
+    if (!chatId || !msg || !msg.role || !msg.content) return;
+
+    // Dedup: check if this message already exists (by role + content prefix + approximate timestamp)
+    const existingMessages = appState.getMessages();
+    const contentPrefix = msg.content.slice(0, 50);
+    const msgTimestamp = msg.timestamp ? Math.round(msg.timestamp * 1000) : 0;
+
+    const isDuplicate = existingMessages.some((m) => {
+      if (m.role !== msg.role) return false;
+      if (!m.content.startsWith(contentPrefix)) return false;
+      // If timestamp is available, check within 2s window
+      if (msgTimestamp && m.timestamp) {
+        return Math.abs(m.timestamp - msgTimestamp) < 2000;
+      }
+      return true; // same role + content prefix → likely duplicate
+    });
+
+    if (isDuplicate) {
+      console.log('[ApiClient] cross-device message deduped:', msg.role, contentPrefix);
+      return;
+    }
+
+    // Find which tab/session this chatId belongs to
+    // chatId format: "project:{projectId}:{sessionId}" or "card:{cardId}" or "project:{projectId}"
+    let projectId: string | undefined;
+    const parts = chatId.split(':');
+    if (parts[0] === 'project' && parts[1]) {
+      projectId = parts[1];
+    }
+
+    // Add message to AppState
+    appState.addMessage({
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+      projectId,
+      sessionId,
+      streaming: false,
+    });
+
+    // Emit event so ChatWindow can re-render if this is the active session
+    eventBus.emit(EVENTS.WS_MESSAGE, {
+      type: 'chat:message:new',
+      payload: { chatId, sessionId, message: msg },
+    });
+
+    console.log('[ApiClient] cross-device message added:', msg.role, chatId);
   }
 
   handleToolExecuted(tool: string, args: Record<string, unknown>, result: Record<string, unknown>): void {
@@ -222,6 +284,10 @@ export class ApiClient {
       this.flushOfflineQueue();
       // Sync projects from backend on connect (ensures favorites, etc. are fresh)
       this.syncProjectsFromBackend();
+      // Sync sessions from server for cross-device awareness
+      this.syncSessionsFromServer().catch((e) => {
+        console.warn('[ApiClient] syncSessionsFromServer failed:', e);
+      });
       // Deliver any pending worker results for the active session on reconnect.
       // This avoids waiting for the next chat:message to trigger delivery.
       const activeTabId = appState.get('activeTab') as string | undefined;
@@ -797,6 +863,77 @@ export class ApiClient {
     } catch (error) {
       console.error('[ApiClient] deleteAttachment error:', error);
       return false;
+    }
+  }
+
+  /**
+   * Fetch active sessions from the server (last 24h).
+   * Used at startup to sync sessions across devices.
+   * Returns [{ chatId, lastMessage, messageCount, updatedAt }]
+   */
+  async fetchActiveSessions(maxAgeHours = 24): Promise<Array<{
+    chatId: string;
+    lastMessage: { role: string; content: string; timestamp?: string } | null;
+    messageCount: number;
+    updatedAt: string;
+  }>> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/sessions?active=true&max_age_hours=${maxAgeHours}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('[ApiClient] fetchActiveSessions error:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Load server sessions at startup and merge with local state.
+   * Server is source of truth: sessions found on server are added to sidebar if not present.
+   */
+  async syncSessionsFromServer(): Promise<void> {
+    try {
+      const serverSessions = await this.fetchActiveSessions();
+      if (serverSessions.length === 0) return;
+
+      for (const serverSession of serverSessions) {
+        const { chatId } = serverSession;
+        // Parse chatId to extract tabId and context
+        // Format: "project:{projectId}:{sessionUUID}" or "project:{projectId}" or "card:{cardId}"
+        const parts = chatId.split(':');
+        if (parts.length < 2) continue;
+
+        const contextType = parts[0]; // "project" or "card"
+        if (contextType !== 'project') continue; // Only sync project sessions for now
+
+        const projectId = parts[1];
+        if (!projectId) continue;
+
+        // Build a stable sessionId from chatId (use chatId itself as the session chatId)
+        const tabId = projectId;
+
+        // Check if this chatId is already known in any session for this tab
+        const existingSessions = appState.getSessions(tabId);
+        const alreadyKnown = existingSessions.some((s) => s.chatId === chatId);
+        if (alreadyKnown) continue;
+
+        // Add as a new session entry in AppState
+        // We inject it directly to avoid auto-creating a new UUID session
+        const lastMsgSnippet = serverSession.lastMessage?.content?.slice(0, 40) || 'Session';
+        const updatedAt = new Date(serverSession.updatedAt);
+        const timeStr = updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const title = `${lastMsgSnippet} (${timeStr})`;
+
+        // Use AppState's internal session injection
+        appState.injectServerSession(tabId, {
+          chatId,
+          title,
+          messageCount: serverSession.messageCount,
+        });
+      }
+    } catch (error) {
+      console.error('[ApiClient] syncSessionsFromServer error:', error);
     }
   }
 

@@ -11,8 +11,18 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 @router.get("")
-async def list_sessions(prefix: str = Query("", description="Filter by chat_id prefix")):
-    """List all persisted sessions."""
+async def list_sessions(
+    prefix: str = Query("", description="Filter by chat_id prefix"),
+    active: bool = Query(False, description="If true, return active sessions (last 24h) with lastMessage info"),
+    max_age_hours: int = Query(24, description="Max age in hours for active sessions (default 24)"),
+):
+    """List all persisted sessions.
+
+    Use ?active=true to get sessions from the last N hours with lastMessage info
+    (for cross-device sync). Returns [{ chatId, lastMessage, messageCount, updatedAt }].
+    """
+    if active:
+        return session_store.list_active_sessions(max_age_hours=max_age_hours)
     return session_store.list_sessions(prefix)
 
 

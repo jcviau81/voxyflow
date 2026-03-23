@@ -141,6 +141,60 @@ class SessionStore:
             sessions, key=lambda s: s.get("updated_at", ""), reverse=True
         )
 
+    def list_active_sessions(self, max_age_hours: int = 24) -> List[dict]:
+        """List sessions updated within max_age_hours, with lastMessage info.
+
+        Returns [{ chatId, lastMessage, messageCount, updatedAt }] sorted by updatedAt desc.
+        """
+        from datetime import timedelta, timezone
+        cutoff = datetime.now() - timedelta(hours=max_age_hours)
+        sessions = []
+        for path in self.sessions_dir.rglob("*.json"):
+            if path.name.startswith(".") or "archived" in path.name:
+                continue
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+
+                updated_at_str = data.get("updated_at")
+                if not updated_at_str:
+                    continue
+
+                # Parse updated_at (ISO format, may or may not have timezone)
+                try:
+                    updated_at = datetime.fromisoformat(updated_at_str)
+                    # Strip timezone info for naive comparison
+                    if updated_at.tzinfo is not None:
+                        updated_at = updated_at.replace(tzinfo=None)
+                except ValueError:
+                    continue
+
+                if updated_at < cutoff:
+                    continue
+
+                messages = data.get("messages", [])
+                last_message = None
+                # Find last user or assistant message
+                for msg in reversed(messages):
+                    if msg.get("role") in ("user", "assistant") and msg.get("content"):
+                        last_message = {
+                            "role": msg["role"],
+                            "content": msg["content"][:100],  # snippet
+                            "timestamp": msg.get("timestamp"),
+                        }
+                        break
+
+                sessions.append({
+                    "chatId": data.get("chat_id", ""),
+                    "lastMessage": last_message,
+                    "messageCount": data.get("message_count", 0),
+                    "updatedAt": updated_at_str,
+                })
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        return sorted(sessions, key=lambda s: s.get("updatedAt", ""), reverse=True)
+
 
 # Singleton
 session_store = SessionStore()
