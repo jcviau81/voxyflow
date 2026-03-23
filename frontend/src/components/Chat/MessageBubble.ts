@@ -1,7 +1,7 @@
 import { Message } from '../../types';
 import { createElement, formatTime } from '../../utils/helpers';
 import { renderMarkdown, addCodeCopyButtons, enhanceImages, replaceEmojiShortcodes } from '../../utils/markdown';
-import { ttsService } from '../../services/TtsService';
+import { ttsService, cleanTextForSpeech } from '../../services/TtsService';
 import { codeReviewService } from '../../services/CodeReviewService';
 import { EVENTS } from '../../utils/constants';
 
@@ -139,7 +139,7 @@ export class MessageBubble {
       updateBtn();
 
       // Get plain text from the message content (strip markdown HTML)
-      const plainText = this.getPlainText();
+      const plainText = cleanTextForSpeech(this.getPlainText());
       await ttsService.speak(plainText);
 
       // Reset in case onEnd wasn't fired (e.g. error)

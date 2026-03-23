@@ -258,6 +258,14 @@ class TtsService {
     clean = clean.replace(/```[\s\S]*?```/g, '');
     // Remove inline code (`...`)
     clean = clean.replace(/`[^`]*`/g, '');
+    // Remove delegate blocks
+    clean = clean.replace(/<delegate[\s\S]*?<\/delegate>/gi, '');
+    // Remove HTML tags
+    clean = clean.replace(/<[^>]+>/g, '');
+    // Remove markdown tables (lines starting with |)
+    clean = clean.replace(/^\|.*\|$/gm, '');
+    // Remove markdown horizontal rules (---, ***, ___)
+    clean = clean.replace(/^[\s]*[-*_]{3,}[\s]*$/gm, '');
     // Remove markdown headers
     clean = clean.replace(/^#{1,6}\s+/gm, '');
     // Remove markdown bold/italic
@@ -267,14 +275,23 @@ class TtsService {
     clean = clean.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
     // Remove markdown images
     clean = clean.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
-    // Remove HTML tags
-    clean = clean.replace(/<[^>]+>/g, '');
-    // Remove delegate blocks
-    clean = clean.replace(/<delegate[\s\S]*?<\/delegate>/gi, '');
+    // Remove bare URLs
+    clean = clean.replace(/https?:\/\/[^\s)]+/g, '');
+    // Remove emojis (Unicode emoji ranges)
+    clean = clean.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}]/gu, '');
+    // Remove bullet points (-, *, •) at start of lines
+    clean = clean.replace(/^[\s]*[-*•]\s+/gm, '');
+    // Remove numbered list markers (1., 2., etc.)
+    clean = clean.replace(/^[\s]*\d+\.\s+/gm, '');
+    // Remove special characters that cause TTS artifacts
+    clean = clean.replace(/[~|>]/g, '');
     // Collapse whitespace
     clean = clean.replace(/\n{2,}/g, '. ');
     clean = clean.replace(/\n/g, ' ');
     clean = clean.replace(/\s{2,}/g, ' ');
+    // Remove orphan punctuation (multiple dots, dashes)
+    clean = clean.replace(/\.{2,}/g, '.');
+    clean = clean.replace(/\s*-\s*-\s*/g, ', ');
     return clean.trim();
   }
 }
