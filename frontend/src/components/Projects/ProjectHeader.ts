@@ -11,15 +11,11 @@ export interface ProjectTab {
 }
 
 const PROJECT_TABS: ProjectTab[] = [
-  { view: 'chat',    emoji: '💬', label: 'Chat' },
-  { view: 'kanban',  emoji: '📋', label: 'Kanban' },
-  { view: 'freeboard', emoji: '📌', label: 'Board' },
-  { view: 'stats',   emoji: '📊', label: 'Stats' },
-  { view: 'roadmap', emoji: '📅', label: 'Roadmap' },
-  { view: 'knowledge', emoji: '🧠', label: 'Knowledge' },
-  { view: 'wiki',    emoji: '📖', label: 'Wiki' },
-  { view: 'sprint',  emoji: '🏃', label: 'Sprints' },
-  { view: 'docs',    emoji: '📚', label: 'Docs' },
+  { view: 'chat',       emoji: '💬', label: 'Chat' },
+  { view: 'kanban',     emoji: '📋', label: 'Kanban' },
+  { view: 'freeboard',  emoji: '📌', label: 'Board' },
+  { view: 'knowledge',  emoji: '🧠', label: 'Knowledge' },
+  // Deferred (hidden, not deleted): stats, roadmap, wiki, sprint, docs
 ];
 
 // Subset of tabs shown for the Main tab
