@@ -270,6 +270,32 @@ class DeepWorkerPool:
                 "sessionId": event.session_id,
             })
 
+            # Inject worker result into dispatcher conversation history
+            # so Voxy can see and react to it on the next user message.
+            dispatcher_chat_id = event.data.get("dispatcher_chat_id")
+            if dispatcher_chat_id and result_content:
+                try:
+                    # Truncate large results to avoid context explosion (~2000 chars ≈ 500 tokens)
+                    MAX_RESULT_CHARS = 2000
+                    truncated = result_content[:MAX_RESULT_CHARS]
+                    if len(result_content) > MAX_RESULT_CHARS:
+                        truncated += f"\n\n[... truncated, {len(result_content) - MAX_RESULT_CHARS} chars omitted]"
+
+                    worker_msg = (
+                        f"[Worker Result — {event.intent}]\n"
+                        f"{truncated}"
+                    )
+                    await self._claude._append_and_persist_async(
+                        chat_id=dispatcher_chat_id,
+                        role="assistant",
+                        content=worker_msg,
+                        model=event.model,
+                        msg_type="worker_result",
+                    )
+                    logger.info(f"[DeepWorker] Injected result into dispatcher history for {dispatcher_chat_id}")
+                except Exception as inject_err:
+                    logger.warning(f"[DeepWorker] Failed to inject result into history: {inject_err}")
+
             logger.info(f"[DeepWorker] Task {event.task_id} completed: {event.intent}")
 
         except Exception as e:
@@ -451,6 +477,7 @@ class ChatOrchestrator:
                         project_context=project_context,
                         card_context=card_context,
                         project_id=project_id,
+                        chat_id=chat_id,
                     )
                 )
                 _bg_tasks.append(_t)
@@ -474,6 +501,7 @@ class ChatOrchestrator:
                             project_context=project_context,
                             card_context=card_context,
                             project_id=project_id,
+                            chat_id=chat_id,
                         )
                     )
                     _bg_tasks.append(_t)
@@ -632,6 +660,7 @@ class ChatOrchestrator:
         project_context: dict | None = None,
         card_context: dict | None = None,
         project_id: str | None = None,
+        chat_id: str | None = None,
     ) -> None:
         """Convert native delegate_action tool_use blocks to ActionIntent events.
 
@@ -679,6 +708,7 @@ class ChatOrchestrator:
                     "card_context": card_context,
                     "project_id": project_id,
                     "card_id": card_id,
+                    "dispatcher_chat_id": chat_id,
                     **data,  # Include all fields from delegate_action
                 },
                 session_id=session_id,
@@ -708,6 +738,7 @@ class ChatOrchestrator:
         project_context: dict | None = None,
         card_context: dict | None = None,
         project_id: str | None = None,
+        chat_id: str | None = None,
     ) -> None:
         """Parse <delegate> blocks from the Fast response and emit ActionIntent events."""
         # Debug: log the tail of the response to verify delegate blocks are present
@@ -725,6 +756,7 @@ class ChatOrchestrator:
                 project_context=project_context,
                 card_context=card_context,
                 project_id=project_id,
+                chat_id=chat_id,
             )
             return
 
@@ -771,6 +803,7 @@ class ChatOrchestrator:
                         "card_context": card_context,
                         "project_id": project_id,
                         "card_id": card_id,
+                        "dispatcher_chat_id": chat_id,
                         **data,  # Include original delegate data
                     },
                     session_id=session_id,
@@ -823,6 +856,7 @@ class ChatOrchestrator:
         project_context: dict | None = None,
         card_context: dict | None = None,
         project_id: str | None = None,
+        chat_id: str | None = None,
     ) -> None:
         """Safety net: if no <delegate> was found but the response promises an action,
         use a quick Haiku call to generate the missing delegate and emit it."""
@@ -884,6 +918,7 @@ class ChatOrchestrator:
                 "card_context": card_context,
                 "project_id": project_id,
                 "card_id": card_id,
+                "dispatcher_chat_id": chat_id,
                 "auto_recovered": True,
                 **data,
             },
