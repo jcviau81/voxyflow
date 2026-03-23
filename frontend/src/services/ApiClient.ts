@@ -871,8 +871,9 @@ export class ApiClient {
    * Used at startup to sync sessions across devices.
    * Returns [{ chatId, lastMessage, messageCount, updatedAt }]
    */
-  async fetchActiveSessions(maxAgeHours = 24): Promise<Array<{
+  async fetchActiveSessions(maxAgeHours = 720): Promise<Array<{
     chatId: string;
+    title?: string;
     lastMessage: { role: string; content: string; timestamp?: string } | null;
     messageCount: number;
     updatedAt: string;
@@ -890,50 +891,78 @@ export class ApiClient {
 
   /**
    * Load server sessions at startup and merge with local state.
-   * Server is source of truth: sessions found on server are added to sidebar if not present.
+   * Server is source of truth: sessions found on server replace local session lists.
    */
   async syncSessionsFromServer(): Promise<void> {
     try {
       const serverSessions = await this.fetchActiveSessions();
-      if (serverSessions.length === 0) return;
+
+      // Group by tabId (projectId)
+      const byTab = new Map<string, Array<{ chatId: string; title: string; messageCount: number; updatedAt: string }>>();
 
       for (const serverSession of serverSessions) {
         const { chatId } = serverSession;
-        // Parse chatId to extract tabId and context
-        // Format: "project:{projectId}:{sessionUUID}" or "project:{projectId}" or "card:{cardId}"
         const parts = chatId.split(':');
         if (parts.length < 2) continue;
 
-        const contextType = parts[0]; // "project" or "card"
-        if (contextType !== 'project') continue; // Only sync project sessions for now
+        const contextType = parts[0];
+        if (contextType !== 'project') continue;
 
         const projectId = parts[1];
         if (!projectId) continue;
 
-        // Build a stable sessionId from chatId (use chatId itself as the session chatId)
         const tabId = projectId;
+        if (!byTab.has(tabId)) byTab.set(tabId, []);
 
-        // Check if this chatId is already known in any session for this tab
-        const existingSessions = appState.getSessions(tabId);
-        const alreadyKnown = existingSessions.some((s) => s.chatId === chatId);
-        if (alreadyKnown) continue;
-
-        // Add as a new session entry in AppState
-        // We inject it directly to avoid auto-creating a new UUID session
-        const lastMsgSnippet = serverSession.lastMessage?.content?.slice(0, 40) || 'Session';
-        const updatedAt = new Date(serverSession.updatedAt);
-        const timeStr = updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const title = `${lastMsgSnippet} (${timeStr})`;
-
-        // Use AppState's internal session injection
-        appState.injectServerSession(tabId, {
+        byTab.get(tabId)!.push({
           chatId,
-          title,
+          title: serverSession.title || serverSession.lastMessage?.content?.slice(0, 40) || 'Session',
           messageCount: serverSession.messageCount,
+          updatedAt: serverSession.updatedAt,
         });
+      }
+
+      // For each tab, set sessions from server (server is source of truth)
+      for (const [tabId, sessions] of byTab) {
+        const existingSessions = appState.getSessions(tabId);
+
+        // Build SessionInfo array from server data, reusing local ids where chatId matches
+        const { generateId } = await import('../utils/helpers');
+        const sessionInfos: import('../types').SessionInfo[] = sessions.map((s) => {
+          const existing = existingSessions.find((e) => e.chatId === s.chatId);
+          return {
+            id: existing?.id || generateId(),
+            chatId: s.chatId,
+            title: s.title,
+            createdAt: existing?.createdAt || new Date(s.updatedAt).getTime(),
+          };
+        });
+
+        if (sessionInfos.length > 0) {
+          appState.setServerSessions(tabId, sessionInfos);
+        }
       }
     } catch (error) {
       console.error('[ApiClient] syncSessionsFromServer error:', error);
+    }
+  }
+
+  /**
+   * Create a new session on the server and return the stable chatId.
+   */
+  async createServerSession(projectId: string, title?: string): Promise<{ chatId: string; title: string } | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, title: title || null }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as { chatId: string; title: string };
+    } catch (error) {
+      console.error('[ApiClient] createServerSession error:', error);
+      return null;
     }
   }
 

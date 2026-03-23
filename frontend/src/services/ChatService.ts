@@ -346,6 +346,8 @@ export class ChatService {
     }
     // Note: chatLevel 'general' is kept for backward compat — backend maps it to system-main
 
+    // Send the stable chatId so the backend uses it directly (cross-device sync)
+    // The sessionId is also sent for backward compat (worker pools, pending results)
     apiClient.send('chat:message', {
       content,
       projectId: currentProjectId,
@@ -354,6 +356,7 @@ export class ChatService {
       chatLevel,
       layers,
       sessionId: sessionId || undefined,
+      chatId: sessionId || undefined,  // sessionId IS the stable chatId now
     });
 
     eventBus.emit(EVENTS.MESSAGE_SENT, message);
@@ -372,13 +375,15 @@ export class ChatService {
     if (currentCardId) chatLevel = 'card';
     else if (currentProjectId && currentProjectId !== SYSTEM_PROJECT_ID) chatLevel = 'project';
 
+    const resolvedSessionId = sessionId || this.activeSessionId || undefined;
     apiClient.send('chat:message', {
       content: contextHint,
       projectId: currentProjectId,
       cardId: currentCardId,
       chatLevel,
       layers,
-      sessionId: sessionId || this.activeSessionId || undefined,
+      sessionId: resolvedSessionId,
+      chatId: resolvedSessionId,  // stable chatId for cross-device sync
       systemInit: true,  // Backend knows not to persist this as a user message
     });
   }

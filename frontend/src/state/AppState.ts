@@ -632,8 +632,9 @@ class AppState {
   // --- Session Tabs (per project/card context) ---
 
   /**
-   * Create a new session for a given tabId.
-   * Auto-assigns a sequential title ("Session 1", "Session 2", …).
+   * Create a new LOCAL session for a given tabId with a stable chatId.
+   * This is the synchronous fallback — prefer createSessionFromServer() for new sessions.
+   * For the default/first session, chatId = "project:{tabId}".
    * Returns the created SessionInfo. Does NOT create a session if max (5) reached.
    */
   createSession(tabId: string): SessionInfo {
@@ -643,9 +644,13 @@ class AppState {
       return existing[existing.length - 1];
     }
     const sessionNumber = existing.length + 1;
+    // For the first session (default), use the base chat_id without suffix
+    const chatId = sessionNumber === 1
+      ? `project:${tabId}`
+      : `project:${tabId}:session-${sessionNumber}`;
     const session: SessionInfo = {
       id: generateId(),
-      chatId: `${tabId}::${generateId()}`,
+      chatId,
       title: `Session ${sessionNumber}`,
       createdAt: Date.now(),
     };
@@ -661,6 +666,56 @@ class AppState {
     this.state.activeSession = updatedActive;
     this.saveToStorage();
     return session;
+  }
+
+  /**
+   * Add a server-created session to the local state.
+   * Used after POST /api/sessions returns a stable chatId.
+   */
+  addServerSession(tabId: string, chatId: string, title: string): SessionInfo {
+    const existing = this.state.sessions[tabId] || [];
+    // Guard: if chatId already exists, return existing
+    const found = existing.find((s) => s.chatId === chatId);
+    if (found) return found;
+
+    const session: SessionInfo = {
+      id: generateId(),
+      chatId,
+      title,
+      createdAt: Date.now(),
+    };
+    this.state.sessions = {
+      ...this.state.sessions,
+      [tabId]: [...existing, session],
+    };
+    this.state.activeSession = {
+      ...this.state.activeSession,
+      [tabId]: session.id,
+    };
+    this.saveToStorage();
+    return session;
+  }
+
+  /**
+   * Replace all sessions for a tabId with server-sourced data.
+   * Used at startup to sync from server.
+   */
+  setServerSessions(tabId: string, sessions: SessionInfo[]): void {
+    this.state.sessions = {
+      ...this.state.sessions,
+      [tabId]: sessions,
+    };
+    // If no active session is set or the current one doesn't exist, pick the first
+    const currentActive = this.state.activeSession[tabId];
+    if (!currentActive || !sessions.some(s => s.id === currentActive)) {
+      if (sessions.length > 0) {
+        this.state.activeSession = {
+          ...this.state.activeSession,
+          [tabId]: sessions[0].id,
+        };
+      }
+    }
+    this.saveToStorage();
   }
 
   /**

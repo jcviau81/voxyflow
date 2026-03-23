@@ -1,29 +1,48 @@
 """Session persistence API endpoints."""
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, Message
+from app.database import get_db, Message, SYSTEM_MAIN_PROJECT_ID
 from app.services.session_store import session_store
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+class CreateSessionRequest(BaseModel):
+    """Request body for creating a new session."""
+    project_id: str = SYSTEM_MAIN_PROJECT_ID
+    title: str | None = None
 
 
 @router.get("")
 async def list_sessions(
     prefix: str = Query("", description="Filter by chat_id prefix"),
     active: bool = Query(False, description="If true, return active sessions (last 24h) with lastMessage info"),
-    max_age_hours: int = Query(24, description="Max age in hours for active sessions (default 24)"),
+    max_age_hours: int = Query(720, description="Max age in hours for active sessions (default 720 = 30 days)"),
 ):
     """List all persisted sessions.
 
     Use ?active=true to get sessions from the last N hours with lastMessage info
-    (for cross-device sync). Returns [{ chatId, lastMessage, messageCount, updatedAt }].
+    (for cross-device sync). Returns [{ chatId, title, lastMessage, messageCount, updatedAt }].
     """
     if active:
         return session_store.list_active_sessions(max_age_hours=max_age_hours)
     return session_store.list_sessions(prefix)
+
+
+@router.post("")
+async def create_session(body: CreateSessionRequest):
+    """Create a new session with a stable chat_id.
+
+    Returns { chatId, title } for the new session.
+    The chat_id is deterministic: project:{projectId}:session-N where N is incremental.
+    """
+    chat_id = session_store.create_session(body.project_id, body.title)
+    title = body.title or chat_id.split(":")[-1].replace("-", " ").title()
+    return {"chatId": chat_id, "title": title}
 
 
 @router.get("/{chat_id:path}")

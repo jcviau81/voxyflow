@@ -596,6 +596,7 @@ export class ChatWindow {
       projectId: currentProjectId || undefined,
       cardId: cardId || undefined,
       sessionId: this.activeSessionId,
+      chatId: this.activeSessionId,  // stable chatId for backend
     });
 
     // Focus input
@@ -955,6 +956,12 @@ export class ChatWindow {
    * Called on page load, reconnect, or when switching to an empty session.
    * Always replaces in-memory messages with authoritative backend data so that
    * stale localStorage snapshots don't hide recent messages after a page refresh.
+   *
+   * Chat IDs are now stable (no random UUIDs):
+   * - Main chat: "project:system-main"
+   * - Project chat: "project:{projectId}"
+   * - Card chat: "card:{cardId}"
+   * - Additional sessions: "project:system-main:session-2", etc.
    */
   private async loadHistoryFromBackend(): Promise<void> {
     const chatLevel = this.getChatLevel();
@@ -972,16 +979,11 @@ export class ChatWindow {
       projectId = appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
     } else {
       // Project chat (including Main/system-main)
+      // The active session's chatId IS the backend chat_id (stable, no random UUID)
       const activeChatId = appState.getActiveChatId(contextTabId);
       sessionId = activeChatId;
       projectId = appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
-      if (contextTabId === SYSTEM_PROJECT_ID) {
-        // Main/general tab: backend SAVE path uses `project:system-main:{session_id}`,
-        // so LOAD must use the same format to find the correct file.
-        backendChatId = `project:${contextTabId}:${activeChatId}`;
-      } else {
-        backendChatId = `project:${contextTabId}`;
-      }
+      backendChatId = activeChatId || `project:${contextTabId}`;
     }
 
     // Use replace=true: authoritative backend data replaces any stale localStorage snapshot.
@@ -1103,17 +1105,22 @@ export class ChatWindow {
     }
   }
 
-  private handleNewSession(): void {
-    // Create a new session using the project session system
+  private async handleNewSession(): Promise<void> {
+    // Create a new session on the server for a stable chat_id
     const contextTabId = this.getContextTabId();
-    const session = appState.createSession(contextTabId);
+    const projectId = appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
 
-    // Notify backend to reset
-    apiClient.send('session:reset', {
-      chatLevel: 'project',
-      projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
-      sessionId: session.chatId,
-    });
+    // Try server-side creation first
+    const serverResult = await apiClient.createServerSession(projectId);
+    let session: import('../../types').SessionInfo;
+
+    if (serverResult) {
+      // Server created the session — add to local state
+      session = appState.addServerSession(contextTabId, serverResult.chatId, serverResult.title);
+    } else {
+      // Fallback: create locally with stable chatId
+      session = appState.createSession(contextTabId);
+    }
 
     chatService.activeSessionId = session.chatId;
 

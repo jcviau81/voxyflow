@@ -220,7 +220,19 @@ async def general_websocket(websocket: WebSocket):
                     await _deliver_pending(session_id)
 
                     # Derive chat_id from context for conversation isolation
-                    if card_id:
+                    # If the frontend sends a stable chatId, use it directly.
+                    frontend_chat_id = payload.get("chatId")
+
+                    if frontend_chat_id:
+                        # Frontend-provided stable chat_id (cross-device sync)
+                        chat_id = frontend_chat_id
+                        if not project_id:
+                            project_id = SYSTEM_MAIN_PROJECT_ID
+                        if chat_id.startswith("card:"):
+                            chat_level = "card"
+                        elif chat_level == "general":
+                            chat_level = "project" if project_id != SYSTEM_MAIN_PROJECT_ID else "general"
+                    elif card_id:
                         chat_id = f"card:{card_id}"
                         chat_level = "card"
                     elif project_id:
@@ -230,7 +242,7 @@ async def general_websocket(websocket: WebSocket):
                     else:
                         # No project specified → default to system-main project
                         project_id = SYSTEM_MAIN_PROJECT_ID
-                        chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}:{session_id}"
+                        chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}"
                         chat_level = "general"  # Keep "general" for backward compat in prompts
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
@@ -294,14 +306,17 @@ async def general_websocket(websocket: WebSocket):
                     project_id = payload.get("projectId")
                     card_id = payload.get("cardId")
                     session_id = payload.get("sessionId") or str(uuid4())
+                    frontend_chat_id = payload.get("chatId")
 
                     # Derive chat_id matching the conversation isolation logic
-                    if card_id:
+                    if frontend_chat_id:
+                        chat_id = frontend_chat_id
+                    elif card_id:
                         chat_id = f"card:{card_id}"
                     elif project_id:
                         chat_id = f"project:{project_id}"
                     else:
-                        chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}:{session_id}"
+                        chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}"
 
                     # Fix 5: full session teardown — stop worker pool, clear event bus,
                     # remove from active_session_ids, then clear chat history.

@@ -141,10 +141,10 @@ class SessionStore:
             sessions, key=lambda s: s.get("updated_at", ""), reverse=True
         )
 
-    def list_active_sessions(self, max_age_hours: int = 24) -> List[dict]:
+    def list_active_sessions(self, max_age_hours: int = 720) -> List[dict]:
         """List sessions updated within max_age_hours, with lastMessage info.
 
-        Returns [{ chatId, lastMessage, messageCount, updatedAt }] sorted by updatedAt desc.
+        Returns [{ chatId, title, lastMessage, messageCount, updatedAt }] sorted by updatedAt desc.
         """
         from datetime import timedelta, timezone
         cutoff = datetime.now() - timedelta(hours=max_age_hours)
@@ -176,14 +176,18 @@ class SessionStore:
                 messages = data.get("messages", [])
                 message_count = data.get("message_count", len(messages))
 
-                # Filter: only project sessions with >1 message
+                # Filter: only project sessions with >0 messages
                 if not chat_id.startswith("project:"):
                     continue
-                if message_count <= 1:
+                if message_count < 1:
                     continue
 
                 last_message = None
-                # Find last user or assistant message
+                first_user_message = None
+                # Find last user or assistant message + first user message for title
+                for msg in messages:
+                    if msg.get("role") == "user" and msg.get("content") and not first_user_message:
+                        first_user_message = msg["content"][:60]
                 for msg in reversed(messages):
                     if msg.get("role") in ("user", "assistant") and msg.get("content"):
                         last_message = {
@@ -193,8 +197,12 @@ class SessionStore:
                         }
                         break
 
+                # Derive title from first user message
+                title = first_user_message or chat_id.split(":")[-1].replace("-", " ").title()
+
                 sessions.append({
                     "chatId": chat_id,
+                    "title": title,
                     "lastMessage": last_message,
                     "messageCount": message_count,
                     "updatedAt": updated_at_str,
@@ -203,6 +211,52 @@ class SessionStore:
                 pass
 
         return sorted(sessions, key=lambda s: s.get("updatedAt", ""), reverse=True)
+
+    def create_session(self, project_id: str, title: str | None = None) -> str:
+        """Create a new session with a stable incremental chat_id.
+
+        Returns the chat_id, e.g. 'project:system-main:session-2'.
+        The base session (no suffix) is 'project:{project_id}'.
+        """
+        import re
+        base_chat_id = f"project:{project_id}"
+
+        # Find existing session numbers for this project
+        max_session_num = 1  # base session counts as 1
+        prefix_path = self._get_session_path(base_chat_id).parent
+        if prefix_path.exists():
+            for path in prefix_path.iterdir():
+                if path.name.startswith(".") or "archived" in path.name:
+                    continue
+                if not path.name.endswith(".json"):
+                    continue
+                # Match session-N.json
+                match = re.match(r"session-(\d+)\.json", path.name)
+                if match:
+                    num = int(match.group(1))
+                    if num > max_session_num:
+                        max_session_num = num
+
+        next_num = max_session_num + 1
+        chat_id = f"{base_chat_id}:session-{next_num}"
+
+        # Create the session file with an initial empty state
+        path = self._get_session_path(chat_id)
+        data = json.dumps(
+            {
+                "chat_id": chat_id,
+                "title": title or f"Session {next_num}",
+                "updated_at": datetime.now().isoformat(),
+                "message_count": 0,
+                "messages": [],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        with open(path, "w") as f:
+            f.write(data)
+
+        return chat_id
 
 
 # Singleton
