@@ -440,4 +440,8 @@
   .voice-toggles {
     display: none !important;
   }
+
+  .top-bar-project-name {
+    display: none !important;
+  }
 }
