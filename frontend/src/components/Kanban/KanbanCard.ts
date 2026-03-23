@@ -567,11 +567,7 @@ export class KanbanCard {
         return;
       }
       appState.selectCard(this.card.id);
-      eventBus.emit(EVENTS.CARD_FORM_SHOW, {
-        mode: 'edit',
-        card: this.card,
-        projectId: this.card.projectId,
-      });
+      eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', cardId: this.card.id });
     });
 
     this.parentElement.appendChild(this.element);
