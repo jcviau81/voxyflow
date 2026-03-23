@@ -87,8 +87,22 @@ export class TopBar {
     }, '🧠');
     deepBtn.addEventListener('click', () => this.setDeepMode(true));
 
+    const analyzerOn = this.getLayerState().analyzer;
+    const analyzerBtn = createElement('button', {
+      className: `top-bar-mode-btn ${analyzerOn ? 'active' : ''}`,
+      title: 'Analyzer (card suggestions)',
+    }, '🔍');
+    analyzerBtn.addEventListener('click', () => {
+      const state = this.getLayerState();
+      state.analyzer = !state.analyzer;
+      localStorage.setItem(LAYER_STORAGE_KEY, JSON.stringify(state));
+      eventBus.emit(EVENTS.STATE_CHANGED, { key: 'layerToggles', value: state });
+      this.render();
+    });
+
     modePill.appendChild(fastBtn);
     modePill.appendChild(deepBtn);
+    modePill.appendChild(analyzerBtn);
 
     // Auto-play toggle
     const autoPlay = this.getVoiceSetting('tts_auto_play', false);
