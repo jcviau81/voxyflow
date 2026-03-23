@@ -1,7 +1,7 @@
 import { Project } from '../types';
 import { appState } from '../state/AppState';
 import { eventBus } from '../utils/EventBus';
-import { EVENTS } from '../utils/constants';
+import { EVENTS, SYSTEM_PROJECT_ID } from '../utils/constants';
 
 const API_URL_BASE = process.env.VOXYFLOW_API_URL || '';
 
@@ -30,9 +30,15 @@ export class ProjectService {
       const archived: Project[] = Array.isArray(archivedRaw)
         ? archivedRaw.map((p: Record<string, unknown>) => this.mapRawProject(p))
         : [];
-      const projects = [...active, ...archived];
-      if (projects.length > 0) {
-        appState.set('projects', projects);
+      const allProjects = [...active, ...archived];
+      // Ensure system project is always first
+      const sysIdx = allProjects.findIndex(p => p.id === SYSTEM_PROJECT_ID);
+      if (sysIdx > 0) {
+        const [sysProject] = allProjects.splice(sysIdx, 1);
+        allProjects.unshift(sysProject);
+      }
+      if (allProjects.length > 0) {
+        appState.set('projects', allProjects);
         eventBus.emit(EVENTS.PROJECT_SELECTED);
       }
     } catch (e) {

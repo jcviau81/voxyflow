@@ -1,5 +1,4 @@
 import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, Card } from '../types';
-import { SYSTEM_PROJECT_ID } from '../utils/constants';
 
 export interface SearchResult {
   message_id: string;
@@ -10,7 +9,7 @@ export interface SearchResult {
   created_at: string | null;
 }
 import { eventBus } from '../utils/EventBus';
-import { EVENTS, WS_URL, API_URL, RECONNECT_MAX_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, HEARTBEAT_INTERVAL } from '../utils/constants';
+import { EVENTS, WS_URL, API_URL, RECONNECT_MAX_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, HEARTBEAT_INTERVAL, SYSTEM_PROJECT_ID } from '../utils/constants';
 import { generateId } from '../utils/helpers';
 import { appState } from '../state/AppState';
 
@@ -131,6 +130,8 @@ export class ApiClient {
           updatedAt: p.updated_at ? new Date(p.updated_at as string).getTime() : Date.now(),
           cards: (p.cards as string[]) || [],
           archived: p.status === 'archived' || (p.archived as boolean) || false,
+          isSystem: (p.is_system as boolean) || false,
+          deletable: p.deletable !== undefined ? (p.deletable as boolean) : true,
         });
 
         const allProjects = [
