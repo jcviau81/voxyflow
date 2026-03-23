@@ -176,7 +176,7 @@ export class ChatWindow {
 
     // Chat action menu (mobile: replaces emoji button with a ⊕ menu)
     const actionMenuContainer = createElement('div', { className: 'chat-action-menu-container' });
-    const actionMenuBtn = createElement('button', { className: 'chat-action-menu-btn' }, '⊕');
+    const actionMenuBtn = createElement('button', { className: 'chat-action-menu-btn' }, '⋯');
     actionMenuBtn.title = 'Actions';
     const actionMenu = createElement('div', { className: 'chat-action-menu hidden' });
     
