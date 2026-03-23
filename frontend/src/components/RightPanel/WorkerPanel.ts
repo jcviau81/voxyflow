@@ -9,18 +9,20 @@
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
+import { apiClient } from '../../services/ApiClient';
 
 interface WorkerTask {
   taskId: string;
   intent: string;
   summary: string;
-  status: 'queued' | 'started' | 'executing' | 'completed' | 'failed';
+  status: 'queued' | 'started' | 'executing' | 'completed' | 'failed' | 'cancelled' | 'timeout';
   startedAt: number;
   completedAt?: number;
   result?: string;
   success?: boolean;
   progressMessage?: string;
   model?: 'haiku' | 'sonnet' | 'opus';
+  sessionId?: string;
 }
 
 export class WorkerPanel {
@@ -55,6 +57,7 @@ export class WorkerPanel {
           status: 'started',
           startedAt: Date.now(),
           model: payload.model || 'sonnet',
+          sessionId: payload.sessionId,
         });
         this.render();
       })
@@ -83,6 +86,35 @@ export class WorkerPanel {
         }
       })
     );
+
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TASK_CANCELLED, (payload: any) => {
+        const task = this.tasks.get(payload.taskId);
+        if (task) {
+          task.status = 'cancelled';
+          task.completedAt = Date.now();
+          this.render();
+        }
+      })
+    );
+
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TASK_TIMEOUT, (payload: any) => {
+        const task = this.tasks.get(payload.taskId);
+        if (task) {
+          task.status = 'timeout';
+          task.completedAt = Date.now();
+          this.render();
+        }
+      })
+    );
+  }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+
+  private cancelTask(taskId: string, sessionId?: string): void {
+    if (!sessionId) return;
+    apiClient.send('task:cancel', { taskId, sessionId });
   }
 
   // ── Cleanup ─────────────────────────────────────────────────────────────────
@@ -208,6 +240,20 @@ export class WorkerPanel {
     const timeEl = createElement('div', { className: 'worker-task-time' }, elapsed);
     el.appendChild(timeEl);
 
+    // Cancel button for active (non-completed) tasks
+    if (!task.completedAt) {
+      const cancelBtn = createElement('button', {
+        className: 'worker-task-cancel',
+        title: 'Cancel task',
+      });
+      cancelBtn.innerHTML = '&times;';
+      cancelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.cancelTask(task.taskId, task.sessionId);
+      });
+      el.appendChild(cancelBtn);
+    }
+
     return el;
   }
 
@@ -243,6 +289,10 @@ export class WorkerPanel {
         return '<span class="worker-dot worker-dot--done">✓</span>';
       case 'failed':
         return '<span class="worker-dot worker-dot--failed">✕</span>';
+      case 'cancelled':
+        return '<span class="worker-dot worker-dot--cancelled">⊘</span>';
+      case 'timeout':
+        return '<span class="worker-dot worker-dot--timeout">⏱</span>';
       default:
         return '<span class="worker-dot"></span>';
     }

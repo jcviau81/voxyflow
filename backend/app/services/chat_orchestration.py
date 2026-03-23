@@ -53,6 +53,7 @@ class DeepWorkerPool:
     """
 
     MAX_WORKERS = 3
+    TASK_TIMEOUT_SECONDS = 300  # 5 minutes
 
     def __init__(
         self,
@@ -88,6 +89,42 @@ class DeepWorkerPool:
         self._active_tasks.clear()
         logger.info(f"[DeepWorkerPool] Stopped for session {self._bus.session_id}")
 
+    async def cancel_task(self, task_id: str) -> bool:
+        """Cancel a specific running task by task_id.
+
+        Returns True if the task was found and cancelled, False otherwise.
+        """
+        task = self._active_tasks.get(task_id)
+        if not task:
+            logger.warning(f"[DeepWorkerPool] cancel_task: task {task_id} not found")
+            return False
+
+        logger.info(f"[DeepWorkerPool] Cancelling task {task_id}")
+
+        # Remove from active_tasks BEFORE cancelling so _on_task_done
+        # (the done callback) won't double-release the semaphore.
+        self._active_tasks.pop(task_id, None)
+        task.cancel()
+
+        # Wait briefly for cancellation to propagate
+        try:
+            await asyncio.wait_for(task, timeout=2.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+            pass
+
+        # Release semaphore exactly once (done callback won't since we
+        # already popped the task from _active_tasks above).
+        self._semaphore.release()
+
+        # Notify frontend
+        await self._send_task_event("task:cancelled", task_id, {
+            "reason": "user_cancelled",
+            "sessionId": self._bus.session_id,
+        })
+
+        logger.info(f"[DeepWorkerPool] Task {task_id} cancelled successfully")
+        return True
+
     async def _listen_loop(self) -> None:
         """Listen on the bus and spawn workers for each event."""
         try:
@@ -103,11 +140,14 @@ class DeepWorkerPool:
             pass
 
     def _on_task_done(self, task_id: str) -> None:
-        """Cleanup when a task completes."""
+        """Cleanup when a task completes. Idempotent — only releases
+        the semaphore if this task hadn't already been cleaned up
+        (e.g. by cancel_task)."""
         if self._stopped:
             return
-        self._active_tasks.pop(task_id, None)
-        self._semaphore.release()
+        removed = self._active_tasks.pop(task_id, None)
+        if removed is not None:
+            self._semaphore.release()
 
     async def _execute_event(self, event: ActionIntent) -> None:
         """Execute a single ActionIntent via model-routed worker (haiku/sonnet/opus)."""
@@ -222,17 +262,34 @@ class DeepWorkerPool:
 
             tool_callback = _tool_callback
 
-            # Route to model-specific worker
-            result_content = await self._claude.execute_worker_task(
-                chat_id=task_chat_id,
-                prompt=execution_prompt,
-                model=event.model,
-                chat_level=chat_level,
-                project_context=event.data.get("project_context"),
-                card_context=event.data.get("card_context"),
-                project_id=event.data.get("project_id"),
-                tool_callback=tool_callback,
-            )
+            # Route to model-specific worker (with timeout)
+            try:
+                result_content = await asyncio.wait_for(
+                    self._claude.execute_worker_task(
+                        chat_id=task_chat_id,
+                        prompt=execution_prompt,
+                        model=event.model,
+                        chat_level=chat_level,
+                        project_context=event.data.get("project_context"),
+                        card_context=event.data.get("card_context"),
+                        project_id=event.data.get("project_id"),
+                        tool_callback=tool_callback,
+                    ),
+                    timeout=self.TASK_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"[DeepWorker] Task {event.task_id} timed out after {self.TASK_TIMEOUT_SECONDS}s")
+                await self._send_task_event("task:timeout", event.task_id, {
+                    "intent": event.intent,
+                    "summary": event.summary,
+                    "timeout_seconds": self.TASK_TIMEOUT_SECONDS,
+                    "sessionId": event.session_id,
+                })
+                return
+            except asyncio.CancelledError:
+                logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")
+                # task:cancelled is sent by cancel_task() — just return
+                return
 
             # Auto-append execution result to card description
             card_id = event.data.get("card_id")
@@ -329,8 +386,8 @@ class DeepWorkerPool:
             await ws_broadcast.emit_to_others(self._ws, event_type, {"taskId": task_id, **payload})
         except Exception as e:
             logger.warning(f"[DeepWorkerPool] Failed to send {event_type} via WS: {e}")
-            # Store completed results for later delivery (skip started/progress — only final matters)
-            if event_type == "task:completed":
+            # Store final results for later delivery (skip started/progress — only final matters)
+            if event_type in ("task:completed", "task:cancelled", "task:timeout"):
                 session_id = payload.get("sessionId", self._bus.session_id)
                 if session_id:
                     try:
@@ -571,6 +628,14 @@ class ChatOrchestrator:
         if pool:
             await pool.stop()
         event_bus_registry.remove(session_id)
+
+    async def cancel_worker_task(self, session_id: str, task_id: str) -> bool:
+        """Cancel a specific worker task in a session's pool."""
+        pool = self._worker_pools.get(session_id)
+        if not pool:
+            logger.warning(f"[ChatOrchestrator] cancel_worker_task: no pool for session {session_id}")
+            return False
+        return await pool.cancel_task(task_id)
 
     # ------------------------------------------------------------------
     # Background-safe wrappers (fire-and-forget with error handling)

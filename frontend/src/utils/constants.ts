@@ -189,6 +189,8 @@ export const EVENTS = {
   TASK_STARTED: 'task:started',
   TASK_PROGRESS: 'task:progress',
   TASK_COMPLETED: 'task:completed',
+  TASK_CANCELLED: 'task:cancelled',
+  TASK_TIMEOUT: 'task:timeout',
 
   // Message Reactions
   MESSAGE_REACTION: 'chat:message:reaction',

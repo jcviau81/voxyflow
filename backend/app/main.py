@@ -385,6 +385,15 @@ async def general_websocket(websocket: WebSocket):
                         cancelled = cancel_execution(execution_id)
                         logger.info(f"[WS] kanban:execute:cancel → {execution_id}, found={cancelled}")
 
+                elif msg_type == "task:cancel":
+                    task_id = payload.get("taskId")
+                    session_id = payload.get("sessionId")
+                    if task_id and session_id:
+                        cancelled = await _orchestrator.cancel_worker_task(session_id, task_id)
+                        logger.info(f"[WS] task:cancel → task_id={task_id}, session={session_id}, cancelled={cancelled}")
+                    else:
+                        logger.warning(f"[WS] task:cancel missing taskId or sessionId")
+
                 elif msg_type == "session:sync":
                     # Deliver any pending worker results for the reconnecting session.
                     # Frontend sends this immediately on WebSocket connect so results

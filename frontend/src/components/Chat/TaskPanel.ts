@@ -1,24 +1,26 @@
 /**
  * TaskPanel — Shows active Deep Worker tasks in real-time.
  *
- * Listens for task:started, task:progress, task:completed events
- * from the event bus and displays them as a compact panel above
- * the chat input area.
+ * Listens for task:started, task:progress, task:completed, task:cancelled,
+ * and task:timeout events from the event bus and displays them as a compact
+ * panel above the chat input area.
  */
 
 import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
+import { apiClient } from '../../services/ApiClient';
 
 interface ActiveTask {
   taskId: string;
   intent: string;
   summary: string;
-  status: 'started' | 'executing' | 'completed' | 'failed';
+  status: 'started' | 'executing' | 'completed' | 'failed' | 'cancelled' | 'timeout';
   startedAt: number;
   completedAt?: number;
   result?: string;
   success?: boolean;
+  sessionId?: string;
 }
 
 export class TaskPanel {
@@ -49,6 +51,7 @@ export class TaskPanel {
           summary: payload.summary || '',
           status: 'started',
           startedAt: Date.now(),
+          sessionId: payload.sessionId,
         };
         this.tasks.set(task.taskId, task);
         this.render();
@@ -77,6 +80,33 @@ export class TaskPanel {
         }
       })
     );
+
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TASK_CANCELLED, (payload: any) => {
+        const task = this.tasks.get(payload.taskId);
+        if (task) {
+          task.status = 'cancelled';
+          task.completedAt = Date.now();
+          this.render();
+        }
+      })
+    );
+
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TASK_TIMEOUT, (payload: any) => {
+        const task = this.tasks.get(payload.taskId);
+        if (task) {
+          task.status = 'timeout';
+          task.completedAt = Date.now();
+          this.render();
+        }
+      })
+    );
+  }
+
+  private cancelTask(taskId: string, sessionId?: string): void {
+    if (!sessionId) return;
+    apiClient.send('task:cancel', { taskId, sessionId });
   }
 
   private cleanupCompleted(): void {
@@ -116,6 +146,20 @@ export class TaskPanel {
         <span class="task-elapsed">${elapsed}</span>
       `;
 
+      // Add cancel button for active tasks
+      if (!task.completedAt) {
+        const cancelBtn = createElement('button', {
+          className: 'task-cancel-btn',
+          title: 'Cancel task',
+        });
+        cancelBtn.innerHTML = '&times;';
+        cancelBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.cancelTask(task.taskId, task.sessionId);
+        });
+        el.appendChild(cancelBtn);
+      }
+
       this.taskList.appendChild(el);
     }
   }
@@ -130,6 +174,10 @@ export class TaskPanel {
         return '✅';
       case 'failed':
         return '❌';
+      case 'cancelled':
+        return '🚫';
+      case 'timeout':
+        return '⏱️';
       default:
         return '⏳';
     }

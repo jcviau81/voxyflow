@@ -178,6 +178,30 @@ export class ChatService {
       })
     );
 
+    // Handle task cancellation events
+    this.unsubscribers.push(
+      apiClient.on('task:cancelled', (payload) => {
+        eventBus.emit(EVENTS.TASK_CANCELLED, payload);
+        const { taskId } = payload as { taskId: string };
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `Task cancelled`,
+          type: 'warning',
+          duration: 3000,
+        });
+      })
+    );
+    this.unsubscribers.push(
+      apiClient.on('task:timeout', (payload) => {
+        eventBus.emit(EVENTS.TASK_TIMEOUT, payload);
+        const { intent, timeout_seconds } = payload as { intent: string; timeout_seconds: number };
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `Worker timed out after ${Math.floor((timeout_seconds || 300) / 60)}m: ${intent || 'task'}`,
+          type: 'error',
+          duration: 5000,
+        });
+      })
+    );
+
     // Handle Board Execution WS events → forward to EventBus for KanbanBoard
     this.unsubscribers.push(
       apiClient.on('kanban:execute:card:start', (payload) => {
