@@ -39,6 +39,51 @@
 
 ---
 
+## Project List Page — Full Width Layout Fix
+- Project list page doesn't use full width — needs to stretch properly
+- Was discussed and refined previously but never completed
+- Active projects + Archived projects sections
+
+## Card Modal — 3-Column Layout
+- Current modal is cramped for chat
+- New layout: **Left** (description/details) | **Center** (chat, main focus) | **Right** (metadata: status, priority, agent, checklist, attachments, history)
+- Gives chat the space it deserves since that's where execution and interaction happens
+
+## Card Archive System
+- Archive/restore/delete for cards within each project
+- Same pattern as project archive system (archive → hidden, restore → back, delete → gone)
+
+## Password Vault / Credential Store
+- Secure storage for credentials, SSH keys, API keys
+- Encrypted at rest
+- Accessible by Voxy workers for authenticated operations
+
+## Scheduler / Cron
+- Built-in task scheduling (APScheduler foundation exists)
+- User-facing cron job management in the UI
+- Recurring card execution, reminders, automated workflows
+
+## Context Scoping — Main Context Inheritance Toggle
+- Per-project setting: "Include Main context" (on/off)
+- **ON**: Voxy loads Main context first → then project context on top (inheritance + cross-scope RAG query on both ChromaDB collections)
+- **OFF**: Project context only, complete isolation
+- Configurable in project settings
+
+## STT Fix — Desktop + Mobile
+- Desktop (Brave Linux): Whisper Medium too heavy, test Whisper Tiny or Web Speech API native
+- Mobile: needs valid SSL cert (done with Tailscale) + STT engine set to Native
+- Goal: complete voice loop (speak → Voxy hears → responds → XTTS plays)
+
+## Claude Max Usage Meters in Homelab Dashboard
+- Track token usage via claude-max-api proxy (port 3457)
+- Add /stats endpoint to proxy with request/token counters
+- Display in homelab-dashboard
+
+## Session Persistence Bug
+- Chat history lost on page refresh
+- Related to chat_id mismatch between save and load paths
+- Needs deeper investigation of session ID tracking across refreshes
+
 ## Worker Steering (conversational workers)
 - Workers are conversational agents, not fire-and-forget
 - Two steering paths:
