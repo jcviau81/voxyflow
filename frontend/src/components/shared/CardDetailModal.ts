@@ -1924,8 +1924,9 @@ export class CardDetailModal {
     const filesSection = this.buildFilesSection();
 
     // ── Assemble right column ────────────────────────────────────────────────
-    rightCol.appendChild(voteSection);
-    rightCol.appendChild(assigneeWatchersSection);
+    // Removed: votes, assignee, watchers — personal workflow, not Jira
+    // rightCol.appendChild(voteSection);
+    // rightCol.appendChild(assigneeWatchersSection);
     rightCol.appendChild(tagsSection);
     rightCol.appendChild(checklistSection);
     rightCol.appendChild(filesSection);

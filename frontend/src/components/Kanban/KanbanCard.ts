@@ -544,39 +544,10 @@ export class KanbanCard {
       this.element.classList.remove('card-blocked');
     }
 
-    // Vote button
-    const voteCount = this.card.votes ?? 0;
-    const voted = isVoted(this.card.id);
-    const voteBtn = createElement('button', {
-      className: 'vote-btn' + (voted ? ' voted' : ''),
-      title: voted ? 'Un-vote this card' : 'Vote for this card',
-    }, `▲ ${voteCount}`);
-    voteBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const currentlyVoted = isVoted(this.card.id);
-      const newCount = currentlyVoted
-        ? await apiClient.unvoteCard(this.card.id)
-        : await apiClient.voteCard(this.card.id);
-      if (newCount !== null) {
-        setVoted(this.card.id, !currentlyVoted);
-        this.card = { ...this.card, votes: newCount };
-        voteBtn.textContent = `▲ ${newCount}`;
-        voteBtn.className = 'vote-btn' + (!currentlyVoted ? ' voted' : '');
-        voteBtn.title = !currentlyVoted ? 'Un-vote this card' : 'Vote for this card';
-        appState.updateCard(this.card.id, { votes: newCount });
-      }
-    });
-    footer.appendChild(voteBtn);
+    // Removed: vote button — personal workflow, not Jira
 
-    // Assignee avatar badge (bottom-left)
-    if (this.card.assignee) {
-      const avatarEl = createElement('div', {
-        className: 'assignee-avatar',
-        title: `Assigned to: ${this.card.assignee}`,
-      }, getAssigneeInitials(this.card.assignee));
-      avatarEl.style.background = assigneeNameToColor(this.card.assignee);
-      this.element.appendChild(avatarEl);
-    }
+    // Assignee avatar badge (bottom-left) — hidden (personal workflow)
+    // Removed: assignee avatar badge — personal workflow
 
     this.element.appendChild(headerRow);
     if (this.card.description) {
