@@ -120,11 +120,11 @@ export class KanbanBoard {
     addBtn.addEventListener('click', () => this.promptNewCard());
 
     // Export button
-    const exportBtn = createElement('button', { className: 'kanban-action-btn', title: 'Export project as JSON' }, '⬇ Export');
+    const exportBtn = createElement('button', { className: 'kanban-action-btn', title: 'Export project as JSON' }, '📤 Export');
     exportBtn.addEventListener('click', () => this.handleExport());
 
     // Import button + hidden file input
-    const importBtn = createElement('button', { className: 'kanban-action-btn', title: 'Import project from JSON' }, '⬆ Import');
+    const importBtn = createElement('button', { className: 'kanban-action-btn', title: 'Import project from JSON' }, '📥 Import');
     const importInput = document.createElement('input');
     importInput.type = 'file';
     importInput.accept = '.json,application/json';

@@ -364,7 +364,7 @@ export class ProjectList {
       const exportBtn = createElement('button', {
         className: 'project-card-action-btn',
         title: 'Export project',
-      }, '⬇ Export');
+      }, '📤 Export');
       exportBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.exportProject(project);
