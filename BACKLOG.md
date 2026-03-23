@@ -1,4 +1,44 @@
 
+## ✅ Recently Completed
+
+### ReactiveCardStore — Single Source of Truth (frontend)
+- Centralized Map-based store for all cards (`frontend/src/state/ReactiveCardStore.ts`)
+- Components subscribe to global or per-card changes → auto re-render
+- Replaces ad-hoc fetch patterns, eliminates stale data and duplicate API calls
+- Backward compat: emits legacy eventBus events for unmigrated components
+
+### WebSocket `cards:changed` Broadcast — Live Sync
+- Backend broadcasts `cards:changed` to ALL connected WS clients on every card mutation (create/update/move/delete)
+- `WSBroadcast` service (`backend/app/services/ws_broadcast.py`) manages connection registry
+- Frontend receives → re-fetches project cards → updates ReactiveCardStore → components re-render
+- Gives real-time multi-tab sync and instant worker feedback without polling
+
+### Card Execution Pipeline E2E (execute → worker → tools → result → done)
+- "Execute" button in card modal → `POST /api/cards/{id}/execute` → builds `[CARD EXECUTION]` prompt
+- Prompt sent through 3-layer pipeline as regular chat message
+- Workers execute with full tools (web.search, card.update, card.move, file.write, etc.)
+- Card auto-moved to "in-progress" on execution start
+- Board execution endpoint for bulk sequential card execution
+
+### Auto-Append Worker Results to Card Description
+- When a deep worker finishes card execution, result is appended to card description
+- Format: `📋 **Execution Result** (timestamp)\n{result}`
+- Creates persistent audit trail directly on the card
+- Triggers `cards:changed` → ReactiveCardStore re-syncs → modal updates live
+
+### Live Modal Updates During Execution
+- `subscribeToCard(id, fn)` on ReactiveCardStore fires on each card mutation
+- Combined with `cards:changed` WS broadcast, the card modal re-renders in real-time
+- User sees execution progress, result append, and status changes as they happen
+
+### Agent Routing — Keyword-Based Smart Assignment
+- 7 agent types: General, Researcher, Coder, Designer, Architect, Writer, QA
+- Two-pass routing: pattern+persona keywords → weighted ROUTING_WEIGHTS → confidence scoring
+- Auto-routes on card creation if no agent_type specified
+- Manual override via `POST /cards/{id}/assign`, preview via `GET /cards/{id}/routing`
+
+---
+
 ## Worker Steering (conversational workers)
 - Workers are conversational agents, not fire-and-forget
 - Two steering paths:

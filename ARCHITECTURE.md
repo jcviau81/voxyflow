@@ -83,6 +83,18 @@ Cards and conversations can be routed to specialized agents:
 6. **Writer** ✍️ — Content, marketing, storytelling
 7. **QA** 🧪 — Testing strategies, edge cases, validation
 
+### ReactiveCardStore (Single Source of Truth)
+All card data on the frontend flows through `ReactiveCardStore` (`frontend/src/state/ReactiveCardStore.ts`), a centralized Map-based singleton. Components subscribe to global or per-card changes and re-render automatically. This replaces ad-hoc fetching patterns and eliminates stale data.
+
+### WebSocket Live Sync (`cards:changed`)
+When any card is mutated via REST (create/update/move/delete), the backend broadcasts a `cards:changed` event to all connected WebSocket clients via `WSBroadcast` (`backend/app/services/ws_broadcast.py`). The frontend receives this, re-fetches the affected project's cards, and updates the ReactiveCardStore — giving real-time multi-tab sync and instant worker feedback.
+
+### Card Execution Pipeline (E2E)
+Cards can be **executed**: "Execute" button → `POST /api/cards/{id}/execute` → backend builds a `[CARD EXECUTION]` prompt → sent through the 3-layer pipeline → Fast/Deep layer responds + workers execute with full tools → worker result auto-appended to card description → card moved to "done" → `cards:changed` broadcast → frontend modal updates in real-time via ReactiveCardStore.
+
+### Agent Routing (Keyword-Based)
+Every card is auto-routed to a specialized agent type via two-pass keyword scoring (no LLM call). Pass 1: pattern + persona-keyword scoring (`analyzer_service.py:suggest_agent_type()`). Pass 2: weighted routing (`agent_router.py:AgentRouter.route()`). Resolution: high-confidence router wins, else pattern scorer, else fallback to general.
+
 ### Memory & Context
 - Conversation history persisted in SQLite
 - Per-project context windows
