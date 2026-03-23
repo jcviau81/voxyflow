@@ -974,6 +974,86 @@
   box-shadow: 0 0 0 2px rgba(255, 140, 0, 0.45), 0 4px 14px rgba(255, 140, 0, 0.2) !important;
 }
 
+/* ============= BOARD EXECUTION ============= */
+
+.kanban-execute-btn {
+  color: var(--color-primary, #4ecdc4) !important;
+  border-color: var(--color-primary, #4ecdc4) !important;
+}
+.kanban-execute-btn:hover {
+  background: rgba(78, 205, 196, 0.15) !important;
+}
+.kanban-execute-btn--active {
+  background: rgba(255, 107, 107, 0.15) !important;
+  color: #ff6b6b !important;
+  border-color: #ff6b6b !important;
+}
+.kanban-execute-btn--active:hover {
+  background: rgba(255, 107, 107, 0.25) !important;
+}
+
+.kanban-execution-progress {
+  padding: 8px 12px;
+  background: var(--color-surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--color-primary, rgba(78, 205, 196, 0.3));
+  border-radius: var(--border-radius-sm);
+  margin-bottom: 8px;
+}
+
+.kanban-execution-progress__info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  color: var(--color-text, #e0e0e0);
+  margin-bottom: 6px;
+}
+
+.kanban-execution-progress__stop {
+  padding: 3px 10px;
+  background: rgba(255, 107, 107, 0.15);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  border-radius: var(--border-radius-sm);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.kanban-execution-progress__stop:hover {
+  background: rgba(255, 107, 107, 0.3);
+}
+
+.kanban-execution-progress__bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.kanban-execution-progress__fill {
+  height: 100%;
+  background: var(--color-primary, #4ecdc4);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* Executing card glow animation */
+@keyframes executingGlow {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(78, 205, 196, 0.4), 0 0 12px rgba(78, 205, 196, 0.2);
+    border-color: rgba(78, 205, 196, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 8px rgba(78, 205, 196, 0.7), 0 0 20px rgba(78, 205, 196, 0.35);
+    border-color: rgba(78, 205, 196, 0.9);
+  }
+}
+
+.kanban-card--executing {
+  animation: executingGlow 2s ease-in-out infinite;
+  border-color: rgba(78, 205, 196, 0.6) !important;
+}
+
 /* ============= DEPENDENCY CHIPS (modal) ============= */
 
 .dependency-chips-container {

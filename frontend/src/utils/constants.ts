@@ -218,4 +218,12 @@ export const EVENTS = {
 
   // Message Reactions
   MESSAGE_REACTION: 'chat:message:reaction',
+
+  // Board Execution
+  BOARD_EXECUTE_START: 'kanban:execute:start',
+  BOARD_EXECUTE_CARD_START: 'kanban:execute:card:start',
+  BOARD_EXECUTE_CARD_DONE: 'kanban:execute:card:done',
+  BOARD_EXECUTE_COMPLETE: 'kanban:execute:complete',
+  BOARD_EXECUTE_CANCELLED: 'kanban:execute:cancelled',
+  BOARD_EXECUTE_ERROR: 'kanban:execute:error',
 } as const;

@@ -1044,6 +1044,34 @@ export class ApiClient {
     }
   }
 
+  // --- Board Execution API ---
+
+  async executeBoardPlan(projectId: string): Promise<{
+    executionId: string;
+    cards: Array<{ id: string; title: string; status: string; position: number }>;
+    total: number;
+  } | null> {
+    try {
+      const baseUrl = API_URL || '';
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/boards/execute`, {
+        method: 'POST',
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('[ApiClient] executeBoardPlan error:', error);
+      return null;
+    }
+  }
+
+  startBoardExecution(projectId: string, sessionId: string): void {
+    this.send('kanban:execute:start', { projectId, sessionId });
+  }
+
+  cancelBoardExecution(executionId: string): void {
+    this.send('kanban:execute:cancel', { executionId });
+  }
+
   // --- Sprint API ---
 
   async listSprints(projectId: string): Promise<import('../types').Sprint[]> {

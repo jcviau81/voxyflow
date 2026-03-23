@@ -177,6 +177,50 @@ export class ChatService {
       })
     );
 
+    // Handle Board Execution WS events → forward to EventBus for KanbanBoard
+    this.unsubscribers.push(
+      apiClient.on('kanban:execute:card:start', (payload) => {
+        eventBus.emit(EVENTS.BOARD_EXECUTE_CARD_START, payload);
+      })
+    );
+    this.unsubscribers.push(
+      apiClient.on('kanban:execute:card:done', (payload) => {
+        eventBus.emit(EVENTS.BOARD_EXECUTE_CARD_DONE, payload);
+        // Refresh kanban to show card moved to done
+        eventBus.emit(EVENTS.CARD_UPDATED, payload);
+      })
+    );
+    this.unsubscribers.push(
+      apiClient.on('kanban:execute:complete', (payload) => {
+        eventBus.emit(EVENTS.BOARD_EXECUTE_COMPLETE, payload);
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `Board execution complete — ${(payload as Record<string, unknown>).completed} cards done`,
+          type: 'success',
+          duration: 5000,
+        });
+      })
+    );
+    this.unsubscribers.push(
+      apiClient.on('kanban:execute:cancelled', (payload) => {
+        eventBus.emit(EVENTS.BOARD_EXECUTE_CANCELLED, payload);
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: 'Board execution cancelled',
+          type: 'warning',
+          duration: 3000,
+        });
+      })
+    );
+    this.unsubscribers.push(
+      apiClient.on('kanban:execute:error', (payload) => {
+        eventBus.emit(EVENTS.BOARD_EXECUTE_ERROR, payload);
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `Board execution error: ${(payload as Record<string, unknown>).error}`,
+          type: 'error',
+          duration: 5000,
+        });
+      })
+    );
+
     // Handle card suggestions (Layer 3 — Analyzer) → route to Opportunities Panel
     this.unsubscribers.push(
       apiClient.on('card:suggestion', (payload) => {

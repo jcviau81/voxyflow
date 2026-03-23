@@ -47,6 +47,15 @@ export class KanbanBoard {
   private bulkToolbar: BulkActionToolbar | null = null;
   private selectToggleBtn: HTMLElement | null = null;
 
+  // Board execution state
+  private executionActive: boolean = false;
+  private executionId: string | null = null;
+  private executionTotal: number = 0;
+  private executionCurrentIndex: number = 0;
+  private executionCurrentCardId: string | null = null;
+  private executionProgressEl: HTMLElement | null = null;
+  private executeBtn: HTMLElement | null = null;
+
   // UI refs
   private matchCountEl: HTMLElement | null = null;
   private searchInput: HTMLInputElement | null = null;
@@ -131,6 +140,19 @@ export class KanbanBoard {
     const depGraphBtn = createElement('button', { className: 'kanban-action-btn', title: 'View dependency map' }, '🔗 Dependencies');
     depGraphBtn.addEventListener('click', () => this.showDepGraph());
 
+    // Execute Board button
+    this.executeBtn = createElement('button', {
+      className: 'kanban-action-btn kanban-execute-btn',
+      title: 'Execute all todo/in-progress cards sequentially',
+    }, '▶ Execute Board');
+    this.executeBtn.addEventListener('click', () => {
+      if (this.executionActive && this.executionId) {
+        apiClient.cancelBoardExecution(this.executionId);
+      } else {
+        this.handleExecuteBoard();
+      }
+    });
+
     // Multi-select toggle button
     this.selectToggleBtn = createElement('button', {
       className: 'kanban-action-btn kanban-select-toggle',
@@ -141,15 +163,21 @@ export class KanbanBoard {
     // Spacer pushes action buttons to the right
     const headerSpacer = createElement('div', { className: 'kanban-header-spacer' });
 
-    // Row 1: spacer | Select | Export | Import | New Card
+    // Row 1: spacer | Execute | Select | Export | Import | New Card
     // (view toggle + project name handled by ProjectHeader)
     header.appendChild(headerSpacer);
+    header.appendChild(this.executeBtn);
     header.appendChild(this.selectToggleBtn);
     header.appendChild(exportBtn);
     header.appendChild(importBtn);
     header.appendChild(importInput);
     header.appendChild(addBtn);
     this.container.appendChild(header);
+
+    // Execution progress bar (hidden by default)
+    this.executionProgressEl = createElement('div', { className: 'kanban-execution-progress' });
+    this.executionProgressEl.style.display = 'none';
+    this.container.appendChild(this.executionProgressEl);
 
     // Row 2: filter bar — search | priority | agent | sort | tags | deps
     const filterRow = createElement('div', { className: 'kanban-filter-bar' });
@@ -302,6 +330,44 @@ export class KanbanBoard {
     this.unsubscribers.push(
       eventBus.on(EVENTS.PROJECT_SELECTED, () => this.render())
     );
+    // Board execution events
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.BOARD_EXECUTE_CARD_START, (data: unknown) => {
+        const { cardId, cardTitle, index, total, executionId } = data as {
+          cardId: string; cardTitle: string; index: number; total: number; executionId: string;
+        };
+        this.executionActive = true;
+        this.executionId = executionId;
+        this.executionTotal = total;
+        this.executionCurrentIndex = index;
+        this.executionCurrentCardId = cardId;
+        this.updateExecutionProgressUI(index, total, cardTitle);
+        this.highlightExecutingCard(cardId);
+      })
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.BOARD_EXECUTE_CARD_DONE, (data: unknown) => {
+        const { cardId } = data as { cardId: string };
+        this.clearExecutingCardHighlight(cardId);
+        // Cards will be refreshed via CARD_UPDATED event
+      })
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.BOARD_EXECUTE_COMPLETE, () => {
+        this.resetExecutionState();
+      })
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.BOARD_EXECUTE_CANCELLED, () => {
+        this.resetExecutionState();
+      })
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.BOARD_EXECUTE_ERROR, () => {
+        this.resetExecutionState();
+      })
+    );
+
     // Tag click on a card → activate that tag filter
     this.unsubscribers.push(
       eventBus.on(EVENTS.KANBAN_TAG_FILTER, (data: unknown) => {
@@ -643,6 +709,117 @@ export class KanbanBoard {
     this.container.appendChild(overlay);
   }
 
+  // ── Board Execution ──────────────────────────────────────────────────────
+
+  private async handleExecuteBoard(): Promise<void> {
+    if (this.executionActive) return;
+
+    const projectId = appState.get('currentProjectId');
+    if (!projectId) {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Select a project first', type: 'warning' });
+      return;
+    }
+
+    // Get execution plan to show card count
+    const plan = await apiClient.executeBoardPlan(projectId);
+    if (!plan || plan.total === 0) {
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: 'No todo/in-progress cards to execute', type: 'warning' });
+      return;
+    }
+
+    if (!confirm(`Execute ${plan.total} cards sequentially?\n\nCards will be processed in order and moved to Done when complete.`)) {
+      return;
+    }
+
+    // Use ChatService's active session ID for context
+    const { chatService } = await import('../../services/ChatService');
+    const sessionId = chatService.activeSessionId || 'board-exec-' + Date.now();
+
+    this.executionActive = true;
+    this.executionId = plan.executionId;
+    if (this.executeBtn) {
+      this.executeBtn.textContent = '⏹ Stop';
+      this.executeBtn.classList.add('kanban-execute-btn--active');
+    }
+
+    apiClient.startBoardExecution(projectId, sessionId);
+  }
+
+  private updateExecutionProgressUI(index: number, total: number, cardTitle: string): void {
+    if (!this.executionProgressEl) return;
+
+    const pct = ((index + 1) / total) * 100;
+    this.executionProgressEl.style.display = '';
+    this.executionProgressEl.innerHTML = `
+      <div class="kanban-execution-progress__info">
+        <span>Executing card ${index + 1}/${total}: ${this.escapeHtml(cardTitle)}</span>
+        <button class="kanban-execution-progress__stop" title="Cancel execution">⏹ Stop</button>
+      </div>
+      <div class="kanban-execution-progress__bar">
+        <div class="kanban-execution-progress__fill" style="width: ${pct}%"></div>
+      </div>
+    `;
+
+    const stopBtn = this.executionProgressEl.querySelector('.kanban-execution-progress__stop');
+    stopBtn?.addEventListener('click', () => {
+      if (this.executionId) {
+        apiClient.cancelBoardExecution(this.executionId);
+      }
+    });
+  }
+
+  private escapeHtml(text: string): string {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  private highlightExecutingCard(cardId: string): void {
+    // Clear any previous highlight
+    this.container.querySelectorAll('.kanban-card--executing').forEach((el) => {
+      el.classList.remove('kanban-card--executing');
+    });
+    // Add highlight to current card
+    const cardEl = this.container.querySelector(`[data-card-id="${cardId}"]`);
+    if (cardEl) {
+      cardEl.classList.add('kanban-card--executing');
+      cardEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  private clearExecutingCardHighlight(cardId: string): void {
+    const cardEl = this.container.querySelector(`[data-card-id="${cardId}"]`);
+    if (cardEl) {
+      cardEl.classList.remove('kanban-card--executing');
+    }
+  }
+
+  private resetExecutionState(): void {
+    this.executionActive = false;
+    this.executionId = null;
+    this.executionTotal = 0;
+    this.executionCurrentIndex = 0;
+    this.executionCurrentCardId = null;
+
+    if (this.executionProgressEl) {
+      this.executionProgressEl.style.display = 'none';
+      this.executionProgressEl.innerHTML = '';
+    }
+    if (this.executeBtn) {
+      this.executeBtn.textContent = '▶ Execute Board';
+      this.executeBtn.classList.remove('kanban-execute-btn--active');
+    }
+
+    // Clear any lingering card highlights
+    this.container.querySelectorAll('.kanban-card--executing').forEach((el) => {
+      el.classList.remove('kanban-card--executing');
+    });
+
+    // Refresh cards to reflect status changes
+    const projectId = appState.get('currentProjectId');
+    if (projectId) {
+      this.fetchAndSyncCards(projectId);
+    }
+  }
+
   moveCard(cardId: string, newStatus: CardStatus): void {
     cardService.move(cardId, newStatus);
   }
@@ -660,6 +837,8 @@ export class KanbanBoard {
     this.activityFeed = null;
     this.depGraphOverlay?.remove();
     this.depGraphOverlay = null;
+    this.executionProgressEl = null;
+    this.executeBtn = null;
     this.bulkToolbar?.destroy();
     this.bulkToolbar = null;
     this.container.remove();

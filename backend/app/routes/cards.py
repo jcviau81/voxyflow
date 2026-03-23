@@ -457,6 +457,36 @@ async def execute_card(card_id: str, db: AsyncSession = Depends(get_db)):
     return {"prompt": prompt, "projectName": project_name}
 
 
+@router.post("/projects/{project_id}/boards/execute")
+async def execute_board_plan(
+    project_id: str,
+    statuses: str = "todo,in-progress",
+    db: AsyncSession = Depends(get_db),
+):
+    """Build an execution plan for all matching cards on a project board.
+
+    Returns the ordered list of cards that will be executed sequentially.
+    The actual execution is triggered via WebSocket (kanban:execute:start).
+    """
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    from app.services.board_executor import build_execution_plan
+
+    status_list = [s.strip() for s in statuses.split(",") if s.strip()]
+    plan = await build_execution_plan(project_id, status_list)
+
+    return {
+        "executionId": plan.execution_id,
+        "cards": [
+            {"id": c.id, "title": c.title, "status": c.status, "position": c.position}
+            for c in plan.cards
+        ],
+        "total": plan.total,
+    }
+
+
 @router.delete("/cards/{card_id}", status_code=204)
 async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
     card = await db.get(Card, card_id)

@@ -18,6 +18,7 @@ from app.services.chat_orchestration import ChatOrchestrator
 from app.services.rag_service import get_rag_service
 from app.services.scheduler_service import get_scheduler_service
 from app.services.pending_results import pending_store
+from app.services.board_executor import execute_board, cancel_execution, build_execution_plan, CardPlan
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +285,50 @@ async def general_websocket(websocket: WebSocket):
                         "payload": {"chatId": chat_id, "sessionId": session_id},
                         "timestamp": int(time.time() * 1000),
                     })
+
+                elif msg_type == "kanban:execute:start":
+                    project_id = payload.get("projectId")
+                    session_id = payload.get("sessionId") or str(uuid4())
+                    statuses = payload.get("statuses", ["todo", "in-progress"])
+
+                    if not project_id:
+                        await websocket.send_json({
+                            "type": "kanban:execute:error",
+                            "payload": {"error": "projectId is required"},
+                            "timestamp": int(time.time() * 1000),
+                        })
+                    else:
+                        # Build execution plan
+                        plan = await build_execution_plan(project_id, statuses)
+                        if plan.total == 0:
+                            await websocket.send_json({
+                                "type": "kanban:execute:error",
+                                "payload": {"error": "No cards to execute"},
+                                "timestamp": int(time.time() * 1000),
+                            })
+                        else:
+                            # Ensure worker pool is running
+                            active_session_ids.add(session_id)
+
+                            # Launch execution as background task
+                            exec_task = asyncio.create_task(
+                                execute_board(
+                                    execution_id=plan.execution_id,
+                                    project_id=project_id,
+                                    cards=plan.cards,
+                                    websocket=websocket,
+                                    orchestrator=_orchestrator,
+                                    session_id=session_id,
+                                )
+                            )
+                            bg_tasks.append(exec_task)
+                            logger.info(f"[WS] kanban:execute:start → execution_id={plan.execution_id}, {plan.total} cards")
+
+                elif msg_type == "kanban:execute:cancel":
+                    execution_id = payload.get("executionId")
+                    if execution_id:
+                        cancelled = cancel_execution(execution_id)
+                        logger.info(f"[WS] kanban:execute:cancel → {execution_id}, found={cancelled}")
 
                 else:
                     # Ack unknown message types
