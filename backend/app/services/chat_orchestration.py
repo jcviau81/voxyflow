@@ -234,6 +234,33 @@ class DeepWorkerPool:
                 tool_callback=tool_callback,
             )
 
+            # Auto-append execution result to card description
+            card_id = event.data.get("card_id")
+            if card_id and result_content:
+                try:
+                    from app.database import async_session, Card
+                    from sqlalchemy import select
+                    from datetime import datetime, timezone
+                    async with async_session() as db:
+                        result = await db.execute(select(Card).where(Card.id == card_id))
+                        card = result.scalar_one_or_none()
+                        if card:
+                            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+                            separator = "\n\n---\n"
+                            result_block = f"📋 **Execution Result** ({timestamp})\n{result_content}"
+                            card.description = (card.description or "") + separator + result_block
+                            await db.commit()
+                            logger.info(f"[DeepWorker] Auto-appended result to card {card_id}")
+                            # Notify frontend to re-sync this card
+                            await self._send_task_event("tool:executed", event.task_id, {
+                                "tool": "voxyflow.card.update",
+                                "args": {"card_id": card_id, "project_id": event.data.get("project_id")},
+                                "result": {"success": True},
+                                "sessionId": event.session_id,
+                            })
+                except Exception as append_err:
+                    logger.warning(f"[DeepWorker] Failed to auto-append result to card: {append_err}")
+
             # Notify frontend: task completed
             await self._send_task_event("task:completed", event.task_id, {
                 "intent": event.intent,
