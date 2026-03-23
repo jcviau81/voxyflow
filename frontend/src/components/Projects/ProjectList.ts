@@ -380,6 +380,7 @@ export class ProjectList {
         eventBus.emit(EVENTS.PROJECT_FORM_SHOW, { mode: 'edit', project });
       });
 
+      // Hide archive/delete for system projects (Main)
       const archiveBtn = createElement('button', {
         className: 'project-card-action-btn',
         title: 'Archive project',
@@ -390,11 +391,17 @@ export class ProjectList {
           projectService.archive(project.id);
         }
       });
+      if (project.isSystem || project.deletable === false) {
+        archiveBtn.style.display = 'none';
+      }
 
       const deleteBtn = createElement('button', {
         className: 'project-card-action-btn danger',
         title: 'Delete project',
       }, '🗑️');
+      if (project.isSystem || project.deletable === false) {
+        deleteBtn.style.display = 'none';
+      }
       deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (confirm(`Delete project "${project.name}"?`)) {
