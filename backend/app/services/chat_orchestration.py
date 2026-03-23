@@ -298,6 +298,9 @@ class DeepWorkerPool:
         }
         try:
             await self._ws.send_json(message)
+            # Broadcast to other devices for cross-device worker visibility
+            from app.services.ws_broadcast import ws_broadcast
+            await ws_broadcast.emit_to_others(self._ws, event_type, {"taskId": task_id, **payload})
         except Exception as e:
             logger.warning(f"[DeepWorkerPool] Failed to send {event_type} via WS: {e}")
             # Store completed results for later delivery (skip started/progress — only final matters)
