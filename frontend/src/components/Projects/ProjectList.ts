@@ -395,26 +395,12 @@ export class ProjectList {
         archiveBtn.style.display = 'none';
       }
 
-      const deleteBtn = createElement('button', {
-        className: 'project-card-action-btn danger',
-        title: 'Delete project',
-      }, '🗑️');
-      if (project.isSystem || project.deletable === false) {
-        deleteBtn.style.display = 'none';
-      }
-      deleteBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // Active projects get archived (safe), not deleted
-        if (confirm(`Archive project "${project.name}"? You can restore it later from the Archived tab.`)) {
-          projectService.archive(project.id);
-        }
-      });
+      // No delete button on active projects — archive first, delete from Archived view only
 
       actions.appendChild(openBtn);
       actions.appendChild(exportBtn);
       actions.appendChild(editBtn);
       actions.appendChild(archiveBtn);
-      actions.appendChild(deleteBtn);
     }
 
     // ── Assemble card ─────────────────────────────────────────────────────
