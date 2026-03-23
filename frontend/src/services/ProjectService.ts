@@ -60,9 +60,10 @@ export class ProjectService {
       if (resp.ok) {
         const raw = await resp.json();
         const project = this.mapRawProject(raw);
-        // Add to AppState
+        // Add to AppState and emit PROJECT_CREATED for listeners
         const projects = [...appState.get('projects'), project];
         appState.set('projects', projects);
+        eventBus.emit(EVENTS.PROJECT_CREATED, project);
         return project;
       }
     } catch (e) {
