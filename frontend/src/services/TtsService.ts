@@ -279,6 +279,9 @@ class TtsService {
     clean = clean.replace(/https?:\/\/[^\s)]+/g, '');
     // Remove emojis (Unicode emoji ranges)
     clean = clean.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}]/gu, '');
+    // Ensure list items end with a period (prevents TTS glitches on enumerations)
+    clean = clean.replace(/^([\s]*[-*•]\s+.+?)([^.!?:])$/gm, '$1$2.');
+    clean = clean.replace(/^([\s]*\d+\.\s+.+?)([^.!?:])$/gm, '$1$2.');
     // Remove bullet points (-, *, •) at start of lines
     clean = clean.replace(/^[\s]*[-*•]\s+/gm, '');
     // Remove numbered list markers (1., 2., etc.)
