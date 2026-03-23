@@ -530,6 +530,7 @@ class ClaudeService:
         card_context: Optional[dict] = None,
         project_id: Optional[str] = None,
         project_names: Optional[list] = None,
+        active_workers_context: str = "",
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer.
 
@@ -566,6 +567,10 @@ class ClaudeService:
                     system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_fast_stream): {e}")
+
+        # Inject active workers registry so dispatcher knows what's running
+        if active_workers_context:
+            system_prompt += "\n\n## Background Workers Status\n" + active_workers_context
 
         # Inject identity priming exchange at the start of conversations.
         primed_messages = list(recent)
@@ -641,6 +646,7 @@ class ClaudeService:
         card_context: Optional[dict] = None,
         project_id: Optional[str] = None,
         project_names: Optional[list] = None,
+        active_workers_context: str = "",
     ) -> AsyncIterator[str]:
         """Deep layer (streaming): Yield tokens from the deep model directly to chat.
 
@@ -678,6 +684,10 @@ class ClaudeService:
                     system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_deep_stream): {e}")
+
+        # Inject active workers registry so dispatcher knows what's running
+        if active_workers_context:
+            system_prompt += "\n\n## Background Workers Status\n" + active_workers_context
 
         # Identity priming for deep chat layer (same as fast — see chat_fast_stream)
         primed_messages = list(recent)

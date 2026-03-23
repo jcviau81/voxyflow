@@ -55,6 +55,8 @@ class DeepWorkerPool:
     MAX_WORKERS = 3
     TASK_TIMEOUT_SECONDS = 300  # 5 minutes
 
+    COMPLETED_TASK_TTL = 30  # seconds to keep completed tasks in registry
+
     def __init__(
         self,
         claude_service: ClaudeService,
@@ -65,6 +67,8 @@ class DeepWorkerPool:
         self._bus = bus
         self._ws = websocket
         self._active_tasks: dict[str, asyncio.Task] = {}
+        self._task_meta: dict[str, dict] = {}  # task_id → {action, model, description, started_at}
+        self._completed_tasks: list[dict] = []  # [{task_id, action, model, completed_at, result}]
         self._listener_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
         self._stopped = False
@@ -125,12 +129,58 @@ class DeepWorkerPool:
         logger.info(f"[DeepWorkerPool] Task {task_id} cancelled successfully")
         return True
 
+    def get_active_tasks(self) -> dict:
+        """Return active and recently completed tasks for dispatcher context injection.
+
+        Returns a dict with 'active' and 'completed' lists. Automatically
+        prunes completed tasks older than COMPLETED_TASK_TTL seconds.
+        """
+        now = time.time()
+
+        # Prune expired completed tasks
+        self._completed_tasks = [
+            t for t in self._completed_tasks
+            if now - t["completed_at"] < self.COMPLETED_TASK_TTL
+        ]
+
+        active = []
+        for task_id, meta in self._task_meta.items():
+            if task_id in self._active_tasks:
+                elapsed = int(now - meta["started_at"])
+                active.append({
+                    "task_id": task_id[:8],
+                    "action": meta["action"],
+                    "model": meta["model"],
+                    "description": meta["description"],
+                    "running_seconds": elapsed,
+                })
+
+        completed = []
+        for t in self._completed_tasks:
+            ago = int(now - t["completed_at"])
+            completed.append({
+                "task_id": t["task_id"][:8],
+                "action": t["action"],
+                "model": t["model"],
+                "seconds_ago": ago,
+                "result": t["result"],
+            })
+
+        return {"active": active, "completed": completed}
+
     async def _listen_loop(self) -> None:
         """Listen on the bus and spawn workers for each event."""
         try:
             async for event in self._bus.listen():
                 # Enforce concurrency limit
                 await self._semaphore.acquire()
+                # Track task metadata for active workers registry
+                self._task_meta[event.task_id] = {
+                    "action": event.intent or "unknown",
+                    "model": event.model or "sonnet",
+                    "description": event.summary or "",
+                    "started_at": time.time(),
+                }
                 task = asyncio.create_task(self._execute_event(event))
                 self._active_tasks[event.task_id] = task
                 task.add_done_callback(
@@ -148,6 +198,22 @@ class DeepWorkerPool:
         removed = self._active_tasks.pop(task_id, None)
         if removed is not None:
             self._semaphore.release()
+            # Move to completed registry for dispatcher context
+            meta = self._task_meta.pop(task_id, None)
+            if meta:
+                # Determine result from the task's exception state
+                result = "success"
+                if removed.cancelled():
+                    result = "cancelled"
+                elif removed.exception():
+                    result = f"error: {removed.exception()}"
+                self._completed_tasks.append({
+                    "task_id": task_id,
+                    "action": meta["action"],
+                    "model": meta["model"],
+                    "completed_at": time.time(),
+                    "result": result,
+                })
 
     async def _execute_event(self, event: ActionIntent) -> None:
         """Execute a single ActionIntent via model-routed worker (haiku/sonnet/opus)."""
@@ -477,6 +543,9 @@ class ChatOrchestrator:
             )
             _bg_tasks.append(analyzer_task)
 
+        # Build active workers context for dispatcher awareness
+        active_workers_context = self.get_active_workers_context(session_id)
+
         # --- Chat response: Fast XOR Deep (mutually exclusive) ---
         if deep_enabled:
             # Mode Deep: Opus streams directly to chat
@@ -493,6 +562,7 @@ class ChatOrchestrator:
                 project_names=project_names,
                 session_id=session_id,
                 send_model_status=send_model_status,
+                active_workers_context=active_workers_context,
             )
         else:
             # Mode Fast (default): Sonnet streams to chat
@@ -509,6 +579,7 @@ class ChatOrchestrator:
                 project_names=project_names,
                 session_id=session_id,
                 send_model_status=send_model_status,
+                active_workers_context=active_workers_context,
             )
 
         if not chat_success:
@@ -599,6 +670,49 @@ class ChatOrchestrator:
         if chat_id in self._claude._histories:
             self._claude._histories[chat_id] = []
         session_store.clear_session(chat_id)
+
+    # ------------------------------------------------------------------
+    # Active Workers Context (for dispatcher system prompt injection)
+    # ------------------------------------------------------------------
+
+    def get_active_workers_context(self, session_id: str | None) -> str:
+        """Build a text block describing active/recently-completed workers.
+
+        Injected into the dispatcher's system prompt so it knows what's
+        running in the background before responding.
+        """
+        if not session_id:
+            return ""
+
+        pool = self._worker_pools.get(session_id)
+        if not pool:
+            return ""
+
+        info = pool.get_active_tasks()
+        active = info["active"]
+        completed = info["completed"]
+
+        if not active and not completed:
+            return ""
+
+        lines = []
+        if active:
+            lines.append("[Active Workers]")
+            for t in active:
+                desc = f' — "{t["description"]}"' if t["description"] else ""
+                lines.append(
+                    f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
+                    f"— running {t['running_seconds']}s{desc}"
+                )
+        if completed:
+            lines.append("[Recently Completed]")
+            for t in completed:
+                lines.append(
+                    f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
+                    f"— completed {t['seconds_ago']}s ago — {t['result']}"
+                )
+
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Event Bus: Worker pool lifecycle
@@ -1396,6 +1510,7 @@ class ChatOrchestrator:
         project_names: list[str],
         session_id: str | None,
         send_model_status,
+        active_workers_context: str = "",
     ) -> bool:
         """Run the fast layer, streaming tokens to the WebSocket.
 
@@ -1417,6 +1532,7 @@ class ChatOrchestrator:
                 card_context=card_context,
                 project_id=project_id,
                 project_names=project_names,
+                active_workers_context=active_workers_context,
             ):
                 fast_full_response += token
                 if not first_token_sent:
@@ -1513,6 +1629,7 @@ class ChatOrchestrator:
         project_names: list[str],
         session_id: str | None,
         send_model_status,
+        active_workers_context: str = "",
     ) -> bool:
         """Run the Deep layer as the primary chat responder (streaming).
 
@@ -1537,6 +1654,7 @@ class ChatOrchestrator:
                 card_context=card_context,
                 project_id=project_id,
                 project_names=project_names,
+                active_workers_context=active_workers_context,
             ):
                 deep_full_response += token
                 if not first_token_sent:
