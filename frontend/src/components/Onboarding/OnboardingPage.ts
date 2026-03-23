@@ -246,6 +246,8 @@ export class OnboardingPage {
       // Save theme to localStorage (ThemeService reads from there)
       localStorage.setItem('voxyflow-theme', this.data.theme);
       localStorage.setItem('voxyflow-font-size', this.data.font_size);
+      // Sync full settings to localStorage so TtsService/SttService can read them
+      try { localStorage.setItem('voxyflow_settings', JSON.stringify(settings)); } catch { /* ignore */ }
 
       // Update USER.md if user provided their name
       if (this.data.user_name) {

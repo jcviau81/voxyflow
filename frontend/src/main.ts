@@ -34,6 +34,8 @@ async function needsOnboarding(): Promise<boolean> {
         continue;
       }
       const data = await response.json();
+      // Sync settings to localStorage so TtsService/SttService always have fresh values
+      try { localStorage.setItem('voxyflow_settings', JSON.stringify(data)); } catch { /* ignore */ }
       return !data.onboarding_complete;
     } catch {
       // Backend not ready — wait and retry

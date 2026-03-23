@@ -1867,6 +1867,8 @@ export class SettingsPage {
       if (response.ok) {
         this.settings = formData;
         this.dirty = false;
+        // Sync to localStorage so TtsService/SttService can read voice settings
+        try { localStorage.setItem('voxyflow_settings', JSON.stringify(formData)); } catch { /* ignore */ }
         if (status) {
           status.textContent = '\u2713 Saved';
           status.className = 'save-status saved';
