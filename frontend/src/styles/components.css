@@ -7055,6 +7055,40 @@ pre:hover .code-review-btn,
   background: var(--color-bg-secondary);
 }
 
+/* Mobile filter toggle button — hidden on desktop */
+.kanban-mobile-filter-btn {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+
+.kanban-mobile-filter-btn.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.kanban-mobile-filter-btn.has-filters {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Filter chips container — inline on desktop */
+.kanban-filter-chips-container {
+  display: contents;
+}
+
 /* Chat connection status indicator */
 .chat-conn-status {
   display: flex;

@@ -133,6 +133,47 @@
     padding: 8px;
   }
 
+  /* Kanban columns: constrain height so columns scroll vertically */
+  .kanban-columns {
+    min-height: 0;   /* allow flex shrinking below content size */
+    flex: 1 1 0;     /* take remaining space, shrinkable */
+  }
+
+  .kanban-column {
+    max-height: calc(100dvh - 170px); /* viewport minus top-bar + header + filter + padding */
+  }
+
+  /* Mobile filter toggle — compact dropdown for filter chips */
+  .kanban-mobile-filter-btn {
+    display: flex !important;
+  }
+
+  .kanban-filter-bar {
+    position: relative;
+    flex-wrap: nowrap;
+  }
+
+  .kanban-filter-chips-container {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-top: none;
+    border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .kanban-filter-chips-container.open {
+    display: flex;
+  }
+
   /* Projects */
   .project-list {
     padding: 12px;

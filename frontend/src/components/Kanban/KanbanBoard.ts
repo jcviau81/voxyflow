@@ -62,6 +62,9 @@ export class KanbanBoard {
   private searchInput: HTMLInputElement | null = null;
   private clearBtn: HTMLElement | null = null;
   private tagFilterGroup: HTMLElement | null = null;
+  private mobileFilterBtn: HTMLElement | null = null;
+  private filterChipsContainer: HTMLElement | null = null;
+  private mobileFilterOpen: boolean = false;
 
   constructor(private parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'kanban-board', 'data-testid': 'kanban-board' });
@@ -99,6 +102,7 @@ export class KanbanBoard {
     this.searchInput.addEventListener('input', () => {
       this.searchQuery = this.searchInput!.value;
       this.updateClearBtn();
+      this.updateMobileFilterBadge();
       debouncedFilter();
     });
 
@@ -108,6 +112,7 @@ export class KanbanBoard {
       this.searchQuery = '';
       this.searchInput!.value = '';
       this.updateClearBtn();
+      this.updateMobileFilterBadge();
       this.applyFilters();
     });
 
@@ -180,11 +185,24 @@ export class KanbanBoard {
     this.executionProgressEl.style.display = 'none';
     this.container.appendChild(this.executionProgressEl);
 
-    // Row 2: filter bar — search | priority | agent | sort | tags | deps
+    // Row 2: filter bar — search | mobile toggle | priority | agent | sort | tags | deps
     const filterRow = createElement('div', { className: 'kanban-filter-bar' });
 
     // Search bar lives here now
     filterRow.appendChild(searchBar);
+
+    // Mobile filter toggle button (hidden on desktop via CSS)
+    this.mobileFilterBtn = createElement('button', {
+      className: 'kanban-mobile-filter-btn',
+    }, 'Filters');
+    this.mobileFilterBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleMobileFilters();
+    });
+    filterRow.appendChild(this.mobileFilterBtn);
+
+    // Container for all filter chip groups (collapsible on mobile)
+    this.filterChipsContainer = createElement('div', { className: 'kanban-filter-chips-container' });
 
     // Priority chips
     const priorityGroup = createElement('div', { className: 'kanban-filter-chips' });
@@ -200,6 +218,7 @@ export class KanbanBoard {
           c.classList.toggle('active', PRIORITY_FILTERS[i].value === this.priorityFilter);
         });
         this.applyFilters();
+        this.updateMobileFilterBadge();
       });
       priorityGroup.appendChild(chip);
     });
@@ -217,6 +236,7 @@ export class KanbanBoard {
           c.classList.toggle('active', AGENT_FILTERS[i].value === this.agentFilter);
         });
         this.applyFilters();
+        this.updateMobileFilterBadge();
       });
       agentGroup.appendChild(chip);
     });
@@ -249,11 +269,13 @@ export class KanbanBoard {
     this.tagFilterGroup.appendChild(tagFilterLabel);
     // Placeholder — will be populated in refreshTagFilterChips()
 
-    filterRow.appendChild(priorityGroup);
-    filterRow.appendChild(agentGroup);
-    filterRow.appendChild(sortGroup);
-    filterRow.appendChild(this.tagFilterGroup);
-    filterRow.appendChild(depGraphBtn);
+    this.filterChipsContainer.appendChild(priorityGroup);
+    this.filterChipsContainer.appendChild(agentGroup);
+    this.filterChipsContainer.appendChild(sortGroup);
+    this.filterChipsContainer.appendChild(this.tagFilterGroup);
+    this.filterChipsContainer.appendChild(depGraphBtn);
+
+    filterRow.appendChild(this.filterChipsContainer);
     this.container.appendChild(filterRow);
 
     // Board with columns
@@ -429,6 +451,7 @@ export class KanbanBoard {
         this.tagFilter = this.tagFilter === tag ? null : tag;
         this.refreshTagFilterChips();
         this.applyFilters();
+        this.updateMobileFilterBadge();
       })
     );
   }
@@ -437,6 +460,46 @@ export class KanbanBoard {
     if (this.clearBtn) {
       this.clearBtn.style.display = this.searchQuery ? '' : 'none';
     }
+  }
+
+  private toggleMobileFilters(): void {
+    this.mobileFilterOpen = !this.mobileFilterOpen;
+    if (this.filterChipsContainer) {
+      this.filterChipsContainer.classList.toggle('open', this.mobileFilterOpen);
+    }
+    if (this.mobileFilterBtn) {
+      this.mobileFilterBtn.classList.toggle('active', this.mobileFilterOpen);
+    }
+
+    if (this.mobileFilterOpen) {
+      // Close on click outside
+      const closeHandler = (e: MouseEvent) => {
+        if (
+          this.filterChipsContainer && !this.filterChipsContainer.contains(e.target as Node) &&
+          this.mobileFilterBtn && !this.mobileFilterBtn.contains(e.target as Node)
+        ) {
+          this.mobileFilterOpen = false;
+          this.filterChipsContainer.classList.remove('open');
+          this.mobileFilterBtn?.classList.remove('active');
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      // Defer so the current click doesn't immediately close
+      requestAnimationFrame(() => {
+        document.addEventListener('click', closeHandler);
+      });
+    }
+  }
+
+  private updateMobileFilterBadge(): void {
+    if (!this.mobileFilterBtn) return;
+    let count = 0;
+    if (this.priorityFilter !== null) count++;
+    if (this.agentFilter !== null) count++;
+    if (this.tagFilter !== null) count++;
+    if (this.searchQuery) count++;
+    this.mobileFilterBtn.textContent = count > 0 ? `Filters (${count})` : 'Filters';
+    this.mobileFilterBtn.classList.toggle('has-filters', count > 0);
   }
 
   private applyFilters(): void {
@@ -590,6 +653,7 @@ export class KanbanBoard {
         this.tagFilter = this.tagFilter === tag ? null : tag;
         this.refreshTagFilterChips();
         this.applyFilters();
+        this.updateMobileFilterBadge();
       });
       this.tagFilterGroup!.appendChild(chip);
     });
