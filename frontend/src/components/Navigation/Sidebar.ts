@@ -321,7 +321,7 @@ export class Sidebar {
       for (const session of sessions) {
         let label: string;
         if (tab.id === 'main') {
-          label = session.title || 'Main Chat';
+          label = `Main > ${session.title || 'Chat'}`;
         } else {
           const project = appState.getProject(tab.id);
           const projectName = project?.name || tab.label || 'Project';
