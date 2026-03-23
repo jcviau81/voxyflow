@@ -370,55 +370,55 @@
   /* Light theme overrides would go here if theme: 'light' is selected */
 }
 
-/* Mobile chat input fix — ensure input area is always visible */
+/* ============= MOBILE FIXES ============= */
 @media (max-width: 768px) {
+  /* Force chat window to use full available height as flex column */
   .chat-window {
-    height: 100%;
-    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    height: 100% !important;
+    max-height: 100% !important;
     overflow: hidden;
   }
 
+  /* Messages take remaining space, scroll internally */
   .chat-messages {
-    flex: 1;
-    min-height: 0;
+    flex: 1 1 0 !important;
+    min-height: 0 !important;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
 
-  .chat-input-area {
+  /* Collapse bars to save vertical space */
+  .chat-top-bar {
+    padding: 4px 12px;
+    min-height: 32px;
+    gap: 4px;
     flex-shrink: 0;
-    position: sticky;
-    bottom: 0;
-    z-index: 10;
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
 
-  /* Prevent virtual keyboard from pushing layout */
-  .chat-input {
-    font-size: 16px !important; /* Prevents iOS zoom */
-  }
-}
-
-/* Hide smart suggestions (quick replies) on mobile */
-@media (max-width: 768px) {
-  .quick-replies {
-    display: none !important;
-  }
-}
-
-/* Hide bottom bar on mobile — too many bars push input off screen */
-@media (max-width: 768px) {
   .chat-bottom-bar {
     display: none !important;
   }
 
-  .chat-top-bar {
-    padding: 4px 12px;
-    min-height: 36px;
-    gap: 6px;
-  }
-
   .session-tab-bar-wrap {
     flex-shrink: 0;
+  }
+
+  /* Input area must never shrink or be pushed off */
+  .chat-input-area {
+    flex-shrink: 0 !important;
+    z-index: 10;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  /* Prevent iOS zoom on input focus */
+  .chat-input {
+    font-size: 16px !important;
+  }
+
+  /* Hide quick replies on mobile */
+  .quick-replies {
+    display: none !important;
   }
 }
