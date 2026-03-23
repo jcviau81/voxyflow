@@ -24,7 +24,6 @@ import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
 import { FocusMode } from './components/FocusMode/FocusMode';
 import { ProjectStats } from './components/Projects/ProjectStats';
-import { ProjectRoadmap } from './components/Projects/ProjectRoadmap';
 import { ProjectKnowledge } from './components/Projects/ProjectKnowledge';
 import { SprintPlanner } from './components/Projects/SprintPlanner';
 import { ProjectDocuments } from './components/Projects/ProjectDocuments';
@@ -562,7 +561,7 @@ export class App {
         component = new ProjectStats(this.mainContent);
         break;
       case 'roadmap':
-        component = new ProjectRoadmap(this.mainContent);
+        // ProjectRoadmap removed — deferred feature
         break;
       case 'knowledge':
         component = new ProjectKnowledge(this.mainContent);
