@@ -44,6 +44,7 @@ class ReactiveCardStore {
     this.cards.clear();
     for (const card of cards) {
       this.cards.set(card.id, card);
+      this.notifyCard(card.id, card);
     }
     this.notify();
     // Backward compat: emit a generic event so old listeners still fire
@@ -58,9 +59,10 @@ class ReactiveCardStore {
         this.cards.delete(id);
       }
     }
-    // Add new cards
+    // Add new cards and notify card-specific listeners
     for (const card of cards) {
       this.cards.set(card.id, card);
+      this.notifyCard(card.id, card);
     }
     this.notify();
     // Backward compat
