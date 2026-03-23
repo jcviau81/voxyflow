@@ -973,9 +973,15 @@ export class ChatWindow {
     } else {
       // Project chat (including Main/system-main)
       const activeChatId = appState.getActiveChatId(contextTabId);
-      backendChatId = `project:${contextTabId}`;
       sessionId = activeChatId;
       projectId = appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
+      if (contextTabId === SYSTEM_PROJECT_ID) {
+        // Main/general tab: backend SAVE path uses `project:system-main:{session_id}`,
+        // so LOAD must use the same format to find the correct file.
+        backendChatId = `project:${contextTabId}:${activeChatId}`;
+      } else {
+        backendChatId = `project:${contextTabId}`;
+      }
     }
 
     // Use replace=true: authoritative backend data replaces any stale localStorage snapshot.

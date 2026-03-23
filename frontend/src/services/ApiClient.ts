@@ -222,6 +222,14 @@ export class ApiClient {
       this.flushOfflineQueue();
       // Sync projects from backend on connect (ensures favorites, etc. are fresh)
       this.syncProjectsFromBackend();
+      // Deliver any pending worker results for the active session on reconnect.
+      // This avoids waiting for the next chat:message to trigger delivery.
+      const activeTabId = appState.get('activeTab') as string | undefined;
+      const contextTabId = activeTabId === 'main' ? SYSTEM_PROJECT_ID : (activeTabId || SYSTEM_PROJECT_ID);
+      const sessionId = appState.getActiveChatId(contextTabId);
+      if (sessionId) {
+        this.send('session:sync', { sessionId });
+      }
       eventBus.emit(EVENTS.WS_CONNECTED);
     };
 

@@ -332,6 +332,15 @@ async def general_websocket(websocket: WebSocket):
                         cancelled = cancel_execution(execution_id)
                         logger.info(f"[WS] kanban:execute:cancel → {execution_id}, found={cancelled}")
 
+                elif msg_type == "session:sync":
+                    # Deliver any pending worker results for the reconnecting session.
+                    # Frontend sends this immediately on WebSocket connect so results
+                    # are delivered without waiting for the next chat:message.
+                    sync_session_id = payload.get("sessionId") or ""
+                    if sync_session_id:
+                        logger.info(f"[WS] session:sync → delivering pending for {sync_session_id}")
+                        await _deliver_pending(sync_session_id)
+
                 else:
                     # Ack unknown message types
                     await websocket.send_json({
