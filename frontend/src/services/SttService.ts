@@ -340,12 +340,29 @@ export class SttService {
     if (stored) {
       try {
         const settings = JSON.parse(stored);
+        // Check explicit STT language first
+        const sttLang = settings?.voice?.stt_language;
+        if (sttLang && sttLang !== 'auto') {
+          if (sttLang === 'fr') return 'fr-CA';
+          if (sttLang === 'en') return 'en-US';
+          return sttLang; // Pass through custom locale
+        }
+        // Fall back to personality language
         const lang = settings?.personality?.preferred_language;
         if (lang === 'en') return 'en-US';
         if (lang === 'fr') return 'fr-CA';
+        // "both" or "auto" → use browser language
+        if (lang === 'both' || lang === 'auto' || !lang) {
+          const browserLang = navigator.language || 'en-US';
+          if (browserLang.startsWith('fr')) return 'fr-CA';
+          return browserLang;
+        }
       } catch { /* ignore */ }
     }
-    return 'en-US';
+    // Default: use browser language
+    const browserLang = navigator.language || 'en-US';
+    if (browserLang.startsWith('fr')) return 'fr-CA';
+    return browserLang;
   }
 
   get lang(): string {
