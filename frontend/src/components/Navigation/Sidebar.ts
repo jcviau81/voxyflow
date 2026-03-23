@@ -313,8 +313,8 @@ export class Sidebar {
     const openTabs = appState.getOpenTabs();
 
     for (const tab of openTabs) {
-      const sessions = appState.get('sessions')[tab.id];
-      if (!sessions || sessions.length === 0) continue;
+      const sessions = appState.get('sessions')[tab.id] || [];
+      if (sessions.length === 0) continue;
 
       for (const session of sessions) {
         let label: string;
@@ -400,6 +400,12 @@ export class Sidebar {
     // Re-render on session changes (to update active sessions section)
     this.unsubscribers.push(
       eventBus.on(EVENTS.SESSION_TAB_SWITCH, () => this.render())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.SESSION_TAB_NEW, () => this.render())
+    );
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.SESSION_TAB_UPDATE, () => this.render())
     );
     this.unsubscribers.push(
       eventBus.on(EVENTS.SESSION_TAB_CLOSE, () => this.render())
