@@ -329,7 +329,8 @@ class AppState {
   }
 
   getCard(id: string): Card | undefined {
-    return this.state.cards.find((c) => c.id === id);
+    return this.state.cards.find((c) => c.id === id)
+      || this.state.mainBoardCards.find((c) => c.id === id);
   }
 
   getCardsByProject(projectId: string): Card[] {
