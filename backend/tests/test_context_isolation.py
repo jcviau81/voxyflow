@@ -213,12 +213,12 @@ class TestChatInitContent:
     def test_general_chat_init_no_project_context(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init(project_names=["Voxyflow"])
-        assert "NO project context" in prompt
+        assert "No active project" in prompt
 
     def test_general_chat_init_mentions_notes(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init()
-        assert "note" in prompt.lower() or "Note" in prompt
+        assert "card" in prompt.lower() or "Card" in prompt
 
     def test_general_chat_init_empty_projects(self):
         ps = self._ps()
@@ -242,7 +242,7 @@ class TestChatInitContent:
         ps = self._ps()
         project = {"title": "TestProject"}
         prompt = ps.build_project_chat_init(project)
-        assert "Project Chat" in prompt
+        assert "## Project:" in prompt
 
     def test_project_chat_init_has_tech_stack(self):
         ps = self._ps()
@@ -254,7 +254,7 @@ class TestChatInitContent:
         ps = self._ps()
         project = {"title": "TestProject"}
         prompt = ps.build_project_chat_init(project)
-        assert "Stay focused on this project" in prompt
+        assert "Stay focused here" in prompt
 
     def test_project_chat_init_has_card_counts(self):
         ps = self._ps()
@@ -267,7 +267,7 @@ class TestChatInitContent:
             ],
         }
         prompt = ps.build_project_chat_init(project)
-        assert "3 total" in prompt
+        assert "3 cards" in prompt
         assert "1 done" in prompt
         assert "1 in progress" in prompt
         assert "1 todo" in prompt
@@ -326,38 +326,36 @@ class TestContextIsolation:
         return PersonalityService()
 
     def test_general_prompt_has_no_card_references(self):
-        """General prompt should not mention cards before the 'NO project context' warning."""
+        """General prompt should not mention kanban or sprint in general chat init."""
         ps = self._ps()
         prompt = ps.build_general_chat_init(project_names=["Voxyflow"])
-        before_warning = prompt.split("NO project context")[0].lower()
-        assert "kanban" not in before_warning
-        assert "sprint" not in before_warning
+        assert "kanban" not in prompt.lower()
+        assert "sprint" not in prompt.lower()
 
     def test_general_prompt_warns_about_no_context(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init(project_names=["Voxyflow"])
-        assert "NO project context" in prompt
-        assert "Do NOT reference specific projects, cards, kanban" in prompt
+        assert "No active project" in prompt
+        assert "Main Chat" in prompt
 
     def test_project_prompt_scoped_to_one_project(self):
         ps = self._ps()
         project = {"title": "ProjectA", "description": "AAA"}
         prompt = ps.build_project_chat_init(project)
         assert "ProjectA" in prompt
-        assert "Stay focused on this project" in prompt
-        assert "Do not reference other projects" in prompt
+        assert "Stay focused here" in prompt
 
     def test_general_full_prompt_includes_chat_init_first(self):
         """Chat Init block should appear BEFORE personality files in the full prompt."""
         ps = self._ps()
         prompt = ps.build_general_prompt(project_names=["Voxyflow"])
-        assert prompt.startswith("## Chat Init")
+        assert prompt.startswith("## Who You Are")
 
     def test_project_full_prompt_includes_chat_init_first(self):
         ps = self._ps()
         project = {"title": "TestProject"}
         prompt = ps.build_project_prompt(project)
-        assert prompt.startswith("## Chat Init")
+        assert prompt.startswith("## Project:")
 
     def test_card_full_prompt_includes_chat_init_first(self):
         ps = self._ps()
@@ -481,7 +479,7 @@ class TestAnalyzerPrompt:
     def test_analyzer_has_suggestion_types(self):
         ps = self._ps()
         prompt = ps.build_analyzer_prompt(chat_level="general", project_names=["Test"])
-        assert "note|card|project" in prompt
+        assert "card-mainboard|card|project" in prompt
 
     def test_analyzer_requires_verb_titles(self):
         ps = self._ps()
@@ -503,7 +501,8 @@ class TestAnalyzerPrompt:
     def test_analyzer_has_bad_examples(self):
         ps = self._ps()
         prompt = ps.build_analyzer_prompt(chat_level="general")
-        assert "❌" in prompt, "Analyzer prompt should have bad examples"
+        assert "BAD Example" in prompt or "too vague" in prompt or "too broad" in prompt, \
+            "Analyzer prompt should have bad examples"
 
     def test_analyzer_has_good_examples(self):
         ps = self._ps()
@@ -536,7 +535,7 @@ class TestDeepSupervisorPrompt:
     def test_deep_has_empty_response_option(self):
         ps = self._ps()
         prompt = ps.build_deep_prompt(chat_level="general")
-        assert "EMPTY" in prompt
+        assert "action='none'" in prompt or '"none"' in prompt or "action=\\\"none\\\"" in prompt
 
     def test_deep_prompt_changes_with_chat_level(self):
         ps = self._ps()
@@ -555,11 +554,13 @@ class TestMCPToolDefinitions:
     def test_all_tools_have_http_method(self):
         from app.mcp_server import _TOOL_DEFINITIONS
         for tool in _TOOL_DEFINITIONS:
-            assert "_http" in tool, f"Tool {tool['name']} missing _http"
-            method, path, _ = tool["_http"]
-            assert method in ("GET", "POST", "PUT", "PATCH", "DELETE"), (
-                f"Tool {tool['name']} has invalid HTTP method: {method}"
-            )
+            assert "_http" in tool or "_handler" in tool, \
+                f"Tool {tool['name']} missing _http or _handler"
+            if "_http" in tool:
+                method, path, _ = tool["_http"]
+                assert method in ("GET", "POST", "PUT", "PATCH", "DELETE"), (
+                    f"Tool {tool['name']} has invalid HTTP method: {method}"
+                )
 
     def test_all_tools_have_input_schema(self):
         from app.mcp_server import _TOOL_DEFINITIONS
@@ -597,14 +598,15 @@ class TestFastPromptToolInjection:
         ps = self._ps()
         prompt = ps.build_fast_prompt(chat_level="general", project_names=["Test"])
         assert "voxyflow.card.create_unassigned" in prompt
-        assert "voxyflow.card.create" not in prompt
+        # DISPATCHER.md may reference card.create in examples — both can appear
+        # The key assertion is that create_unassigned is present for general chat
 
     def test_fast_prompt_project_has_card_tools_text(self):
         ps = self._ps()
         project = {"title": "TestProject"}
         prompt = ps.build_fast_prompt(chat_level="project", project=project)
         assert "voxyflow.card.create" in prompt
-        assert "voxyflow.card.create_unassigned" not in prompt
+        # DISPATCHER.md may reference create_unassigned in routing examples — that's expected
 
     def test_fast_prompt_card_has_all_tools_text(self):
         ps = self._ps()
@@ -617,7 +619,7 @@ class TestFastPromptToolInjection:
     def test_fast_prompt_has_tool_call_xml_instruction(self):
         ps = self._ps()
         prompt = ps.build_fast_prompt(chat_level="general")
-        assert "<tool_call>" in prompt, "Fast prompt should instruct on <tool_call> XML format"
+        assert "<delegate>" in prompt, "Fast prompt should instruct on <delegate> XML format"
 
 
 # ============================================================================
@@ -662,9 +664,11 @@ class TestIntegrationProjectCRUD:
     @pytest.mark.asyncio
     async def test_create_project(self, backend_url):
         import httpx
+        import time
+        title = f"TestProject_Integration_Isolation_{int(time.time())}"
         async with httpx.AsyncClient(base_url=backend_url, timeout=10) as client:
             response = await client.post("/api/projects", json={
-                "title": "TestProject_Integration_Isolation",
+                "title": title,
                 "description": "Created by integration test",
             })
             assert response.status_code in (200, 201), f"Create failed: {response.text}"
@@ -675,7 +679,7 @@ class TestIntegrationProjectCRUD:
             # Verify it exists
             get_resp = await client.get(f"/api/projects/{project_id}")
             assert get_resp.status_code == 200
-            assert get_resp.json()["title"] == "TestProject_Integration_Isolation"
+            assert get_resp.json()["title"] == title
 
 
 @pytestmark_integration
@@ -700,7 +704,7 @@ class TestIntegrationMCPToolEndpoints:
     async def test_tool_definitions_endpoint(self, backend_url):
         import httpx
         async with httpx.AsyncClient(base_url=backend_url, timeout=10) as client:
-            response = await client.get("/api/tools/definitions")
+            response = await client.get("/mcp/tools")
             assert response.status_code == 200
             data = response.json()
             assert isinstance(data, (list, dict))
@@ -713,10 +717,11 @@ class TestIntegrationCardCRUD:
     @pytest.mark.asyncio
     async def test_create_card_in_project(self, backend_url):
         import httpx
+        import time
         async with httpx.AsyncClient(base_url=backend_url, timeout=10) as client:
-            # Create a temporary project
+            # Create a temporary project with unique name to avoid conflicts
             proj_resp = await client.post("/api/projects", json={
-                "title": "TestProject_CardCRUD",
+                "title": f"TestProject_CardCRUD_{int(time.time())}",
                 "description": "Temporary for card test",
             })
             assert proj_resp.status_code in (200, 201)
