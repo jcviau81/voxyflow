@@ -51,13 +51,19 @@ class WSBroadcast:
             "timestamp": int(time.time() * 1000),
         }
         dead: list[WebSocket] = []
+        sent_count = 0
         for ws in self._connections:
             if ws is exclude:
                 continue
             try:
                 await ws.send_json(message)
+                sent_count += 1
             except Exception:
                 dead.append(ws)
+        if sent_count > 0:
+            logger.info(f"[WSBroadcast] emit_to_others: {event_type} → {sent_count} client(s)")
+        elif len(self._connections) <= 1:
+            logger.debug(f"[WSBroadcast] emit_to_others: {event_type} — no other clients connected")
         for ws in dead:
             self._connections.discard(ws)
 
