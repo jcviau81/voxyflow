@@ -37,17 +37,37 @@ export class VoiceInput {
       'data-tooltip': 'Push to Talk (Alt+V)',
     }) as HTMLButtonElement;
     this.button.innerHTML = '🎤';
-    this.boundMouseDown = () => this.startRecording();
-    this.boundMouseUp = () => this.stopRecording();
-    this.boundMouseLeave = () => { if (sttService.recording) this.stopRecording(); };
-    this.boundTouchStart = (e: Event) => { e.preventDefault(); this.startRecording(); };
-    this.boundTouchEnd = (e: Event) => { e.preventDefault(); this.stopRecording(); };
+    const isMobile = window.innerWidth <= 768 || 'ontouchstart' in window;
 
-    this.button.addEventListener('mousedown', this.boundMouseDown);
-    this.button.addEventListener('mouseup', this.boundMouseUp);
-    this.button.addEventListener('mouseleave', this.boundMouseLeave);
-    this.button.addEventListener('touchstart', this.boundTouchStart);
-    this.button.addEventListener('touchend', this.boundTouchEnd);
+    if (isMobile) {
+      // Mobile: toggle mode (tap to start, tap to stop)
+      this.boundTouchStart = (e: Event) => {
+        e.preventDefault();
+        if (sttService.recording) {
+          this.stopRecording();
+        } else {
+          this.startRecording();
+        }
+      };
+      this.button.addEventListener('touchstart', this.boundTouchStart);
+      // Also handle click for non-touch mobile browsers
+      this.button.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (sttService.recording) {
+          this.stopRecording();
+        } else {
+          this.startRecording();
+        }
+      });
+    } else {
+      // Desktop: push-to-talk (hold to record)
+      this.boundMouseDown = () => this.startRecording();
+      this.boundMouseUp = () => this.stopRecording();
+      this.boundMouseLeave = () => { if (sttService.recording) this.stopRecording(); };
+      this.button.addEventListener('mousedown', this.boundMouseDown);
+      this.button.addEventListener('mouseup', this.boundMouseUp);
+      this.button.addEventListener('mouseleave', this.boundMouseLeave);
+    }
 
     // Recording indicator
     this.indicator = createElement('div', { className: 'voice-indicator hidden' });
