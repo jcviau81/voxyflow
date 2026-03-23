@@ -87,8 +87,9 @@ export class Sidebar {
       sessSection.appendChild(sessHeader);
 
       sessionEntries.forEach((entry) => {
+        const sessionTabId = entry.tabId === 'main' ? 'system-main' : entry.tabId;
         const isCurrent = entry.tabId === activeTabId &&
-          appState.getActiveSession(entry.tabId).id === entry.session.id;
+          appState.getActiveSession(sessionTabId).id === entry.session.id;
 
         const item = createElement('div', {
           className: cn('sidebar-session-item', isCurrent && 'active'),
@@ -119,7 +120,9 @@ export class Sidebar {
         // Click to switch
         item.addEventListener('click', () => {
           appState.switchTab(entry.tabId);
-          appState.setActiveSession(entry.tabId, entry.session.id);
+          // Sessions are stored under 'system-main' for the main tab, not 'main'
+          const sessionTabId = entry.tabId === 'main' ? 'system-main' : entry.tabId;
+          appState.setActiveSession(sessionTabId, entry.session.id);
           appState.setView('chat');
         });
 
@@ -338,18 +341,18 @@ export class Sidebar {
    * Close a session from the sidebar — sends session:reset via WS and removes from state.
    */
   private closeSession(tabId: string, session: SessionInfo): void {
+    const sessionTabId = tabId === 'main' ? 'system-main' : tabId;
     apiClient.send('session:reset', {
       sessionId: session.chatId,
-      tabId,
+      tabId: sessionTabId,
     });
 
-    const sessions = appState.get('sessions')[tabId] || [];
+    const sessions = appState.get('sessions')[sessionTabId] || [];
     if (sessions.length <= 1) {
-      // Last session: reset it (clear history, create fresh session)
-      appState.closeSession(tabId, session.id);
-      appState.createSession(tabId);
+      appState.closeSession(sessionTabId, session.id);
+      appState.createSession(sessionTabId);
     } else {
-      appState.closeSession(tabId, session.id);
+      appState.closeSession(sessionTabId, session.id);
     }
     this.render();
   }
