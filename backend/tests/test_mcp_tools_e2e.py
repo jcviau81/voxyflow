@@ -37,10 +37,10 @@ async def test_jobs_list():
 @pytest.mark.asyncio
 async def test_card_create_unassigned():
     async with httpx.AsyncClient() as c:
-        r = await c.post(f"{BASE}/api/notes", json={"content": "Test card E2E", "color": "blue"})
-        assert r.status_code == 200, f"Got {r.status_code}: {r.text}"
+        r = await c.post(f"{BASE}/api/cards/unassigned", json={"title": "Test card E2E", "color": "blue"})
+        assert r.status_code in (200, 201), f"Got {r.status_code}: {r.text}"
         data = r.json()
-        assert data.get("success") == True or "id" in data or "card" in data
+        assert "id" in data or "card" in data
 
 
 @pytest.mark.asyncio
@@ -56,10 +56,11 @@ async def test_project_full_lifecycle():
     Test all project/card/wiki/sprint endpoints in one test to maintain state.
     Cleans up at the end.
     """
+    import time
     async with httpx.AsyncClient(timeout=30.0) as c:
         # ── CREATE PROJECT ──────────────────────────────────────────────────
         r = await c.post(f"{BASE}/api/projects", json={
-            "title": "MCP_Test_Project_E2E",
+            "title": f"MCP_Test_Project_E2E_{int(time.time())}",
             "description": "Automated E2E test — safe to delete"
         })
         assert r.status_code in (200, 201), f"Create project: {r.status_code} {r.text}"
@@ -100,7 +101,7 @@ async def test_project_full_lifecycle():
         assert r.status_code == 200, f"List cards: {r.status_code}"
 
         # ── UPDATE CARD ─────────────────────────────────────────────────────
-        r = await c.patch(f"{BASE}/api/cards/{card_id}", json={"status": "in_progress"})
+        r = await c.patch(f"{BASE}/api/cards/{card_id}", json={"status": "in-progress"})
         assert r.status_code == 200, f"Update card: {r.status_code} {r.text}"
 
         # ── DUPLICATE CARD ──────────────────────────────────────────────────
