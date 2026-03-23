@@ -484,6 +484,59 @@
   background: var(--color-bg-hover);
 }
 
+.top-bar-project-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.top-bar-spacer {
+  flex: 1;
+}
+
+.top-bar-mode-pill {
+  display: flex;
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+.top-bar-mode-btn {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.top-bar-mode-btn.active {
+  background: var(--color-primary);
+  color: white;
+}
+
+.top-bar-voice-btn {
+  padding: 4px 8px;
+  font-size: 0.875rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  opacity: 0.5;
+  transition: all var(--transition-fast);
+}
+
+.top-bar-voice-btn.active {
+  opacity: 1;
+  background: rgba(78, 205, 196, 0.15);
+  border-color: var(--color-primary);
+}
+
 .top-bar-title {
   flex: 1;
   display: flex;
