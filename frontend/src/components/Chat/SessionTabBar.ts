@@ -11,6 +11,7 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
+import { apiClient } from '../../services/ApiClient';
 
 const MAX_SESSIONS = 5;
 const MAX_TITLE_LENGTH = 25;
@@ -64,7 +65,13 @@ export class SessionTabBar {
         if (sessions.length > 1) {
           this.handleClose(session.id);
         } else {
-          // Last session: reset it (clear history, create fresh session)
+          // Last session: notify backend BEFORE resetting local state
+          const closedChatId = session.chatId;
+          apiClient.send('session:reset', {
+            sessionId: closedChatId,
+            tabId: this.tabId,
+          });
+          // Reset it (clear history, create fresh session)
           appState.closeSession(this.tabId, session.id);
           appState.createSession(this.tabId);
           this.render();
@@ -115,6 +122,15 @@ export class SessionTabBar {
   }
 
   private handleClose(sessionId: string): void {
+    // Resolve chatId BEFORE removing from state so we can notify the backend
+    const sessions = appState.getSessions(this.tabId);
+    const session = sessions.find((s) => s.id === sessionId);
+    if (session) {
+      apiClient.send('session:reset', {
+        sessionId: session.chatId,
+        tabId: this.tabId,
+      });
+    }
     appState.closeSession(this.tabId, sessionId);
     // closeSession emits SESSION_TAB_CLOSE
   }
