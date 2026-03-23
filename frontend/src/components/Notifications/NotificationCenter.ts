@@ -122,7 +122,7 @@ export class NotificationCenter {
       createBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.hide();
-        eventBus.emit(EVENTS.CARD_FORM_SHOW, { mode: 'create', prefillTitle: suggestionText });
+        eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', mode: 'create', prefillTitle: suggestionText });
         this.markItemRead(notif.id);
       });
 

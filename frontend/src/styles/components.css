@@ -3121,28 +3121,7 @@
 }
 
 
-/* ============= CARD FORM ============= */
-.card-form-wrapper {
-  width: 100%;
-  height: 100%;
-  overflow-y: auto;
-  display: flex;
-  justify-content: center;
-}
 
-.card-form {
-  max-width: 560px;
-  width: 100%;
-  margin: 40px auto;
-  padding: 32px;
-}
-
-.card-form h3 {
-  font-size: 1.25rem;
-  margin-bottom: 24px;
-  color: var(--color-text);
-  font-weight: 700;
-}
 
 .form-row {
   display: flex;

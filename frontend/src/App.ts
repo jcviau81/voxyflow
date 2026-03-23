@@ -12,7 +12,6 @@ import { TabBar } from './components/Navigation/TabBar';
 import { ChatWindow } from './components/Chat/ChatWindow';
 import { KanbanBoard } from './components/Kanban/KanbanBoard';
 import { CardDetailModal } from './components/shared/CardDetailModal';
-import { CardForm, CardFormShowEvent, CardFormData } from './components/Kanban/CardForm';
 import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
 import { ProjectHeader } from './components/Projects/ProjectHeader';
@@ -49,7 +48,6 @@ export class App {
     view: null,
   };
   private projectForm: ProjectForm | null = null;
-  private cardForm: CardForm | null = null;
   private viewBeforeForm: ViewMode | null = null;
   private unsubscribers: (() => void)[] = [];
 
@@ -228,36 +226,7 @@ export class App {
       })
     );
 
-    // Card form events
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_FORM_SHOW, (event: unknown) => {
-        this.showCardForm(event as CardFormShowEvent);
-      })
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_FORM_SUBMIT, (payload: unknown) => {
-        this.handleCardFormSubmit(payload as {
-          mode: string; data: CardFormData; cardId?: string;
-          projectId: string; assignedAgent?: AgentPersona; agentType?: string;
-        });
-      })
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_FORM_CANCEL, () => this.hideCardForm())
-    );
-    this.unsubscribers.push(
-      eventBus.on(EVENTS.CARD_FORM_DELETE, (payload: unknown) => {
-        const { cardId } = payload as { cardId: string };
-        // Track deletion activity before removing
-        const card = appState.getCard(cardId);
-        if (card && card.projectId) {
-          appState.addActivity(card.projectId, 'card_deleted', `🗑️ Card deleted: "${card.title}"`);
-        }
-        cardService.delete(cardId);
-        this.hideCardForm();
-        eventBus.emit(EVENTS.TOAST_SHOW, { message: 'Card deleted', type: 'success' });
-      })
-    );
+
 
     // Project created toast
     this.unsubscribers.push(
@@ -530,108 +499,7 @@ export class App {
   }
 
 
-  private showCardForm(event: CardFormShowEvent): void {
-    this.viewBeforeForm = this.currentView.view;
-    if (this.currentView.component) {
-      this.currentView.component.destroy();
-      this.currentView = { component: null, view: null };
-    }
-    this.mainContent.innerHTML = '';
-    if (this.cardForm) this.cardForm.destroy();
-    this.cardForm = new CardForm(this.mainContent, event);
-    if (event.prefillTitle) this.cardForm.prefillTitle(event.prefillTitle);
-  }
 
-  private hideCardForm(): void {
-    if (this.cardForm) { this.cardForm.destroy(); this.cardForm = null; }
-    const returnView = this.viewBeforeForm || 'kanban';
-    this.viewBeforeForm = null;
-    this.currentView = { component: null, view: null };
-    this.switchView(returnView);
-  }
-
-  private async handleCardFormSubmit(payload: {
-    mode: string; data: CardFormData; cardId?: string;
-    projectId: string; assignedAgent?: AgentPersona; agentType?: string;
-  }): Promise<void> {
-    const { mode, data, cardId, projectId, assignedAgent, agentType } = payload;
-    const resolvedAgentType = agentType || data.agentType || undefined;
-    if (mode === 'create') {
-      const newCard = await cardService.create({
-        title: data.title, description: data.description, projectId,
-        status: data.status as CardStatus, assignedAgent, tags: data.tags, priority: data.priority,
-      });
-      // Persist agentType and recurrence via REST after card is created
-      if ((resolvedAgentType && resolvedAgentType !== 'general') || data.recurrence) {
-        const patchData: Record<string, unknown> = {};
-        if (resolvedAgentType && resolvedAgentType !== 'general') patchData.agent_type = resolvedAgentType;
-        if (data.recurrence) patchData.recurrence = data.recurrence;
-        if (Object.keys(patchData).length > 0) await apiClient.patchCard(newCard.id, patchData);
-      }
-      eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created: "${data.title}"`, type: 'success', duration: 3000 });
-
-      // AI Enrich after create (if checkbox was checked)
-      if (data.enrichAfterCreate && newCard?.id) {
-        const cardIdToEnrich = newCard.id;
-        try {
-          const result = await apiClient.enrichCard(cardIdToEnrich);
-          if (!result) return;
-
-          const updates: Record<string, unknown> = {};
-
-          // Description (only if card still has no description)
-          const currentCard = appState.getCard(cardIdToEnrich);
-          if (currentCard && !currentCard.description?.trim() && result.description) {
-            updates.description = result.description;
-            await apiClient.patchCard(cardIdToEnrich, { description: result.description });
-          }
-
-          // Tags
-          if (result.tags?.length > 0) {
-            const existing = currentCard?.tags || [];
-            const merged = [...new Set([...existing, ...result.tags])];
-            updates.tags = merged;
-            await apiClient.patchCard(cardIdToEnrich, { tags: merged });
-          }
-
-          // Apply state updates
-          if (Object.keys(updates).length > 0) {
-            appState.updateCard(cardIdToEnrich, updates as Partial<Card>);
-          }
-
-          // Checklist items
-          for (const text of result.checklist_items) {
-            await apiClient.addChecklistItem(cardIdToEnrich, text);
-          }
-
-          eventBus.emit(EVENTS.TOAST_SHOW, { message: `✨ Card enriched!`, type: 'success', duration: 3500 });
-          const enrichedCard = appState.getCard(cardIdToEnrich);
-          appState.addNotification({
-            type: 'card_enriched',
-            message: `✨ Card enriched: "${enrichedCard?.title || 'card'}"`,
-          });
-        } catch (err) {
-          console.error('[App] enrichCard after create failed:', err);
-        }
-      }
-    } else if (mode === 'edit' && cardId) {
-      cardService.update(cardId, {
-        title: data.title, description: data.description, status: data.status as CardStatus,
-        assignedAgent, agentType: resolvedAgentType, tags: data.tags, priority: data.priority, dependencies: data.dependencies,
-        recurrence: data.recurrence,
-      });
-      // Also persist agentType and recurrence to backend via REST
-      const editPatch: Record<string, unknown> = {};
-      if (resolvedAgentType) editPatch.agent_type = resolvedAgentType;
-      if (data.recurrence !== undefined) editPatch.recurrence = data.recurrence ?? null;
-      if (Object.keys(editPatch).length > 0) apiClient.patchCard(cardId, editPatch);
-      eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card updated: "${data.title}"`, type: 'success', duration: 3000 });
-    }
-    if (this.cardForm) { this.cardForm.destroy(); this.cardForm = null; }
-    this.viewBeforeForm = null;
-    this.currentView = { component: null, view: null };
-    this.switchView('kanban');
-  }
 
   private switchView(view: ViewMode): void {
     if (this.currentView.view === view) return;
@@ -646,10 +514,6 @@ export class App {
     if (this.projectForm) {
       this.projectForm.destroy();
       this.projectForm = null;
-    }
-    if (this.cardForm) {
-      this.cardForm.destroy();
-      this.cardForm = null;
     }
 
     // Create new view
@@ -767,7 +631,6 @@ export class App {
     // FreeBoard destroyed via switchView cycle
     this.currentView.component?.destroy();
     this.projectForm?.destroy();
-    this.cardForm?.destroy();
     apiClient.close();
     this.root.innerHTML = '';
   }

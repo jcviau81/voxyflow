@@ -387,7 +387,7 @@ export class WelcomePrompt {
       case 'edit-card':
         this.hide();
         if (this.context.card) {
-          eventBus.emit(EVENTS.CARD_FORM_SHOW, { mode: 'edit', card: this.context.card });
+          if (this.context.card) eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', cardId: this.context.card.id });
         }
         eventBus.emit(EVENTS.WELCOME_ACTION, { action: 'edit-card', mode: this.mode, cardId: this.context.card?.id });
         break;

@@ -111,11 +111,6 @@ export const EVENTS = {
   PROJECT_FORM_SHOW: 'project:form:show',
   PROJECT_FORM_SUBMIT: 'project:form:submit',
   PROJECT_FORM_CANCEL: 'project:form:cancel',
-  // Card Form
-  CARD_FORM_SHOW: 'card:form:show',
-  CARD_FORM_SUBMIT: 'card:form:submit',
-  CARD_FORM_CANCEL: 'card:form:cancel',
-  CARD_FORM_DELETE: 'card:form:delete',
 
   // UI
   TOAST_SHOW: 'ui:toast:show',

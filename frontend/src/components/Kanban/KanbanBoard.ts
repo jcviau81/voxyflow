@@ -541,10 +541,7 @@ export class KanbanBoard {
       return;
     }
 
-    eventBus.emit(EVENTS.CARD_FORM_SHOW, {
-      mode: 'create',
-      projectId,
-    });
+    eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', mode: 'create', projectId });
   }
 
   private async handleExport(): Promise<void> {

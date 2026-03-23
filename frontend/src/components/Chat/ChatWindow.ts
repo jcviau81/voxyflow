@@ -351,7 +351,7 @@ export class ChatWindow {
       });
       newCardBtn.textContent = '+ New Card';
       newCardBtn.addEventListener('click', () => {
-        eventBus.emit(EVENTS.CARD_FORM_SHOW, { mode: 'create', projectId: appState.get('currentProjectId') });
+        eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', mode: 'create', projectId: appState.get('currentProjectId') });
       });
       bottomBar.appendChild(newCardBtn);
     }

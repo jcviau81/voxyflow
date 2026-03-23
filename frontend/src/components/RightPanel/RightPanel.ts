@@ -196,12 +196,7 @@ export class RightPanel {
     if (opp) {
       const projectId = appState.get('currentProjectId');
       if (projectId) {
-        eventBus.emit(EVENTS.CARD_FORM_SHOW, {
-          mode: 'create',
-          projectId,
-          prefillTitle: opp.title,
-          prefillAgentType: opp.agentType,
-        });
+        eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', mode: 'create', projectId, prefillTitle: opp.title, prefillAgentType: opp.agentType });
       } else {
         eventBus.emit(EVENTS.CREATE_CARD_FROM_SUGGESTION, {
           title: opp.title,
@@ -279,7 +274,7 @@ export class RightPanel {
       createBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.switchTab('opportunities');
-        eventBus.emit(EVENTS.CARD_FORM_SHOW, { mode: 'create', prefillTitle: suggestionText });
+        eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', mode: 'create', prefillTitle: suggestionText });
         appState.markAllNotificationsRead();
         this.render();
       });

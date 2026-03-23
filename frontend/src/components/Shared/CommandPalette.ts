@@ -164,7 +164,7 @@ export class CommandPalette {
         label: 'New Card',
         icon: '🃏',
         category: 'Actions',
-        action: () => eventBus.emit(EVENTS.CARD_FORM_SHOW, { mode: 'create' }),
+        action: () => eventBus.emit(EVENTS.MODAL_OPEN, { type: 'card-detail', mode: 'create' }),
       },
       {
         id: 'theme-toggle',
