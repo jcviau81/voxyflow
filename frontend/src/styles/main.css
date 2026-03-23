@@ -165,6 +165,7 @@ body {
 /* Layout */
 .app-container {
   height: 100vh;
+  height: 100dvh; /* Dynamic viewport height — fixes mobile browser bar issues */
   width: 100vw;
   overflow: hidden;
   display: flex;

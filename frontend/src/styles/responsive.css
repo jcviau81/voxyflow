@@ -369,3 +369,32 @@
 @media (prefers-color-scheme: light) {
   /* Light theme overrides would go here if theme: 'light' is selected */
 }
+
+/* Mobile chat input fix — ensure input area is always visible */
+@media (max-width: 768px) {
+  .chat-window {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  .chat-messages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .chat-input-area {
+    flex-shrink: 0;
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  /* Prevent virtual keyboard from pushing layout */
+  .chat-input {
+    font-size: 16px !important; /* Prevents iOS zoom */
+  }
+}
