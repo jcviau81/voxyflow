@@ -174,9 +174,48 @@ export class ChatWindow {
     // Code paste detection banner (hidden by default)
     this.codePasteBanner = this.buildCodePasteBanner();
 
-    // Input row: emoji + textarea + voice toggles + voice + send
+    // Chat action menu (mobile: replaces emoji button with a ⊕ menu)
+    const actionMenuContainer = createElement('div', { className: 'chat-action-menu-container' });
+    const actionMenuBtn = createElement('button', { className: 'chat-action-menu-btn' }, '⊕');
+    actionMenuBtn.title = 'Actions';
+    const actionMenu = createElement('div', { className: 'chat-action-menu hidden' });
+    
+    const menuItemEmoji = createElement('button', { className: 'chat-action-menu-item' }, '😀 Emoji');
+    menuItemEmoji.addEventListener('click', () => {
+      actionMenu.classList.add('hidden');
+      this.emojiPicker?.toggle();
+    });
+    
+    const menuItemNewChat = createElement('button', { className: 'chat-action-menu-item' }, '✨ New Chat');
+    menuItemNewChat.addEventListener('click', () => {
+      actionMenu.classList.add('hidden');
+      this.handleClearChat();
+    });
+    
+    const menuItemClear = createElement('button', { className: 'chat-action-menu-item' }, '🗑️ Clear');
+    menuItemClear.addEventListener('click', () => {
+      actionMenu.classList.add('hidden');
+      this.handleClearChat();
+    });
+
+    actionMenu.appendChild(menuItemNewChat);
+    actionMenu.appendChild(menuItemEmoji);
+    actionMenu.appendChild(menuItemClear);
+    actionMenuContainer.appendChild(actionMenu);
+    actionMenuContainer.appendChild(actionMenuBtn);
+    
+    actionMenuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      actionMenu.classList.toggle('hidden');
+    });
+    // Close menu on outside click
+    document.addEventListener('click', () => actionMenu.classList.add('hidden'));
+
+    // Input row: action menu + textarea + voice toggles + voice + send
     const inputRow = createElement('div', { className: 'chat-input-row' });
+    // Desktop: show emoji button. Mobile: show action menu (CSS handles visibility)
     inputRow.appendChild(emojiContainer);
+    inputRow.appendChild(actionMenuContainer);
     inputRow.appendChild(this.textInput);
     inputRow.appendChild(voiceToggles);
     inputRow.appendChild(voiceContainer);

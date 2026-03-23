@@ -442,9 +442,66 @@
     font-size: 0.875rem !important;
   }
 
-  /* Compact new chat button */
+  /* Hide new chat button — now in action menu */
   .chat-new-session-mobile {
-    padding: 2px 8px !important;
+    display: none !important;
+  }
+
+  /* Hide emoji picker on mobile, show action menu */
+  .emoji-picker-container {
+    display: none !important;
+  }
+
+  .chat-action-menu-container {
+    display: flex !important;
+    position: relative;
+  }
+
+  .chat-action-menu-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .chat-action-menu {
+    position: absolute;
+    bottom: 42px;
+    left: 0;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-lg);
+    z-index: 100;
+    min-width: 140px;
+    overflow: hidden;
+  }
+
+  .chat-action-menu.hidden {
+    display: none;
+  }
+
+  .chat-action-menu-item {
+    display: block;
+    width: 100%;
+    padding: 10px 14px;
+    background: none;
+    border: none;
+    color: var(--color-text);
+    font-size: 0.8125rem;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .chat-action-menu-item:active {
+    background: var(--color-bg-hover);
   }
 
   /* Reduce chat messages padding + gaps */

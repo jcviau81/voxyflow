@@ -7406,3 +7406,8 @@ pre:hover .code-review-btn,
     font-size: 1.5rem;
   }
 }
+
+/* Chat action menu — hidden on desktop, visible on mobile via responsive.css */
+.chat-action-menu-container {
+  display: none;
+}
