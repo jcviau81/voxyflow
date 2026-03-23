@@ -1,6 +1,6 @@
 import { AppStateData, Message, Project, Card, ViewMode, ConnectionState, Tab, Idea, SessionInfo, ActivityEntry, ActivityType, NotificationEntry, NotificationType } from '../types';
 import { eventBus } from '../utils/EventBus';
-import { EVENTS } from '../utils/constants';
+import { EVENTS, SYSTEM_PROJECT_ID } from '../utils/constants';
 import { generateId, deepClone } from '../utils/helpers';
 
 const MAX_ACTIVITIES_PER_PROJECT = 50;
@@ -472,7 +472,7 @@ class AppState {
 
     // Update project context
     if (tabId === 'main') {
-      this.selectProject(null);
+      this.selectProject(SYSTEM_PROJECT_ID);
     } else {
       this.selectProject(tabId);
     }

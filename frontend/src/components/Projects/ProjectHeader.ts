@@ -2,7 +2,7 @@ import { ViewMode } from '../../types';
 import { createElement } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS } from '../../utils/constants';
+import { EVENTS, SYSTEM_PROJECT_ID } from '../../utils/constants';
 
 export interface ProjectTab {
   view: ViewMode;
@@ -13,6 +13,7 @@ export interface ProjectTab {
 const PROJECT_TABS: ProjectTab[] = [
   { view: 'chat',    emoji: '💬', label: 'Chat' },
   { view: 'kanban',  emoji: '📋', label: 'Kanban' },
+  { view: 'freeboard', emoji: '📌', label: 'Board' },
   { view: 'stats',   emoji: '📊', label: 'Stats' },
   { view: 'roadmap', emoji: '📅', label: 'Roadmap' },
   { view: 'knowledge', emoji: '🧠', label: 'Knowledge' },
@@ -20,6 +21,9 @@ const PROJECT_TABS: ProjectTab[] = [
   { view: 'sprint',  emoji: '🏃', label: 'Sprints' },
   { view: 'docs',    emoji: '📚', label: 'Docs' },
 ];
+
+// Subset of tabs shown for the Main tab
+const MAIN_TABS: ViewMode[] = ['chat', 'kanban', 'freeboard'];
 
 export class ProjectHeader {
   private container: HTMLElement;
@@ -37,13 +41,14 @@ export class ProjectHeader {
   private render(): void {
     this.container.innerHTML = '';
 
+    const activeTab = appState.getActiveTab();
+    const isMainTab = activeTab === 'main';
     const projectId = appState.get('currentProjectId');
     const project = projectId ? appState.getProject(projectId) : null;
     const currentView = appState.get('currentView');
-    const isProjectTab = appState.getActiveTab() !== 'main';
 
-    // Only visible in project mode
-    if (!isProjectTab || !project) {
+    // Visible for both Main tab and project tabs (with a project loaded)
+    if (!isMainTab && !project) {
       this.container.style.display = 'none';
       if (!this.container.parentElement) {
         this.parentElement.appendChild(this.container);
@@ -54,25 +59,38 @@ export class ProjectHeader {
     this.container.style.display = '';
 
     // Left: project icon + name (clickable → opens project properties)
+    // For Main tab, show a simple title without click-to-edit
     const titleSection = createElement('div', { className: 'project-header__title' });
-    titleSection.style.cursor = 'pointer';
-    titleSection.title = 'Project properties';
-    titleSection.addEventListener('click', () => {
-      if (projectId) {
-        eventBus.emit(EVENTS.PROJECT_PROPERTIES_OPEN, { projectId });
-      }
-    });
-    const emoji = createElement('span', { className: 'project-header__emoji' });
-    emoji.textContent = project.emoji || '📁';
-    const name = createElement('span', { className: 'project-header__name' });
-    name.textContent = project.name;
-    titleSection.appendChild(emoji);
-    titleSection.appendChild(name);
+    if (isMainTab) {
+      const emoji = createElement('span', { className: 'project-header__emoji' });
+      emoji.textContent = '💬';
+      const name = createElement('span', { className: 'project-header__name' });
+      name.textContent = 'Main';
+      titleSection.appendChild(emoji);
+      titleSection.appendChild(name);
+    } else {
+      titleSection.style.cursor = 'pointer';
+      titleSection.title = 'Project properties';
+      titleSection.addEventListener('click', () => {
+        if (projectId) {
+          eventBus.emit(EVENTS.PROJECT_PROPERTIES_OPEN, { projectId });
+        }
+      });
+      const emoji = createElement('span', { className: 'project-header__emoji' });
+      emoji.textContent = project!.emoji || '📁';
+      const name = createElement('span', { className: 'project-header__name' });
+      name.textContent = project!.name;
+      titleSection.appendChild(emoji);
+      titleSection.appendChild(name);
+    }
 
-    // Right: navigation tabs
+    // Right: navigation tabs — Main gets a subset, projects get all
     const tabBar = createElement('nav', { className: 'project-header__tabs' });
+    const visibleTabs = isMainTab
+      ? PROJECT_TABS.filter(t => MAIN_TABS.includes(t.view))
+      : PROJECT_TABS;
 
-    for (const tab of PROJECT_TABS) {
+    for (const tab of visibleTabs) {
       const isActive = currentView === tab.view;
       const btn = createElement('button', {
         className: `project-header__tab${isActive ? ' project-header__tab--active' : ''}`,

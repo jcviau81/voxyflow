@@ -180,7 +180,8 @@ export class App {
         const activeTab = appState.getActiveTab();
         if (activeTab === 'main') {
           const currentView = appState.get('currentView');
-          if (currentView === 'kanban' || currentView === 'projects' || currentView === 'stats' || currentView === 'roadmap' || currentView === 'wiki' || currentView === 'sprint' || currentView === 'docs') {
+          // Main tab supports chat, kanban, freeboard — force others back to chat
+          if (currentView === 'projects' || currentView === 'stats' || currentView === 'roadmap' || currentView === 'wiki' || currentView === 'sprint' || currentView === 'docs' || currentView === 'knowledge') {
             this.switchView('chat');
             appState.set('currentView', 'chat');
           }
@@ -697,10 +698,7 @@ export class App {
         appState.setView('chat');
       } else if (e.ctrlKey && e.key === '2') {
         e.preventDefault();
-        // Kanban only available in project mode
-        if (appState.getActiveTab() !== 'main') {
-          appState.setView('kanban');
-        }
+        appState.setView('kanban');
       } else if (e.ctrlKey && e.key === 'f') {
         // Don't intercept when user is typing in an input or textarea
         const target = e.target as HTMLElement;
