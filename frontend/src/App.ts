@@ -171,7 +171,23 @@ export class App {
         // On mobile: toggle .open class on sidebar-container for slide-in
         const sidebarEl = this.root.querySelector('.sidebar-container');
         if (sidebarEl) {
-          sidebarEl.classList.toggle('open');
+          const isOpen = sidebarEl.classList.toggle('open');
+          // Add/remove overlay to close sidebar by tapping outside
+          let overlay = this.root.querySelector('.sidebar-overlay') as HTMLElement | null;
+          if (isOpen) {
+            if (!overlay) {
+              overlay = document.createElement('div');
+              overlay.className = 'sidebar-overlay';
+              overlay.addEventListener('click', () => {
+                sidebarEl.classList.remove('open');
+                this.root.classList.toggle('sidebar-collapsed');
+                overlay?.remove();
+              });
+              this.root.appendChild(overlay);
+            }
+          } else {
+            overlay?.remove();
+          }
         }
       })
     );
