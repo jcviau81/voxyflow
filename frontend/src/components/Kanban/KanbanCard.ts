@@ -403,6 +403,8 @@ export class KanbanCard {
       this.updateSelectedVisual();
       this.onSelectChange?.(this.card.id, this.selected);
     });
+    checkbox.addEventListener('click', (e) => e.stopPropagation());
+    checkboxWrapper.addEventListener('click', (e) => e.stopPropagation());
     checkboxWrapper.appendChild(checkbox);
     this.checkboxEl = checkbox;
     this.element.appendChild(checkboxWrapper);
