@@ -27,6 +27,11 @@ export class FreeBoard {
   private initialLoadDone = false;
   private activePickerCleanup: (() => void) | null = null;
 
+  /** The project whose cards we're currently displaying. */
+  private get currentProjectId(): string {
+    return (appState.get('currentProjectId') as string) || SYSTEM_PROJECT_ID;
+  }
+
   constructor(parentElement: HTMLElement) {
     this.container = createElement('div', { className: 'freeboard-container' });
     this.container.setAttribute('data-testid', 'freeboard');
@@ -39,15 +44,32 @@ export class FreeBoard {
   // ── Initial load & migration ─────────────────────────────────
 
   private async loadCards(): Promise<void> {
-    // Migrate old localStorage ideas on first load
-    const ideas = appState.getIdeas();
-    if (ideas.length > 0) {
-      await mainBoardService.migrateIdeasToCards();
+    const projectId = this.currentProjectId;
+
+    if (projectId === SYSTEM_PROJECT_ID) {
+      // Migrate old localStorage ideas on first load (system-main only)
+      const ideas = appState.getIdeas();
+      if (ideas.length > 0) {
+        await mainBoardService.migrateIdeasToCards();
+      }
+      // Fetch from API via MainBoardService (backward compat)
+      await mainBoardService.ensureLoaded();
+    } else {
+      // Fetch project cards into the reactive card store
+      await this.fetchProjectCards(projectId);
     }
-    // Fetch from API
-    await mainBoardService.ensureLoaded();
     this.initialLoadDone = true;
     this.renderGrid();
+  }
+
+  /** Fetch cards for a non-system project into the cardStore. */
+  private async fetchProjectCards(projectId: string): Promise<void> {
+    try {
+      const freshCards = await apiClient.fetchCards(projectId) as Card[];
+      cardStore.setForProject(projectId, freshCards);
+    } catch (e) {
+      console.error('[FreeBoard] fetchProjectCards error:', e);
+    }
   }
 
   // ── Lifecycle ────────────────────────────────────────────────
@@ -57,12 +79,19 @@ export class FreeBoard {
     this.unsubscribers.push(
       cardStore.subscribe(() => this.renderGrid())
     );
+    // Re-load cards when the active project changes
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.PROJECT_SELECTED, () => {
+        this.initialLoadDone = false;
+        this.loadCards();
+      })
+    );
     // Legacy: still listen for analyzer suggestions
     this.unsubscribers.push(
       eventBus.on(EVENTS.IDEA_SUGGESTION, (data: unknown) => {
         const suggestion = data as { content: string };
         if (suggestion.content) {
-          mainBoardService.createCard(suggestion.content).then(() => {
+          this.createCardForCurrentProject(suggestion.content).then(() => {
             eventBus.emit(EVENTS.TOAST_SHOW, {
               message: '💡 Card created',
               type: 'info',
@@ -72,6 +101,65 @@ export class FreeBoard {
         }
       })
     );
+  }
+
+  /** Create a card in the current project (system-main or other). */
+  private async createCardForCurrentProject(
+    title: string,
+    description?: string,
+    color?: string,
+  ): Promise<Card | null> {
+    const projectId = this.currentProjectId;
+
+    if (projectId === SYSTEM_PROJECT_ID) {
+      return mainBoardService.createCard(title, description, color);
+    }
+
+    // Create via generic API for non-system projects
+    try {
+      const API_URL_BASE = process.env.VOXYFLOW_API_URL || '';
+      const response = await fetch(`${API_URL_BASE}/api/projects/${projectId}/cards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          description: description || '',
+          color: color || null,
+          priority: 0,
+          status: 'card',
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const raw = await response.json();
+      // Map API response to Card type (same mapping as apiClient.fetchCards)
+      const card: Card = {
+        id: raw.id,
+        title: raw.title,
+        description: raw.description || '',
+        status: raw.status || 'card',
+        projectId: raw.project_id ?? projectId,
+        color: raw.color || null,
+        assignedAgent: undefined,
+        agentType: raw.agent_type || undefined,
+        dependencies: raw.dependency_ids || [],
+        tags: raw.tags || [],
+        priority: raw.priority || 0,
+        createdAt: raw.created_at ? new Date(raw.created_at).getTime() : Date.now(),
+        updatedAt: raw.updated_at ? new Date(raw.updated_at).getTime() : Date.now(),
+        chatHistory: [],
+        totalMinutes: raw.total_minutes || 0,
+        checklistProgress: raw.checklist_progress,
+        assignee: raw.assignee || null,
+        watchers: raw.watchers || '',
+        votes: raw.votes || 0,
+        files: raw.files || [],
+      };
+      cardStore.upsert(card);
+      return card;
+    } catch (error) {
+      console.error('[FreeBoard] createCard error:', error);
+      return null;
+    }
   }
 
   // ── Render shell ──────────────────────────────────────────────
@@ -110,7 +198,10 @@ export class FreeBoard {
       this.grid.appendChild(formEl);
     }
 
-    const cards = appState.getMainBoardCards();
+    const projectId = this.currentProjectId;
+    // Get cards for the current project, filtered to board-view statuses (card/idea)
+    const allProjectCards = cardStore.getByProject(projectId);
+    const cards = allProjectCards.filter(c => c.status === 'card' || c.status === 'idea');
 
     if (cards.length === 0) {
       const empty = createElement('div', { className: 'freeboard-empty' });
@@ -432,8 +523,8 @@ export class FreeBoard {
     const description = bodyInput.value.trim();
     const color = this.selectedColor;
 
-    // Create via API
-    await mainBoardService.createCard(title, description || undefined, color || undefined);
+    // Create via API in the current project
+    await this.createCardForCurrentProject(title, description || undefined, color || undefined);
 
     this.hideForm();
   }
