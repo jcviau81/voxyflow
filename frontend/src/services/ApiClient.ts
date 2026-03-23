@@ -202,6 +202,8 @@ export class ApiClient {
       this.updateState('connected');
       this.startHeartbeat();
       this.flushOfflineQueue();
+      // Sync projects from backend on connect (ensures favorites, etc. are fresh)
+      this.syncProjectsFromBackend();
       eventBus.emit(EVENTS.WS_CONNECTED);
     };
 
