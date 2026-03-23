@@ -176,8 +176,8 @@ class SessionStore:
                 messages = data.get("messages", [])
                 message_count = data.get("message_count", len(messages))
 
-                # Filter: skip card sessions, skip sessions with ≤1 message
-                if chat_id.startswith("card:"):
+                # Filter: only project sessions with >1 message
+                if not chat_id.startswith("project:"):
                     continue
                 if message_count <= 1:
                     continue
