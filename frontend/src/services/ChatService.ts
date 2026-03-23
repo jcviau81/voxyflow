@@ -5,7 +5,7 @@ import { appState } from '../state/AppState';
 import { apiClient } from './ApiClient';
 import { generateId, sleep } from '../utils/helpers';
 import { ModelStatusBar } from '../components/Navigation/ModelStatusBar';
-import { ttsService } from './TtsService';
+// TTS auto-play is handled centrally by ChatWindow (via MESSAGE_RECEIVED / MESSAGE_STREAM_END events)
 
 export class ChatService {
   private streamingMessages: Map<string, { content: string; messageId: string }> = new Map();
@@ -153,11 +153,7 @@ export class ChatService {
             isWorkerResult: true,
           });
           eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);
-
-          // Auto-play TTS for worker results
-          if (success) {
-            ttsService.speakIfAutoPlay(result);
-          }
+          // TTS handled by ChatWindow via MESSAGE_RECEIVED listener
         }
 
         // Toast as secondary notification
@@ -412,9 +408,7 @@ export class ChatService {
         messageId: stream.messageId,
         content,
       });
-
-      // Auto-play TTS after stream completes
-      ttsService.speakIfAutoPlay(content);
+      // TTS handled by ChatWindow via MESSAGE_STREAM_END listener
     }
   }
 
@@ -425,9 +419,7 @@ export class ChatService {
       sessionId,
     });
     eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);
-
-    // Auto-play TTS for assistant responses
-    ttsService.speakIfAutoPlay(content);
+    // TTS handled by ChatWindow via MESSAGE_RECEIVED listener
   }
 
   /**
