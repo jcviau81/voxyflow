@@ -408,12 +408,48 @@
   .chat-input-area {
     flex-shrink: 0 !important;
     z-index: 10;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding: 4px 8px;
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
 
-  /* Prevent iOS zoom on input focus */
+  .chat-input-row {
+    gap: 4px !important;
+  }
+
+  /* Prevent iOS zoom on input focus + compact sizing */
   .chat-input {
     font-size: 16px !important;
+    min-height: 34px !important;
+    max-height: 80px !important;
+    padding: 6px 10px !important;
+  }
+
+  .chat-send-btn {
+    width: 34px !important;
+    height: 34px !important;
+  }
+
+  /* Compact voice input on mobile */
+  .voice-input .voice-btn {
+    width: 34px !important;
+    height: 34px !important;
+  }
+
+  /* Emoji picker smaller on mobile */
+  .emoji-picker-btn {
+    width: 34px !important;
+    height: 34px !important;
+    font-size: 0.875rem !important;
+  }
+
+  /* Compact new chat button */
+  .chat-new-session-mobile {
+    padding: 2px 8px !important;
+  }
+
+  /* Reduce chat messages padding */
+  .chat-messages {
+    padding: 8px !important;
   }
 
   /* Hide quick replies on mobile */
