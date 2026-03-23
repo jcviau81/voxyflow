@@ -470,8 +470,12 @@ export class ProjectForm {
     try {
       const response = await fetch(`${API_URL}/api/github/validate/${parsed.owner}/${parsed.repo}`);
       if (!response.ok) {
-        const err = await response.json().catch(() => ({ detail: 'Repository not found' }));
-        this.showGitHubError(err.detail || 'Repository not found');
+        if (response.status === 404) {
+          this.showGitHubCreateOffer(parsed.repo);
+        } else {
+          const err = await response.json().catch(() => ({ detail: 'Repository not found' }));
+          this.showGitHubError(err.detail || 'Repository not found');
+        }
         return;
       }
 
@@ -480,6 +484,51 @@ export class ProjectForm {
       this.showGitHubConnected(info);
     } catch (e) {
       this.showGitHubError('Failed to connect to GitHub API. Check Settings → GitHub.');
+    }
+  }
+
+  private showGitHubCreateOffer(repoName: string): void {
+    if (!this.githubStatusEl) return;
+    this.githubInfo = null;
+    this.githubStatusEl.className = 'github-status';
+    this.githubStatusEl.innerHTML = `
+      <div class="github-create-offer">
+        <span>Repository not found.</span>
+        <button type="button" class="btn-secondary btn-small" data-testid="github-create-btn">
+          Create on GitHub (private)
+        </button>
+      </div>
+    `;
+
+    const createBtn = this.githubStatusEl.querySelector('[data-testid="github-create-btn"]');
+    createBtn?.addEventListener('click', () => this.handleGitHubCreate(repoName));
+  }
+
+  private async handleGitHubCreate(repoName: string): Promise<void> {
+    if (!this.githubStatusEl) return;
+
+    this.githubStatusEl.className = 'github-status';
+    this.githubStatusEl.innerHTML = '<span class="github-loading">⏳ Creating repository...</span>';
+
+    try {
+      const description = this.descInput?.value.trim() || '';
+      const response = await fetch(`${API_URL}/api/github/create-repo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: repoName, description, private: true }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Failed to create repository' }));
+        this.showGitHubError(err.detail || 'Failed to create repository');
+        return;
+      }
+
+      const info: GitHubRepoInfo = await response.json();
+      this.githubInfo = info;
+      this.showGitHubConnected(info);
+    } catch (e) {
+      this.showGitHubError('Failed to create repository. Check Settings → GitHub.');
     }
   }
 

@@ -1,4 +1,5 @@
 import { createElement } from '../../utils/helpers';
+import { historyManager } from '../../utils/HistoryManager';
 
 interface ShortcutEntry {
   keys: string[];
@@ -148,6 +149,7 @@ export class KeyboardShortcutsModal {
   show(): void {
     this.isVisible = true;
     this.overlay.classList.remove('hidden');
+    historyManager.push('shortcuts-modal', () => this.hide());
     // Attach click-outside after a tick to avoid immediate close
     setTimeout(() => {
       this.overlay.addEventListener('click', this.boundClickOutside);
@@ -158,6 +160,7 @@ export class KeyboardShortcutsModal {
     this.isVisible = false;
     this.overlay.classList.add('hidden');
     this.overlay.removeEventListener('click', this.boundClickOutside);
+    historyManager.remove('shortcuts-modal');
   }
 
   destroy(): void {

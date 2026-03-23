@@ -262,6 +262,60 @@ async def github_status():
     return result
 
 
+class CreateRepoPayload(BaseModel):
+    name: str
+    description: str = ""
+    private: bool = True
+
+
+@router.post("/create-repo")
+async def create_repo(payload: CreateRepoPayload):
+    """Create a new GitHub repository for the authenticated user."""
+    pat = _load_pat()
+    if not pat:
+        raise HTTPException(401, "GitHub token not configured. Go to Settings → GitHub.")
+
+    headers = _github_headers()
+    body = {
+        "name": payload.name,
+        "description": payload.description,
+        "private": payload.private,
+        "auto_init": True,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{GITHUB_API}/user/repos", headers=headers, json=body
+            )
+    except httpx.TimeoutException:
+        raise HTTPException(504, "GitHub API timeout")
+    except Exception as e:
+        raise HTTPException(502, f"GitHub API unreachable: {e}")
+
+    if resp.status_code == 401:
+        raise HTTPException(401, "GitHub token invalid or expired")
+    if resp.status_code == 422:
+        detail = resp.json().get("message", "Repository already exists or invalid name")
+        raise HTTPException(422, detail)
+    if not resp.is_success:
+        raise HTTPException(resp.status_code, f"GitHub API error: {resp.text[:200]}")
+
+    data = resp.json()
+    return {
+        "valid": True,
+        "full_name": data["full_name"],
+        "description": data.get("description", ""),
+        "default_branch": data.get("default_branch", "main"),
+        "language": data.get("language"),
+        "stars": 0,
+        "private": data.get("private", True),
+        "html_url": data["html_url"],
+        "clone_url": data.get("clone_url", ""),
+        "updated_at": data.get("updated_at", ""),
+    }
+
+
 class TokenPayload(BaseModel):
     token: str
 
@@ -312,41 +366,19 @@ async def delete_github_token():
 @router.get("/validate/{owner}/{repo}")
 async def validate_repo(owner: str, repo: str):
     """Validate a GitHub repo exists and return info."""
-    try:
-        result = _run_gh(["api", f"/repos/{owner}/{repo}"])
-        if result.returncode != 0:
-            stderr = result.stderr.lower()
-            if "auth" in stderr or "login" in stderr or "token" in stderr:
-                raise HTTPException(
-                    401,
-                    "GitHub not configured. Go to Settings → GitHub to connect.",
-                )
-            raise HTTPException(404, "Repository not found")
-
-        data = json.loads(result.stdout)
-        return {
-            "valid": True,
-            "full_name": data["full_name"],
-            "description": data.get("description", ""),
-            "default_branch": data["default_branch"],
-            "language": data.get("language"),
-            "stars": data.get("stargazers_count", 0),
-            "private": data["private"],
-            "html_url": data["html_url"],
-            "clone_url": data["clone_url"],
-            "updated_at": data["updated_at"],
-        }
-    except FileNotFoundError:
-        raise HTTPException(
-            503,
-            "GitHub CLI (gh) not installed. Go to Settings → GitHub to configure.",
-        )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(504, "GitHub API timeout")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    data = await _gh_get(f"/repos/{owner}/{repo}")
+    return {
+        "valid": True,
+        "full_name": data["full_name"],
+        "description": data.get("description", ""),
+        "default_branch": data.get("default_branch", "main"),
+        "language": data.get("language"),
+        "stars": data.get("stargazers_count", 0),
+        "private": data.get("private", False),
+        "html_url": data["html_url"],
+        "clone_url": data.get("clone_url", ""),
+        "updated_at": data.get("updated_at", ""),
+    }
 
 
 @router.post("/clone")

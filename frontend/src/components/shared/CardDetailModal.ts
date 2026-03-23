@@ -19,6 +19,7 @@ import { chatService } from '../../services/ChatService';
 import { apiClient } from '../../services/ApiClient';
 import { FocusMode } from '../FocusMode/FocusMode';
 import { mainBoardService } from '../../services/MainBoardService';
+import { historyManager } from '../../utils/HistoryManager';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -172,9 +173,11 @@ export class CardDetailModal {
     });
     this.renderContent();
     this.overlay.classList.remove('hidden');
+    historyManager.push('card-detail-modal', () => this.close());
   }
 
   close(): void {
+    historyManager.remove('card-detail-modal');
     this.destroyCodeMirror();
     // Unsubscribe from card-specific updates
     if (this.cardStoreUnsub) {
@@ -1658,7 +1661,7 @@ export class CardDetailModal {
       });
       statusRow.appendChild(btn);
     }
-    rightCol.appendChild(statusRow);
+    // (status row assembled below in groups)
 
     // Vote section
     const voteSection = this.buildVoteSection(this.card);
@@ -1687,7 +1690,7 @@ export class CardDetailModal {
 
     agentSection.appendChild(agentLabel);
     agentSection.appendChild(agentSelector);
-    rightCol.appendChild(agentSection);
+    // (agent section assembled below in groups)
 
     // Assignee & Watchers
     const assigneeWatchersSection = this.buildAssigneeWatchersSection(this.card);
@@ -1762,8 +1765,9 @@ export class CardDetailModal {
     tagsSection.appendChild(tagsContainer);
 
     // Dependencies
+    let depsSection: HTMLElement;
     {
-      const depsSection = createElement('div', { className: 'modal-section' });
+      depsSection = createElement('div', { className: 'modal-section' });
       const depsLabel = createElement('label', { className: 'modal-label' }, 'Dependencies');
 
       const chipsContainer = createElement('div', { className: 'dependency-chips-container' });
@@ -1829,7 +1833,7 @@ export class CardDetailModal {
       depsSection.appendChild(depsLabel);
       depsSection.appendChild(chipsContainer);
       depsSection.appendChild(addDepRow);
-      rightCol.appendChild(depsSection);
+      // (deps section assembled below in groups)
     }
 
     // Checklist
@@ -1839,7 +1843,7 @@ export class CardDetailModal {
     const attachmentsSection = this.buildAttachmentsSection(this.card.id);
 
     // Relations
-    rightCol.appendChild(this.buildRelationsSection(this.card));
+    const relationsSection = this.buildRelationsSection(this.card);
 
     // Time tracking
     const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
@@ -1851,8 +1855,9 @@ export class CardDetailModal {
     const historySection = this.buildHistorySection(this.card.id);
 
     // Color picker
+    let colorSection: HTMLElement;
     {
-      const colorSection = createElement('div', { className: 'modal-section' });
+      colorSection = createElement('div', { className: 'modal-section' });
       const colorLabel = createElement('label', { className: 'modal-label' }, 'Color');
       const colorRow = createElement('div', { className: 'card-detail-color-row' });
       let selectedSwatch: HTMLElement | null = null;
@@ -1882,12 +1887,13 @@ export class CardDetailModal {
 
       colorSection.appendChild(colorLabel);
       colorSection.appendChild(colorRow);
-      rightCol.appendChild(colorSection);
+      // (color section assembled below in groups)
     }
 
     // Assign to Project
+    let promoteSection: HTMLElement;
     {
-      const promoteSection = createElement('div', { className: 'modal-section', style: 'position: relative;' });
+      promoteSection = createElement('div', { className: 'modal-section', style: 'position: relative;' });
       const promoteBtn = createElement('button', {
         className: 'note-detail-promote-btn',
         type: 'button',
@@ -1898,7 +1904,7 @@ export class CardDetailModal {
         this.showProjectPicker(promoteBtn, this.card);
       });
       promoteSection.appendChild(promoteBtn);
-      rightCol.appendChild(promoteSection);
+      // (promote section assembled below in groups)
     }
 
     // Metadata
@@ -1946,27 +1952,100 @@ export class CardDetailModal {
     // ── Workspace Files section ──────────────────────────────────────────────
     const filesSection = this.buildFilesSection();
 
-    // ── Assemble right column ────────────────────────────────────────────────
-    // Removed: votes, assignee, watchers — personal workflow, not Jira
-    // rightCol.appendChild(voteSection);
-    // rightCol.appendChild(assigneeWatchersSection);
-    rightCol.appendChild(tagsSection);
-    rightCol.appendChild(checklistSection);
-    rightCol.appendChild(filesSection);
-    rightCol.appendChild(attachmentsSection);
-    rightCol.appendChild(timeSection);
-    rightCol.appendChild(commentsSection);
-    rightCol.appendChild(historySection);
-    rightCol.appendChild(focusSection);
-    rightCol.appendChild(metaSection);
-    rightCol.appendChild(dangerZone);
+    // ── Assemble right column (grouped layout) ──────────────────────────────
+
+    // Group 1: Status & Agent
+    const groupStatus = createElement('div', { className: 'details-group' });
+    groupStatus.appendChild(statusRow);
+    groupStatus.appendChild(agentSection);
+    rightCol.appendChild(groupStatus);
+
+    // Group 2: Organization (tags, color, assign to project)
+    const groupOrg = createElement('div', { className: 'details-group' });
+    const groupOrgHeader = createElement('div', { className: 'details-group-header' }, 'Organization');
+    groupOrg.appendChild(groupOrgHeader);
+    groupOrg.appendChild(tagsSection);
+    groupOrg.appendChild(colorSection);
+    groupOrg.appendChild(promoteSection);
+    rightCol.appendChild(groupOrg);
+
+    // Group 3: Tracking (checklist, files, attachments)
+    const groupTracking = createElement('div', { className: 'details-group' });
+    const groupTrackingHeader = createElement('div', { className: 'details-group-header' }, 'Tracking');
+    groupTracking.appendChild(groupTrackingHeader);
+    groupTracking.appendChild(checklistSection);
+    groupTracking.appendChild(filesSection);
+    groupTracking.appendChild(attachmentsSection);
+    groupTracking.appendChild(timeSection);
+    rightCol.appendChild(groupTracking);
+
+    // Group 4: Dependencies & Relations
+    const groupDeps = createElement('div', { className: 'details-group' });
+    const groupDepsHeader = createElement('div', { className: 'details-group-header' }, 'Links');
+    groupDeps.appendChild(groupDepsHeader);
+    groupDeps.appendChild(depsSection);
+    groupDeps.appendChild(relationsSection);
+    rightCol.appendChild(groupDeps);
+
+    // Group 5: Activity (comments, history)
+    const groupActivity = createElement('div', { className: 'details-group' });
+    const groupActivityHeader = createElement('div', { className: 'details-group-header' }, 'Activity');
+    groupActivity.appendChild(groupActivityHeader);
+    groupActivity.appendChild(commentsSection);
+    groupActivity.appendChild(historySection);
+    rightCol.appendChild(groupActivity);
+
+    // Footer: meta, focus, delete
+    const groupFooter = createElement('div', { className: 'details-group details-group--footer' });
+    groupFooter.appendChild(metaSection);
+    groupFooter.appendChild(focusSection);
+    groupFooter.appendChild(dangerZone);
+    rightCol.appendChild(groupFooter);
 
     // ── Assemble modal ───────────────────────────────────────────────────────
     body.appendChild(leftCol);
     body.appendChild(centerCol);
     body.appendChild(rightCol);
     this.modal.appendChild(header);
+
+    // ── Mobile tab bar (hidden on desktop via CSS) ───────────────────────────
+    const tabBar = createElement('div', { className: 'mobile-tab-bar' });
+    const tabs = [
+      { key: 'description', label: 'Description', col: leftCol },
+      { key: 'chat', label: 'Chat', col: centerCol },
+      { key: 'details', label: 'Details', col: rightCol },
+    ];
+
+    const setActiveTab = (activeKey: string) => {
+      tabs.forEach(({ key, col }) => {
+        const tabBtn = tabBar.querySelector(`[data-tab="${key}"]`);
+        if (key === activeKey) {
+          tabBtn?.classList.add('active');
+          col.classList.remove('mobile-tab-hidden');
+          col.classList.add('mobile-tab-visible');
+        } else {
+          tabBtn?.classList.remove('active');
+          col.classList.add('mobile-tab-hidden');
+          col.classList.remove('mobile-tab-visible');
+        }
+      });
+    };
+
+    tabs.forEach(({ key, label }) => {
+      const tabBtn = createElement('button', {
+        className: `mobile-tab-btn ${key === 'description' ? 'active' : ''}`,
+        'data-tab': key,
+        type: 'button',
+      }, label);
+      tabBtn.addEventListener('click', () => setActiveTab(key));
+      tabBar.appendChild(tabBtn);
+    });
+
+    this.modal.appendChild(tabBar);
     this.modal.appendChild(body);
+
+    // Apply initial mobile tab state (description visible by default)
+    setActiveTab('description');
 
     // Populate existing chat history
     this.refreshChat();

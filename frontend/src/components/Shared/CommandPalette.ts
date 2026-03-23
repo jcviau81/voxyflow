@@ -5,6 +5,7 @@ import { EVENTS } from '../../utils/constants';
 import { Tab } from '../../types';
 import { FocusMode } from '../FocusMode/FocusMode';
 import { openMeetingNotesModal } from '../Chat/MeetingNotesModal';
+import { historyManager } from '../../utils/HistoryManager';
 
 interface PaletteAction {
   id: string;
@@ -372,6 +373,7 @@ export class CommandPalette {
     this.input.value = '';
     this.overlay.classList.remove('hidden');
     this.renderResults('');
+    historyManager.push('command-palette', () => this.hide());
     setTimeout(() => {
       this.input.focus();
       this.overlay.addEventListener('click', this.boundClickOutside);
@@ -382,6 +384,7 @@ export class CommandPalette {
     this.isVisible = false;
     this.overlay.classList.add('hidden');
     this.overlay.removeEventListener('click', this.boundClickOutside);
+    historyManager.remove('command-palette');
   }
 
   destroy(): void {

@@ -23,6 +23,7 @@ import { WorkerPanel } from './components/RightPanel/WorkerPanel';
 import { FreeBoard } from './components/FreeBoard/FreeBoard';
 import { SettingsPage } from './components/Settings/SettingsPage';
 import { FocusMode } from './components/FocusMode/FocusMode';
+import { historyManager } from './utils/HistoryManager';
 import { ProjectStats } from './components/Projects/ProjectStats';
 import { ProjectKnowledge } from './components/Projects/ProjectKnowledge';
 import { SprintPlanner } from './components/Projects/SprintPlanner';
@@ -157,6 +158,17 @@ export class App {
     }
   }
 
+  private closeMobileSidebar(): void {
+    const sidebarEl = this.root.querySelector('.sidebar-container');
+    if (sidebarEl) sidebarEl.classList.remove('open');
+    if (!this.root.classList.contains('sidebar-collapsed')) {
+      this.root.classList.add('sidebar-collapsed');
+    }
+    const overlay = this.root.querySelector('.sidebar-overlay') as HTMLElement | null;
+    overlay?.remove();
+    historyManager.remove('mobile-sidebar');
+  }
+
   private setupListeners(): void {
     this.unsubscribers.push(
       eventBus.on(EVENTS.VIEW_CHANGE, (view: unknown) => {
@@ -178,14 +190,14 @@ export class App {
               overlay = document.createElement('div');
               overlay.className = 'sidebar-overlay';
               overlay.addEventListener('click', () => {
-                sidebarEl.classList.remove('open');
-                this.root.classList.toggle('sidebar-collapsed');
-                overlay?.remove();
+                this.closeMobileSidebar();
               });
               this.root.appendChild(overlay);
             }
+            historyManager.push('mobile-sidebar', () => this.closeMobileSidebar());
           } else {
             overlay?.remove();
+            historyManager.remove('mobile-sidebar');
           }
         }
       })
