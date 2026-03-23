@@ -228,11 +228,9 @@ export class ChatWindow {
     this.chatSearch = new ChatSearch(this.parentElement);
   }
 
-  private getChatLevel(): 'general' | 'project' | 'card' {
+  private getChatLevel(): 'project' | 'card' {
     const cardId = appState.get('selectedCardId');
     if (cardId) return 'card';
-    const activeTab = appState.getActiveTab();
-    if (activeTab === 'main') return 'general';
     return 'project';
   }
 
@@ -447,29 +445,12 @@ export class ChatWindow {
     return viewToggle;
   }
 
-  private switchSession(sessionId: string): void {
-    if (sessionId === this.activeSessionId) return;
-    this.activeSessionId = sessionId;
-    chatService.activeSessionId = sessionId;
-    // Clear unread indicator for this session
-    this.clearSessionUnread(sessionId);
-    this.reloadMessages();
-    this.updateChatControls();
-  }
-
   /**
-   * Returns the active session ID for the current chat context (project, card, or general).
+   * Returns the active session ID for the current chat context.
    * Used to guard against rendering messages from other views.
    */
   private getActiveSessionId(): string | undefined {
-    const chatLevel = this.getChatLevel();
-    if (chatLevel === 'general') {
-      return this.activeSessionId;
-    }
-    const activeTabId = appState.getActiveTab();
-    const contextTabId = chatLevel === 'card'
-      ? (appState.get('selectedCardId') || activeTabId)
-      : activeTabId;
+    const contextTabId = this.getContextTabId();
     const sessions = appState.getSessions(contextTabId);
     if (sessions.length > 0) {
       return appState.getActiveChatId(contextTabId) || undefined;
@@ -499,19 +480,7 @@ export class ChatWindow {
       return false;
     }
 
-    const chatLevel = this.getChatLevel();
-
-    if (chatLevel === 'general') {
-      // General chat: only render if sessionId matches the active general session
-      return message.sessionId === this.activeSessionId;
-    }
-
-    // Project / card chat
-    const activeTabId = appState.getActiveTab();
-    const contextTabId = chatLevel === 'card'
-      ? (appState.get('selectedCardId') || activeTabId)
-      : activeTabId;
-
+    const contextTabId = this.getContextTabId();
     const activeChatId = appState.getActiveChatId(contextTabId);
     return message.sessionId === activeChatId;
   }
@@ -791,17 +760,11 @@ export class ChatWindow {
       })
     );
 
-    // Session tab switch (project/card context) — reload messages for new session
+    // Session tab switch — reload messages for new session
     this.unsubscribers.push(
       eventBus.on(EVENTS.SESSION_TAB_SWITCH, (data: unknown) => {
         const { tabId } = data as { tabId: string; sessionId: string };
-        const chatLevel = this.getChatLevel();
-        if (chatLevel === 'general') return; // Not our concern here
-
-        const activeTabId = appState.getActiveTab();
-        const contextTabId = chatLevel === 'card'
-          ? (appState.get('selectedCardId') || activeTabId)
-          : activeTabId;
+        const contextTabId = this.getContextTabId();
         if (tabId === contextTabId) {
           this.reloadMessages();
         }
@@ -899,25 +862,15 @@ export class ChatWindow {
     this.welcomePrompt?.destroy();
     this.welcomePrompt = null;
 
-    const chatLevel = this.getChatLevel();
+    const contextTabId = this.getContextTabId();
     let sessionId: string | undefined;
-
-    if (chatLevel === 'general') {
-      sessionId = this.activeSessionId;
-    } else {
-      const activeTabId = appState.getActiveTab();
-      const contextTabId = chatLevel === 'card'
-        ? (appState.get('selectedCardId') || activeTabId)
-        : activeTabId;
-      // Only filter by session chatId if sessions have been created (non-empty)
-      const sessions = appState.getSessions(contextTabId);
-      if (sessions.length > 0) {
-        sessionId = appState.getActiveChatId(contextTabId);
-      }
+    const sessionsRL = appState.getSessions(contextTabId);
+    if (sessionsRL.length > 0) {
+      sessionId = appState.getActiveChatId(contextTabId);
     }
 
     const messages = chatService.getHistory(
-      appState.get('currentProjectId') || undefined,
+      appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
       sessionId
     );
 
@@ -936,6 +889,7 @@ export class ChatWindow {
    */
   private async loadHistoryFromBackend(): Promise<void> {
     const chatLevel = this.getChatLevel();
+    const contextTabId = this.getContextTabId();
     let backendChatId: string;
     let projectId: string | undefined;
     let cardId: string | undefined;
@@ -946,27 +900,18 @@ export class ChatWindow {
       if (!cid) { this.showWelcomePrompt(); return; }
       backendChatId = `card:${cid}`;
       cardId = cid;
-      projectId = appState.get('currentProjectId') || undefined;
-    } else if (chatLevel === 'project') {
-      const activeTabId = appState.getActiveTab();
-      const contextTabId = activeTabId;
+      projectId = appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
+    } else {
+      // Project chat (including Main/system-main)
       const sessions = appState.getSessions(contextTabId);
       if (sessions.length > 0) {
         const activeChatId = appState.getActiveChatId(contextTabId);
-        // The session chatId format is "{tabId}::{randomId}" — backend uses "project:{tabId}"
         backendChatId = `project:${contextTabId}`;
         sessionId = activeChatId;
       } else {
         backendChatId = `project:${contextTabId}`;
       }
-      projectId = appState.get('currentProjectId') || undefined;
-    } else {
-      // General / Main chat — now backed by system-main project
-      backendChatId = this.activeSessionId
-        ? `project:${SYSTEM_PROJECT_ID}:${this.activeSessionId}`
-        : `project:${SYSTEM_PROJECT_ID}`;
-      sessionId = this.activeSessionId;
-      projectId = SYSTEM_PROJECT_ID;
+      projectId = appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
     }
 
     const loaded = await chatService.loadHistory(backendChatId, projectId, cardId, sessionId);
@@ -1020,22 +965,14 @@ export class ChatWindow {
     this.container.querySelector('.session-tab-bar-wrap')?.remove();
     this.container.querySelector('.github-panel-wrap')?.remove();
 
-    // Also destroy the GitHub panel reference (its DOM was just removed above)
     if (this.githubPanel) {
-      // destroy() calls container.remove() but the wrap was already removed — that's fine
       this.githubPanel = null;
     }
 
-    const chatLevel = this.getChatLevel();
-
-    // Recreate SessionTabBar for project / card contexts
-    if (chatLevel === 'project' || chatLevel === 'card') {
-      const activeTabId = appState.getActiveTab();
-      const sessionTabId = chatLevel === 'card'
-        ? (appState.get('selectedCardId') || activeTabId)
-        : activeTabId;
+    // Recreate SessionTabBar for all contexts (main, project, card)
+    {
+      const sessionTabId = this.getContextTabId();
       const sessionTabBarContainer = createElement('div', { className: 'session-tab-bar-wrap' });
-      // Insert before the message list so the order matches render()
       if (this.messageList && this.messageList.parentElement === this.container) {
         this.container.insertBefore(sessionTabBarContainer, this.messageList);
       } else {
@@ -1289,26 +1226,14 @@ export class ChatWindow {
     const content = this.textInput.value.trim();
     if (!content) return;
 
-    const chatLevel = this.getChatLevel();
-    let sessionId: string | undefined;
+    const contextTabId = this.getContextTabId();
+    const sessionId = appState.getActiveChatId(contextTabId);
 
-    if (chatLevel === 'general') {
-      sessionId = this.activeSessionId;
-    } else {
-      // project or card — use the active session's chatId
-      const activeTabId = appState.getActiveTab();
-      const contextTabId = chatLevel === 'card'
-        ? (appState.get('selectedCardId') || activeTabId)
-        : activeTabId;
-      sessionId = appState.getActiveChatId(contextTabId);
-
-      // Update session title from first user message content
-      if (this.sessionTabBar) {
-        const activeSession = appState.getActiveSession(contextTabId);
-        if (activeSession.title.match(/^Session \d+$/)) {
-          // Still has the default name — update with first 25 chars
-          this.sessionTabBar.updateSessionTitle(activeSession.id, content);
-        }
+    // Update session title from first user message content
+    if (this.sessionTabBar) {
+      const activeSession = appState.getActiveSession(contextTabId);
+      if (activeSession.title.match(/^Session \d+$/)) {
+        this.sessionTabBar.updateSessionTitle(activeSession.id, content);
       }
     }
 

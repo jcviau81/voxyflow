@@ -123,7 +123,7 @@ export class Sidebar {
     projectSection.appendChild(newProjectItem);
 
     // Archived projects link
-    const archivedProjects = appState.get('projects').filter(p => p.archived);
+    const archivedProjects = appState.get('projects').filter(p => p.archived && p.id !== SYSTEM_PROJECT_ID);
     if (archivedProjects.length > 0) {
       const archivedItem = createElement('div', {
         className: 'sidebar-project-item sidebar-archived-link',
