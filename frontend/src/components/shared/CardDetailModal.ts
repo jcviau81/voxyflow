@@ -10,11 +10,10 @@
 import { Card, Message, AgentPersona, CardStatus, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, CardRelation, CardRelationType, CardHistoryEntry } from '../../types';
 import { CodeMirrorEditor } from '../Kanban/CodeMirrorEditor';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO, API_URL } from '../../utils/constants';
+import { EVENTS, CARD_STATUSES, CARD_STATUS_LABELS, AGENT_PERSONAS, AGENT_TYPE_INFO, API_URL, SYSTEM_PROJECT_ID } from '../../utils/constants';
 import { createElement, formatTime } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { cardService } from '../../services/CardService';
-import { mainBoardService } from '../../services/MainBoardService';
 import { chatService } from '../../services/ChatService';
 import { apiClient } from '../../services/ApiClient';
 import { FocusMode } from '../FocusMode/FocusMode';
@@ -99,9 +98,9 @@ export class CardDetailModal {
   onDeleted?: (cardId: string) => void;
   onUpdated?: (card: Card) => void;
 
-  /** True when card has no projectId (mainboard card) */
+  /** True when card belongs to the system/Main project */
   private get isMainBoard(): boolean {
-    return !this.card?.projectId;
+    return !this.card?.projectId || this.card?.projectId === SYSTEM_PROJECT_ID;
   }
 
   constructor(private parentElement: HTMLElement) {
@@ -204,27 +203,19 @@ export class CardDetailModal {
 
   private async saveCard(updates: Partial<Card>): Promise<void> {
     if (!this.card) return;
-    if (this.isMainBoard) {
-      const updated = await mainBoardService.updateCard(this.card.id, updates);
-      if (updated) {
-        this.card = updated;
-        this.onUpdated?.(updated);
-      }
-    } else {
-      cardService.update(this.card.id, updates);
-    }
+    // All cards (including system project / main board) use the regular cardService
+    cardService.update(this.card.id, updates);
+    // Apply updates locally so the modal reflects changes
+    this.card = { ...this.card, ...updates };
+    this.onUpdated?.(this.card);
   }
 
   private async deleteCard(): Promise<void> {
     if (!this.card) return;
     if (!confirm(`Delete "${this.card.title}"?`)) return;
     const id = this.card.id;
-    if (this.isMainBoard) {
-      await mainBoardService.deleteCard(id);
-      this.onDeleted?.(id);
-    } else {
-      cardService.delete(id);
-    }
+    cardService.delete(id);
+    this.onDeleted?.(id);
     this.close();
   }
 

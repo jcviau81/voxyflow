@@ -1,3 +1,6 @@
+// System project — the built-in "Main" project (id matches backend SYSTEM_MAIN_PROJECT_ID)
+export const SYSTEM_PROJECT_ID = 'system-main';
+
 // API & WebSocket
 // In dev, connect via webpack proxy at /ws (proxied to ws://localhost:8000/ws)
 // In prod, use env var or default to the same origin's /ws

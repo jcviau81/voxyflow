@@ -1,4 +1,5 @@
 import { WebSocketMessage, ApiClientConfig, ConnectionState, AgentInfo, TimeEntry, CardComment, ChecklistItem, CardAttachment, Card } from '../types';
+import { SYSTEM_PROJECT_ID } from '../utils/constants';
 
 export interface SearchResult {
   message_id: string;
@@ -64,9 +65,9 @@ export class ApiClient {
 
     switch (tool) {
       case 'voxyflow.card.create_unassigned': {
-        // Unified model: result is a Card, refresh the main board
+        // Cards previously "unassigned" now belong to the system project
         const title = (result.title as string) || (args.content as string) || 'Card';
-        eventBus.emit(EVENTS.MAIN_BOARD_UPDATED, null);
+        this.syncCardsFromBackend(SYSTEM_PROJECT_ID);
         eventBus.emit(EVENTS.TOAST_SHOW, {
           message: `📝 Card added: ${title.substring(0, 30)}...`,
           type: 'success',
@@ -132,11 +133,17 @@ export class ApiClient {
           archived: p.status === 'archived' || (p.archived as boolean) || false,
         });
 
-        const projects = [
+        const allProjects = [
           ...(Array.isArray(activeRaw) ? activeRaw.map(mapProject) : []),
           ...(Array.isArray(archivedRaw) ? archivedRaw.map(mapProject) : []),
         ];
-        appState.set('projects', projects);
+        // Ensure system project is always first
+        const sysIdx = allProjects.findIndex(p => p.id === SYSTEM_PROJECT_ID);
+        if (sysIdx > 0) {
+          const [sysProject] = allProjects.splice(sysIdx, 1);
+          allProjects.unshift(sysProject);
+        }
+        appState.set('projects', allProjects);
         eventBus.emit(EVENTS.PROJECT_CREATED);  // triggers sidebar re-render
       } catch (e) {
         console.error('[ApiClient] syncProjectsFromBackend failed:', e);

@@ -864,17 +864,8 @@ export class ChatWindow {
 
     // Chat history search: jump to a chat/session from search results
     this.unsubscribers.push(
-      eventBus.on(EVENTS.CHAT_SEARCH_JUMP, (data: unknown) => {
-        const { chatId } = data as { chatId: string; messageId: string };
-        // For general sessions, switch to matching session tab if possible
-        if (chatId.startsWith('general:')) {
-          const sessionId = chatId.replace('general:', '');
-          const existingSession = this.sessions.find((s) => s.id === sessionId);
-          if (existingSession) {
-            this.switchSession(sessionId);
-          }
-        }
-        // For project/card chats, navigation was already handled by ChatSearch
+      eventBus.on(EVENTS.CHAT_SEARCH_JUMP, (_data: unknown) => {
+        // Navigation was already handled by ChatSearch
         // (PROJECT_SELECTED / CARD_SELECTED events), just reload to ensure messages are current
         this.reloadMessages();
       })
@@ -1180,23 +1171,18 @@ export class ChatWindow {
   }
 
   private handleNewSession(): void {
-    // Reset the CURRENT session in-place (clear history, fresh start — no new tab)
-    const oldSessionId = this.activeSessionId;
-    const freshId = generateId();
+    // Create a new session using the project session system
+    const contextTabId = this.getContextTabId();
+    const session = appState.createSession(contextTabId);
 
-    // Notify backend to reset conversation context for the OLD session
+    // Notify backend to reset
     apiClient.send('session:reset', {
-      chatLevel: 'general',
-      sessionId: oldSessionId,
+      chatLevel: 'project',
+      projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
+      sessionId: session.chatId,
     });
 
-    // Update session id in-place
-    const currentSession = this.sessions.find((s) => s.id === oldSessionId);
-    if (currentSession) {
-      currentSession.id = freshId;
-    }
-    this.activeSessionId = freshId;
-    chatService.activeSessionId = freshId;
+    chatService.activeSessionId = session.chatId;
 
     // Clear the message list UI
     if (this.messageList) {
@@ -1214,11 +1200,14 @@ export class ChatWindow {
       "User just started a new session. Greet them naturally and briefly — one sentence max. Ask what they want to work on.",
       undefined,
       undefined,
-      freshId,
+      session.chatId,
     );
 
     // Update header
     this.updateChatControls();
+
+    // Emit switch so SessionTabBar re-renders
+    eventBus.emit(EVENTS.SESSION_TAB_SWITCH, { tabId: contextTabId, sessionId: session.id });
 
     // Focus input
     if (this.textInput) {
@@ -1334,19 +1323,7 @@ export class ChatWindow {
       }
 
       case '/standup': {
-        const standupProjectId = appState.get('currentProjectId');
-        if (!standupProjectId) {
-          const noProjectMsg: Message = {
-            id: `slash-standup-err-${Date.now()}`,
-            role: 'assistant',
-            content: '⚠️ No project selected. Open a project to generate a standup.',
-            timestamp: Date.now(),
-            sessionId: this.activeSessionId,
-          };
-          this.hideWelcomeIfNeeded();
-          this.renderMessage(noProjectMsg);
-          break;
-        }
+        const standupProjectId = appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
         // Show loading message
         const loadingMsg: Message = {
           id: `slash-standup-loading-${Date.now()}`,
