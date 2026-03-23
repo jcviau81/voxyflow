@@ -87,9 +87,22 @@ export class ApiClient {
         eventBus.emit(EVENTS.TOAST_SHOW, { message: `✅ Card created`, type: 'success' });
         break;
 
-      case 'voxyflow.card.move':
-        eventBus.emit(EVENTS.CARD_MOVED, { cardId: args.card_id, newStatus: args.status });
+      case 'voxyflow.card.update': {
+        // Re-sync cards so UI reflects the update immediately
+        const updateProjectId = (args.project_id as string) || SYSTEM_PROJECT_ID;
+        this.syncCardsFromBackend(updateProjectId);
+        eventBus.emit(EVENTS.CARD_UPDATED, { cardId: args.card_id });
         break;
+      }
+
+      case 'voxyflow.card.move': {
+        // Re-sync cards so the card moves visually between columns
+        const moveProjectId = (args.project_id as string) || SYSTEM_PROJECT_ID;
+        this.syncCardsFromBackend(moveProjectId);
+        eventBus.emit(EVENTS.CARD_UPDATED, { cardId: args.card_id, newStatus: args.new_status });
+        eventBus.emit(EVENTS.CARD_MOVED, { cardId: args.card_id, newStatus: args.new_status });
+        break;
+      }
 
       case 'voxyflow.card.delete':
         eventBus.emit(EVENTS.CARD_DELETED, { cardId: args.card_id });
