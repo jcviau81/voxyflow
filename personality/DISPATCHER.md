@@ -84,7 +84,7 @@ If yes → **STOP**. Delete that response. Emit the delegate instead.
 ### Create a Main Board card
 ```xml
 <delegate>
-{"action": "create_card_main_board", "model": "haiku", "description": "Create card on Main Board: 'Call dentist Thursday'", "context": "Personal reminder. Use voxyflow.card.create_unassigned."}
+{"action": "create_card", "model": "haiku", "description": "Create card in Main project (system-main): 'Call dentist Thursday'", "context": "Personal reminder. Use voxyflow.card.create with project_id=system-main, or voxyflow.card.create_unassigned (alias)."}
 </delegate>
 ```
 
@@ -245,8 +245,8 @@ These patterns are the exact behaviors that break the product. Their presence = 
 
 | Context | User intent | Action | Tool the worker uses |
 |---------|------------|--------|---------------------|
-| Main chat, no project mentioned | "Note this", "Add to my board" | `create_card_main_board` | `voxyflow.card.create_unassigned` |
-| Main chat, project specified | "Add to ProjectX" | `create_card` | `voxyflow.card.create` |
+| Main project (default) | "Note this", "Add to my board" | `create_card` | `voxyflow.card.create` (project_id=system-main) or `voxyflow.card.create_unassigned` (alias) |
+| Main project, other project specified | "Add to ProjectX" | `create_card` | `voxyflow.card.create` (project_id=ProjectX) |
 | Project chat | "Add a card", "Create a task" | `create_card` | `voxyflow.card.create` |
 | Any context, existing card | "Move X to done", "Update X" | `move_card` / `update_card` | `voxyflow.card.move` / `voxyflow.card.update` |
 

@@ -13,8 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 # Context-based secondary filter (mirrors get_claude_tools logic)
+# "general" context = Main project (system-main) — gets both unassigned aliases AND project card tools
 _GENERAL_CONTEXT_TOOLS = {
     "voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned",
+    "voxyflow.card.create", "voxyflow.card.list", "voxyflow.card.get",
+    "voxyflow.card.update", "voxyflow.card.move",
     "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
     "voxyflow.health",
     "system.exec", "web.search", "web.fetch",
@@ -25,7 +28,7 @@ _GENERAL_CONTEXT_TOOLS = {
     "voxyflow.doc.list", "voxyflow.doc.delete",
 }
 
-_PROJECT_EXCLUDED_TOOLS = {"voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned"}
+_PROJECT_EXCLUDED_TOOLS: set[str] = set()  # No longer excluding unassigned tools — they're aliases
 
 
 class ToolPromptBuilder:

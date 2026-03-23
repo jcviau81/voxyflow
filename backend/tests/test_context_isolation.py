@@ -43,6 +43,9 @@ def _get_claude_tools(chat_level: str = "general") -> list[dict]:
 
     This avoids importing claude_service which pulls in pydantic_settings, etc.
     The logic is identical to the production code.
+
+    Post-refactor: "general" is now the system-main project and gets both
+    unassigned aliases AND project card tools. Project level gets all tools.
     """
     all_tools = _get_tool_list()
 
@@ -50,15 +53,19 @@ def _get_claude_tools(chat_level: str = "general") -> list[dict]:
         allowed = {
             "voxyflow.card.create_unassigned",
             "voxyflow.card.list_unassigned",
+            "voxyflow.card.create",
+            "voxyflow.card.list",
+            "voxyflow.card.get",
+            "voxyflow.card.update",
+            "voxyflow.card.move",
             "voxyflow.project.create",
             "voxyflow.project.list",
+            "voxyflow.project.get",
             "voxyflow.health",
         }
     elif chat_level == "project":
-        allowed = {t["name"] for t in all_tools} - {
-            "voxyflow.card.create_unassigned",
-            "voxyflow.card.list_unassigned",
-        }
+        # Project level: all tools (unassigned aliases are still valid)
+        allowed = {t["name"] for t in all_tools}
     else:
         allowed = {t["name"] for t in all_tools}
 
@@ -106,26 +113,27 @@ class TestToolScoping:
         names = self._tool_names("general")
         assert "voxyflow_health" in names, "General chat should have health check"
 
-    def test_general_excludes_card_tools(self):
+    def test_general_has_card_tools(self):
+        """Post-refactor: general (Main project) has card tools since Main is a real project."""
         names = self._tool_names("general")
-        assert "voxyflow_card_create" not in names, "General chat should NOT have card_create"
-        assert "voxyflow_card_update" not in names, "General chat should NOT have card_update"
-        assert "voxyflow_card_move" not in names, "General chat should NOT have card_move"
+        assert "voxyflow_card_create" in names, "General/Main should have card_create"
+        assert "voxyflow_card_update" in names, "General/Main should have card_update"
+        assert "voxyflow_card_move" in names, "General/Main should have card_move"
 
     def test_general_excludes_wiki_tools(self):
         names = self._tool_names("general")
-        assert "voxyflow_wiki_create" not in names, "General chat should NOT have wiki_create"
-        assert "voxyflow_wiki_list" not in names, "General chat should NOT have wiki_list"
+        assert "voxyflow_wiki_create" not in names, "General/Main chat should NOT have wiki_create"
+        assert "voxyflow_wiki_list" not in names, "General/Main chat should NOT have wiki_list"
 
     def test_general_excludes_ai_project_tools(self):
         names = self._tool_names("general")
-        assert "voxyflow_ai_standup" not in names, "General chat should NOT have standup"
-        assert "voxyflow_ai_brief" not in names, "General chat should NOT have brief"
+        assert "voxyflow_ai_standup" not in names, "General/Main chat should NOT have standup"
+        assert "voxyflow_ai_brief" not in names, "General/Main chat should NOT have brief"
 
     def test_general_tool_count(self):
-        """General chat should have exactly 5 tools."""
+        """General/Main chat should have exactly 11 tools (unassigned aliases + card CRUD + project/health)."""
         tools = _get_claude_tools("general")
-        assert len(tools) == 5, f"Expected 5 general tools, got {len(tools)}: {[t['name'] for t in tools]}"
+        assert len(tools) == 11, f"Expected 11 general tools, got {len(tools)}: {[t['name'] for t in tools]}"
 
     # -- Project chat tools --
 
@@ -146,10 +154,11 @@ class TestToolScoping:
         assert "voxyflow_ai_brief" in names, "Project chat should have brief"
         assert "voxyflow_ai_health" in names, "Project chat should have health"
 
-    def test_project_excludes_unassigned_tools(self):
+    def test_project_has_unassigned_tools(self):
+        """Post-refactor: unassigned tools are aliases, available everywhere."""
         names = self._tool_names("project")
-        assert "voxyflow_card_create_unassigned" not in names, "Project chat should NOT have card_create_unassigned"
-        assert "voxyflow_card_list_unassigned" not in names, "Project chat should NOT have card_list_unassigned"
+        assert "voxyflow_card_create_unassigned" in names, "Project chat should have card_create_unassigned (alias)"
+        assert "voxyflow_card_list_unassigned" in names, "Project chat should have card_list_unassigned (alias)"
 
     def test_project_has_more_tools_than_general(self):
         general = _get_claude_tools("general")
@@ -202,7 +211,7 @@ class TestChatInitContent:
     def test_general_chat_init_has_mode(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init(project_names=["Voxyflow", "Dictoral"])
-        assert "Main Chat" in prompt
+        assert "Main project" in prompt
 
     def test_general_chat_init_lists_projects(self):
         ps = self._ps()
@@ -210,10 +219,10 @@ class TestChatInitContent:
         assert "Voxyflow" in prompt
         assert "Dictoral" in prompt
 
-    def test_general_chat_init_no_project_context(self):
+    def test_general_chat_init_main_project_context(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init(project_names=["Voxyflow"])
-        assert "No active project" in prompt
+        assert "Main project" in prompt
 
     def test_general_chat_init_mentions_notes(self):
         ps = self._ps()
@@ -332,11 +341,10 @@ class TestContextIsolation:
         assert "kanban" not in prompt.lower()
         assert "sprint" not in prompt.lower()
 
-    def test_general_prompt_warns_about_no_context(self):
+    def test_general_prompt_mentions_main_project(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init(project_names=["Voxyflow"])
-        assert "No active project" in prompt
-        assert "Main Chat" in prompt
+        assert "Main project" in prompt
 
     def test_project_prompt_scoped_to_one_project(self):
         ps = self._ps()
@@ -364,18 +372,19 @@ class TestContextIsolation:
         prompt = ps.build_card_prompt(project, card)
         assert prompt.startswith("## Chat Init")
 
-    def test_general_and_project_tools_dont_overlap_on_notes(self):
-        """Note tools should be in general but NOT in project, and vice versa for cards."""
+    def test_general_and_project_tools_overlap_post_refactor(self):
+        """Post-refactor: both general (Main project) and project have card tools.
+        Unassigned aliases are available everywhere."""
         general_names = {t["name"] for t in _get_claude_tools("general")}
-        project_names = {t["name"] for t in _get_claude_tools("project")}
+        project_names_set = {t["name"] for t in _get_claude_tools("project")}
 
-        # Notes are general-only
+        # Unassigned aliases available in both
         assert "voxyflow_card_create_unassigned" in general_names
-        assert "voxyflow_card_create_unassigned" not in project_names
+        assert "voxyflow_card_create_unassigned" in project_names_set
 
-        # Cards are project-only (not in general)
-        assert "voxyflow_card_create" not in general_names
-        assert "voxyflow_card_create" in project_names
+        # Card tools available in both
+        assert "voxyflow_card_create" in general_names
+        assert "voxyflow_card_create" in project_names_set
 
 
 class TestToolCallFallbackParsing:
@@ -487,11 +496,11 @@ class TestAnalyzerPrompt:
         assert "Verb" in prompt or "VERB" in prompt
         assert "Fix" in prompt or "Add" in prompt or "Create" in prompt
 
-    def test_analyzer_general_context_mentions_notes(self):
+    def test_analyzer_general_context_mentions_main_project(self):
         ps = self._ps()
         prompt = ps.build_analyzer_prompt(chat_level="general", project_names=["Voxyflow"])
-        assert "NOTE" in prompt or "note" in prompt.lower()
-        assert "MAIN CHAT" in prompt or "Main Chat" in prompt
+        assert "Main" in prompt
+        assert "MAIN PROJECT" in prompt or "Main Project" in prompt or "main project" in prompt.lower()
 
     def test_analyzer_project_context(self):
         ps = self._ps()
@@ -544,7 +553,7 @@ class TestDeepSupervisorPrompt:
         project_prompt = ps.build_deep_prompt(chat_level="project", project=project)
         assert "SUPERVISOR" in general_prompt
         assert "SUPERVISOR" in project_prompt
-        assert "Main Chat" in general_prompt
+        assert "Main" in general_prompt
         assert "TestProject" in project_prompt
 
 
@@ -594,19 +603,17 @@ class TestFastPromptToolInjection:
         from app.services.personality_service import PersonalityService
         return PersonalityService()
 
-    def test_fast_prompt_general_has_note_tools_text(self):
+    def test_fast_prompt_general_has_card_tools_text(self):
+        """Post-refactor: general (Main project) has both unassigned aliases and card tools."""
         ps = self._ps()
         prompt = ps.build_fast_prompt(chat_level="general", project_names=["Test"])
-        assert "voxyflow.card.create_unassigned" in prompt
-        # DISPATCHER.md may reference card.create in examples — both can appear
-        # The key assertion is that create_unassigned is present for general chat
+        assert "voxyflow.card.create_unassigned" in prompt or "voxyflow.card.create" in prompt
 
     def test_fast_prompt_project_has_card_tools_text(self):
         ps = self._ps()
         project = {"title": "TestProject"}
         prompt = ps.build_fast_prompt(chat_level="project", project=project)
         assert "voxyflow.card.create" in prompt
-        # DISPATCHER.md may reference create_unassigned in routing examples — that's expected
 
     def test_fast_prompt_card_has_all_tools_text(self):
         ps = self._ps()

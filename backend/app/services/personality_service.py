@@ -135,7 +135,11 @@ class PersonalityService:
     # ------------------------------------------------------------------
 
     def build_general_chat_init(self, project_names: Optional[list] = None) -> str:
-        """Build the Chat Init block for General/Main Chat mode."""
+        """Build the Chat Init block for Main project chat (system-main).
+
+        This is now just a project chat for the system "Main" project.
+        Kept as a separate method for backward compatibility.
+        """
         projects_list = (
             "\n".join(f"- {name}" for name in project_names)
             if project_names
@@ -152,9 +156,9 @@ class PersonalityService:
             "You don't ask for permission to do what you were clearly asked to do.\n"
             "You use your tools silently and naturally — like someone who knows their workspace.\n\n"
             "## Right Now\n"
-            "You are in the Main Chat — a free space for ideas, cards, and conversation. "
-            "No active project. If the user mentions a project by name, pivot to it. "
-            "If they ask to create a card without specifying a project, ask once — briefly.\n\n"
+            "You are in the Main project — the default workspace for ideas, cards, and conversation. "
+            "If the user mentions a different project by name, pivot to it. "
+            "Cards created here belong to the Main project.\n\n"
             "Do NOT say 'welcome back' on a first conversation. Greet naturally based on what they said.\n\n"
             f"Their projects:\n{projects_list}"
         )
@@ -401,11 +405,13 @@ class PersonalityService:
         )
 
         # Build context-appropriate base prompt
+        # "general" is now just the system-main project — use project prompt path
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card, agent_persona)
-        elif chat_level == "project" and project:
+        elif project:
             base = self.build_project_prompt(project)
         else:
+            # Fallback: no project context available (general/main)
             base = self.build_general_prompt(project_names=project_names)
 
         # Chat layers have ZERO tools — they converse and delegate only.
@@ -487,14 +493,15 @@ class PersonalityService:
 
     def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None, has_delegation: bool = False, is_chat_responder: bool = False, native_tools: bool = False) -> str:
         # Build context-appropriate base
+        # "general" is now the system-main project
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card)
-        elif chat_level == "project" and project:
+        elif project:
             base = self.build_project_prompt(project)
         else:
             base = self.build_general_prompt(project_names=project_names)
 
-        mode_label = "Main Chat" if chat_level == "general" else f"Project Chat: {project.get('title', '?')}" if project else "Card Chat"
+        mode_label = f"Project Chat: {project.get('title', 'Main')}" if project else "Main Chat"
 
         # --- Chat responder mode: dispatcher pattern (same as Fast layer) ---
         if is_chat_responder:
@@ -632,7 +639,7 @@ class PersonalityService:
                 f"Do NOT ask the user which card — you already know."
             )
             return "\n".join(parts)
-        elif chat_level == "project" and project:
+        elif project:
             parts.append(f"Project: {project.get('title', '?')} (project_id: {project.get('id', '?')})")
             if project.get("description"):
                 parts.append(f"Description: {project['description'][:200]}")
@@ -642,7 +649,7 @@ class PersonalityService:
                 f"Do NOT ask the user which project — you already know."
             )
             return "\n".join(parts)
-        return "Context: Main Chat (no specific project or card selected)"
+        return "Context: Main project (default workspace, project_id=system-main)"
 
     def _build_haiku_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Haiku: Simple CRUD only. Fast, cheap, no ambiguity."""
@@ -712,16 +719,16 @@ class PersonalityService:
         if chat_level == "general":
             projs = ", ".join(project_names or []) or "none"
             context_note = (
-                f"\n\nCurrent context: MAIN CHAT (no project selected).\n"
+                f"\n\nCurrent context: MAIN PROJECT (default workspace, project_id=system-main).\n"
                 f"User's projects: {projs}\n"
-                "In Main Chat, suggest CARDS for the Main Board (reminders/quick thoughts, no project).\n"
-                "If the user mentions something that belongs in a project, suggest a CARD with the project name.\n"
+                "In Main project, suggest CARDS for the Main Board (reminders/quick thoughts).\n"
+                "If the user mentions something that belongs in another project, suggest a CARD with the project name.\n"
                 "If the project doesn't exist yet, suggest creating it.\n"
             )
         elif chat_level == "project":
             context_note = "\n\nCurrent context: PROJECT CHAT. Suggest CARDS for this project.\n"
 
-        mode_label = "Main Chat" if chat_level == "general" else "Project Chat"
+        mode_label = f"Main Project" if chat_level == "general" else "Project Chat"
 
         # Delegation mode: Analyzer received a simple CRUD action to suggest-then-execute
         if delegation:

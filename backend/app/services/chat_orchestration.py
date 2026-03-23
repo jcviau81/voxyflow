@@ -185,21 +185,19 @@ class DeepWorkerPool:
                 "sessionId": event.session_id,
             })
 
-            # Infer chat_level from context — if we have a project, the worker
-            # needs project-level tools (card.create, card.update, etc.)
+            # Infer chat_level from context — workers always operate at project
+            # level since Main is now a real project (system-main).
             chat_level = event.data.get("chat_level", "general")
             if chat_level == "general":
-                # Upgrade to project level if we have a project_id OR if the
-                # intent involves project/card operations (e.g. creating a
-                # project with cards from the main chat).
-                # EXCEPTION: "main_board" intents stay general so they get
-                # voxyflow.card.create_unassigned instead of card.create.
+                # General is now the system-main project — upgrade to project
+                # level so workers get project-scoped tools.
                 intent_lower = event.intent.lower()
-                is_main_board = "main_board" in intent_lower or "mainboard" in intent_lower
-                if not is_main_board and (
+                if (
                     event.data.get("project_id")
                     or "project" in intent_lower
                     or "card" in intent_lower
+                    or "main_board" in intent_lower
+                    or "mainboard" in intent_lower
                 ):
                     chat_level = "project"
 
@@ -967,7 +965,7 @@ class ChatOrchestrator:
             except Exception as e:
                 logger.warning(f"Failed to resolve project/card context: {e}")
 
-        # For general chat: fetch all project names for the Chat Init block
+        # For general/main chat: fetch all project names for the Chat Init block
         if chat_level == "general" or not project_id:
             try:
                 from app.database import async_session, Project
@@ -978,7 +976,7 @@ class ChatOrchestrator:
                     )
                     project_names = [row[0] for row in all_proj_result.fetchall()]
             except Exception as e:
-                logger.warning(f"Failed to fetch project names for general chat init: {e}")
+                logger.warning(f"Failed to fetch project names for main chat init: {e}")
 
         return project_context, card_context, project_names
 

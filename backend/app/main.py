@@ -10,7 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.database import init_db
+from app.database import init_db, SYSTEM_MAIN_PROJECT_ID
 from app.routes import chats, projects, cards, voice, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
@@ -225,8 +225,10 @@ async def general_websocket(websocket: WebSocket):
                         if chat_level == "general":
                             chat_level = "project"
                     else:
-                        chat_id = f"general:{session_id}"
-                        chat_level = "general"
+                        # No project specified → default to system-main project
+                        project_id = SYSTEM_MAIN_PROJECT_ID
+                        chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}:{session_id}"
+                        chat_level = "general"  # Keep "general" for backward compat in prompts
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
 
@@ -262,7 +264,7 @@ async def general_websocket(websocket: WebSocket):
                     elif project_id:
                         chat_id = f"project:{project_id}"
                     else:
-                        chat_id = f"general:{session_id}"
+                        chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}:{session_id}"
 
                     # Fix 5: full session teardown — stop worker pool, clear event bus,
                     # remove from active_session_ids, then clear chat history.

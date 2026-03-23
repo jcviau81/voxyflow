@@ -168,9 +168,12 @@ def get_claude_tools(
         layer_allowed = _LAYER_TOOL_SETS.get(layer, TOOLS_READ_ONLY)
 
         # Context-based filtering (secondary gate)
+        # "general" is now the system-main project — gets both aliases and project tools
         if chat_level == "general":
             context_allowed = {
                 "voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned",
+                "voxyflow.card.create", "voxyflow.card.list", "voxyflow.card.get",
+                "voxyflow.card.update", "voxyflow.card.move",
                 "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
                 "voxyflow.health",
             } | {
@@ -183,9 +186,8 @@ def get_claude_tools(
                 "voxyflow.doc.list", "voxyflow.doc.delete",
             }
         elif chat_level == "project":
-            context_allowed = {t["name"] for t in all_tools} - {
-                "voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned",
-            }
+            # Project level: all tools (unassigned aliases are still valid)
+            context_allowed = {t["name"] for t in all_tools}
         else:
             context_allowed = {t["name"] for t in all_tools}
 

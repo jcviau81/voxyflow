@@ -105,7 +105,34 @@ async def init_db():
                 value TEXT NOT NULL
             )
         """))
+        # Migrate: add is_system / deletable columns to projects if missing
+        proj_result = await conn.execute(text("PRAGMA table_info(projects)"))
+        proj_columns = {row[1] for row in proj_result.fetchall()}
+        if "is_system" not in proj_columns:
+            await conn.execute(text("ALTER TABLE projects ADD COLUMN is_system BOOLEAN NOT NULL DEFAULT 0"))
+        if "deletable" not in proj_columns:
+            await conn.execute(text("ALTER TABLE projects ADD COLUMN deletable BOOLEAN NOT NULL DEFAULT 1"))
 
+        # Ensure the system "Main" project exists
+        SYSTEM_MAIN_ID = "system-main"
+        existing = await conn.execute(text("SELECT id FROM projects WHERE id = :id"), {"id": SYSTEM_MAIN_ID})
+        if existing.fetchone() is None:
+            await conn.execute(text(
+                "INSERT INTO projects (id, title, description, status, context, is_system, deletable, created_at, updated_at) "
+                "VALUES (:id, :title, :desc, 'active', '', 1, 0, :now, :now)"
+            ), {"id": SYSTEM_MAIN_ID, "title": "Main", "desc": "Default workspace", "now": utcnow().isoformat()})
+
+        # Migrate all cards with project_id = NULL → system-main
+        await conn.execute(text(
+            "UPDATE cards SET project_id = :pid WHERE project_id IS NULL"
+        ), {"pid": SYSTEM_MAIN_ID})
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+SYSTEM_MAIN_PROJECT_ID = "system-main"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -180,6 +207,8 @@ class Project(Base):
     description = Column(Text, default="")
     status = Column(String, default="active")  # active | archived
     context = Column(Text, default="")  # relevant docs, requirements summary
+    is_system = Column(Boolean, default=False)  # True for the built-in "Main" project
+    deletable = Column(Boolean, default=True)   # False for system projects
     github_repo = Column(String, nullable=True)      # "owner/repo"
     github_url = Column(String, nullable=True)        # "https://github.com/owner/repo"
     github_branch = Column(String, nullable=True)     # "main"
@@ -228,7 +257,7 @@ class Card(Base):
     __tablename__ = "cards"
 
     id = Column(String, primary_key=True, default=new_uuid)
-    project_id = Column(String, ForeignKey("projects.id"), nullable=True)  # NULL = Main Board (unassigned)
+    project_id = Column(String, ForeignKey("projects.id"), nullable=True)  # system-main = Main Board
     title = Column(String, nullable=False)
     description = Column(Text, default="")
     status = Column(String, default="idea")  # card | idea | todo | in-progress | done | archived

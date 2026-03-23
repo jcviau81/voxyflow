@@ -322,6 +322,10 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     if not project:
         raise HTTPException(404, "Project not found")
 
+    # Prevent deletion of system/non-deletable projects
+    if getattr(project, 'deletable', True) is False or getattr(project, 'is_system', False):
+        raise HTTPException(403, "Cannot delete system project")
+
     # Delete all cards belonging to this project
     stmt = select(Card).where(Card.project_id == project_id)
     result = await db.execute(stmt)
@@ -338,6 +342,11 @@ async def archive_project(project_id: str, db: AsyncSession = Depends(get_db)):
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+
+    # Prevent archiving system projects
+    if getattr(project, 'is_system', False):
+        raise HTTPException(403, "Cannot archive system project")
+
     project.status = "archived"
     project.updated_at = utcnow()
     await db.commit()

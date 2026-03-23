@@ -39,6 +39,8 @@ class ProjectResponse(BaseModel):
     description: str
     status: str
     context: str
+    is_system: bool = False
+    deletable: bool = True
     github_repo: Optional[str] = None
     github_url: Optional[str] = None
     github_branch: Optional[str] = None

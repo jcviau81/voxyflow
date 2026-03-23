@@ -42,10 +42,10 @@ VOXYFLOW_API_BASE = os.environ.get("VOXYFLOW_API_BASE", "http://localhost:8000")
 # ---------------------------------------------------------------------------
 
 _TOOL_DEFINITIONS: list[dict] = [
-    # ---- Main Board Cards (unassigned) ─────────────────────────────────────
+    # ---- Main Board Cards (system-main project, backward-compatible aliases) ─
     {
         "name": "voxyflow.card.create_unassigned",
-        "description": "Create a card on the Voxyflow Main Board (no project). Status defaults to 'card' internally.",
+        "description": "Create a card on the Voxyflow Main Board (system-main project). Status defaults to 'card' internally. Alias for creating a card in the Main project.",
         "inputSchema": {
             "type": "object",
             "required": ["content"],
@@ -67,7 +67,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.list_unassigned",
-        "description": "List all cards on the Voxyflow Main Board (unassigned to any project).",
+        "description": "List all cards on the Voxyflow Main Board (system-main project). Alias for listing cards in the Main project.",
         "inputSchema": {
             "type": "object",
             "properties": {},

@@ -14,7 +14,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, Card, CardAttachment, CardRelation, CardHistory, Project, TimeEntry, CardComment, ChecklistItem, new_uuid, utcnow
+from app.database import get_db, Card, CardAttachment, CardRelation, CardHistory, Project, TimeEntry, CardComment, ChecklistItem, new_uuid, utcnow, SYSTEM_MAIN_PROJECT_ID
 from app.models.card import (
     CardCreate, CardUpdate, CardResponse, AgentAssignment,
     TimeEntryCreate, TimeEntryResponse,
@@ -133,12 +133,13 @@ async def list_cards(
     return [_card_to_response(c) for c in result.scalars().all()]
 
 
-# ── Main Board / Unassigned Card endpoints ─────────────────────────────────
-# These MUST be declared before /cards/{card_id} to avoid path conflicts
+# ── Main Board / Unassigned Card endpoints (backward-compatible aliases) ────
+# These now proxy to the system "Main" project (system-main).
+# MUST be declared before /cards/{card_id} to avoid path conflicts.
 
 
 class UnassignedCardCreate(BaseModel):
-    """Create a card on the Main Board (no project)."""
+    """Create a card on the Main Board (system project)."""
     title: str
     description: str = ""
     color: str | None = None  # yellow|blue|green|pink|purple|orange
@@ -147,10 +148,10 @@ class UnassignedCardCreate(BaseModel):
 
 @router.get("/cards/unassigned", response_model=list[CardResponse])
 async def list_unassigned_cards(db: AsyncSession = Depends(get_db)):
-    """List all cards with no project (Main Board cards)."""
+    """List all cards on the Main Board (alias for system-main project cards)."""
     stmt = (
         select(Card)
-        .where(Card.project_id.is_(None))
+        .where(Card.project_id == SYSTEM_MAIN_PROJECT_ID)
         .options(selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items))
         .order_by(Card.created_at.desc())
     )
@@ -163,10 +164,10 @@ async def create_unassigned_card(
     body: UnassignedCardCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a card on the Main Board (no project). Internal status defaults to 'card'."""
+    """Create a card on the Main Board (alias — creates in system-main project)."""
     card = Card(
         id=new_uuid(),
-        project_id=None,
+        project_id=SYSTEM_MAIN_PROJECT_ID,
         title=body.title,
         description=body.description,
         status="card",
@@ -223,14 +224,14 @@ async def unassign_card_from_project(
     card_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Detach a card from its project (back to Main Board). Internal status becomes 'card'."""
+    """Detach a card from its project (back to Main Board / system-main). Internal status becomes 'card'."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found")
 
     old_project_id = card.project_id
     old_status = card.status
-    card.project_id = None
+    card.project_id = SYSTEM_MAIN_PROJECT_ID
     card.status = "card"
     card.updated_at = utcnow()
 
@@ -238,7 +239,7 @@ async def unassign_card_from_project(
         db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="status",
                            old_value=old_status, new_value="card", changed_at=utcnow(), changed_by="User"))
     db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="project_id",
-                       old_value=old_project_id, new_value=None, changed_at=utcnow(), changed_by="User"))
+                       old_value=old_project_id, new_value=SYSTEM_MAIN_PROJECT_ID, changed_at=utcnow(), changed_by="User"))
 
     await db.commit()
     stmt = select(Card).where(Card.id == card_id).options(
