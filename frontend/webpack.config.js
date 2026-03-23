@@ -68,7 +68,13 @@ module.exports = (env, argv) => {
       allowedHosts: 'all',
       hot: true,
       historyApiFallback: true,
-      server: 'https',
+      server: {
+        type: 'https',
+        options: {
+          cert: '../certs/tailscale-cert.crt',
+          key: '../certs/tailscale-cert.key',
+        },
+      },
       proxy: [
         {
           context: ['/api'],
