@@ -40,24 +40,16 @@ export class ChatWindow {
   private autoScroll = true;
   private currentProjectView: 'chat' | 'kanban' | 'stats' | 'roadmap' | 'wiki' | 'sprint' | 'docs' = 'chat';
 
-  // Session management (general chat only) — synced with AppState for persistence
-  private get sessions(): { id: string; label: string }[] {
-    return appState.get('generalSessions');
-  }
-  private set sessions(value: { id: string; label: string }[]) {
-    appState.set('generalSessions', value);
-  }
+  // Session management — delegates to the project session system via getContextTabId().
+  // For general/main chat, contextTabId = SYSTEM_PROJECT_ID.
   private get activeSessionId(): string {
-    return appState.get('activeGeneralSessionId');
+    const contextTabId = this.getContextTabId();
+    return appState.getActiveChatId(contextTabId) || '';
   }
   private set activeSessionId(value: string) {
-    appState.set('activeGeneralSessionId', value);
-  }
-  private get sessionCounter(): number {
-    return appState.get('generalSessionCounter');
-  }
-  private set sessionCounter(value: number) {
-    appState.set('generalSessionCounter', value);
+    // Only used to sync chatService.activeSessionId — the actual session switch
+    // is handled by SessionTabBar and appState.setActiveSession().
+    chatService.activeSessionId = value;
   }
 
   // Code paste detection banner
@@ -184,15 +176,11 @@ export class ChatWindow {
     this.inputArea.appendChild(inputRow);
 
     // Session Tab Bar — show for project and card levels
+    // Session Tab Bar — show for all contexts (main, project, card)
     this.sessionTabBar?.destroy();
     this.sessionTabBar = null;
-    const chatLevelForST = this.getChatLevel();
-    if (chatLevelForST === 'project' || chatLevelForST === 'card') {
-      const activeTabId = appState.getActiveTab();
-      // For card context, use the card id as the tabId so sessions are card-scoped
-      const sessionTabId = chatLevelForST === 'card'
-        ? (appState.get('selectedCardId') || activeTabId)
-        : activeTabId;
+    {
+      const sessionTabId = this.getContextTabId();
       const sessionTabBarContainer = createElement('div', { className: 'session-tab-bar-wrap' });
       this.container.appendChild(sessionTabBarContainer);
       this.sessionTabBar = new SessionTabBar(sessionTabBarContainer, sessionTabId);
