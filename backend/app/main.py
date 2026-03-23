@@ -199,6 +199,9 @@ async def general_websocket(websocket: WebSocket):
                 payload = data.get("payload", {})
                 msg_id = data.get("id", "")
 
+                if msg_type != "ping":
+                    logger.info(f"[WS] Received: {msg_type}")
+
                 if msg_type == "ping":
                     await websocket.send_json({
                         "type": "pong",
