@@ -398,3 +398,10 @@
     font-size: 16px !important; /* Prevents iOS zoom */
   }
 }
+
+/* Hide smart suggestions (quick replies) on mobile */
+@media (max-width: 768px) {
+  .quick-replies {
+    display: none !important;
+  }
+}
