@@ -35,6 +35,7 @@ from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
 from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_registry
 from app.services.pending_results import pending_store
+from app.services.worker_session_store import get_worker_session_store
 from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
 from app.tools.executor import get_executor
 
@@ -80,6 +81,15 @@ class DeepWorkerPool:
         """Start listening on the bus for events."""
         self._listener_task = asyncio.create_task(self._listen_loop())
         logger.info(f"[DeepWorkerPool] Started for session {self._bus.session_id}")
+
+    def update_websocket(self, websocket: WebSocket) -> None:
+        """Update the WebSocket reference after a client reconnect.
+
+        Called when the frontend reconnects with the same session_id so that
+        in-progress workers can still send events to the live socket.
+        """
+        self._ws = websocket
+        logger.info(f"[DeepWorkerPool] Updated WebSocket for session {self._bus.session_id}")
 
     async def stop(self) -> None:
         """Stop the pool and cancel all active tasks."""
@@ -221,6 +231,17 @@ class DeepWorkerPool:
     async def _execute_event(self, event: ActionIntent) -> None:
         """Execute a single ActionIntent via model-routed worker (haiku/sonnet/opus)."""
         try:
+            # Register in persistent worker session store
+            _wss = get_worker_session_store()
+            _wss.register(
+                task_id=event.task_id,
+                session_id=event.session_id or self._bus.session_id,
+                project_id=event.data.get("project_id"),
+                model=event.model or "sonnet",
+                intent=event.intent or "unknown",
+                summary=event.summary or "",
+            )
+
             # Notify frontend: task started (include model for badge)
             await self._send_task_event("task:started", event.task_id, {
                 "intent": event.intent,
@@ -348,6 +369,7 @@ class DeepWorkerPool:
                 )
             except asyncio.TimeoutError:
                 logger.warning(f"[DeepWorker] Task {event.task_id} timed out after {self.TASK_TIMEOUT_SECONDS}s")
+                _wss.update_status(event.task_id, "timed_out", f"Timed out after {self.TASK_TIMEOUT_SECONDS}s")
                 await self._send_task_event("task:timeout", event.task_id, {
                     "intent": event.intent,
                     "summary": event.summary,
@@ -357,6 +379,7 @@ class DeepWorkerPool:
                 return
             except asyncio.CancelledError:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")
+                _wss.update_status(event.task_id, "cancelled")
                 # task:cancelled is sent by cancel_task() — just return
                 return
 
@@ -387,6 +410,9 @@ class DeepWorkerPool:
                 except Exception as append_err:
                     logger.warning(f"[DeepWorker] Failed to auto-append result to card: {append_err}")
 
+            # Update session store: completed
+            _wss.update_status(event.task_id, "completed", (result_content or "")[:500])
+
             # Notify frontend: task completed
             await self._send_task_event("task:completed", event.task_id, {
                 "intent": event.intent,
@@ -394,6 +420,7 @@ class DeepWorkerPool:
                 "result": result_content,
                 "success": True,
                 "sessionId": event.session_id,
+                "projectId": event.data.get("project_id"),
             })
 
             # Inject worker result into dispatcher conversation history
@@ -477,6 +504,7 @@ class DeepWorkerPool:
 
         except Exception as e:
             logger.error(f"[DeepWorker] Task {event.task_id} failed: {e}")
+            _wss.update_status(event.task_id, "failed", str(e)[:500])
             try:
                 await self._send_task_event("task:completed", event.task_id, {
                     "intent": event.intent,
@@ -484,6 +512,7 @@ class DeepWorkerPool:
                     "result": str(e),
                     "success": False,
                     "sessionId": event.session_id,
+                    "projectId": event.data.get("project_id"),
                 })
             except Exception:
                 pass
@@ -785,14 +814,21 @@ class ChatOrchestrator:
     def start_worker_pool(self, session_id: str, websocket: WebSocket) -> DeepWorkerPool:
         """Create and start a DeepWorkerPool for a session.
 
-        If a pool already exists for this session_id (e.g. rapid reconnect),
-        stop it first to prevent orphaned listener tasks.
+        If a pool already exists for this session_id (e.g. browser reconnect),
+        update its WebSocket reference instead of stopping it — workers must
+        survive a page refresh.
         """
-        # Fix 2: stop any existing pool before creating a new one
-        existing = self._worker_pools.pop(session_id, None)
+        existing = self._worker_pools.get(session_id)
+        if existing and not existing._stopped:
+            # Pool is alive: just update the WebSocket so in-flight workers
+            # can deliver results to the new connection.
+            existing.update_websocket(websocket)
+            logger.info(f"[ChatOrchestrator] Reused existing pool for {session_id}, updated WS")
+            return existing
+
+        # No existing pool (or stopped): create a fresh one.
         if existing:
-            logger.info(f"[ChatOrchestrator] Stopping existing pool for {session_id} before creating new one")
-            asyncio.create_task(existing.stop())
+            self._worker_pools.pop(session_id, None)
 
         bus = event_bus_registry.get_or_create(session_id)
         pool = DeepWorkerPool(self._claude, bus, websocket, orchestrator=self)
@@ -806,6 +842,17 @@ class ChatOrchestrator:
         if pool:
             await pool.stop()
         event_bus_registry.remove(session_id)
+
+    def update_pool_websocket(self, session_id: str, websocket: WebSocket) -> None:
+        """Update the WebSocket reference on a surviving pool after reconnect.
+
+        Called from session:sync so in-flight workers can deliver results
+        to the newly connected client immediately.
+        """
+        pool = self._worker_pools.get(session_id)
+        if pool and not pool._stopped:
+            pool.update_websocket(websocket)
+            logger.info(f"[ChatOrchestrator] WS updated for surviving pool {session_id}")
 
     async def cancel_worker_task(self, session_id: str, task_id: str) -> bool:
         """Cancel a specific worker task in a session's pool."""
@@ -914,9 +961,8 @@ class ChatOrchestrator:
         if not delegates:
             return
 
-        # Ensure worker pool is running for this session
-        if session_id not in self._worker_pools:
-            self.start_worker_pool(session_id, websocket)
+        # Ensure worker pool is running (also updates WS on reconnect)
+        self.start_worker_pool(session_id, websocket)
 
         bus = event_bus_registry.get_or_create(session_id)
 
@@ -1006,9 +1052,8 @@ class ChatOrchestrator:
             )
             return
 
-        # Ensure worker pool is running for this session
-        if session_id not in self._worker_pools:
-            self.start_worker_pool(session_id, websocket)
+        # Ensure worker pool is running (also updates WS on reconnect)
+        self.start_worker_pool(session_id, websocket)
 
         bus = event_bus_registry.get_or_create(session_id)
 
@@ -1174,9 +1219,8 @@ class ChatOrchestrator:
             model=model,
         )
 
-        # Ensure worker pool is running
-        if session_id not in self._worker_pools:
-            self.start_worker_pool(session_id, websocket)
+        # Ensure worker pool is running (also updates WS on reconnect)
+        self.start_worker_pool(session_id, websocket)
 
         bus = event_bus_registry.get_or_create(session_id)
         await bus.emit(event)

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db, SYSTEM_MAIN_PROJECT_ID
-from app.routes import chats, projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace
+from app.routes import chats, projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.chat_orchestration import ChatOrchestrator
@@ -142,6 +142,7 @@ app.include_router(jobs.router)
 app.include_router(code.router, prefix="/api")
 app.include_router(focus_sessions.router, prefix="/api")
 app.include_router(workspace.router)
+app.include_router(workers.router)
 app.include_router(mcp_routes.router)  # MCP server (SSE + stdio, no /api prefix)
 
 
@@ -402,6 +403,10 @@ async def general_websocket(websocket: WebSocket):
                     if sync_session_id:
                         logger.info(f"[WS] session:sync → delivering pending for {sync_session_id}")
                         await _deliver_pending(sync_session_id)
+                        # Update WebSocket reference on any surviving worker pool
+                        # so in-flight workers can stream to the reconnected client.
+                        _orchestrator.update_pool_websocket(sync_session_id, websocket)
+                        active_session_ids.add(sync_session_id)
 
                 else:
                     # Ack unknown message types
@@ -420,19 +425,14 @@ async def general_websocket(websocket: WebSocket):
     finally:
         # Unregister from broadcast
         ws_broadcast.unregister(websocket)
-        # Fix 3: Cancel all tracked background tasks on disconnect
-        for task in bg_tasks:
-            if not task.done():
-                task.cancel()
+        # NOTE: Do NOT cancel bg_tasks or stop worker pools on disconnect.
+        # Workers must survive a browser refresh — they continue running and
+        # store their results via pending_store for delivery on reconnect.
         if bg_tasks:
-            logger.info(f"[WS] Cancelled {len(bg_tasks)} background task(s) on disconnect")
-
-        # Cleanup worker pools for all sessions used by this WebSocket
-        for sid in active_session_ids:
-            try:
-                await _orchestrator.stop_worker_pool(sid)
-            except Exception as cleanup_err:
-                logger.warning(f"Worker pool cleanup failed for {sid}: {cleanup_err}")
+            running = sum(1 for t in bg_tasks if not t.done())
+            logger.info(f"[WS] Disconnected — {running} background task(s) still running (workers persist)")
+        # NOTE: Worker pools for active_session_ids are kept alive intentionally.
+        # They will be stopped only on explicit session:reset from the frontend.
 
 
 # ---------------------------------------------------------------------------
