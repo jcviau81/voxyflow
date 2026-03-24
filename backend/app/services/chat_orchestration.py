@@ -36,6 +36,7 @@ from app.services.session_store import session_store
 from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_registry
 from app.services.pending_results import pending_store
 from app.services.worker_session_store import get_worker_session_store
+from app.services.direct_executor import DirectExecutor
 from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
 from app.tools.executor import get_executor
 
@@ -989,12 +990,30 @@ class ChatOrchestrator:
         if not delegates:
             return
 
+        # Separate direct-eligible delegates from worker delegates
+        worker_delegates = []
+        for data in delegates:
+            if DirectExecutor.is_direct_eligible(data):
+                # Fast path: execute inline, no worker needed
+                logger.info(f"[Orchestrator] Fast-path direct: {data.get('action')} (skipping worker)")
+                await self._execute_direct_action(
+                    data=data,
+                    websocket=websocket,
+                    session_id=session_id,
+                    project_id=project_id,
+                )
+            else:
+                worker_delegates.append(data)
+
+        if not worker_delegates:
+            return
+
         # Ensure worker pool is running (also updates WS on reconnect)
         self.start_worker_pool(session_id, websocket)
 
         bus = event_bus_registry.get_or_create(session_id)
 
-        for data in delegates:
+        for data in worker_delegates:
             intent = data.get("action", "unknown")
             summary = data.get("summary", data.get("description", ""))
             complexity = data.get("complexity", "simple")
@@ -1080,14 +1099,38 @@ class ChatOrchestrator:
             )
             return
 
+        # First pass: separate direct-eligible delegates from worker delegates
+        parsed_delegates = []
+        for match in matches:
+            try:
+                data = json.loads(match)
+                parsed_delegates.append(data)
+            except (json.JSONDecodeError, Exception) as e:
+                logger.warning(f"[Orchestrator] Failed to parse delegate block: {e}")
+
+        worker_delegates = []
+        for data in parsed_delegates:
+            if DirectExecutor.is_direct_eligible(data):
+                logger.info(f"[Orchestrator] Fast-path direct (XML): {data.get('action')} (skipping worker)")
+                await self._execute_direct_action(
+                    data=data,
+                    websocket=websocket,
+                    session_id=session_id,
+                    project_id=project_id,
+                )
+            else:
+                worker_delegates.append(data)
+
+        if not worker_delegates:
+            return
+
         # Ensure worker pool is running (also updates WS on reconnect)
         self.start_worker_pool(session_id, websocket)
 
         bus = event_bus_registry.get_or_create(session_id)
 
-        for match in matches:
+        for data in worker_delegates:
             try:
-                data = json.loads(match)
                 intent = data.get("intent", data.get("action", "unknown"))
                 summary = data.get("summary", data.get("description", ""))
                 complexity = data.get("complexity", "simple")
@@ -1134,8 +1177,142 @@ class ChatOrchestrator:
                 await bus.emit(event)
                 logger.info(f"[Orchestrator] Emitted delegate: {intent} → task {task_id} (cb_depth={callback_depth})")
 
-            except (json.JSONDecodeError, Exception) as e:
-                logger.warning(f"[Orchestrator] Failed to parse delegate block: {e}")
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Failed to emit delegate: {e}")
+
+    # ------------------------------------------------------------------
+    # Fast-Path: Direct execution for whitelisted CRUD actions
+    # ------------------------------------------------------------------
+
+    async def _execute_direct_action(
+        self,
+        data: dict,
+        websocket: "WebSocket",
+        session_id: str,
+        project_id: str | None = None,
+    ) -> None:
+        """Execute a direct (model='direct') action inline — no worker, no LLM.
+
+        Sends action:started, executes via DirectExecutor, then sends
+        action:completed + a brief chat confirmation message.
+        """
+        action = data.get("action", "unknown")
+        task_id = f"direct-{uuid4().hex[:8]}"
+
+        # --- Confirmation gate for destructive actions ---
+        if DirectExecutor.needs_confirmation(data):
+            try:
+                await websocket.send_json({
+                    "type": "action:confirm_required",
+                    "payload": {
+                        "taskId": task_id,
+                        "action": action,
+                        "params": data.get("params", {}),
+                        "sessionId": session_id,
+                        "message": f"This action ({action}) is irreversible. Confirm?",
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
+            except Exception as e:
+                logger.warning(f"[DirectExecutor] Failed to send confirm_required: {e}")
+            # Don't execute — frontend must re-send with confirmed=true
+            return
+
+        # --- Notify: action started ---
+        try:
+            await websocket.send_json({
+                "type": "action:started",
+                "payload": {
+                    "taskId": task_id,
+                    "action": action,
+                    "sessionId": session_id,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
+        except Exception as e:
+            logger.warning(f"[DirectExecutor] Failed to send action:started: {e}")
+
+        # --- Execute ---
+        result = await DirectExecutor.execute(data, project_id=project_id)
+
+        # --- Notify: action completed ---
+        try:
+            await websocket.send_json({
+                "type": "action:completed",
+                "payload": {
+                    "taskId": task_id,
+                    "action": action,
+                    "success": result.get("success", False),
+                    "result": result.get("result"),
+                    "duration_ms": result.get("duration_ms", 0),
+                    "sessionId": session_id,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
+        except Exception as e:
+            logger.warning(f"[DirectExecutor] Failed to send action:completed: {e}")
+
+        # --- Broadcast card change so board updates in real-time ---
+        if result.get("success") and action in (
+            "card.create", "create_card",
+            "card.update", "update_card",
+            "card.move", "move_card",
+            "card.delete", "delete_card",
+        ):
+            try:
+                from app.services.ws_broadcast import ws_broadcast
+                ws_broadcast.emit_sync("cards:changed", {
+                    "projectId": project_id or "system-main",
+                })
+            except Exception:
+                pass
+
+        # --- Brief chat confirmation so user sees it in the conversation ---
+        confirmation_msg = self._build_direct_confirmation(action, result)
+        if confirmation_msg:
+            msg_id = f"direct-msg-{uuid4().hex[:8]}"
+            try:
+                await websocket.send_json({
+                    "type": "chat:response",
+                    "payload": {
+                        "messageId": msg_id,
+                        "content": confirmation_msg,
+                        "model": "system",
+                        "streaming": False,
+                        "done": True,
+                        "sessionId": session_id,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
+            except Exception as e:
+                logger.warning(f"[DirectExecutor] Failed to send chat confirmation: {e}")
+
+    @staticmethod
+    def _build_direct_confirmation(action: str, result: dict) -> str:
+        """Build a short human-readable confirmation message."""
+        success = result.get("success", False)
+        duration = result.get("duration_ms", 0)
+        api_result = result.get("result", {})
+
+        if not success:
+            error = result.get("error") or (api_result.get("error") if isinstance(api_result, dict) else "")
+            return f"Action `{action}` failed: {error}"
+
+        # Extract useful info from the result
+        if action in ("card.create", "create_card"):
+            title = api_result.get("title", "") if isinstance(api_result, dict) else ""
+            return f"Card created: **{title}** ({duration}ms)"
+        elif action in ("card.move", "move_card"):
+            status = api_result.get("status", "") if isinstance(api_result, dict) else ""
+            title = api_result.get("title", "") if isinstance(api_result, dict) else ""
+            return f"Card moved: **{title}** → {status} ({duration}ms)"
+        elif action in ("card.update", "update_card"):
+            title = api_result.get("title", "") if isinstance(api_result, dict) else ""
+            return f"Card updated: **{title}** ({duration}ms)"
+        elif action in ("card.delete", "delete_card"):
+            return f"Card deleted ({duration}ms)"
+        else:
+            return f"Action `{action}` completed ({duration}ms)"
 
     # ------------------------------------------------------------------
     # Safety Net: Detect missing delegates
