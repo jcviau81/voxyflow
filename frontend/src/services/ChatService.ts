@@ -23,6 +23,33 @@ export class ChatService {
     this.setupHandlers();
   }
 
+  /**
+   * Derive the correct projectId from a sessionId so messages route to the
+   * right session regardless of which tab is currently active.
+   * Formats: 'general:{id}', 'project:{projectId}[:suffix]', 'card:{cardId}[:suffix]'
+   */
+  private projectIdFromSession(sessionId?: string): string {
+    if (sessionId?.startsWith('project:')) {
+      const projectId = sessionId.split(':')[1];
+      if (projectId) return projectId;
+    }
+    // general / card / missing → fall back
+    return appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
+  }
+
+  /**
+   * Resolve the correct projectId from a sessionId with explicit format handling.
+   * - 'project:{projectId}' → returns projectId
+   * - 'card:{cardId}'       → falls back to currentProjectId
+   * - missing / other       → SYSTEM_PROJECT_ID (no implicit currentProjectId leak)
+   */
+  private getProjectIdFromSession(sessionId?: string): string {
+    if (!sessionId) return appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
+    if (sessionId.startsWith('project:')) return sessionId.slice('project:'.length);
+    if (sessionId.startsWith('card:')) return appState.get('currentProjectId') || SYSTEM_PROJECT_ID;
+    return SYSTEM_PROJECT_ID;
+  }
+
   private setupHandlers(): void {
     // Handle incoming chat responses
     this.unsubscribers.push(
@@ -76,7 +103,7 @@ export class ChatService {
           enrichmentAction: action as 'enrich' | 'correct',
           model,
           sessionId,
-          projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
+          projectId: this.projectIdFromSession(sessionId),
         });
         eventBus.emit(EVENTS.MESSAGE_ENRICHMENT, message);
       })
@@ -134,13 +161,14 @@ export class ChatService {
     );
     this.unsubscribers.push(
       apiClient.on('task:completed', (payload) => {
-        const { intent, summary, result, success, taskId, sessionId } = payload as {
+        const { intent, summary, result, success, taskId, sessionId, projectId } = payload as {
           intent: string;
           summary: string;
           result: string;
           success: boolean;
           taskId: string;
           sessionId?: string;
+          projectId?: string;
         };
         eventBus.emit(EVENTS.TASK_COMPLETED, payload);
 
@@ -154,7 +182,7 @@ export class ChatService {
             role: 'assistant',
             content: resultContent,
             model: 'worker',
-            projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
+            projectId: projectId || this.getProjectIdFromSession(sessionId),
             sessionId: sessionId || this.activeSessionId,
             isWorkerResult: true,
           });
@@ -423,7 +451,7 @@ export class ChatService {
         content: '',
         streaming: true,
         sessionId,
-        projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
+        projectId: this.getProjectIdFromSession(sessionId),
       });
       stream = { content: '', messageId: message.id };
       this.streamingMessages.set(streamId, stream);
@@ -470,7 +498,7 @@ export class ChatService {
       role: 'assistant',
       content: content as string,
       sessionId,
-      projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
+      projectId: this.getProjectIdFromSession(sessionId),
     });
     eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);
     // TTS handled by ChatWindow via MESSAGE_RECEIVED listener
