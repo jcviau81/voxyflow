@@ -124,8 +124,8 @@ async def init_db():
         existing = await conn.execute(text("SELECT id FROM projects WHERE id = :id"), {"id": SYSTEM_MAIN_ID})
         if existing.fetchone() is None:
             await conn.execute(text(
-                "INSERT INTO projects (id, title, description, status, context, is_system, deletable, created_at, updated_at) "
-                "VALUES (:id, :title, :desc, 'active', '', 1, 0, :now, :now)"
+                "INSERT INTO projects (id, title, description, status, context, is_system, deletable, is_favorite, inherit_main_context, created_at, updated_at) "
+                "VALUES (:id, :title, :desc, 'active', '', 1, 0, 0, 1, :now, :now)"
             ), {"id": SYSTEM_MAIN_ID, "title": "Main", "desc": "Default workspace", "now": utcnow().isoformat()})
 
         # Migrate all cards with project_id = NULL → system-main

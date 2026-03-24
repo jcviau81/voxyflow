@@ -16,7 +16,7 @@ echo "  Proxy starting (port 3457)..."
 
 # Backend
 cd "$SCRIPT_DIR/backend"
-nohup venv/bin/uvicorn app.main:app --port 8000 --host 0.0.0.0 >> /tmp/voxyflow-backend.log 2>&1 &
+nohup env CUDA_VISIBLE_DEVICES="" venv/bin/uvicorn app.main:app --port 8000 --host 0.0.0.0 >> /tmp/voxyflow-backend.log 2>&1 &
 echo "  Backend starting (port 8000)..."
 
 # Frontend

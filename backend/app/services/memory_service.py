@@ -12,6 +12,7 @@ Memory failure NEVER breaks chat. If chromadb is not installed, memory falls
 back to the original file-based approach (graceful degradation).
 """
 
+import json
 import logging
 import os
 import re
@@ -57,7 +58,7 @@ VALID_SOURCES = {"chat", "manual", "auto-extract"}
 VALID_IMPORTANCE = {"high", "medium", "low"}
 
 # ---------------------------------------------------------------------------
-# Keyword patterns for auto-extraction (MVP heuristic)
+# Keyword patterns for auto-extraction (FALLBACK heuristic — used when LLM fails)
 # ---------------------------------------------------------------------------
 
 _DECISION_PATTERNS = [
@@ -91,10 +92,9 @@ _LESSON_PATTERNS = [
 def _classify_text(text: str) -> tuple[str, str]:
     """Classify text into (type, importance) using keyword heuristics.
 
+    Fallback used when LLM extraction fails.
     Returns one of the VALID_TYPES and VALID_IMPORTANCE values.
     """
-    text_lower = text.lower()
-
     # Check patterns in priority order
     for pat in _DECISION_PATTERNS:
         if pat.search(text):
@@ -117,6 +117,59 @@ def _classify_text(text: str) -> tuple[str, str]:
             return "lesson", "high"
 
     return "context", "low"
+
+
+# ---------------------------------------------------------------------------
+# LLM extraction prompt (B1)
+# ---------------------------------------------------------------------------
+
+_MEMORY_EXTRACTION_SYSTEM = """\
+You are a memory extraction assistant for a project management tool. Your job is to analyze a \
+short block of conversation messages and extract information worth remembering long-term.
+
+## What to extract
+- **decision**: A concrete choice that was made ("we'll use Redis", "going with Tailwind CSS")
+- **preference**: A stated user preference or style guideline ("I prefer dark mode", "always use async")
+- **fact**: A relevant technical fact, tool version, architecture detail, or bug/fix encountered
+- **lesson**: A learned insight, hard-won takeaway, or "note to self"
+- **skip**: Everything else — greetings, filler, vague statements, chitchat, questions without answers
+
+## Language
+The conversation may be in French, English, or franglais (FR/EN mix). Handle all naturally. \
+Extract the memory content in the same language it was expressed.
+
+## Output format
+Respond with a JSON array ONLY — no markdown, no explanation, no code fence.
+Each item in the array must be a JSON object with exactly these fields:
+  - "content": string — the memory text, self-contained (no pronouns without referent)
+  - "type": one of "decision" | "preference" | "fact" | "lesson" | "skip"
+  - "importance": one of "high" | "medium" | "low"
+  - "confidence": float between 0.0 and 1.0
+
+## Rules
+- Only include items with confidence > 0.7 that have real long-term value
+- Skip pleasantries, repetitive content, questions, and anything too vague to be useful
+- One memory per distinct piece of information (don't bundle multiple facts)
+- Keep "content" concise but complete — someone reading it later should understand it without context
+- If nothing is worth remembering, return an empty array: []
+"""
+
+_MEMORY_EXTRACTION_USER_TEMPLATE = """\
+Extract memories from the following conversation messages:
+
+{messages_block}
+"""
+
+
+def _format_messages_for_extraction(messages: list[dict]) -> str:
+    """Format a list of message dicts into a readable block for the LLM."""
+    lines = []
+    for msg in messages:
+        role = msg.get("role", "unknown").upper()
+        content = msg.get("content", "").strip()
+        if content and role != "SYSTEM":
+            lines.append(f"[{role}]: {content}")
+    return "\n\n".join(lines)
 
 
 def _slugify(name: str) -> str:
@@ -332,7 +385,7 @@ class MemoryService:
             return []
 
     # ------------------------------------------------------------------
-    # Auto-extraction from conversations (MVP: keyword heuristics)
+    # Auto-extraction from conversations (LLM-based with regex fallback)
     # ------------------------------------------------------------------
 
     async def auto_extract_memories(
@@ -343,7 +396,10 @@ class MemoryService:
     ) -> list[str]:
         """Analyze conversation messages and auto-store important facts/decisions.
 
-        Uses keyword-based heuristics (MVP) to identify what's worth remembering.
+        Primary path: single LLM call (haiku) that analyzes the last 4 messages
+        in bulk and returns structured JSON with extracted memories.
+        Fallback path: keyword-based heuristics (regex) if LLM call fails.
+
         Returns list of stored document IDs.
         """
         if not self._chromadb_enabled:
@@ -359,24 +415,84 @@ class MemoryService:
             else GLOBAL_COLLECTION
         )
 
-        # Process each message (focus on user + assistant content)
-        for msg in messages:
-            role = msg.get("role", "")
+        # Take the last 4 non-system messages
+        relevant_messages = [
+            m for m in messages
+            if m.get("role") != "system" and m.get("content", "").strip()
+        ][-4:]
+
+        if not relevant_messages:
+            return []
+
+        # --- Primary path: LLM extraction ---
+        extracted_items = await self._llm_extract_memories(relevant_messages)
+
+        if extracted_items is not None:
+            # LLM succeeded — process its output
+            for item in extracted_items:
+                mem_type = item.get("type", "skip")
+                importance = item.get("importance", "low")
+                confidence = float(item.get("confidence", 0.0))
+                content = (item.get("content") or "").strip()
+
+                # Skip low-confidence, noise, or empty entries
+                if mem_type == "skip" or confidence <= 0.7 or not content or len(content) < 15:
+                    continue
+
+                # Normalize type to valid set
+                if mem_type not in VALID_TYPES:
+                    mem_type = "fact"
+                if importance not in VALID_IMPORTANCE:
+                    importance = "medium"
+
+                metadata = {
+                    "type": mem_type,
+                    "date": today,
+                    "source": "auto-extract",
+                    "importance": importance,
+                    "confidence": round(confidence, 2),
+                }
+                if project_slug:
+                    metadata["project"] = project_slug
+
+                # Dedup: check if very similar memory already exists
+                existing = self.search_memory(
+                    query=content,
+                    collections=[collection],
+                    limit=1,
+                )
+                if existing and existing[0]["score"] > 0.93:
+                    logger.debug(f"auto_extract[LLM]: skipping duplicate (score={existing[0]['score']:.2f})")
+                    continue
+
+                doc_id = self.store_memory(
+                    text=content,
+                    collection=collection,
+                    metadata=metadata,
+                )
+                if doc_id:
+                    stored_ids.append(doc_id)
+                    logger.info(f"auto_extract[LLM]: stored {mem_type} ({importance}, conf={confidence:.2f}): {content[:80]}...")
+
+            return stored_ids
+
+        # --- Fallback path: regex heuristics ---
+        logger.info("auto_extract: LLM extraction failed, falling back to regex heuristics")
+
+        for msg in relevant_messages:
             content = msg.get("content", "")
-            if not content or role == "system":
+            if not content:
                 continue
 
-            # Split into sentences for granular extraction
             sentences = re.split(r'(?<=[.!?])\s+', content)
 
             for sentence in sentences:
                 sentence = sentence.strip()
-                if len(sentence) < 20:  # Skip trivially short
+                if len(sentence) < 20:
                     continue
 
                 mem_type, importance = _classify_text(sentence)
 
-                # Only store if classified as something meaningful (not low-importance context)
                 if mem_type == "context" and importance == "low":
                     continue
 
@@ -389,16 +505,13 @@ class MemoryService:
                 if project_slug:
                     metadata["project"] = project_slug
 
-                # Dedup: check if very similar memory already exists
                 existing = self.search_memory(
                     query=sentence,
                     collections=[collection],
                     limit=1,
                 )
-                # Dedup threshold calibrated for intfloat/multilingual-e5-large (cosine):
-                #   paraphrase ≈ 0.93-0.97, near-duplicate ≈ 0.94+
                 if existing and existing[0]["score"] > 0.93:
-                    logger.debug(f"auto_extract: skipping duplicate (score={existing[0]['score']:.2f})")
+                    logger.debug(f"auto_extract[regex]: skipping duplicate (score={existing[0]['score']:.2f})")
                     continue
 
                 doc_id = self.store_memory(
@@ -408,9 +521,68 @@ class MemoryService:
                 )
                 if doc_id:
                     stored_ids.append(doc_id)
-                    logger.info(f"auto_extract: stored {mem_type} ({importance}): {sentence[:80]}...")
+                    logger.info(f"auto_extract[regex]: stored {mem_type} ({importance}): {sentence[:80]}...")
 
         return stored_ids
+
+    async def _llm_extract_memories(
+        self,
+        messages: list[dict],
+    ) -> Optional[list[dict]]:
+        """Call haiku to extract memories from a block of messages.
+
+        Returns a list of extracted memory dicts on success, or None on failure.
+        The caller is responsible for filtering by confidence threshold.
+        """
+        try:
+            # Import here to avoid circular dependency at module load time
+            from app.services.claude_service import ClaudeService
+
+            claude = ClaudeService()
+
+            messages_block = _format_messages_for_extraction(messages)
+            if not messages_block.strip():
+                return None
+
+            user_prompt = _MEMORY_EXTRACTION_USER_TEMPLATE.format(
+                messages_block=messages_block
+            )
+
+            raw = await claude._call_api(
+                model=claude.haiku_model,
+                system=_MEMORY_EXTRACTION_SYSTEM,
+                messages=[{"role": "user", "content": user_prompt}],
+                client=claude.haiku_client,
+                client_type=claude.haiku_client_type,
+                use_tools=False,
+            )
+
+            if not raw or not raw.strip():
+                logger.warning("_llm_extract_memories: empty response from LLM")
+                return None
+
+            # Strip markdown code fences if present
+            text = raw.strip()
+            if text.startswith("```"):
+                text = text.split("```", 2)[1]
+                if text.startswith("json"):
+                    text = text[4:]
+                text = text.rsplit("```", 1)[0].strip()
+
+            parsed = json.loads(text)
+            if not isinstance(parsed, list):
+                logger.warning(f"_llm_extract_memories: expected list, got {type(parsed).__name__}")
+                return None
+
+            logger.info(f"_llm_extract_memories: LLM returned {len(parsed)} candidate memories")
+            return parsed
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"_llm_extract_memories: JSON parse error: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"_llm_extract_memories: LLM call failed: {e}")
+            return None
 
     # ------------------------------------------------------------------
     # build_memory_context — backward-compatible, now with semantic search

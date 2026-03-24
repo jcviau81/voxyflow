@@ -154,6 +154,7 @@ export class ChatService {
             role: 'assistant',
             content: resultContent,
             model: 'worker',
+            projectId: appState.get('currentProjectId') || SYSTEM_PROJECT_ID,
             sessionId: sessionId || this.activeSessionId,
             isWorkerResult: true,
           });
@@ -531,6 +532,7 @@ export class ChatService {
           sessionId: sessionId || undefined,
           streaming: false,
           model: m.model,
+          isWorkerResult: m.type === 'worker_result' ? true : undefined,
         }));
 
       if (converted.length > 0) {

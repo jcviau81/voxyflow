@@ -23,6 +23,7 @@ class ActionIntent:
     session_id: str = ""
     complexity: str = "simple"  # "simple" | "complex"
     model: str = "sonnet"  # "haiku" | "sonnet" | "opus"
+    callback_depth: int = 0  # 0 = normal, 1+ = spawned from callback (max auto-callback depth = 1)
 
 
 class SessionEventBus:
