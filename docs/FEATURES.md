@@ -644,8 +644,10 @@ Each project gets 3 isolated ChromaDB collections for retrieval-augmented genera
 | `voxyflow_project_{id}_history` | Conversation history (future) |
 | `voxyflow_project_{id}_workspace` | Cards, notes, board data (future) |
 
-**Embeddings:** `all-MiniLM-L6-v2` (local, via `sentence-transformers` — no API key needed)  
+**Embeddings:** `intfloat/multilingual-e5-large` (~470MB, local, via `sentence-transformers` — no API key needed)
 **Persistence:** `~/.voxyflow/chroma/`
+**Relevance cutoff:** `0.82` cosine similarity (calibrated for e5-large score distribution)
+**Cross-lingual:** Native — the model maps 100+ languages into a shared vector space. French queries retrieve English content (and vice versa) without translation or query expansion.
 
 ### Document Upload
 
@@ -684,7 +686,11 @@ Upload flow:
 
 ### Context Injection
 
-When RAG is enabled and a project has indexed documents, relevant chunks are retrieved and injected into the system prompt for each chat message in that project's context.
+When RAG is enabled and a project has indexed documents:
+
+1. User's message is used as a similarity query against project collections
+2. Top-K chunks retrieved; chunks below the `0.82` relevance cutoff are discarded
+3. Relevant chunks injected into the system prompt for the LLM
 
 **Graceful degradation:** If `chromadb` is not installed, RAGService silently disables itself. Chat works normally; RAG context is just absent.
 
@@ -1000,9 +1006,11 @@ Background task scheduler running within the FastAPI process:
 
 Per-project isolated vector collections:
 
-- Embeddings: `all-MiniLM-L6-v2` (sentence-transformers, runs locally)
+- Embeddings: `intfloat/multilingual-e5-large` (~470MB, sentence-transformers, runs locally)
 - Storage: `~/.voxyflow/chroma/` (persistent)
 - 3 collections per project: docs, history, workspace
+- Relevance cutoff: `0.82` cosine similarity; memory dedup threshold: `0.93`
+- Cross-lingual retrieval: native (no query expansion needed)
 - Context injection into chat prompts when relevant chunks exist
 - Graceful degradation if `chromadb` is not installed
 

@@ -64,8 +64,10 @@ Voxyflow has 4 memory/persistence layers:
 
 ChromaDB-backed retrieval-augmented generation for project knowledge.
 
-- **Embedding model:** `all-MiniLM-L6-v2` (local, no API calls)
+- **Embedding model:** `intfloat/multilingual-e5-large` (~470MB, local, no API calls)
 - **Persistence:** `~/.voxyflow/chroma/`
+- **Relevance cutoff:** `0.82` cosine similarity (calibrated for e5-large score distribution)
+- **Cross-lingual:** Native — the model maps 100+ languages into a shared vector space, so FR queries retrieve EN documents and vice versa without translation
 - **Graceful degradation:** If `chromadb` not installed, RAG silently disables
 
 ### Per-Project Collections
@@ -92,8 +94,9 @@ When a user sends a message in a project context:
 
 1. Message text is used as a similarity query against project collections
 2. Top-K relevant chunks retrieved from documents, history, workspace
-3. Retrieved context injected into the system prompt under a "Relevant Context" section
-4. LLM uses this context to give informed, project-aware responses
+3. Chunks below the `0.82` cosine similarity cutoff are discarded
+4. Retrieved context injected into the system prompt under a "Relevant Context" section
+5. LLM uses this context to give informed, project-aware responses
 
 ### Operations
 
@@ -111,6 +114,16 @@ When a user sends a message in a project context:
 ### How It Works
 
 ChromaDB-backed hierarchical memory with file-based fallback.
+
+- **Embedding model:** Same as RAG — `intfloat/multilingual-e5-large`
+- **Dedup threshold:** `0.93` cosine similarity (memories scoring above this are considered duplicates and skipped)
+
+### Similarity Thresholds
+
+| Threshold | Value | Purpose |
+|-----------|-------|---------|
+| RAG relevance cutoff | `0.82` | Minimum score to include a chunk in context |
+| Memory dedup | `0.93` | Score above which a new memory is considered duplicate |
 
 ### Collections
 

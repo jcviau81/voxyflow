@@ -171,7 +171,7 @@ project docs, past conversations, and card data in your chat responses.
 
 ### Embeddings
 
-All embeddings use `all-MiniLM-L6-v2` (local, no API key). ChromaDB persists
+All embeddings use `intfloat/multilingual-e5-large` (local, no API key). ChromaDB persists
 to `~/.voxyflow/chroma/`. Both RAG and Memory share the same PersistentClient.
 
 ---
@@ -194,7 +194,7 @@ ChatOrchestrator._auto_extract_memories_safe()
     → For each sentence in the last 4 messages:
       → Classify via keyword heuristics (_DECISION_PATTERNS, _BUG_PATTERNS, etc.)
       → If classified as decision/preference/lesson/fact (not low-importance context):
-        → Dedup check: semantic search existing memories (score > 0.85 = skip)
+        → Dedup check: semantic search existing memories (score > 0.93 = skip)
         → Store in ChromaDB with metadata {type, date, source: "auto-extract", importance}
 ```
 
