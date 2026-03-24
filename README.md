@@ -181,13 +181,76 @@ Upload and parse documents for RAG context:
 
 ---
 
+## Prerequisites & Installation
+
+Follow these steps when installing Voxyflow from scratch.
+
+### 1. Clone Voxyflow and the proxy fork
+
+```bash
+# Main app
+git clone https://github.com/jcviau81/voxyflow.git
+cd voxyflow
+
+# Proxy (required for Claude Max — must be cloned separately)
+git clone https://github.com/jcviau81/voxyflow-proxy-fork.git ~/voxyflow-proxy-fork
+cd ~/voxyflow-proxy-fork && npm install && npm run build
+```
+
+> **Why a separate repo?** Voxyflow uses a patched fork of `claude-max-api` that sets the proxy `cwd` to `~/voxyflow/` automatically. Without this, personality and settings files won't resolve correctly.
+
+### 2. TLS certificates
+
+Voxyflow's frontend dev server runs on HTTPS (required for microphone access in the browser).
+
+**Option A — Tailscale cert (recommended for LAN/remote access):**
+```bash
+tailscale cert <your-hostname>
+# Example: tailscale cert thething.tail1234.ts.net
+# Certs land in /var/lib/tailscale/certs/ (or wherever tailscale puts them)
+```
+
+**Option B — Self-signed cert (quick local dev):**
+```bash
+cd frontend
+mkdir -p certs
+openssl req -x509 -newkey rsa:4096 -keyout certs/key.pem -out certs/cert.pem \
+  -days 365 -nodes -subj "/CN=localhost"
+```
+
+Update `frontend/webpack.config.js` to point to your cert paths.
+
+### 3. Configure the backend environment
+
+```bash
+cd backend
+cp .env.example .env
+# Edit .env and fill in your values
+```
+
+Key variables in `backend/.env`:
+- `CLAUDE_API_KEY` — Your API key for the claude-max-api proxy
+- `PROVIDER_URL` — Proxy URL, default `http://localhost:3457/v1`
+- `DATABASE_URL` — Optional; defaults to `./voxyflow.db` in the backend directory
+
+### 4. WSL2 / Linux without GPU
+
+If you're running on WSL2 or a machine without a CUDA-compatible GPU, PyTorch will crash on import unless you disable CUDA device detection. The `restart.sh` script handles this automatically via `CUDA_VISIBLE_DEVICES=""`.
+
+If you start the backend manually, prepend it:
+```bash
+CUDA_VISIBLE_DEVICES="" uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+---
+
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.11+
 - Node.js 18+
-- [claude-max-api](https://github.com/jcviau81/claude-max-api) proxy running on port 3457 (see Proxy Setup below)
+- [voxyflow-proxy-fork](https://github.com/jcviau81/voxyflow-proxy-fork) built and available at `~/voxyflow-proxy-fork/` (see Prerequisites above)
 
 ### Backend
 
