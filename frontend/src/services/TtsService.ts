@@ -4,8 +4,8 @@
  *   2. Remote XTTS server (higher quality, configurable URL)
  *
  * Usage:
- *   ttsService.speak("Hello!")        // Uses configured backend
- *   ttsService.stop()                 // Stops current playback
+ *   ttsService.speak("Hello!")        // Queues text; plays immediately if idle
+ *   ttsService.stop()                 // Stops current + clears queue (user interrupt)
  *   ttsService.isSpeaking             // true while audio is playing
  *   ttsService.speakIfAutoPlay(text)  // Only speaks if auto-play is on
  */
@@ -14,6 +14,8 @@ class TtsService {
   private _isSpeaking = false;
   private _onEndCallbacks: Array<() => void> = [];
   private _currentAudio: HTMLAudioElement | null = null;
+  private _queue: string[] = [];
+  private _processing = false;
 
   get isSpeaking(): boolean {
     return this._isSpeaking;
@@ -57,22 +59,35 @@ class TtsService {
   }
 
   /**
-   * Synthesize and play the given text.
-   * Uses server TTS if a URL is configured, otherwise falls back to browser speechSynthesis.
+   * Queue text for TTS playback. If nothing is currently playing, starts immediately.
+   * If already speaking, the text is queued and will play after the current utterance finishes.
    */
   async speak(text: string): Promise<void> {
     if (!text.trim()) return;
 
-    // Stop previous playback
-    this.stop();
-
-    const { tts_url, tts_speed } = this.getVoiceSettings();
-
-    if (tts_url) {
-      await this.speakServer(text, tts_url, tts_speed);
-    } else {
-      await this.speakBrowser(text, tts_speed);
+    this._queue.push(text);
+    if (!this._processing) {
+      await this._processQueue();
     }
+  }
+
+  /** Process queued messages one at a time. */
+  private async _processQueue(): Promise<void> {
+    if (this._processing) return;
+    this._processing = true;
+
+    while (this._queue.length > 0) {
+      const text = this._queue.shift()!;
+      const { tts_url, tts_speed } = this.getVoiceSettings();
+
+      if (tts_url) {
+        await this.speakServer(text, tts_url, tts_speed);
+      } else {
+        await this.speakBrowser(text, tts_speed);
+      }
+    }
+
+    this._processing = false;
   }
 
   /** Play via remote XTTS server */
@@ -181,6 +196,13 @@ class TtsService {
       };
 
       utterance.onerror = (e) => {
+        // 'interrupted' and 'canceled' errors are expected when stop() is called
+        if (e.error === 'interrupted' || e.error === 'canceled') {
+          this._isSpeaking = false;
+          this._notifyEnd();
+          resolve();
+          return;
+        }
         console.warn('[TtsService] speechSynthesis error:', e);
         this._isSpeaking = false;
         this._notifyEnd();
@@ -191,8 +213,11 @@ class TtsService {
     });
   }
 
-  /** Stop current audio playback. */
+  /** Stop current audio playback and clear the queue (user interrupt). */
   stop(): void {
+    // Clear pending queue
+    this._queue = [];
+    this._processing = false;
     // Stop server audio
     if (this._currentAudio) {
       this._currentAudio.pause();
