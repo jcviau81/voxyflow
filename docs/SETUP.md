@@ -14,7 +14,7 @@
 
 **Optional (for RAG/knowledge base):**
 - ChromaDB-compatible system (runs on any modern Linux/macOS/Windows)
-- `sentence-transformers` downloads ~90MB model on first run (all-MiniLM-L6-v2)
+- `sentence-transformers` downloads ~2.2GB model on first run (intfloat/multilingual-e5-large)
 
 ---
 
@@ -109,7 +109,7 @@ Expected output:
 ```
 INFO  🚀 Voxyflow starting up...
 INFO  ✅ Database initialized
-INFO  ✅ RAGService initialized (ChromaDB + all-MiniLM-L6-v2)
+INFO  ✅ RAGService initialized (ChromaDB + intfloat/multilingual-e5-large)
 INFO  Application startup complete.
 INFO  Uvicorn running on http://0.0.0.0:8000
 ```
@@ -203,7 +203,7 @@ ollama serve
 
 RAG is automatically enabled if `chromadb` and `sentence-transformers` are installed (they are in `requirements.txt`).
 
-**First-run note:** `sentence-transformers` downloads the `all-MiniLM-L6-v2` model (~90MB) on first use. This happens once and is cached in `~/.cache/huggingface/`.
+**First-run note:** `sentence-transformers` downloads the `intfloat/multilingual-e5-large` model (~2.2GB) on first use. This happens once and is cached in `~/.cache/huggingface/`.
 
 **ChromaDB storage:** Data persists to `~/.voxyflow/chroma/`. This directory is created automatically.
 

@@ -51,5 +51,8 @@
   "onboarding_complete": true,
   "user_name": "jc",
   "assistant_name": "Voxy",
-  "workspace_path": "workspace"
+  "workspace_path": "workspace",
+  "github": {
+    "token": "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"
+  }
 }

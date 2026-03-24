@@ -12,7 +12,7 @@
 | Backend | **FastAPI** (Python 3.11+) | REST API + WebSocket server |
 | Frontend | **TypeScript** (zero-framework, Web Components) | PWA single-page application |
 | Database | **SQLite** (via SQLAlchemy async + aiosqlite) | Persistent storage for all entities |
-| Vector DB | **ChromaDB** (all-MiniLM-L6-v2 embeddings) | RAG retrieval, memory, document search |
+| Vector DB | **ChromaDB** (intfloat/multilingual-e5-large embeddings) | RAG retrieval, memory, document search |
 | Real-time | **WebSocket** (`/ws`) | Chat streaming, task events, connection state |
 | AI Models | **Anthropic Claude** (Sonnet, Opus, Haiku) | 3-layer AI pipeline |
 | AI Proxy | **claude-max-api** (`localhost:3457`) | OpenAI-compatible proxy for Claude API |

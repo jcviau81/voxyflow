@@ -88,7 +88,7 @@ Voxyflow is a voice-first project management assistant that lives locally. You s
 | Framework | FastAPI + Uvicorn |
 | Database | SQLite via SQLAlchemy (asyncio) |
 | AI | Anthropic Claude (via OpenAI-compat proxy) |
-| Vector DB | ChromaDB + sentence-transformers (all-MiniLM-L6-v2) |
+| Vector DB | ChromaDB + sentence-transformers (intfloat/multilingual-e5-large) |
 | Key storage | keyring |
 | Realtime | WebSocket (native FastAPI) |
 

@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
     # Initialize RAGService singleton (chromadb + sentence-transformers)
     rag = get_rag_service()
     if rag.enabled:
-        logger.info("✅ RAGService initialized (ChromaDB + all-MiniLM-L6-v2)")
+        logger.info("✅ RAGService initialized (ChromaDB + intfloat/multilingual-e5-large)")
     else:
         logger.warning("⚠️  RAGService disabled (chromadb not installed — install chromadb + sentence-transformers to enable)")
 
