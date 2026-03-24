@@ -62,15 +62,18 @@ class DeepWorkerPool:
         claude_service: ClaudeService,
         bus: SessionEventBus,
         websocket: WebSocket,
+        orchestrator: "ChatOrchestrator | None" = None,
     ):
         self._claude = claude_service
         self._bus = bus
         self._ws = websocket
+        self._orchestrator = orchestrator
         self._active_tasks: dict[str, asyncio.Task] = {}
         self._task_meta: dict[str, dict] = {}  # task_id → {action, model, description, started_at}
         self._completed_tasks: list[dict] = []  # [{task_id, action, model, completed_at, result}]
         self._listener_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
+        self._callback_lock = asyncio.Lock()  # Prevents overlapping callback streams
         self._stopped = False
 
     def start(self) -> None:
@@ -419,6 +422,57 @@ class DeepWorkerPool:
                 except Exception as inject_err:
                     logger.warning(f"[DeepWorker] Failed to inject result into history: {inject_err}")
 
+            # --- Auto-callback: re-trigger dispatcher so it can react to the result ---
+            if (
+                self._orchestrator
+                and dispatcher_chat_id
+                and result_content
+                and event.callback_depth < 1  # Only auto-callback at depth 0
+            ):
+                # Serialize callbacks — only one can stream to the WS at a time
+                async with self._callback_lock:
+                    try:
+                        # Check WebSocket is still open before triggering callback
+                        ws_open = True
+                        try:
+                            await self._ws.send_json({"type": "ping"})
+                        except Exception:
+                            ws_open = False
+
+                        if ws_open:
+                            # Use a brief trigger — the full result is already in
+                            # dispatcher history (injected above as assistant msg).
+                            # This avoids duplicating the content as a user message.
+                            callback_msg = (
+                                f"[SYSTEM: Worker '{event.intent}' just completed. "
+                                f"The result is in your conversation history above. "
+                                f"Summarize the outcome for the user and decide if "
+                                f"further action is needed.]"
+                            )
+                            callback_message_id = f"callback-{uuid4().hex[:8]}"
+
+                            logger.info(
+                                f"[DeepWorker] Auto-callback: re-triggering dispatcher for {event.intent} "
+                                f"(depth={event.callback_depth})"
+                            )
+
+                            await self._orchestrator.handle_message(
+                                websocket=self._ws,
+                                content=callback_msg,
+                                message_id=callback_message_id,
+                                chat_id=dispatcher_chat_id,
+                                project_id=event.data.get("project_id"),
+                                chat_level=event.data.get("chat_level", "general"),
+                                card_id=event.data.get("card_id"),
+                                session_id=event.session_id,
+                                is_callback=True,
+                                callback_depth=event.callback_depth,
+                            )
+                        else:
+                            logger.info(f"[DeepWorker] Skipping auto-callback — WebSocket closed")
+                    except Exception as cb_err:
+                        logger.warning(f"[DeepWorker] Auto-callback failed: {cb_err}", exc_info=True)
+
             logger.info(f"[DeepWorker] Task {event.task_id} completed: {event.intent}")
 
         except Exception as e:
@@ -497,6 +551,8 @@ class ChatOrchestrator:
         project_id: str | None,
         layers: dict[str, bool] | None = None,
         chat_level: str = "general",
+        is_callback: bool = False,
+        callback_depth: int = 0,
         card_id: str | None = None,
         session_id: str | None = None,
     ) -> list[asyncio.Task]:
@@ -533,8 +589,9 @@ class ChatOrchestrator:
             })
 
         # Launch Analyzer in background (both modes)
+        # Skip analyzer for callbacks — worker results don't need card suggestions
         analyzer_task = None
-        if analyzer_enabled:
+        if analyzer_enabled and not is_callback:
             await send_model_status("analyzer", "thinking")
             analyzer_task = asyncio.create_task(
                 self._analyzer.analyze_for_cards(
@@ -592,6 +649,9 @@ class ChatOrchestrator:
             # Check for native tool_use delegates FIRST (collected by claude_service)
             native_delegates = self._claude.pop_pending_delegates(chat_id)
 
+            # Workers spawned from a callback response carry incremented depth
+            child_callback_depth = callback_depth + 1 if is_callback else callback_depth
+
             if native_delegates:
                 # Native path: structured delegate_action tool_use blocks
                 logger.info(f"[Orchestrator] Native delegate path: {len(native_delegates)} delegate(s) from tool_use")
@@ -606,6 +666,7 @@ class ChatOrchestrator:
                         card_context=card_context,
                         project_id=project_id,
                         chat_id=chat_id,
+                        callback_depth=child_callback_depth,
                     )
                 )
                 _bg_tasks.append(_t)
@@ -630,6 +691,7 @@ class ChatOrchestrator:
                             card_context=card_context,
                             project_id=project_id,
                             chat_id=chat_id,
+                            callback_depth=child_callback_depth,
                         )
                     )
                     _bg_tasks.append(_t)
@@ -648,14 +710,16 @@ class ChatOrchestrator:
             _bg_tasks.append(_t)
 
         # --- Memory auto-extraction (BACKGROUND — non-blocking) ---
-        _t = asyncio.create_task(
-            self._auto_extract_memories_safe(
-                chat_id=chat_id,
-                user_message=content,
-                project_name=project_name,
+        # Skip for callbacks — worker results aren't user conversation
+        if not is_callback:
+            _t = asyncio.create_task(
+                self._auto_extract_memories_safe(
+                    chat_id=chat_id,
+                    user_message=content,
+                    project_name=project_name,
+                )
             )
-        )
-        _bg_tasks.append(_t)
+            _bg_tasks.append(_t)
 
         # handle_message returns HERE — WS handler is free for next message
         logger.debug("[Orchestrator] handle_message returning (delegates + analyzer in background)")
@@ -731,7 +795,7 @@ class ChatOrchestrator:
             asyncio.create_task(existing.stop())
 
         bus = event_bus_registry.get_or_create(session_id)
-        pool = DeepWorkerPool(self._claude, bus, websocket)
+        pool = DeepWorkerPool(self._claude, bus, websocket, orchestrator=self)
         pool.start()
         self._worker_pools[session_id] = pool
         return pool
@@ -840,6 +904,7 @@ class ChatOrchestrator:
         card_context: dict | None = None,
         project_id: str | None = None,
         chat_id: str | None = None,
+        callback_depth: int = 0,
     ) -> None:
         """Convert native delegate_action tool_use blocks to ActionIntent events.
 
@@ -893,10 +958,11 @@ class ChatOrchestrator:
                 session_id=session_id,
                 complexity=complexity,
                 model=model,
+                callback_depth=callback_depth,
             )
 
             await bus.emit(event)
-            logger.info(f"[Orchestrator] Emitted native delegate: {intent} → task {task_id} (model={model})")
+            logger.info(f"[Orchestrator] Emitted native delegate: {intent} → task {task_id} (model={model}, cb_depth={callback_depth})")
 
     # ------------------------------------------------------------------
     # Event Bus: Delegate parsing (XML fallback)
@@ -918,6 +984,7 @@ class ChatOrchestrator:
         card_context: dict | None = None,
         project_id: str | None = None,
         chat_id: str | None = None,
+        callback_depth: int = 0,
     ) -> None:
         """Parse <delegate> blocks from the Fast response and emit ActionIntent events."""
         # Debug: log the tail of the response to verify delegate blocks are present
@@ -988,10 +1055,11 @@ class ChatOrchestrator:
                     session_id=session_id,
                     complexity=complexity,
                     model=model,
+                    callback_depth=callback_depth,
                 )
 
                 await bus.emit(event)
-                logger.info(f"[Orchestrator] Emitted delegate: {intent} → task {task_id}")
+                logger.info(f"[Orchestrator] Emitted delegate: {intent} → task {task_id} (cb_depth={callback_depth})")
 
             except (json.JSONDecodeError, Exception) as e:
                 logger.warning(f"[Orchestrator] Failed to parse delegate block: {e}")
