@@ -5,7 +5,7 @@ Collections:
   memory-project-{slug}      ← project-specific decisions, bugs, tech choices, context
 
 ChromaDB persists to ~/.voxyflow/chroma/ (shared PersistentClient with RAG service).
-Embeddings use all-MiniLM-L6-v2 (local, no API key needed).
+Embeddings use intfloat/multilingual-e5-large (local, no API key needed).
 
 IMPORTANT: All ChromaDB operations are wrapped in try/except.
 Memory failure NEVER breaks chat. If chromadb is not installed, memory falls
@@ -161,7 +161,7 @@ class MemoryService:
                 os.makedirs(persist_path, exist_ok=True)
                 self._client = chromadb.PersistentClient(path=persist_path)
                 self._ef = SentenceTransformerEmbeddingFunction(
-                    model_name="all-MiniLM-L6-v2"
+                    model_name="intfloat/multilingual-e5-large"
                 )
                 self._chromadb_enabled = True
                 logger.info(f"MemoryService ChromaDB initialized, persist_dir={persist_path!r}")
@@ -395,7 +395,9 @@ class MemoryService:
                     collections=[collection],
                     limit=1,
                 )
-                if existing and existing[0]["score"] > 0.85:
+                # Dedup threshold calibrated for intfloat/multilingual-e5-large (cosine):
+                #   paraphrase ≈ 0.93-0.97, near-duplicate ≈ 0.94+
+                if existing and existing[0]["score"] > 0.93:
                     logger.debug(f"auto_extract: skipping duplicate (score={existing[0]['score']:.2f})")
                     continue
 
