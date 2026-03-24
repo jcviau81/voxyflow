@@ -48,6 +48,7 @@ export class TopBar {
     return defaultVal;
   }
 
+  /** Write a voice setting to localStorage and sync to backend */
   private setVoiceSetting(key: string, value: boolean): void {
     try {
       const stored = localStorage.getItem('voxyflow_settings');
@@ -55,6 +56,12 @@ export class TopBar {
       if (!settings.voice) settings.voice = {};
       settings.voice[key] = value;
       localStorage.setItem('voxyflow_settings', JSON.stringify(settings));
+      // Fire-and-forget sync to backend so the value survives page refresh
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      }).catch(() => { /* ignore */ });
     } catch { /* ignore */ }
   }
 

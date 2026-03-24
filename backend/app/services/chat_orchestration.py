@@ -73,6 +73,7 @@ class DeepWorkerPool:
         self._task_meta: dict[str, dict] = {}  # task_id → {action, model, description, started_at}
         self._completed_tasks: list[dict] = []  # [{task_id, action, model, completed_at, result}]
         self._listener_task: asyncio.Task | None = None
+        self._cleanup_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
         self._callback_lock = asyncio.Lock()  # Prevents overlapping callback streams
         self._stopped = False
@@ -80,6 +81,7 @@ class DeepWorkerPool:
     def start(self) -> None:
         """Start listening on the bus for events."""
         self._listener_task = asyncio.create_task(self._listen_loop())
+        self._cleanup_task = asyncio.create_task(self._stale_cleanup_loop())
         logger.info(f"[DeepWorkerPool] Started for session {self._bus.session_id}")
 
     def update_websocket(self, websocket: WebSocket) -> None:
@@ -99,6 +101,12 @@ class DeepWorkerPool:
             self._listener_task.cancel()
             try:
                 await self._listener_task
+            except asyncio.CancelledError:
+                pass
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
             except asyncio.CancelledError:
                 pass
         for task_id, task in list(self._active_tasks.items()):
@@ -180,6 +188,26 @@ class DeepWorkerPool:
             })
 
         return {"active": active, "completed": completed}
+
+    async def _stale_cleanup_loop(self) -> None:
+        """Periodically mark stale workers as failed (every 60s)."""
+        try:
+            while not self._stopped:
+                await asyncio.sleep(60)
+                try:
+                    wss = get_worker_session_store()
+                    stale_ids = wss.cleanup_stale(timeout_seconds=120)
+                    for task_id in stale_ids:
+                        # Notify frontend about stale workers
+                        await self._send_task_event("task:completed", task_id, {
+                            "success": False,
+                            "result": "Worker timed out — no heartbeat",
+                            "sessionId": self._bus.session_id,
+                        })
+                except Exception as e:
+                    logger.warning(f"[DeepWorkerPool] Stale cleanup error: {e}")
+        except asyncio.CancelledError:
+            pass
 
     async def _listen_loop(self) -> None:
         """Listen on the bus and spawn workers for each event."""

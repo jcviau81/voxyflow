@@ -52,7 +52,7 @@
   "user_name": "jc",
   "assistant_name": "Voxy",
   "workspace_path": "workspace",
-  "github": {
-    "token": "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"
+  "tools": {
+    "timeout_per_tool_seconds": 120
   }
 }

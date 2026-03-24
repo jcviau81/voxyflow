@@ -46,8 +46,13 @@ export class SttService {
   private lastFinalResultIndex = -1;
   /** Accumulated finalized transcript segments across multiple onresult events */
   private finalizedBuffer = '';
+  /** Whether browser supports Web Speech API */
+  private _webSpeechSupported = false;
+  /** Whether running on mobile (Android/iOS) */
+  private _isMobile = false;
 
   constructor() {
+    this._isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     this.engine = 'webspeech';
     this._lang = this.detectLanguage();
     this.initWebSpeech();
@@ -55,10 +60,16 @@ export class SttService {
 
   private initWebSpeech(): void {
     const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognitionClass) return;
+    if (!SpeechRecognitionClass) {
+      console.warn('[SttService] Web Speech API not supported in this browser. Use Settings → Voice to configure a local Whisper model.');
+      this._webSpeechSupported = false;
+      return;
+    }
 
+    this._webSpeechSupported = true;
     this.recognition = new SpeechRecognitionClass();
-    this.recognition.continuous = true;
+    // continuous=true is unstable on Android Chrome — disable it on mobile
+    this.recognition.continuous = !this._isMobile;
     this.recognition.interimResults = true;
     this.recognition.lang = this._lang;
     this.recognition.maxAlternatives = 1;
@@ -100,6 +111,13 @@ export class SttService {
     };
 
     this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      // On mobile, 'no-speech' and 'aborted' fire during natural pauses —
+      // don't kill the session, let onend handle the restart
+      if (this._isMobile && (event.error === 'no-speech' || event.error === 'aborted')) {
+        console.log('[SttService] Ignoring transient error on mobile:', event.error);
+        return;
+      }
+
       console.error('[SttService] Web Speech error:', event.error);
       let errorMessage = 'Speech recognition error';
 
@@ -127,11 +145,17 @@ export class SttService {
         // Auto-restart if still recording (continuous mode)
         // Reset final index — new session starts result indices from 0
         this.lastFinalResultIndex = -1;
-        try {
-          this.recognition?.start();
-        } catch {
-          this.isRecording = false;
-        }
+        // On Android (continuous:false), add a small delay before restart
+        // to avoid rapid restart loops that crash the recognition engine
+        const restartDelay = this._isMobile ? 250 : 0;
+        setTimeout(() => {
+          if (!this.isRecording) return; // User may have stopped during delay
+          try {
+            this.recognition?.start();
+          } catch {
+            this.isRecording = false;
+          }
+        }, restartDelay);
       }
     };
   }
@@ -304,24 +328,40 @@ export class SttService {
   }
 
   private startWebSpeechRecording(): void {
-    this.isRecording = true;
     this.lastFinalResultIndex = -1;
-    if (this.recognition) {
-      // Re-detect language on every recording start (settings may have changed)
-      this._lang = this.detectLanguage();
-      this.recognition.lang = this._lang;
-      console.log(`[SttService] Recording with lang: ${this._lang}`);
-      try {
-        this.recognition.start();
-        eventBus.emit(EVENTS.VOICE_START);
-      } catch (error) {
-        console.error('[SttService] Failed to start Web Speech:', error);
-        this.isRecording = false;
-        eventBus.emit(EVENTS.VOICE_ERROR, {
-          error: 'start-failed',
-          message: 'Failed to start speech recognition',
-        });
+
+    if (!this.recognition) {
+      // Web Speech not available — try falling back to whisper_local
+      console.warn('[SttService] Web Speech unavailable, attempting whisper_local fallback');
+      if (this._whisperModel && this._modelReady) {
+        this.engine = 'whisper_local';
+        this.startWhisperRecording();
+        return;
       }
+      // No fallback available — notify user
+      this.isRecording = false;
+      eventBus.emit(EVENTS.VOICE_ERROR, {
+        error: 'not-supported',
+        message: 'Speech recognition not supported in this browser. Go to Settings → Voice to configure a local Whisper model.',
+      });
+      return;
+    }
+
+    this.isRecording = true;
+    // Re-detect language on every recording start (settings may have changed)
+    this._lang = this.detectLanguage();
+    this.recognition.lang = this._lang;
+    console.log(`[SttService] Recording with lang: ${this._lang}`);
+    try {
+      this.recognition.start();
+      eventBus.emit(EVENTS.VOICE_START);
+    } catch (error) {
+      console.error('[SttService] Failed to start Web Speech:', error);
+      this.isRecording = false;
+      eventBus.emit(EVENTS.VOICE_ERROR, {
+        error: 'start-failed',
+        message: 'Failed to start speech recognition',
+      });
     }
   }
 
@@ -356,6 +396,14 @@ export class SttService {
 
   get currentEngine(): SttEngine {
     return this.engine;
+  }
+
+  get webSpeechSupported(): boolean {
+    return this._webSpeechSupported;
+  }
+
+  get isMobile(): boolean {
+    return this._isMobile;
   }
 
   private detectLanguage(): string {

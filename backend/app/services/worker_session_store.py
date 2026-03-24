@@ -252,6 +252,22 @@ class WorkerSessionStore:
             return session.to_dict()
         return None
 
+    def cleanup_stale(self, timeout_seconds: int = 120) -> list[str]:
+        """Find running sessions with no heartbeat beyond timeout_seconds,
+        mark them as failed, and persist the change. Returns task_ids affected."""
+        stale = []
+        now = time.time()
+        for task_id, session in self._sessions.items():
+            if session.status == "running" and (now - session.start_time) > timeout_seconds:
+                session.status = "failed"
+                session.end_time = now
+                session.result_summary = f"timeout — no heartbeat after {timeout_seconds}s"
+                self._persist(session)
+                stale.append(task_id)
+        if stale:
+            logger.info(f"[WorkerSessionStore] cleanup_stale: marked {len(stale)} workers as failed (>{timeout_seconds}s)")
+        return stale
+
     def cleanup_old(self, max_age_seconds: int = 86400) -> int:
         """Remove sessions older than max_age_seconds. Returns count removed."""
         cutoff = time.time() - max_age_seconds

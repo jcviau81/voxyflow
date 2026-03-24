@@ -41,6 +41,12 @@ export class TaskPanel {
     this.parentElement.appendChild(this.container);
     this.setupListeners();
 
+    // Hydrate from backend on initial load and reconnect
+    this.hydrateFromBackend();
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.WS_CONNECTED, () => this.hydrateFromBackend())
+    );
+
     // Cleanup completed tasks after 8 seconds (fallback timer)
     this.cleanupTimer = setInterval(() => this.cleanupCompleted(), 2000);
     // Also cleanup when tab regains focus (mobile throttles setInterval)
@@ -107,6 +113,44 @@ export class TaskPanel {
         }
       })
     );
+  }
+
+  private async hydrateFromBackend(): Promise<void> {
+    try {
+      const resp = await fetch('/api/workers/sessions');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const sessions: Array<{
+        task_id: string;
+        session_id: string;
+        status: string;
+        model: string;
+        intent: string;
+        summary: string;
+        start_time: number;
+        end_time: number | null;
+        result_summary: string | null;
+      }> = data.sessions || [];
+
+      // Only show running tasks in the compact TaskPanel
+      const running = sessions.filter((s) => s.status === 'running');
+      if (running.length === 0) return;
+
+      for (const s of running) {
+        if (this.tasks.has(s.task_id)) continue;
+        this.tasks.set(s.task_id, {
+          taskId: s.task_id,
+          intent: s.intent || 'unknown',
+          summary: s.summary || '',
+          status: 'started',
+          startedAt: s.start_time * 1000,
+          sessionId: s.session_id,
+        });
+      }
+      this.render();
+    } catch (e) {
+      console.warn('[TaskPanel] Failed to hydrate from backend:', e);
+    }
   }
 
   private cancelTask(taskId: string, sessionId?: string): void {

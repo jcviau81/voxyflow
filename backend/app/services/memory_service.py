@@ -196,6 +196,9 @@ class MemoryService:
     is unavailable or not installed.
     """
 
+    # B4: extraction throttle — only run every N messages per chat
+    EXTRACTION_INTERVAL = 3
+
     def __init__(
         self,
         max_memory_chars: int = 4000,
@@ -207,6 +210,8 @@ class MemoryService:
         self._chromadb_enabled = False
         self._client = None
         self._ef = None
+        # B4: per-chat message counter for throttling extraction
+        self._extraction_counters: dict[str, int] = {}
 
         if _CHROMADB_AVAILABLE:
             try:
@@ -388,6 +393,28 @@ class MemoryService:
     # Auto-extraction from conversations (LLM-based with regex fallback)
     # ------------------------------------------------------------------
 
+    def _has_extractable_signal(self, messages: list[dict]) -> bool:
+        """B4 pre-filter: check if any message contains regex-detectable signals.
+
+        Returns True if at least one sentence in the messages matches a
+        non-trivial pattern (decision, preference, fact, lesson, bug).
+        Returns False if everything classifies as context/low — meaning
+        the LLM call can be skipped entirely.
+        """
+        for msg in messages:
+            content = msg.get("content", "")
+            if not content:
+                continue
+            sentences = re.split(r'(?<=[.!?])\s+', content)
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if len(sentence) < 20:
+                    continue
+                mem_type, importance = _classify_text(sentence)
+                if mem_type != "context" or importance != "low":
+                    return True
+        return False
+
     async def auto_extract_memories(
         self,
         chat_id: str,
@@ -396,13 +423,25 @@ class MemoryService:
     ) -> list[str]:
         """Analyze conversation messages and auto-store important facts/decisions.
 
-        Primary path: single LLM call (haiku) that analyzes the last 4 messages
-        in bulk and returns structured JSON with extracted memories.
-        Fallback path: keyword-based heuristics (regex) if LLM call fails.
+        B4 cost optimization flow:
+        1. Message counter throttle — only run every EXTRACTION_INTERVAL messages
+        2. Regex pre-filter — skip LLM call if no interesting patterns detected
+        3. LLM extraction (haiku) for fine classification
+        4. Regex fallback if LLM call itself fails
 
         Returns list of stored document IDs.
         """
         if not self._chromadb_enabled:
+            return []
+
+        # --- B4: message counter throttle ---
+        self._extraction_counters[chat_id] = self._extraction_counters.get(chat_id, 0) + 1
+        count = self._extraction_counters[chat_id]
+        if count % self.EXTRACTION_INTERVAL != 0:
+            logger.debug(
+                f"auto_extract: throttled for {chat_id} (msg {count}, "
+                f"next extraction at {count + (self.EXTRACTION_INTERVAL - count % self.EXTRACTION_INTERVAL)})"
+            )
             return []
 
         stored_ids: list[str] = []
@@ -423,6 +462,15 @@ class MemoryService:
 
         if not relevant_messages:
             return []
+
+        # --- B4: regex pre-filter before LLM call ---
+        if not self._has_extractable_signal(relevant_messages):
+            logger.info(
+                f"auto_extract: regex pre-filter found no signal for {chat_id} — skipping LLM call"
+            )
+            return []
+
+        logger.info(f"auto_extract: regex pre-filter detected signal for {chat_id} — calling LLM")
 
         # --- Primary path: LLM extraction ---
         extracted_items = await self._llm_extract_memories(relevant_messages)
@@ -476,7 +524,7 @@ class MemoryService:
 
             return stored_ids
 
-        # --- Fallback path: regex heuristics ---
+        # --- Fallback path: regex heuristics (LLM failed) ---
         logger.info("auto_extract: LLM extraction failed, falling back to regex heuristics")
 
         for msg in relevant_messages:

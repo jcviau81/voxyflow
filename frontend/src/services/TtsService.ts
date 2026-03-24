@@ -63,9 +63,11 @@ class TtsService {
    * If already speaking, the text is queued and will play after the current utterance finishes.
    */
   async speak(text: string): Promise<void> {
-    if (!text.trim()) return;
+    // Always sanitize before queuing — safety net in case callers pass raw markup
+    const cleaned = TtsService.cleanForSpeech(text);
+    if (!cleaned) return;
 
-    this._queue.push(text);
+    this._queue.push(cleaned);
     if (!this._processing) {
       await this._processQueue();
     }
@@ -283,8 +285,18 @@ class TtsService {
     clean = clean.replace(/```[\s\S]*?```/g, '');
     // Remove inline code (`...`)
     clean = clean.replace(/`[^`]*`/g, '');
-    // Remove delegate blocks
+    // Remove delegate blocks (including malformed/unclosed ones)
     clean = clean.replace(/<delegate[\s\S]*?<\/delegate>/gi, '');
+    clean = clean.replace(/<delegate[\s\S]*$/gi, ''); // unclosed delegate at end
+    // Remove tool_call blocks
+    clean = clean.replace(/<tool_call[\s\S]*?<\/tool_call>/gi, '');
+    clean = clean.replace(/<tool_call[\s\S]*$/gi, '');
+    // Remove tool_result blocks
+    clean = clean.replace(/<tool_result[\s\S]*?<\/tool_result>/gi, '');
+    // Remove JSON objects (lines that look like {"key": ...} blocks)
+    clean = clean.replace(/^\s*\{[\s\S]*?\}\s*$/gm, '');
+    // Remove standalone JSON-like content (e.g. {"name": "tool.name", ...})
+    clean = clean.replace(/\{"[^"]*":\s*(?:"[^"]*"|[^}])*\}/g, '');
     // Remove HTML tags
     clean = clean.replace(/<[^>]+>/g, '');
     // Remove markdown tables (lines starting with |)
