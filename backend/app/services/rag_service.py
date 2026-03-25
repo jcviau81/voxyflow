@@ -7,7 +7,7 @@ Each project gets 3 isolated collections:
   - voxyflow_project_{project_id}_workspace  ← cards, notes, board data
 
 ChromaDB persists to ~/.voxyflow/chroma/ (NOT inside the repo).
-Embeddings use sentence-transformers/all-MiniLM-L6-v2 (local, no API key needed).
+Embeddings use intfloat/multilingual-e5-large (local, no API key needed).
 
 IMPORTANT: All ChromaDB operations are wrapped in try/except.
 RAG failure NEVER breaks chat. If chromadb is not installed, RAG silently
@@ -73,7 +73,7 @@ class RAGService:
 
             self._client = chromadb.PersistentClient(path=persist_path)
             self._ef = SentenceTransformerEmbeddingFunction(
-                model_name="sentence-transformers/all-MiniLM-L6-v2"
+                model_name="intfloat/multilingual-e5-large"
             )
             logger.info(f"RAGService initialized, persist_dir={persist_path!r}")
         except Exception as e:
@@ -412,7 +412,7 @@ class RAGService:
                 results = await self.query(project_id, query, n_results=8)
 
             # Filter to reasonably relevant results
-            # Threshold calibrated for sentence-transformers/all-MiniLM-L6-v2 (cosine):
+            # Threshold calibrated for intfloat/multilingual-e5-large (cosine):
             #   unrelated ≈ 0.75-0.83, related ≈ 0.83-0.90, strong match > 0.90
             relevant = [r for r in results if r["score"] > 0.82]
 
