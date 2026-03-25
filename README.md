@@ -2,9 +2,9 @@
 
 > ⚠️ **Alpha v0.0.1** — Very early software. It works (I use it daily), but expect rough edges. Moving fast. **Contributors welcome — see below.**
 
-**Context-aware AI project manager that executes tasks directly from your kanban board.**
+**Your personal AI bot for getting projects done.**
 
-Select a card. Say "execute this." The AI reads the full context — project, description, checklist, linked files — and *does the work*. Not a chatbot. An agent that knows exactly where it is in your workflow.
+Select a card. Say "execute this." The AI reads the full context — project, description, checklist, linked files — and *does the work*. Not a generic chatbot. A personal agent that knows exactly where it is in your workflow.
 
 Built as a Progressive Web App. Runs locally. No cloud lock-in.
 
