@@ -164,16 +164,16 @@ async def general_websocket(websocket: WebSocket):
     ws_broadcast.register(websocket)
     # Track session IDs that got worker pools for cleanup
     active_session_ids: set[str] = set()
-    # Track sessions that already had pending results delivered
-    _pending_delivered: set[str] = set()
     # Fix 3: track fire-and-forget background tasks for cancellation on disconnect
     bg_tasks: list[asyncio.Task] = []
 
     async def _deliver_pending(sid: str) -> None:
-        """Deliver any pending worker results for this session."""
-        if sid in _pending_delivered:
-            return
-        _pending_delivered.add(sid)
+        """Deliver any pending worker results for this session.
+
+        Always fetches from store — deduplication is handled by mark_delivered()
+        which deletes the file, so get_pending() won't return already-delivered results.
+        This allows correct re-delivery after client reconnects.
+        """
         try:
             pending = await pending_store.get_pending(sid)
             for result in pending:
