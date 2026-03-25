@@ -273,6 +273,7 @@ def get_claude_tools(
                 "tmux.list", "tmux.capture", "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
                 "voxyflow.jobs.list", "voxyflow.jobs.create",
                 "voxyflow.doc.list", "voxyflow.doc.delete",
+                "task.complete",  # Worker supervision
             }
         elif chat_level == "project":
             # Project level: all tools (unassigned aliases are still valid)
@@ -680,14 +681,24 @@ class ClaudeService:
             include_daily=True,
             query=user_message,
         )
+        # Static base prompt (cacheable)
         base_prompt = self.personality.build_fast_prompt(
-            memory_context=memory_context,
             chat_level=chat_level,
             project=project_context,
             card=card_context,
         )
 
+        # Dynamic context (per-call, not cached)
         dynamic_parts: list[str] = []
+        dynamic_context = self.personality.build_dynamic_context_block(
+            chat_level=chat_level,
+            project=project_context,
+            card=card_context,
+            memory_context=memory_context,
+        )
+        if dynamic_context:
+            dynamic_parts.append(dynamic_context)
+
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
@@ -741,17 +752,28 @@ class ClaudeService:
             include_daily=True,
             query=user_message,
         )
+        # Static base prompt — personality + dispatcher + tools only (cacheable)
         base_prompt = self.personality.build_fast_prompt(
-            memory_context=memory_context,
+            chat_level=chat_level,
+            project=project_context,
+            card=card_context,
+            native_tools=use_native_delegate,
+        )
+
+        # Collect dynamic context (changes per-call — injected OUTSIDE the cached block)
+        dynamic_parts: list[str] = []
+
+        # Project/card context + memory — dynamic, must NOT be in base_prompt
+        dynamic_context = self.personality.build_dynamic_context_block(
             chat_level=chat_level,
             project=project_context,
             card=card_context,
             project_names=project_names,
-            native_tools=use_native_delegate,
+            memory_context=memory_context,
         )
+        if dynamic_context:
+            dynamic_parts.append(dynamic_context)
 
-        # Collect dynamic context (changes per-call, not cached)
-        dynamic_parts: list[str] = []
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
@@ -859,18 +881,29 @@ class ClaudeService:
             include_daily=True,
             query=user_message,
         )
+        # Static base prompt — personality + dispatcher + tools only (cacheable)
         base_prompt = self.personality.build_deep_prompt(
-            memory_context=memory_context,
             chat_level=chat_level,
             project=project_context,
             card=card_context,
-            project_names=project_names,
             is_chat_responder=True,
             native_tools=use_native_delegate,
         )
 
-        # Collect dynamic context (changes per-call, not cached)
+        # Collect dynamic context (changes per-call — injected OUTSIDE the cached block)
         dynamic_parts: list[str] = []
+
+        # Project/card context + memory — dynamic, must NOT be in base_prompt
+        dynamic_context = self.personality.build_dynamic_context_block(
+            chat_level=chat_level,
+            project=project_context,
+            card=card_context,
+            project_names=project_names,
+            memory_context=memory_context,
+        )
+        if dynamic_context:
+            dynamic_parts.append(dynamic_context)
+
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
@@ -956,6 +989,8 @@ class ClaudeService:
         card_context: Optional[dict] = None,
         project_id: Optional[str] = None,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        cancel_event: Optional[asyncio.Event] = None,
+        message_queue: Optional[asyncio.Queue] = None,
     ) -> str:
         """Execute a delegated task with the specified worker model (haiku/sonnet/opus)."""
         # Select client/model based on model param
@@ -984,6 +1019,14 @@ class ClaudeService:
         )
 
         dynamic_parts: list[str] = []
+
+        # Mandatory task.complete instruction for workers
+        dynamic_parts.append(
+            "IMPORTANT: When your task is complete, you MUST call the task.complete tool "
+            "with a summary of what you did and a status (success/partial/failed). "
+            "This is mandatory — never finish without calling task.complete."
+        )
+
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, prompt)
@@ -1006,6 +1049,8 @@ class ClaudeService:
             tool_callback=tool_callback,
             layer=layer,
             chat_level=chat_level,
+            cancel_event=cancel_event,
+            message_queue=message_queue,
         )
 
     async def safety_net_generate_delegate(self, assistant_message: str) -> Optional[str]:
@@ -1058,9 +1103,14 @@ class ClaudeService:
             include_daily=True,
             query=user_message,
         )
-        base_prompt = self.personality.build_deep_prompt(memory_context=memory_context)
+        # Static base prompt (cacheable)
+        base_prompt = self.personality.build_deep_prompt()
 
+        # Dynamic context (per-call, not cached)
         dynamic_parts: list[str] = []
+        if memory_context:
+            dynamic_parts.append(f"## Relevant Memory\n{memory_context}")
+
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
@@ -1204,6 +1254,8 @@ class ClaudeService:
         chat_level: str = "general",
         layer: str = "fast",
         chat_id: str = "",
+        cancel_event: Optional[asyncio.Event] = None,
+        message_queue: Optional[asyncio.Queue] = None,
     ) -> str:
         """Native Anthropic SDK call with tool_use loop.
 
@@ -1233,6 +1285,40 @@ class ClaudeService:
         try:
             # Agentic tool-use loop (max 10 rounds)
             for _ in range(10):
+                # Check cancel_event before each API round
+                if cancel_event and cancel_event.is_set():
+                    logger.info(f"[Anthropic] Cancel event set — breaking tool loop for {chat_id}")
+                    return "[Task cancelled by supervisor]"
+
+                # Drain injected messages from external code (supervisor warnings, etc.)
+                if message_queue:
+                    injected: list[str] = []
+                    while not message_queue.empty():
+                        try:
+                            msg = message_queue.get_nowait()
+                            injected.append(msg)
+                        except asyncio.QueueEmpty:
+                            break
+                    if injected:
+                        combined = "\n".join(injected)
+                        logger.info(f"[Anthropic] Injecting {len(injected)} message(s) into worker conversation")
+                        # Ensure last message is from user (Anthropic requires alternating roles)
+                        last_role = kwargs["messages"][-1].get("role") if kwargs["messages"] else None
+                        if last_role == "user":
+                            # Merge into the last user message
+                            last_msg = kwargs["messages"][-1]
+                            if isinstance(last_msg["content"], str):
+                                last_msg["content"] += f"\n\n[Supervisor] {combined}"
+                            else:
+                                kwargs["messages"] = list(kwargs["messages"]) + [
+                                    {"role": "assistant", "content": "(acknowledged)"},
+                                    {"role": "user", "content": f"[Supervisor] {combined}"},
+                                ]
+                        else:
+                            kwargs["messages"] = list(kwargs["messages"]) + [
+                                {"role": "user", "content": f"[Supervisor] {combined}"},
+                            ]
+
                 response = await asyncio.to_thread(
                     lambda kw=kwargs: client.messages.create(**kw)
                 )
@@ -1282,7 +1368,9 @@ class ClaudeService:
 
                         if tool_callback:
                             try:
-                                tool_callback(mcp_name, arguments, result)
+                                ret = tool_callback(mcp_name, arguments, result)
+                                if asyncio.iscoroutine(ret):
+                                    await ret
                             except Exception:
                                 pass
 
@@ -1291,6 +1379,11 @@ class ClaudeService:
                             "tool_use_id": block.id,
                             "content": json.dumps(result, default=str),
                         })
+
+                    # Check cancel after tool execution (repetition may have triggered it)
+                    if cancel_event and cancel_event.is_set():
+                        logger.info(f"[Anthropic] Cancel event set after tools — breaking loop for {chat_id}")
+                        return "[Task cancelled by supervisor — repetitive loop detected]"
 
                     # Append tool results as a user message
                     kwargs["messages"] = list(kwargs["messages"]) + [
@@ -2136,6 +2229,8 @@ class ClaudeService:
         chat_level: str = "general",
         layer: str = "fast",
         chat_id: str = "",
+        cancel_event: Optional[asyncio.Event] = None,
+        message_queue: Optional[asyncio.Queue] = None,
     ) -> str:
         """Dispatch to native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
@@ -2145,7 +2240,8 @@ class ClaudeService:
             return await self._call_api_anthropic(
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
-                layer=layer, chat_id=chat_id,
+                layer=layer, chat_id=chat_id, cancel_event=cancel_event,
+                message_queue=message_queue,
             )
         # Non-Anthropic paths need a plain string for system
         flat_system = _flatten_system(system)

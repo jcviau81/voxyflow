@@ -139,12 +139,8 @@ class PersonalityService:
 
         This is now just a project chat for the system "Main" project.
         Kept as a separate method for backward compatibility.
+        The static base omits project_names — inject dynamically via build_dynamic_context_block().
         """
-        projects_list = (
-            "\n".join(f"- {name}" for name in project_names)
-            if project_names
-            else "  (no projects yet)"
-        )
         return (
             "## Who You Are\n"
             "You are Voxy. This is your home — Voxyflow. You are not a generic AI exploring an unfamiliar system. "
@@ -159,93 +155,147 @@ class PersonalityService:
             "You are in the Main project — the default workspace for ideas, cards, and conversation. "
             "If the user mentions a different project by name, pivot to it. "
             "Cards created here belong to the Main project.\n\n"
-            "Do NOT say 'welcome back' on a first conversation. Greet naturally based on what they said.\n\n"
-            f"Their projects:\n{projects_list}"
+            "Do NOT say 'welcome back' on a first conversation. Greet naturally based on what they said."
         )
 
     def build_project_chat_init(self, project: dict) -> str:
-        """Build the Chat Init block for Project Chat mode."""
+        """Build the static Chat Init block for Project Chat mode.
+
+        Dynamic details (description, card counts, recent activity) are intentionally
+        omitted here to keep the system prompt cacheable. Inject them via
+        build_dynamic_context_block() into the messages[] dynamic context instead.
+        """
         name = project.get("title", "Untitled")
-        project_id = project.get("id", "")
-        description = project.get("description") or "No description"
-        tech_stack = project.get("tech_stack") or "Not specified"
-        github_url = project.get("github_url") or "Not linked"
-
-        # Card counts by status
-        cards = project.get("cards", [])
-        total = len(cards)
-        done = sum(1 for c in cards if c.get("status") == "done")
-        in_progress = sum(1 for c in cards if c.get("status") == "in_progress")
-        todo = sum(1 for c in cards if c.get("status") == "todo")
-        ideas = sum(1 for c in cards if c.get("status") == "idea")
-
-        # Active sprint
-        sprint_name = project.get("active_sprint_name") or "None"
-
-        # Recent activity (last 3 updated cards as proxy)
-        recent_cards = sorted(cards, key=lambda c: c.get("updated_at", ""), reverse=True)[:3]
-        if recent_cards:
-            activity_lines = "\n".join(
-                f"  - [{c.get('status', '?')}] {c.get('title', 'Untitled')}"
-                for c in recent_cards
-            )
-        else:
-            activity_lines = "  (no recent activity)"
-
-        id_part = f" ({project_id})" if project_id else ""
 
         return (
             f"## Project: {name}\n"
             f"You are Voxy, working on **{name}**. This is your context right now — you know this project, you're inside it.\n\n"
-            f"Description: {description}\n"
-            f"Tech Stack: {tech_stack}\n"
-            f"GitHub: {github_url}\n\n"
-            f"State: {total} cards — {done} done, {in_progress} in progress, {todo} todo, {ideas} ideas\n"
-            f"Active sprint: {sprint_name}\n"
-            f"Recent activity:\n{activity_lines}\n\n"
             f"You can create cards, move them, update them, assign agents, write wiki pages, manage sprints. "
             f"When the user asks you to do something in this project, do it — don't explain that you can. "
             f"Stay focused here unless they explicitly ask about something else."
         )
 
     def build_card_chat_init(self, project: dict, card: dict) -> str:
-        """Build the Chat Init block for Card Chat mode."""
+        """Build the static Chat Init block for Card Chat mode.
+
+        Dynamic details (description, status, checklist) are intentionally omitted here
+        to keep the system prompt cacheable. Inject them via build_dynamic_context_block()
+        into the messages[] dynamic context instead.
+        """
         project_name = project.get("title", "Untitled")
         card_title = card.get("title", "Untitled")
-        card_id = card.get("id", "")
-        status = card.get("status", "idea")
-        priority = card.get("priority", "medium")
-        agent_type = card.get("agent_type") or "general"
-        description = card.get("description") or "No description"
-        assignee = card.get("assignee") or "Unassigned"
-
-        # Checklist counts
-        checklist = card.get("checklist_items", [])
-        total_items = len(checklist)
-        completed_items = sum(1 for item in checklist if item.get("done") or item.get("completed"))
-
-        id_part = f" ({card_id})" if card_id else ""
 
         return (
             f"## Chat Init — Card: {card_title}\n"
             f"Mode: Card Chat\n"
             f"## Card: {card_title}\n"
             f"You are Voxy, focused on this card in **{project_name}**. This is your current task — you're already inside it.\n\n"
-            f"Card: {card_title}{id_part}\n"
-            f"Status: {status} | Priority: {priority} | Agent: {agent_type} | Assignee: {assignee}\n"
-            f"Description: {description}\n"
-            f"Checklist: {completed_items}/{total_items} items done\n\n"
             f"You are here to work on this task — not to describe what you could do. "
             f"If the user says 'implement this', you start. If they say 'write the PRD', you write it. "
             f"Act with the confidence of someone who knows exactly what they're doing."
         )
+
+    def build_dynamic_context_block(
+        self,
+        chat_level: str = "general",
+        project: Optional[dict] = None,
+        card: Optional[dict] = None,
+        project_names: Optional[list] = None,
+        memory_context: Optional[str] = None,
+    ) -> str:
+        """Build the DYNAMIC context block — injected into messages[], NOT the system prompt.
+
+        Contains everything that changes call-to-call:
+        - memory_context (per-query vector search results)
+        - project description, tech stack, github, card counts, recent activity
+        - card description, status, checklist details
+        - project names list (for main/general chat)
+
+        By keeping this OUT of the system prompt, the static base_prompt stays
+        identical across calls → Anthropic KV cache hits.
+        """
+        parts: list[str] = []
+
+        if chat_level == "general" or not project:
+            # Main/general chat: inject project names
+            if project_names:
+                projects_list = "\n".join(f"- {name}" for name in project_names)
+            else:
+                projects_list = "  (no projects yet)"
+            parts.append(f"## Your Projects\n{projects_list}")
+
+        elif chat_level in ("project", "general") and project:
+            # Project chat: inject full project state
+            name = project.get("title", "Untitled")
+            description = project.get("description") or "No description"
+            tech_stack = project.get("tech_stack") or "Not specified"
+            github_url = project.get("github_url") or "Not linked"
+            sprint_name = project.get("active_sprint_name") or "None"
+
+            cards = project.get("cards", [])
+            total = len(cards)
+            done = sum(1 for c in cards if c.get("status") == "done")
+            in_progress = sum(1 for c in cards if c.get("status") == "in_progress")
+            todo = sum(1 for c in cards if c.get("status") == "todo")
+            ideas = sum(1 for c in cards if c.get("status") == "idea")
+
+            recent_cards = sorted(cards, key=lambda c: c.get("updated_at", ""), reverse=True)[:3]
+            if recent_cards:
+                activity_lines = "\n".join(
+                    f"  - [{c.get('status', '?')}] {c.get('title', 'Untitled')}"
+                    for c in recent_cards
+                )
+            else:
+                activity_lines = "  (no recent activity)"
+
+            parts.append(
+                f"## Project Context: {name}\n"
+                f"Description: {description}\n"
+                f"Tech Stack: {tech_stack}\n"
+                f"GitHub: {github_url}\n\n"
+                f"State: {total} cards — {done} done, {in_progress} in progress, {todo} todo, {ideas} ideas\n"
+                f"Active sprint: {sprint_name}\n"
+                f"Recent activity:\n{activity_lines}"
+            )
+
+        if chat_level == "card" and card:
+            # Card chat: inject full card details
+            card_title = card.get("title", "Untitled")
+            card_id = card.get("id", "")
+            status = card.get("status", "idea")
+            priority = card.get("priority", "medium")
+            agent_type = card.get("agent_type") or "general"
+            description = card.get("description") or "No description"
+            assignee = card.get("assignee") or "Unassigned"
+
+            checklist = card.get("checklist_items", [])
+            total_items = len(checklist)
+            completed_items = sum(1 for item in checklist if item.get("done") or item.get("completed"))
+
+            id_part = f" ({card_id})" if card_id else ""
+            parts.append(
+                f"## Card Details: {card_title}\n"
+                f"Card: {card_title}{id_part}\n"
+                f"Status: {status} | Priority: {priority} | Agent: {agent_type} | Assignee: {assignee}\n"
+                f"Description: {description}\n"
+                f"Checklist: {completed_items}/{total_items} items done"
+            )
+
+        if memory_context:
+            parts.append(f"## Relevant Memory\n{memory_context}")
+
+        return "\n\n".join(parts)
 
     # ------------------------------------------------------------------
     # Context-isolated prompt builders (general / project / card)
     # ------------------------------------------------------------------
 
     def build_general_prompt(self, project_names: Optional[list] = None) -> str:
-        """Build system prompt for General Chat — no project context."""
+        """Build STATIC system prompt for General Chat — no project context.
+
+        project_names is accepted for backward compat but no longer embedded here.
+        Dynamic context (project names, memory) must be injected via build_dynamic_context_block().
+        """
         soul = self.load_soul()
         user = self.load_user()
         identity = self.load_identity()
@@ -253,8 +303,8 @@ class PersonalityService:
 
         sections = []
 
-        # Chat Init FIRST — before personality files
-        sections.append(self.build_general_chat_init(project_names=project_names))
+        # Chat Init FIRST — before personality files (static only)
+        sections.append(self.build_general_chat_init())
 
         if identity:
             sections.append(identity)
@@ -268,14 +318,18 @@ class PersonalityService:
         return "\n\n".join(sections)
 
     def build_project_prompt(self, project: dict) -> str:
-        """Build system prompt for Project Chat — scoped to one project."""
+        """Build STATIC system prompt for Project Chat — scoped to one project.
+
+        Dynamic project details (description, recent cards) must be injected
+        via build_dynamic_context_block().
+        """
         soul = self.load_soul()
         user = self.load_user()
         agents = self.load_agents()
 
         sections = []
 
-        # Chat Init FIRST — before personality files
+        # Chat Init FIRST — before personality files (static only)
         sections.append(self.build_project_chat_init(project))
 
         if soul:
@@ -288,12 +342,16 @@ class PersonalityService:
         return "\n\n".join(sections)
 
     def build_card_prompt(self, project: dict, card: dict, agent_persona: Optional[dict] = None) -> str:
-        """Build system prompt for Card Chat — scoped to a specific task."""
+        """Build STATIC system prompt for Card Chat — scoped to a specific task.
+
+        Dynamic card details (description, status, checklist) must be injected
+        via build_dynamic_context_block().
+        """
         soul = self.load_soul()
 
         sections = []
 
-        # Chat Init FIRST — before agent persona and personality
+        # Chat Init FIRST — before agent persona and personality (static only)
         sections.append(self.build_card_chat_init(project, card))
 
         # Agent persona after Chat Init (if provided)
@@ -394,6 +452,18 @@ class PersonalityService:
             return ""
 
     def build_fast_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None, project_names: Optional[list] = None, native_tools: bool = False) -> str:
+        """Build the STATIC system prompt for the fast (dispatcher) layer.
+
+        IMPORTANT — Cache stability contract:
+        This method must return an IDENTICAL string for the same
+        (chat_level, project.id, card.id, native_tools) tuple.
+        Dynamic data (memory_context, project description, recent_cards,
+        project_names) must NOT be embedded here — use build_dynamic_context_block()
+        and inject the result into dynamic_parts / messages[] in the caller.
+
+        The memory_context and project_names params are accepted for backward
+        compatibility but are intentionally NOT embedded in the returned prompt.
+        """
         voice_instructions = (
             "\n\n## Voice Instructions\n"
             "You speak naturally and concisely -- this is a voice conversation, not a text chat.\n"
@@ -404,7 +474,7 @@ class PersonalityService:
             "Be yourself. Not a corporate bot."
         )
 
-        # Build context-appropriate base prompt
+        # Build context-appropriate base prompt (STATIC — no dynamic data)
         # "general" is now just the system-main project — use project prompt path
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card, agent_persona)
@@ -412,7 +482,7 @@ class PersonalityService:
             base = self.build_project_prompt(project)
         else:
             # Fallback: no project context available (general/main)
-            base = self.build_general_prompt(project_names=project_names)
+            base = self.build_general_prompt()
 
         # Chat layers have ZERO tools — they converse and delegate only.
         # Architecture self-knowledge — loaded from ARCHITECTURE.md
@@ -492,14 +562,23 @@ class PersonalityService:
         )
 
     def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None, has_delegation: bool = False, is_chat_responder: bool = False, native_tools: bool = False) -> str:
-        # Build context-appropriate base
+        """Build the STATIC system prompt for the deep layer.
+
+        IMPORTANT — Cache stability contract:
+        Same as build_fast_prompt — dynamic data (memory_context, project description,
+        recent_cards, project_names) must NOT be embedded here.
+        Use build_dynamic_context_block() and inject into dynamic_parts / messages[].
+        Params memory_context and project_names are kept for backward compatibility
+        but are intentionally NOT embedded in the returned prompt.
+        """
+        # Build context-appropriate base (STATIC — no dynamic data)
         # "general" is now the system-main project
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card)
         elif project:
             base = self.build_project_prompt(project)
         else:
-            base = self.build_general_prompt(project_names=project_names)
+            base = self.build_general_prompt()
 
         mode_label = f"Project Chat: {project.get('title', 'Main')}" if project else "Main Chat"
 
@@ -665,7 +744,8 @@ class PersonalityService:
             "- Do NOT ask for confirmation — the user already confirmed via the chat layer\n"
             "- After executing, respond with a brief (1 sentence) summary\n"
             "- If the action fails, explain why briefly\n"
-            "- Respond in the same language the user used\n\n"
+            "- Respond in the same language the user used\n"
+            '- When your task is complete, you MUST call task.complete(task_id="<your task_id>", summary="...", status="success|partial|failed"). This is mandatory.\n\n'
             f"## Available Tools\n{tool_list}\n\n"
             f"## Context\n{context}"
         )
@@ -687,7 +767,8 @@ class PersonalityService:
             "- If you cannot find a real source URL, say 'Source not verified'\n"
             "- Never fabricate URLs or data — if uncertain, state it clearly\n"
             "- Include timestamp of research so the user knows how fresh the info is\n"
-            "- Respond in the same language the user used\n\n"
+            "- Respond in the same language the user used\n"
+            '- When your task is complete, you MUST call task.complete(task_id="<your task_id>", summary="...", status="success|partial|failed"). This is mandatory.\n\n'
             f"## Available Tools\n{tool_list}\n\n"
             f"## Context\n{context}"
         )
@@ -709,7 +790,8 @@ class PersonalityService:
             "- For file operations: verify paths before writing/deleting\n"
             "- After executing, provide a thorough summary of what you did\n"
             "- If any step fails, explain why and what recovery was attempted\n"
-            "- Respond in the same language the user used\n\n"
+            "- Respond in the same language the user used\n"
+            '- When your task is complete, you MUST call task.complete(task_id="<your task_id>", summary="...", status="success|partial|failed"). This is mandatory.\n\n'
             f"## Available Tools\n{tool_list}\n\n"
             f"## Context\n{context}"
         )

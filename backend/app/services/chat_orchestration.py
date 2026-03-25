@@ -38,6 +38,7 @@ from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_regi
 from app.services.pending_results import pending_store
 from app.services.worker_session_store import get_worker_session_store
 from app.services.direct_executor import DirectExecutor
+from app.services.worker_supervisor import get_worker_supervisor
 from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
 from app.tools.executor import get_executor
 
@@ -294,6 +295,8 @@ class DeepWorkerPool:
                 f"Execute this action:\n"
                 f"Intent: {event.intent}\n"
                 f"Summary: {event.summary}\n"
+                f"Task ID: {event.task_id}\n"
+                f"\nWhen done, call task.complete(task_id=\"{event.task_id}\", summary=\"...\", status=\"success|partial|failed\").\n"
             )
             
             if is_move_or_update:
@@ -361,9 +364,22 @@ class DeepWorkerPool:
                 ):
                     chat_level = "project"
 
+            # --- Worker Supervisor: register task and create cancel_event ---
+            supervisor = get_worker_supervisor()
+            supervisor.register_task(event.task_id)
+            cancel_event = asyncio.Event()
+            message_queue: asyncio.Queue[str] = asyncio.Queue()
+
             # Build an async tool_callback that forwards tool:executed events
-            # to the frontend so the UI can refresh cards/projects in real-time.
+            # to the frontend AND records tool calls with the supervisor.
             async def _tool_callback(tool_name: str, arguments: dict, result: dict):
+                # Record with supervisor for repetition/stall detection
+                supervisor.record_tool_call(event.task_id, tool_name, arguments)
+                if supervisor.check_repetition(event.task_id):
+                    logger.warning(f"[Supervisor] Cancelling task {event.task_id} — repetitive loop detected")
+                    supervisor.mark_problem(event.task_id, "repetitive_loop")
+                    cancel_event.set()
+
                 try:
                     await self._ws.send_json({
                         "type": "tool:executed",
@@ -382,6 +398,31 @@ class DeepWorkerPool:
 
             tool_callback = _tool_callback
 
+            # --- Background stall detector ---
+            async def _stall_monitor():
+                """Periodically check for stalled tasks and cancel if idle too long."""
+                STALL_THRESHOLD = 120  # seconds
+                WARNING_THRESHOLD = 90  # warn before killing
+                warned = False
+                while not cancel_event.is_set():
+                    await asyncio.sleep(15)
+                    stall_secs = supervisor.check_stall(event.task_id)
+                    if stall_secs > WARNING_THRESHOLD and not warned:
+                        warned = True
+                        message_queue.put_nowait(
+                            f"WARNING: You have been idle for {stall_secs:.0f}s. "
+                            "Wrap up now and call task.complete or you will be cancelled."
+                        )
+                    if stall_secs > STALL_THRESHOLD:
+                        logger.warning(
+                            f"[Supervisor] Task {event.task_id} stalled for {stall_secs:.0f}s — cancelling"
+                        )
+                        supervisor.mark_problem(event.task_id, f"stalled_{stall_secs:.0f}s")
+                        cancel_event.set()
+                        break
+
+            stall_task = asyncio.create_task(_stall_monitor())
+
             # Route to model-specific worker (with timeout)
             try:
                 result_content = await asyncio.wait_for(
@@ -394,11 +435,14 @@ class DeepWorkerPool:
                         card_context=event.data.get("card_context"),
                         project_id=event.data.get("project_id"),
                         tool_callback=tool_callback,
+                        cancel_event=cancel_event,
+                        message_queue=message_queue,
                     ),
                     timeout=self.TASK_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
                 logger.warning(f"[DeepWorker] Task {event.task_id} timed out after {self.TASK_TIMEOUT_SECONDS}s")
+                supervisor.mark_problem(event.task_id, f"timeout_{self.TASK_TIMEOUT_SECONDS}s")
                 _wss.update_status(event.task_id, "timed_out", f"Timed out after {self.TASK_TIMEOUT_SECONDS}s")
                 await self._send_task_event("task:timeout", event.task_id, {
                     "intent": event.intent,
@@ -412,6 +456,17 @@ class DeepWorkerPool:
                 _wss.update_status(event.task_id, "cancelled")
                 # task:cancelled is sent by cancel_task() — just return
                 return
+            finally:
+                # Always stop the stall monitor
+                stall_task.cancel()
+
+            # --- Supervisor: check if worker signalled completion ---
+            if not supervisor.is_completed(event.task_id):
+                # Worker finished without calling task.complete — mark as problem
+                supervisor.mark_problem(event.task_id, "missing_task_complete")
+                logger.warning(
+                    f"[Supervisor] Task {event.task_id} finished without calling task.complete"
+                )
 
             # Auto-append execution result to card description
             card_id = event.data.get("card_id")
@@ -544,6 +599,12 @@ class DeepWorkerPool:
                     "sessionId": event.session_id,
                     "projectId": event.data.get("project_id"),
                 })
+            except Exception:
+                pass
+        finally:
+            try:
+                supervisor = get_worker_supervisor()
+                supervisor.cleanup_task(event.task_id)
             except Exception:
                 pass
 
@@ -1875,18 +1936,30 @@ class ChatOrchestrator:
             client_type = self._claude.fast_client_type
             model = self._claude.fast_model
 
-        # Build a simple system prompt for the follow-up
+        # Build system prompt for the follow-up (static base + dynamic context block)
         memory_context = self._claude.memory.build_memory_context(
             project_name=project_name,
             include_long_term=False,
             include_daily=True,
         )
-        system_prompt = self._claude.personality.build_fast_prompt(
-            memory_context=memory_context,
+        # Static base (cacheable) — dynamic context injected separately below
+        base_prompt = self._claude.personality.build_fast_prompt(
+            chat_level=chat_level,
+            project=project_context,
+            card=card_context,
+        )
+        _dynamic_ctx = self._claude.personality.build_dynamic_context_block(
             chat_level=chat_level,
             project=project_context,
             card=card_context,
             project_names=project_names,
+            memory_context=memory_context,
+        )
+        _dynamic_parts = [_dynamic_ctx] if _dynamic_ctx else []
+        from app.services.claude_service import _make_cached_system
+        system_prompt = _make_cached_system(
+            base_prompt, _dynamic_parts,
+            is_anthropic=(self._claude.fast_client_type == "anthropic"),
         )
 
         # Generate a new message ID for the follow-up response
