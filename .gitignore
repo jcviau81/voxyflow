@@ -51,3 +51,6 @@ workspace/
 frontend/test-results/
 frontend/playwright-report/
 certs/
+
+# User settings (may contain API keys)
+settings.json
