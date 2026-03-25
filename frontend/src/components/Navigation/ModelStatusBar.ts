@@ -61,11 +61,11 @@ export class ModelStatusBar {
       if (stored) {
         this.layerState = JSON.parse(stored);
       } else {
-        // Default: all toggleable layers enabled
-        this.layerState = { deep: true, analyzer: true };
+        // Default: deep enabled, analyzer off by default
+        this.layerState = { deep: true, analyzer: false };
       }
     } catch {
-      this.layerState = { deep: true, analyzer: true };
+      this.layerState = { deep: true, analyzer: false };
     }
   }
 
@@ -253,7 +253,7 @@ export class ModelStatusBar {
       const stored = localStorage.getItem(LAYER_STORAGE_KEY);
       if (stored) return JSON.parse(stored);
     } catch {}
-    return { deep: true, analyzer: true };
+    return { deep: true, analyzer: false };
   }
 
   /** Reset all model statuses to idle — used on reconnection */

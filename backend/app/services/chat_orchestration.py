@@ -638,7 +638,7 @@ class ChatOrchestrator:
         if layers is None:
             layers = {}
         deep_enabled = layers.get("deep", layers.get("opus", False))
-        analyzer_enabled = layers.get("analyzer", True)
+        analyzer_enabled = layers.get("analyzer", False)
 
         # Helper to send model status updates
         async def send_model_status(model: str, state: str) -> None:
@@ -706,13 +706,33 @@ class ChatOrchestrator:
 
         # --- Parse delegates and emit to event bus (BACKGROUND — non-blocking) ---
         if session_id:
+            # Guard: don't fire delegates if the response contains a question
+            # (model is asking for confirmation — wait for user to answer first)
+            _response_for_guard = ""
+            _guard_history = self._claude.get_history(chat_id)
+            for _msg in reversed(_guard_history):
+                if _msg.get("role") == "assistant":
+                    _response_for_guard = _msg.get("content", "")
+                    break
+            _QUESTION_KEYWORDS = [
+                "tu veux", "veux-tu", "voulez-vous", "devrais-je",
+                "want me to", "shall i", "should i", "do you want",
+            ]
+            _response_lower = _response_for_guard.lower()
+            _has_question = "?" in _response_lower and any(
+                kw in _response_lower for kw in _QUESTION_KEYWORDS
+            )
+
             # Check for native tool_use delegates FIRST (collected by claude_service)
             native_delegates = self._claude.pop_pending_delegates(chat_id)
+
+            if _has_question:
+                logger.info("[Orchestrator] Delegate guard: question detected in response — skipping delegate emission")
 
             # Workers spawned from a callback response carry incremented depth
             child_callback_depth = callback_depth + 1 if is_callback else callback_depth
 
-            if native_delegates:
+            if not _has_question and native_delegates:
                 # Native path: structured delegate_action tool_use blocks
                 logger.info(f"[Orchestrator] Native delegate path: {len(native_delegates)} delegate(s) from tool_use")
                 _t = asyncio.create_task(
@@ -730,7 +750,7 @@ class ChatOrchestrator:
                     )
                 )
                 _bg_tasks.append(_t)
-            else:
+            elif not _has_question:
                 # Fallback: parse <delegate> XML blocks from text response
                 chat_response = ""
                 history = self._claude.get_history(chat_id)

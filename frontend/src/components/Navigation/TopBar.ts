@@ -21,7 +21,7 @@ export class TopBar {
       const stored = localStorage.getItem(LAYER_STORAGE_KEY);
       if (stored) return JSON.parse(stored);
     } catch { /* ignore */ }
-    return { deep: true, analyzer: true };
+    return { deep: true, analyzer: false };
   }
 
   private setDeepMode(deep: boolean): void {
