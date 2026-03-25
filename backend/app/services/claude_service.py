@@ -928,7 +928,8 @@ class ClaudeService:
 
         # Strip <think> blocks before persisting (safety net for thinking models)
         full_response = _strip_think_tags(full_response)
-        await self._append_and_persist_async(chat_id, "assistant", full_response, model="fast")
+        if full_response:
+            await self._append_and_persist_async(chat_id, "assistant", full_response, model="fast")
 
     async def chat_deep_stream(
         self,
@@ -1058,7 +1059,8 @@ class ClaudeService:
 
         # Strip <think> blocks before persisting (safety net for thinking models)
         full_response = _strip_think_tags(full_response)
-        await self._append_and_persist_async(chat_id, "assistant", full_response, model="deep")
+        if full_response:
+            await self._append_and_persist_async(chat_id, "assistant", full_response, model="deep")
 
 
     async def execute_worker_task(
