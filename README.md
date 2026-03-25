@@ -1,5 +1,7 @@
 # ⚡ Voxyflow
 
+> ⚠️ **Alpha v0.0.1** — Very early software. It works (I use it daily), but expect rough edges. Moving fast. **Contributors welcome — see below.**
+
 **Context-aware AI project manager that executes tasks directly from your kanban board.**
 
 Select a card. Say "execute this." The AI reads the full context — project, description, checklist, linked files — and *does the work*. Not a chatbot. An agent that knows exactly where it is in your workflow.
@@ -544,3 +546,16 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 **Built by** JC Viau · **Started** March 2025 · **Status** Active development
+
+---
+
+## ⚠️ Status: Alpha v0.0.1
+
+This is very early software. It works (I use it daily), but expect rough edges, missing features, and things that break. **Version 0.0.1 — moving fast.**
+
+We're actively building and need help:
+- 🐛 **Bug reports** — open an issue, we'll fix it fast
+- 🛠️ **Contributors** — frontend (TypeScript), backend (Python/FastAPI), UX
+- 💡 **Ideas** — what would make this your daily driver?
+
+If you're excited about local-first agentic AI, **join the journey.**
