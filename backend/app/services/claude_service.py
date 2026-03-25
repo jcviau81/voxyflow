@@ -360,6 +360,40 @@ def _make_openai_client(provider_url: str, api_key: str):
     )
 
 
+import re as _re
+
+def _strip_think_tags(text: str) -> str:
+    """Strip <think>...</think> blocks from model output (Qwen3, DeepSeek-R1, etc.)."""
+    return _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL).strip()
+
+
+def _is_thinking_model(model_name: str) -> bool:
+    """Detect models that emit <think> tokens (Qwen3, DeepSeek-R1, etc.)."""
+    if not model_name:
+        return False
+    lower = model_name.lower()
+    return any(x in lower for x in ("qwen3", "qwen2.5-think", "deepseek-r1", "deepseek-r2", "qwq"))
+
+
+def _inject_no_think(system: str | list, model_name: str) -> str | list:
+    """Prepend /no_think to system prompt for thinking models to disable chain-of-thought."""
+    if not _is_thinking_model(model_name):
+        return system
+    prefix = "/no_think\n\n"
+    if isinstance(system, str):
+        return prefix + system
+    if isinstance(system, list):
+        # List of content blocks — prepend to first text block
+        result = list(system)
+        for i, block in enumerate(result):
+            if isinstance(block, dict) and block.get("text"):
+                result[i] = {**block, "text": prefix + block["text"]}
+                return result
+        # No text block found — prepend a new one
+        return [{"type": "text", "text": prefix}] + result
+    return system
+
+
 def _get_api_key_from_settings(layer_cfg: dict) -> str:
     """Extract api_key from a settings.json layer config block."""
     return (layer_cfg.get("api_key") or "").strip()
@@ -481,6 +515,46 @@ class ClaudeService:
             f"fast={self.fast_model}({self.fast_client_type}) | "
             f"deep={self.deep_model}({self.deep_client_type}) | "
             f"haiku={self.haiku_model}({self.haiku_client_type})"
+        )
+
+    def reload_models(self) -> None:
+        """Hot-reload model/provider config from settings.json without restarting."""
+        config = get_settings()
+        overrides = _load_model_overrides()
+        default_api_key = config.claude_api_key
+
+        for layer, attr_prefix, default_model in [
+            ("fast", "fast", config.claude_sonnet_model),
+            ("deep", "deep", config.claude_deep_model),
+            ("haiku", "haiku", "claude-haiku-4"),
+            ("analyzer", "analyzer", config.claude_analyzer_model),
+        ]:
+            cfg = overrides.get(layer, {})
+            model_raw = cfg.get("model", "").strip()
+            model = _resolve_model(model_raw or default_model)
+            key = _get_api_key_from_settings(cfg) or default_api_key
+            purl = cfg.get("provider_url", "")
+
+            if self.use_native and key and ("claude" in model.lower() or "anthropic" in purl.lower()):
+                client = _make_anthropic_client(key, purl or config.claude_api_base)
+                client_type = "anthropic"
+            else:
+                client = _make_openai_client(
+                    purl or config.claude_proxy_url,
+                    cfg.get("api_key", ""),
+                )
+                client_type = "openai"
+
+            setattr(self, f"{attr_prefix}_model", model)
+            setattr(self, f"{attr_prefix}_client", client)
+            setattr(self, f"{attr_prefix}_client_type", client_type)
+
+        logger.info(
+            f"ClaudeService reloaded — "
+            f"fast={self.fast_model}({self.fast_client_type}) | "
+            f"deep={self.deep_model}({self.deep_client_type}) | "
+            f"haiku={self.haiku_model}({self.haiku_client_type}) | "
+            f"analyzer={self.analyzer_model}({self.analyzer_client_type})"
         )
 
     def _infer_layer(self, model: str) -> str:
@@ -787,6 +861,8 @@ class ClaudeService:
 
         # Build system param with prompt caching for Anthropic native path
         system_prompt = _make_cached_system(base_prompt, dynamic_parts, is_anthropic=use_native_delegate)
+        # Inject /no_think for thinking models (Qwen3, DeepSeek-R1, etc.)
+        system_prompt = _inject_no_think(system_prompt, self.fast_model)
 
         # Inject identity priming exchange at the start of conversations.
         primed_messages = list(recent)
@@ -850,6 +926,8 @@ class ClaudeService:
                 full_response += token
                 yield token
 
+        # Strip <think> blocks before persisting (safety net for thinking models)
+        full_response = _strip_think_tags(full_response)
         await self._append_and_persist_async(chat_id, "assistant", full_response, model="fast")
 
     async def chat_deep_stream(
@@ -917,6 +995,8 @@ class ClaudeService:
 
         # Build system param with prompt caching for Anthropic native path
         system_prompt = _make_cached_system(base_prompt, dynamic_parts, is_anthropic=use_native_delegate)
+        # Inject /no_think for thinking models (Qwen3, DeepSeek-R1, etc.)
+        system_prompt = _inject_no_think(system_prompt, self.deep_model)
 
         # Identity priming for deep chat layer (same as fast — see chat_fast_stream)
         primed_messages = list(recent)
@@ -976,6 +1056,8 @@ class ClaudeService:
                 full_response += token
                 yield token
 
+        # Strip <think> blocks before persisting (safety net for thinking models)
+        full_response = _strip_think_tags(full_response)
         await self._append_and_persist_async(chat_id, "assistant", full_response, model="deep")
 
 
@@ -1038,8 +1120,9 @@ class ClaudeService:
         system_prompt = _make_cached_system(
             base_prompt, dynamic_parts, is_anthropic=(client_type == "anthropic")
         )
+        system_prompt = _inject_no_think(system_prompt, model_name)
 
-        return await self._call_api(
+        result = await self._call_api(
             model=model_name,
             system=system_prompt,
             messages=[{"role": "user", "content": prompt}],
@@ -1052,6 +1135,7 @@ class ClaudeService:
             cancel_event=cancel_event,
             message_queue=message_queue,
         )
+        return _strip_think_tags(result) if result else result
 
     async def safety_net_generate_delegate(self, assistant_message: str) -> Optional[str]:
         """Quick Haiku call to extract a missing delegate from an action-promising message.
@@ -1974,6 +2058,8 @@ class ClaudeService:
         # Inject tool definitions into system prompt
         tool_prompt = get_prompt_builder().build_tool_prompt(layer, chat_level)
         augmented_system = system + "\n\n" + tool_prompt if tool_prompt else system
+        # Inject /no_think for thinking models in worker layer too
+        augmented_system = _inject_no_think(augmented_system, model)
 
         logger.info(f"[ServerTools] layer={layer}, chat_level={chat_level}, tool_prompt_len={len(tool_prompt) if tool_prompt else 0}")
 
@@ -1998,7 +2084,9 @@ class ClaudeService:
                 )
             )
 
-            response_text = response.choices[0].message.content or ""
+            msg = response.choices[0].message
+            response_text = msg.content or ""
+            finish_reason = response.choices[0].finish_reason
 
             # Log token usage if available
             if hasattr(response, "usage") and response.usage:
@@ -2011,15 +2099,53 @@ class ClaudeService:
                     chat_id=chat_id,
                 )
 
-            # Parse tool calls
+            # Handle native OpenAI tool_calls (Ollama/Qwen3 emit these instead of XML)
+            native_tool_calls = getattr(msg, "tool_calls", None) or []
+            if native_tool_calls and (finish_reason in ("tool_calls", "stop") or not response_text):
+                logger.info(f"[ServerTools] Round {round_num + 1}: native OpenAI tool_calls={len(native_tool_calls)}")
+                # Convert native tool calls → ToolCall objects via XML round-trip so executor can handle them
+                xml_blocks = []
+                for tc in native_tool_calls:
+                    try:
+                        args = json.loads(tc.function.arguments or "{}")
+                    except json.JSONDecodeError:
+                        args = {}
+                    args_xml = "\n".join(f"<{k}>{v}</{k}>" for k, v in args.items())
+                    xml_blocks.append(f'<tool_call>\n<name>{tc.function.name}</name>\n<parameters>\n{args_xml}\n</parameters>\n</tool_call>')
+                synthetic_text = "\n\n".join(xml_blocks)
+                text_content, tool_calls = parser.parse(synthetic_text)
+                if tool_calls:
+                    results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
+                    if tool_callback:
+                        for _tc, _result in zip(tool_calls, results):
+                            try:
+                                ret = tool_callback(_tc.name, _tc.arguments, _result)
+                                if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
+                                    await ret
+                            except Exception as e:
+                                logger.warning(f"[ServerTools] tool_callback error: {e}")
+                    # Build tool result messages in OpenAI format for native tool_calls path
+                    api_messages.append(msg.model_dump(exclude_unset=True))
+                    for tc, result in zip(native_tool_calls, results):
+                        api_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": json.dumps(result, default=str, ensure_ascii=False),
+                        })
+                    logger.info(f"[ServerTools] Round {round_num + 1}: {len(tool_calls)} native tool calls executed")
+                    continue
+
+            # Parse XML tool calls from text content (Claude/proxy path)
             text_content, tool_calls = parser.parse(response_text)
 
             logger.info(f"[ServerTools] Round {round_num + 1}: response_len={len(response_text)}, tool_calls={len(tool_calls)}, has_tool_call_tag={'<tool_call>' in response_text}")
+            if not tool_calls and '<tool_call>' in response_text:
+                logger.warning(f"[ServerTools] has_tool_call but parse failed. Full response: {response_text!r}")
             if not tool_calls and '<tool_call>' not in response_text:
                 logger.info(f"[ServerTools] No tool calls found. Response tail: {response_text[-200:]!r}")
 
             if not tool_calls:
-                return response_text
+                return _strip_think_tags(response_text)
 
             # Execute tools
             results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)

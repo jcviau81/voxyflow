@@ -31,6 +31,8 @@ interface PersonalitySettings {
   warmth: string;
 }
 
+type ProviderType = 'claude' | 'ollama' | 'openai_compatible';
+
 interface ModelLayerConfig {
   provider_url: string;
   api_key: string;
@@ -42,6 +44,22 @@ interface ModelsSettings {
   fast: ModelLayerConfig;
   deep: ModelLayerConfig;
   analyzer: ModelLayerConfig;
+}
+
+/** Models that emit <think> tokens — /no_think is applied automatically. */
+const THINKING_MODEL_PATTERNS = ['qwen3', 'deepseek-r1', 'deepseek-r2', 'qwq', 'qwen2.5-think'];
+
+function isThinkingModel(model: string): boolean {
+  const lower = (model || '').toLowerCase();
+  return THINKING_MODEL_PATTERNS.some((p) => lower.includes(p));
+}
+
+function detectProviderType(url: string, model: string): ProviderType {
+  const u = (url || '').toLowerCase();
+  const m = (model || '').toLowerCase();
+  if (u.includes('11434') || (m && !m.includes('claude') && u.includes('ollama'))) return 'ollama';
+  if (u.includes('3457') || m.includes('claude') || u.includes('anthropic')) return 'claude';
+  return 'openai_compatible';
 }
 
 interface VoiceSettings {
@@ -148,6 +166,11 @@ export class SettingsPage {
   ];
   private dirty = false;
   private saving = false;
+
+  // Model discovery state
+  private ollamaUrl = 'http://192.168.1.59:11434';
+  private ollamaModels: Array<{ name: string; size_gb: number }> = [];
+  private ollamaReachable = false;
 
   // Jobs state
   private jobs: Job[] = [];
@@ -534,71 +557,149 @@ export class SettingsPage {
     `;
   }
 
-  private renderModelLayerFields(
+  private renderModelLayerRow(
     layerKey: 'fast' | 'deep' | 'analyzer',
     label: string,
     showEnabled: boolean,
     placeholderModel: string,
   ): string {
     const m = this.settings.models?.[layerKey] ?? { ...DEFAULT_MODEL_LAYER };
-    const enabledRow = showEnabled ? `
-      <div class="setting-row">
-        <div class="setting-info">
-          <div class="setting-label">Enabled</div>
-          <div class="setting-description">Enable this layer</div>
-        </div>
-        <input type="checkbox" class="setting-checkbox" data-model-layer="${layerKey}" data-model-field="enabled"
-          ${m.enabled ? 'checked' : ''} />
-      </div>` : '';
+    const providerType = detectProviderType(m.provider_url, m.model);
+    const isOllama = providerType === 'ollama';
+    const isClaude = providerType === 'claude';
+    const showUrl = !isClaude;
+    const showKey = !isClaude && !isOllama;
+    const thinking = isThinkingModel(m.model);
+
+    // Build Ollama model options
+    const ollamaOptions = this.ollamaModels.map(
+      (om) => `<option value="${this.escapeHtml(om.name)}" ${m.model === om.name ? 'selected' : ''}>${this.escapeHtml(om.name)} (${om.size_gb} GB)</option>`
+    ).join('');
+
+    const modelField = isOllama && this.ollamaModels.length > 0
+      ? `<select class="setting-input" data-model-layer="${layerKey}" data-model-field="model" style="max-width: 220px;">
+           <option value="">Select model...</option>
+           ${ollamaOptions}
+         </select>`
+      : `<input type="text" class="setting-input" data-model-layer="${layerKey}" data-model-field="model"
+           value="${this.escapeHtml(m.model)}" placeholder="${placeholderModel}" style="max-width: 220px;" />`;
+
+    const thinkingBadge = thinking
+      ? `<div class="model-thinking-badge" style="font-size: 11px; color: var(--color-accent); margin-top: 2px;">⚡ Thinking model — /no_think applied automatically</div>`
+      : '';
+
+    const enabledToggle = showEnabled
+      ? `<input type="checkbox" class="setting-checkbox" data-model-layer="${layerKey}" data-model-field="enabled"
+           ${m.enabled ? 'checked' : ''} title="Enable this layer" />`
+      : '';
 
     return `
-      <div class="settings-subsection">
-        <h4>${label}</h4>
-        <div class="setting-row">
-          <div class="setting-info">
-            <div class="setting-label">Provider URL</div>
-            <div class="setting-description">OpenAI-compatible API base URL</div>
+      <div class="model-layer-row" data-layer="${layerKey}" style="
+        display: grid;
+        grid-template-columns: 140px 170px 1fr auto auto;
+        gap: 8px;
+        align-items: start;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.06));
+      ">
+        <!-- Layer label -->
+        <div style="font-weight: 500; font-size: 13px; padding-top: 6px;">${label} ${enabledToggle}</div>
+
+        <!-- Provider dropdown -->
+        <select class="setting-input model-provider-select" data-model-layer="${layerKey}" data-model-field="provider_type"
+          style="font-size: 12px; padding: 5px 8px; max-width: 170px;">
+          <option value="claude" ${isClaude ? 'selected' : ''}>Claude (proxy)</option>
+          <option value="ollama" ${isOllama ? 'selected' : ''}>Ollama (local)</option>
+          <option value="openai_compatible" ${(!isClaude && !isOllama) ? 'selected' : ''}>OpenAI-compatible</option>
+        </select>
+
+        <!-- Model + URL + Key stacked -->
+        <div class="model-layer-fields" style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            ${modelField}
+            <div class="model-url-field" ${showUrl ? '' : 'style="display:none"'}>
+              <input type="text" class="setting-input" data-model-layer="${layerKey}" data-model-field="provider_url"
+                value="${this.escapeHtml(m.provider_url)}" placeholder="Provider URL"
+                style="font-size: 12px; max-width: 260px; padding: 5px 8px;" />
+            </div>
+            <div class="model-key-field" ${showKey ? '' : 'style="display:none"'}>
+              <input type="password" class="setting-input" data-model-layer="${layerKey}" data-model-field="api_key"
+                value="${this.escapeHtml(m.api_key)}" placeholder="API key"
+                autocomplete="new-password" style="font-size: 12px; max-width: 180px; padding: 5px 8px;" />
+            </div>
           </div>
-          <input type="text" class="setting-input" data-model-layer="${layerKey}" data-model-field="provider_url"
-            value="${this.escapeHtml(m.provider_url)}"
-            placeholder="http://localhost:3457/v1" />
+          ${thinkingBadge}
         </div>
-        <div class="setting-row">
-          <div class="setting-info">
-            <div class="setting-label">API Key</div>
-            <div class="setting-description">Leave empty if not required (e.g. Ollama)</div>
-          </div>
-          <input type="password" class="setting-input" data-model-layer="${layerKey}" data-model-field="api_key"
-            value="${this.escapeHtml(m.api_key)}"
-            placeholder="Leave empty if not required"
-            autocomplete="new-password" />
-        </div>
-        <div class="setting-row">
-          <div class="setting-info">
-            <div class="setting-label">Model Name</div>
-            <div class="setting-description">Model identifier for this layer</div>
-          </div>
-          <input type="text" class="setting-input" data-model-layer="${layerKey}" data-model-field="model"
-            value="${this.escapeHtml(m.model)}"
-            placeholder="${placeholderModel}" />
-        </div>
-        ${enabledRow}
+
+        <!-- Test button -->
+        <button class="btn-secondary model-test-btn" data-model-layer="${layerKey}"
+          style="font-size: 11px; padding: 4px 10px; white-space: nowrap;">Test</button>
+
+        <!-- Test result -->
+        <div class="model-test-result" data-model-layer="${layerKey}"
+          style="font-size: 11px; min-width: 80px; padding-top: 6px; color: var(--color-text-secondary);"></div>
       </div>
     `;
   }
 
   private renderModelsSection(): string {
+    const ollamaStatus = this.ollamaReachable
+      ? `<span style="color: var(--color-success, #4ade80);">Connected (${this.ollamaModels.length} models)</span>`
+      : '<span style="color: var(--color-text-secondary);">Not connected</span>';
+
     return `
       <div class="settings-section" data-testid="settings-models">
-        <h3>🤖 Models</h3>
-        <p style="color: var(--color-text-secondary); font-size: 13px; margin-bottom: 16px;">
-          Configure which LLM provider and model handles each layer.
-          Leave fields empty to use the defaults from config.
+        <h3>Models</h3>
+        <p style="color: var(--color-text-secondary); font-size: 13px; margin-bottom: 12px;">
+          Assign any model from any provider to each layer independently.
         </p>
-        ${this.renderModelLayerFields('fast', '⚡ Conversational (Fast)', false, 'claude-sonnet-4')}
-        ${this.renderModelLayerFields('deep', '🧠 Deep Thinking', true, 'claude-opus-4')}
-        ${this.renderModelLayerFields('analyzer', '🔍 Analyzer', true, 'claude-haiku-4')}
+
+        <!-- Global Ollama URL -->
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;">
+          <label style="font-size: 12px; font-weight: 500; white-space: nowrap;">Ollama URL:</label>
+          <input type="text" class="setting-input" id="ollama-global-url"
+            value="${this.escapeHtml(this.ollamaUrl)}" placeholder="http://192.168.1.59:11434"
+            style="font-size: 12px; max-width: 280px; padding: 5px 8px;" />
+          <button class="btn-secondary" id="ollama-refresh-btn" style="font-size: 11px; padding: 4px 10px;">Refresh models</button>
+          <span id="ollama-status" style="font-size: 11px;">${ollamaStatus}</span>
+        </div>
+
+        <!-- Layer header -->
+        <div style="
+          display: grid;
+          grid-template-columns: 140px 170px 1fr auto auto;
+          gap: 8px;
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--color-text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          padding: 0 0 6px;
+          border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.1));
+        ">
+          <div>Layer</div>
+          <div>Provider</div>
+          <div>Model / Endpoint</div>
+          <div></div>
+          <div></div>
+        </div>
+
+        ${this.renderModelLayerRow('fast', '⚡ Fast', false, 'claude-sonnet-4')}
+        ${this.renderModelLayerRow('deep', '🧠 Deep', true, 'claude-opus-4')}
+        ${this.renderModelLayerRow('analyzer', '🔍 Analyzer', true, 'claude-haiku-4')}
       </div>
+
+      <style>
+        @media (max-width: 700px) {
+          .model-layer-row {
+            grid-template-columns: 1fr !important;
+            gap: 6px !important;
+          }
+          .model-layer-row > div:first-child {
+            font-size: 14px !important;
+          }
+        }
+      </style>
     `;
   }
 
@@ -1280,6 +1381,7 @@ export class SettingsPage {
       el.addEventListener('change', () => this.markDirty());
     });
 
+    this.bindModelEvents();
     this.bindVoiceEvents();
 
     // Workspace path
@@ -1474,6 +1576,213 @@ export class SettingsPage {
     } catch (e) {
       console.error('Failed to save GitHub token:', e);
       eventBus.emit(EVENTS.TOAST_SHOW, { message: `Failed to save token: ${e}`, type: 'error', duration: 4000 });
+    }
+  }
+
+  private bindModelEvents(): void {
+    // Provider dropdown change — update visibility of URL/key fields and model field type
+    this.root.querySelectorAll<HTMLSelectElement>('.model-provider-select').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        const layer = sel.dataset.modelLayer as 'fast' | 'deep' | 'analyzer';
+        const ptype = sel.value as ProviderType;
+        const row = this.root.querySelector(`.model-layer-row[data-layer="${layer}"]`) as HTMLElement;
+        if (!row) return;
+
+        const urlField = row.querySelector('.model-url-field') as HTMLElement;
+        const keyField = row.querySelector('.model-key-field') as HTMLElement;
+
+        // Show/hide fields based on provider type
+        if (urlField) urlField.style.display = (ptype === 'claude') ? 'none' : '';
+        if (keyField) keyField.style.display = (ptype === 'claude' || ptype === 'ollama') ? 'none' : '';
+
+        // Auto-fill URL and API key based on provider type
+        const urlInput = row.querySelector<HTMLInputElement>('[data-model-field="provider_url"]');
+        const keyInput = row.querySelector<HTMLInputElement>('[data-model-field="api_key"]');
+        if (ptype === 'claude') {
+          if (urlInput) urlInput.value = 'http://localhost:3457/v1';
+          if (keyInput) keyInput.value = '';
+        } else if (ptype === 'ollama') {
+          const ollamaBase = (this.root.querySelector('#ollama-global-url') as HTMLInputElement)?.value || this.ollamaUrl;
+          if (urlInput) urlInput.value = ollamaBase.replace(/\/$/, '') + '/v1';
+          if (keyInput) keyInput.value = 'ollama';
+          // Swap to dropdown if we have models
+          this.refreshModelFieldForLayer(layer);
+        }
+
+        this.markDirty();
+      });
+    });
+
+    // Ollama refresh button
+    const refreshBtn = this.root.querySelector('#ollama-refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => this.fetchOllamaModels());
+    }
+
+    // Test buttons
+    this.root.querySelectorAll<HTMLButtonElement>('.model-test-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const layer = btn.dataset.modelLayer as string;
+        this.testModelLayer(layer);
+      });
+    });
+
+    // Update thinking badge on model text input change
+    this.root.querySelectorAll<HTMLInputElement>('[data-model-field="model"]').forEach((el) => {
+      el.addEventListener('input', () => {
+        const layer = el.dataset.modelLayer;
+        if (layer) this.updateThinkingBadge(layer);
+      });
+    });
+
+    // Auto-fetch Ollama models on load if any layer uses Ollama
+    const hasOllama = (['fast', 'deep', 'analyzer'] as const).some((l) => {
+      const m = this.settings.models?.[l];
+      return m && detectProviderType(m.provider_url, m.model) === 'ollama';
+    });
+    if (hasOllama) {
+      this.fetchOllamaModels();
+    }
+
+    // Detect Ollama URL from existing settings
+    for (const l of ['fast', 'deep', 'analyzer'] as const) {
+      const purl = this.settings.models?.[l]?.provider_url || '';
+      if (purl.includes('11434')) {
+        this.ollamaUrl = purl.replace('/v1', '').replace(/\/$/, '');
+        const urlInput = this.root.querySelector('#ollama-global-url') as HTMLInputElement;
+        if (urlInput) urlInput.value = this.ollamaUrl;
+        break;
+      }
+    }
+  }
+
+  private async fetchOllamaModels(): Promise<void> {
+    const urlInput = this.root.querySelector('#ollama-global-url') as HTMLInputElement;
+    const statusEl = this.root.querySelector('#ollama-status') as HTMLElement;
+    const ollamaUrl = urlInput?.value || this.ollamaUrl;
+    this.ollamaUrl = ollamaUrl;
+
+    if (statusEl) statusEl.innerHTML = '<span style="color: var(--color-text-secondary);">Connecting...</span>';
+
+    try {
+      const resp = await fetch(`${API_URL}/api/models/ollama?url=${encodeURIComponent(ollamaUrl)}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const models: Array<{ name: string; size_gb: number }> = await resp.json();
+      this.ollamaModels = models;
+      this.ollamaReachable = models.length > 0 || resp.ok;
+
+      if (statusEl) {
+        if (models.length > 0) {
+          statusEl.innerHTML = `<span style="color: var(--color-success, #4ade80);">Connected (${models.length} models)</span>`;
+        } else {
+          statusEl.innerHTML = '<span style="color: var(--color-warning, #facc15);">Connected but no models found</span>';
+        }
+      }
+
+      // Refresh model dropdowns for Ollama layers
+      for (const layer of ['fast', 'deep', 'analyzer'] as const) {
+        const sel = this.root.querySelector<HTMLSelectElement>(`.model-provider-select[data-model-layer="${layer}"]`);
+        if (sel?.value === 'ollama') {
+          this.refreshModelFieldForLayer(layer);
+        }
+      }
+    } catch (e) {
+      this.ollamaModels = [];
+      this.ollamaReachable = false;
+      if (statusEl) {
+        statusEl.innerHTML = '<span style="color: var(--color-error, #f87171);">Unreachable</span>';
+      }
+    }
+  }
+
+  private refreshModelFieldForLayer(layer: string): void {
+    const row = this.root.querySelector(`.model-layer-row[data-layer="${layer}"]`) as HTMLElement;
+    if (!row) return;
+
+    const fieldsContainer = row.querySelector('.model-layer-fields') as HTMLElement;
+    if (!fieldsContainer) return;
+
+    // Find existing model input/select
+    const existingModel = row.querySelector<HTMLInputElement | HTMLSelectElement>('[data-model-field="model"]');
+    const currentValue = existingModel?.value || '';
+
+    if (this.ollamaModels.length > 0) {
+      // Replace with dropdown
+      const options = this.ollamaModels.map(
+        (m) => `<option value="${this.escapeHtml(m.name)}" ${currentValue === m.name ? 'selected' : ''}>${this.escapeHtml(m.name)} (${m.size_gb} GB)</option>`
+      ).join('');
+      const newSelect = document.createElement('select');
+      newSelect.className = 'setting-input';
+      newSelect.dataset.modelLayer = layer;
+      newSelect.dataset.modelField = 'model';
+      newSelect.style.maxWidth = '220px';
+      newSelect.innerHTML = `<option value="">Select model...</option>${options}`;
+      newSelect.addEventListener('change', () => {
+        this.markDirty();
+        this.updateThinkingBadge(layer);
+      });
+      newSelect.addEventListener('input', () => this.markDirty());
+
+      if (existingModel) existingModel.replaceWith(newSelect);
+    }
+
+    this.updateThinkingBadge(layer);
+  }
+
+  private updateThinkingBadge(layer: string): void {
+    const row = this.root.querySelector(`.model-layer-row[data-layer="${layer}"]`) as HTMLElement;
+    if (!row) return;
+    const modelEl = row.querySelector<HTMLInputElement | HTMLSelectElement>('[data-model-field="model"]');
+    const model = modelEl?.value || '';
+    let badge = row.querySelector('.model-thinking-badge') as HTMLElement;
+    if (isThinkingModel(model)) {
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'model-thinking-badge';
+        badge.style.cssText = 'font-size: 11px; color: var(--color-accent); margin-top: 2px;';
+        const fieldsContainer = row.querySelector('.model-layer-fields');
+        fieldsContainer?.appendChild(badge);
+      }
+      badge.textContent = '⚡ Thinking model — /no_think applied automatically';
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+
+  private async testModelLayer(layer: string): Promise<void> {
+    const row = this.root.querySelector(`.model-layer-row[data-layer="${layer}"]`) as HTMLElement;
+    if (!row) return;
+    const resultEl = row.querySelector('.model-test-result') as HTMLElement;
+    const btn = row.querySelector('.model-test-btn') as HTMLButtonElement;
+
+    const urlEl = row.querySelector<HTMLInputElement>('[data-model-field="provider_url"]');
+    const keyEl = row.querySelector<HTMLInputElement>('[data-model-field="api_key"]');
+    const modelEl = row.querySelector<HTMLInputElement | HTMLSelectElement>('[data-model-field="model"]');
+
+    if (resultEl) resultEl.innerHTML = '<span style="color: var(--color-text-secondary);">Testing...</span>';
+    if (btn) btn.disabled = true;
+
+    try {
+      const resp = await fetch(`${API_URL}/api/models/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider_url: urlEl?.value || '',
+          api_key: keyEl?.value || '',
+          model: modelEl?.value || '',
+        }),
+      });
+      const data = await resp.json();
+      if (data.success) {
+        resultEl.innerHTML = `<span style="color: var(--color-success, #4ade80);">${data.latency_ms}ms</span>`;
+      } else {
+        resultEl.innerHTML = `<span style="color: var(--color-error, #f87171);">Failed</span>`;
+      }
+    } catch {
+      resultEl.innerHTML = `<span style="color: var(--color-error, #f87171);">Error</span>`;
+    } finally {
+      if (btn) btn.disabled = false;
+      setTimeout(() => { if (resultEl) resultEl.textContent = ''; }, 5000);
     }
   }
 
@@ -1830,7 +2139,7 @@ export class SettingsPage {
     for (const layer of layers) {
       const urlEl = this.root.querySelector(`[data-model-layer="${layer}"][data-model-field="provider_url"]`) as HTMLInputElement | null;
       const keyEl = this.root.querySelector(`[data-model-layer="${layer}"][data-model-field="api_key"]`) as HTMLInputElement | null;
-      const modelEl = this.root.querySelector(`[data-model-layer="${layer}"][data-model-field="model"]`) as HTMLInputElement | null;
+      const modelEl = this.root.querySelector(`[data-model-layer="${layer}"][data-model-field="model"]`) as HTMLInputElement | HTMLSelectElement | null;
       const enabledEl = this.root.querySelector(`[data-model-layer="${layer}"][data-model-field="enabled"]`) as HTMLInputElement | null;
 
       models[layer] = {

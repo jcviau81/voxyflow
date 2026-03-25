@@ -706,6 +706,27 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "tmux_kill",
     },
+
+    # ---- Worker Supervision ------------------------------------------------
+    {
+        "name": "task.complete",
+        "description": "Signal that your assigned task is finished. You MUST call this when done.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["task_id", "summary"],
+            "properties": {
+                "task_id": {"type": "string", "description": "Your assigned task ID"},
+                "summary": {"type": "string", "description": "Brief summary of what you accomplished"},
+                "status": {
+                    "type": "string",
+                    "enum": ["success", "partial", "failed"],
+                    "description": "Outcome status (default: success)",
+                    "default": "success",
+                },
+            },
+        },
+        "_handler": "task_complete",
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -724,6 +745,7 @@ def _get_system_handler(name: str):
             git_status, git_log, git_diff, git_branches, git_commit,
             tmux_list, tmux_run, tmux_send, tmux_capture, tmux_new, tmux_kill,
         )
+        from app.services.worker_supervisor import handle_task_complete
         _SYSTEM_HANDLERS.update({
             "system_exec": system_exec,
             "web_search": web_search,
@@ -742,6 +764,7 @@ def _get_system_handler(name: str):
             "tmux_capture": tmux_capture,
             "tmux_new": tmux_new,
             "tmux_kill": tmux_kill,
+            "task_complete": handle_task_complete,
         })
     return _SYSTEM_HANDLERS.get(name)
 

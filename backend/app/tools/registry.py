@@ -33,6 +33,7 @@ TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
     "voxyflow.card.create", "voxyflow.card.update", "voxyflow.card.move",
     "voxyflow.card.duplicate", "voxyflow.card.enrich",
     "voxyflow.wiki.create", "voxyflow.wiki.update",
+    "task.complete",  # Worker supervision — all tiers must signal completion
 }
 
 # Full tools: Deep (Opus) can do everything including exec, write, delete
