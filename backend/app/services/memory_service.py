@@ -5,7 +5,7 @@ Collections:
   memory-project-{slug}      ← project-specific decisions, bugs, tech choices, context
 
 ChromaDB persists to ~/.voxyflow/chroma/ (shared PersistentClient with RAG service).
-Embeddings use intfloat/multilingual-e5-large (local, no API key needed).
+Embeddings use sentence-transformers/all-MiniLM-L6-v2 (local, no API key needed).
 
 IMPORTANT: All ChromaDB operations are wrapped in try/except.
 Memory failure NEVER breaks chat. If chromadb is not installed, memory falls
@@ -219,7 +219,7 @@ class MemoryService:
                 os.makedirs(persist_path, exist_ok=True)
                 self._client = chromadb.PersistentClient(path=persist_path)
                 self._ef = SentenceTransformerEmbeddingFunction(
-                    model_name="intfloat/multilingual-e5-large"
+                    model_name="sentence-transformers/all-MiniLM-L6-v2"
                 )
                 self._chromadb_enabled = True
                 logger.info(f"MemoryService ChromaDB initialized, persist_dir={persist_path!r}")
