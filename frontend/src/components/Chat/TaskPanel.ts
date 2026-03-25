@@ -113,6 +113,36 @@ export class TaskPanel {
         }
       })
     );
+
+    // Direct action flash — brief inline indicator for fast-path CRUD
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.ACTION_COMPLETED, (payload: any) => {
+        const { taskId, action, success, duration_ms } = payload;
+        const labels: Record<string, string> = {
+          'card.create': 'Card created',
+          'create_card': 'Card created',
+          'card.update': 'Card updated',
+          'update_card': 'Card updated',
+          'card.move': 'Card moved',
+          'move_card': 'Card moved',
+          'card.delete': 'Card deleted',
+          'delete_card': 'Card deleted',
+          'card.list': 'Cards listed',
+        };
+        const label = labels[action] || action;
+        const now = Date.now();
+        this.tasks.set(taskId, {
+          taskId,
+          intent: label,
+          summary: `${duration_ms}ms`,
+          status: success ? 'completed' : 'failed',
+          startedAt: now,
+          completedAt: now,
+          success,
+        });
+        this.render();
+      })
+    );
   }
 
   private async hydrateFromBackend(): Promise<void> {

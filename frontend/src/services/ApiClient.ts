@@ -64,6 +64,53 @@ export class ApiClient {
       }
     });
 
+    // Handle direct action events (fast-path CRUD — no worker)
+    this.on('action:started', (payload: Record<string, unknown>) => {
+      eventBus.emit(EVENTS.ACTION_STARTED, payload);
+    });
+
+    this.on('action:completed', (payload: Record<string, unknown>) => {
+      const { action, success, duration_ms, sessionId } = payload as {
+        action: string;
+        success: boolean;
+        duration_ms: number;
+        sessionId?: string;
+      };
+      eventBus.emit(EVENTS.ACTION_COMPLETED, payload);
+
+      if (success) {
+        // Friendly label for the action
+        const labels: Record<string, string> = {
+          'card.create': 'Card created',
+          'create_card': 'Card created',
+          'card.update': 'Card updated',
+          'update_card': 'Card updated',
+          'card.move': 'Card moved',
+          'move_card': 'Card moved',
+          'card.delete': 'Card deleted',
+          'delete_card': 'Card deleted',
+          'card.list': 'Cards listed',
+        };
+        const label = labels[action] || action;
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `⚡ ${label} (${duration_ms}ms)`,
+          type: 'success',
+          duration: 2500,
+        });
+      } else {
+        const error = (payload as any).result?.error || 'Unknown error';
+        eventBus.emit(EVENTS.TOAST_SHOW, {
+          message: `❌ ${action} failed: ${error}`,
+          type: 'error',
+          duration: 5000,
+        });
+      }
+    });
+
+    this.on('action:confirm_required', (payload: Record<string, unknown>) => {
+      eventBus.emit(EVENTS.ACTION_CONFIRM_REQUIRED, payload);
+    });
+
     // Handle cross-device chat sync — another device sent or received a message
     this.on('chat:message:new', (payload: Record<string, unknown>) => {
       this.handleCrossDeviceMessage(payload);

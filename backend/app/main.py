@@ -395,6 +395,15 @@ async def general_websocket(websocket: WebSocket):
                     else:
                         logger.warning(f"[WS] task:cancel missing taskId or sessionId")
 
+                elif msg_type == "action:confirm":
+                    task_id = payload.get("taskId")
+                    confirmed = payload.get("confirmed", False)
+                    if task_id:
+                        await _orchestrator.handle_action_confirm(task_id, confirmed, websocket)
+                        logger.info(f"[WS] action:confirm → task_id={task_id}, confirmed={confirmed}")
+                    else:
+                        logger.warning("[WS] action:confirm missing taskId")
+
                 elif msg_type == "session:sync":
                     # Deliver any pending worker results for the reconnecting session.
                     # Frontend sends this immediately on WebSocket connect so results

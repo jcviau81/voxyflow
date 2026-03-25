@@ -231,6 +231,32 @@ export class ChatService {
       })
     );
 
+    // Handle direct action confirmation requests (destructive actions like card.delete)
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.ACTION_CONFIRM_REQUIRED, async (payload: any) => {
+        const { taskId, action, message, sessionId } = payload as {
+          taskId: string;
+          action: string;
+          message: string;
+          sessionId?: string;
+        };
+        // Dynamic import to avoid circular dependency
+        const { showConfirmDialog } = await import('../components/Shared/ConfirmDialog');
+        const confirmed = await showConfirmDialog({
+          title: 'Confirm Action',
+          body: message || `Are you sure you want to ${action}?`,
+          confirmLabel: 'Yes, proceed',
+          cancelLabel: 'Cancel',
+          danger: true,
+        });
+        apiClient.send('action:confirm', {
+          taskId,
+          confirmed,
+          sessionId: sessionId || this.activeSessionId,
+        });
+      })
+    );
+
     // Handle Board Execution WS events → forward to EventBus for KanbanBoard
     this.unsubscribers.push(
       apiClient.on('kanban:execute:card:start', (payload) => {

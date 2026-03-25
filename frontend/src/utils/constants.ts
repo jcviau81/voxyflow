@@ -195,6 +195,11 @@ export const EVENTS = {
   // Message Reactions
   MESSAGE_REACTION: 'chat:message:reaction',
 
+  // Direct Actions (fast-path CRUD, no worker)
+  ACTION_STARTED: 'action:started',
+  ACTION_COMPLETED: 'action:completed',
+  ACTION_CONFIRM_REQUIRED: 'action:confirm_required',
+
   // Board Execution
   BOARD_EXECUTE_START: 'kanban:execute:start',
   BOARD_EXECUTE_CARD_START: 'kanban:execute:card:start',

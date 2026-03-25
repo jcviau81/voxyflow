@@ -595,6 +595,8 @@ class ChatOrchestrator:
         self._claude = claude_service
         self._analyzer = analyzer_service
         self._worker_pools: dict[str, DeepWorkerPool] = {}
+        # Pending confirmations for destructive direct actions (taskId → delegate data)
+        self._pending_confirms: dict[str, dict] = {}
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -1201,6 +1203,12 @@ class ChatOrchestrator:
 
         # --- Confirmation gate for destructive actions ---
         if DirectExecutor.needs_confirmation(data):
+            # Store delegate data so we can execute after user confirms
+            self._pending_confirms[task_id] = {
+                "data": data,
+                "project_id": project_id,
+                "session_id": session_id,
+            }
             try:
                 await websocket.send_json({
                     "type": "action:confirm_required",
@@ -1313,6 +1321,107 @@ class ChatOrchestrator:
             return f"Card deleted ({duration}ms)"
         else:
             return f"Action `{action}` completed ({duration}ms)"
+
+    async def handle_action_confirm(
+        self,
+        task_id: str,
+        confirmed: bool,
+        websocket: "WebSocket",
+    ) -> None:
+        """Handle a user's confirmation response for a destructive direct action."""
+        pending = self._pending_confirms.pop(task_id, None)
+        if not pending:
+            logger.warning(f"[DirectExecutor] No pending confirmation for taskId={task_id}")
+            return
+
+        if not confirmed:
+            logger.info(f"[DirectExecutor] User denied action for taskId={task_id}")
+            try:
+                await websocket.send_json({
+                    "type": "action:completed",
+                    "payload": {
+                        "taskId": task_id,
+                        "action": pending["data"].get("action", "unknown"),
+                        "success": False,
+                        "result": {"error": "Cancelled by user"},
+                        "duration_ms": 0,
+                        "sessionId": pending["session_id"],
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
+            except Exception as e:
+                logger.warning(f"[DirectExecutor] Failed to send cancelled completion: {e}")
+            return
+
+        # User confirmed — execute the action (skip the confirmation gate this time)
+        data = pending["data"]
+        project_id = pending["project_id"]
+        session_id = pending["session_id"]
+
+        # Re-use the same task_id so frontend can correlate
+        action = data.get("action", "unknown")
+
+        # Notify: action started
+        try:
+            await websocket.send_json({
+                "type": "action:started",
+                "payload": {
+                    "taskId": task_id,
+                    "action": action,
+                    "sessionId": session_id,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
+        except Exception:
+            pass
+
+        result = await DirectExecutor.execute(data, project_id=project_id)
+
+        # Notify: action completed
+        try:
+            await websocket.send_json({
+                "type": "action:completed",
+                "payload": {
+                    "taskId": task_id,
+                    "action": action,
+                    "success": result.get("success", False),
+                    "result": result.get("result"),
+                    "duration_ms": result.get("duration_ms", 0),
+                    "sessionId": session_id,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
+        except Exception:
+            pass
+
+        # Broadcast card change
+        if result.get("success"):
+            try:
+                from app.services.ws_broadcast import ws_broadcast
+                ws_broadcast.emit_sync("cards:changed", {
+                    "projectId": project_id or "system-main",
+                })
+            except Exception:
+                pass
+
+        # Chat confirmation
+        confirmation_msg = self._build_direct_confirmation(action, result)
+        if confirmation_msg:
+            try:
+                await websocket.send_json({
+                    "type": "chat:response",
+                    "payload": {
+                        "messageId": f"direct-msg-{uuid4().hex[:8]}",
+                        "content": confirmation_msg,
+                        "model": "system",
+                        "streaming": False,
+                        "done": True,
+                        "sessionId": session_id,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Safety Net: Detect missing delegates
