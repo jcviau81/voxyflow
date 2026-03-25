@@ -922,8 +922,9 @@ class ClaudeService:
                 full_response += token
                 yield token
 
-        # Strip <think> blocks before persisting (safety net for thinking models)
-        full_response = _strip_think_tags(full_response)
+        # Strip <think> blocks only for thinking models (Qwen3, DeepSeek-R1, etc.)
+        if _is_thinking_model(self.fast_model):
+            full_response = _strip_think_tags(full_response)
         if full_response:
             await self._append_and_persist_async(chat_id, "assistant", full_response, model="fast")
 
@@ -1051,8 +1052,9 @@ class ClaudeService:
                 full_response += token
                 yield token
 
-        # Strip <think> blocks before persisting (safety net for thinking models)
-        full_response = _strip_think_tags(full_response)
+        # Strip <think> blocks only for thinking models (Qwen3, DeepSeek-R1, etc.)
+        if _is_thinking_model(self.deep_model):
+            full_response = _strip_think_tags(full_response)
         if full_response:
             await self._append_and_persist_async(chat_id, "assistant", full_response, model="deep")
 
@@ -1129,7 +1131,7 @@ class ClaudeService:
             cancel_event=cancel_event,
             message_queue=message_queue,
         )
-        return _strip_think_tags(result) if result else result
+        return (_strip_think_tags(result) if _is_thinking_model(model_name) else result) if result else result
 
     async def safety_net_generate_delegate(self, assistant_message: str) -> Optional[str]:
         """Quick Haiku call to extract a missing delegate from an action-promising message.
@@ -2144,7 +2146,7 @@ class ClaudeService:
                 logger.info(f"[ServerTools] No tool calls found. Response tail: {response_text[-200:]!r}")
 
             if not tool_calls:
-                return _strip_think_tags(response_text)
+                return _strip_think_tags(response_text) if _is_thinking_model(model) else response_text
 
             # Execute tools
             results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
