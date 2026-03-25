@@ -504,6 +504,12 @@ These are parsed by `ChatOrchestrator`, converted to `ActionIntent` objects, and
 - `<tool_call>` = direct tool execution within the current layer
 - `<delegate>` = dispatch to a background worker with its own tool access
 
+> **⚠️ Exception: `model: "direct"` delegates bypass the worker pipeline entirely.**
+>
+> When a delegate has `model: "direct"`, the `DirectExecutor` calls the MCP tool handler inline — no `ActionIntent` is emitted, no worker is spawned, no LLM is involved. It's atomic CRUD, equivalent to a direct REST API call.
+>
+> Only delegates with `model: "haiku"` / `"sonnet"` / `"opus"` go through the full `SessionEventBus` → `DeepWorkerPool` → `ClaudeService.execute_worker_task()` pipeline.
+
 ---
 
 ## MCP Tools

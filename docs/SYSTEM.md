@@ -139,6 +139,12 @@ Per-session async worker pool that executes background tasks.
 - Sends WebSocket events: `task:started` → `task:progress` → `task:completed`
 - If WebSocket disconnects, stores results in `PendingResults` for delivery on reconnect
 
+> **⚠️ Direct mode (`model: "direct"`) does NOT use the DeepWorkerPool.**
+>
+> When a `<delegate>` has `model: "direct"`, the backend's `DirectExecutor` calls the MCP tool handler inline — no worker is spawned, no LLM is involved, no ActionIntent is emitted. It's a zero-cost synchronous CRUD operation.
+>
+> Only delegates with `model: "haiku"`, `"sonnet"`, or `"opus"` spawn a real worker in this pool. To verify the supervisor→worker pipeline is functioning, you must use one of these models (or execute a card via `POST /cards/{id}/execute`).
+
 ---
 
 ## The Proxy: claude-max-api

@@ -331,6 +331,16 @@ When a worker returns a result (`[Worker Result — ...]`), you MUST:
 
 Direct mode bypasses the LLM worker entirely. The backend's `DirectExecutor` calls the MCP handler directly with the params you provide. No LLM interprets your description — **`params` IS the API call**.
 
+> **⚠️ CRITICAL DISTINCTION: Direct mode does atomic CRUD — NO worker is spawned, no LLM is involved.**
+>
+> - `model: "direct"` → `DirectExecutor` calls the tool handler inline. No `DeepWorkerPool`, no `SessionEventBus`, no `ActionIntent`. It's a synchronous function call — in and out.
+> - `model: "haiku"` / `"sonnet"` / `"opus"` → A real `ActionIntent` is emitted to the `SessionEventBus`, picked up by a worker in the `DeepWorkerPool`, and executed via `ClaudeService.execute_worker_task()` with full LLM reasoning and tool access.
+>
+> **This means:** Creating a card via `model: "direct"` does NOT test the supervisor/worker pipeline. It bypasses it completely. To test that workers are functioning, you must either:
+> 1. **Execute a card** — `POST /cards/{id}/execute`
+> 2. **Delegate with a real model** — use `model: "haiku"`, `"sonnet"`, or `"opus"` so the task is routed through the `DeepWorkerPool`
+> 3. **Request something that requires LLM reasoning** — research, file analysis, code generation, multi-step tasks
+
 ### When to use direct
 
 Use `model: "direct"` when ALL of these are true:

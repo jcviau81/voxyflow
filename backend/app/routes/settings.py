@@ -172,6 +172,15 @@ async def save_settings(settings: AppSettings):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
+    # Hot-reload ClaudeService model config
+    try:
+        from app.services.claude_service import ClaudeService
+        svc = ClaudeService()
+        svc.reload_models()
+        logger.info("ClaudeService models reloaded after settings save")
+    except Exception as e:
+        logger.warning("Failed to reload ClaudeService models: %s", e)
+
     return {"status": "saved"}
 
 
