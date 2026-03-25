@@ -2078,13 +2078,20 @@ class ClaudeService:
                     "content": "[SYSTEM] You are running low on tool rounds. Wrap up now.",
                 })
 
-            response = await asyncio.to_thread(
-                lambda msgs=list(api_messages): client.chat.completions.create(
-                    model=model,
-                    max_tokens=self.max_tokens,
-                    messages=msgs,
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        lambda msgs=list(api_messages): client.chat.completions.create(
+                            model=model,
+                            max_tokens=self.max_tokens,
+                            messages=msgs,
+                        )
+                    ),
+                    timeout=90.0,  # 90s max per LLM call in worker
                 )
-            )
+            except asyncio.TimeoutError:
+                logger.warning(f"[ServerTools] Round {round_num + 1}: LLM call timed out after 90s")
+                return response_text or ""
 
             msg = response.choices[0].message
             response_text = msg.content or ""
