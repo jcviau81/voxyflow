@@ -1,58 +1,58 @@
 {
-  "personality": {
-    "bot_name": "Voxy",
-    "preferred_language": "both",
-    "soul_file": "./personality/SOUL.md",
-    "user_file": "./personality/USER.md",
-    "agents_file": "./personality/AGENTS.md",
-    "identity_file": "./personality/IDENTITY.md",
-    "custom_instructions": "",
-    "environment_notes": "",
-    "tone": "casual",
-    "warmth": "warm"
-  },
-  "models": {
-    "fast": {
-      "provider_url": "http://localhost:3457/v1",
-      "api_key": "sk-any",
-      "model": "claude-sonnet-4-5",
-      "enabled": true
+    "personality": {
+        "bot_name": "Voxy",
+        "preferred_language": "both",
+        "soul_file": "./personality/SOUL.md",
+        "user_file": "./personality/USER.md",
+        "agents_file": "./personality/AGENTS.md",
+        "identity_file": "./personality/IDENTITY.md",
+        "custom_instructions": "",
+        "environment_notes": "",
+        "tone": "casual",
+        "warmth": "warm"
     },
-    "deep": {
-      "provider_url": "http://localhost:3457/v1",
-      "api_key": "sk-any",
-      "model": "claude-opus-4-5",
-      "enabled": true
+    "models": {
+        "fast": {
+            "provider_url": "http://localhost:3457/v1",
+            "api_key": "sk-any",
+            "model": "claude-sonnet-4-5",
+            "enabled": true
+        },
+        "deep": {
+            "provider_url": "http://localhost:3457/v1",
+            "api_key": "sk-any",
+            "model": "claude-sonnet-4-5",
+            "enabled": true
+        },
+        "analyzer": {
+            "provider_url": "http://localhost:3457/v1",
+            "api_key": "sk-any",
+            "model": "claude-haiku-4",
+            "enabled": true
+        }
     },
-    "analyzer": {
-      "provider_url": "http://localhost:3457/v1",
-      "api_key": "sk-any",
-      "model": "claude-haiku-4",
-      "enabled": true
+    "scheduler": {
+        "enabled": true,
+        "heartbeat_interval_minutes": 2,
+        "rag_index_interval_minutes": 15
+    },
+    "voice": {
+        "stt_engine": "native",
+        "stt_model": "medium",
+        "stt_language": "auto",
+        "whisper_model_id": "",
+        "tts_enabled": true,
+        "tts_auto_play": false,
+        "tts_url": "http://192.168.1.59:5500",
+        "tts_voice": "default",
+        "tts_speed": 1.0,
+        "volume": 80
+    },
+    "onboarding_complete": true,
+    "user_name": "jc",
+    "assistant_name": "Voxy",
+    "workspace_path": "workspace",
+    "tools": {
+        "timeout_per_tool_seconds": 120
     }
-  },
-  "scheduler": {
-    "enabled": true,
-    "heartbeat_interval_minutes": 2,
-    "rag_index_interval_minutes": 15
-  },
-  "voice": {
-    "stt_engine": "native",
-    "stt_model": "medium",
-    "stt_language": "auto",
-    "whisper_model_id": "",
-    "tts_enabled": true,
-    "tts_auto_play": false,
-    "tts_url": "http://192.168.1.59:5500",
-    "tts_voice": "default",
-    "tts_speed": 1.0,
-    "volume": 80
-  },
-  "onboarding_complete": true,
-  "user_name": "jc",
-  "assistant_name": "Voxy",
-  "workspace_path": "workspace",
-  "tools": {
-    "timeout_per_tool_seconds": 120
-  }
 }

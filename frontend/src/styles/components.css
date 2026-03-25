@@ -1652,7 +1652,6 @@
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius-xl);
   width: 90vw;
-  max-width: 1400px;
   height: 90vh;
   overflow: hidden;
   display: flex;
@@ -1789,114 +1788,28 @@
   background: var(--color-bg-secondary);
 }
 
-.card-chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
+/* ── Embedded ChatWindow (inside CardDetailModal) ──────────────────────── */
+.chat-window--embedded {
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
-.card-chat-hint {
-  font-size: 0.8125rem;
-  color: var(--color-text-muted);
-  font-style: italic;
-}
-
-.card-chat-messages {
+.chat-window--embedded .chat-messages {
   flex: 1;
-  overflow-y: auto;
-  padding: 10px 10px 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   min-height: 0;
 }
 
-.card-chat-messages::-webkit-scrollbar { width: 3px; }
-.card-chat-messages::-webkit-scrollbar-track { background: transparent; }
-.card-chat-messages::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
-}
-
-.card-chat-empty {
-  font-size: 0.8125rem;
-  color: var(--color-text-muted);
-  text-align: center;
-  margin: auto;
-  padding: 16px 8px;
-  font-style: italic;
-}
-
-.card-chat-bubble {
-  padding: 7px 10px;
-  border-radius: 10px;
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  word-break: break-word;
-  max-width: 95%;
-}
-
-.card-chat-bubble--user {
-  background: var(--color-primary);
-  color: #fff;
-  align-self: flex-end;
-  border-bottom-right-radius: 3px;
-}
-
-.card-chat-bubble--assistant {
-  background: var(--color-bg-elevated);
-  color: var(--color-text);
-  align-self: flex-start;
-  border-bottom-left-radius: 3px;
-  border: 1px solid var(--color-border);
-}
-
-.card-chat-input-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
+.chat-window--embedded .chat-input-area {
   border-top: 1px solid var(--color-border);
-  flex-shrink: 0;
 }
 
-.card-chat-input-field {
-  flex: 1;
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 6px 9px;
-  font-size: 0.8125rem;
-  color: var(--color-text);
-  outline: none;
-  font-family: inherit;
-  transition: border-color 0.15s;
-  min-width: 0;
+.chat-window--embedded .session-tab-bar-wrap,
+.chat-window--embedded .chat-top-bar,
+.chat-window--embedded .chat-bottom-bar {
+  display: none;
 }
-.card-chat-input-field::placeholder { color: var(--color-text-muted); }
-.card-chat-input-field:focus { border-color: var(--color-primary); }
-
-.card-chat-send-btn {
-  background: var(--color-primary);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 700;
-  flex-shrink: 0;
-  transition: opacity 0.12s;
-}
-.card-chat-send-btn:hover { opacity: 0.85; }
-.card-chat-send-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* Color accent border for mainboard cards */
 .card-detail-modal--yellow { border-top: 3px solid rgba(255, 220, 100, 0.8); }
@@ -2022,11 +1935,6 @@
     flex-direction: column;
   }
 
-  .card-chat-messages {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-  }
 }
 
 .modal-header {
@@ -2248,14 +2156,22 @@
   border-color: var(--color-error);
 }
 
-.card-chat-placeholder {
-  padding: 20px;
-  text-align: center;
-  color: var(--color-text-muted);
-  background: var(--color-bg-tertiary);
-  border-radius: var(--border-radius);
-  font-style: italic;
+.modal-promote-btn {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  padding: 5px 11px;
   font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-top: auto;
+}
+.modal-promote-btn:hover {
+  background: rgba(255, 183, 77, 0.12);
+  border-color: rgba(255, 183, 77, 0.4);
+  color: var(--color-warning);
 }
 
 /* ============= PROJECTS ============= */

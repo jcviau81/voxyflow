@@ -106,8 +106,70 @@ class SessionStore:
             and m.get("type") != "enrichment"  # Skip enrichments from history
         ]
 
+    # ------------------------------------------------------------------
+    # Summary persistence (sliding window)
+    # ------------------------------------------------------------------
+
+    def _get_summary_path(self, chat_id: str) -> Path:
+        """Get file path for a chat session's summary."""
+        safe_id = chat_id.replace(":", "/").replace("..", "")
+        path = self.sessions_dir / f"{safe_id}.summary.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def load_summary(self, chat_id: str) -> dict | None:
+        """Load the persisted conversation summary for a chat session.
+
+        Returns dict with keys: summary_text, summarized_count
+        or None if no summary exists.
+        """
+        path = self._get_summary_path(chat_id)
+        if not path.exists():
+            return None
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
+
+    def save_summary(self, chat_id: str, summary_text: str, summarized_count: int):
+        """Persist the conversation summary for a chat session."""
+        path = self._get_summary_path(chat_id)
+        data = json.dumps(
+            {
+                "chat_id": chat_id,
+                "summary_text": summary_text,
+                "summarized_count": summarized_count,
+                "updated_at": datetime.now().isoformat(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        with self._file_locks[chat_id]:
+            fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    f.write(data)
+                os.rename(tmp_path, str(path))
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+
+    def clear_summary(self, chat_id: str):
+        """Remove the persisted summary for a chat session."""
+        path = self._get_summary_path(chat_id)
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
     def clear_session(self, chat_id: str):
-        """Clear a session's messages (archives instead of deleting)."""
+        """Clear a session's messages and summary (archives messages instead of deleting)."""
+        self.clear_summary(chat_id)
         path = self._get_session_path(chat_id)
         if path.exists():
             archive_suffix = datetime.now().strftime("%Y%m%d-%H%M%S")

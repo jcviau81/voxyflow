@@ -20,6 +20,13 @@ import { ttsService, cleanTextForSpeech } from '../../services/TtsService';
 import { openMeetingNotesModal } from './MeetingNotesModal';
 import { TaskPanel } from './TaskPanel';
 
+export interface ChatWindowOptions {
+  /** When true, hides header, bottom bar, session tabs, task panel, search — keeps messages + input */
+  embedded?: boolean;
+  /** Card ID to scope the chat to (sets chat level to 'card' with session card:{cardId}) */
+  cardId?: string;
+}
+
 export class ChatWindow {
   private container: HTMLElement;
   private messageList: HTMLElement | null = null;
@@ -39,6 +46,8 @@ export class ChatWindow {
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
   private currentProjectView: 'chat' | 'kanban' | 'stats' | 'roadmap' | 'wiki' | 'sprint' | 'docs' = 'chat';
+  private embedded: boolean;
+  private embeddedCardId: string | null;
 
   // Session management — delegates to the project session system via getContextTabId().
   // For general/main chat, contextTabId = SYSTEM_PROJECT_ID.
@@ -63,9 +72,14 @@ export class ChatWindow {
   // Mode 2: Native dictation / paste auto-send debounce timer
   private dictationAutoSendTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private parentElement: HTMLElement) {
-    this.container = createElement('div', { className: 'chat-window', 'data-testid': 'chat-window' });
-    chatService.activeSessionId = this.activeSessionId;
+  constructor(private parentElement: HTMLElement, options?: ChatWindowOptions) {
+    this.embedded = options?.embedded ?? false;
+    this.embeddedCardId = options?.cardId ?? null;
+    const className = this.embedded ? 'chat-window chat-window--embedded' : 'chat-window';
+    this.container = createElement('div', { className, 'data-testid': 'chat-window' });
+    if (!this.embedded) {
+      chatService.activeSessionId = this.activeSessionId;
+    }
     this.render();
     this.setupListeners();
   }
@@ -74,9 +88,9 @@ export class ChatWindow {
     this.container.innerHTML = '';
 
     // === Top bar: Title + Tabs + Board toggle ===
-    const topBar = this.renderTopBar();
+    const topBar = this.embedded ? null : this.renderTopBar();
     // === Bottom bar: Status + New + Clear + Search + Model Selector + Analyzer ===
-    const bottomBar = this.renderBottomBar();
+    const bottomBar = this.embedded ? null : this.renderBottomBar();
 
     // === Message list ===
     this.messageList = createElement('div', { className: 'chat-messages' });
@@ -225,11 +239,10 @@ export class ChatWindow {
     this.inputArea.appendChild(this.codePasteBanner);
     this.inputArea.appendChild(inputRow);
 
-    // Session Tab Bar — show for project and card levels
     // Session Tab Bar — show for all contexts (main, project, card)
     this.sessionTabBar?.destroy();
     this.sessionTabBar = null;
-    {
+    if (!this.embedded) {
       const sessionTabId = this.getContextTabId();
       const sessionTabBarContainer = createElement('div', { className: 'session-tab-bar-wrap' });
       this.container.appendChild(sessionTabBarContainer);
@@ -241,29 +254,41 @@ export class ChatWindow {
     this.githubPanel = null;
 
     // TOP: Title + Tabs + Board toggle
-    this.container.appendChild(topBar);
+    if (topBar) this.container.appendChild(topBar);
 
     this.container.appendChild(this.messageList);
 
     // Task panel — shows active Deep worker tasks above the input
     this.taskPanel?.destroy();
-    this.taskPanel = new TaskPanel(this.container);
+    if (!this.embedded) {
+      this.taskPanel = new TaskPanel(this.container);
+    } else {
+      this.taskPanel = null;
+    }
 
     // BOTTOM: Status + New + Clear + Search + Model Selector + Analyzer
-    this.container.appendChild(bottomBar);
+    if (bottomBar) this.container.appendChild(bottomBar);
 
     this.container.appendChild(this.inputArea);
 
     // Slash command menu — anchored to the input area, floats above it
     this.slashMenu?.destroy();
-    this.slashMenu = new SlashCommandMenu(this.inputArea, (cmd) => this.executeSlashCommand(cmd));
+    if (!this.embedded) {
+      this.slashMenu = new SlashCommandMenu(this.inputArea, (cmd) => this.executeSlashCommand(cmd));
+    } else {
+      this.slashMenu = null;
+    }
 
     this.parentElement.appendChild(this.container);
     this.scrollToBottom();
 
     // Chat history search panel (attached to parentElement so it overlays the window)
     this.chatSearch?.destroy();
-    this.chatSearch = new ChatSearch(this.parentElement);
+    if (!this.embedded) {
+      this.chatSearch = new ChatSearch(this.parentElement);
+    } else {
+      this.chatSearch = null;
+    }
   }
 
   /** Create a small toggle button for a voice setting stored in voxyflow_settings.voice */
@@ -320,6 +345,7 @@ export class ChatWindow {
   }
 
   private getChatLevel(): 'project' | 'card' {
+    if (this.embeddedCardId) return 'card';
     const cardId = appState.get('selectedCardId');
     if (cardId) return 'card';
     return 'project';
@@ -327,6 +353,7 @@ export class ChatWindow {
 
   /** Get the context tab ID for the current view — handles 'main' → SYSTEM_PROJECT_ID */
   private getContextTabId(): string {
+    if (this.embeddedCardId) return this.embeddedCardId;
     const chatLevel = this.getChatLevel();
     const activeTabId = appState.getActiveTab();
     if (chatLevel === 'card') {
@@ -593,7 +620,7 @@ export class ChatWindow {
 
   private handleClearChat(): void {
     const currentProjectId = appState.get('currentProjectId');
-    const cardId = appState.get('selectedCardId');
+    const cardId = this.embeddedCardId || appState.get('selectedCardId');
 
     // Clear messages for current context
     if (cardId) {
@@ -1013,7 +1040,7 @@ export class ChatWindow {
     let sessionId: string | undefined;
 
     if (chatLevel === 'card') {
-      const cid = appState.get('selectedCardId');
+      const cid = this.embeddedCardId || appState.get('selectedCardId');
       if (!cid) { this.showWelcomePrompt(); return; }
       backendChatId = `card:${cid}`;
       cardId = cid;
@@ -1391,7 +1418,7 @@ export class ChatWindow {
       }
     }
 
-    chatService.sendMessage(content, undefined, undefined, sessionId);
+    chatService.sendMessage(content, undefined, this.embeddedCardId || undefined, sessionId);
     this.textInput.value = '';
     this.textInput.style.height = 'auto';
     this.textInput.focus();
@@ -1491,6 +1518,14 @@ export class ChatWindow {
 
   update(): void {
     this.reloadMessages();
+  }
+
+  /** Public API: inject a message into this chat (used by embedded hosts like CardDetailModal) */
+  sendMessage(content: string): void {
+    if (!content.trim()) return;
+    const contextTabId = this.getContextTabId();
+    const sessionId = appState.getActiveChatId(contextTabId);
+    chatService.sendMessage(content, undefined, this.embeddedCardId || undefined, sessionId);
   }
 
   destroy(): void {

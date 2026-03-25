@@ -3,7 +3,10 @@
 import asyncio
 import json
 import logging
+import os
 from collections import OrderedDict, defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
 
 from app.config import get_settings
@@ -17,6 +20,94 @@ from app.tools.registry import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Token usage JSONL logging
+# ---------------------------------------------------------------------------
+
+TOKEN_LOG_PATH = Path(os.path.expanduser("~/.voxyflow/logs/token_usage.jsonl"))
+
+
+def _log_token_usage(
+    *,
+    layer: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    chat_id: str = "",
+    cache_creation_tokens: int = 0,
+    cache_read_tokens: int = 0,
+) -> None:
+    """Append a JSONL entry to the token usage log file."""
+    try:
+        TOKEN_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "layer": layer,
+            "model": model,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "chat_id": chat_id,
+            "cache_creation_tokens": cache_creation_tokens,
+            "cache_read_tokens": cache_read_tokens,
+        }
+        with open(TOKEN_LOG_PATH, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        logger.debug(f"Token usage logging failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Prompt caching — Anthropic cache_control on system content blocks
+# ---------------------------------------------------------------------------
+
+def _flatten_system(system: str | list[dict]) -> str:
+    """Convert system content blocks back to a plain string (for non-Anthropic paths)."""
+    if isinstance(system, str):
+        return system
+    return "\n\n".join(block["text"] for block in system if block.get("text"))
+
+
+def _make_cached_system(
+    base_prompt: str,
+    dynamic_parts: list[str] | None = None,
+    is_anthropic: bool = True,
+) -> str | list[dict]:
+    """Build the system parameter for Claude API calls with prompt caching.
+
+    For Anthropic native SDK: returns a list of content blocks where the static
+    base prompt is marked with cache_control={'type': 'ephemeral'} so Anthropic
+    caches it across calls in the same session (~5 min TTL).
+
+    For OpenAI-compatible proxy: returns a plain concatenated string (no caching).
+
+    Args:
+        base_prompt: The static personality/instruction prompt (cacheable).
+        dynamic_parts: Optional list of dynamic context strings (RAG, workers, etc.)
+                       that change per-call and should NOT be cached.
+        is_anthropic: Whether we're using the native Anthropic SDK.
+    """
+    dynamic_text = ""
+    if dynamic_parts:
+        dynamic_text = "\n\n".join(p for p in dynamic_parts if p)
+
+    if not is_anthropic:
+        # Proxy path — plain string, no caching support
+        if dynamic_text:
+            return base_prompt + "\n\n" + dynamic_text
+        return base_prompt
+
+    # Anthropic native path — use content blocks with cache_control
+    blocks = [
+        {
+            "type": "text",
+            "text": base_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    if dynamic_text:
+        blocks.append({"type": "text", "text": dynamic_text})
+    return blocks
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +482,18 @@ class ClaudeService:
             f"haiku={self.haiku_model}({self.haiku_client_type})"
         )
 
+    def _infer_layer(self, model: str) -> str:
+        """Map a model name to a conceptual layer for token logging."""
+        if model == self.fast_model:
+            return "fast"
+        if model == self.deep_model:
+            return "deep"
+        if model == self.haiku_model:
+            return "haiku"
+        if model == self.analyzer_model:
+            return "analyzer"
+        return "unknown"
+
     # ------------------------------------------------------------------
     # History helpers (accessible across layers via the singleton)
     # ------------------------------------------------------------------
@@ -458,6 +561,92 @@ class ClaudeService:
         session_store.save_message(chat_id, msg)
 
     # ------------------------------------------------------------------
+    # Sliding window with summarization
+    # ------------------------------------------------------------------
+
+    async def _summarize_evicted_messages(self, chat_id: str, messages: list[dict], existing_text: str = "") -> str:
+        """Use Haiku to summarize evicted messages, appending to any existing summary."""
+        if not messages:
+            return existing_text
+
+        # Build the content to summarize
+        convo_lines = []
+        for m in messages:
+            role = m.get("role", "unknown").upper()
+            convo_lines.append(f"{role}: {m.get('content', '')}")
+        new_convo = "\n".join(convo_lines)
+
+        prompt_parts = []
+        if existing_text:
+            prompt_parts.append(f"Previous conversation summary:\n{existing_text}\n\n---\n")
+        prompt_parts.append(f"New messages to incorporate:\n{new_convo}")
+        prompt_parts.append(
+            "\n\nWrite a concise summary (1-3 paragraphs) capturing: key decisions made, "
+            "topics discussed, important context, and any pending actions or requests. "
+            "Merge with the previous summary if one exists. Be factual and brief."
+        )
+
+        try:
+            summary = await self._call_api(
+                model=self.haiku_model,
+                system="You are a conversation summarizer. Output only the summary, nothing else.",
+                messages=[{"role": "user", "content": "".join(prompt_parts)}],
+                client=self.haiku_client,
+                client_type=self.haiku_client_type,
+                use_tools=False,
+                layer="analyzer",
+                chat_level="general",
+            )
+            return (summary or "").strip()
+        except Exception as e:
+            logger.warning(f"[sliding_window] Haiku summarization failed: {e}")
+            # Fallback: keep existing summary unchanged
+            return existing_text
+
+    async def _get_windowed_history(self, chat_id: str) -> list[dict]:
+        """Return messages for Claude API with sliding window summarization.
+
+        If history exceeds chat_window_size, older messages are summarized
+        via Haiku and injected as a context block before the recent messages.
+        """
+        settings = get_settings()
+        window = settings.chat_window_size
+        history = self._get_history(chat_id)
+
+        if len(history) <= window:
+            return list(history)
+
+        # Determine what needs summarizing
+        existing = session_store.load_summary(chat_id)
+        already_summarized = existing["summarized_count"] if existing else 0
+        cutoff = len(history) - window  # everything before this index gets summarized
+
+        if cutoff > already_summarized:
+            # New messages to evict — summarize them incrementally
+            existing_text = existing["summary_text"] if existing else ""
+            newly_evicted = history[already_summarized:cutoff]
+            summary_text = await self._summarize_evicted_messages(chat_id, newly_evicted, existing_text)
+            if summary_text:
+                session_store.save_summary(chat_id, summary_text, cutoff)
+        else:
+            summary_text = existing["summary_text"] if existing else ""
+
+        recent = history[-window:]
+
+        if summary_text:
+            summary_msg = {
+                "role": "user",
+                "content": (
+                    f"[CONVERSATION CONTEXT — Summary of earlier messages]\n\n"
+                    f"{summary_text}\n\n"
+                    f"[END OF SUMMARY — The conversation continues below]"
+                ),
+            }
+            return [summary_msg, {"role": "assistant", "content": "Understood, I have the context from our earlier conversation."}, *recent]
+
+        return list(recent)
+
+    # ------------------------------------------------------------------
     # Native delegate helpers
     # ------------------------------------------------------------------
 
@@ -482,10 +671,8 @@ class ClaudeService:
     ) -> str:
         """Layer 1: Fast conversational response, personality-infused."""
         await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
-        history = self._get_history(chat_id)
 
-        settings = get_settings()
-        recent = history[-settings.fast_context_messages:]
+        recent = await self._get_windowed_history(chat_id)
 
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
@@ -493,20 +680,25 @@ class ClaudeService:
             include_daily=True,
             query=user_message,
         )
-        system_prompt = self.personality.build_fast_prompt(
+        base_prompt = self.personality.build_fast_prompt(
             memory_context=memory_context,
             chat_level=chat_level,
             project=project_context,
             card=card_context,
         )
 
+        dynamic_parts: list[str] = []
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
                 if rag_context:
-                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
+                    dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_fast): {e}")
+
+        system_prompt = _make_cached_system(
+            base_prompt, dynamic_parts, is_anthropic=(self.fast_client_type == "anthropic")
+        )
 
         response_text = await self._call_api(
             model=self.fast_model,
@@ -540,10 +732,8 @@ class ClaudeService:
         use_native_delegate = self.fast_client_type == "anthropic"
 
         await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
-        history = self._get_history(chat_id)
-
-        settings = get_settings()
-        recent = history[-settings.fast_context_messages:]
+        full_history = self._get_history(chat_id)  # full history for conversation-age checks
+        recent = await self._get_windowed_history(chat_id)  # windowed messages for the API
 
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
@@ -551,7 +741,7 @@ class ClaudeService:
             include_daily=True,
             query=user_message,
         )
-        system_prompt = self.personality.build_fast_prompt(
+        base_prompt = self.personality.build_fast_prompt(
             memory_context=memory_context,
             chat_level=chat_level,
             project=project_context,
@@ -560,22 +750,26 @@ class ClaudeService:
             native_tools=use_native_delegate,
         )
 
+        # Collect dynamic context (changes per-call, not cached)
+        dynamic_parts: list[str] = []
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
                 if rag_context:
-                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
+                    dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_fast_stream): {e}")
 
-        # Inject active workers registry so dispatcher knows what's running
         if active_workers_context:
-            system_prompt += "\n\n## Background Workers Status\n" + active_workers_context
+            dynamic_parts.append("## Background Workers Status\n" + active_workers_context)
+
+        # Build system param with prompt caching for Anthropic native path
+        system_prompt = _make_cached_system(base_prompt, dynamic_parts, is_anthropic=use_native_delegate)
 
         # Inject identity priming exchange at the start of conversations.
         primed_messages = list(recent)
         is_auto_greeting = "greet" in user_message.lower() and "naturally" in user_message.lower()
-        if len(history) <= 4 and not is_auto_greeting:
+        if len(full_history) <= 4 and not is_auto_greeting:
             if use_native_delegate:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
@@ -656,10 +850,8 @@ class ClaudeService:
         use_native_delegate = self.deep_client_type == "anthropic"
 
         await self._append_and_persist_async(chat_id, "user", user_message, model="deep")
-        history = self._get_history(chat_id)
-
-        settings = get_settings()
-        recent = history[-settings.deep_context_messages:]
+        full_history = self._get_history(chat_id)  # full history for conversation-age checks
+        recent = await self._get_windowed_history(chat_id)  # windowed messages for the API
 
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
@@ -667,7 +859,7 @@ class ClaudeService:
             include_daily=True,
             query=user_message,
         )
-        system_prompt = self.personality.build_deep_prompt(
+        base_prompt = self.personality.build_deep_prompt(
             memory_context=memory_context,
             chat_level=chat_level,
             project=project_context,
@@ -677,22 +869,26 @@ class ClaudeService:
             native_tools=use_native_delegate,
         )
 
+        # Collect dynamic context (changes per-call, not cached)
+        dynamic_parts: list[str] = []
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
                 if rag_context:
-                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
+                    dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_deep_stream): {e}")
 
-        # Inject active workers registry so dispatcher knows what's running
         if active_workers_context:
-            system_prompt += "\n\n## Background Workers Status\n" + active_workers_context
+            dynamic_parts.append("## Background Workers Status\n" + active_workers_context)
+
+        # Build system param with prompt caching for Anthropic native path
+        system_prompt = _make_cached_system(base_prompt, dynamic_parts, is_anthropic=use_native_delegate)
 
         # Identity priming for deep chat layer (same as fast — see chat_fast_stream)
         primed_messages = list(recent)
         is_auto_greeting = "greet" in user_message.lower() and "naturally" in user_message.lower()
-        if len(history) <= 4 and not is_auto_greeting:
+        if len(full_history) <= 4 and not is_auto_greeting:
             if use_native_delegate:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
@@ -780,20 +976,25 @@ class ClaudeService:
             layer = "deep"  # Sonnet worker gets full tools for research
 
         # Build worker-specific prompt
-        system_prompt = self.personality.build_worker_prompt(
+        base_prompt = self.personality.build_worker_prompt(
             model=model,
             chat_level=chat_level,
             project=project_context,
             card=card_context,
         )
 
+        dynamic_parts: list[str] = []
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, prompt)
                 if rag_context:
-                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
+                    dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
             except Exception as e:
                 logger.warning(f"RAG context injection failed (execute_worker_task): {e}")
+
+        system_prompt = _make_cached_system(
+            base_prompt, dynamic_parts, is_anthropic=(client_type == "anthropic")
+        )
 
         return await self._call_api(
             model=model_name,
@@ -848,10 +1049,8 @@ class ClaudeService:
         project_id: Optional[str] = None,
     ) -> Optional[str]:
         """Layer 2: Deep analysis, personality-infused. Returns None or enrichment text."""
-        history = self._get_history(chat_id)
 
-        settings = get_settings()
-        recent = history[-settings.deep_context_messages:]
+        recent = await self._get_windowed_history(chat_id)
 
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
@@ -859,15 +1058,20 @@ class ClaudeService:
             include_daily=True,
             query=user_message,
         )
-        system_prompt = self.personality.build_deep_prompt(memory_context=memory_context)
+        base_prompt = self.personality.build_deep_prompt(memory_context=memory_context)
 
+        dynamic_parts: list[str] = []
         if project_id:
             try:
                 rag_context = await get_rag_service().build_rag_context(project_id, user_message)
                 if rag_context:
-                    system_prompt += "\n\n## Relevant Context from Project Knowledge Base\n" + rag_context
+                    dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_deep): {e}")
+
+        system_prompt = _make_cached_system(
+            base_prompt, dynamic_parts, is_anthropic=(self.deep_client_type == "anthropic")
+        )
 
         response_text = await self._call_api(
             model=self.deep_model,
@@ -992,13 +1196,14 @@ class ClaudeService:
     async def _call_api_anthropic(
         self,
         model: str,
-        system: str,
+        system: str | list[dict],
         messages: list[dict],
         client,
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
         layer: str = "fast",
+        chat_id: str = "",
     ) -> str:
         """Native Anthropic SDK call with tool_use loop.
 
@@ -1030,6 +1235,28 @@ class ClaudeService:
             for _ in range(10):
                 response = await asyncio.to_thread(
                     lambda kw=kwargs: client.messages.create(**kw)
+                )
+
+                # Log prompt caching stats if available
+                usage = response.usage
+                cache_created = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+                if cache_created or cache_read:
+                    logger.info(
+                        f"[PromptCache] model={model} input={usage.input_tokens} "
+                        f"cache_created={cache_created} cache_read={cache_read} "
+                        f"output={usage.output_tokens}"
+                    )
+
+                # Log token usage to JSONL
+                _log_token_usage(
+                    layer=self._infer_layer(model),
+                    model=model,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    chat_id=chat_id,
+                    cache_creation_tokens=cache_created,
+                    cache_read_tokens=cache_read,
                 )
 
                 stop_reason = response.stop_reason  # "end_turn" | "tool_use" | "max_tokens"
@@ -1085,7 +1312,7 @@ class ClaudeService:
     async def _call_api_stream_with_delegate(
         self,
         model: str,
-        system: str,
+        system: str | list[dict],
         messages: list[dict],
         client,
         chat_id: str,
@@ -1124,11 +1351,13 @@ class ClaudeService:
                         if block.type == "tool_use":
                             events.append(("tool_use", block))
                     events.append(("stop_reason", final_msg.stop_reason))
+                    events.append(("usage", final_msg.usage))
                 return events
 
             events = await asyncio.to_thread(_do_stream)
 
             stop_reason = "end_turn"
+            stream_usage = None
             for event_type, data in events:
                 if event_type == "text":
                     streamed_text_parts.append(data)
@@ -1137,6 +1366,20 @@ class ClaudeService:
                     tool_use_blocks.append(data)
                 elif event_type == "stop_reason":
                     stop_reason = data
+                elif event_type == "usage":
+                    stream_usage = data
+
+            # Log token usage from the delegate stream
+            if stream_usage:
+                _log_token_usage(
+                    layer=self._infer_layer(model),
+                    model=model,
+                    input_tokens=stream_usage.input_tokens,
+                    output_tokens=stream_usage.output_tokens,
+                    chat_id=chat_id,
+                    cache_creation_tokens=getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
+                    cache_read_tokens=getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
+                )
 
             if not tool_use_blocks:
                 # No delegates — done
@@ -1205,13 +1448,14 @@ class ClaudeService:
     async def _call_api_stream_anthropic(
         self,
         model: str,
-        system: str,
+        system: str | list[dict],
         messages: list[dict],
         client,
         use_tools: bool = True,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
         layer: str = "fast",
+        chat_id: str = "",
     ) -> AsyncIterator[str]:
         """Native Anthropic SDK streaming call with tool_use handling.
 
@@ -1251,11 +1495,13 @@ class ClaudeService:
                         if block.type == "tool_use":
                             events.append(("tool_use", block))
                     events.append(("stop_reason", final_msg.stop_reason))
+                    events.append(("usage", final_msg.usage))
                 return events
 
             events = await asyncio.to_thread(_do_stream)
 
             stop_reason = "end_turn"
+            stream_usage = None
             for event_type, data in events:
                 if event_type == "text":
                     streamed_text_parts.append(data)
@@ -1264,6 +1510,20 @@ class ClaudeService:
                     tool_use_blocks.append(data)
                 elif event_type == "stop_reason":
                     stop_reason = data
+                elif event_type == "usage":
+                    stream_usage = data
+
+            # Log token usage from the stream
+            if stream_usage:
+                _log_token_usage(
+                    layer=self._infer_layer(model),
+                    model=model,
+                    input_tokens=stream_usage.input_tokens,
+                    output_tokens=stream_usage.output_tokens,
+                    chat_id=chat_id,
+                    cache_creation_tokens=getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
+                    cache_read_tokens=getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
+                )
 
             # If tool calls present, execute them and get final response
             if tool_use_blocks or stop_reason == "tool_use":
@@ -1316,6 +1576,7 @@ class ClaudeService:
                     messages=updated_messages,
                     client=client,
                     use_tools=False,
+                    chat_id=chat_id,
                 )
                 if final_text:
                     yield final_text
@@ -1338,6 +1599,7 @@ class ClaudeService:
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
         layer: str = "fast",
+        chat_id: str = "",
     ) -> str:
         """OpenAI-compatible proxy call (fallback path)."""
         from openai import OpenAI
@@ -1364,6 +1626,17 @@ class ClaudeService:
                 response = await asyncio.to_thread(
                     lambda kw=kwargs: client.chat.completions.create(**kw)
                 )
+
+                # Log token usage if available
+                if hasattr(response, "usage") and response.usage:
+                    u = response.usage
+                    _log_token_usage(
+                        layer=self._infer_layer(model),
+                        model=model,
+                        input_tokens=getattr(u, "prompt_tokens", 0) or 0,
+                        output_tokens=getattr(u, "completion_tokens", 0) or 0,
+                        chat_id=chat_id,
+                    )
 
                 choice = response.choices[0]
                 finish_reason = choice.finish_reason
@@ -1582,6 +1855,7 @@ class ClaudeService:
         layer: str = "fast",
         chat_level: str = "general",
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        chat_id: str = "",
     ) -> str:
         """Server-side tool execution loop for providers without native tool support.
 
@@ -1632,6 +1906,17 @@ class ClaudeService:
             )
 
             response_text = response.choices[0].message.content or ""
+
+            # Log token usage if available
+            if hasattr(response, "usage") and response.usage:
+                u = response.usage
+                _log_token_usage(
+                    layer=self._infer_layer(model),
+                    model=model,
+                    input_tokens=getattr(u, "prompt_tokens", 0) or 0,
+                    output_tokens=getattr(u, "completion_tokens", 0) or 0,
+                    chat_id=chat_id,
+                )
 
             # Parse tool calls
             text_content, tool_calls = parser.parse(response_text)
@@ -1842,7 +2127,7 @@ class ClaudeService:
     async def _call_api(
         self,
         model: str,
-        system: str,
+        system: str | list[dict],
         messages: list[dict],
         client=None,
         client_type: str = "anthropic",
@@ -1850,6 +2135,7 @@ class ClaudeService:
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
         layer: str = "fast",
+        chat_id: str = "",
     ) -> str:
         """Dispatch to native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
@@ -1859,24 +2145,27 @@ class ClaudeService:
             return await self._call_api_anthropic(
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
-                layer=layer,
+                layer=layer, chat_id=chat_id,
             )
-        elif use_tools and self._should_use_server_tools(ct):
+        # Non-Anthropic paths need a plain string for system
+        flat_system = _flatten_system(system)
+        if use_tools and self._should_use_server_tools(ct):
             return await self._call_api_server_tools(
-                model=model, system=system, messages=messages, client=api_client,
+                model=model, system=flat_system, messages=messages, client=api_client,
                 layer=layer, chat_level=chat_level, tool_callback=tool_callback,
+                chat_id=chat_id,
             )
         else:
             return await self._call_api_openai(
-                model=model, system=system, messages=messages, client=api_client,
+                model=model, system=flat_system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
-                layer=layer,
+                layer=layer, chat_id=chat_id,
             )
 
     async def _call_api_stream(
         self,
         model: str,
-        system: str,
+        system: str | list[dict],
         messages: list[dict],
         client=None,
         client_type: str = "anthropic",
@@ -1884,6 +2173,7 @@ class ClaudeService:
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
         layer: str = "fast",
+        chat_id: str = "",
     ) -> AsyncIterator[str]:
         """Dispatch streaming to native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
@@ -1893,19 +2183,22 @@ class ClaudeService:
             async for token in self._call_api_stream_anthropic(
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
-                layer=layer,
-            ):
-                yield token
-        elif use_tools and self._should_use_server_tools(ct):
-            async for token in self._call_api_stream_server_tools(
-                model=model, system=system, messages=messages, client=api_client,
-                layer=layer, chat_level=chat_level, tool_callback=tool_callback,
+                layer=layer, chat_id=chat_id,
             ):
                 yield token
         else:
-            async for token in self._call_api_stream_openai(
-                model=model, system=system, messages=messages, client=api_client,
-                use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
-                layer=layer,
-            ):
-                yield token
+            # Non-Anthropic paths need a plain string for system
+            flat_system = _flatten_system(system)
+            if use_tools and self._should_use_server_tools(ct):
+                async for token in self._call_api_stream_server_tools(
+                    model=model, system=flat_system, messages=messages, client=api_client,
+                    layer=layer, chat_level=chat_level, tool_callback=tool_callback,
+                ):
+                    yield token
+            else:
+                async for token in self._call_api_stream_openai(
+                    model=model, system=flat_system, messages=messages, client=api_client,
+                    use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
+                    layer=layer,
+                ):
+                    yield token

@@ -15,11 +15,11 @@ import { createElement, formatTime } from '../../utils/helpers';
 import { appState } from '../../state/AppState';
 import { cardStore } from '../../state/ReactiveCardStore';
 import { cardService } from '../../services/CardService';
-import { chatService } from '../../services/ChatService';
 import { apiClient } from '../../services/ApiClient';
 import { FocusMode } from '../FocusMode/FocusMode';
 import { mainBoardService } from '../../services/MainBoardService';
 import { historyManager } from '../../utils/HistoryManager';
+import { ChatWindow } from '../Chat/ChatWindow';
 
 // ── Tag color helper (mirrors KanbanCard) ────────────────────────────────────
 const TAG_COLORS_MODAL: Array<[string, string]> = [
@@ -77,14 +77,11 @@ const COLOR_OPTIONS: { value: CardColor | null; label: string }[] = [
   { value: 'orange', label: 'Orange' },
 ];
 
-const MAX_CHAT_MESSAGES = 10;
-
 export class CardDetailModal {
   private overlay: HTMLElement;
   private modal: HTMLElement;
   private card: Card | null = null;
-  private sessionId = '';
-  private chatMessagesEl: HTMLElement | null = null;
+  private embeddedChat: ChatWindow | null = null;
   private unsubscribers: (() => void)[] = [];
   private cardStoreUnsub: (() => void) | null = null;
   private codeMirrorEditor: CodeMirrorEditor | null = null;
@@ -138,12 +135,7 @@ export class CardDetailModal {
     );
 
     // Card updates are handled via cardStore.subscribeToCard in open()
-
-    // Chat events — refresh chat when messages arrive
-    const refreshIfRelevant = () => { if (this.card) this.refreshChat(); };
-    this.unsubscribers.push(eventBus.on(EVENTS.MESSAGE_RECEIVED, refreshIfRelevant));
-    this.unsubscribers.push(eventBus.on(EVENTS.MESSAGE_STREAM_END, refreshIfRelevant));
-    this.unsubscribers.push(eventBus.on(EVENTS.MESSAGE_STREAMING, refreshIfRelevant));
+    // Chat is handled by embedded ChatWindow instance (self-manages its own events)
 
     // ESC to close
     const onKey = (e: KeyboardEvent) => {
@@ -165,7 +157,6 @@ export class CardDetailModal {
       this.cardStoreUnsub = null;
     }
     this.card = card;
-    this.sessionId = `card:${card.id}`;
     // Subscribe to reactive updates for this card
     this.cardStoreUnsub = cardStore.subscribeToCard(card.id, (updatedCard) => {
       this.card = updatedCard;
@@ -179,6 +170,7 @@ export class CardDetailModal {
   close(): void {
     historyManager.remove('card-detail-modal');
     this.destroyCodeMirror();
+    this.destroyEmbeddedChat();
     // Unsubscribe from card-specific updates
     if (this.cardStoreUnsub) {
       this.cardStoreUnsub();
@@ -186,8 +178,14 @@ export class CardDetailModal {
     }
     this.overlay.classList.add('hidden');
     this.card = null;
-    this.chatMessagesEl = null;
     appState.selectCard(null);
+  }
+
+  private destroyEmbeddedChat(): void {
+    if (this.embeddedChat) {
+      this.embeddedChat.destroy();
+      this.embeddedChat = null;
+    }
   }
 
   update(): void {
@@ -228,46 +226,6 @@ export class CardDetailModal {
     cardService.delete(id);
     this.onDeleted?.(id);
     this.close();
-  }
-
-  // ── Chat helpers ──────────────────────────────────────────────────────────
-
-  private refreshChat(): void {
-    if (!this.chatMessagesEl || !this.card) return;
-
-    const messages = appState
-      .getMessages(undefined, this.sessionId)
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .slice(-MAX_CHAT_MESSAGES);
-
-    this.chatMessagesEl.innerHTML = '';
-
-    if (messages.length === 0) {
-      const hint = createElement('div', { className: 'card-chat-empty' },
-        'Ask Voxy anything about this card\u2026');
-      this.chatMessagesEl.appendChild(hint);
-      return;
-    }
-
-    messages.forEach((msg: Message) => {
-      const bubble = createElement('div', {
-        className: `card-chat-bubble card-chat-bubble--${msg.role}`,
-      });
-      bubble.textContent = msg.streaming ? msg.content + '\u258b' : msg.content;
-      this.chatMessagesEl!.appendChild(bubble);
-    });
-
-    this.chatMessagesEl.scrollTop = this.chatMessagesEl.scrollHeight;
-  }
-
-  private sendChatMessage(content: string): void {
-    if (!content.trim() || !this.card) return;
-    chatService.sendMessage(
-      content.trim(),
-      this.card.projectId || undefined,
-      this.card.id,
-      this.sessionId
-    );
   }
 
   // ── Time helpers ──────────────────────────────────────────────────────────
@@ -1466,8 +1424,6 @@ export class CardDetailModal {
     if (!this.card) return;
     this.destroyCodeMirror();
     this.modal.innerHTML = '';
-    this.chatMessagesEl = null;
-
     // Apply color class
     this.modal.className = 'modal card-detail-modal';
     if (this.card.color) {
@@ -1502,7 +1458,7 @@ export class CardDetailModal {
       const result = await apiClient.executeCard(this.card.id);
       if (result) {
         // Send the execution prompt through the card chat
-        this.sendChatMessage(result.prompt);
+        this.embeddedChat?.sendMessage(result.prompt);
         eventBus.emit(EVENTS.TOAST_SHOW, { message: `\u25b6 Executing: "${this.card.title}"`, type: 'success', duration: 3000 });
       } else {
         eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u274c Execution failed', type: 'error', duration: 3000 });
@@ -1588,51 +1544,15 @@ export class CardDetailModal {
       attributeFilter: ['data-theme'],
     });
 
-    // ── Card Chat with Voxy (functional, scoped to card) ────────────────────
+    // ── Card Chat with Voxy (embedded ChatWindow, scoped to card) ──────────
     const chatSection = createElement('div', { className: 'modal-section modal-chat-section' });
-    const chatLabel = createElement('label', { className: 'modal-label' }, '\ud83d\udcac Card Chat');
-    const chatHint = createElement('span', { className: 'card-chat-hint' }, 'scoped to this card');
 
-    const chatMessages = createElement('div', { className: 'card-chat-messages' });
-    this.chatMessagesEl = chatMessages;
-
-    const chatInputRow = createElement('div', { className: 'card-chat-input-row' });
-    const chatInput = createElement('input', {
-      type: 'text',
-      className: 'card-chat-input-field',
-      placeholder: 'Ask Voxy about this card\u2026',
-    }) as HTMLInputElement;
-
-    const sendBtn = createElement('button', {
-      className: 'card-chat-send-btn',
-      type: 'button',
-      title: 'Send',
-    }, '\u2191') as HTMLButtonElement;
-
-    const doSend = () => {
-      const val = chatInput.value.trim();
-      if (!val) return;
-      chatInput.value = '';
-      sendBtn.disabled = true;
-      this.sendChatMessage(val);
-      setTimeout(() => { sendBtn.disabled = false; }, 500);
-    };
-
-    sendBtn.addEventListener('click', doSend);
-    chatInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); doSend(); }
+    // Destroy previous embedded chat before creating a new one
+    this.destroyEmbeddedChat();
+    this.embeddedChat = new ChatWindow(chatSection, {
+      embedded: true,
+      cardId: this.card.id,
     });
-
-    chatInputRow.appendChild(chatInput);
-    chatInputRow.appendChild(sendBtn);
-
-    const chatHeaderRow = createElement('div', { className: 'card-chat-header' });
-    chatHeaderRow.appendChild(chatLabel);
-    chatHeaderRow.appendChild(chatHint);
-
-    chatSection.appendChild(chatHeaderRow);
-    chatSection.appendChild(chatMessages);
-    chatSection.appendChild(chatInputRow);
 
     leftCol.appendChild(descSection);
 
@@ -1895,7 +1815,7 @@ export class CardDetailModal {
     {
       promoteSection = createElement('div', { className: 'modal-section', style: 'position: relative;' });
       const promoteBtn = createElement('button', {
-        className: 'note-detail-promote-btn',
+        className: 'modal-promote-btn',
         type: 'button',
         title: 'Assign to a Project',
       }, '\ud83d\ude80 Assign to Project') as HTMLButtonElement;
@@ -2047,11 +1967,7 @@ export class CardDetailModal {
     // Apply initial mobile tab state (description visible by default)
     setActiveTab('description');
 
-    // Populate existing chat history
-    this.refreshChat();
-
-    // Focus the chat input
-    setTimeout(() => chatInput.focus(), 80);
+    // Chat is handled by embedded ChatWindow — no manual initialization needed
   }
 
   // ── Project picker ───────────────────────────────────────────────────────
@@ -2125,6 +2041,7 @@ export class CardDetailModal {
   destroy(): void {
     this.closeProjectPicker();
     this.destroyCodeMirror();
+    this.destroyEmbeddedChat();
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
     this.overlay.remove();
