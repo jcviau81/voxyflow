@@ -334,7 +334,7 @@ Direct mode bypasses the LLM worker entirely. The backend's `DirectExecutor` cal
 ### When to use direct
 
 Use `model: "direct"` when ALL of these are true:
-1. The action is an atomic CRUD operation: `card.create`, `card.update`, `card.move`, or `card.delete`
+1. The action is in the supported whitelist below
 2. You have **every required parameter** from the user's message or conversation context
 3. No research, file reading, or multi-step logic is needed
 
@@ -346,22 +346,46 @@ Use `model: "direct"` when ALL of these are true:
 </delegate>
 ```
 
-**⚠️ The `params` field is MANDATORY for direct delegates.** There is no LLM to extract params from your description — without `params`, the executor has nothing to call. Omitting `params` on a direct delegate = silent failure.
+**⚠️ The `params` field is MANDATORY for direct delegates** (except no-param actions like `health`, `project.list`, `jobs.list`). There is no LLM to extract params from your description — without `params`, the executor has nothing to call. Omitting `params` on a direct delegate = silent failure.
 
 ### Required params per action
 
+#### Card actions
 | Action | Required params | Optional params |
 |--------|----------------|-----------------|
 | `card.create` | `title` | `status`, `priority`, `description`, `agent_type` |
 | `card.update` | `card_id` | `title`, `description`, `status`, `priority`, `agent_type` |
 | `card.move` | `card_id`, `status` | — |
 | `card.delete` | `card_id` | — (triggers confirmation flow) |
+| `card.list` | — | — (`project_id` auto-injected) |
+| `card.get` | `card_id` | — |
+
+#### Project actions
+| Action | Required params | Optional params |
+|--------|----------------|-----------------|
+| `project.list` | — | — |
+| `project.get` | `project_id` | — |
+| `project.create` | `title` | `description`, `tech_stack`, `github_url`, `github_repo`, `local_path` |
+| `project.delete` | `project_id` | — (triggers confirmation flow) |
+
+#### Wiki actions
+| Action | Required params | Optional params |
+|--------|----------------|-----------------|
+| `wiki.list` | — | — (`project_id` auto-injected) |
+| `wiki.get` | `page_id` | — (`project_id` auto-injected) |
+
+#### System actions
+| Action | Required params | Optional params |
+|--------|----------------|-----------------|
+| `jobs.list` | — | — |
+| `health` | — | — |
 
 **Notes:**
 - `project_id` is auto-injected from conversation context — do NOT include it in params.
 - `card_id` must be a real UUID. If you don't have it → use `haiku` with a worker that calls `card.list` first.
 - `status` values: `idea`, `todo`, `in-progress`, `done`, `archived`
 - `priority` values: `0` (none), `1` (low), `2` (medium), `3` (high), `4` (critical)
+- Aliases are supported: `list_cards`, `get_card`, `list_projects`, `get_project`, `create_project`, `list_wiki`, `get_wiki`, `list_jobs`
 
 ### When NOT to use direct
 
@@ -374,10 +398,12 @@ Use `model: "direct"` when ALL of these are true:
 ### Direct vs haiku decision tree
 
 ```
-User wants card CRUD?
-├── YES → Do I have ALL required params (including card_id for update/move/delete)?
-│   ├── YES → model: "direct" + params
-│   └── NO  → model: "haiku" (worker looks up missing info)
+User wants CRUD / read-only query?
+├── YES → Is the action in the direct whitelist?
+│   ├── YES → Do I have ALL required params?
+│   │   ├── YES → model: "direct" + params
+│   │   └── NO  → model: "haiku" (worker looks up missing info)
+│   └── NO → model: "sonnet" or "opus"
 └── NO → model: "sonnet" or "opus"
 ```
 

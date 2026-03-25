@@ -7,6 +7,7 @@ from app.services.direct_executor import (
     DirectExecutor,
     DIRECT_ACTION_MAP,
     CONFIRM_REQUIRED,
+    NO_PARAMS_REQUIRED,
 )
 
 
@@ -21,6 +22,12 @@ class TestIsDirectEligible:
     @pytest.mark.parametrize("action", [
         "card.create", "card.update", "card.move", "card.delete", "card.list",
         "create_card", "update_card", "move_card", "delete_card",
+        # New actions
+        "card.get", "get_card", "list_cards",
+        "project.list", "project.get", "project.create", "project.delete",
+        "list_projects", "get_project", "create_project", "delete_project",
+        "wiki.list", "wiki.get", "list_wiki", "get_wiki",
+        "jobs.list", "list_jobs", "health",
     ])
     def test_whitelisted_actions_eligible(self, action):
         data = {"model": "direct", "action": action, "params": {"title": "x"}}
@@ -32,6 +39,15 @@ class TestIsDirectEligible:
     def test_non_whitelisted_actions_not_eligible(self, action):
         data = {"model": "direct", "action": action, "params": {"q": "x"}}
         assert DirectExecutor.is_direct_eligible(data) is False
+
+    @pytest.mark.parametrize("action", ["health", "project.list", "list_projects", "jobs.list", "list_jobs"])
+    def test_no_param_actions_eligible_without_params(self, action):
+        """Actions that need no params should be eligible even with empty/missing params."""
+        data = {"model": "direct", "action": action}
+        assert DirectExecutor.is_direct_eligible(data) is True
+
+        data_empty = {"model": "direct", "action": action, "params": {}}
+        assert DirectExecutor.is_direct_eligible(data_empty) is True
 
     def test_not_eligible_without_model_direct(self):
         data = {"model": "sonnet", "action": "card.create", "params": {"title": "x"}}
@@ -49,13 +65,19 @@ class TestIsDirectEligible:
 class TestNeedsConfirmation:
     """Tests for DirectExecutor.needs_confirmation()."""
 
-    @pytest.mark.parametrize("action", ["card.delete", "delete_card"])
+    @pytest.mark.parametrize("action", [
+        "card.delete", "delete_card", "project.delete", "delete_project",
+    ])
     def test_delete_actions_need_confirmation(self, action):
         assert DirectExecutor.needs_confirmation({"action": action}) is True
 
     @pytest.mark.parametrize("action", [
-        "card.create", "card.update", "card.move", "card.list",
-        "create_card", "update_card", "move_card",
+        "card.create", "card.update", "card.move", "card.list", "card.get",
+        "create_card", "update_card", "move_card", "list_cards", "get_card",
+        "project.list", "project.get", "project.create",
+        "list_projects", "get_project", "create_project",
+        "wiki.list", "wiki.get", "list_wiki", "get_wiki",
+        "jobs.list", "list_jobs", "health",
     ])
     def test_non_delete_actions_no_confirmation(self, action):
         assert DirectExecutor.needs_confirmation({"action": action}) is False
@@ -164,6 +186,133 @@ class TestExecute:
 
             assert result["success"] is False
             assert "not found" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_execute_card_list_auto_injects_project_id(self):
+        """card.list should auto-inject project_id from context."""
+        tool_def = {
+            "name": "voxyflow.card.list",
+            "inputSchema": {
+                "required": ["project_id"],
+                "properties": {"project_id": {"type": "string"}},
+            },
+        }
+        with patch("app.mcp_server._find_tool", return_value=tool_def), \
+             patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value=[]) as call_api:
+            data = {"action": "card.list", "params": {}}
+            result = await DirectExecutor.execute(data, project_id="proj-abc")
+
+            assert result["success"] is True
+            call_api.assert_called_once_with(tool_def, {"project_id": "proj-abc"})
+
+    @pytest.mark.asyncio
+    async def test_execute_project_list_no_params(self):
+        """project.list needs no params at all."""
+        tool_def = {
+            "name": "voxyflow.project.list",
+            "inputSchema": {"properties": {}},
+        }
+        with patch("app.mcp_server._find_tool", return_value=tool_def), \
+             patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value=[{"id": "p1"}]) as call_api:
+            data = {"action": "project.list", "params": {}}
+            result = await DirectExecutor.execute(data)
+
+            assert result["success"] is True
+            assert result["mcp_tool"] == "voxyflow.project.list"
+            call_api.assert_called_once_with(tool_def, {})
+
+    @pytest.mark.asyncio
+    async def test_execute_health_no_params(self):
+        """health action needs no params."""
+        tool_def = {
+            "name": "voxyflow.health",
+            "inputSchema": {"properties": {}},
+        }
+        with patch("app.mcp_server._find_tool", return_value=tool_def), \
+             patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value={"status": "ok"}) as call_api:
+            data = {"action": "health", "params": {}}
+            result = await DirectExecutor.execute(data)
+
+            assert result["success"] is True
+            assert result["mcp_tool"] == "voxyflow.health"
+            call_api.assert_called_once_with(tool_def, {})
+
+    @pytest.mark.asyncio
+    async def test_execute_card_get_with_card_id(self):
+        """card.get passes card_id through."""
+        tool_def = {
+            "name": "voxyflow.card.get",
+            "inputSchema": {
+                "required": ["card_id"],
+                "properties": {"card_id": {"type": "string"}},
+            },
+        }
+        with patch("app.mcp_server._find_tool", return_value=tool_def), \
+             patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value={"id": "c1", "title": "Test"}) as call_api:
+            data = {"action": "card.get", "params": {"card_id": "c1"}}
+            result = await DirectExecutor.execute(data)
+
+            assert result["success"] is True
+            assert result["mcp_tool"] == "voxyflow.card.get"
+            call_api.assert_called_once_with(tool_def, {"card_id": "c1"})
+
+    @pytest.mark.asyncio
+    async def test_execute_wiki_list_auto_injects_project_id(self):
+        """wiki.list should auto-inject project_id from context."""
+        tool_def = {
+            "name": "voxyflow.wiki.list",
+            "inputSchema": {
+                "required": ["project_id"],
+                "properties": {"project_id": {"type": "string"}},
+            },
+        }
+        with patch("app.mcp_server._find_tool", return_value=tool_def), \
+             patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value=[]) as call_api:
+            data = {"action": "wiki.list", "params": {}}
+            result = await DirectExecutor.execute(data, project_id="proj-xyz")
+
+            assert result["success"] is True
+            call_api.assert_called_once_with(tool_def, {"project_id": "proj-xyz"})
+
+    @pytest.mark.asyncio
+    async def test_execute_project_create_with_params(self):
+        """project.create passes title and optional description."""
+        tool_def = {
+            "name": "voxyflow.project.create",
+            "inputSchema": {
+                "required": ["title"],
+                "properties": {
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+            },
+        }
+        with patch("app.mcp_server._find_tool", return_value=tool_def), \
+             patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value={"id": "p-new"}) as call_api:
+            data = {"action": "project.create", "params": {"title": "New Project", "description": "Desc"}}
+            result = await DirectExecutor.execute(data)
+
+            assert result["success"] is True
+            assert result["mcp_tool"] == "voxyflow.project.create"
+            call_api.assert_called_once_with(tool_def, {"title": "New Project", "description": "Desc"})
+
+    @pytest.mark.asyncio
+    async def test_execute_project_delete_needs_project_id(self):
+        """project.delete should work with explicit project_id in params."""
+        tool_def = {
+            "name": "voxyflow.project.delete",
+            "inputSchema": {
+                "required": ["project_id"],
+                "properties": {"project_id": {"type": "string"}},
+            },
+        }
+        with patch("app.mcp_server._find_tool", return_value=tool_def), \
+             patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value={"success": True}) as call_api:
+            data = {"action": "project.delete", "params": {"project_id": "proj-del"}}
+            result = await DirectExecutor.execute(data)
+
+            assert result["success"] is True
+            call_api.assert_called_once_with(tool_def, {"project_id": "proj-del"})
 
 
 # ===================================================================

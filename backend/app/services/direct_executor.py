@@ -26,20 +26,45 @@ logger = logging.getLogger("voxyflow.direct_executor")
 
 # Maps short action names (used in delegate blocks) → MCP tool names
 DIRECT_ACTION_MAP: dict[str, str] = {
+    # Card CRUD
     "card.create": "voxyflow.card.create",
     "card.update": "voxyflow.card.update",
     "card.move": "voxyflow.card.move",
     "card.delete": "voxyflow.card.delete",
     "card.list": "voxyflow.card.list",
-    # Aliases the dispatcher might use
+    "card.get": "voxyflow.card.get",
+    # Card aliases
     "create_card": "voxyflow.card.create",
     "update_card": "voxyflow.card.update",
     "move_card": "voxyflow.card.move",
     "delete_card": "voxyflow.card.delete",
+    "list_cards": "voxyflow.card.list",
+    "get_card": "voxyflow.card.get",
+    # Project CRUD
+    "project.list": "voxyflow.project.list",
+    "project.get": "voxyflow.project.get",
+    "project.create": "voxyflow.project.create",
+    "project.delete": "voxyflow.project.delete",
+    "list_projects": "voxyflow.project.list",
+    "get_project": "voxyflow.project.get",
+    "create_project": "voxyflow.project.create",
+    "delete_project": "voxyflow.project.delete",
+    # Wiki read
+    "wiki.list": "voxyflow.wiki.list",
+    "wiki.get": "voxyflow.wiki.get",
+    "list_wiki": "voxyflow.wiki.list",
+    "get_wiki": "voxyflow.wiki.get",
+    # Jobs & health
+    "jobs.list": "voxyflow.jobs.list",
+    "list_jobs": "voxyflow.jobs.list",
+    "health": "voxyflow.health",
 }
 
 # Actions that require user confirmation before execution (irreversible)
-CONFIRM_REQUIRED = {"card.delete", "delete_card"}
+CONFIRM_REQUIRED = {"card.delete", "delete_card", "project.delete", "delete_project"}
+
+# Actions that require no params (can have empty/missing params dict)
+NO_PARAMS_REQUIRED = {"project.list", "list_projects", "jobs.list", "list_jobs", "health"}
 
 
 class DirectExecutor:
@@ -61,6 +86,10 @@ class DirectExecutor:
         if action not in DIRECT_ACTION_MAP:
             logger.warning(f"[DirectExecutor] Action '{action}' not in whitelist, falling back to worker")
             return False
+
+        # No-param actions (health, list_projects, etc.) don't need params
+        if action in NO_PARAMS_REQUIRED:
+            return True
 
         if not delegate_data.get("params"):
             logger.warning(f"[DirectExecutor] No 'params' in delegate for action '{action}', falling back to worker")
