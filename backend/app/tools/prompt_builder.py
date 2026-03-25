@@ -4,6 +4,7 @@ Builds the text that tells the LLM how to call tools via <tool_call> blocks
 and lists the available tools with their parameters.
 """
 
+import functools
 import logging
 from typing import Optional
 
@@ -37,8 +38,11 @@ class ToolPromptBuilder:
     def __init__(self, registry: Optional[ToolRegistry] = None):
         self._registry = registry or get_registry()
 
+    @functools.lru_cache(maxsize=32)
     def build_tool_prompt(self, layer: str, chat_level: str = "general") -> str:
         """Generate tool definitions + usage instructions for the system prompt.
+
+        Result is cached per (layer, chat_level) — tool definitions are static at runtime.
 
         Args:
             layer: "fast", "analyzer", or "deep"
