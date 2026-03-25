@@ -45,6 +45,8 @@ interface ModelsSettings {
 }
 
 interface VoiceSettings {
+  /** Whether the built-in STT (mic button) is enabled. Defaults to true on desktop, false on mobile. */
+  stt_builtin_enabled: boolean;
   stt_engine: 'native' | 'whisper' | 'whisper_local';
   stt_model: string;
   stt_language: string;
@@ -92,7 +94,11 @@ const DEFAULT_MODEL_LAYER: ModelLayerConfig = {
   enabled: true,
 };
 
+/** Detect mobile platform (Android / iOS) */
+const _isMobilePlatform = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  stt_builtin_enabled: !_isMobilePlatform,
   stt_engine: 'native',
   stt_model: 'medium',
   stt_language: 'auto',
@@ -639,7 +645,9 @@ export class SettingsPage {
 
   private renderVoiceSection(): string {
     const v = this.settings.voice ?? { ...DEFAULT_VOICE_SETTINGS };
+    const sttBuiltinEnabled = v.stt_builtin_enabled ?? !_isMobilePlatform;
     const sttEngine = v.stt_engine ?? 'native';
+    const sttSectionHidden = !sttBuiltinEnabled ? 'style="display:none"' : '';
     const whisperServerHidden = sttEngine !== 'whisper' ? 'style="display:none"' : '';
     const whisperLocalHidden = sttEngine !== 'whisper_local' ? 'style="display:none"' : '';
     const whisperModelId = (v as VoiceSettings & { whisper_model_id?: string }).whisper_model_id || '';
@@ -673,6 +681,20 @@ export class SettingsPage {
         <!-- ── STT subsection ─────────────────────────────────── -->
         <div class="settings-subsection-label">Speech-to-Text (STT)</div>
 
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Built-in STT</div>
+            <div class="setting-description">
+              Show the mic button for in-app speech-to-text.${_isMobilePlatform ? '<br><em>Off by default on mobile — your keyboard already has a dictation mic built in.</em>' : ''}
+            </div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="voice-stt-builtin-enabled" ${sttBuiltinEnabled ? 'checked' : ''}>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div id="stt-engine-section" ${sttSectionHidden}>
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Engine</div>
@@ -792,6 +814,8 @@ export class SettingsPage {
           </div>
           <input type="checkbox" class="setting-checkbox" id="voice-stt-auto-send" ${v.stt_auto_send ? 'checked' : ''} />
         </div>
+
+        </div><!-- /stt-engine-section -->
 
         <!-- ── TTS subsection ─────────────────────────────────── -->
         <div class="settings-subsection-label" style="margin-top: 20px;">Text-to-Speech (TTS)</div>
@@ -1454,6 +1478,18 @@ export class SettingsPage {
   }
 
   private bindVoiceEvents(): void {
+    // Built-in STT toggle — show/hide engine section
+    const sttBuiltinToggle = this.root.querySelector<HTMLInputElement>('#voice-stt-builtin-enabled');
+    if (sttBuiltinToggle) {
+      sttBuiltinToggle.addEventListener('change', () => {
+        const section = this.root.querySelector<HTMLElement>('#stt-engine-section');
+        if (section) {
+          section.style.display = sttBuiltinToggle.checked ? '' : 'none';
+        }
+        this.markDirty();
+      });
+    }
+
     // STT engine pills
     this.root.querySelectorAll<HTMLButtonElement>('[data-stt-engine]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -1819,7 +1855,9 @@ export class SettingsPage {
     const ttsSpeedEl = this.root.querySelector<HTMLInputElement>('#voice-tts-speed');
     const volSliderEl = this.root.querySelector<HTMLInputElement>('#voice-volume-slider');
 
+    const sttBuiltinEl = this.root.querySelector<HTMLInputElement>('#voice-stt-builtin-enabled');
     const voice: VoiceSettings = {
+      stt_builtin_enabled: sttBuiltinEl ? sttBuiltinEl.checked : (this.settings.voice?.stt_builtin_enabled ?? !_isMobilePlatform),
       stt_engine: sttEngine,
       stt_model: sttModelEl?.value.trim() ?? this.settings.voice?.stt_model ?? 'medium',
       stt_language: sttLangEl?.value ?? this.settings.voice?.stt_language ?? 'auto',

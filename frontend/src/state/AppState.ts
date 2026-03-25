@@ -634,10 +634,10 @@ class AppState {
   /**
    * Create a new LOCAL session for a given tabId with a stable chatId.
    * This is the synchronous fallback — prefer createSessionFromServer() for new sessions.
-   * For the default/first session, chatId = "project:{tabId}".
+   * The scope determines the chatId prefix: 'project:', 'card:', or 'general:'.
    * Returns the created SessionInfo. Does NOT create a session if max (5) reached.
    */
-  createSession(tabId: string): SessionInfo {
+  createSession(tabId: string, scope: 'general' | 'project' | 'card' = 'project'): SessionInfo {
     const existing = this.state.sessions[tabId] || [];
     if (existing.length >= 5) {
       // Return last session if max reached
@@ -646,8 +646,8 @@ class AppState {
     const sessionNumber = existing.length + 1;
     // For the first session (default), use the base chat_id without suffix
     const chatId = sessionNumber === 1
-      ? `project:${tabId}`
-      : `project:${tabId}:session-${sessionNumber}`;
+      ? `${scope}:${tabId}`
+      : `${scope}:${tabId}:session-${sessionNumber}`;
     const session: SessionInfo = {
       id: generateId(),
       chatId,
@@ -760,9 +760,9 @@ class AppState {
   /**
    * Get sessions for a tabId, auto-creating an initial session if none exist.
    */
-  getSessions(tabId: string): SessionInfo[] {
+  getSessions(tabId: string, scope: 'general' | 'project' | 'card' = 'project'): SessionInfo[] {
     if (!this.state.sessions[tabId] || this.state.sessions[tabId].length === 0) {
-      this.createSession(tabId);
+      this.createSession(tabId, scope);
     }
     return this.state.sessions[tabId] || [];
   }

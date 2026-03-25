@@ -20,10 +20,12 @@ export class SessionTabBar {
   private container: HTMLElement;
   private tabsContainer: HTMLElement | null = null;
   private tabId: string;
+  private scope: 'general' | 'project' | 'card';
   private unsubscribers: (() => void)[] = [];
 
-  constructor(parentElement: HTMLElement, tabId: string) {
+  constructor(parentElement: HTMLElement, tabId: string, scope: 'general' | 'project' | 'card' = 'project') {
     this.tabId = tabId;
+    this.scope = scope;
     this.container = createElement('div', {
       className: 'session-tab-bar',
       'data-testid': 'session-tab-bar',
@@ -73,7 +75,7 @@ export class SessionTabBar {
           });
           // Reset it (clear history, create fresh session)
           appState.closeSession(this.tabId, session.id);
-          appState.createSession(this.tabId);
+          appState.createSession(this.tabId, this.scope);
           this.render();
           eventBus.emit(EVENTS.SESSION_TAB_SWITCH);
         }
@@ -136,7 +138,7 @@ export class SessionTabBar {
   }
 
   private handleNew(): void {
-    const session = appState.createSession(this.tabId);
+    const session = appState.createSession(this.tabId, this.scope);
     // Emit switch so ChatWindow reloads messages
     eventBus.emit(EVENTS.SESSION_TAB_SWITCH, { tabId: this.tabId, sessionId: session.id });
     eventBus.emit(EVENTS.SESSION_TAB_NEW, { tabId: this.tabId, session });

@@ -163,16 +163,23 @@ export class ChatWindow {
     emojiBtn.addEventListener('click', () => this.emojiPicker?.toggle());
     emojiContainer.appendChild(emojiBtn);
 
-    // Voice toggle buttons (auto-send + auto-play)
+    // Voice toggle buttons (auto-send + auto-play) — only when built-in STT is enabled
+    const sttBuiltinEnabled = this.isBuiltInSttEnabled();
     const voiceToggles = createElement('div', { className: 'voice-toggles' });
     const autoSendBtn = this.createVoiceToggle('stt_auto_send', '📤', 'Auto-send voice', false);
     const autoPlayBtn = this.createVoiceToggle('tts_auto_play', '🔊', 'Auto-play responses', false);
     voiceToggles.appendChild(autoSendBtn);
     voiceToggles.appendChild(autoPlayBtn);
 
-    // Voice input
+    // Voice input — only create when built-in STT is enabled
     const voiceContainer = createElement('div', { className: 'voice-input-container' });
-    this.voiceInput = new VoiceInput(voiceContainer);
+    if (sttBuiltinEnabled) {
+      this.voiceInput = new VoiceInput(voiceContainer);
+    } else {
+      this.voiceInput = null;
+      voiceContainer.style.display = 'none';
+      voiceToggles.style.display = 'none';
+    }
 
     // Smart suggestions chips row (above textarea)
     const suggestionsWrapper = createElement('div', { className: 'quick-replies-wrapper' });
@@ -246,7 +253,7 @@ export class ChatWindow {
       const sessionTabId = this.getContextTabId();
       const sessionTabBarContainer = createElement('div', { className: 'session-tab-bar-wrap' });
       this.container.appendChild(sessionTabBarContainer);
-      this.sessionTabBar = new SessionTabBar(sessionTabBarContainer, sessionTabId);
+      this.sessionTabBar = new SessionTabBar(sessionTabBarContainer, sessionTabId, this.getChatLevel());
     }
 
     // GitHub Panel — moved to project properties (no longer shown above chat)
@@ -289,6 +296,21 @@ export class ChatWindow {
     } else {
       this.chatSearch = null;
     }
+  }
+
+  /** Check if built-in STT (mic button) is enabled in settings. Defaults based on platform. */
+  private isBuiltInSttEnabled(): boolean {
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        if (settings?.voice?.stt_builtin_enabled !== undefined) {
+          return settings.voice.stt_builtin_enabled;
+        }
+      }
+    } catch { /* ignore */ }
+    // Default: enabled on desktop, disabled on mobile
+    return !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   }
 
   /** Create a small toggle button for a voice setting stored in voxyflow_settings.voice */
@@ -1121,7 +1143,7 @@ export class ChatWindow {
       } else {
         this.container.appendChild(sessionTabBarContainer);
       }
-      this.sessionTabBar = new SessionTabBar(sessionTabBarContainer, sessionTabId);
+      this.sessionTabBar = new SessionTabBar(sessionTabBarContainer, sessionTabId, this.getChatLevel());
     }
 
     // GitHub panel moved to project properties — no longer rendered in chat
@@ -1187,7 +1209,8 @@ export class ChatWindow {
       session = appState.addServerSession(contextTabId, serverResult.chatId, serverResult.title);
     } else {
       // Fallback: create locally with stable chatId
-      session = appState.createSession(contextTabId);
+      const scope = this.getChatLevel();
+      session = appState.createSession(contextTabId, scope);
     }
 
     chatService.activeSessionId = session.chatId;

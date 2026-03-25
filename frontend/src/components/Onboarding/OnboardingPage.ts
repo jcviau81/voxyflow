@@ -211,6 +211,7 @@ export class OnboardingPage {
         },
       },
       voice: {
+        stt_builtin_enabled: !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent),
         stt_engine: 'native',
         stt_model: 'medium',
         stt_language: 'auto',
