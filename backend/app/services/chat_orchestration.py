@@ -29,6 +29,7 @@ import time
 from uuid import uuid4
 
 from fastapi import WebSocket
+from starlette.websockets import WebSocketState
 
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
@@ -869,6 +870,25 @@ class ChatOrchestrator:
         update its WebSocket reference instead of stopping it — workers must
         survive a page refresh.
         """
+        # --- Orphan cleanup: stop pools whose WS is dead and belong to a different session ---
+        orphan_ids: list[str] = []
+        for sid, pool in self._worker_pools.items():
+            if sid == session_id:
+                continue  # current session — handled below
+            if pool._stopped:
+                orphan_ids.append(sid)
+                continue
+            ws = pool._ws
+            if ws is None or ws.client_state != WebSocketState.CONNECTED:
+                orphan_ids.append(sid)
+
+        for orphan_sid in orphan_ids:
+            logger.info(f"[ChatOrchestrator] Cleaning up orphan worker pool: {orphan_sid}")
+            orphan_pool = self._worker_pools.pop(orphan_sid, None)
+            if orphan_pool and not orphan_pool._stopped:
+                asyncio.create_task(orphan_pool.stop())
+            event_bus_registry.remove(orphan_sid)
+
         existing = self._worker_pools.get(session_id)
         if existing and not existing._stopped:
             # Pool is alive: just update the WebSocket so in-flight workers
