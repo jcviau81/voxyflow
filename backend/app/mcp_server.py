@@ -727,6 +727,21 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "task_complete",
     },
+
+    # ---- Knowledge Base (on-demand RAG) ------------------------------------
+    {
+        "name": "knowledge.search",
+        "description": "Search the project knowledge base (RAG) for relevant context. Use when you need background information about the project that isn't in the task description.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["project_id", "query"],
+            "properties": {
+                "project_id": {"type": "string", "description": "Project ID to search within"},
+                "query": {"type": "string", "description": "Search query — describe what you're looking for"},
+            },
+        },
+        "_handler": "knowledge_search",
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -746,6 +761,20 @@ def _get_system_handler(name: str):
             tmux_list, tmux_run, tmux_send, tmux_capture, tmux_new, tmux_kill,
         )
         from app.services.worker_supervisor import handle_task_complete
+
+        async def knowledge_search(params: dict) -> dict:
+            """RAG search on project knowledge base — on-demand tool."""
+            from app.services.rag_service import get_rag_service
+            project_id = params.get("project_id", "system-main")
+            query = params.get("query", "")
+            if not query:
+                return {"error": "query is required"}
+            try:
+                result = await get_rag_service().build_rag_context(project_id, query)
+                return {"result": result or "No relevant knowledge found."}
+            except Exception as e:
+                return {"error": str(e)}
+
         _SYSTEM_HANDLERS.update({
             "system_exec": system_exec,
             "web_search": web_search,
@@ -765,6 +794,7 @@ def _get_system_handler(name: str):
             "tmux_new": tmux_new,
             "tmux_kill": tmux_kill,
             "task_complete": handle_task_complete,
+            "knowledge_search": knowledge_search,
         })
     return _SYSTEM_HANDLERS.get(name)
 
