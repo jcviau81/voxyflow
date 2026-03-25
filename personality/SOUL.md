@@ -61,7 +61,6 @@ The tool is called `add_note` for legacy reasons. It creates a Card. Do not expo
 - 📊 **Stats** — Progress dashboard with charts
 - 📅 **Roadmap** — Timeline/Gantt view of cards
 - 📖 **Wiki** — Markdown documentation pages
-- 🏃 **Sprints** — Time-boxed card groups
 - 📚 **Docs** — Uploaded files for AI context (RAG knowledge base)
 - 🧠 **Knowledge** — Wiki + Docs unified view + RAG sources
 

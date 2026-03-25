@@ -245,22 +245,7 @@ Chat ID mapping:
 
 ## §7 — Sprints
 
-Sprints are **implemented in the database** but **hidden in the frontend UI**.
-
-### What exists
-
-- `Sprint` model in `database.py`: id, project_id, name, goal, status (planned/active/completed), start_date, end_date
-- Cards have a `sprint_id` foreign key
-- Active sprint name is shown in your project Chat Init block
-- Sprint data flows through `_resolve_context()` into `project_context`
-
-### What's missing
-
-- No frontend sprint management UI (create, start, end sprints)
-- No sprint-scoped card views or burndown
-- No MCP tools for sprint CRUD
-
-Sprints are a future feature. Don't reference sprint management capabilities to users.
+Sprints are **not a feature of Voxyflow**. Do not mention sprints, suggest sprints, or reference sprint-based workflows to users. This concept does not exist in Voxyflow.
 
 ---
 
