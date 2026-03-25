@@ -1,10 +1,72 @@
-# 🎙️ Voxyflow
+# ⚡ Voxyflow
 
-**AI-powered, voice-first project assistant.**
+**Context-aware AI project manager that executes tasks directly from your kanban board.**
 
-Talk to it. It listens, thinks, responds with voice, and turns your conversations into organized projects with cards, kanban boards, roadmaps, and docs. A Chat Agent (Dispatcher) handles conversation while background Workers execute real tasks — your conversation is never blocked.
+Select a card. Say "execute this." The AI reads the full context — project, description, checklist, linked files — and *does the work*. Not a chatbot. An agent that knows exactly where it is in your workflow.
 
 Built as a Progressive Web App. Runs locally. No cloud lock-in.
+
+---
+
+## Why Voxyflow?
+
+Most tools solve half the problem:
+
+| Tool | What it does well | What's missing |
+|------|-------------------|----------------|
+| **Linear / Jira** | Organizes your work | Can't execute anything |
+| **Cursor / Copilot** | Executes code tasks | Has no idea what your project is or what needs doing |
+| **ChatGPT / Claude** | Answers questions | Generic — zero project context, freezes while working |
+
+**Voxyflow is the bridge.** It's your kanban board *and* your execution engine in one — with the full context of your project always available to the AI.
+
+> Think: **Linear + Cursor in one app**, on your own machine, with no subscription or cloud lock-in.
+
+---
+
+## The Killer Feature: Execute Card
+
+Every card in Voxyflow is a rich context object:
+
+- Title, description, priority
+- Checklist items with completion tracking
+- Attachments and linked documents
+- Comments, history, relations
+
+When you click a card and say **"execute this"**, the AI agent doesn't just see a card title — it gets the **full card context**, the **project context**, and your **personality/memory files**. It knows what the card is for, what's been done, and what needs doing next.
+
+This is context-scoped execution at 3 levels:
+
+```
+General Chat  →  Project Chat  →  Card Chat
+   (broad)       (project context)   (execute this exact task)
+```
+
+At the card level, the agent has maximum context and minimum ambiguity. It doesn't ask what you mean — it executes.
+
+---
+
+## Non-Blocking Architecture: The Conversation Never Freezes
+
+This is a core design principle, not a nice-to-have.
+
+Most AI tools work like this: you ask something → the app freezes → 30 seconds later, you get a response. If the task is complex, you wait 2, 5, even 10 minutes staring at a spinner.
+
+**Voxyflow doesn't work that way.**
+
+```
+You ──────────────────────────────────────────────────────▶ (always talking)
+        │                                                  ▲
+        │ dispatch                                         │ result arrives
+        ▼                                                  │
+   Worker ──── working in background (30s, 2min, 5min) ───┘
+```
+
+The **Dispatcher** (Chat Agent) handles your conversation — always responsive, zero tools, pure dialogue. When it detects a task, it spawns a **Worker** in the background. The Worker executes (research, CRUD, code, whatever), and when it's done, the result arrives in your conversation naturally.
+
+You never wait. You keep talking, thinking, planning — and results show up when they're ready.
+
+This is what it means to have a **truly non-blocking** AI assistant.
 
 ---
 
@@ -40,25 +102,26 @@ Built as a Progressive Web App. Runs locally. No cloud lock-in.
 └─────────────────────────────────┘
 ```
 
+---
+
 ## Features
 
-### 💬 Dispatcher + Workers Architecture
+### ⚡ Execute Card (Context-Scoped Execution)
 
-- **Chat Agent (Dispatcher)** — Conversational interface, zero tools, always responsive. Reads, speaks, and dispatches work to background Workers.
-- **Workers** — Background agents that execute real tasks (CRUD, research, code, etc.) without blocking the conversation. Routed by model: Haiku (simple CRUD), Sonnet (research), Opus (complex multi-step).
-- **Analyzer** — Passive background observer that watches conversations and detects opportunities (card suggestions, patterns, action items).
-- 3-level chat hierarchy: **General Chat → Project Chat → Card Chat**
-- Streaming responses, session tabs, chat search, slash commands
-- Smart suggestions, emoji picker, meeting notes export
-- Welcome flow with context-aware prompts
-- **Key principle:** The conversation is never blocked by running tasks
+- Select any card on the kanban board
+- The chat context shifts to **Card Chat** — the AI has full card context
+- Say "execute this", "implement this", "write the tests for this card"
+- The Worker agent reads the entire card (title, description, checklist, attachments, history) and executes
+- Result streams back to your conversation without blocking anything
 
-### 🎤 Voice
+### 💬 Dispatcher + Workers (Non-Blocking)
 
-- **STT:** Web Speech API (browser-native) + server-side Whisper fallback
-- **TTS:** XTTS v2 on GPU (remote endpoint) or Sherpa-ONNX (CPU local)
-- Push-to-talk voice input component
-- Audio playback service for TTS responses
+- **Chat Agent (Dispatcher)** — Pure conversation. No tools. Always responsive. Dispatches work to Workers.
+- **Workers** — Background agents that execute real tasks (CRUD, research, code, file ops) without blocking the conversation.
+  - Routed by model: Haiku (simple CRUD), Sonnet (research), Opus (complex multi-step)
+  - Workers can run for 30 seconds, 2 minutes, 5 minutes — you keep talking the whole time
+- **Analyzer** — Passive background observer that watches conversations and auto-detects opportunities (card suggestions, patterns, action items)
+- Results arrive in conversation when ready — no polling, no waiting, no frozen UI
 
 ### 📋 Project Management
 
@@ -72,9 +135,9 @@ Built as a Progressive Web App. Runs locally. No cloud lock-in.
 - **Tech Stack Detection** — Auto-detect and display project technologies
 - **Export / Import** — Full project snapshots as JSON
 
-### 🃏 Cards
+### 🃏 Cards (The Unified Data Model)
 
-Cards are the unified data model — everything is a Card:
+Cards are the core unit of everything:
 
 - Title, description, status, priority (0–4), agent assignment
 - **Checklist** items with completion tracking
@@ -95,6 +158,15 @@ Cards are the unified data model — everything is a Card:
 - Same Card model as project cards — unified and consistent
 - Color-coded cards (yellow, blue, green, pink, purple, orange)
 - Detail modal for expanded view
+
+### 🎤 Voice Control (Hands-Free)
+
+Voice is a differentiator — not the core, but genuinely useful:
+
+- **STT:** Web Speech API (browser-native) + server-side Whisper fallback
+- **TTS:** XTTS v2 on GPU (remote endpoint) or Sherpa-ONNX (CPU local)
+- Push-to-talk voice input component
+- Say "execute this card" hands-free while reading code
 
 ### 🤖 Agent Personas (7)
 
@@ -199,192 +271,78 @@ cd ~/voxyflow-proxy-fork && npm install && npm run build
 
 > **Why a separate repo?** Voxyflow uses a patched fork of `claude-max-api` that sets the proxy `cwd` to `~/voxyflow/` automatically. Without this, personality and settings files won't resolve correctly.
 
-### 2. TLS certificates
-
-Voxyflow's frontend dev server runs on HTTPS (required for microphone access in the browser).
-
-**Option A — Tailscale cert (recommended for LAN/remote access):**
-```bash
-tailscale cert <your-hostname>
-# Example: tailscale cert thething.tail1234.ts.net
-# Certs land in /var/lib/tailscale/certs/ (or wherever tailscale puts them)
-```
-
-**Option B — Self-signed cert (quick local dev):**
-```bash
-cd frontend
-mkdir -p certs
-openssl req -x509 -newkey rsa:4096 -keyout certs/key.pem -out certs/cert.pem \
-  -days 365 -nodes -subj "/CN=localhost"
-```
-
-Update `frontend/webpack.config.js` to point to your cert paths.
-
-### 3. Configure the backend environment
+### 2. Backend Setup
 
 ```bash
-cd backend
-cp .env.example .env
-# Edit .env and fill in your values
-```
-
-Key variables in `backend/.env`:
-- `CLAUDE_API_KEY` — Your API key for the claude-max-api proxy
-- `PROVIDER_URL` — Proxy URL, default `http://localhost:3457/v1`
-- `DATABASE_URL` — Optional; defaults to `./voxyflow.db` in the backend directory
-
-### 4. WSL2 / Linux without GPU
-
-If you're running on WSL2 or a machine without a CUDA-compatible GPU, PyTorch will crash on import unless you disable CUDA device detection. The `restart.sh` script handles this automatically via `CUDA_VISIBLE_DEVICES=""`.
-
-If you start the backend manually, prepend it:
-```bash
-CUDA_VISIBLE_DEVICES="" uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- [voxyflow-proxy-fork](https://github.com/jcviau81/voxyflow-proxy-fork) built and available at `~/voxyflow-proxy-fork/` (see Prerequisites above)
-
-### Backend
-
-```bash
-cd backend
-
-# Virtual environment
-python -m venv venv
+cd ~/voxyflow/backend
+python3 -m venv venv
 source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Configure
-cp .env.example .env
-# Edit .env or use keyring (see Configuration below)
-
-# Run
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-API docs: http://localhost:8000/docs
-
-### Frontend
+### 3. Configure Settings
 
 ```bash
-cd frontend
+cp settings.json.example settings.json   # if example exists, else edit settings.json directly
+cp backend/.env.example backend/.env     # then fill in your values
+```
 
-# Install dependencies
+Key settings in `backend/.env`:
+
+```bash
+CLAUDE_USE_NATIVE=false
+CLAUDE_PROXY_URL=http://localhost:3457/v1
+CLAUDE_FAST_MODEL=claude-haiku-4-20250514
+CLAUDE_DEEP_MODEL=claude-opus-4-20250514
+TTS_SERVICE_URL=http://192.168.1.59:5500   # or set TTS_ENGINE=sherpa-onnx for local CPU
+```
+
+### 4. Frontend Setup
+
+```bash
+cd ~/voxyflow/frontend
 npm install
-
-# Dev server (HTTPS on port 3000)
-npm run dev
+npm run build        # production build
+# or
+npm run dev          # watch mode (development)
 ```
 
-Open https://localhost:3000
-
-### Proxy Setup (claude-max-api)
-
-Voxyflow uses [claude-max-api](https://github.com/jcviau81/claude-max-api) as an OpenAI-compatible proxy to route requests to Claude models.
-
-**⚠️ Important:** The proxy's working directory (`cwd`) **must** be `~/voxyflow/`. This is required for the proxy to correctly resolve relative paths in settings and personality files.
+### 5. Start the Proxy
 
 ```bash
-# Start the proxy (from the voxyflow directory)
-cd ~/voxyflow
-npx claude-max-api --port 3457
+cd ~/voxyflow-proxy-fork
+npm start            # starts on :3457
 ```
 
-**Port assignment:**
-- **Port 3457** — Voxyflow's proxy (this project)
-- **Port 3456** — Reserved for OpenClaw (do NOT use for Voxyflow)
+### 6. Start the Backend
 
-**Model names** (use these in `settings.json`):
-- `claude-sonnet-4-20250514` (or `claude-sonnet-4`)
-- `claude-opus-4-20250514` (or `claude-opus-4`)
-- `claude-haiku-4-20250514` (or `claude-haiku-4`)
-
-Update `settings.json` to point all models to `http://localhost:3457/v1`:
-
-```json
-{
-  "models": {
-    "fast": { "provider_url": "http://localhost:3457/v1", "model": "claude-sonnet-4-20250514" },
-    "deep": { "provider_url": "http://localhost:3457/v1", "model": "claude-opus-4-20250514" },
-    "analyzer": { "provider_url": "http://localhost:3457/v1", "model": "claude-sonnet-4-20250514" }
-  }
-}
+```bash
+cd ~/voxyflow/backend
+source venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-**Model roles in the new architecture:**
-- `fast` — Powers the Chat Agent (Dispatcher) in Fast mode
-- `deep` — Powers the Chat Agent (Dispatcher) in Deep mode
-- `analyzer` — Powers the background Analyzer
-- Workers select their own model (haiku/sonnet/opus) based on task complexity, dispatched by the Chat Agent
-
-### MCP Client Configuration
-
-To use Voxyflow as an MCP server in Claude Code, Cursor, or other clients, add to your MCP config:
-
-```json
-{
-  "mcpServers": {
-    "voxyflow": {
-      "command": "python",
-      "args": ["backend/mcp_stdio.py"],
-      "cwd": "/path/to/voxyflow",
-      "env": {
-        "VOXYFLOW_API_BASE": "http://localhost:8000"
-      }
-    }
-  }
-}
-```
+Open `https://localhost:3000` in your browser.
 
 ---
 
-## Configuration
+## Configuration Reference
 
-### settings.json (root)
-
-Runtime configuration for personality and models:
+### settings.json
 
 ```json
 {
   "personality": {
-    "bot_name": "Voxy",
-    "preferred_language": "en",
-    "soul_file": "./personality/SOUL.md",
-    "user_file": "./personality/USER.md",
-    "agents_file": "./personality/AGENTS.md",
-    "identity_file": "./personality/IDENTITY.md",
-    "tone": "casual",
-    "warmth": "warm"
+    "soul_file": "personality/SOUL.md",
+    "user_file": "personality/USER.md",
+    "agents_file": "personality/AGENTS.md",
+    "identity_file": "personality/IDENTITY.md",
+    "memory_file": "personality/MEMORY.md"
   },
   "models": {
-    "fast": {
-      "provider_url": "http://localhost:3457/v1",
-      "model": "claude-sonnet-4-20250514",
-      "enabled": true,
-      "_note": "Chat Agent (Dispatcher) — Fast mode"
-    },
-    "deep": {
-      "provider_url": "http://localhost:3457/v1",
-      "model": "claude-opus-4-20250514",
-      "enabled": true,
-      "_note": "Chat Agent (Dispatcher) — Deep mode"
-    },
-    "analyzer": {
-      "provider_url": "http://localhost:3457/v1",
-      "model": "claude-sonnet-4-20250514",
-      "enabled": true,
-      "_note": "Background Analyzer — passive observation"
-    }
+    "fast": "claude-haiku-4-20250514",
+    "deep": "claude-opus-4-20250514",
+    "analyzer": "claude-sonnet-4-20250514"
   },
   "scheduler": {
     "enabled": true,
