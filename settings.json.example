@@ -14,20 +14,26 @@
     "models": {
         "fast": {
             "provider_url": "http://localhost:3457/v1",
-            "api_key": "sk-any",
+            "api_key": "your-api-key-or-leave-empty-for-proxy",
             "model": "claude-sonnet-4-5",
             "enabled": true
         },
         "deep": {
             "provider_url": "http://localhost:3457/v1",
-            "api_key": "sk-any",
+            "api_key": "your-api-key-or-leave-empty-for-proxy",
             "model": "claude-sonnet-4-5",
+            "enabled": true
+        },
+        "haiku": {
+            "provider_url": "http://localhost:3457/v1",
+            "api_key": "your-api-key-or-leave-empty-for-proxy",
+            "model": "claude-haiku-4",
             "enabled": true
         },
         "analyzer": {
             "provider_url": "http://localhost:3457/v1",
-            "api_key": "sk-any",
-            "model": "claude-haiku-4",
+            "api_key": "your-api-key-or-leave-empty-for-proxy",
+            "model": "claude-sonnet-4-5",
             "enabled": true
         }
     },
@@ -41,18 +47,15 @@
         "stt_model": "medium",
         "stt_language": "auto",
         "whisper_model_id": "",
-        "tts_enabled": true,
+        "tts_enabled": false,
         "tts_auto_play": false,
-        "tts_url": "http://192.168.1.59:5500",
+        "tts_url": "http://localhost:5500",
         "tts_voice": "default",
         "tts_speed": 1.0,
         "volume": 80
     },
-    "onboarding_complete": true,
-    "user_name": "jc",
+    "onboarding_complete": false,
+    "user_name": "Your Name",
     "assistant_name": "Voxy",
-    "workspace_path": "workspace",
-    "tools": {
-        "timeout_per_tool_seconds": 120
-    }
+    "workspace_path": "workspace"
 }
