@@ -775,9 +775,7 @@ class ClaudeService:
 
         if project_id:
             try:
-                # rag_context = await get_rag_service().build_# rag_context(project_id, user_message)
-                # if rag_context:
-#                     dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
+                pass  # RAG disabled — use knowledge.search tool instead
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_fast): {e}")
 
@@ -850,9 +848,7 @@ class ClaudeService:
 
         if project_id:
             try:
-                # rag_context = await get_rag_service().build_# rag_context(project_id, user_message)
-                # if rag_context:
-#                     dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
+                pass  # RAG disabled — use knowledge.search tool instead
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_fast_stream): {e}")
 
@@ -985,9 +981,7 @@ class ClaudeService:
 
         if project_id:
             try:
-                # rag_context = await get_rag_service().build_# rag_context(project_id, user_message)
-                # if rag_context:
-#                     dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
+                pass  # RAG disabled — use knowledge.search tool instead
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_deep_stream): {e}")
 
@@ -1113,9 +1107,7 @@ class ClaudeService:
 
         if project_id:
             try:
-                # rag_context = await get_rag_service().build_# rag_context(project_id, prompt)
-                # if rag_context:
-#                     dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
+                pass  # RAG disabled — use knowledge.search tool instead
             except Exception as e:
                 logger.warning(f"RAG context injection failed (execute_worker_task): {e}")
 
@@ -1199,9 +1191,7 @@ class ClaudeService:
 
         if project_id:
             try:
-                # rag_context = await get_rag_service().build_# rag_context(project_id, user_message)
-                # if rag_context:
-#                     dynamic_parts.append("## Relevant Context from Project Knowledge Base\n" + rag_context)
+                pass  # RAG disabled — use knowledge.search tool instead
             except Exception as e:
                 logger.warning(f"RAG context injection failed (chat_deep): {e}")
 
