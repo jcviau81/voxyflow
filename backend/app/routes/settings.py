@@ -108,7 +108,7 @@ class VoiceSettings(BaseModel):
     whisper_model_id: str = ""   # HuggingFace model ID for browser-side Whisper (e.g. "onnx-community/whisper-small")
     tts_enabled: bool = True
     tts_auto_play: bool = False
-    tts_url: str = "http://192.168.1.59:5500"
+    tts_url: str = "http://localhost:5500"
     tts_voice: str = "default"
     tts_speed: float = 1.0
     volume: int = 80

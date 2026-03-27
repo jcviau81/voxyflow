@@ -158,7 +158,7 @@ class SchedulerService:
         Services checked:
         - backend (always ok — if this runs, the backend is alive)
         - claude_proxy (GET http://localhost:3457/v1/models)
-        - xtts (GET http://192.168.1.59:5500/health)
+        - xtts (GET http://localhost:5500/health)
         - chromadb (local import check + collection list)
         """
         try:
