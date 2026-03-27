@@ -218,6 +218,18 @@ export class KanbanCard {
           action: () => this.handleDuplicate(),
         },
         {
+          icon: '📋',
+          label: 'Copy Card ID',
+          action: async () => {
+            try {
+              await navigator.clipboard.writeText(this.card.id);
+              eventBus.emit(EVENTS.TOAST_SHOW, { message: '✅ Card ID copied!', type: 'success', duration: 3000 });
+            } catch (err) {
+              eventBus.emit(EVENTS.TOAST_SHOW, { message: '❌ Failed to copy ID', type: 'error', duration: 3000 });
+            }
+          },
+        },
+        {
           icon: '✏️',
           label: 'Edit',
           action: () => {
