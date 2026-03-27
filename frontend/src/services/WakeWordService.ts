@@ -1,9 +1,9 @@
 import { eventBus } from '../utils/EventBus';
 import * as ort from 'onnxruntime-web';
 
-// Configure WASM — force non-threaded WASM backend for mobile compatibility
+// Force WASM backend — disable threading for mobile compatibility
 ort.env.wasm.wasmPaths = '/';
-ort.env.wasm.numThreads = 1;  // disable threading (not supported on all mobile browsers)
+ort.env.wasm.numThreads = 1;
 
 export class WakeWordService {
   private listening = false;
@@ -16,8 +16,8 @@ export class WakeWordService {
   private embSession: ort.InferenceSession | null = null;
   private wwSession: ort.InferenceSession | null = null;
 
-  // Audio accumulation
-  private readonly FRAME_SIZE = 1280; // 80ms at 16kHz
+  // Audio accumulation — FRAME_SIZE must be 1280 (80ms @ 16kHz) for openWakeWord
+  private readonly FRAME_SIZE = 1280;
   private audioBuffer: Float32Array = new Float32Array(this.FRAME_SIZE);
   private bufferIndex = 0;
 
@@ -35,15 +35,12 @@ export class WakeWordService {
     if (this.modelsLoaded) return;
     try {
       console.log('[WakeWordService] Loading ONNX models...');
-      this.melSession = await ort.InferenceSession.create('/models/melspectrogram.onnx', {
-        executionProviders: ['wasm' as ort.InferenceSession.ExecutionProviderConfig],
-      });
-      this.embSession = await ort.InferenceSession.create('/models/embedding_model.onnx', {
-        executionProviders: ['wasm' as ort.InferenceSession.ExecutionProviderConfig],
-      });
-      this.wwSession = await ort.InferenceSession.create('/models/alexa_v0.1.onnx', {
-        executionProviders: ['wasm' as ort.InferenceSession.ExecutionProviderConfig],
-      });
+      const opts: ort.InferenceSession.SessionOptions = {
+        executionProviders: ['wasm'],
+      };
+      this.melSession = await ort.InferenceSession.create('/models/melspectrogram.onnx', opts);
+      this.embSession = await ort.InferenceSession.create('/models/embedding_model.onnx', opts);
+      this.wwSession = await ort.InferenceSession.create('/models/alexa_v0.1.onnx', opts);
       this.modelsLoaded = true;
       console.log('[WakeWordService] Models loaded ✓');
     } catch (err) {
@@ -71,12 +68,18 @@ export class WakeWordService {
       this.audioContext = new AudioContext({ sampleRate: 16000 });
       const source = this.audioContext.createMediaStreamSource(this.mediaStream);
 
-      // ScriptProcessor: 1280 samples = 80ms @ 16kHz
-      this.processor = this.audioContext.createScriptProcessor(1280, 1, 1);
+      // ScriptProcessor buffer must be power of 2 — use 2048, accumulate to 1280 manually
+      this.processor = this.audioContext.createScriptProcessor(2048, 1, 1);
       this.processor.onaudioprocess = (e) => {
         if (!this.listening) return;
         const data = e.inputBuffer.getChannelData(0);
-        this.processChunk(new Float32Array(data));
+        for (let i = 0; i < data.length; i++) {
+          this.audioBuffer[this.bufferIndex++] = data[i];
+          if (this.bufferIndex >= this.FRAME_SIZE) {
+            this.processChunk(this.audioBuffer.slice(0, this.FRAME_SIZE));
+            this.bufferIndex = 0;
+          }
+        }
       };
 
       source.connect(this.processor);
@@ -100,37 +103,28 @@ export class WakeWordService {
     if (!this.melSession || !this.embSession || !this.wwSession) return;
 
     try {
-      // Step 1: mel spectrogram
-      // Input name: 'input', shape: ['batch_size', 'samples']
+      // Step 1: mel spectrogram — input: 'input' [batch, samples]
       const melInput = new ort.Tensor('float32', audio, [1, audio.length]);
       const melOut = await this.melSession.run({ input: melInput });
-      // Output name: 'output', shape: ['time', 1, 'Clipoutput_dim_2', 32]
-      const melData = melOut['output'];
+      const melData = melOut[Object.keys(melOut)[0]];
 
-      // Reshape mel data for embedding model
-      // Embedding expects: input_1 ['unk__316', 76, 32, 1]
-      // Our mel output is ['time', 1, 'Clipoutput_dim_2', 32]
-      // We need to transpose and reshape to match
+      // Step 2: embedding — input: 'input_1' [unk, 76, 32, 1]
+      // Reshape mel output to [1, 76, 32, 1]
       const melArray = melData.data as Float32Array;
-      const melReshaped = new Float32Array(76 * 32 * 1);
-      
-      // For now, pad/trim to 76x32 (should match the mel output)
-      const melSize = Math.min(melArray.length, 76 * 32);
-      for (let i = 0; i < melSize; i++) {
+      const embSize = 76 * 32 * 1;
+      const melReshaped = new Float32Array(embSize);
+      for (let i = 0; i < Math.min(melArray.length, embSize); i++) {
         melReshaped[i] = melArray[i];
       }
-
-      // Step 2: embedding
       const embInput = new ort.Tensor('float32', melReshaped, [1, 76, 32, 1]);
       const embOut = await this.embSession.run({ input_1: embInput });
-      // Output name: 'conv2d_19', shape: ['unk__317', 1, 1, 96]
       const embData = embOut['conv2d_19'];
-      
-      // Extract the 96-dim embedding
+
+      // Extract 96-dim embedding
       const emb = new Float32Array(96);
       const embArray = embData.data as Float32Array;
       for (let i = 0; i < 96; i++) {
-        emb[i] = embArray[i];
+        emb[i] = embArray[i] ?? 0;
       }
 
       // Accumulate embeddings
@@ -138,13 +132,11 @@ export class WakeWordService {
       if (this.embQueue.length < this.EMB_WINDOW) return;
       if (this.embQueue.length > this.EMB_WINDOW) this.embQueue.shift();
 
-      // Step 3: wake word score
-      // Input: 'onnx::Flatten_0', shape: [1, 16, 96]
+      // Step 3: wake word score — input: 'onnx::Flatten_0' [1, 16, 96]
       const windowData = new Float32Array(this.EMB_WINDOW * 96);
       this.embQueue.forEach((e, i) => windowData.set(e, i * 96));
       const wwInput = new ort.Tensor('float32', windowData, [1, this.EMB_WINDOW, 96]);
       const wwOut = await this.wwSession.run({ 'onnx::Flatten_0': wwInput });
-      // Output name: '13', shape: [1, 1]
       const scoreData = wwOut['13'].data as Float32Array;
       const score = scoreData[0];
 
@@ -156,8 +148,8 @@ export class WakeWordService {
           eventBus.emit('wakeword:detected');
         }
       }
-    } catch (err) {
-      // Silently ignore per-frame errors to not spam logs
+    } catch (_err) {
+      // Silently ignore per-frame errors
     }
   }
 
@@ -169,18 +161,9 @@ export class WakeWordService {
   }
 
   private cleanup(): void {
-    if (this.processor) { 
-      this.processor.disconnect(); 
-      this.processor = null; 
-    }
-    if (this.audioContext) { 
-      this.audioContext.close(); 
-      this.audioContext = null; 
-    }
-    if (this.mediaStream) { 
-      this.mediaStream.getTracks().forEach(t => t.stop()); 
-      this.mediaStream = null; 
-    }
+    if (this.processor) { this.processor.disconnect(); this.processor = null; }
+    if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
+    if (this.mediaStream) { this.mediaStream.getTracks().forEach(t => t.stop()); this.mediaStream = null; }
     this.embQueue = [];
     this.bufferIndex = 0;
   }
