@@ -1,8 +1,9 @@
 import { eventBus } from '../utils/EventBus';
 import * as ort from 'onnxruntime-web';
 
-// Configure WASM paths
+// Configure WASM — force non-threaded WASM backend for mobile compatibility
 ort.env.wasm.wasmPaths = '/';
+ort.env.wasm.numThreads = 1;  // disable threading (not supported on all mobile browsers)
 
 export class WakeWordService {
   private listening = false;
@@ -35,13 +36,13 @@ export class WakeWordService {
     try {
       console.log('[WakeWordService] Loading ONNX models...');
       this.melSession = await ort.InferenceSession.create('/models/melspectrogram.onnx', {
-        executionProviders: ['wasm'],
+        executionProviders: ['wasm' as ort.InferenceSession.ExecutionProviderConfig],
       });
       this.embSession = await ort.InferenceSession.create('/models/embedding_model.onnx', {
-        executionProviders: ['wasm'],
+        executionProviders: ['wasm' as ort.InferenceSession.ExecutionProviderConfig],
       });
       this.wwSession = await ort.InferenceSession.create('/models/alexa_v0.1.onnx', {
-        executionProviders: ['wasm'],
+        executionProviders: ['wasm' as ort.InferenceSession.ExecutionProviderConfig],
       });
       this.modelsLoaded = true;
       console.log('[WakeWordService] Models loaded ✓');
