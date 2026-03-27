@@ -85,6 +85,8 @@ export const EVENTS = {
   VOICE_STOP: 'voice:stop',
   VOICE_TRANSCRIPT: 'voice:transcript',
   VOICE_ERROR: 'voice:error',
+  WAKEWORD_DETECTED: "wakeword:detected",
+  WAKEWORD_ERROR: "wakeword:error",
 
   // Navigation
   VIEW_CHANGE: 'nav:view:change',

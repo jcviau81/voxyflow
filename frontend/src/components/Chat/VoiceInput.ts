@@ -4,11 +4,14 @@ import { EVENTS } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { sttService, STT_EVENTS } from '../../services/SttService';
 import { ttsService } from '../../services/TtsService';
+import { wakeWordService } from '../../services/WakeWordService';
+import { chatService } from '../../services/ChatService';
 import { appState } from '../../state/AppState';
 
 export class VoiceInput {
   private container: HTMLElement;
   private button: HTMLButtonElement | null = null;
+  private wakeWordButton: HTMLButtonElement | null = null;
   private indicator: HTMLElement | null = null;
   private transcriptEl: HTMLElement | null = null;
   private errorEl: HTMLElement | null = null;
@@ -19,17 +22,35 @@ export class VoiceInput {
   private boundMouseLeave: (() => void) | null = null;
   private boundTouchStart: ((e: Event) => void) | null = null;
   private boundTouchEnd: ((e: Event) => void) | null = null;
+  private wakeWordEnabled = false;
+  private wakeLock: WakeLockSentinel | null = null;
+  private autoSendBuffer = '';
 
-  constructor(private parentElement: HTMLElement) {
+  constructor(private parentElement: HTMLElement, private sttBuiltinEnabled: boolean = true) {
     this.container = createElement('div', { className: 'voice-input', 'data-testid': 'voice-input-btn' });
     this.render();
     this.setupListeners();
     this.setupKeyboardShortcut();
     this.showEngineHint();
+    
+    // Load wake word preference
+    const settings = localStorage.getItem('voxyflow_settings');
+    if (settings) {
+      try {
+        const parsed = JSON.parse(settings);
+        this.wakeWordEnabled = parsed?.voice?.wake_word_enabled || false;
+        if (this.wakeWordEnabled) {
+          this.toggleWakeWord();
+        }
+      } catch {}
+    }
   }
 
   render(): void {
     this.container.innerHTML = '';
+
+    // Container for both buttons
+    const buttonsContainer = createElement('div', { className: 'voice-buttons' });
 
     // PTT Button
     this.button = createElement('button', {
@@ -69,6 +90,19 @@ export class VoiceInput {
       this.button.addEventListener('mouseleave', this.boundMouseLeave);
     }
 
+    // Wake Word Button
+    this.wakeWordButton = createElement('button', {
+      className: 'wake-word-btn',
+      'data-tooltip': 'Wake Word Mode',
+    }) as HTMLButtonElement;
+    this.wakeWordButton.innerHTML = '🎙️';
+    this.wakeWordButton.addEventListener('click', () => this.toggleWakeWord());
+
+    if (this.sttBuiltinEnabled) {
+      buttonsContainer.appendChild(this.button);
+    }
+    buttonsContainer.appendChild(this.wakeWordButton);
+
     // Recording indicator
     this.indicator = createElement('div', { className: 'voice-indicator hidden' });
     const dot = createElement('span', { className: 'recording-dot' });
@@ -82,7 +116,7 @@ export class VoiceInput {
     // Error display
     this.errorEl = createElement('div', { className: 'voice-error hidden' });
 
-    this.container.appendChild(this.button);
+    this.container.appendChild(buttonsContainer);
     this.container.appendChild(this.indicator);
     this.container.appendChild(this.transcriptEl);
     this.container.appendChild(this.errorEl);
@@ -90,7 +124,97 @@ export class VoiceInput {
     this.parentElement.appendChild(this.container);
   }
 
+  private async toggleWakeWord(): Promise<void> {
+    this.wakeWordEnabled = !this.wakeWordEnabled;
+    
+    if (this.wakeWordEnabled) {
+      // Enable wake word mode
+      await wakeWordService.start();
+      this.wakeWordButton?.classList.add('active');
+      this.wakeWordButton?.setAttribute('data-tooltip', 'Wake Word Mode ON');
+      
+      // Request screen wake lock
+      if ('wakeLock' in navigator) {
+        try {
+          this.wakeLock = await navigator.wakeLock.request('screen');
+        } catch (err) {
+          console.warn('[VoiceInput] Failed to acquire wake lock:', err);
+        }
+      }
+      
+      eventBus.emit(EVENTS.TOAST_SHOW, {
+        message: '🎙️ Wake word mode enabled - say "Porcupine" to start',
+        type: 'info',
+      });
+    } else {
+      // Disable wake word mode
+      await wakeWordService.stop();
+      this.wakeWordButton?.classList.remove('active');
+      this.wakeWordButton?.setAttribute('data-tooltip', 'Wake Word Mode OFF');
+      
+      // Release wake lock
+      if (this.wakeLock) {
+        await this.wakeLock.release();
+        this.wakeLock = null;
+      }
+      
+      eventBus.emit(EVENTS.TOAST_SHOW, {
+        message: '🎙️ Wake word mode disabled',
+        type: 'info',
+      });
+    }
+    
+    // Save preference
+    const settings = localStorage.getItem('voxyflow_settings');
+    let parsed: any = {};
+    if (settings) {
+      try {
+        parsed = JSON.parse(settings);
+      } catch {}
+    }
+    if (!parsed.voice) parsed.voice = {};
+    parsed.voice.wake_word_enabled = this.wakeWordEnabled;
+    localStorage.setItem('voxyflow_settings', JSON.stringify(parsed));
+  }
+
   private setupListeners(): void {
+    // Wake word detected
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.WAKEWORD_DETECTED, () => {
+        if (this.wakeWordEnabled && !sttService.recording) {
+          // Visual feedback
+          eventBus.emit(EVENTS.TOAST_SHOW, {
+            message: '✨ Wake word detected!',
+            type: 'success',
+            duration: 2000,
+          });
+          
+          // Pulsing animation on wake word button
+          this.wakeWordButton?.classList.add('pulsing');
+          setTimeout(() => {
+            this.wakeWordButton?.classList.remove('pulsing');
+          }, 2000);
+          
+          // Auto-start recording
+          this.startRecording();
+        }
+      })
+    );
+    
+    // Wake word error
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.WAKEWORD_ERROR, (data: unknown) => {
+        const { message } = data as { message: string };
+        if (this.errorEl) {
+          this.errorEl.textContent = message;
+          this.errorEl.classList.remove('hidden');
+          setTimeout(() => {
+            this.errorEl?.classList.add('hidden');
+          }, 5000);
+        }
+      })
+    );
+
     // Transcript updates — SttService now sends the full combined text (finalized + interim)
     this.unsubscribers.push(
       eventBus.on(EVENTS.VOICE_TRANSCRIPT, (result: unknown) => {
@@ -99,6 +223,12 @@ export class VoiceInput {
           this.transcriptEl.textContent = transcript;
           this.transcriptEl.classList.remove('hidden');
           this.transcriptEl.classList.toggle('final', isFinal);
+        }
+        
+        // In wake word mode, auto-send on final transcript
+        if (this.wakeWordEnabled && isFinal && transcript.trim()) {
+          this.autoSendBuffer = transcript;
+          this.autoSendMessage();
         }
       })
     );
@@ -203,36 +333,61 @@ export class VoiceInput {
     );
   }
 
+  private autoSendMessage(): void {
+    if (!this.autoSendBuffer.trim()) return;
+    
+    // Send the message
+    chatService.sendMessage(this.autoSendBuffer);
+    
+    // Clear everything
+    this.autoSendBuffer = '';
+    sttService.clearBuffer();
+    if (this.transcriptEl) {
+      this.transcriptEl.classList.add('hidden');
+      this.transcriptEl.textContent = '';
+    }
+    
+    // Stop recording
+    if (sttService.recording) {
+      this.stopRecording();
+    }
+    
+    // Resume wake word listening after a short delay
+    if (this.wakeWordEnabled) {
+      setTimeout(async () => {
+        if (!wakeWordService.isListening() && this.wakeWordEnabled) {
+          await wakeWordService.start();
+        }
+      }, 500);
+    }
+  }
+
+  private setTranscribingState(transcribing: boolean): void {
+    if (this.indicator) {
+      const label = this.indicator.querySelector('.voice-indicator-label') as HTMLElement | null;
+      if (label && transcribing) {
+        this.indicator.classList.remove('model-loading');
+        this.indicator.classList.remove('hidden');
+        label.textContent = 'Transcribing…';
+      } else if (!this.isRecording() && !this.indicator.classList.contains('model-loading')) {
+        this.indicator.classList.add('hidden');
+      }
+    }
+  }
+
   private isRecording(): boolean {
     return sttService.recording;
   }
 
-  /** Update the indicator label to show transcribing state */
-  private setTranscribingState(transcribing: boolean): void {
-    if (!this.indicator) return;
-    const label = this.indicator.querySelector('.voice-indicator-label') as HTMLElement | null;
-    if (!label) return;
-
-    if (transcribing) {
-      this.indicator.classList.remove('hidden');
-      this.indicator.classList.add('transcribing');
-      label.textContent = 'Transcribing...';
-    } else {
-      this.indicator.classList.add('hidden');
-      this.indicator.classList.remove('transcribing');
-      label.textContent = 'Recording...';
-    }
-  }
-
-  /** Show model loading indicator */
   private setModelLoadingState(loading: boolean, message?: string): void {
     if (!this.indicator) return;
+
     const label = this.indicator.querySelector('.voice-indicator-label') as HTMLElement | null;
     if (!label) return;
 
     if (loading) {
-      this.indicator.classList.remove('hidden');
       this.indicator.classList.add('model-loading');
+      this.indicator.classList.remove('hidden');
       label.textContent = message || 'Loading model…';
     } else {
       this.indicator.classList.remove('model-loading');
@@ -329,6 +484,16 @@ export class VoiceInput {
       if (this.boundTouchStart) this.button.removeEventListener('touchstart', this.boundTouchStart);
       if (this.boundTouchEnd) this.button.removeEventListener('touchend', this.boundTouchEnd);
     }
+    
+    // Clean up wake word
+    if (this.wakeWordEnabled) {
+      wakeWordService.stop();
+    }
+    if (this.wakeLock) {
+      this.wakeLock.release();
+      this.wakeLock = null;
+    }
+    
     // Do NOT destroy sttService — it's a shared singleton
     this.container.remove();
   }

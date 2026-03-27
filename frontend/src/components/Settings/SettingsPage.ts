@@ -80,6 +80,7 @@ interface VoiceSettings {
   tts_voice: string;
   tts_speed: number;
   volume: number;
+  wake_word_enabled?: boolean;
 }
 
 interface AppSettings {
@@ -130,6 +131,7 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   tts_voice: 'default',
   tts_speed: 1.0,
   volume: 80,
+  wake_word_enabled: false,
 };
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -911,7 +913,33 @@ export class SettingsPage {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Auto-send transcripts</div>
+
+        <!-- ── Wake Word subsection ─────────────────────────────────── -->
+        <div class="settings-subsection-label" style="margin-top: 20px;">Wake Word Detection</div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Enable wake word mode by default</div>
+            <div class="setting-description">Start with wake word detection active (say wake word to trigger (Alexa, Hey Jarvis, etc.))</div>
+          </div>
+          <input type="checkbox" class="setting-checkbox" id="voice-wake-word-enabled" ${v.wake_word_enabled ? 'checked' : ''} />
+        </div>
             <div class="setting-description">When OFF, voice transcripts fill the input box for review before sending</div>
+
+        <!-- ── Wake Word subsection ─────────────────────────────────── -->
+        <div class="settings-subsection-label" style="margin-top: 20px;">Wake Word Detection</div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Enable wake word mode by default</div>
+            <div class="setting-description">Start with wake word detection active (say wake word to trigger (Alexa, Hey Jarvis, etc.))</div>
+          </div>
+          <input type="checkbox" class="setting-checkbox" id="voice-wake-word-enabled" ${v.wake_word_enabled ? 'checked' : ''} />
+        </div>
           </div>
           <input type="checkbox" class="setting-checkbox" id="voice-stt-auto-send" ${v.stt_auto_send ? 'checked' : ''} />
         </div>
@@ -1985,6 +2013,7 @@ export class SettingsPage {
 
     // STT auto-send
     const sttAutoSendEl = this.root.querySelector<HTMLInputElement>('#voice-stt-auto-send');
+    const wakeWordEnabledEl = this.root.querySelector<HTMLInputElement>("#voice-wake-word-enabled");
     if (sttAutoSendEl) {
       sttAutoSendEl.addEventListener('change', () => this.markDirty());
     }
@@ -2156,6 +2185,7 @@ export class SettingsPage {
     const sttModelEl = this.root.querySelector<HTMLInputElement>('#voice-stt-model');
     const sttLangEl = this.root.querySelector<HTMLSelectElement>('#voice-stt-language');
     const sttAutoSendEl = this.root.querySelector<HTMLInputElement>('#voice-stt-auto-send');
+    const wakeWordEnabledEl = this.root.querySelector<HTMLInputElement>("#voice-wake-word-enabled");
     const whisperModelIdEl = this.root.querySelector<HTMLInputElement>('#voice-whisper-model-id');
     const ttsEnabledEl = this.root.querySelector<HTMLInputElement>('#voice-tts-enabled');
     const ttsAutoPlayEl = this.root.querySelector<HTMLInputElement>('#voice-tts-autoplay');
@@ -2171,6 +2201,7 @@ export class SettingsPage {
       stt_model: sttModelEl?.value.trim() ?? this.settings.voice?.stt_model ?? 'medium',
       stt_language: sttLangEl?.value ?? this.settings.voice?.stt_language ?? 'auto',
       stt_auto_send: sttAutoSendEl ? sttAutoSendEl.checked : (this.settings.voice?.stt_auto_send ?? false),
+          wake_word_enabled: wakeWordEnabledEl?.checked || false,
       whisper_model_id: whisperModelIdEl?.value.trim() ?? (this.settings.voice as VoiceSettings & { whisper_model_id?: string })?.whisper_model_id ?? '',
       whisper_model_source: (this.root.querySelector<HTMLButtonElement>('[data-whisper-source].active')?.dataset.whisperSource as 'huggingface' | 'local') ?? this.settings.voice?.whisper_model_source ?? 'huggingface',
       whisper_local_filename: sttService.whisperModelFile?.name ?? this.settings.voice?.whisper_local_filename ?? '',
@@ -2217,7 +2248,7 @@ export class SettingsPage {
         // Sync to localStorage so TtsService/SttService can read voice settings
         try { localStorage.setItem('voxyflow_settings', JSON.stringify(formData)); } catch { /* ignore */ }
         if (status) {
-          status.textContent = '\u2713 Saved';
+          status.textContent = "\u2713 Saved";
           status.className = 'save-status saved';
           setTimeout(() => {
             if (status) {

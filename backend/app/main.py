@@ -47,6 +47,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("✅ Database initialized")
 
+
     # Ensure workspace directory exists
     from app.services.workspace_service import get_workspace_service
     ws_service = get_workspace_service()

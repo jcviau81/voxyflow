@@ -64,6 +64,7 @@
     "codemirror": "^6.0.2",
     "dompurify": "^3.3.3",
     "highlight.js": "^11.11.1",
-    "marked": "^17.0.4"
+    "marked": "^17.0.4",
+    "onnxruntime-web": "^1.24.3"
   }
 }
