@@ -59,6 +59,7 @@ module.exports = (env, argv) => {
         patterns: [
           { from: 'public/manifest.json', to: 'manifest.json' },
           { from: 'public/icons', to: 'icons', noErrorOnMissing: true },
+          { from: "node_modules/onnxruntime-web/dist/*.wasm", to: "[name][ext]" },
         ],
       }),
     ],

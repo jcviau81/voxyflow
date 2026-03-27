@@ -919,18 +919,10 @@ export class SettingsPage {
 
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-label">Porcupine AccessKey</div>
-            <div class="setting-description">Get a free key at <a href="https://console.picovoice.ai" target="blank" style="color: var(--color-primary);">console.picovoice.ai</a></div>
-          </div>
-          <input type="password" class="setting-input" id="voice-wake-word-access-key"
-            value="${localStorage.getItem('voxyflow_wake_word_access_key') || ''}"
-            placeholder="Enter your Porcupine AccessKey" />
-        </div>
-
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Enable wake word mode by default</div>
-            <div class="setting-description">Start with wake word detection active (say "Porcupine" to trigger)</div>
+            <div class="setting-description">Start with wake word detection active (say wake word to trigger (Alexa, Hey Jarvis, etc.))</div>
           </div>
           <input type="checkbox" class="setting-checkbox" id="voice-wake-word-enabled" ${v.wake_word_enabled ? 'checked' : ''} />
         </div>
@@ -941,18 +933,10 @@ export class SettingsPage {
 
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-label">Porcupine AccessKey</div>
-            <div class="setting-description">Get a free key at <a href="https://console.picovoice.ai" target="blank" style="color: var(--color-primary);">console.picovoice.ai</a></div>
-          </div>
-          <input type="password" class="setting-input" id="voice-wake-word-access-key"
-            value="${localStorage.getItem('voxyflow_wake_word_access_key') || ''}"
-            placeholder="Enter your Porcupine AccessKey" />
-        </div>
-
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Enable wake word mode by default</div>
-            <div class="setting-description">Start with wake word detection active (say "Porcupine" to trigger)</div>
+            <div class="setting-description">Start with wake word detection active (say wake word to trigger (Alexa, Hey Jarvis, etc.))</div>
           </div>
           <input type="checkbox" class="setting-checkbox" id="voice-wake-word-enabled" ${v.wake_word_enabled ? 'checked' : ''} />
         </div>
@@ -2030,7 +2014,6 @@ export class SettingsPage {
     // STT auto-send
     const sttAutoSendEl = this.root.querySelector<HTMLInputElement>('#voice-stt-auto-send');
     const wakeWordEnabledEl = this.root.querySelector<HTMLInputElement>("#voice-wake-word-enabled");
-    const wakeWordAccessKeyEl = this.root.querySelector<HTMLInputElement>("#voice-wake-word-access-key");
     if (sttAutoSendEl) {
       sttAutoSendEl.addEventListener('change', () => this.markDirty());
     }
@@ -2203,7 +2186,6 @@ export class SettingsPage {
     const sttLangEl = this.root.querySelector<HTMLSelectElement>('#voice-stt-language');
     const sttAutoSendEl = this.root.querySelector<HTMLInputElement>('#voice-stt-auto-send');
     const wakeWordEnabledEl = this.root.querySelector<HTMLInputElement>("#voice-wake-word-enabled");
-    const wakeWordAccessKeyEl = this.root.querySelector<HTMLInputElement>("#voice-wake-word-access-key");
     const whisperModelIdEl = this.root.querySelector<HTMLInputElement>('#voice-whisper-model-id');
     const ttsEnabledEl = this.root.querySelector<HTMLInputElement>('#voice-tts-enabled');
     const ttsAutoPlayEl = this.root.querySelector<HTMLInputElement>('#voice-tts-autoplay');
@@ -2265,13 +2247,8 @@ export class SettingsPage {
         this.dirty = false;
         // Sync to localStorage so TtsService/SttService can read voice settings
         try { localStorage.setItem('voxyflow_settings', JSON.stringify(formData)); } catch { /* ignore */ }
-        // Also save wake word AccessKey separately
-        const wakeWordKeyEl = this.root.querySelector<HTMLInputElement>("#voice-wake-word-access-key");
-        if (wakeWordKeyEl?.value) {
-          localStorage.setItem("voxyflow_wake_word_access_key", wakeWordKeyEl.value);
-        }
         if (status) {
-          status.textContent = '\u2713 Saved';
+          status.textContent = "\u2713 Saved";
           status.className = 'save-status saved';
           setTimeout(() => {
             if (status) {
