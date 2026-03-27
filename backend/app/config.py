@@ -41,11 +41,11 @@ class Settings(BaseSettings):
 
     # Claude API — native Anthropic SDK (preferred)
     claude_use_native: bool = False   # False = OpenAI-compatible proxy (claude-max-api). True requires direct API access.
-    claude_api_key: str = "sk-cliproxy-thething-001"         # Loaded from keyring / env ANTHROPIC_API_KEY
+    claude_api_key: str = ""         # Loaded from keyring / env ANTHROPIC_API_KEY
     claude_api_base: str = ""        # Empty = default api.anthropic.com
 
     # Claude API via proxy (OpenAI-compatible, fallback when claude_use_native=False)
-    claude_proxy_url: str = "http://100.96.26.98:3457/v1"
+    claude_proxy_url: str = "http://localhost:3457/v1"
     claude_fast_model: str = "claude-haiku-4-20250514"
     claude_sonnet_model: str = "claude-sonnet-4-20250514"
     claude_deep_model: str = "claude-opus-4-20250514"
