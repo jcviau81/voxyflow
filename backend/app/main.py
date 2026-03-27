@@ -8,6 +8,9 @@ from uuid import uuid4
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -146,6 +149,29 @@ app.include_router(workers.router)
 app.include_router(models.router)
 app.include_router(mcp_routes.router)  # MCP server (SSE + stdio, no /api prefix)
 
+
+
+# ---------------------------------------------------------------------------
+# Serve frontend (SPA)
+# ---------------------------------------------------------------------------
+_frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    app.mount("/static-dist", StaticFiles(directory=str(_frontend_dist)), name="static-dist")
+
+    @app.get("/")
+    async def serve_frontend_root():
+        return FileResponse(str(_frontend_dist / "index.html"))
+
+    @app.get("/{full_path:path}")
+    async def serve_spa_catch_all(full_path: str):
+        # Don't catch API/WS routes
+        if full_path.startswith(("api/", "ws", "docs", "openapi")):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404)
+        fp = _frontend_dist / full_path
+        if fp.exists() and fp.is_file():
+            return FileResponse(str(fp))
+        return FileResponse(str(_frontend_dist / "index.html"))
 
 _claude_service = ClaudeService()
 _analyzer_service = AnalyzerService()
