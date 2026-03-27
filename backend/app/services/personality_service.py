@@ -729,7 +729,7 @@ class PersonalityService:
             )
             return "\n".join(parts)
         voxy_dir = str(__import__("pathlib").Path(__import__("os").environ.get("VOXYFLOW_DIR", __import__("os").path.expanduser("~/voxyflow"))).resolve())
-        return f"Context: Main project (default workspace, project_id=system-main)\nVoxyflow root: {voxy_dir} — use this for ALL file/exec operations"
+        return ("Context: Main project (default workspace, project_id=system-main)\n" + f"Voxyflow root: {voxy_dir}\nIMPORTANT: Use ABSOLUTE paths. Backend CWD={voxy_dir}/backend/ (WRONG for personality files). personality/ = {voxy_dir}/personality/ ")
 
     def _build_haiku_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Haiku: Simple CRUD only. Fast, cheap, no ambiguity."""
