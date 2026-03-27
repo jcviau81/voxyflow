@@ -21,6 +21,7 @@ interface ActiveTask {
   result?: string;
   success?: boolean;
   sessionId?: string;
+  lastActivity: number;
 }
 
 export class TaskPanel {
@@ -63,6 +64,7 @@ export class TaskPanel {
           status: 'started',
           startedAt: Date.now(),
           sessionId: payload.sessionId,
+          lastActivity: Date.now(),
         };
         this.tasks.set(task.taskId, task);
         this.render();
@@ -114,6 +116,20 @@ export class TaskPanel {
       })
     );
 
+    // Track tool executions to update last activity
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.TOOL_EXECUTED, (payload: any) => {
+        const taskId = payload.taskId;
+        if (taskId) {
+          const task = this.tasks.get(taskId);
+          if (task && !task.completedAt) {
+            task.lastActivity = Date.now();
+            this.render();
+          }
+        }
+      })
+    );
+
     // Direct action flash — brief inline indicator for fast-path CRUD
     this.unsubscribers.push(
       eventBus.on(EVENTS.ACTION_COMPLETED, (payload: any) => {
@@ -139,6 +155,7 @@ export class TaskPanel {
           startedAt: now,
           completedAt: now,
           success,
+          lastActivity: now,
         });
         this.render();
       })
@@ -175,6 +192,7 @@ export class TaskPanel {
           status: 'started',
           startedAt: s.start_time * 1000,
           sessionId: s.session_id,
+          lastActivity: Date.now(),
         });
       }
       this.render();
@@ -221,9 +239,16 @@ export class TaskPanel {
       });
 
       const icon = this.getStatusIcon(task.status);
-      const elapsed = task.completedAt
-        ? `${((task.completedAt - task.startedAt) / 1000).toFixed(1)}s`
-        : `${((Date.now() - task.startedAt) / 1000).toFixed(0)}s`;
+      // Show different timing info based on task state
+      let elapsed = '';
+      if (task.completedAt) {
+        // Completed tasks show total duration
+        elapsed = `${((task.completedAt - task.startedAt) / 1000).toFixed(1)}s`;
+      } else {
+        // Active tasks show time since last activity
+        const idleTime = (Date.now() - task.lastActivity) / 1000;
+        elapsed = idleTime < 5 ? 'active' : `idle ${idleTime.toFixed(0)}s`;
+      }
 
       el.innerHTML = `
         <span class="task-icon">${icon}</span>
