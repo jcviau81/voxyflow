@@ -26,7 +26,7 @@ export class VoiceInput {
   private wakeLock: WakeLockSentinel | null = null;
   private autoSendBuffer = '';
 
-  constructor(private parentElement: HTMLElement) {
+  constructor(private parentElement: HTMLElement, private sttBuiltinEnabled: boolean = true) {
     this.container = createElement('div', { className: 'voice-input', 'data-testid': 'voice-input-btn' });
     this.render();
     this.setupListeners();
@@ -98,7 +98,9 @@ export class VoiceInput {
     this.wakeWordButton.innerHTML = '🎙️';
     this.wakeWordButton.addEventListener('click', () => this.toggleWakeWord());
 
-    buttonsContainer.appendChild(this.button);
+    if (this.sttBuiltinEnabled) {
+      buttonsContainer.appendChild(this.button);
+    }
     buttonsContainer.appendChild(this.wakeWordButton);
 
     // Recording indicator

@@ -173,12 +173,12 @@ export class ChatWindow {
 
     // Voice input — only create when built-in STT is enabled
     const voiceContainer = createElement('div', { className: 'voice-input-container' });
-    // Always create VoiceInput — wake word mode should be accessible regardless of STT setting
-    this.voiceInput = new VoiceInput(voiceContainer, sttBuiltinEnabled);
-    if (!sttBuiltinEnabled) {
-      // Hide the manual PTT mic button but keep wake word button visible
-      // VoiceInput handles this internally — just don't hide the container
-      voiceToggles.style.display = 'none'; // hide auto-send/auto-play toggles if STT disabled
+    if (sttBuiltinEnabled) {
+      this.voiceInput = new VoiceInput(voiceContainer);
+    } else {
+      this.voiceInput = null;
+      voiceContainer.style.display = 'none';
+      voiceToggles.style.display = 'none';
     }
 
     // Smart suggestions chips row (above textarea)
