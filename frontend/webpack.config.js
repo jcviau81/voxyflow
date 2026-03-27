@@ -60,6 +60,7 @@ module.exports = (env, argv) => {
           { from: 'public/manifest.json', to: 'manifest.json' },
           { from: 'public/icons', to: 'icons', noErrorOnMissing: true },
           { from: "node_modules/onnxruntime-web/dist/*.wasm", to: "[name][ext]" },
+          { from: "public/models", to: "models", noErrorOnMissing: true },
         ],
       }),
     ],
