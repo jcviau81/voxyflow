@@ -402,7 +402,7 @@ class DeepWorkerPool:
             async def _stall_monitor():
                 """Periodically check for stalled tasks and cancel if idle too long."""
                 STALL_THRESHOLD = 120  # seconds
-                WARNING_THRESHOLD = 90  # warn before killing
+                WARNING_THRESHOLD = 60  # warn before killing
                 warned = False
                 while not cancel_event.is_set():
                     await asyncio.sleep(15)
