@@ -728,7 +728,8 @@ class PersonalityService:
                 f"Do NOT ask the user which project — you already know."
             )
             return "\n".join(parts)
-        return "Context: Main project (default workspace, project_id=system-main)"
+        voxy_dir = str(__import__("pathlib").Path(__import__("os").environ.get("VOXYFLOW_DIR", __import__("os").path.expanduser("~/voxyflow"))).resolve())
+        return f"Context: Main project (default workspace, project_id=system-main)\nVoxyflow root: {voxy_dir} — use this for ALL file/exec operations"
 
     def _build_haiku_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Haiku: Simple CRUD only. Fast, cheap, no ambiguity."""
