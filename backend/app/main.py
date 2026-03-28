@@ -8,6 +8,9 @@ from uuid import uuid4
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -152,6 +155,22 @@ _claude_service = ClaudeService()
 _analyzer_service = AnalyzerService()
 _orchestrator = ChatOrchestrator(_claude_service, _analyzer_service)
 
+
+
+# Serve frontend (SPA)
+_frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    app.mount("/static-dist", StaticFiles(directory=str(_frontend_dist)), name="static-dist")
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_spa(full_path: str):
+    if _frontend_dist.exists():
+        fp = _frontend_dist / full_path
+        if fp.exists() and fp.is_file():
+            return FileResponse(str(fp))
+        return FileResponse(str(_frontend_dist / "index.html"))
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404)
 
 @app.websocket("/ws")
 async def general_websocket(websocket: WebSocket):
