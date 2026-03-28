@@ -37,7 +37,7 @@ from app.services.session_store import session_store
 from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_registry
 from app.services.pending_results import pending_store
 from app.services.worker_session_store import get_worker_session_store
-from app.services.direct_executor import DirectExecutor
+from app.services.direct_executor import DirectExecutor, READ_ACTIONS
 from app.services.worker_supervisor import get_worker_supervisor
 from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
 from app.tools.executor import get_executor
@@ -1093,6 +1093,19 @@ class ChatOrchestrator:
         if not delegates:
             return
 
+        # Upgrade read actions from direct → haiku so the result is fed back
+        # to the LLM as a tool_result (Voxy needs the data in her response).
+        for data in delegates:
+            if (
+                data.get("model") == "direct"
+                and data.get("action", "") in READ_ACTIONS
+            ):
+                logger.info(
+                    f"[Orchestrator] Upgrading read action '{data.get('action')}' "
+                    f"from model=direct → model=haiku for LLM context injection"
+                )
+                data["model"] = "haiku"
+
         # Separate direct-eligible delegates from worker delegates
         worker_delegates = []
         for data in delegates:
@@ -1210,6 +1223,18 @@ class ChatOrchestrator:
                 parsed_delegates.append(data)
             except (json.JSONDecodeError, Exception) as e:
                 logger.warning(f"[Orchestrator] Failed to parse delegate block: {e}")
+
+        # Upgrade read actions from direct → haiku (same logic as native path)
+        for data in parsed_delegates:
+            if (
+                data.get("model") == "direct"
+                and data.get("action", "") in READ_ACTIONS
+            ):
+                logger.info(
+                    f"[Orchestrator] Upgrading read action '{data.get('action')}' "
+                    f"from model=direct → model=haiku (XML path)"
+                )
+                data["model"] = "haiku"
 
         worker_delegates = []
         for data in parsed_delegates:
