@@ -196,8 +196,6 @@ _TOOL_DEFINITIONS: list[dict] = [
             "required": ["project_id"],
             "properties": {
                 "project_id": {"type": "string", "description": "Project ID"},
-                "status": {"type": "string", "description": "Filter by status: idea, todo, in-progress, done, archived"},
-                "agent_type": {"type": "string", "description": "Filter by agent type"},
             },
         },
         "_http": ("GET", "/api/projects/{project_id}/cards", None),
@@ -244,7 +242,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         "description": "Move a card to a different status column on the kanban board.",
         "inputSchema": {
             "type": "object",
-            "required": ["card_id", "status"],
+            "required": ["card_id", "new_status"],
             "properties": {
                 "card_id": {"type": "string", "description": "Card ID to move"},
                 "new_status": {
@@ -440,6 +438,38 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_http": ("DELETE", "/api/documents/documents/{document_id}", None),
+    },
+
+    # ---- Worker Ledger -----------------------------------------------------
+    {
+        "name": "voxyflow.workers.list",
+        "description": "List recent worker tasks from the Worker Ledger. Use to check if a similar task is already running before dispatching.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "description": "Filter by session ID"},
+                "project_id": {"type": "string", "description": "Filter by project ID"},
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "running", "done", "failed", "cancelled"],
+                    "description": "Filter by status",
+                },
+                "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+            },
+        },
+        "_http": ("GET", "/api/worker-tasks", None),
+    },
+    {
+        "name": "voxyflow.workers.get_result",
+        "description": "Get the full details and result of a specific worker task by task_id.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["task_id"],
+            "properties": {
+                "task_id": {"type": "string", "description": "Worker task ID"},
+            },
+        },
+        "_http": ("GET", "/api/worker-tasks/{task_id}", None),
     },
 
     # ---- System ------------------------------------------------------------

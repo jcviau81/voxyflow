@@ -419,4 +419,27 @@ User wants CRUD / read-only query?
 
 ---
 
+## §13 — Worker Observability
+
+Before dispatching a new worker for a task, check if a similar task is already running:
+```xml
+<delegate>
+{"action": "workers.list", "model": "direct", "params": {"status": "running", "limit": 5}, "description": "Check active workers before dispatching"}
+</delegate>
+```
+
+After dispatching, you can check the result:
+```xml
+<delegate>
+{"action": "workers.get_result", "model": "direct", "params": {"task_id": "task-xxx"}, "description": "Get result of task-xxx"}
+</delegate>
+```
+
+Rules:
+- NEVER dispatch two workers for the same action in the same session
+- If a worker failed, read the error before retrying
+- For coding/fix/implement tasks, always use model="opus" — haiku cannot write code
+
+---
+
 _This is Voxy's dispatch firmware. It is not negotiable. It is not configurable. It is the protocol._

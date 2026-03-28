@@ -133,6 +133,24 @@ async def init_db():
             "UPDATE cards SET project_id = :pid WHERE project_id IS NULL"
         ), {"pid": SYSTEM_MAIN_ID})
 
+        # Ensure worker_tasks table exists (Worker Ledger)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS worker_tasks (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                project_id TEXT,
+                action TEXT NOT NULL,
+                description TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                result_summary TEXT,
+                error TEXT,
+                started_at DATETIME NOT NULL,
+                completed_at DATETIME,
+                created_at DATETIME NOT NULL
+            )
+        """))
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -398,6 +416,23 @@ class FocusSession(Base):
 
     card = relationship("Card", foreign_keys=[card_id])
     project = relationship("Project", foreign_keys=[project_id])
+
+
+class WorkerTask(Base):
+    __tablename__ = "worker_tasks"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    session_id = Column(String, nullable=False)
+    project_id = Column(String, nullable=True)
+    action = Column(String, nullable=False)          # e.g. "fix_bug", "implement_feature"
+    description = Column(Text, nullable=False)       # human-readable task description
+    model = Column(String, nullable=False)           # haiku/sonnet/opus
+    status = Column(String, nullable=False, default="pending")  # pending/running/done/failed/cancelled
+    result_summary = Column(Text, nullable=True)     # short summary of what was done (set on completion)
+    error = Column(Text, nullable=True)              # error message if failed
+    started_at = Column(DateTime, nullable=False, default=utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
 
 
 class Document(Base):

@@ -58,13 +58,16 @@ DIRECT_ACTION_MAP: dict[str, str] = {
     "jobs.list": "voxyflow.jobs.list",
     "list_jobs": "voxyflow.jobs.list",
     "health": "voxyflow.health",
+    # Worker Ledger
+    "workers.list": "voxyflow.workers.list",
+    "workers.get_result": "voxyflow.workers.get_result",
 }
 
 # Actions that require user confirmation before execution (irreversible)
 CONFIRM_REQUIRED = {"card.delete", "delete_card", "project.delete", "delete_project"}
 
 # Actions that require no params (can have empty/missing params dict)
-NO_PARAMS_REQUIRED = {"project.list", "list_projects", "jobs.list", "list_jobs", "health"}
+NO_PARAMS_REQUIRED = {"project.list", "list_projects", "jobs.list", "list_jobs", "health", "workers.list"}
 
 # Read actions — these need LLM context injection so Voxy can use the data
 # in her response.  Direct execution works for writes (fire-and-forget) but
@@ -76,6 +79,7 @@ READ_ACTIONS = {
     "project.list", "list_projects",
     "wiki.get", "get_wiki",
     "wiki.list", "list_wiki",
+    "workers.list", "workers.get_result",
 }
 
 

@@ -273,6 +273,16 @@ class DeepWorkerPool:
                 summary=event.summary or "",
             )
 
+            # --- Worker Ledger: insert row with status='running' ---
+            await self._ledger_insert(
+                task_id=event.task_id,
+                session_id=event.session_id or self._bus.session_id,
+                project_id=event.data.get("project_id"),
+                action=event.intent or "unknown",
+                description=(event.summary or "")[:500],
+                model=event.model or "sonnet",
+            )
+
             # Notify frontend: task started (include model for badge)
             await self._send_task_event("task:started", event.task_id, {
                 "intent": event.intent,
@@ -444,6 +454,7 @@ class DeepWorkerPool:
                 logger.warning(f"[DeepWorker] Task {event.task_id} timed out after {self.TASK_TIMEOUT_SECONDS}s")
                 supervisor.mark_problem(event.task_id, f"timeout_{self.TASK_TIMEOUT_SECONDS}s")
                 _wss.update_status(event.task_id, "timed_out", f"Timed out after {self.TASK_TIMEOUT_SECONDS}s")
+                await self._ledger_update(event.task_id, "failed", error=f"Timed out after {self.TASK_TIMEOUT_SECONDS}s")
                 await self._send_task_event("task:timeout", event.task_id, {
                     "intent": event.intent,
                     "summary": event.summary,
@@ -454,6 +465,7 @@ class DeepWorkerPool:
             except asyncio.CancelledError:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")
                 _wss.update_status(event.task_id, "cancelled")
+                await self._ledger_update(event.task_id, "cancelled")
                 # task:cancelled is sent by cancel_task() — just return
                 return
             finally:
@@ -497,6 +509,12 @@ class DeepWorkerPool:
 
             # Update session store: completed
             _wss.update_status(event.task_id, "completed", (result_content or "")[:500])
+
+            # --- Worker Ledger: mark done ---
+            await self._ledger_update(
+                event.task_id, "done",
+                result_summary=(result_content or "")[:500],
+            )
 
             # Notify frontend: task completed
             await self._send_task_event("task:completed", event.task_id, {
@@ -590,6 +608,7 @@ class DeepWorkerPool:
         except Exception as e:
             logger.error(f"[DeepWorker] Task {event.task_id} failed: {e}")
             _wss.update_status(event.task_id, "failed", str(e)[:500])
+            await self._ledger_update(event.task_id, "failed", error=str(e)[:500])
             try:
                 await self._send_task_event("task:completed", event.task_id, {
                     "intent": event.intent,
@@ -635,6 +654,70 @@ class DeepWorkerPool:
                         logger.info(f"[DeepWorkerPool] Stored pending result for task {task_id}")
                     except Exception as store_err:
                         logger.error(f"[DeepWorkerPool] Failed to store pending result: {store_err}")
+
+
+    # ------------------------------------------------------------------
+    # Worker Ledger DB helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _ledger_insert(
+        task_id: str,
+        session_id: str,
+        project_id: str | None,
+        action: str,
+        description: str,
+        model: str,
+    ) -> None:
+        """Insert a new row into worker_tasks with status='running'."""
+        try:
+            from app.database import async_session, WorkerTask, utcnow
+            async with async_session() as db:
+                row = WorkerTask(
+                    id=task_id,
+                    session_id=session_id,
+                    project_id=project_id,
+                    action=action,
+                    description=description[:500],
+                    model=model,
+                    status="running",
+                    started_at=utcnow(),
+                    created_at=utcnow(),
+                )
+                db.add(row)
+                await db.commit()
+                logger.debug(f"[Ledger] Inserted task {task_id} status=running")
+        except Exception as e:
+            logger.warning(f"[Ledger] Failed to insert task {task_id}: {e}")
+
+    @staticmethod
+    async def _ledger_update(
+        task_id: str,
+        status: str,
+        result_summary: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Update a worker_tasks row with final status."""
+        try:
+            from app.database import async_session, WorkerTask, utcnow
+            from sqlalchemy import select
+            async with async_session() as db:
+                result = await db.execute(
+                    select(WorkerTask).where(WorkerTask.id == task_id)
+                )
+                row = result.scalar_one_or_none()
+                if row:
+                    row.status = status
+                    if result_summary is not None:
+                        row.result_summary = result_summary[:500]
+                    if error is not None:
+                        row.error = error[:500]
+                    if status in ("done", "failed", "cancelled"):
+                        row.completed_at = utcnow()
+                    await db.commit()
+                    logger.debug(f"[Ledger] Updated task {task_id} → {status}")
+        except Exception as e:
+            logger.warning(f"[Ledger] Failed to update task {task_id}: {e}")
 
 
 class ChatOrchestrator:
@@ -1137,6 +1220,15 @@ class ChatOrchestrator:
             if model not in ("haiku", "sonnet", "opus"):
                 model = "sonnet"
 
+            # Auto-upgrade model for coding tasks
+            _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
+            description_lower = data.get("description", "").lower()
+            if any(kw in description_lower for kw in _CODING_KEYWORDS):
+                if model == "haiku":
+                    original_model = model
+                    model = "sonnet"
+                    logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
+
             task_id = f"task-{uuid4().hex[:8]}"
 
             # Classify intent type (same logic as XML path)
@@ -1267,6 +1359,15 @@ class ChatOrchestrator:
                 model = data.get("model", "sonnet")
                 if model not in ("haiku", "sonnet", "opus"):
                     model = "sonnet"
+
+                # Auto-upgrade model for coding tasks (XML path)
+                _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
+                description_lower = data.get("description", "").lower()
+                if any(kw in description_lower for kw in _CODING_KEYWORDS):
+                    if model == "haiku":
+                        original_model = model
+                        model = "sonnet"
+                        logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
 
                 task_id = f"task-{uuid4().hex[:8]}"
 
@@ -1647,6 +1748,15 @@ class ChatOrchestrator:
         model = data.get("model", "sonnet")
         if model not in ("haiku", "sonnet", "opus"):
             model = "sonnet"
+
+        # Auto-upgrade model for coding tasks (safety-net path)
+        _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
+        description_lower = data.get("description", "").lower()
+        if any(kw in description_lower for kw in _CODING_KEYWORDS):
+            if model == "haiku":
+                original_model = model
+                model = "sonnet"
+                logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
 
         task_id = f"task-{uuid4().hex[:8]}"
 
