@@ -244,7 +244,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         "description": "Move a card to a different status column on the kanban board.",
         "inputSchema": {
             "type": "object",
-            "required": ["card_id", "new_status"],
+            "required": ["card_id", "status"],
             "properties": {
                 "card_id": {"type": "string", "description": "Card ID to move"},
                 "new_status": {
