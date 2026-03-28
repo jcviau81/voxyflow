@@ -252,7 +252,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 },
             },
         },
-        "_http": ("PATCH", "/api/cards/{card_id}", lambda p: {"status": p["new_status"]}),
+        "_http": ("PATCH", "/api/cards/{card_id}", lambda p: {"status": p.get("new_status") or p["status"]}),
     },
     {
         "name": "voxyflow.card.delete",
