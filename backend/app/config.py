@@ -1,8 +1,28 @@
-"""Application configuration via environment variables + keyring."""
+"""
+Application configuration via environment variables + keyring.
+
+Config hierarchy (highest priority wins):
+  1. Environment variables (e.g. DATABASE_URL=...)
+  2. .env file (backend/.env — loaded by pydantic-settings)
+  3. Defaults defined below (XDG-compliant paths)
+
+What goes WHERE:
+  - .env / env vars  → Infrastructure: DB path, host, port, API keys, external URLs
+  - DB app_settings  → App preferences: LLM models, TTS config, UI settings
+  - This file         → Sensible defaults only (never instance-specific paths)
+"""
 
 import os
-from pydantic_settings import BaseSettings
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+
+# Canonical data directory — follows XDG user data pattern
+_VOXYFLOW_HOME = Path.home() / ".voxyflow"
+
+# Resolve .env relative to the backend/ directory (works regardless of cwd)
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_ENV_FILE = _BACKEND_DIR / ".env"
 
 
 def _get_secret(service: str, key: str, env_var: str = None, default: str = "") -> str:
@@ -28,7 +48,12 @@ def _get_secret(service: str, key: str, env_var: str = None, default: str = "") 
 
 
 class Settings(BaseSettings):
-    """Voxyflow configuration. Loaded from keyring → env → .env."""
+    """Voxyflow configuration. Loaded from keyring → env → .env → defaults."""
+
+    model_config = SettingsConfigDict(
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+    )
 
     # App
     app_name: str = "Voxyflow"
@@ -36,8 +61,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # Database
-    database_url: str = "sqlite+aiosqlite:////home/jcviau/.voxyflow/voxyflow.db"
+    # Database — default: ~/.voxyflow/voxyflow.db (XDG user data dir pattern)
+    database_url: str = f"sqlite+aiosqlite:///{_VOXYFLOW_HOME / 'voxyflow.db'}"
 
     # Claude API — native Anthropic SDK (preferred)
     claude_use_native: bool = False   # False = OpenAI-compatible proxy (claude-max-api). True requires direct API access.
@@ -63,10 +88,10 @@ class Settings(BaseSettings):
     analyzer_enabled: bool = True
     delegate_safety_net_enabled: bool = True
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # Ensure the data directory exists
+        _VOXYFLOW_HOME.mkdir(parents=True, exist_ok=True)
         # Load claude_api_key from keyring → env if not already set
         if not self.claude_api_key or self.claude_api_key in ("placeholder", "not-needed"):
             keyring_key = _get_secret(

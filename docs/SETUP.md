@@ -63,28 +63,32 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` as needed. Key variables:
+Edit `.env` as needed. See `.env.example` for all available variables.
+
+> **Config ownership rules:**
+>
+> | What | Where | Examples |
+> |------|-------|---------|
+> | Infrastructure | `.env` (or env vars) | `DATABASE_URL`, `HOST`, `PORT`, `CLAUDE_PROXY_URL`, API keys |
+> | App preferences | Settings UI → DB (`app_settings` table) | Model names, TTS config, personality, UI prefs |
+> | Defaults | `config.py` | Sensible XDG-compliant fallbacks (never instance-specific) |
+>
+> **Database location:** `~/.voxyflow/voxyflow.db` (created automatically on first run).
+> The directory `~/.voxyflow/` follows the XDG user data pattern and also stores ChromaDB data at `~/.voxyflow/chroma/`.
+> Do **not** use a relative path like `./voxyflow.db` — this causes the DB to land in different locations depending on the working directory.
+
+Key `.env` variables:
 
 ```env
-# App
-DEBUG=false
+# Database (default: ~/.voxyflow/voxyflow.db — usually no override needed)
+# DATABASE_URL=sqlite+aiosqlite:////home/youruser/.voxyflow/voxyflow.db
+
+# Network
 HOST=0.0.0.0
 PORT=8000
 
-# Database (SQLite, created automatically on first run)
-DATABASE_URL=sqlite+aiosqlite:///./voxyflow.db
-
-# Claude Models (used as defaults; can be overridden in Settings UI)
-CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20250315
-CLAUDE_OPUS_MODEL=claude-opus-4-20250514
-CLAUDE_MAX_TOKENS=1024
-
-# TTS (optional)
-TTS_ENGINE=sherpa-onnx
-TTS_SERVICE_URL=http://localhost:5500
-
-# STT
-STT_ENGINE=browser
+# Claude proxy
+CLAUDE_PROXY_URL=http://localhost:3457/v1
 ```
 
 ### Store API keys securely (recommended)
