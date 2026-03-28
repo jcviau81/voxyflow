@@ -1418,6 +1418,27 @@ class ChatOrchestrator:
         elif action in ("card.update", "update_card"):
             title = api_result.get("title", "") if isinstance(api_result, dict) else ""
             return f"Card updated: **{title}** ({duration}ms)"
+        elif action in ("card.get", "get_card"):
+            if isinstance(api_result, dict):
+                title = api_result.get("title", "Unknown")
+                description = api_result.get("description", "") or "(no description)"
+                status = api_result.get("status", "")
+                priority_map = {0: "none", 1: "low", 2: "medium", 3: "high", 4: "critical"}
+                priority = priority_map.get(api_result.get("priority", 0), "none")
+                agent_type = api_result.get("agent_type", "") or ""
+
+                msg = f"**Card:** {title}\n**Status:** {status} | **Priority:** {priority}"
+                if agent_type:
+                    msg += f" | **Agent:** {agent_type}"
+                msg += f"\n**Description:** {description}"
+
+                # Include checklist progress if present
+                checklist = api_result.get("checklist_progress")
+                if isinstance(checklist, dict) and checklist.get("total", 0) > 0:
+                    msg += f"\n**Checklist:** {checklist['completed']}/{checklist['total']} completed"
+
+                return msg
+            return f"Card retrieved ({duration}ms)"
         elif action in ("card.delete", "delete_card"):
             return f"Card deleted ({duration}ms)"
         else:
