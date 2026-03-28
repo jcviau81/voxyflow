@@ -152,7 +152,42 @@ Note: Configure redirects for SPA routing:
 2. Tap "Add to Home Screen" banner
 3. Or: Menu → "Install app"
 
+## Backend systemd Service
+
+For running the backend as a persistent service on Linux:
+
+```ini
+# /etc/systemd/system/voxyflow.service
+[Unit]
+Description=Voxyflow Backend
+After=network.target
+
+[Service]
+Type=simple
+User=jcviau
+WorkingDirectory=/home/jcviau/voxyflow/backend
+EnvironmentFile=/home/jcviau/voxyflow/backend/.env
+ExecStart=/home/jcviau/voxyflow/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> **Important:** The `EnvironmentFile=` line must point to your `backend/.env` file.
+> Without it, the service won't load `DATABASE_URL` and the app will use the default path,
+> which could create a second database if the default doesn't match your `.env`.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now voxyflow
+sudo journalctl -u voxyflow -f  # watch logs
+```
+
 ## Environment Variables
+
+### Frontend
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -161,6 +196,19 @@ Note: Configure redirects for SPA routing:
 | `NODE_ENV` | `development` | Environment |
 
 For production, set these at build time or configure the reverse proxy.
+
+### Backend
+
+See `backend/.env.example` for the full list. Key variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `~/.voxyflow/voxyflow.db` | SQLite database path |
+| `HOST` | `0.0.0.0` | Bind address |
+| `PORT` | `8000` | Bind port |
+| `CLAUDE_PROXY_URL` | `http://localhost:3457/v1` | Claude API proxy endpoint |
+| `CLAUDE_API_KEY` | (keyring) | API key (prefer keyring via `setup_keys.py`) |
+| `DEBUG` | `false` | Enable debug logging |
 
 ## SSL/TLS
 
