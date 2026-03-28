@@ -494,3 +494,39 @@ class TestHandleActionConfirm:
         await orch.handle_action_confirm("nonexistent-id", confirmed=True, websocket=ws)
 
         ws.send_json.assert_not_called()
+
+
+# ===================================================================
+# C. card.move lambda regression tests
+# ===================================================================
+
+
+class TestCardMoveLambda:
+    """Verify the card.move MCP tool lambda accepts both 'new_status' and 'status'."""
+
+    def test_lambda_accepts_new_status(self):
+        from app.mcp_server import _find_tool
+        tool = _find_tool("voxyflow.card.move")
+        assert tool is not None
+
+        _, _, transformer = tool["_http"]
+        result = transformer({"new_status": "in-progress"})
+        assert result == {"status": "in-progress"}
+
+    def test_lambda_accepts_status_fallback(self):
+        """Delegate JSON sends 'status' not 'new_status' — lambda must handle both."""
+        from app.mcp_server import _find_tool
+        tool = _find_tool("voxyflow.card.move")
+
+        _, _, transformer = tool["_http"]
+        result = transformer({"status": "done"})
+        assert result == {"status": "done"}
+
+    def test_lambda_prefers_new_status_over_status(self):
+        """If both keys present, new_status wins (MCP canonical name)."""
+        from app.mcp_server import _find_tool
+        tool = _find_tool("voxyflow.card.move")
+
+        _, _, transformer = tool["_http"]
+        result = transformer({"new_status": "todo", "status": "done"})
+        assert result == {"status": "todo"}
