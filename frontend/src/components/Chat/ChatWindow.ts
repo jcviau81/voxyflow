@@ -956,7 +956,7 @@ export class ChatWindow {
           'voxyflow.card.move': 'Card moved',
           'voxyflow.card.delete': 'Card deleted',
         };
-        const status = result?.success ? '' : ' (failed)';
+        const status = ''; // tool:executed is only emitted on success (errors go to tool:error)
         const label = toolLabels[tool] || tool;
         const text = `🔧 *Executed ${tool}*${status} — ${label}`;
 
