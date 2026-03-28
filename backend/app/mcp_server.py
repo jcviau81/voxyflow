@@ -196,6 +196,8 @@ _TOOL_DEFINITIONS: list[dict] = [
             "required": ["project_id"],
             "properties": {
                 "project_id": {"type": "string", "description": "Project ID"},
+                "status": {"type": "string", "description": "Filter by status: idea, todo, in-progress, done, archived"},
+                "agent_type": {"type": "string", "description": "Filter by agent type"},
             },
         },
         "_http": ("GET", "/api/projects/{project_id}/cards", None),

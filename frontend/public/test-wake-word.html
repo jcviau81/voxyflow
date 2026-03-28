@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wake Word Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .active { background-color: #90ee90; }
+        .inactive { background-color: #ffcccb; }
+        .detection {
+            background-color: #87ceeb;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Wake Word Test</h1>
+    <div class="status inactive" id="status">Not listening</div>
+    <button onclick="startListening()">Start Listening</button>
+    <button onclick="stopListening()">Stop Listening</button>
+    <h2>Detections:</h2>
+    <div id="detections"></div>
+    
+    <script type="module">
+        import { WakeWordService } from '/js/services/WakeWordService.js';
+        
+        let service = null;
+        const statusEl = document.getElementById('status');
+        const detectionsEl = document.getElementById('detections');
+        
+        window.startListening = async () => {
+            try {
+                if (!service) {
+                    service = new WakeWordService((score) => {
+                        const detection = document.createElement('div');
+                        detection.className = 'detection';
+                        detection.textContent = `Alexa detected! Score: ${score.toFixed(3)} at ${new Date().toLocaleTimeString()}`;
+                        detectionsEl.prepend(detection);
+                    });
+                    await service.initialize();
+                }
+                await service.start();
+                statusEl.textContent = 'Listening for "Alexa"...';
+                statusEl.className = 'status active';
+            } catch (err) {
+                console.error('Failed to start:', err);
+                alert('Error: ' + err.message);
+            }
+        };
+        
+        window.stopListening = () => {
+            if (service) {
+                service.stop();
+                statusEl.textContent = 'Not listening';
+                statusEl.className = 'status inactive';
+            }
+        };
+    </script>
+</body>
+</html>

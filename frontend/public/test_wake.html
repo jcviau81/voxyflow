@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wake Word Debug Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #0f0; }
+        button { padding: 10px 20px; margin: 5px; font-size: 16px; }
+        #logs { 
+            background: #000; 
+            color: #0f0; 
+            padding: 15px; 
+            height: 500px; 
+            overflow-y: auto; 
+            white-space: pre-wrap;
+            border: 1px solid #0f0;
+            margin-top: 20px;
+        }
+        .highlight { color: #ff0; font-weight: bold; }
+        .error { color: #f00; }
+        .success { color: #0f0; }
+    </style>
+</head>
+<body>
+    <h1>Wake Word Debug Console</h1>
+    <div>
+        <button id="startBtn">Start Wake Word Detection</button>
+        <button id="stopBtn" disabled>Stop</button>
+        <button id="clearBtn">Clear Logs</button>
+    </div>
+    <div>
+        <span>Status: </span><span id="status">Ready</span>
+    </div>
+    <div id="logs"></div>
+
+    <script type="module">
+        const logs = document.getElementById('logs');
+        const status = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const clearBtn = document.getElementById('clearBtn');
+
+        let wakeWordService = null;
+
+        function log(msg, className = '') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = className;
+            entry.textContent = `[${timestamp}] ${msg}`;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        // Override console methods to capture all logs
+        const originalLog = console.log;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            log(args.join(' '));
+        };
+        
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            log(args.join(' '), 'error');
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            log(args.join(' '), 'error');
+        };
+
+        // Load the wake word service
+        log('Loading WakeWordService module...');
+        import('./src/services/WakeWordService.js').then(module => {
+            wakeWordService = module.wakeWordService;
+            log('WakeWordService loaded successfully', 'success');
+            
+            // Set up event listener
+            window.addEventListener('wakeword:detected', () => {
+                log('🎉 WAKE WORD DETECTED!', 'highlight');
+                status.textContent = 'DETECTED!';
+                status.style.color = '#ff0';
+                setTimeout(() => {
+                    status.textContent = 'Listening...';
+                    status.style.color = '#0f0';
+                }, 2000);
+            });
+        }).catch(err => {
+            log(`Failed to load WakeWordService: ${err}`, 'error');
+        });
+
+        startBtn.onclick = async () => {
+            if (!wakeWordService) {
+                log('Service not loaded yet', 'error');
+                return;
+            }
+            
+            try {
+                log('Starting wake word detection...');
+                startBtn.disabled = true;
+                status.textContent = 'Starting...';
+                
+                await wakeWordService.start();
+                
+                status.textContent = 'Listening...';
+                status.style.color = '#0f0';
+                stopBtn.disabled = false;
+                log('Wake word detection started!', 'success');
+            } catch (err) {
+                log(`Start failed: ${err.message}`, 'error');
+                status.textContent = 'Error';
+                status.style.color = '#f00';
+                startBtn.disabled = false;
+            }
+        };
+
+        stopBtn.onclick = async () => {
+            if (!wakeWordService) return;
+            
+            try {
+                log('Stopping wake word detection...');
+                stopBtn.disabled = true;
+                status.textContent = 'Stopping...';
+                
+                await wakeWordService.stop();
+                
+                status.textContent = 'Stopped';
+                status.style.color = '#888';
+                startBtn.disabled = false;
+                log('Wake word detection stopped', 'success');
+            } catch (err) {
+                log(`Stop failed: ${err.message}`, 'error');
+            }
+        };
+
+        clearBtn.onclick = () => {
+            logs.innerHTML = '';
+            log('Logs cleared');
+        };
+
+        log('Wake Word Debug Console ready');
+        log('Click "Start Wake Word Detection" and say "Alexa"');
+    </script>
+</body>
+</html>
