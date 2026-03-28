@@ -176,6 +176,21 @@ class SessionStore:
             archive_path = path.with_suffix(f".archived-{archive_suffix}.json")
             path.rename(archive_path)
 
+    def delete_session(self, chat_id: str) -> None:
+        """Permanently delete a session file (and its summary) from disk."""
+        path = self._get_session_path(chat_id)
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        summary_path = self._get_summary_path(chat_id)
+        if summary_path.exists():
+            try:
+                summary_path.unlink()
+            except OSError:
+                pass
+
     def list_sessions(self, prefix: str = "") -> List[dict]:
         """List all sessions, optionally filtered by prefix."""
         sessions = []
@@ -238,8 +253,8 @@ class SessionStore:
                 messages = data.get("messages", [])
                 message_count = data.get("message_count", len(messages))
 
-                # Filter: only project sessions with >0 messages
-                if not chat_id.startswith("project:"):
+                # Filter: include project: and card: sessions with >0 messages
+                if not (chat_id.startswith("project:") or chat_id.startswith("card:")):
                     continue
                 if message_count < 1:
                     continue

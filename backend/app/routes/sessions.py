@@ -53,10 +53,10 @@ async def get_session(chat_id: str, limit: int = Query(50, ge=1, le=500)):
 
 
 @router.delete("/{chat_id:path}")
-async def clear_session(chat_id: str):
-    """Clear (archive) a session's messages."""
-    session_store.clear_session(chat_id)
-    return {"status": "cleared", "chat_id": chat_id}
+async def delete_session(chat_id: str):
+    """Permanently delete a session from disk."""
+    session_store.delete_session(chat_id)
+    return {"deleted": chat_id}
 
 
 # ---------------------------------------------------------------------------

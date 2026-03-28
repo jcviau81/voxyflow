@@ -210,7 +210,16 @@ export class MessageBubble {
     if (!this.contentEl) return;
     const processed = replaceEmojiShortcodes(content);
     if (this.message.role === 'assistant') {
-      this.contentEl.innerHTML = renderMarkdown(processed, !!this.message.streaming);
+      const rendered = renderMarkdown(processed, !!this.message.streaming);
+
+      // If rendered output is empty (message was purely a <delegate> block with no
+      // surrounding text), show a placeholder so the bubble is never blank.
+      if (!rendered.trim() && !this.message.streaming) {
+        this.contentEl.innerHTML = "<span class="delegate-placeholder">⚙️ Délégation en cours…</span>";
+      } else {
+        this.contentEl.innerHTML = rendered;
+      }
+
       addCodeCopyButtons(this.contentEl);
       enhanceImages(this.contentEl);
       this.addCodeReviewButtons(this.contentEl);
