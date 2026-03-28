@@ -446,7 +446,7 @@ class ClaudeService:
         else:
             self.fast_client = _make_openai_client(
                 fast_cfg.get("provider_url", config.claude_proxy_url),
-                fast_cfg.get("api_key", ""),
+                fast_cfg.get("api_key") or default_api_key,
             )
             self.fast_client_type = "openai"
 
@@ -461,7 +461,7 @@ class ClaudeService:
         else:
             self.deep_client = _make_openai_client(
                 deep_cfg.get("provider_url", config.claude_proxy_url),
-                deep_cfg.get("api_key", ""),
+                deep_cfg.get("api_key") or default_api_key,
             )
             self.deep_client_type = "openai"
 
@@ -476,7 +476,7 @@ class ClaudeService:
         else:
             self.haiku_client = _make_openai_client(
                 haiku_cfg.get("provider_url", config.claude_proxy_url),
-                haiku_cfg.get("api_key", ""),
+                haiku_cfg.get("api_key") or default_api_key,
             )
             self.haiku_client_type = "openai"
 
@@ -491,7 +491,7 @@ class ClaudeService:
         else:
             self.analyzer_client = _make_openai_client(
                 analyzer_cfg.get("provider_url", config.claude_proxy_url),
-                analyzer_cfg.get("api_key", ""),
+                analyzer_cfg.get("api_key") or default_api_key,
             )
             self.analyzer_client_type = "openai"
 
@@ -541,7 +541,7 @@ class ClaudeService:
             else:
                 client = _make_openai_client(
                     purl or config.claude_proxy_url,
-                    cfg.get("api_key", ""),
+                    cfg.get("api_key") or default_api_key,
                 )
                 client_type = "openai"
 
