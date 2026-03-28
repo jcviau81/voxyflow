@@ -66,6 +66,18 @@ CONFIRM_REQUIRED = {"card.delete", "delete_card", "project.delete", "delete_proj
 # Actions that require no params (can have empty/missing params dict)
 NO_PARAMS_REQUIRED = {"project.list", "list_projects", "jobs.list", "list_jobs", "health"}
 
+# Read actions — these need LLM context injection so Voxy can use the data
+# in her response.  Direct execution works for writes (fire-and-forget) but
+# reads must go through a worker so the result is fed back as a tool_result.
+READ_ACTIONS = {
+    "card.get", "get_card",
+    "card.list", "list_cards",
+    "project.get", "get_project",
+    "project.list", "list_projects",
+    "wiki.get", "get_wiki",
+    "wiki.list", "list_wiki",
+}
+
 
 class DirectExecutor:
     """Executes whitelisted CRUD operations inline without spawning a worker."""
