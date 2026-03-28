@@ -72,10 +72,8 @@ module.exports = (env, argv) => {
       hot: true,
       historyApiFallback: true,
       server: {
-        type: 'https',
+        type: "http",
         options: {
-          cert: '../certs/tailscale-cert.crt',
-          key: '../certs/tailscale-cert.key',
         },
       },
       proxy: [

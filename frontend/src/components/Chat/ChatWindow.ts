@@ -612,7 +612,11 @@ export class ChatWindow {
 
     const contextTabId = this.getContextTabId();
     const activeChatId = appState.getActiveChatId(contextTabId);
-    return message.sessionId === activeChatId;
+    const match = message.sessionId === activeChatId;
+    if (!match) {
+      console.warn('[ChatWindow] Message sessionId mismatch:', message.sessionId, '!==', activeChatId, 'tab:', contextTabId, 'role:', message.role);
+    }
+    return match;
   }
 
   /**
@@ -915,6 +919,15 @@ export class ChatWindow {
         // Navigation was already handled by ChatSearch
         // (PROJECT_SELECTED / CARD_SELECTED events), just reload to ensure messages are current
         this.reloadMessages();
+      })
+    );
+
+    // Voice auto-send — clear input and reload messages
+    this.unsubscribers.push(
+      eventBus.on(EVENTS.VOICE_MESSAGE_SENT, () => {
+        if (this.textInput) this.textInput.value = '';
+        this.reloadMessages();
+        this.scrollToBottom();
       })
     );
 
@@ -1313,7 +1326,7 @@ export class ChatWindow {
     const input = this.textInput.value.trim();
 
     // Clear input
-    this.textInput.value = '';
+    if (this.textInput) this.textInput.value = '';
     this.textInput.style.height = 'auto';
     this.textInput.focus();
 
@@ -1442,7 +1455,7 @@ export class ChatWindow {
     }
 
     chatService.sendMessage(content, undefined, this.embeddedCardId || undefined, sessionId);
-    this.textInput.value = '';
+    if (this.textInput) this.textInput.value = '';
     this.textInput.style.height = 'auto';
     this.textInput.focus();
   }

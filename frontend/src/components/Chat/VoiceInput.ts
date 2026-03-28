@@ -1,6 +1,6 @@
 import { SttResult } from '../../types';
 import { eventBus } from '../../utils/EventBus';
-import { EVENTS } from '../../utils/constants';
+import { EVENTS, SYSTEM_PROJECT_ID } from '../../utils/constants';
 import { createElement } from '../../utils/helpers';
 import { sttService, STT_EVENTS } from '../../services/SttService';
 import { ttsService } from '../../services/TtsService';
@@ -23,8 +23,11 @@ export class VoiceInput {
   private boundTouchStart: ((e: Event) => void) | null = null;
   private boundTouchEnd: ((e: Event) => void) | null = null;
   private wakeWordEnabled = false;
+  private wakeWordSessionId: string | null = null;
   private wakeLock: WakeLockSentinel | null = null;
   private autoSendBuffer = '';
+  private _wakeWordSendTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly WAKE_WORD_SEND_DELAY_MS = 3000; // Wait 3s of silence before auto-sending
 
   constructor(private parentElement: HTMLElement, private sttBuiltinEnabled: boolean = true) {
     this.container = createElement('div', { className: 'voice-input', 'data-testid': 'voice-input-btn' });
@@ -128,7 +131,12 @@ export class VoiceInput {
     this.wakeWordEnabled = !this.wakeWordEnabled;
     
     if (this.wakeWordEnabled) {
-      // Enable wake word mode
+      // Enable wake word mode — capture current session context
+      const tabId = appState.getActiveTab();
+      const contextTabId = tabId === 'main' ? SYSTEM_PROJECT_ID : tabId;
+      this.wakeWordSessionId = appState.getActiveChatId(contextTabId);
+      console.log('[VoiceInput] Wake word enabled. Captured sessionId:', this.wakeWordSessionId, 'tab:', tabId, 'contextTab:', contextTabId);
+      ttsService.forceNative = true;
       await wakeWordService.start();
       this.wakeWordButton?.classList.add('active');
       this.wakeWordButton?.setAttribute('data-tooltip', 'Wake Word Mode ON');
@@ -143,11 +151,12 @@ export class VoiceInput {
       }
       
       eventBus.emit(EVENTS.TOAST_SHOW, {
-        message: '🎙️ Wake word mode enabled - say "Porcupine" to start',
+        message: '🎙️ Wake word mode enabled - say "Alexa" to start',
         type: 'info',
       });
     } else {
       // Disable wake word mode
+      ttsService.forceNative = false;
       await wakeWordService.stop();
       this.wakeWordButton?.classList.remove('active');
       this.wakeWordButton?.setAttribute('data-tooltip', 'Wake Word Mode OFF');
@@ -180,23 +189,29 @@ export class VoiceInput {
   private setupListeners(): void {
     // Wake word detected
     this.unsubscribers.push(
-      eventBus.on(EVENTS.WAKEWORD_DETECTED, () => {
+      eventBus.on(EVENTS.WAKEWORD_DETECTED, async () => {
         if (this.wakeWordEnabled && !sttService.recording) {
+          console.log('[VoiceInput] Wake word detected! Stopping wake word listener to release mic...');
+          
+          // CRITICAL: Stop wake word to release the microphone
+          // Android only allows one audio capture at a time
+          await wakeWordService.stop();
+          
+          // Play acknowledgement sound while mic is released
+          await this.playAckSound();
+          
           // Visual feedback
           eventBus.emit(EVENTS.TOAST_SHOW, {
-            message: '✨ Wake word detected!',
+            message: '✨ Listening...',
             type: 'success',
-            duration: 2000,
+            duration: 3000,
           });
           
-          // Pulsing animation on wake word button
           this.wakeWordButton?.classList.add('pulsing');
-          setTimeout(() => {
-            this.wakeWordButton?.classList.remove('pulsing');
-          }, 2000);
           
-          // Auto-start recording
-          this.startRecording();
+          // Start STT recording (one-shot: stops after final result)
+          console.log('[VoiceInput] Starting STT continuous recording (wake word mode)...');
+          await sttService.startRecording();
         }
       })
     );
@@ -225,10 +240,25 @@ export class VoiceInput {
           this.transcriptEl.classList.toggle('final', isFinal);
         }
         
-        // In wake word mode, auto-send on final transcript
-        if (this.wakeWordEnabled && isFinal && transcript.trim()) {
-          this.autoSendBuffer = transcript;
-          this.autoSendMessage();
+        // In wake word mode, buffer transcript and debounce auto-send
+        // Reset timer on ANY transcript update (final or interim) — user is still talking
+        if (this.wakeWordEnabled && transcript.trim()) {
+          if (isFinal) {
+            this.autoSendBuffer = transcript;
+          }
+          // Reset the send timer — user is still talking
+          if (this._wakeWordSendTimer) {
+            clearTimeout(this._wakeWordSendTimer);
+          }
+          // Only start the send countdown if we have finalized text
+          if (this.autoSendBuffer.trim()) {
+            this._wakeWordSendTimer = setTimeout(() => {
+              this._wakeWordSendTimer = null;
+              if (this.autoSendBuffer.trim()) {
+                this.autoSendMessage();
+              }
+            }, this.WAKE_WORD_SEND_DELAY_MS);
+          }
         }
       })
     );
@@ -273,6 +303,10 @@ export class VoiceInput {
         // Show transcribing indicator for non-webspeech engines
         if (sttService.currentEngine === 'whisper' || sttService.currentEngine === 'whisper_local') {
           this.setTranscribingState(true);
+        }
+        // In wake word mode, schedule restart after TTS finishes (or immediately if no TTS)
+        if (this.wakeWordEnabled && !wakeWordService.isListening()) {
+          this.scheduleWakeWordRestart();
         }
       })
     );
@@ -333,11 +367,87 @@ export class VoiceInput {
     );
   }
 
+  private scheduleWakeWordRestart(): void {
+    if (!this.wakeWordEnabled) return;
+    
+    // If TTS is currently speaking, wait for it to finish
+    if (ttsService.isSpeaking) {
+      console.log('[VoiceInput] TTS is speaking, will restart wake word when done...');
+      const unsub = ttsService.onEnd(() => {
+        unsub();
+        // Small delay after TTS ends so mic doesn't pick up tail-end audio
+        setTimeout(async () => {
+          if (this.wakeWordEnabled && !wakeWordService.isListening() && !sttService.recording) {
+            console.log('[VoiceInput] TTS finished, restarting wake word...');
+            this.wakeWordButton?.classList.remove('pulsing');
+            await wakeWordService.start();
+          }
+        }, 500);
+      });
+      // Safety timeout in case TTS callback never fires (30s max)
+      setTimeout(async () => {
+        if (this.wakeWordEnabled && !wakeWordService.isListening() && !sttService.recording) {
+          console.log('[VoiceInput] Safety timeout: restarting wake word...');
+          this.wakeWordButton?.classList.remove('pulsing');
+          await wakeWordService.start();
+        }
+      }, 30000);
+    } else {
+      // No TTS playing, restart after short delay
+      setTimeout(async () => {
+        if (this.wakeWordEnabled && !wakeWordService.isListening() && !sttService.recording) {
+          console.log('[VoiceInput] No TTS, restarting wake word...');
+          this.wakeWordButton?.classList.remove('pulsing');
+          await wakeWordService.start();
+        }
+      }, 1000);
+    }
+  }
+
+  private async playAckSound(): Promise<void> {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      // Two-tone "ding" (like Alexa)
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);        // A5
+      osc.frequency.setValueAtTime(1320, ctx.currentTime + 0.08); // E6
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+      
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.25);
+      
+      await new Promise(r => setTimeout(r, 300));
+      ctx.close();
+    } catch (err) {
+      console.warn('[VoiceInput] Could not play ack sound:', err);
+    }
+  }
+
   private autoSendMessage(): void {
+    // Clear any pending debounce timer
+    if (this._wakeWordSendTimer) {
+      clearTimeout(this._wakeWordSendTimer);
+      this._wakeWordSendTimer = null;
+    }
     if (!this.autoSendBuffer.trim()) return;
     
-    // Send the message
-    chatService.sendMessage(this.autoSendBuffer);
+    console.log('[VoiceInput] Auto-sending message:', this.autoSendBuffer);
+    
+    // Send the message with correct session context
+    // Resolve sessionId the same way ChatWindow does
+    const activeTab = appState.getActiveTab();
+    const contextTabId = activeTab === 'main' ? SYSTEM_PROJECT_ID : activeTab;
+    const sessionId = this.wakeWordSessionId || appState.getActiveChatId(contextTabId);
+    console.log('[VoiceInput] Using sessionId for send:', sessionId);
+    console.log("[VoiceInput] Sending message. Session:", sessionId, "Text:", this.autoSendBuffer);
+    chatService.sendMessage(this.autoSendBuffer, undefined, undefined, sessionId);
+    eventBus.emit(EVENTS.VOICE_MESSAGE_SENT);
     
     // Clear everything
     this.autoSendBuffer = '';
@@ -352,14 +462,10 @@ export class VoiceInput {
       this.stopRecording();
     }
     
-    // Resume wake word listening after a short delay
-    if (this.wakeWordEnabled) {
-      setTimeout(async () => {
-        if (!wakeWordService.isListening() && this.wakeWordEnabled) {
-          await wakeWordService.start();
-        }
-      }, 500);
-    }
+    // Remove pulsing
+    this.wakeWordButton?.classList.remove('pulsing');
+    
+    // Wake word restart is handled by scheduleWakeWordRestart (via VOICE_STOP)
   }
 
   private setTranscribingState(transcribing: boolean): void {

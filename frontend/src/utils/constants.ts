@@ -87,6 +87,7 @@ export const EVENTS = {
   VOICE_ERROR: 'voice:error',
   WAKEWORD_DETECTED: "wakeword:detected",
   WAKEWORD_ERROR: "wakeword:error",
+  VOICE_MESSAGE_SENT: "voice:message:sent",
 
   // Navigation
   VIEW_CHANGE: 'nav:view:change',

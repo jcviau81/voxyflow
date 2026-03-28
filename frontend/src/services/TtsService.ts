@@ -16,6 +16,17 @@ class TtsService {
   private _currentAudio: HTMLAudioElement | null = null;
   private _queue: string[] = [];
   private _processing = false;
+  private _forceNative = false;
+
+  /** Force native browser TTS (skip XTTS server) — used in wake word conversation mode */
+  set forceNative(val: boolean) {
+    this._forceNative = val;
+    console.log('[TtsService] forceNative:', val);
+  }
+
+  get forceNative(): boolean {
+    return this._forceNative;
+  }
 
   get isSpeaking(): boolean {
     return this._isSpeaking;
@@ -82,7 +93,7 @@ class TtsService {
       const text = this._queue.shift()!;
       const { tts_url, tts_speed } = this.getVoiceSettings();
 
-      if (tts_url) {
+      if (tts_url && !this._forceNative) {
         await this.speakServer(text, tts_url, tts_speed);
       } else {
         await this.speakBrowser(text, tts_speed);
@@ -166,8 +177,12 @@ class TtsService {
     return new Promise<void>((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
 
-      const lang = this.detectLanguage();
+      // Detect language from text content (French chars/patterns = fr, else settings/browser)
+      const hasFrench = /[àâçéèêëîïôùûüÿæœ]|qu'|l'|d'|n'|j'|c'est|je |tu |il |nous |vous |ils |les |des |une |est |dans |pour |avec |sur |pas |que |qui |mais |ont |sont /i.test(text);
+      const settingsLang = this.detectLanguage();
+      const lang = hasFrench ? 'fr-CA' : settingsLang;
       utterance.lang = lang;
+      console.log('[TtsService] Browser TTS lang:', lang, hasFrench ? '(detected French)' : '(from settings)');
 
       const voices = speechSynthesis.getVoices();
       if (voices.length > 0) {
@@ -179,14 +194,26 @@ class TtsService {
             utterance.voice = savedVoice;
           }
         }
-        // If no saved voice matched, fall back to first local voice matching language
+        // If no saved voice matched, find a voice matching the detected language
         if (!utterance.voice) {
-          const preferred = voices.find(v => v.lang.startsWith(lang.split('-')[0]) && v.localService);
-          if (preferred) utterance.voice = preferred;
+          const langPrefix = lang.split('-')[0];
+          // Prefer local (offline) voices
+          const preferred = voices.find(v => v.lang.startsWith(langPrefix) && v.localService);
+          if (preferred) {
+            utterance.voice = preferred;
+          } else {
+            // Try any voice matching the language
+            const anyMatch = voices.find(v => v.lang.startsWith(langPrefix));
+            if (anyMatch) utterance.voice = anyMatch;
+          }
+        }
+        if (utterance.voice) {
+          console.log('[TtsService] Using voice:', utterance.voice.name, utterance.voice.lang);
         }
       }
 
       utterance.rate = speed;
+      utterance.volume = 1.0;
       utterance.pitch = 1.0;
 
       this._isSpeaking = true;
@@ -252,8 +279,17 @@ class TtsService {
         const lang = settings?.personality?.preferred_language;
         if (lang === 'fr') return 'fr-CA';
         if (lang === 'en') return 'en-US';
+        // "both" or other — detect from browser language
+        if (lang === 'both' || !lang) {
+          const browserLang = navigator.language || 'en-US';
+          if (browserLang.startsWith('fr')) return 'fr-CA';
+          return browserLang;
+        }
       }
     } catch { /* ignore */ }
+    // Default: check browser language
+    const browserLang = navigator.language || 'en-US';
+    if (browserLang.startsWith('fr')) return 'fr-CA';
     return 'en-US';
   }
 

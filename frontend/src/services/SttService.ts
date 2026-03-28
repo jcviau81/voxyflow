@@ -30,6 +30,13 @@ export class SttService {
   private engine: SttEngine;
   private recognition: SpeechRecognition | null = null;
   private isRecording = false;
+  private _oneShot = false;
+  private _oneShotRetries = 0;
+  private readonly MAX_ONESHOT_RETRIES = 80;
+  private _sendDelayTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly SEND_DELAY_MS = 3000;
+  private _silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly SILENCE_TIMEOUT_MS = 5000;
   private _transcript = '';
   private _lang: string;
   private _whisperModel: string | null = null;
@@ -108,12 +115,23 @@ export class SttService {
         isFinal: hasNewFinal,
       };
       eventBus.emit(EVENTS.VOICE_TRANSCRIPT, sttResult);
+
+      // In oneShot mode: when we get a new final result, reset retry counter
+      // so we keep listening for more speech
+      if (this._oneShot && hasNewFinal && this.finalizedBuffer.trim()) {
+        console.log('[SttService] OneShot: got final result, resetting retries. Text:', this.finalizedBuffer);
+        this._oneShotRetries = 0; // Reset — user is still talking
+      }
+      // In oneShot mode with only interim results, use silence timer as backup
+      if (this._oneShot && this.finalizedBuffer.trim()) {
+        this.resetSilenceTimer();
+      }
     };
 
     this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       // On mobile, 'no-speech' and 'aborted' fire during natural pauses —
       // don't kill the session, let onend handle the restart
-      if (this._isMobile && (event.error === 'no-speech' || event.error === 'aborted')) {
+      if (this._isMobile && (event.error === "no-speech" || event.error === "aborted"))  {
         console.log('[SttService] Ignoring transient error on mobile:', event.error);
         return;
       }
@@ -141,6 +159,62 @@ export class SttService {
     };
 
     this.recognition.onend = () => {
+      if (this._oneShot) {
+        console.log('[SttService] OneShot onend fired. Buffer:', this.finalizedBuffer, 'Transcript:', this._transcript, 'Retries:', this._oneShotRetries);
+        
+        // If we have text, don't send yet — retry to get more speech
+        // Only send after MAX retries with no NEW text
+        if (this.finalizedBuffer.trim() || this._transcript.trim()) {
+          // Still have retries left? Keep listening for more
+          if (this._oneShotRetries < this.MAX_ONESHOT_RETRIES) {
+            this._oneShotRetries++;
+            console.log('[SttService] OneShot: have text but waiting for more speech... (' + this._oneShotRetries + '/' + this.MAX_ONESHOT_RETRIES + ')');
+            this.lastFinalResultIndex = -1;
+            setTimeout(() => {
+              if (!this.isRecording || !this._oneShot) return;
+              try {
+                this.recognition?.start();
+              } catch {
+                // Can't restart — send what we have
+                this.finishOneShot();
+              }
+            }, 200);
+            return;
+          }
+          // Max retries with no new text — send what we have
+          this.finishOneShot();
+          return;
+        }
+        
+        // No text yet — retry if we haven't exceeded max retries
+        if (this._oneShotRetries < this.MAX_ONESHOT_RETRIES) {
+          this._oneShotRetries++;
+          console.log('[SttService] OneShot: no speech yet, retrying... (' + this._oneShotRetries + '/' + this.MAX_ONESHOT_RETRIES + ')');
+          this.lastFinalResultIndex = -1;
+          setTimeout(() => {
+            if (!this.isRecording || !this._oneShot) return;
+            try {
+              this.recognition?.start();
+            } catch {
+              console.error('[SttService] OneShot retry failed');
+              this.isRecording = false;
+              this._oneShot = false;
+              this._oneShotRetries = 0;
+              eventBus.emit(EVENTS.VOICE_STOP);
+            }
+          }, 200);
+          return;
+        }
+        
+        // Max retries exceeded — give up
+        console.log('[SttService] OneShot: max retries reached, stopping');
+        this.isRecording = false;
+        this._oneShot = false;
+        this._oneShotRetries = 0;
+        this.clearSilenceTimer();
+        eventBus.emit(EVENTS.VOICE_STOP);
+        return;
+      }
       if (this.isRecording) {
         // Auto-restart if still recording (continuous mode)
         // Reset final index — new session starts result indices from 0
@@ -307,6 +381,56 @@ export class SttService {
 
   // ── Public API ───────────────────────────────────────────────────────
 
+  private resetSilenceTimer(): void {
+    this.clearSilenceTimer();
+    this._silenceTimer = setTimeout(() => {
+      if (this.isRecording && this._oneShot && this.finalizedBuffer.trim()) {
+        console.log('[SttService] Silence timeout — auto-stopping one-shot recording');
+        // Emit final transcript before stopping
+        const sttResult = {
+          transcript: this.finalizedBuffer,
+          confidence: 1.0,
+          isFinal: true,
+        };
+        eventBus.emit(EVENTS.VOICE_TRANSCRIPT, sttResult);
+        this.stopRecording();
+      }
+    }, this.SILENCE_TIMEOUT_MS);
+  }
+
+  private clearSilenceTimer(): void {
+    if (this._silenceTimer) {
+      clearTimeout(this._silenceTimer);
+      this._silenceTimer = null;
+    }
+  }
+
+  private finishOneShot(): void {
+    const text = this.finalizedBuffer.trim() || this._transcript.trim();
+    console.log('[SttService] OneShot: finishing with text:', text);
+    if (text && !this.finalizedBuffer.trim()) {
+      this.finalizedBuffer = text;
+      const sttResult = {
+        transcript: text,
+        confidence: 0.8,
+        isFinal: true,
+      };
+      eventBus.emit(EVENTS.VOICE_TRANSCRIPT, sttResult);
+    }
+    this.isRecording = false;
+    this._oneShot = false;
+    this._oneShotRetries = 0;
+    this.clearSilenceTimer();
+    eventBus.emit(EVENTS.VOICE_STOP);
+  }
+
+  /** Start recording in one-shot mode (stops after first final result, no auto-restart) */
+  async startRecordingOneShot(): Promise<void> {
+    this._oneShot = true;
+    this._oneShotRetries = 0;
+    await this.startRecording();
+  }
+
   async startRecording(): Promise<void> {
     if (this.isRecording) return;
     this._transcript = '';
@@ -367,6 +491,7 @@ export class SttService {
 
   stopRecording(): void {
     if (!this.isRecording) return;
+    this.clearSilenceTimer();
 
     if (this.engine === 'whisper_local' && this.audioContext) {
       this.stopWhisperRecording();
