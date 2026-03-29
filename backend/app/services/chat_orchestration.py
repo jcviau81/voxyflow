@@ -1505,11 +1505,6 @@ class ChatOrchestrator:
                 })
             except Exception as e:
                 logger.warning(f"[DirectExecutor] Failed to send chat confirmation: {e}")
-            # Inject result into conversation history so Voxy sees it on next turn
-            if session_id:
-                chat_id = session_id
-                self._claude.add_to_history(chat_id, "user", f"[Direct tool result: {action}]
-{confirmation_msg}", msg_type="tool_results")
 
     @staticmethod
     def _build_direct_confirmation(action: str, result: dict) -> str:
@@ -1556,29 +1551,6 @@ class ChatOrchestrator:
             return f"Card retrieved ({duration}ms)"
         elif action in ("card.delete", "delete_card"):
             return f"Card deleted ({duration}ms)"
-        elif action in ("card.list", "list_cards"):
-            if isinstance(api_result, list):
-                count = len(api_result)
-                if count == 0:
-                    return f"No cards found ({duration}ms)"
-                lines = [f"Found {count} card(s):"]
-                for c in api_result[:20]:
-                    title = c.get("title", "Untitled")
-                    status = c.get("status", "?")
-                    card_id = c.get("id", "")
-                    lines.append(f"- [{status}] {title} (id: {card_id})")
-                return "\n".join(lines)
-            return f"card.list completed ({duration}ms)"
-        elif action in ("project.list", "list_projects"):
-            if isinstance(api_result, list):
-                count = len(api_result)
-                lines = [f"Found {count} project(s):"]
-                for p in api_result[:10]:
-                    title = p.get("title", "Untitled")
-                    pid = p.get("id", "")
-                    lines.append(f"- {title} (id: {pid})")
-                return "\n".join(lines)
-            return f"project.list completed ({duration}ms)"
         else:
             return f"Action `{action}` completed ({duration}ms)"
 
