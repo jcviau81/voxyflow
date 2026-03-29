@@ -59,7 +59,7 @@ class DeepWorkerPool:
     MAX_WORKERS = 3
     TASK_TIMEOUT_SECONDS = 300  # 5 minutes
 
-    COMPLETED_TASK_TTL = 30  # seconds to keep completed tasks in registry
+    COMPLETED_TASK_TTL = 300  # seconds to keep completed tasks visible (5 min)
 
     def __init__(
         self,
@@ -79,6 +79,7 @@ class DeepWorkerPool:
         self._cleanup_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
         self._callback_lock = asyncio.Lock()  # Prevents overlapping callback streams
+        self._result_contents: dict[str, str] = {}  # task_id → actual result content
         self._stopped = False
 
     def start(self) -> None:
@@ -251,12 +252,14 @@ class DeepWorkerPool:
                     result = "cancelled"
                 elif removed.exception():
                     result = f"error: {removed.exception()}"
+                # Use actual worker result content if available
+                actual_result = self._result_contents.pop(task_id, result)
                 self._completed_tasks.append({
                     "task_id": task_id,
                     "action": meta["action"],
                     "model": meta["model"],
                     "completed_at": time.time(),
-                    "result": result,
+                    "result": actual_result,
                 })
 
     async def _execute_event(self, event: ActionIntent) -> None:
@@ -507,6 +510,10 @@ class DeepWorkerPool:
                 except Exception as append_err:
                     logger.warning(f"[DeepWorker] Failed to auto-append result to card: {append_err}")
 
+            # Store result content for _on_task_done to pick up
+            if result_content:
+                self._result_contents[event.task_id] = (result_content or "")[:500]
+
             # Update session store: completed
             _wss.update_status(event.task_id, "completed", (result_content or "")[:500])
 
@@ -531,8 +538,8 @@ class DeepWorkerPool:
             dispatcher_chat_id = event.data.get("dispatcher_chat_id")
             if dispatcher_chat_id and result_content:
                 try:
-                    # Truncate large results to avoid context explosion (~2000 chars ≈ 500 tokens)
-                    MAX_RESULT_CHARS = 2000
+                    # Raised limit from 2000 to 20000 chars to avoid truncating worker summaries
+                    MAX_RESULT_CHARS = 20000
                     truncated = result_content[:MAX_RESULT_CHARS]
                     if len(result_content) > MAX_RESULT_CHARS:
                         truncated += f"\n\n[... truncated, {len(result_content) - MAX_RESULT_CHARS} chars omitted]"

@@ -202,6 +202,7 @@ class PersonalityService:
         card: Optional[dict] = None,
         project_names: Optional[list] = None,
         memory_context: Optional[str] = None,
+        active_workers_context: Optional[str] = None,
     ) -> str:
         """Build the DYNAMIC context block — injected into messages[], NOT the system prompt.
 
@@ -283,6 +284,9 @@ class PersonalityService:
 
         if memory_context:
             parts.append(f"## Relevant Memory\n{memory_context}")
+
+        if active_workers_context:
+            parts.append(f"## Background Workers Status\n{active_workers_context}")
 
         return "\n\n".join(parts)
 
