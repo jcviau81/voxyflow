@@ -40,12 +40,41 @@ logger = logging.getLogger("voxyflow")
 # Lifespan
 # ---------------------------------------------------------------------------
 
+async def _cleanup_stale_worker_tasks():
+    """Purge terminal worker tasks older than 24h from the database."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import delete, and_
+    from app.database import async_session, WorkerTask
+
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        async with async_session() as db:
+            result = await db.execute(
+                delete(WorkerTask).where(
+                    and_(
+                        WorkerTask.status.in_(["done", "failed", "cancelled", "timed_out"]),
+                        WorkerTask.created_at < cutoff,
+                    )
+                )
+            )
+            await db.commit()
+            if result.rowcount > 0:
+                logger.info(f"🧹 Cleaned up {result.rowcount} stale worker tasks (>24h)")
+            else:
+                logger.info("🧹 No stale worker tasks to clean up")
+    except Exception as e:
+        logger.warning(f"⚠️  Worker task cleanup failed (non-fatal): {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown events."""
     logger.info("🚀 Voxyflow starting up...")
     await init_db()
     logger.info("✅ Database initialized")
+
+    # Cleanup stale worker tasks (done/failed/cancelled older than 24h)
+    await _cleanup_stale_worker_tasks()
 
     # Ensure workspace directory exists
     from app.services.workspace_service import get_workspace_service

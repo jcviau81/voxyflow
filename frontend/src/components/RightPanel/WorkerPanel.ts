@@ -158,33 +158,44 @@ export class WorkerPanel {
       const contextTabId = activeTab === 'main' ? SYSTEM_PROJECT_ID : (activeTab || SYSTEM_PROJECT_ID);
       const chatId = appState.getActiveChatId(contextTabId);
 
-      const params = new URLSearchParams({ limit: '20' });
-      if (projectId) params.set('project_id', projectId);
-      else if (chatId) params.set('session_id', chatId);
+      // Fetch 1: All active (running/pending) workers globally
+      const activeParams = new URLSearchParams({ limit: '20', status: 'running' });
+      if (projectId) activeParams.set('project_id', projectId);
+      const pendingParams = new URLSearchParams({ limit: '20', status: 'pending' });
+      if (projectId) pendingParams.set('project_id', projectId);
 
-      const resp = await fetch(`/api/worker-tasks?${params}`);
-      if (!resp.ok) return;
+      const [activeResp, pendingResp] = await Promise.all([
+        fetch(`/api/worker-tasks?${activeParams}`),
+        fetch(`/api/worker-tasks?${pendingParams}`),
+      ]);
 
-      const data: {
-        tasks: Array<{
-          id: string;
-          session_id: string;
-          project_id: string | null;
-          action: string;
-          description: string;
-          model: string;
-          status: string;
-          result_summary: string | null;
-          error: string | null;
-          started_at: string | null;
-          completed_at: string | null;
-          created_at: string;
-        }>;
-        count: number;
-      } = await resp.json();
+      type TaskPayload = {
+        id: string;
+        session_id: string;
+        project_id: string | null;
+        action: string;
+        description: string;
+        model: string;
+        status: string;
+        result_summary: string | null;
+        error: string | null;
+        started_at: string | null;
+        completed_at: string | null;
+        created_at: string;
+      };
+
+      const allTasks: TaskPayload[] = [];
+      if (activeResp.ok) {
+        const d = await activeResp.json();
+        allTasks.push(...(d.tasks || []));
+      }
+      if (pendingResp.ok) {
+        const d = await pendingResp.json();
+        allTasks.push(...(d.tasks || []));
+      }
 
       let changed = false;
-      for (const t of data.tasks) {
+      for (const t of allTasks) {
         if (this.dismissedTaskIds.has(t.id)) continue;
 
         const existing = this.tasks.get(t.id);
@@ -192,12 +203,6 @@ export class WorkerPanel {
 
         // Don't overwrite a locally-terminal task with a stale poll result
         if (existing && TERMINAL_STATUSES.has(existing.status)) continue;
-
-        // Skip terminal tasks from the API if they aren't already tracked locally.
-        // Terminal tasks (done/failed/cancelled) should only appear in the panel
-        // when they arrive via real-time WS events during the current session.
-        // This prevents old completed tasks from reappearing on page refresh.
-        if (!existing && TERMINAL_STATUSES.has(apiStatus)) continue;
 
         const startedAt = t.started_at ? new Date(t.started_at).getTime()
           : new Date(t.created_at).getTime();
