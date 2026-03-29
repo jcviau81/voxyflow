@@ -55,6 +55,7 @@ _LAYER_TOOL_SETS = {
     "fast": TOOLS_READ_ONLY,
     "analyzer": TOOLS_VOXYFLOW_CRUD,
     "deep": TOOLS_FULL,
+    "sonnet": TOOLS_FULL,  # Sonnet gets same access as Opus
 }
 
 
