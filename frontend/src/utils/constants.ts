@@ -194,6 +194,7 @@ export const EVENTS = {
   TASK_COMPLETED: 'task:completed',
   TASK_CANCELLED: 'task:cancelled',
   TASK_TIMEOUT: 'task:timeout',
+  TASK_FAILED: 'task:failed',
 
   // Message Reactions
   MESSAGE_REACTION: 'chat:message:reaction',
