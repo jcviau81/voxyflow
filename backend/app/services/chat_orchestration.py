@@ -1183,19 +1183,7 @@ class ChatOrchestrator:
         if not delegates:
             return
 
-        # Upgrade read actions from direct → haiku so the result is fed back
-        # to the LLM as a tool_result (Voxy needs the data in her response).
-        for data in delegates:
-            if (
-                data.get("model") == "direct"
-                and data.get("action", "") in READ_ACTIONS
-            ):
-                logger.info(
-                    f"[Orchestrator] Upgrading read action '{data.get('action')}' "
-                    f"from model=direct → model=haiku for LLM context injection"
-                )
-                data["model"] = "haiku"
-
+        # Read actions now execute direct — results injected via worker feedback loop.
         # Separate direct-eligible delegates from worker delegates
         worker_delegates = []
         for data in delegates:
@@ -1323,18 +1311,7 @@ class ChatOrchestrator:
             except (json.JSONDecodeError, Exception) as e:
                 logger.warning(f"[Orchestrator] Failed to parse delegate block: {e}")
 
-        # Upgrade read actions from direct → haiku (same logic as native path)
-        for data in parsed_delegates:
-            if (
-                data.get("model") == "direct"
-                and data.get("action", "") in READ_ACTIONS
-            ):
-                logger.info(
-                    f"[Orchestrator] Upgrading read action '{data.get('action')}' "
-                    f"from model=direct → model=haiku (XML path)"
-                )
-                data["model"] = "haiku"
-
+        # Read actions now execute direct — results injected via worker feedback loop.
         worker_delegates = []
         for data in parsed_delegates:
             if DirectExecutor.is_direct_eligible(data):
