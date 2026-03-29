@@ -24,6 +24,8 @@ TOOLS_READ_ONLY = {
     "voxyflow.wiki.list", "voxyflow.wiki.get",
     "voxyflow.doc.list",
     "voxyflow.jobs.list",
+    "knowledge.search",  # Memory search — fast layer needs this for context
+    "web.search", "web.fetch",  # Web search — no API key, fast enough for dispatcher
 }
 
 # CRUD tools: Analyzer (Haiku) can do trivial dashboard actions + web search
@@ -34,7 +36,6 @@ TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
     "voxyflow.card.duplicate", "voxyflow.card.enrich",
     "voxyflow.wiki.create", "voxyflow.wiki.update",
     "task.complete",  # Worker supervision — all tiers must signal completion
-    "web.search", "web.fetch",  # Web research available to all worker tiers
 }
 
 # Full tools: Deep (Opus) can do everything including exec, write, delete
