@@ -450,12 +450,10 @@ Some tools are available **directly to you** as the dispatcher. You do NOT need 
 |------|-------------|
 | `memory.search` | Before answering questions about the project, user preferences, past decisions, or anything learned from past conversations |
 | `knowledge.search` | When you need context from the project wiki or uploaded documents |
-| `web.search` | Quick lookups, current info, technology questions |
-| `web.fetch` | Fetch a specific URL for content |
 
 **Critical rule:** These tools run in your layer (fast/dispatcher). They are NOT delegated to workers. The result comes back to YOU so you can use it in your response to the user.
 
-**§10 clarification:** The prohibition in §10 applies to Bash/Read/Write/Grep/Agent style development tools. `memory.search`, `knowledge.search`, `web.search`, and `web.fetch` are your tools — lightweight, fast, inline. Use them freely without wrapping in a delegate block.
+**§10 clarification:** The prohibition in §10 applies to Bash/Read/Write/Grep/Agent style development tools. `memory.search` and `knowledge.search` are your tools — lightweight, fast, internal. Use them freely without wrapping in a delegate block. For web search, use a delegate with `model: "haiku"`.
 
 **Practical example:**
 User asks "what did we decide about the authentication system?"
