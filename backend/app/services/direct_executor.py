@@ -119,6 +119,54 @@ class DirectExecutor:
         action = delegate_data.get("action", "")
         return action in CONFIRM_REQUIRED
 
+
+    @staticmethod
+    async def _resolve_card_by_title(
+        title: str,
+        project_id: str,
+    ) -> str | None:
+        """Look up a card_id by title within a project.
+
+        Returns the card_id if found, None otherwise.
+        If multiple cards match, returns the first and logs a warning.
+        """
+        from app.mcp_server import _find_tool, _call_api
+
+        list_tool = _find_tool("voxyflow.card.list")
+        if not list_tool:
+            logger.error("[DirectExecutor] Cannot resolve card by title: voxyflow.card.list tool not found")
+            return None
+
+        try:
+            result = await _call_api(list_tool, {"project_id": project_id})
+        except Exception as e:
+            logger.error(f"[DirectExecutor] card.list failed during title lookup: {e}")
+            return None
+
+        # result can be a list of cards or a dict with a cards key
+        cards = result if isinstance(result, list) else result.get("cards", result.get("data", []))
+        if not isinstance(cards, list):
+            logger.warning(f"[DirectExecutor] Unexpected card.list response format: {type(result)}")
+            return None
+
+        # Normalize search title for fuzzy matching
+        search_title = title.strip().lower()
+        matches = [c for c in cards if c.get("title", "").strip().lower() == search_title]
+
+        if not matches:
+            logger.info(f"[DirectExecutor] No card found with title '{title}' in project {project_id}")
+            return None
+
+        if len(matches) > 1:
+            logger.warning(
+                f"[DirectExecutor] {len(matches)} cards match title '{title}' in project {project_id}, "
+                f"using first: {matches[0].get('id')}"
+            )
+
+        card_id = matches[0].get("id")
+        logger.info(f"[DirectExecutor] Resolved title '{title}' → card_id={card_id}")
+        return card_id
+
     @staticmethod
     async def execute(
         delegate_data: dict,
@@ -178,6 +226,45 @@ class DirectExecutor:
                     "action": action,
                     "mcp_tool": mcp_tool_name,
                     "error": "project_id required but not available",
+                    "duration_ms": 0,
+                }
+
+        # --- Auto-resolve card_id by title for move/update actions ---
+        card_move_actions = {"card.move", "move_card", "card.update", "update_card"}
+        if action in card_move_actions and "card_id" not in params:
+            # Try to resolve by title, card_title, or name
+            card_title = (
+                params.pop("card_title", None)
+                or params.pop("title", None)
+                or params.pop("name", None)
+            )
+            if card_title and project_id:
+                logger.info(f"[DirectExecutor] card_id missing for {action}, resolving by title: '{card_title}'")
+                resolved_id = await DirectExecutor._resolve_card_by_title(card_title, project_id)
+                if resolved_id:
+                    params["card_id"] = resolved_id
+                else:
+                    return {
+                        "success": False,
+                        "action": action,
+                        "mcp_tool": mcp_tool_name,
+                        "error": f"No card found with title '{card_title}' in current project",
+                        "duration_ms": 0,
+                    }
+            elif not card_title:
+                return {
+                    "success": False,
+                    "action": action,
+                    "mcp_tool": mcp_tool_name,
+                    "error": f"card_id is required for {action} — provide card_id or card_title/title for auto-lookup",
+                    "duration_ms": 0,
+                }
+            else:
+                return {
+                    "success": False,
+                    "action": action,
+                    "mcp_tool": mcp_tool_name,
+                    "error": "Cannot resolve card by title: no project_id available",
                     "duration_ms": 0,
                 }
 

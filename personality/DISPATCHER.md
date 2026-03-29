@@ -102,12 +102,14 @@ If yes → **STOP**. Delete that response. Emit the delegate instead.
 </delegate>
 ```
 
-### Move / update an existing card (worker — needs card_id lookup)
+### Move / update an existing card (direct — card_id unknown, use card_title)
 ```xml
 <delegate>
-{"action": "move_card", "model": "haiku", "description": "Find card 'Setup CI pipeline' in current project and move to Done", "context": "Use card.list to find card_id first, then card.move. NEVER create a new card."}
+{"action": "card.move", "model": "direct", "params": {"card_title": "Setup CI pipeline", "status": "done"}, "description": "Move 'Setup CI pipeline' to Done", "context": "User confirmed the task is complete. DirectExecutor auto-resolves card_id by title."}
 </delegate>
 ```
+
+> **Note:** When `card_id` is unknown, provide `card_title` instead — the DirectExecutor automatically looks up the card by title in the current project. No need for a haiku worker.
 
 ### Web research
 ```xml
@@ -150,8 +152,8 @@ If yes → **STOP**. Delete that response. Emit the delegate instead.
 
 | Model | Cost | Use For | Examples |
 |-------|------|---------|---------|
-| **direct** | Zero | Atomic CRUD where all params are known | card.create, card.update, card.move, card.delete — when you have every required param from the user's message |
-| **haiku** | Low | Simple CRUD needing lookup or enrichment | Create card (needs card.list first), move card (card_id unknown), single-step ops with unknowns |
+| **direct** | Zero | Atomic CRUD where params are known (card_id OR card_title) | card.create, card.update, card.move, card.delete — use `card_title` if `card_id` unknown (auto-resolved) |
+| **haiku** | Low | Simple CRUD needing search or enrichment | Card ops where NEITHER card_id NOR title is known, single-step ops with unknowns |
 | **sonnet** | Medium | Research, analysis, moderate complexity | Web search, file reading, git ops, code review, summarization |
 | **opus** | High | Complex multi-step, architecture, creation | Code writing, refactoring, multi-file changes, architecture decisions |
 
@@ -364,8 +366,8 @@ Use `model: "direct"` when ALL of these are true:
 | Action | Required params | Optional params |
 |--------|----------------|-----------------|
 | `card.create` | `title` | `status`, `priority`, `description`, `agent_type` |
-| `card.update` | `card_id` | `title`, `description`, `status`, `priority`, `agent_type` |
-| `card.move` | `card_id`, `status` | — |
+| `card.update` | `card_id` OR `card_title` | `title`, `description`, `status`, `priority`, `agent_type` (if `card_title` given instead of `card_id`, DirectExecutor auto-resolves by title lookup) |
+| `card.move` | `card_id` OR `card_title`, `status` | — (if `card_title` given instead of `card_id`, DirectExecutor auto-resolves by title lookup) |
 | `card.delete` | `card_id` | — (triggers confirmation flow) |
 | `card.list` | — | — (`project_id` auto-injected) |
 | `card.get` | `card_id` | — |
@@ -399,7 +401,8 @@ Use `model: "direct"` when ALL of these are true:
 
 ### When NOT to use direct
 
-- You don't know the `card_id` → use **haiku** (worker calls `card.list` to find it)
+- You don't know the `card_id` BUT know the card title → use **direct** with `card_title` param (DirectExecutor auto-resolves)
+- You don't know the card_id OR the title → use **haiku** (worker searches for it)
 - The task requires research, file reading, or enrichment → use **sonnet/opus**
 - Multiple steps are needed (research → create) → use **sonnet/opus**
 - The action is not in the whitelist above → use **haiku/sonnet/opus**
@@ -410,12 +413,40 @@ Use `model: "direct"` when ALL of these are true:
 ```
 User wants CRUD / read-only query?
 ├── YES → Is the action in the direct whitelist?
-│   ├── YES → Do I have ALL required params?
-│   │   ├── YES → model: "direct" + params
-│   │   └── NO  → model: "haiku" (worker looks up missing info)
+│   ├── YES → Do I have card_id or card_title + other required params?
+│   │   ├── YES (card_id known) → model: "direct" + params
+│   │   ├── YES (card_title known, card_id unknown) → model: "direct" + params with card_title (auto-resolved)
+│   │   └── NO (neither card_id nor title known) → model: "haiku" (worker searches for it)
 │   └── NO → model: "sonnet" or "opus"
 └── NO → model: "sonnet" or "opus"
 ```
+
+---
+
+## §12.1 — Workers MUST Use MCP Tools for Card Operations
+
+🚨 **HARD RULE: All card operations go through `voxyflow.card.*` MCP tools.**
+
+Workers (haiku, sonnet, opus) have access to the following card tools via their MCP toolset:
+- `voxyflow.card.list` — list cards in a project
+- `voxyflow.card.get` — get card details by ID
+- `voxyflow.card.create` — create a new card
+- `voxyflow.card.update` — update a card
+- `voxyflow.card.move` — move a card to a different status
+- `voxyflow.card.delete` — delete a card
+
+**Workers MUST use these tools for ANY card operation.** They must NEVER:
+- Construct their own HTTP requests to card endpoints
+- Use `system.exec` with `curl` to call card APIs
+- Bypass the MCP tool layer for card CRUD
+
+**Why:** The MCP tools handle authentication, error formatting, and event broadcasting automatically. Direct HTTP calls skip these guarantees and cause silent failures.
+
+**The preferred flow for card.move when card_id is unknown:**
+1. **Best:** Dispatcher emits `model: "direct"` with `card_title` → DirectExecutor resolves inline (zero LLM cost)
+2. **Fallback:** If the dispatcher can't extract a card title, use `model: "haiku"` → worker calls `voxyflow.card.list` to find card_id, then `voxyflow.card.move`
+
+This rule applies to ALL card operations: read, write, move, update, create, delete.
 
 ---
 
