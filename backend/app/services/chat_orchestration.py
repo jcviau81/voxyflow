@@ -1551,6 +1551,29 @@ class ChatOrchestrator:
             return f"Card retrieved ({duration}ms)"
         elif action in ("card.delete", "delete_card"):
             return f"Card deleted ({duration}ms)"
+        elif action in ("card.list", "list_cards"):
+            if isinstance(api_result, list):
+                count = len(api_result)
+                if count == 0:
+                    return "No cards found."
+                parts = ["Found {} card(s):".format(count)]
+                for c in api_result[:20]:
+                    t = c.get("title", "Untitled")
+                    s = c.get("status", "?")
+                    cid = c.get("id", "")
+                    parts.append("- [{}] {} (id: {})".format(s, t, cid))
+                return "\n".join(parts)
+            return "card.list completed ({} ms)".format(duration)
+        elif action in ("project.list", "list_projects"):
+            if isinstance(api_result, list):
+                count = len(api_result)
+                parts = ["Found {} project(s):".format(count)]
+                for p in api_result[:10]:
+                    t = p.get("title", "Untitled")
+                    pid = p.get("id", "")
+                    parts.append("- {} (id: {})".format(t, pid))
+                return "\n".join(parts)
+            return "project.list completed ({} ms)".format(duration)
         else:
             return f"Action `{action}` completed ({duration}ms)"
 
