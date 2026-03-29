@@ -841,7 +841,6 @@ def _get_system_handler(name: str):
             "tmux_kill": tmux_kill,
             "task_complete": handle_task_complete,
             "knowledge_search": knowledge_search,
-            "memory_search": memory_search_tool,
         })
 
         async def memory_search_tool(params: dict) -> dict:
@@ -871,6 +870,8 @@ def _get_system_handler(name: str):
                 return {"results": formatted, "count": len(formatted)}
             except Exception as e:
                 return {"error": str(e)}
+
+        _SYSTEM_HANDLERS["memory_search"] = memory_search_tool
     return _SYSTEM_HANDLERS.get(name)
 
 
