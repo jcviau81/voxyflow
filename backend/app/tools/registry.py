@@ -24,7 +24,8 @@ TOOLS_READ_ONLY = {
     "voxyflow.wiki.list", "voxyflow.wiki.get",
     "voxyflow.doc.list",
     "voxyflow.jobs.list",
-    "knowledge.search",  # Memory search — fast layer needs this for context
+    "knowledge.search",  # RAG search on project knowledge (wiki + docs)
+    "memory.search",     # Conversational memory search (facts, preferences, history)
     "web.search", "web.fetch",  # Web search — no API key, fast enough for dispatcher
 }
 

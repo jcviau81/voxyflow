@@ -762,6 +762,20 @@ _TOOL_DEFINITIONS: list[dict] = [
 
     # ---- Knowledge Base (on-demand RAG) ------------------------------------
     {
+        "name": "memory.search",
+        "description": "Search Voxy's conversational memory — facts, decisions, preferences, and context learned from past conversations. Use to recall what was discussed, what the user likes, project history, etc.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string", "description": "What to search for in memory"},
+                "project_id": {"type": "string", "description": "Optional: limit search to a specific project's memory"},
+                "limit": {"type": "integer", "description": "Max results (default 5)", "default": 5},
+            },
+        },
+        "_handler": "memory_search",
+    },
+    {
         "name": "knowledge.search",
         "description": "Search the project knowledge base (RAG) for relevant context. Use when you need background information about the project that isn't in the task description.",
         "inputSchema": {
@@ -827,7 +841,36 @@ def _get_system_handler(name: str):
             "tmux_kill": tmux_kill,
             "task_complete": handle_task_complete,
             "knowledge_search": knowledge_search,
+            "memory_search": memory_search_tool,
         })
+
+        async def memory_search_tool(params: dict) -> dict:
+            """Search conversational memory — facts, preferences, decisions from past chats."""
+            from app.services.memory_service import get_memory_service
+            query = params.get("query", "")
+            project_id = params.get("project_id")
+            limit = min(params.get("limit", 5), 20)
+            if not query:
+                return {"error": "query is required"}
+            try:
+                svc = get_memory_service()
+                collections = None
+                if project_id:
+                    collections = [f"memory-project-{project_id}", "global-memory"]
+                results = svc.search_memory(query, collections=collections, limit=limit)
+                if not results:
+                    return {"results": [], "count": 0, "note": "No memories found for this query"}
+                formatted = []
+                for r in results:
+                    formatted.append({
+                        "text": r.get("text", "")[:400],
+                        "score": round(r.get("score", 0), 3),
+                        "collection": r.get("collection", ""),
+                        "metadata": r.get("metadata", {}),
+                    })
+                return {"results": formatted, "count": len(formatted)}
+            except Exception as e:
+                return {"error": str(e)}
     return _SYSTEM_HANDLERS.get(name)
 
 
