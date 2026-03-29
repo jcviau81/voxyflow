@@ -155,9 +155,9 @@ class _LRUDict(OrderedDict):
 # Model name mapping: short names → Anthropic full names
 # ---------------------------------------------------------------------------
 _MODEL_MAP = {
-    "claude-haiku-4":   "claude-haiku-4-5-20251001",
-    "claude-sonnet-4":  "claude-sonnet-4-6",
-    "claude-opus-4":    "claude-opus-4-6",
+    "claude-haiku-4":   "claude-haiku-4-20250514",
+    "claude-sonnet-4":  "claude-sonnet-4-20250514",
+    "claude-opus-4":    "claude-opus-4-20250514",
     "claude-haiku-3":   "claude-3-haiku-20240307",
     "claude-sonnet-3":  "claude-3-5-sonnet-20241022",
     "claude-opus-3":    "claude-3-opus-20240229",
@@ -230,6 +230,94 @@ DELEGATE_ACTION_TOOL = {
         "required": ["action", "summary"],
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Inline tools — executed directly by the fast layer (no delegation)
+# ---------------------------------------------------------------------------
+
+INLINE_TOOLS = [
+    {
+        "name": "memory_search",
+        "description": (
+            "Search Voxy's long-term memory for relevant context. Use this to recall "
+            "prior conversations, decisions, user preferences, or stored facts."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language search query — describe what you're trying to remember",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results to return (default 5)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "knowledge_search",
+        "description": (
+            "Search the project knowledge base (RAG) for relevant context. Use when you "
+            "need background information about the project."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "string",
+                    "description": "Project ID to search within (default: system-main)",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search query — describe what you're looking for",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+]
+
+# Names of tools that execute inline (not delegated)
+_INLINE_TOOL_NAMES = {t["name"] for t in INLINE_TOOLS}
+
+
+async def _execute_inline_tool(name: str, params: dict) -> dict:
+    """Execute an inline tool and return the result."""
+    if name == "memory_search":
+        from app.services.memory_service import get_memory_service
+        query = params.get("query", "")
+        if not query:
+            return {"error": "query is required"}
+        limit = params.get("limit", 5)
+        try:
+            ms = get_memory_service()
+            results = ms.search_memory(query, limit=limit)
+            if not results:
+                return {"result": "No matching memories found."}
+            formatted = [
+                {"text": r.get("text", ""), "score": round(r.get("score", 0), 3),
+                 "collection": r.get("collection", "")}
+                for r in results
+            ]
+            return {"results": formatted}
+        except Exception as e:
+            return {"error": str(e)}
+    elif name == "knowledge_search":
+        from app.services.rag_service import get_rag_service
+        project_id = params.get("project_id", "system-main")
+        query = params.get("query", "")
+        if not query:
+            return {"error": "query is required"}
+        try:
+            result = await get_rag_service().build_rag_context(project_id, query)
+            return {"result": result or "No relevant knowledge found."}
+        except Exception as e:
+            return {"error": str(e)}
+    return {"error": f"Unknown inline tool: {name}"}
 
 
 # ---------------------------------------------------------------------------
@@ -867,8 +955,9 @@ class ClaudeService:
             if use_native_delegate:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-                    "I converse with you directly and delegate all actions to background workers "
-                    "using the delegate_action tool. I never execute actions myself. When you ask "
+                    "I converse with you directly and delegate most actions to background workers "
+                    "using the delegate_action tool. I also have inline tools (memory_search, "
+                    "knowledge_search) that I execute directly to recall context. When you ask "
                     "me to do something like a web search or create a card, I respond briefly and "
                     "call delegate_action to trigger the worker. The worker handles it in the "
                     "background and the result appears in the chat."
@@ -1504,113 +1593,167 @@ class ClaudeService:
             "max_tokens": self.max_tokens,
             "system": system,
             "messages": clean_messages,
-            "tools": [DELEGATE_ACTION_TOOL],
+            "tools": [DELEGATE_ACTION_TOOL] + INLINE_TOOLS,
         }
 
+        max_inline_rounds = 3  # Prevent infinite inline tool loops
+
         try:
-            # Collect streamed content and tool_use blocks
-            streamed_text_parts: list[str] = []
-            tool_use_blocks: list = []
+            for inline_round in range(max_inline_rounds + 1):
+                # Collect streamed content and tool_use blocks
+                streamed_text_parts: list[str] = []
+                tool_use_blocks: list = []
 
-            def _do_stream():
-                events = []
-                with client.messages.stream(**kwargs) as stream:
-                    for text in stream.text_stream:
-                        events.append(("text", text))
-                    final_msg = stream.get_final_message()
-                    for block in final_msg.content:
-                        if block.type == "tool_use":
-                            events.append(("tool_use", block))
-                    events.append(("stop_reason", final_msg.stop_reason))
-                    events.append(("usage", final_msg.usage))
-                return events
+                def _do_stream(_kw=kwargs):
+                    events = []
+                    with client.messages.stream(**_kw) as stream:
+                        for text in stream.text_stream:
+                            events.append(("text", text))
+                        final_msg = stream.get_final_message()
+                        for block in final_msg.content:
+                            if block.type == "tool_use":
+                                events.append(("tool_use", block))
+                        events.append(("stop_reason", final_msg.stop_reason))
+                        events.append(("usage", final_msg.usage))
+                    return events
 
-            events = await asyncio.to_thread(_do_stream)
+                events = await asyncio.to_thread(_do_stream)
 
-            stop_reason = "end_turn"
-            stream_usage = None
-            for event_type, data in events:
-                if event_type == "text":
-                    streamed_text_parts.append(data)
-                    yield data
-                elif event_type == "tool_use":
-                    tool_use_blocks.append(data)
-                elif event_type == "stop_reason":
-                    stop_reason = data
-                elif event_type == "usage":
-                    stream_usage = data
+                stop_reason = "end_turn"
+                stream_usage = None
+                for event_type, data in events:
+                    if event_type == "text":
+                        streamed_text_parts.append(data)
+                        yield data
+                    elif event_type == "tool_use":
+                        tool_use_blocks.append(data)
+                    elif event_type == "stop_reason":
+                        stop_reason = data
+                    elif event_type == "usage":
+                        stream_usage = data
 
-            # Log token usage from the delegate stream
-            if stream_usage:
-                _log_token_usage(
-                    layer=self._infer_layer(model),
-                    model=model,
-                    input_tokens=stream_usage.input_tokens,
-                    output_tokens=stream_usage.output_tokens,
-                    chat_id=chat_id,
-                    cache_creation_tokens=getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
-                    cache_read_tokens=getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
-                )
+                # Log token usage from the delegate stream
+                if stream_usage:
+                    _log_token_usage(
+                        layer=self._infer_layer(model),
+                        model=model,
+                        input_tokens=stream_usage.input_tokens,
+                        output_tokens=stream_usage.output_tokens,
+                        chat_id=chat_id,
+                        cache_creation_tokens=getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
+                        cache_read_tokens=getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
+                    )
 
-            if not tool_use_blocks:
-                # No delegates — done
-                return
+                if not tool_use_blocks:
+                    # No tool calls — done
+                    return
 
-            # Collect delegate tool_use blocks (don't execute — orchestrator handles them)
-            delegates = []
-            for block in tool_use_blocks:
-                if block.name == "delegate_action":
-                    delegates.append(block.input or {})
+                # Separate inline tools from delegate tool calls
+                inline_blocks = [b for b in tool_use_blocks if b.name in _INLINE_TOOL_NAMES]
+                delegate_blocks = [b for b in tool_use_blocks if b.name == "delegate_action"]
+                unknown_blocks = [b for b in tool_use_blocks if b.name not in _INLINE_TOOL_NAMES and b.name != "delegate_action"]
+
+                for b in unknown_blocks:
+                    logger.warning(f"[NativeDelegate] Unexpected tool_use: {b.name} — ignoring")
+
+                # Collect delegates
+                for block in delegate_blocks:
+                    self._pending_delegates.setdefault(chat_id, []).append(block.input or {})
                     logger.info(
                         f"[NativeDelegate] Collected delegate_action: "
                         f"action={block.input.get('action')}, summary={block.input.get('summary', '')!r}"
                     )
-                else:
-                    logger.warning(f"[NativeDelegate] Unexpected tool_use: {block.name} — ignoring")
 
-            if delegates:
-                self._pending_delegates[chat_id] = delegates
+                # Execute inline tools
+                inline_results: dict[str, str] = {}
+                for block in inline_blocks:
+                    logger.info(f"[InlineTool] Executing {block.name} with {block.input}")
+                    result = await _execute_inline_tool(block.name, block.input or {})
+                    inline_results[block.id] = json.dumps(result, default=str, ensure_ascii=False)
+                    logger.info(f"[InlineTool] {block.name} result: {len(inline_results[block.id])} chars")
 
-            # If Claude stopped for tool_use, we need to send back a synthetic result
-            # so it can finish its response (it may want to say something after delegating).
-            if stop_reason == "tool_use":
-                # Build the continuation: acknowledge the delegate(s)
-                assistant_content = []
-                if streamed_text_parts:
-                    assistant_content.append({"type": "text", "text": "".join(streamed_text_parts)})
-                for block in tool_use_blocks:
-                    assistant_content.append({
-                        "type": "tool_use",
-                        "id": block.id,
-                        "name": block.name,
-                        "input": block.input,
-                    })
+                # If we have inline tools that need results fed back, continue the loop
+                if inline_blocks and stop_reason == "tool_use":
+                    # Build continuation with tool results
+                    assistant_content = []
+                    if streamed_text_parts:
+                        assistant_content.append({"type": "text", "text": "".join(streamed_text_parts)})
+                    for block in tool_use_blocks:
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": block.id,
+                            "name": block.name,
+                            "input": block.input,
+                        })
 
-                continuation_messages = list(clean_messages) + [
-                    {"role": "assistant", "content": assistant_content},
-                    {"role": "user", "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps({"status": "delegated", "message": "Action dispatched to background worker."}),
-                        }
-                        for block in tool_use_blocks
-                    ]},
-                ]
+                    tool_results_content = []
+                    for block in tool_use_blocks:
+                        if block.id in inline_results:
+                            tool_results_content.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": inline_results[block.id],
+                            })
+                        else:
+                            # Delegate or unknown — acknowledge
+                            tool_results_content.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps({"status": "delegated", "message": "Action dispatched to background worker."}),
+                            })
 
-                # Get the final response (no tools this time — just let Claude finish talking)
-                final_kwargs = {
-                    "model": model,
-                    "max_tokens": self.max_tokens,
-                    "system": system,
-                    "messages": continuation_messages,
-                }
-                final_response = await asyncio.to_thread(
-                    lambda kw=final_kwargs: client.messages.create(**kw)
-                )
-                for block in final_response.content:
-                    if block.type == "text" and block.text:
-                        yield block.text
+                    kwargs["messages"] = list(clean_messages) + [
+                        {"role": "assistant", "content": assistant_content},
+                        {"role": "user", "content": tool_results_content},
+                    ]
+                    # Reset streamed text for next round
+                    streamed_text_parts = []
+                    continue  # Next round of the inline loop
+
+                # No inline tools or not stopped for tool_use — handle delegate continuation
+                if stop_reason == "tool_use" and delegate_blocks:
+                    # Build the continuation: acknowledge the delegate(s)
+                    assistant_content = []
+                    if streamed_text_parts:
+                        assistant_content.append({"type": "text", "text": "".join(streamed_text_parts)})
+                    for block in tool_use_blocks:
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": block.id,
+                            "name": block.name,
+                            "input": block.input,
+                        })
+
+                    continuation_messages = list(clean_messages) + [
+                        {"role": "assistant", "content": assistant_content},
+                        {"role": "user", "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps({"status": "delegated", "message": "Action dispatched to background worker."}),
+                            }
+                            for block in tool_use_blocks
+                        ]},
+                    ]
+
+                    # Get the final response (no tools this time — just let Claude finish talking)
+                    final_kwargs = {
+                        "model": model,
+                        "max_tokens": self.max_tokens,
+                        "system": system,
+                        "messages": continuation_messages,
+                    }
+                    final_response = await asyncio.to_thread(
+                        lambda kw=final_kwargs: client.messages.create(**kw)
+                    )
+                    for block in final_response.content:
+                        if block.type == "text" and block.text:
+                            yield block.text
+
+                # Done — exit the loop
+                return
+
+            logger.warning("[NativeDelegate] Inline tool loop exceeded max rounds")
 
         except Exception as e:
             logger.error(f"Anthropic delegate streaming call failed: {e}")

@@ -27,6 +27,7 @@ _GENERAL_CONTEXT_TOOLS = {
     "tmux.list", "tmux.capture", "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
     "voxyflow.jobs.list", "voxyflow.jobs.create",
     "voxyflow.doc.list", "voxyflow.doc.delete",
+    "memory.search", "knowledge.search",
 }
 
 _PROJECT_EXCLUDED_TOOLS: set[str] = set()  # No longer excluding unassigned tools — they're aliases

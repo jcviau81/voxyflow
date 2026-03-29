@@ -24,11 +24,10 @@ TOOLS_READ_ONLY = {
     "voxyflow.wiki.list", "voxyflow.wiki.get",
     "voxyflow.doc.list",
     "voxyflow.jobs.list",
-    "knowledge.search",  # RAG search on project knowledge (wiki + docs)
-    "memory.search",     # Conversational memory search (facts, preferences, history)
+    "memory.search", "knowledge.search",
 }
 
-# CRUD tools: Analyzer (Haiku) can do trivial dashboard actions + web search
+# CRUD tools: Analyzer (Haiku) can do trivial dashboard actions
 TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
     "voxyflow.card.create_unassigned",
     "voxyflow.project.create",
@@ -36,7 +35,6 @@ TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
     "voxyflow.card.duplicate", "voxyflow.card.enrich",
     "voxyflow.wiki.create", "voxyflow.wiki.update",
     "task.complete",  # Worker supervision — all tiers must signal completion
-    "web.search", "web.fetch",  # Web research — workers only, not fast layer
 }
 
 # Full tools: Deep (Opus) can do everything including exec, write, delete
@@ -57,7 +55,6 @@ _LAYER_TOOL_SETS = {
     "fast": TOOLS_READ_ONLY,
     "analyzer": TOOLS_VOXYFLOW_CRUD,
     "deep": TOOLS_FULL,
-    "sonnet": TOOLS_FULL,  # Sonnet gets same access as Opus
 }
 
 
