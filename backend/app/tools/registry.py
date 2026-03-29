@@ -26,7 +26,7 @@ TOOLS_READ_ONLY = {
     "voxyflow.jobs.list",
 }
 
-# CRUD tools: Analyzer (Haiku) can do trivial dashboard actions
+# CRUD tools: Analyzer (Haiku) can do trivial dashboard actions + web search
 TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
     "voxyflow.card.create_unassigned",
     "voxyflow.project.create",
@@ -34,6 +34,7 @@ TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
     "voxyflow.card.duplicate", "voxyflow.card.enrich",
     "voxyflow.wiki.create", "voxyflow.wiki.update",
     "task.complete",  # Worker supervision — all tiers must signal completion
+    "web.search", "web.fetch",  # Web research available to all worker tiers
 }
 
 # Full tools: Deep (Opus) can do everything including exec, write, delete
