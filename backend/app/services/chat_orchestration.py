@@ -1195,6 +1195,7 @@ class ChatOrchestrator:
                     websocket=websocket,
                     session_id=session_id,
                     project_id=project_id,
+                    chat_id=chat_id,
                 )
             else:
                 worker_delegates.append(data)
@@ -1321,6 +1322,7 @@ class ChatOrchestrator:
                     websocket=websocket,
                     session_id=session_id,
                     project_id=project_id,
+                    chat_id=chat_id,
                 )
             else:
                 worker_delegates.append(data)
@@ -1403,6 +1405,7 @@ class ChatOrchestrator:
         websocket: "WebSocket",
         session_id: str,
         project_id: str | None = None,
+        chat_id: str | None = None,
     ) -> None:
         """Execute a direct (model='direct') action inline — no worker, no LLM.
 
@@ -1471,18 +1474,8 @@ class ChatOrchestrator:
         except Exception as e:
             logger.warning(f"[DirectExecutor] Failed to send action:completed: {e}")
 
-        # --- Inject result into conversation history so Voxy sees it ---
-        if result.get("success") and confirmation_msg and session_id:
-            try:
-                self._claude.add_to_history(
-                    session_id,
-                    "user",
-                    "[Direct tool result: {}]\n{}".format(action, confirmation_msg),
-                    msg_type="tool_results",
-                )
-                logger.info("[DirectExecutor] Injected {} result into history for {}".format(action, session_id))
-            except Exception as e:
-                logger.warning("[DirectExecutor] Failed to inject result into history: {}".format(e))
+        # --- Build confirmation message FIRST (needed by injection and chat) ---
+        confirmation_msg = self._build_direct_confirmation(action, result)
 
         # --- Broadcast card change so board updates in real-time ---
         if result.get("success") and action in (
@@ -1499,9 +1492,66 @@ class ChatOrchestrator:
             except Exception:
                 pass
 
-        # --- Brief chat confirmation so user sees it in the conversation ---
-        confirmation_msg = self._build_direct_confirmation(action, result)
-        if confirmation_msg:
+        # --- For READ actions: re-trigger dispatcher so Voxy sees the result ---
+        is_read_action = action in READ_ACTIONS
+        if is_read_action and result.get("success") and chat_id and confirmation_msg:
+            # Inject result into dispatcher history as assistant message
+            # (same pattern as worker auto-callback in DeepWorkerPool._execute_event)
+            try:
+                await self._claude._append_and_persist_async(
+                    chat_id=chat_id,
+                    role="assistant",
+                    content=f"[Direct Result \u2014 {action}]\n{confirmation_msg}",
+                    model="system",
+                    msg_type="tool_result",
+                )
+                logger.info(f"[DirectExecutor] Injected {action} result into dispatcher history for {chat_id}")
+            except Exception as e:
+                logger.warning(f"[DirectExecutor] Failed to inject result into history: {e}")
+
+            # Re-trigger dispatcher so LLM gets a new turn with the data
+            try:
+                callback_msg = (
+                    f"[SYSTEM: Direct action '{action}' completed. "
+                    f"The result is in your conversation history above. "
+                    f"Present the information to the user naturally.]"
+                )
+                callback_message_id = f"direct-cb-{uuid4().hex[:8]}"
+                logger.info(f"[DirectExecutor] Re-triggering dispatcher after {action}")
+
+                await self.handle_message(
+                    websocket=websocket,
+                    content=callback_msg,
+                    message_id=callback_message_id,
+                    chat_id=chat_id,
+                    project_id=project_id,
+                    chat_level="project" if project_id else "general",
+                    session_id=session_id,
+                    is_callback=True,
+                    callback_depth=0,
+                )
+            except Exception as cb_err:
+                logger.warning(f"[DirectExecutor] Dispatcher re-trigger failed: {cb_err}", exc_info=True)
+                # Fallback: send confirmation as chat message
+                if confirmation_msg:
+                    msg_id = f"direct-msg-{uuid4().hex[:8]}"
+                    try:
+                        await websocket.send_json({
+                            "type": "chat:response",
+                            "payload": {
+                                "messageId": msg_id,
+                                "content": confirmation_msg,
+                                "model": "system",
+                                "streaming": False,
+                                "done": True,
+                                "sessionId": session_id,
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        })
+                    except Exception:
+                        pass
+        elif confirmation_msg:
+            # --- WRITE actions: just send chat confirmation (no re-trigger) ---
             msg_id = f"direct-msg-{uuid4().hex[:8]}"
             try:
                 await websocket.send_json({
