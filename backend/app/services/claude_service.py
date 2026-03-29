@@ -155,7 +155,7 @@ class _LRUDict(OrderedDict):
 # Model name mapping: short names → Anthropic full names
 # ---------------------------------------------------------------------------
 _MODEL_MAP = {
-    "claude-haiku-4":   "claude-haiku-4-6",
+    "claude-haiku-4":   "claude-haiku-4-5-20251001",
     "claude-sonnet-4":  "claude-sonnet-4-6",
     "claude-opus-4":    "claude-opus-4-6",
     "claude-haiku-3":   "claude-3-haiku-20240307",

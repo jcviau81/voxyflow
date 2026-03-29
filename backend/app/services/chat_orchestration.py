@@ -1471,6 +1471,19 @@ class ChatOrchestrator:
         except Exception as e:
             logger.warning(f"[DirectExecutor] Failed to send action:completed: {e}")
 
+        # --- Inject result into conversation history so Voxy sees it ---
+        if result.get("success") and confirmation_msg and session_id:
+            try:
+                self._claude.add_to_history(
+                    session_id,
+                    "user",
+                    "[Direct tool result: {}]\n{}".format(action, confirmation_msg),
+                    msg_type="tool_results",
+                )
+                logger.info("[DirectExecutor] Injected {} result into history for {}".format(action, session_id))
+            except Exception as e:
+                logger.warning("[DirectExecutor] Failed to inject result into history: {}".format(e))
+
         # --- Broadcast card change so board updates in real-time ---
         if result.get("success") and action in (
             "card.create", "create_card",
