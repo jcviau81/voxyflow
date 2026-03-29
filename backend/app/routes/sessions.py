@@ -49,7 +49,9 @@ async def create_session(body: CreateSessionRequest):
 async def get_session(chat_id: str, limit: int = Query(50, ge=1, le=500)):
     """Get messages for a specific session."""
     messages = session_store.get_recent_messages(chat_id, limit)
-    return {"chat_id": chat_id, "messages": messages, "count": len(messages)}
+    # Filter out internal tool_results messages (system context, not for UI)
+    visible = [m for m in messages if m.get("type") != "tool_results"]
+    return {"chat_id": chat_id, "messages": visible, "count": len(visible)}
 
 
 @router.delete("/{chat_id:path}")

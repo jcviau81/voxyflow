@@ -2172,8 +2172,18 @@ class ChatOrchestrator:
         except Exception as e:
             logger.error(f"[ToolCallFallback] Follow-up streaming failed: {e}")
 
-        # Persist the follow-up response in session history
+        # Persist tool results + follow-up response in session history
         if followup_full:
+            # 1. Persist tool results as a hidden user message (system context)
+            #    This ensures the LLM has tool context on subsequent turns.
+            #    msg_type="tool_results" lets the UI filter it out.
+            tool_results_msg = f"[SYSTEM: Tool execution results]\n\n{tool_context}"
+            self._claude._append_and_persist(
+                chat_id, "user", tool_results_msg,
+                model=model_label, msg_type="tool_results",
+                session_id=session_id,
+            )
+            # 2. Persist the assistant follow-up response
             self._claude._append_and_persist(
                 chat_id, "assistant", followup_full,
                 model=model_label, session_id=session_id,
