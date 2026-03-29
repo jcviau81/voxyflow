@@ -151,16 +151,19 @@ export class ChatService {
     // Handle Deep Worker task events (event bus architecture)
     this.unsubscribers.push(
       apiClient.on('task:started', (payload) => {
+        const _p = payload as any; if (_p.task_id && !_p.taskId) _p.taskId = _p.task_id;
         eventBus.emit(EVENTS.TASK_STARTED, payload);
       })
     );
     this.unsubscribers.push(
       apiClient.on('task:progress', (payload) => {
+        const _p = payload as any; if (_p.task_id && !_p.taskId) _p.taskId = _p.task_id;
         eventBus.emit(EVENTS.TASK_PROGRESS, payload);
       })
     );
     this.unsubscribers.push(
       apiClient.on('task:completed', (payload) => {
+        const _p = payload as any; if (_p.task_id && !_p.taskId) _p.taskId = _p.task_id;
         const { intent, summary, result, success, taskId, sessionId, projectId } = payload as {
           intent: string;
           summary: string;
@@ -210,6 +213,7 @@ export class ChatService {
     // Handle task cancellation events
     this.unsubscribers.push(
       apiClient.on('task:cancelled', (payload) => {
+        const _p = payload as any; if (_p.task_id && !_p.taskId) _p.taskId = _p.task_id;
         eventBus.emit(EVENTS.TASK_CANCELLED, payload);
         const { taskId } = payload as { taskId: string };
         eventBus.emit(EVENTS.TOAST_SHOW, {
@@ -221,6 +225,7 @@ export class ChatService {
     );
     this.unsubscribers.push(
       apiClient.on('task:timeout', (payload) => {
+        const _p = payload as any; if (_p.task_id && !_p.taskId) _p.taskId = _p.task_id;
         eventBus.emit(EVENTS.TASK_TIMEOUT, payload);
         const { intent, timeout_seconds } = payload as { intent: string; timeout_seconds: number };
         eventBus.emit(EVENTS.TOAST_SHOW, {
