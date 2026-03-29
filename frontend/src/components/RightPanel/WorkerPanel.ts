@@ -193,6 +193,12 @@ export class WorkerPanel {
         // Don't overwrite a locally-terminal task with a stale poll result
         if (existing && TERMINAL_STATUSES.has(existing.status)) continue;
 
+        // Skip terminal tasks from the API if they aren't already tracked locally.
+        // Terminal tasks (done/failed/cancelled) should only appear in the panel
+        // when they arrive via real-time WS events during the current session.
+        // This prevents old completed tasks from reappearing on page refresh.
+        if (!existing && TERMINAL_STATUSES.has(apiStatus)) continue;
+
         const startedAt = t.started_at ? new Date(t.started_at).getTime()
           : new Date(t.created_at).getTime();
         const completedAt = t.completed_at ? new Date(t.completed_at).getTime()
