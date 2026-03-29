@@ -1,9 +1,10 @@
 /**
- * WorkerPanel — Live view of Deep Worker tasks.
+ * WorkerPanel — Live view of Deep Worker tasks via the Worker Ledger API.
  *
  * Sits between the chat area and the Opportunities panel.
- * Shows active, queued, and recently completed worker tasks
- * with real-time progress updates via the event bus.
+ * Shows active and recently completed worker tasks with real-time
+ * updates via WebSocket events, backed by periodic polling of
+ * GET /api/worker-tasks for consistency.
  */
 
 import { eventBus } from '../../utils/EventBus';
@@ -14,30 +15,46 @@ import { appState } from '../../state/AppState';
 
 interface WorkerTask {
   taskId: string;
-  intent: string;
-  summary: string;
-  status: 'queued' | 'started' | 'executing' | 'completed' | 'failed' | 'cancelled' | 'timeout' | 'stale';
+  action: string;
+  description: string;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
   startedAt: number;
   completedAt?: number;
-  result?: string;
-  success?: boolean;
-  progressMessage?: string;
+  resultSummary?: string;
+  error?: string;
   model?: 'haiku' | 'sonnet' | 'opus';
   sessionId?: string;
+  expanded?: boolean;    // whether the result detail is expanded
 }
+
+/** Maps backend status strings to our canonical WorkerTask statuses. */
+const STATUS_MAP: Record<string, WorkerTask['status']> = {
+  pending: 'pending',
+  running: 'running',
+  done: 'done',
+  completed: 'done',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  timed_out: 'failed',
+  timeout: 'failed',
+};
+
+const TERMINAL_STATUSES = new Set<WorkerTask['status']>(['done', 'failed', 'cancelled']);
 
 export class WorkerPanel {
   private container: HTMLElement;
   private tasks: Map<string, WorkerTask> = new Map();
-  private purgedTaskIds: Set<string> = new Set(); // prevent re-hydration of purged tasks
-  private lastUpdate: Map<string, number> = new Map(); // taskId → last WS update timestamp
+  private dismissedTaskIds: Set<string> = new Set();
   private unsubscribers: (() => void)[] = [];
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private elapsedTimer: ReturnType<typeof setInterval> | null = null;
-  private staleTimer: ReturnType<typeof setInterval> | null = null;
   private collapsed = false;
   private onVisibilityChange = () => {
-    if (document.visibilityState === 'visible') this.cleanupCompleted();
+    if (document.visibilityState === 'visible') {
+      this.pollLedger();
+      this.cleanupCompleted();
+    }
   };
 
   constructor(private parentElement: HTMLElement) {
@@ -49,37 +66,38 @@ export class WorkerPanel {
     this.render();
     this.setupListeners();
 
-    // Hydrate from backend on initial load and reconnect
-    this.hydrateFromBackend();
+    // Initial fetch + start polling every 3 seconds
+    this.pollLedger();
+    this.pollTimer = setInterval(() => this.pollLedger(), 3000);
+
+    // Also re-fetch on WS reconnect for immediate consistency
     this.unsubscribers.push(
-      eventBus.on(EVENTS.WS_CONNECTED, () => this.hydrateFromBackend())
+      eventBus.on(EVENTS.WS_CONNECTED, () => this.pollLedger())
     );
 
-    // Cleanup completed tasks after 5 minutes (fallback timer)
+    // Cleanup completed tasks periodically (fallback)
     this.cleanupTimer = setInterval(() => this.cleanupCompleted(), 30000);
     // Live-update elapsed time for running tasks every second
     this.elapsedTimer = setInterval(() => this.updateElapsedTimes(), 1000);
-    // Detect stale workers every 15 seconds
-    this.staleTimer = setInterval(() => this.detectStaleWorkers(), 15000);
-    // Also cleanup when tab regains focus (mobile throttles setInterval)
+    // Re-sync when tab regains focus (mobile throttles setInterval)
     document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
-  // ── Listeners ───────────────────────────────────────────────────────────────
+  // ── Listeners (real-time via WebSocket) ────────────────────────────────────
 
   private setupListeners(): void {
     this.unsubscribers.push(
       eventBus.on(EVENTS.TASK_STARTED, (payload: any) => {
+        if (this.dismissedTaskIds.has(payload.taskId)) return;
         this.tasks.set(payload.taskId, {
           taskId: payload.taskId,
-          intent: payload.intent || 'unknown',
-          summary: payload.summary || '',
-          status: 'started',
+          action: payload.intent || 'unknown',
+          description: payload.summary || '',
+          status: 'running',
           startedAt: Date.now(),
           model: payload.model || 'sonnet',
           sessionId: payload.sessionId,
         });
-        this.lastUpdate.set(payload.taskId, Date.now());
         this.render();
       })
     );
@@ -87,10 +105,8 @@ export class WorkerPanel {
     this.unsubscribers.push(
       eventBus.on(EVENTS.TASK_PROGRESS, (payload: any) => {
         const task = this.tasks.get(payload.taskId);
-        if (task) {
-          task.status = 'executing';
-          task.progressMessage = payload.message || payload.status || 'Working...';
-          this.lastUpdate.set(payload.taskId, Date.now());
+        if (task && !TERMINAL_STATUSES.has(task.status)) {
+          task.status = 'running';
           this.render();
         }
       })
@@ -100,10 +116,10 @@ export class WorkerPanel {
       eventBus.on(EVENTS.TASK_COMPLETED, (payload: any) => {
         const task = this.tasks.get(payload.taskId);
         if (task) {
-          task.status = payload.success ? 'completed' : 'failed';
+          task.status = payload.success ? 'done' : 'failed';
           task.completedAt = Date.now();
-          task.result = payload.result;
-          task.success = payload.success;
+          task.resultSummary = payload.result || undefined;
+          task.error = payload.success ? undefined : (payload.result || 'Task failed');
           this.render();
         }
       })
@@ -124,100 +140,86 @@ export class WorkerPanel {
       eventBus.on(EVENTS.TASK_TIMEOUT, (payload: any) => {
         const task = this.tasks.get(payload.taskId);
         if (task) {
-          task.status = 'timeout';
+          task.status = 'failed';
           task.completedAt = Date.now();
+          task.error = `Timed out after ${payload.timeout_seconds || '?'}s`;
           this.render();
         }
       })
     );
   }
 
-  // ── Hydration ──────────────────────────────────────────────────────────────
+  // ── Ledger Polling ─────────────────────────────────────────────────────────
 
-  private async hydrateFromBackend(): Promise<void> {
+  private async pollLedger(): Promise<void> {
     try {
-      // Prefer project_id (stable across reconnects), fall back to session_id
-      const activeTab = appState.get('activeTab') as string | undefined;
       const projectId = appState.get('currentProjectId') as string | undefined;
+      const activeTab = appState.get('activeTab') as string | undefined;
       const contextTabId = activeTab === 'main' ? SYSTEM_PROJECT_ID : (activeTab || SYSTEM_PROJECT_ID);
       const chatId = appState.getActiveChatId(contextTabId);
 
-      let url: string;
-      if (projectId) {
-        url = `/api/workers/sessions?project_id=${encodeURIComponent(projectId)}`;
-      } else if (chatId) {
-        url = `/api/workers/sessions?session_id=${encodeURIComponent(chatId)}`;
-      } else {
-        url = '/api/workers/sessions';
-      }
+      const params = new URLSearchParams({ limit: '20' });
+      if (projectId) params.set('project_id', projectId);
+      else if (chatId) params.set('session_id', chatId);
 
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        console.warn(`[WorkerPanel] Hydration fetch failed: ${resp.status} ${resp.statusText}`);
-        return;
-      }
-      const data = await resp.json();
-      const sessions: Array<{
-        task_id: string;
-        session_id: string;
-        status: string;
-        model: string;
-        intent: string;
-        summary: string;
-        start_time: number;
-        end_time: number | null;
-        result_summary: string | null;
-      }> = data.sessions || [];
+      const resp = await fetch(`/api/worker-tasks?${params}`);
+      if (!resp.ok) return;
 
-      console.log(`[WorkerPanel] Hydrated ${sessions.length} sessions from backend`);
-      if (sessions.length === 0) return;
+      const data: {
+        tasks: Array<{
+          id: string;
+          session_id: string;
+          project_id: string | null;
+          action: string;
+          description: string;
+          model: string;
+          status: string;
+          result_summary: string | null;
+          error: string | null;
+          started_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+        }>;
+        count: number;
+      } = await resp.json();
 
-      const TERMINAL_STATES = new Set(['completed', 'failed', 'cancelled', 'timeout']);
+      let changed = false;
+      for (const t of data.tasks) {
+        if (this.dismissedTaskIds.has(t.id)) continue;
 
-      const statusMap: Record<string, WorkerTask['status']> = {
-        running: 'started',
-        completed: 'completed',
-        failed: 'failed',
-        timed_out: 'timeout',
-        cancelled: 'cancelled',
-      };
+        const existing = this.tasks.get(t.id);
+        const apiStatus = STATUS_MAP[t.status] || 'running';
 
-      for (const s of sessions) {
-        // Never re-add tasks that were already purged locally
-        if (this.purgedTaskIds.has(s.task_id)) continue;
+        // Don't overwrite a locally-terminal task with a stale poll result
+        if (existing && TERMINAL_STATUSES.has(existing.status)) continue;
 
-        const existing = this.tasks.get(s.task_id);
-
-        // If we already have this task locally in a terminal state, don't overwrite
-        // with a stale "running" from the backend
-        if (existing && TERMINAL_STATES.has(existing.status)) continue;
-
-        // If we have a live local state that's fresher, skip
-        if (existing && existing.status === 'executing') continue;
-
-        const mappedStatus = statusMap[s.status] || 'started';
-        const isTerminal = TERMINAL_STATES.has(mappedStatus);
-        // Always set completedAt for terminal tasks (fallback to now if backend lacks end_time)
-        const completedAt = s.end_time ? s.end_time * 1000
-          : isTerminal ? Date.now()
+        const startedAt = t.started_at ? new Date(t.started_at).getTime()
+          : new Date(t.created_at).getTime();
+        const completedAt = t.completed_at ? new Date(t.completed_at).getTime()
+          : TERMINAL_STATUSES.has(apiStatus) ? Date.now()
           : undefined;
 
-        this.tasks.set(s.task_id, {
-          taskId: s.task_id,
-          intent: s.intent || 'unknown',
-          summary: s.summary || '',
-          status: mappedStatus,
-          startedAt: s.start_time * 1000,
+        const updated: WorkerTask = {
+          taskId: t.id,
+          action: t.action || 'unknown',
+          description: t.description || '',
+          status: apiStatus,
+          startedAt,
           completedAt,
-          result: s.result_summary || undefined,
-          success: s.status === 'completed',
-          model: (s.model as WorkerTask['model']) || 'sonnet',
-          sessionId: s.session_id,
-        });
+          resultSummary: t.result_summary || undefined,
+          error: t.error || undefined,
+          model: (t.model as WorkerTask['model']) || 'sonnet',
+          sessionId: t.session_id,
+          expanded: existing?.expanded,
+        };
+
+        this.tasks.set(t.id, updated);
+        changed = true;
       }
-      this.render();
-    } catch (e) {
-      console.warn('[WorkerPanel] Failed to hydrate from backend:', e);
+
+      if (changed) this.render();
+    } catch {
+      // Silently ignore poll failures — WS events are the primary source
     }
   }
 
@@ -228,45 +230,17 @@ export class WorkerPanel {
     apiClient.send('task:cancel', { taskId, sessionId });
   }
 
-  // ── Staleness Detection ─────────────────────────────────────────────────────
-
-  private static readonly STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
-
-  /** Mark running workers as stale if no WS update in 2 minutes. */
-  private detectStaleWorkers(): void {
-    const now = Date.now();
-    let changed = false;
-    for (const task of this.tasks.values()) {
-      if (task.status !== 'started' && task.status !== 'executing') continue;
-      const lastSeen = this.lastUpdate.get(task.taskId) || task.startedAt;
-      if (now - lastSeen > WorkerPanel.STALE_THRESHOLD_MS) {
-        task.status = 'stale';
-        task.completedAt = now;
-        task.result = 'No heartbeat — worker appears dead';
-        task.success = false;
-        this.lastUpdate.delete(task.taskId);
-        changed = true;
-      }
-    }
-    if (changed) this.render();
-  }
-
-  /** Dismiss a single task from the panel. */
   private dismissTask(taskId: string): void {
     this.tasks.delete(taskId);
-    this.lastUpdate.delete(taskId);
-    this.purgedTaskIds.add(taskId);
+    this.dismissedTaskIds.add(taskId);
     this.render();
   }
 
-  /** Dismiss all stale/dead workers. */
-  private clearDeadWorkers(): void {
-    const DEAD_STATUSES = new Set(['stale', 'failed', 'timeout', 'cancelled']);
+  private clearTerminalTasks(): void {
     for (const [taskId, task] of this.tasks) {
-      if (DEAD_STATUSES.has(task.status)) {
+      if (TERMINAL_STATUSES.has(task.status)) {
         this.tasks.delete(taskId);
-        this.lastUpdate.delete(taskId);
-        this.purgedTaskIds.add(taskId);
+        this.dismissedTaskIds.add(taskId);
       }
     }
     this.render();
@@ -274,18 +248,16 @@ export class WorkerPanel {
 
   // ── Cleanup ─────────────────────────────────────────────────────────────────
 
-  /** Remove expired tasks from the map (no render). Differentiated TTLs. */
   private purgeExpired(): void {
     const now = Date.now();
-    const TTL_COMPLETED_MS = 90 * 1000;      // 90 seconds for successful completions
-    const TTL_ERROR_MS = 5 * 60 * 1000;      // 5 minutes for failed/stale/timeout/cancelled
+    const TTL_DONE_MS = 90 * 1000;
+    const TTL_ERROR_MS = 5 * 60 * 1000;
     for (const [taskId, task] of this.tasks) {
       if (!task.completedAt) continue;
-      const ttl = task.status === 'completed' ? TTL_COMPLETED_MS : TTL_ERROR_MS;
+      const ttl = task.status === 'done' ? TTL_DONE_MS : TTL_ERROR_MS;
       if (now - task.completedAt > ttl) {
         this.tasks.delete(taskId);
-        this.lastUpdate.delete(taskId);
-        this.purgedTaskIds.add(taskId);
+        this.dismissedTaskIds.add(taskId);
       }
     }
   }
@@ -296,7 +268,6 @@ export class WorkerPanel {
     if (this.tasks.size !== sizeBefore) this.render();
   }
 
-  /** Update elapsed time displays for running tasks without full re-render. */
   private updateElapsedTimes(): void {
     for (const task of this.tasks.values()) {
       if (task.completedAt) continue;
@@ -310,22 +281,17 @@ export class WorkerPanel {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   private render(): void {
-    // Eagerly clean expired tasks on every render (immune to timer throttling)
     this.purgeExpired();
-
     this.container.innerHTML = '';
 
     // Header
     const header = createElement('div', { className: 'worker-panel-header' });
-
     const titleRow = createElement('div', { className: 'worker-panel-title-row' });
     const activeCount = this.getActiveCount();
-    const title = createElement('span', { className: 'worker-panel-title' }, 'Workers');
-    titleRow.appendChild(title);
+    titleRow.appendChild(createElement('span', { className: 'worker-panel-title' }, 'Workers'));
 
     if (activeCount > 0) {
-      const badge = createElement('span', { className: 'worker-panel-badge' }, String(activeCount));
-      titleRow.appendChild(badge);
+      titleRow.appendChild(createElement('span', { className: 'worker-panel-badge' }, String(activeCount)));
     }
 
     const collapseBtn = createElement('button', {
@@ -339,14 +305,14 @@ export class WorkerPanel {
 
     header.appendChild(titleRow);
 
-    // "Clear dead" button when stale/failed/timeout workers exist
-    const deadCount = this.getDeadCount();
-    if (deadCount > 0) {
+    // "Clear finished" button when terminal tasks exist
+    const terminalCount = this.getTerminalCount();
+    if (terminalCount > 0) {
       const clearBtn = createElement('button', {
         className: 'worker-panel-clear-dead',
-        title: 'Clear dead workers',
-      }, `Clear dead (${deadCount})`);
-      clearBtn.addEventListener('click', () => this.clearDeadWorkers());
+        title: 'Clear finished tasks',
+      }, `Clear (${terminalCount})`);
+      clearBtn.addEventListener('click', () => this.clearTerminalTasks());
       header.appendChild(clearBtn);
     }
 
@@ -363,10 +329,8 @@ export class WorkerPanel {
     const body = createElement('div', { className: 'worker-panel-body' });
 
     if (this.tasks.size === 0) {
-      const empty = createElement('div', { className: 'worker-panel-empty' }, 'No active workers');
-      body.appendChild(empty);
+      body.appendChild(createElement('div', { className: 'worker-panel-empty' }, 'No active workers'));
     } else {
-      // Active tasks first, then completed
       const sorted = [...this.tasks.values()].sort((a, b) => {
         const aActive = !a.completedAt ? 0 : 1;
         const bActive = !b.completedAt ? 0 : 1;
@@ -383,8 +347,11 @@ export class WorkerPanel {
   }
 
   private renderTask(task: WorkerTask): HTMLElement {
+    const statusClass = task.status === 'done' ? 'completed'
+      : task.status === 'running' ? 'executing'
+      : task.status;
     const el = createElement('div', {
-      className: `worker-task worker-task--${task.status}`,
+      className: `worker-task worker-task--${statusClass}`,
       'data-task-id': task.taskId,
     });
 
@@ -402,39 +369,49 @@ export class WorkerPanel {
     // Content
     const content = createElement('div', { className: 'worker-task-content' });
 
-    const intentEl = createElement('div', { className: 'worker-task-intent' },
-      this.formatIntent(task.intent)
-    );
-    content.appendChild(intentEl);
+    content.appendChild(createElement('div', { className: 'worker-task-intent' },
+      this.formatAction(task.action)
+    ));
 
-    const summaryEl = createElement('div', { className: 'worker-task-summary' },
-      task.summary.substring(0, 80)
-    );
-    content.appendChild(summaryEl);
+    content.appendChild(createElement('div', { className: 'worker-task-summary' },
+      task.description.substring(0, 60)
+    ));
 
-    // Progress message or result
-    if (task.status === 'executing' && task.progressMessage) {
-      const progress = createElement('div', { className: 'worker-task-progress' },
-        task.progressMessage
-      );
-      content.appendChild(progress);
-    } else if (task.completedAt && task.result) {
+    // Error message for failed tasks
+    if (task.status === 'failed' && task.error) {
+      content.appendChild(createElement('div', {
+        className: 'worker-task-result worker-task-result--error',
+      }, task.error.substring(0, 200)));
+    }
+
+    // Result summary — collapsed by default, expandable on click
+    if (task.completedAt && task.resultSummary && task.status !== 'failed') {
+      const resultText = task.expanded
+        ? task.resultSummary.substring(0, 200)
+        : task.resultSummary.substring(0, 60) + (task.resultSummary.length > 60 ? '…' : '');
       const result = createElement('div', {
-        className: `worker-task-result ${task.success ? '' : 'worker-task-result--error'}`,
-      }, task.result.substring(0, 120));
+        className: 'worker-task-result worker-task-result--expandable',
+      }, resultText);
+      if (task.resultSummary.length > 60) {
+        result.style.cursor = 'pointer';
+        result.addEventListener('click', (e) => {
+          e.stopPropagation();
+          task.expanded = !task.expanded;
+          this.render();
+        });
+      }
       content.appendChild(result);
     }
 
     el.appendChild(content);
 
-    // Elapsed / total time
+    // Duration
     const elapsed = this.getElapsed(task);
-    const timeEl = createElement('div', { className: 'worker-task-time' },
+    el.appendChild(createElement('div', { className: 'worker-task-time' },
       task.completedAt ? elapsed : `${elapsed}…`
-    );
-    el.appendChild(timeEl);
+    ));
 
-    // Cancel button for active (non-completed) tasks
+    // Cancel button for active tasks
     if (!task.completedAt) {
       const cancelBtn = createElement('button', {
         className: 'worker-task-cancel',
@@ -448,8 +425,8 @@ export class WorkerPanel {
       el.appendChild(cancelBtn);
     }
 
-    // Dismiss button for stale/dead workers
-    if (task.status === 'stale' || task.status === 'failed' || task.status === 'timeout') {
+    // Dismiss button for failed/cancelled tasks
+    if (task.status === 'failed' || task.status === 'cancelled') {
       const dismissBtn = createElement('button', {
         className: 'worker-task-dismiss',
         title: 'Dismiss',
@@ -475,11 +452,10 @@ export class WorkerPanel {
     return count;
   }
 
-  private getDeadCount(): number {
-    const DEAD = new Set(['stale', 'failed', 'timeout']);
+  private getTerminalCount(): number {
     let count = 0;
     for (const task of this.tasks.values()) {
-      if (DEAD.has(task.status)) count++;
+      if (TERMINAL_STATUSES.has(task.status)) count++;
     }
     return count;
   }
@@ -494,24 +470,18 @@ export class WorkerPanel {
     return `${m}m ${s % 60}s`;
   }
 
-  private getStatusIndicator(status: string): string {
+  private getStatusIndicator(status: WorkerTask['status']): string {
     switch (status) {
-      case 'queued':
-        return '<span class="worker-dot worker-dot--queued"></span>';
-      case 'started':
-        return '<div class="worker-spinner"></div>';
-      case 'executing':
+      case 'pending':
+        return '<span class="worker-dot worker-dot--queued">⏳</span>';
+      case 'running':
         return '<div class="worker-spinner worker-spinner--fast"></div>';
-      case 'completed':
+      case 'done':
         return '<span class="worker-dot worker-dot--done">✓</span>';
       case 'failed':
         return '<span class="worker-dot worker-dot--failed">✕</span>';
       case 'cancelled':
         return '<span class="worker-dot worker-dot--cancelled">⊘</span>';
-      case 'timeout':
-        return '<span class="worker-dot worker-dot--timeout">⏱</span>';
-      case 'stale':
-        return '<span class="worker-dot worker-dot--stale">☠</span>';
       default:
         return '<span class="worker-dot"></span>';
     }
@@ -526,16 +496,16 @@ export class WorkerPanel {
     }
   }
 
-  private formatIntent(intent: string): string {
-    return intent.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  private formatAction(action: string): string {
+    return action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   destroy(): void {
     this.unsubscribers.forEach((u) => u());
     this.unsubscribers = [];
+    if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
     if (this.elapsedTimer) clearInterval(this.elapsedTimer);
-    if (this.staleTimer) clearInterval(this.staleTimer);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.container.remove();
   }

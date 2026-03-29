@@ -215,7 +215,7 @@ export class MessageBubble {
       // If rendered output is empty (message was purely a <delegate> block with no
       // surrounding text), show a placeholder so the bubble is never blank.
       if (!rendered.trim() && !this.message.streaming) {
-        this.contentEl.innerHTML = "<span class="delegate-placeholder">⚙️ Délégation en cours…</span>";
+        this.contentEl.innerHTML = '<span class="delegate-placeholder">⚙️ Délégation en cours…</span>';
       } else {
         this.contentEl.innerHTML = rendered;
       }

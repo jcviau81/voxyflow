@@ -268,6 +268,15 @@
   color: var(--color-error, #ef5350);
 }
 
+.worker-task-result--expandable {
+  color: var(--color-text-secondary);
+  transition: max-height 0.2s ease;
+}
+
+.worker-task-result--expandable:hover {
+  color: var(--color-text);
+}
+
 /* Time */
 .worker-task-time {
   font-size: 0.625rem;
