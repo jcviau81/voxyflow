@@ -200,48 +200,65 @@ async def system_exec(params: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 async def web_search(params: dict) -> dict:
-    """Search the web via Brave Search API."""
+    """Search the web via DuckDuckGo (no API key required)."""
+    import re as _re
+    import urllib.parse as _urlparse
+
     query = params.get("query", "").strip()
     if not query:
         return {"success": False, "error": "No search query provided"}
 
     count = min(max(params.get("count", 5), 1), 20)
+    region = params.get("region", "wt-wt")
 
-    api_key = _get_config("brave_api_key", "") or os.environ.get("BRAVE_API_KEY", "")
-    if not api_key:
-        return {
-            "success": False,
-            "error": "Brave Search API key not configured. Set tools.brave_api_key in config.json or BRAVE_API_KEY env var.",
-        }
-
-    logger.info(f"[web.search] Searching: {query} (count={count})")
+    logger.info(f"[web.search] DuckDuckGo: {query} (count={count})")
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             resp = await client.get(
-                "https://api.search.brave.com/res/v1/web/search",
-                params={"q": query, "count": count},
+                "https://html.duckduckgo.com/html/",
+                params={"q": query, "kl": region},
                 headers={
-                    "Accept": "application/json",
-                    "Accept-Encoding": "gzip",
-                    "X-Subscription-Token": api_key,
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "en-US,en;q=0.9",
                 },
             )
             resp.raise_for_status()
-            data = resp.json()
+            html = resp.text
 
         results = []
-        for item in data.get("web", {}).get("results", [])[:count]:
-            results.append({
-                "title": item.get("title", ""),
-                "url": item.get("url", ""),
-                "snippet": item.get("description", ""),
-            })
+        # Parse result titles + URLs
+        title_url_pairs = _re.findall(
+            r'<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
+            html, _re.DOTALL
+        )
+        # Parse snippets
+        raw_snippets = _re.findall(
+            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
+            html, _re.DOTALL
+        )
+
+        for i, (raw_url, raw_title) in enumerate(title_url_pairs[:count]):
+            # Decode DDG redirect
+            url = raw_url
+            if "duckduckgo.com/l/" in url or url.startswith("//"):
+                m = _re.search(r"uddg=([^&]+)", url)
+                if m:
+                    url = _urlparse.unquote(m.group(1))
+
+            title = _re.sub(r"<[^>]+>", "", raw_title).strip()
+            snippet = ""
+            if i < len(raw_snippets):
+                snippet = _re.sub(r"<[^>]+>", "", raw_snippets[i]).strip()[:300]
+
+            if title and url:
+                results.append({"title": title, "url": url, "snippet": snippet})
 
         return {"success": True, "results": results, "count": len(results)}
 
     except httpx.HTTPStatusError as e:
-        return {"success": False, "error": f"Brave API error: HTTP {e.response.status_code}"}
+        return {"success": False, "error": f"DuckDuckGo error: HTTP {e.response.status_code}"}
     except Exception as e:
         return {"success": False, "error": f"Search failed: {str(e)}"}
 
