@@ -67,7 +67,7 @@ DIRECT_ACTION_MAP: dict[str, str] = {
 CONFIRM_REQUIRED = {"card.delete", "delete_card", "project.delete", "delete_project"}
 
 # Actions that require no params (can have empty/missing params dict)
-NO_PARAMS_REQUIRED = {"project.list", "list_projects", "jobs.list", "list_jobs", "health", "workers.list"}
+NO_PARAMS_REQUIRED = {"project.list", "list_projects", "jobs.list", "list_jobs", "health", "workers.list", "card.list", "list_cards", "wiki.list", "list_wiki"}
 
 # Read actions — these need LLM context injection so Voxy can use the data
 # in her response.  Direct execution works for writes (fire-and-forget) but
@@ -107,7 +107,8 @@ class DirectExecutor:
         if action in NO_PARAMS_REQUIRED:
             return True
 
-        if not delegate_data.get("params"):
+        params = delegate_data.get("params")
+        if not params:  # None or empty dict {}
             logger.warning(f"[DirectExecutor] No 'params' in delegate for action '{action}', falling back to worker")
             return False
 
