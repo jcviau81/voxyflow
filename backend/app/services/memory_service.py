@@ -51,7 +51,7 @@ MEMORY_DIR = WORKSPACE_DIR / "memory"
 CHROMA_PERSIST_DIR = os.path.expanduser("~/.voxyflow/chroma")
 MIGRATION_FLAG_FILE = Path(CHROMA_PERSIST_DIR) / ".memory_migrated"
 
-GLOBAL_COLLECTION = "memory-global"
+GLOBAL_COLLECTION = "memory-project-main"
 
 VALID_TYPES = {"decision", "preference", "lesson", "fact", "context"}
 VALID_SOURCES = {"chat", "manual", "auto-extract"}

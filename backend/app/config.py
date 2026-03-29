@@ -71,10 +71,10 @@ class Settings(BaseSettings):
 
     # Claude API via proxy (OpenAI-compatible, fallback when claude_use_native=False)
     claude_proxy_url: str = "http://localhost:3457/v1"
-    claude_fast_model: str = "claude-haiku-4-20250514"
-    claude_sonnet_model: str = "claude-sonnet-4-20250514"
-    claude_deep_model: str = "claude-opus-4-20250514"
-    claude_analyzer_model: str = "claude-sonnet-4-20250514"
+    claude_fast_model: str = "claude-haiku-4-6"
+    claude_sonnet_model: str = "claude-sonnet-4-6"
+    claude_deep_model: str = "claude-opus-4-6"
+    claude_analyzer_model: str = "claude-sonnet-4-6"
     claude_max_tokens: int = 1024
 
     # TTS/STT — now 100% client-side (Whisper WASM + Web Speech API + browser speechSynthesis)
