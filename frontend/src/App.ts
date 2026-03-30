@@ -308,10 +308,12 @@ export class App {
         if (c && c.projectId) {
           appState.addActivity(c.projectId, 'card_created', `✅ Card created: "${c.title}"`);
         }
-        appState.addNotification({
-          type: 'card_created',
-          message: `✅ Card created: "${(card as Card).title}"`,
-        });
+        if (card && (card as Card).title) {
+          appState.addNotification({
+            type: 'card_created',
+            message: `✅ Card created: "${(card as Card).title}"`,
+          });
+        }
       })
     );
 
