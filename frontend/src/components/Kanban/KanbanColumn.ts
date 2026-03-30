@@ -64,9 +64,9 @@ export class KanbanColumn {
     // Sort
     const sorted = [...cards].sort((a, b) => {
       if (sortMode === 'votes') {
-        return (b.votes ?? 0) - (a.votes ?? 0) || b.priority - a.priority || b.updatedAt - a.updatedAt;
+        return (b.votes ?? 0) - (a.votes ?? 0) || b.priority - a.priority || b.createdAt - a.createdAt;
       }
-      return b.priority - a.priority || b.updatedAt - a.updatedAt;
+      return b.priority - a.priority || b.createdAt - a.createdAt;
     });
 
     sorted.forEach((card) => {
