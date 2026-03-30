@@ -1382,23 +1382,15 @@ async def enrich_card(
 
         data = json.loads(text)
 
-        # Persist enrichment to DB directly
         description = str(data.get("description", ""))
         effort = str(data.get("effort", "M"))
         tags = [str(t) for t in data.get("tags", [])]
         checklist_items = [str(i) for i in data.get("checklist_items", [])]
 
+        # Persist description to DB (only field that exists on Card model)
         if description:
             card.description = description
-        if effort:
-            card.effort = effort
-        if tags:
-            existing_tags = card.tags or []
-            new_tags = [t for t in tags if t not in existing_tags]
-            card.tags = existing_tags + new_tags
-
-        await db.commit()
-        await db.refresh(card)
+            await db.commit()
 
         return EnrichResponse(
             description=description,
