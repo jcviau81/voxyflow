@@ -1382,11 +1382,29 @@ async def enrich_card(
 
         data = json.loads(text)
 
+        # Persist enrichment to DB directly
+        description = str(data.get("description", ""))
+        effort = str(data.get("effort", "M"))
+        tags = [str(t) for t in data.get("tags", [])]
+        checklist_items = [str(i) for i in data.get("checklist_items", [])]
+
+        if description:
+            card.description = description
+        if effort:
+            card.effort = effort
+        if tags:
+            existing_tags = card.tags or []
+            new_tags = [t for t in tags if t not in existing_tags]
+            card.tags = existing_tags + new_tags
+
+        await db.commit()
+        await db.refresh(card)
+
         return EnrichResponse(
-            description=str(data.get("description", "")),
-            checklist_items=[str(i) for i in data.get("checklist_items", [])],
-            effort=str(data.get("effort", "M")),
-            tags=[str(t) for t in data.get("tags", [])],
+            description=description,
+            checklist_items=checklist_items,
+            effort=effort,
+            tags=tags,
         )
     except (json.JSONDecodeError, KeyError) as e:
         logger.error(f"enrich_card: parse error for card_id={card_id!r}: {e}")
