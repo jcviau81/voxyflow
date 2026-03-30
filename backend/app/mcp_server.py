@@ -590,6 +590,20 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_handler": "file_write",
     },
     {
+        "name": "file.patch",
+        "description": "Replace exact text in a file (surgical edit). Finds the first occurrence of old and replaces it with new. Use instead of rewriting entire files.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["path", "old", "new"],
+            "properties": {
+                "path": {"type": "string", "description": "File path to patch"},
+                "old": {"type": "string", "description": "Exact text to find (must match exactly, including whitespace)"},
+                "new": {"type": "string", "description": "Replacement text"},
+            },
+        },
+        "_handler": "file_patch",
+    },
+    {
         "name": "file.list",
         "description": "List files and directories at a given path.",
         "inputSchema": {
@@ -803,7 +817,7 @@ def _get_system_handler(name: str):
     if not _SYSTEM_HANDLERS:
         from app.tools.system_tools import (
             system_exec, web_search, web_fetch,
-            file_read, file_write, file_list,
+            file_read, file_write, file_patch, file_list,
             git_status, git_log, git_diff, git_branches, git_commit,
             tmux_list, tmux_run, tmux_send, tmux_capture, tmux_new, tmux_kill,
         )
@@ -851,6 +865,7 @@ def _get_system_handler(name: str):
             "web_fetch": web_fetch,
             "file_read": file_read,
             "file_write": file_write,
+            "file_patch": file_patch,
             "file_list": file_list,
             "git_status": git_status,
             "git_log": git_log,

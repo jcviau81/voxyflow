@@ -40,7 +40,10 @@ TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
 # Full tools: Deep (Opus) can do everything including exec, write, delete
 TOOLS_FULL = TOOLS_VOXYFLOW_CRUD | {
     "system.exec",
+    "file.read",
     "file.write",
+    "file.patch",
+    "file.list",
     "voxyflow.project.delete", "voxyflow.project.export",
     "voxyflow.card.delete",
     "voxyflow.doc.delete",
@@ -123,7 +126,7 @@ def _register_all_tools(registry: ToolRegistry) -> None:
         else:
             category = "other"
 
-        dangerous = name in {"system.exec", "file.write", "git.commit",
+        dangerous = name in {"system.exec", "file.write", "file.patch", "git.commit",
                              "voxyflow.project.delete", "voxyflow.card.delete",
                              "voxyflow.doc.delete", "tmux.kill"}
 

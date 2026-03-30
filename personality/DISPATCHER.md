@@ -601,3 +601,62 @@ To get access to the TypeScript compiler, [34mtsc[0m, from the command line ei
    - Never leave a file with unterminated strings, unclosed brackets, or incomplete functions
 
 4. **Git commit only after validation passes.** No exceptions.
+
+---
+
+## §16 — File Operations (MANDATORY for all workers)
+
+Workers have three dedicated file tools. **Use them instead of shell heredocs or `echo >>` hacks.**
+
+| Tool | Use When |
+|------|----------|
+| `file.read` | Reading files. Use `offset`/`limit` for large files — never `cat` a 500-line file. |
+| `file.write` | Creating new files or full rewrites. Creates parent dirs automatically. |
+| `file.patch` | **Modifying existing code.** Pass `old` (exact match) and `new` (replacement). First occurrence only. |
+
+### Rules
+
+1. **To modify existing code → `file.patch`.** Not a Python heredoc, not `echo`, not `file.write` with the entire file content.
+2. **To read a file → `file.read`.** For files >100 lines, use `offset`/`limit` to read only the section you need.
+3. **To create a new file → `file.write`.** Only tool that creates parent directories.
+4. **`file.patch` requires an exact match** on `old`. If you are unsure of the exact text, `file.read` the relevant section first.
+5. **Never pipe multi-line content through `system.exec`** when a file tool exists. Heredocs in shell commands truncate unpredictably.
+
+### Anti-pattern: Heredoc rewrite (BAD)
+```
+system.exec: python3 -c "
+with open(foo.py, w) as f:
+    f.write(
+
+
+---
+
+## §16 — File Operations (MANDATORY for all workers)
+
+Workers have three dedicated file tools. **Use them instead of shell heredocs or `echo >>` hacks.**
+
+| Tool | Use When |
+|------|----------|
+| `file.read` | Reading files. Use `offset`/`limit` for large files — never `cat` a 500-line file. |
+| `file.write` | Creating new files or full rewrites. Creates parent dirs automatically. |
+| `file.patch` | **Modifying existing code.** Pass `old` (exact match) and `new` (replacement). First occurrence only. |
+
+### Rules
+
+1. **To modify existing code → `file.patch`.** Not a Python heredoc, not `echo`, not `file.write` with the entire file content.
+2. **To read a file → `file.read`.** For files >100 lines, use `offset`/`limit` to read only the section you need.
+3. **To create a new file → `file.write`.** Only tool that creates parent directories.
+4. **`file.patch` requires an exact match** on `old`. If you are unsure of the exact text, `file.read` the relevant section first.
+5. **Never pipe multi-line content through `system.exec`** when a file tool exists. Heredocs in shell commands truncate unpredictably.
+
+### Anti-pattern: Heredoc rewrite (BAD)
+```
+system.exec: python3 -c "with open('foo.py','w') as f: f.write('... 200 lines ...')"
+```
+This WILL truncate. Use `file.write` for new files or `file.patch` for edits.
+
+### Correct pattern: Surgical edit (GOOD)
+```
+file.read: path=foo.py, offset=42, limit=10   # Read the section
+file.patch: path=foo.py, old="def broken():", new="def fixed():"
+```

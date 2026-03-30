@@ -452,6 +452,57 @@ async def file_write(params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 5b. file.patch
+# ---------------------------------------------------------------------------
+
+async def file_patch(params: dict) -> dict:
+    """Replace exact text in a file (surgical edit, no heredoc needed)."""
+    path_str = params.get("path", "").strip()
+    if not path_str:
+        return {"success": False, "error": "No file path provided"}
+
+    old_str = params.get("old", "")
+    new_str = params.get("new", "")
+
+    if not old_str:
+        return {"success": False, "error": "No old string provided"}
+
+    resolved = Path(path_str).expanduser().resolve()
+
+    if not _is_path_allowed(str(resolved)):
+        return {"success": False, "error": f"Path not in allowed directories: {path_str}"}
+
+    if not resolved.exists():
+        return {"success": False, "error": f"File not found: {path_str}"}
+
+    if not resolved.is_file():
+        return {"success": False, "error": f"Not a file: {path_str}"}
+
+    logger.info(f"[file.patch] Patching: {resolved} (old={len(old_str)} chars, new={len(new_str)} chars)")
+
+    try:
+        content = resolved.read_text(encoding="utf-8")
+
+        if old_str not in content:
+            return {"success": False, "error": f"String not found in {path_str}", "path": str(resolved)}
+
+        count = content.count(old_str)
+        new_content = content.replace(old_str, new_str, 1)  # replace first occurrence only
+
+        resolved.write_text(new_content, encoding="utf-8")
+
+        return {
+            "success": True,
+            "path": str(resolved),
+            "occurrences_found": count,
+            "replaced": 1,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": f"Patch failed: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
 # 6. file.list
 # ---------------------------------------------------------------------------
 
@@ -642,6 +693,57 @@ async def tmux_kill(params: dict) -> dict:
     if result.get("success"):
         result["result"] = f"Killed session '{session}'"
     return result
+
+
+# ---------------------------------------------------------------------------
+# 5b. file.patch
+# ---------------------------------------------------------------------------
+
+async def file_patch(params: dict) -> dict:
+    """Replace exact text in a file (surgical edit, no heredoc needed)."""
+    path_str = params.get("path", "").strip()
+    if not path_str:
+        return {"success": False, "error": "No file path provided"}
+
+    old_str = params.get("old", "")
+    new_str = params.get("new", "")
+
+    if not old_str:
+        return {"success": False, "error": "No old string provided"}
+
+    resolved = Path(path_str).expanduser().resolve()
+
+    if not _is_path_allowed(str(resolved)):
+        return {"success": False, "error": f"Path not in allowed directories: {path_str}"}
+
+    if not resolved.exists():
+        return {"success": False, "error": f"File not found: {path_str}"}
+
+    if not resolved.is_file():
+        return {"success": False, "error": f"Not a file: {path_str}"}
+
+    logger.info(f"[file.patch] Patching: {resolved} (old={len(old_str)} chars, new={len(new_str)} chars)")
+
+    try:
+        content = resolved.read_text(encoding="utf-8")
+
+        if old_str not in content:
+            return {"success": False, "error": f"String not found in {path_str}", "path": str(resolved)}
+
+        count = content.count(old_str)
+        new_content = content.replace(old_str, new_str, 1)  # replace first occurrence only
+
+        resolved.write_text(new_content, encoding="utf-8")
+
+        return {
+            "success": True,
+            "path": str(resolved),
+            "occurrences_found": count,
+            "replaced": 1,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": f"Patch failed: {str(e)}"}
 
 
 # ---------------------------------------------------------------------------
