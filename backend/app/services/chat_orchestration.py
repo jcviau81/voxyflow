@@ -475,6 +475,41 @@ class DeepWorkerPool:
                 # Always stop the stall monitor
                 stall_task.cancel()
 
+            # ------------------------------------------------------------------
+            # Fallback: ensure result_content is populated
+            # ------------------------------------------------------------------
+            if not result_content:
+                # Fallback 1: last assistant message from the task's conversation
+                try:
+                    task_history = await self._claude._load_history_async(task_chat_id)
+                    for msg in reversed(task_history):
+                        if msg.get("role") == "assistant":
+                            raw = msg.get("content", "")
+                            if isinstance(raw, list):
+                                # Content block list — find the first text block
+                                text = " ".join(
+                                    b.get("text", "") for b in raw if isinstance(b, dict) and b.get("type") == "text"
+                                ).strip()
+                            else:
+                                text = str(raw).strip()
+                            if text:
+                                result_content = text
+                                logger.warning(
+                                    f"[DeepWorker] result_content was empty for task "
+                                    f"{event.task_id} — fell back to last assistant message"
+                                )
+                                break
+                except Exception as _fallback_err:
+                    logger.warning(f"[DeepWorker] result_content fallback (history) failed: {_fallback_err}")
+
+            if not result_content and event.summary:
+                # Fallback 2: use the task summary from the event itself
+                result_content = event.summary
+                logger.warning(
+                    f"[DeepWorker] result_content was empty for task "
+                    f"{event.task_id} — fell back to event.summary"
+                )
+
             # --- Supervisor: check if worker signalled completion ---
             if not supervisor.is_completed(event.task_id):
                 # Worker finished without calling task.complete — mark as problem

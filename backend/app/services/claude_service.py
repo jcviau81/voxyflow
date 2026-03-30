@@ -353,13 +353,18 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
         importance = params.get("importance", "medium")
         try:
             ms = get_memory_service()
-            result = await ms.store_memory(
-                content=mem_content,
-                memory_type=memory_type,
-                importance=importance,
+            # store_memory is sync; accepts text= and metadata= dict
+            doc_id = ms.store_memory(
+                text=mem_content,
+                metadata={
+                    "type": memory_type,
+                    "importance": importance,
+                    "source": "manual",
+                },
             )
-            return {"saved": True, "id": result.get("id", "") if result else ""}
+            return {"saved": True, "id": doc_id or ""}
         except Exception as e:
+            logger.error(f"[InlineTool] memory_save failed: {e}")
             return {"error": str(e)}
     return {"error": f"Unknown inline tool: {name}"}
 
