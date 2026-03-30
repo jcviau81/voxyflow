@@ -16,7 +16,6 @@ import { appState } from '../../state/AppState';
 import { cardStore } from '../../state/ReactiveCardStore';
 import { cardService } from '../../services/CardService';
 import { apiClient } from '../../services/ApiClient';
-import { FocusMode } from '../FocusMode/FocusMode';
 import { mainBoardService } from '../../services/MainBoardService';
 import { historyManager } from '../../utils/HistoryManager';
 import { ChatWindow } from '../Chat/ChatWindow';
