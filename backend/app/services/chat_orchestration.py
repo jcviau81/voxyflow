@@ -633,56 +633,9 @@ class DeepWorkerPool:
                 except Exception as inject_err:
                     logger.warning(f"[DeepWorker] Failed to inject result into history: {inject_err}")
 
-            # --- Auto-callback: re-trigger dispatcher so it can react to the result ---
-            if (
-                self._orchestrator
-                and dispatcher_chat_id
-                and result_content
-                and event.callback_depth < 1  # Only auto-callback at depth 0
-            ):
-                # Serialize callbacks — only one can stream to the WS at a time
-                async with self._callback_lock:
-                    try:
-                        # Check WebSocket is still open before triggering callback
-                        ws_open = True
-                        try:
-                            await self._ws.send_json({"type": "ping"})
-                        except Exception:
-                            ws_open = False
-
-                        if ws_open:
-                            # Use a brief trigger — the full result is already in
-                            # dispatcher history (injected above as assistant msg).
-                            # This avoids duplicating the content as a user message.
-                            callback_msg = (
-                                f"[SYSTEM: Worker '{event.intent}' just completed. "
-                                f"The result is in your conversation history above. "
-                                f"Summarize the outcome for the user and decide if "
-                                f"further action is needed.]"
-                            )
-                            callback_message_id = f"callback-{uuid4().hex[:8]}"
-
-                            logger.info(
-                                f"[DeepWorker] Auto-callback: re-triggering dispatcher for {event.intent} "
-                                f"(depth={event.callback_depth})"
-                            )
-
-                            await self._orchestrator.handle_message(
-                                websocket=self._ws,
-                                content=callback_msg,
-                                message_id=callback_message_id,
-                                chat_id=dispatcher_chat_id,
-                                project_id=event.data.get("project_id"),
-                                chat_level=event.data.get("chat_level", "general"),
-                                card_id=event.data.get("card_id"),
-                                session_id=event.session_id,
-                                is_callback=True,
-                                callback_depth=event.callback_depth,
-                            )
-                        else:
-                            logger.info(f"[DeepWorker] Skipping auto-callback — WebSocket closed")
-                    except Exception as cb_err:
-                        logger.warning(f"[DeepWorker] Auto-callback failed: {cb_err}", exc_info=True)
+            # Auto-callback removed: task:completed already delivers the full result
+            # to the frontend via ChatService. A dispatcher summarize-callback was
+            # truncating the worker output — not worth the tradeoff.
 
             logger.info(f"[DeepWorker] Task {event.task_id} completed: {event.intent}")
 
