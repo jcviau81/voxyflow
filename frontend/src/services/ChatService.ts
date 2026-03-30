@@ -164,7 +164,7 @@ export class ChatService {
     this.unsubscribers.push(
       apiClient.on('task:completed', (payload) => {
         const _p = payload as any; if (_p.task_id && !_p.taskId) _p.taskId = _p.task_id;
-        const { intent, summary, result, success, taskId, sessionId, projectId } = payload as {
+        const { intent, summary, result, success, taskId, sessionId, projectId, cardId } = payload as {
           intent: string;
           summary: string;
           result: string;
@@ -172,6 +172,7 @@ export class ChatService {
           taskId: string;
           sessionId?: string;
           projectId?: string;
+          cardId?: string;
         };
         eventBus.emit(EVENTS.TASK_COMPLETED, payload);
 
@@ -187,6 +188,7 @@ export class ChatService {
             model: 'worker',
             projectId: projectId || this.getProjectIdFromSession(sessionId),
             sessionId: sessionId || this.activeSessionId,
+            cardId: cardId || undefined,
             isWorkerResult: true,
           });
           eventBus.emit(EVENTS.MESSAGE_RECEIVED, message);

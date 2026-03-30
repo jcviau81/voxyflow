@@ -617,6 +617,7 @@ class DeepWorkerPool:
                 "success": True,
                 "sessionId": event.session_id,
                 "projectId": event.data.get("project_id"),
+                "cardId": event.data.get("card_id"),
             })
 
             # Inject worker result into dispatcher conversation history
