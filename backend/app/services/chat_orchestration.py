@@ -95,8 +95,7 @@ class DeepWorkerPool:
     """
 
     MAX_WORKERS = 3
-    TASK_TIMEOUT_SECONDS = 300        # 5 min default (haiku/sonnet)
-    TASK_TIMEOUT_OPUS_SECONDS = 1200  # 20 min for opus (complex refactoring)
+    # No hard task timeout — stall detector handles idle workers (120s idle = cancel)
 
     COMPLETED_TASK_TTL = 300  # seconds to keep completed tasks visible (5 min)
 
@@ -474,42 +473,21 @@ class DeepWorkerPool:
 
             stall_task = asyncio.create_task(_stall_monitor())
 
-            # Per-model timeout: opus gets 20 min, others 5 min
-            task_timeout = (
-                self.TASK_TIMEOUT_OPUS_SECONDS
-                if (event.model or "").lower() == "opus"
-                else self.TASK_TIMEOUT_SECONDS
-            )
-
-            # Route to model-specific worker (with timeout)
+            # No hard timeout — the stall detector (120s idle) handles runaway tasks.
+            # Workers that are actively making tool calls run as long as needed.
             try:
-                result_content = await asyncio.wait_for(
-                    self._claude.execute_worker_task(
-                        chat_id=task_chat_id,
-                        prompt=execution_prompt,
-                        model=event.model,
-                        chat_level=chat_level,
-                        project_context=event.data.get("project_context"),
-                        card_context=event.data.get("card_context"),
-                        project_id=event.data.get("project_id"),
-                        tool_callback=tool_callback,
-                        cancel_event=cancel_event,
-                        message_queue=message_queue,
-                    ),
-                    timeout=task_timeout,
+                result_content = await self._claude.execute_worker_task(
+                    chat_id=task_chat_id,
+                    prompt=execution_prompt,
+                    model=event.model,
+                    chat_level=chat_level,
+                    project_context=event.data.get("project_context"),
+                    card_context=event.data.get("card_context"),
+                    project_id=event.data.get("project_id"),
+                    tool_callback=tool_callback,
+                    cancel_event=cancel_event,
+                    message_queue=message_queue,
                 )
-            except asyncio.TimeoutError:
-                logger.warning(f"[DeepWorker] Task {event.task_id} timed out after {task_timeout}s")
-                supervisor.mark_problem(event.task_id, f"timeout_{task_timeout}s")
-                _wss.update_status(event.task_id, "timed_out", f"Timed out after {self.TASK_TIMEOUT_SECONDS}s")
-                await self._ledger_update(event.task_id, "failed", error=f"Timed out after {self.TASK_TIMEOUT_SECONDS}s")
-                await self._send_task_event("task:timeout", event.task_id, {
-                    "intent": event.intent,
-                    "summary": event.summary,
-                    "timeout_seconds": self.TASK_TIMEOUT_SECONDS,
-                    "sessionId": event.session_id,
-                })
-                return
             except asyncio.CancelledError:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")
                 _wss.update_status(event.task_id, "cancelled")
