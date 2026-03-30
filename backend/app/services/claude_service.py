@@ -1305,6 +1305,21 @@ class ClaudeService:
             )
             layer = "deep"  # Sonnet worker gets full tools for research
 
+        # Workers always use the native Anthropic SDK (tool_use blocks) to avoid
+        # XML <tool_call> truncation issues with the OpenAI-compat proxy path.
+        # The Anthropic client is pointed at CLIProxyAPI which supports /v1/messages.
+        if client_type == "openai":
+            config = get_settings()
+            worker_api_url = config.claude_proxy_url  # e.g. http://100.96.26.98:3457/v1
+            worker_api_key = config.claude_api_key or "not-needed"
+            # CLIProxyAPI /v1/messages expects base_url without /v1 suffix
+            anthropic_base = worker_api_url.rstrip("/")
+            if anthropic_base.endswith("/v1"):
+                anthropic_base = anthropic_base[:-3]
+            client = _make_anthropic_client(worker_api_key, anthropic_base)
+            client_type = "anthropic"
+            logger.info(f"[execute_worker_task] Upgraded worker client to native Anthropic → {anthropic_base}")
+
         # Build worker-specific prompt
         base_prompt = self.personality.build_worker_prompt(
             model=model,
