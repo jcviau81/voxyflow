@@ -264,10 +264,10 @@ class MemoryService:
                 importance = meta.get('importance', 'medium')
                 date_str = _dt.now(_tz.utc).strftime('%Y-%m-%d %H:%M UTC')
                 MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-                entry = f"
-## [{mem_type.upper()}] ({importance}) — {date_str}
-{text}
-"
+                entry = (
+                    f"\n## [{mem_type.upper()}] ({importance}) — {date_str}\n"
+                    f"{text}\n"
+                )
                 with open(MEMORY_FILE, 'a', encoding='utf-8') as _f:
                     _f.write(entry)
                 logger.info(f"store_memory: wrote to MEMORY.md (file-based) — {doc_id}")
