@@ -1360,64 +1360,57 @@ export class CardDetailModal {
     return section;
   }
 
-  private async handleEnrich(cardId: string, descInput: HTMLTextAreaElement, checklistSection: HTMLElement): Promise<void> {
+  private async handleEnrich(cardId: string, _descInput: HTMLTextAreaElement, _checklistSection: HTMLElement): Promise<void> {
     const enrichBtn = this.modal.querySelector('.enrich-btn') as HTMLButtonElement | null;
     if (!enrichBtn) return;
 
-    enrichBtn.disabled = true;
-    enrichBtn.classList.add('enrich-loading');
-    enrichBtn.textContent = '\u23f3';
+    // Send enrichment request through the card chat — Voxy handles it naturally
+    const enrichMessage = "Enrichis cette carte avec une description compl\u00e8te, des checklist items concrets et une estimation d'effort. Utilise le contexte du projet pour \u00eatre pertinent.";
 
-    try {
-      const result = await apiClient.enrichCard(cardId);
-      if (!result) throw new Error('No result');
+    if (this.embeddedChat) {
+      this.embeddedChat.sendMessage(enrichMessage);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u2728 Enrichissement en cours...', type: 'info', duration: 3000 });
 
-      if (result.description) {
-        // Update CodeMirror editor if present, fallback to textarea .value
-        if (this.codeMirrorEditor) {
-          this.codeMirrorEditor.setValue(result.description);
-        } else {
-          descInput.value = result.description;
-        }
-        if (this.card) {
-          this.card.description = result.description;
-          cardService.update(this.card.id, { description: result.description });
-        }
+      // Switch to chat tab on mobile so user sees the response
+      const chatTab = this.modal.querySelector('.mobile-tab-btn[data-tab="chat"]') as HTMLElement | null;
+      if (chatTab && window.innerWidth < 900) {
+        chatTab.click();
       }
+    } else {
+      // Fallback: try the legacy API endpoint
+      enrichBtn.disabled = true;
+      enrichBtn.classList.add('enrich-loading');
+      enrichBtn.textContent = '\u23f3';
+      try {
+        const result = await apiClient.enrichCard(cardId);
+        if (!result) throw new Error('No result');
 
-      if (result.checklist_items?.length) {
-        for (const text of result.checklist_items) {
-          await apiClient.addChecklistItem(cardId, text);
+        if (result.description) {
+          if (this.codeMirrorEditor) {
+            this.codeMirrorEditor.setValue(result.description);
+          }
+          if (this.card) {
+            this.card.description = result.description;
+            cardService.update(this.card.id, { description: result.description });
+          }
         }
-        const newChecklist = this.buildChecklistSection(cardId);
-        checklistSection.replaceWith(newChecklist);
-      }
 
-      const existingBadge = this.modal.querySelector('.effort-badge');
-      if (existingBadge) existingBadge.remove();
-      if (result.effort) {
-        const badge = createElement('span', { className: `effort-badge effort-badge--${result.effort.toLowerCase()}` }, `\u26a1 ${result.effort}`);
-        enrichBtn.insertAdjacentElement('afterend', badge);
-      }
-
-      if (result.tags && result.tags.length > 0 && this.card) {
-        const existingTags = this.card.tags || [];
-        const newTags = result.tags.filter((t) => !existingTags.includes(t));
-        if (newTags.length > 0) {
-          const updatedTags = [...existingTags, ...newTags];
-          cardService.update(this.card.id, { tags: updatedTags });
+        if (result.checklist_items?.length) {
+          for (const text of result.checklist_items) {
+            await apiClient.addChecklistItem(cardId, text);
+          }
         }
-      }
 
-      if (this.card) this.onUpdated?.(this.card);
-      eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u2728 Card enriched!', type: 'success', duration: 3000 });
-    } catch (err) {
-      console.error('[CardDetailModal] enrichCard error:', err);
-      eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u274c Enrichment failed', type: 'error', duration: 3000 });
-    } finally {
-      enrichBtn.disabled = false;
-      enrichBtn.classList.remove('enrich-loading');
-      enrichBtn.textContent = '\u2728 AI Enrich';
+        if (this.card) this.onUpdated?.(this.card);
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u2728 Card enriched!', type: 'success', duration: 3000 });
+      } catch (err) {
+        console.error('[CardDetailModal] enrichCard error:', err);
+        eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u274c Enrichment failed', type: 'error', duration: 3000 });
+      } finally {
+        enrichBtn.disabled = false;
+        enrichBtn.classList.remove('enrich-loading');
+        enrichBtn.textContent = '\u2728 AI Enrich';
+      }
     }
   }
 
