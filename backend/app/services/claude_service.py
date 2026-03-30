@@ -1597,15 +1597,13 @@ class ClaudeService:
             "system": system,
             "messages": clean_messages,
         }
+        _first_turn = True  # tool_choice='any' only on first turn to avoid infinite loops
         if claude_tools:
             kwargs["tools"] = claude_tools
             # Only force tool_choice='any' on the FIRST turn (iteration 0)
             # to avoid trapping Opus in an infinite tool loop on synthesis turns.
-            # We track this via a local flag set before the loop.
             if layer in ("deep", "worker") and _first_turn:
                 kwargs["tool_choice"] = {"type": "any"}
-
-        _first_turn = True  # tool_choice='any' only on first turn to avoid infinite loops
         try:
             # Agentic tool-use loop (max 10 rounds)
             for _ in range(10):
