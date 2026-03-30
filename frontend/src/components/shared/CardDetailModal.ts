@@ -95,6 +95,7 @@ export class CardDetailModal {
   }));
 
   private activePickerCleanup: (() => void) | null = null;
+  private embeddedChatCardId: string | null = null; // Track which card the chat is for
 
   // Callbacks so FreeBoard can react to mutations
   onDeleted?: (cardId: string) => void;
@@ -169,7 +170,7 @@ export class CardDetailModal {
   close(): void {
     historyManager.remove('card-detail-modal');
     this.destroyCodeMirror();
-    this.destroyEmbeddedChat();
+    this.destroyEmbeddedChat(); // also clears embeddedChatCardId
     // Unsubscribe from card-specific updates
     if (this.cardStoreUnsub) {
       this.cardStoreUnsub();
@@ -185,6 +186,7 @@ export class CardDetailModal {
       this.embeddedChat.destroy();
       this.embeddedChat = null;
     }
+    this.embeddedChatCardId = null;
   }
 
   update(): void {
@@ -211,11 +213,18 @@ export class CardDetailModal {
 
   private async saveCard(updates: Partial<Card>): Promise<void> {
     if (!this.card) return;
-    // All cards (including system project / main board) use the regular cardService
-    cardService.update(this.card.id, updates);
-    // Apply updates locally so the modal reflects changes
+    // Apply updates locally so the modal reflects changes immediately
     this.card = { ...this.card, ...updates };
     this.onUpdated?.(this.card);
+    // If color is being updated, persist via mainBoardService (handles color field)
+    if (updates.color !== undefined) {
+      mainBoardService.updateCard(this.card.id, { color: updates.color as string | null });
+      // Also update the local store
+      appState.updateCard(this.card.id, { color: updates.color });
+      return;
+    }
+    // For all other fields, use the regular cardService
+    cardService.update(this.card.id, updates);
   }
 
   private async deleteCard(): Promise<void> {
@@ -1418,6 +1427,22 @@ export class CardDetailModal {
   private renderContent(): void {
     if (!this.card) return;
     this.destroyCodeMirror();
+
+    // Preserve the embedded chat when re-rendering the same card (prevents chat clearing on card update)
+    let savedChatSection: HTMLElement | null = null;
+    const isSameCard = this.embeddedChatCardId === this.card.id;
+    if (isSameCard && this.embeddedChat) {
+      // Detach the chat section from the DOM before wiping modal.innerHTML
+      const existingChatSection = this.modal.querySelector('.modal-chat-section') as HTMLElement | null;
+      if (existingChatSection) {
+        savedChatSection = existingChatSection;
+        existingChatSection.remove(); // detach but don't destroy
+      }
+    } else {
+      // Different card or first render — destroy old chat
+      this.destroyEmbeddedChat();
+    }
+
     this.modal.innerHTML = '';
     // Apply color class
     this.modal.className = 'modal card-detail-modal';
@@ -1540,14 +1565,18 @@ export class CardDetailModal {
     });
 
     // ── Card Chat with Voxy (embedded ChatWindow, scoped to card) ──────────
-    const chatSection = createElement('div', { className: 'modal-section modal-chat-section' });
-
-    // Destroy previous embedded chat before creating a new one
-    this.destroyEmbeddedChat();
-    this.embeddedChat = new ChatWindow(chatSection, {
-      embedded: true,
-      cardId: this.card.id,
-    });
+    // Reuse existing chat if re-rendering the same card — preserves chat history (bug fix)
+    let chatSection: HTMLElement;
+    if (savedChatSection) {
+      chatSection = savedChatSection;
+    } else {
+      chatSection = createElement('div', { className: 'modal-section modal-chat-section' });
+      this.embeddedChat = new ChatWindow(chatSection, {
+        embedded: true,
+        cardId: this.card.id,
+      });
+      this.embeddedChatCardId = this.card.id;
+    }
 
     leftCol.appendChild(descSection);
 
@@ -1760,14 +1789,7 @@ export class CardDetailModal {
     // Relations
     const relationsSection = this.buildRelationsSection(this.card);
 
-    // Time tracking
-    const timeSection = this.buildTimeSection(this.card.id, this.card.totalMinutes ?? 0);
-
-    // Comments
-    const commentsSection = this.buildCommentsSection(this.card.id);
-
-    // History
-    const historySection = this.buildHistorySection(this.card.id);
+    // Time tracking, Comments, History sections removed from UI
 
     // Color picker
     let colorSection: HTMLElement;
@@ -1805,20 +1827,23 @@ export class CardDetailModal {
       // (color section assembled below in groups)
     }
 
-    // Assign to Project
+    // Assign to Project — only show when card is not yet assigned to a real project
     let promoteSection: HTMLElement;
     {
       promoteSection = createElement('div', { className: 'modal-section', style: 'position: relative;' });
-      const promoteBtn = createElement('button', {
-        className: 'modal-promote-btn',
-        type: 'button',
-        title: 'Assign to a Project',
-      }, '\ud83d\ude80 Assign to Project') as HTMLButtonElement;
-      promoteBtn.addEventListener('click', () => {
-        if (!this.card) return;
-        this.showProjectPicker(promoteBtn, this.card);
-      });
-      promoteSection.appendChild(promoteBtn);
+      const isOnMainBoard = !this.card.projectId || this.card.projectId === SYSTEM_PROJECT_ID;
+      if (isOnMainBoard) {
+        const promoteBtn = createElement('button', {
+          className: 'modal-promote-btn',
+          type: 'button',
+          title: 'Assign to a Project',
+        }, '\ud83d\ude80 Assign to Project') as HTMLButtonElement;
+        promoteBtn.addEventListener('click', () => {
+          if (!this.card) return;
+          this.showProjectPicker(promoteBtn, this.card);
+        });
+        promoteSection.appendChild(promoteBtn);
+      }
       // (promote section assembled below in groups)
     }
 
@@ -1831,26 +1856,21 @@ export class CardDetailModal {
       createElement('span', {}, `Updated: ${formatTime(this.card.updatedAt)}`)
     );
 
-    // Focus Mode button
-    const focusSection = createElement('div', { className: 'modal-section modal-focus-section' });
-    const focusBtn = createElement('button', { className: 'focus-mode-btn' }, '\ud83c\udfaf Focus Mode');
-    focusBtn.addEventListener('click', () => {
-      if (!this.card) return;
-      this.close();
-      const focusMode = new FocusMode(document.body, {
-        card: this.card,
-        onExit: () => {
-          eventBus.emit(EVENTS.FOCUS_MODE_EXIT, null);
-        },
-      });
-      eventBus.emit(EVENTS.FOCUS_MODE_ENTER, this.card.id);
-    });
-    focusSection.appendChild(focusBtn);
+    // Focus Mode button removed
 
-    // Delete button
+    // Archive + Delete buttons
     const dangerZone = createElement('div', { className: 'modal-danger' });
+    const archiveZoneBtn = createElement('button', { className: 'archive-btn', title: 'Archive this card' }, '\ud83d\udce6 Archive') as HTMLButtonElement;
+    archiveZoneBtn.type = 'button';
+    archiveZoneBtn.addEventListener('click', async () => {
+      if (!this.card) return;
+      cardService.archive(this.card.id);
+      eventBus.emit(EVENTS.TOAST_SHOW, { message: `\ud83d\udce6 "${this.card.title}" archived`, type: 'success', duration: 3000 });
+      this.close();
+    });
     const deleteBtn = createElement('button', { className: 'delete-btn' }, '\ud83d\uddd1\ufe0f Delete Card');
     deleteBtn.addEventListener('click', () => this.deleteCard());
+    dangerZone.appendChild(archiveZoneBtn);
     dangerZone.appendChild(deleteBtn);
 
     // Wire up enrich button
@@ -1891,7 +1911,7 @@ export class CardDetailModal {
     groupTracking.appendChild(checklistSection);
     groupTracking.appendChild(filesSection);
     groupTracking.appendChild(attachmentsSection);
-    groupTracking.appendChild(timeSection);
+    // Time tracking section removed
     rightCol.appendChild(groupTracking);
 
     // Group 4: Dependencies & Relations
@@ -1902,18 +1922,12 @@ export class CardDetailModal {
     groupDeps.appendChild(relationsSection);
     rightCol.appendChild(groupDeps);
 
-    // Group 5: Activity (comments, history)
-    const groupActivity = createElement('div', { className: 'details-group' });
-    const groupActivityHeader = createElement('div', { className: 'details-group-header' }, 'Activity');
-    groupActivity.appendChild(groupActivityHeader);
-    groupActivity.appendChild(commentsSection);
-    groupActivity.appendChild(historySection);
-    rightCol.appendChild(groupActivity);
+    // Group 5: Activity (comments and history removed)
+    // Sections removed per UI cleanup: commentsSection, historySection
 
-    // Footer: meta, focus, delete
+    // Footer: meta, delete (focus mode removed)
     const groupFooter = createElement('div', { className: 'details-group details-group--footer' });
     groupFooter.appendChild(metaSection);
-    groupFooter.appendChild(focusSection);
     groupFooter.appendChild(dangerZone);
     rightCol.appendChild(groupFooter);
 

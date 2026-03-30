@@ -353,10 +353,10 @@
 }
 
 .freeboard-color-swatch.selected {
-  border-color: white;
+  border-color: var(--color-text, #fff);
   transform: scale(1.2);
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.6);
-  outline: 2px solid rgba(255,255,255,0.3);
+  box-shadow: 0 0 0 2px var(--color-border-focus, rgba(78,205,196,0.5));
+  outline: 2px solid var(--color-border-light, rgba(255,255,255,0.3));
 }
 
 .freeboard-color-swatch--none  { background: var(--color-bg-tertiary); border-color: var(--color-border); }
