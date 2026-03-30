@@ -1276,69 +1276,6 @@ async def list_relations(
             ))
 
     for rel in tgt_results:
-        related = await db.get(Card, rel.source_card_id)
-        if related:
-            # Invert display: from the perspective of this card (target)
-            # e.g. if source "blocks" target → target sees "is_blocked_by" source
-            display_type = _invert_relation_type(rel.relation_type)
-            all_relations.append(RelationResponse(
-                id=rel.id,
-                source_card_id=rel.source_card_id,
-                target_card_id=rel.target_card_id,
-                relation_type=display_type,
-                created_at=rel.created_at.isoformat(),
-                related_card_id=related.id,
-                related_card_title=related.title,
-                related_card_status=related.status,
-            ))
-
-    return all_relations
-
-
-def _invert_relation_type(relation_type: str) -> str:
-    """Return the inverse relation type from the perspective of the target card."""
-    inversions = {
-        "blocks": "is_blocked_by",
-        "is_blocked_by": "blocks",
-        "duplicates": "duplicated_by",
-        "cloned_from": "cloned_to",
-    }
-    return inversions.get(relation_type, relation_type)
-
-
-@router.delete("/cards/{card_id}/relations/{relation_id}", status_code=204)
-async def delete_relation(
-    card_id: str,
-    relation_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Delete a relation. Card must be either source or target."""
-    stmt = select(CardRelation).where(CardRelation.id == relation_id)
-    relation = (await db.execute(stmt)).scalar_one_or_none()
-    if not relation:
-        raise HTTPException(404, "Relation not found")
-    # Verify card_id is involved
-    if relation.source_card_id != card_id and relation.target_card_id != card_id:
-        raise HTTPException(403, "Card is not part of this relation")
-    await db.delete(relation)
-    await db.commit()
-
-
-class EnrichResponse(BaseModel):
-    description: str
-    checklist_items: list[str]
-    effort: str
-    tags: list[str]
-
-
-@router.post("/cards/{card_id}/enrich", response_model=EnrichResponse)
-async def enrich_card(
-    card_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    AI enrichment: given just a card title, generate a description,
-    checklist items, effort estimate, and tags using the fast model.
     """
     card = await db.get(Card, card_id)
     if not card:
