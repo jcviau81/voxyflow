@@ -553,12 +553,21 @@ def _load_model_overrides() -> dict:
 # ---------------------------------------------------------------------------
 
 def _make_anthropic_client(api_key: str, api_base: str = ""):
-    """Create a native Anthropic SDK client."""
+    """Create a native Anthropic SDK client (sync)."""
     import anthropic
     kwargs = {"api_key": api_key} if api_key else {}
     if api_base:
         kwargs["base_url"] = api_base
     return anthropic.Anthropic(**kwargs)
+
+
+def _make_async_anthropic_client(api_key: str, api_base: str = ""):
+    """Create a native async Anthropic SDK client (for worker tasks)."""
+    import anthropic
+    kwargs = {"api_key": api_key} if api_key else {}
+    if api_base:
+        kwargs["base_url"] = api_base
+    return anthropic.AsyncAnthropic(**kwargs)
 
 
 def _make_openai_client(provider_url: str, api_key: str):
@@ -1305,20 +1314,21 @@ class ClaudeService:
             )
             layer = "deep"  # Sonnet worker gets full tools for research
 
-        # Workers always use the native Anthropic SDK (tool_use blocks) to avoid
+        # Workers always use the native Anthropic async SDK (tool_use blocks) to avoid
         # XML <tool_call> truncation issues with the OpenAI-compat proxy path.
-        # The Anthropic client is pointed at CLIProxyAPI which supports /v1/messages.
+        # Using AsyncAnthropic avoids "Streaming required for long requests" errors.
+        # The client is pointed at CLIProxyAPI which supports /v1/messages.
         if client_type == "openai":
-            config = get_settings()
-            worker_api_url = config.claude_proxy_url  # e.g. http://100.96.26.98:3457/v1
-            worker_api_key = config.claude_api_key or "not-needed"
+            _cfg = get_settings()
+            worker_api_url = _cfg.claude_proxy_url  # e.g. http://100.96.26.98:3457/v1
+            worker_api_key = _cfg.claude_api_key or "not-needed"
             # CLIProxyAPI /v1/messages expects base_url without /v1 suffix
             anthropic_base = worker_api_url.rstrip("/")
             if anthropic_base.endswith("/v1"):
                 anthropic_base = anthropic_base[:-3]
-            client = _make_anthropic_client(worker_api_key, anthropic_base)
-            client_type = "anthropic"
-            logger.info(f"[execute_worker_task] Upgraded worker client to native Anthropic → {anthropic_base}")
+            client = _make_async_anthropic_client(worker_api_key, anthropic_base)
+            client_type = "anthropic_async"
+            logger.info(f"[execute_worker_task] Upgraded worker client to AsyncAnthropic → {anthropic_base}")
 
         # Build worker-specific prompt
         base_prompt = self.personality.build_worker_prompt(
@@ -1564,6 +1574,7 @@ class ClaudeService:
         chat_id: str = "",
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
+        client_type: str = "anthropic",
     ) -> str:
         """Native Anthropic SDK call with tool_use loop.
 
@@ -1641,9 +1652,14 @@ class ClaudeService:
                                 {"role": "user", "content": f"[Supervisor] {combined}"},
                             ]
 
-                response = await asyncio.to_thread(
-                    lambda kw=kwargs: client.messages.create(**kw)
-                )
+                # Use async client directly if available (avoids "Streaming required" errors)
+                # client_type "anthropic_async" = AsyncAnthropic, supports native await
+                if client_type == "anthropic_async":
+                    response = await client.messages.create(**kwargs)
+                else:
+                    response = await asyncio.to_thread(
+                        lambda kw=kwargs: client.messages.create(**kw)
+                    )
 
                 # After first turn: remove tool_choice so model can freely emit text
                 if _first_turn:
@@ -2683,12 +2699,12 @@ class ClaudeService:
         api_client = client or self.fast_client
         ct = client_type if client is not None else self.fast_client_type
 
-        if ct == "anthropic":
+        if ct in ("anthropic", "anthropic_async"):
             return await self._call_api_anthropic(
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
                 layer=layer, chat_id=chat_id, cancel_event=cancel_event,
-                message_queue=message_queue,
+                message_queue=message_queue, client_type=ct,
             )
         # Non-Anthropic paths need a plain string for system
         flat_system = _flatten_system(system)
