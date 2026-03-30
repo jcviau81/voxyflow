@@ -1567,7 +1567,7 @@ class ClaudeService:
             clean_messages = [{"role": "user", "content": "(empty)"}]
 
         # Per-model max_tokens: haiku→4096, sonnet→16000, opus→32000
-        if model == self.opus_model or "opus" in model.lower():
+        if model == self.deep_model or "opus" in model.lower():
             resolved_max_tokens = self.max_tokens_opus
         elif model == self.haiku_model or "haiku" in model.lower():
             resolved_max_tokens = self.max_tokens_haiku
