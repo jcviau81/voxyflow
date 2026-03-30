@@ -18,7 +18,6 @@ import { SmartSuggestions } from './SmartSuggestions';
 import { codeReviewService } from '../../services/CodeReviewService';
 import { ttsService, cleanTextForSpeech } from '../../services/TtsService';
 import { openMeetingNotesModal } from './MeetingNotesModal';
-import { TaskPanel } from './TaskPanel';
 
 export interface ChatWindowOptions {
   /** When true, hides header, bottom bar, session tabs, task panel, search — keeps messages + input */
@@ -42,7 +41,6 @@ export class ChatWindow {
   private sessionTabBar: SessionTabBar | null = null;
   private smartSuggestions: SmartSuggestions | null = null;
   private chatSearch: ChatSearch | null = null;
-  private taskPanel: TaskPanel | null = null;
   private unsubscribers: (() => void)[] = [];
   private autoScroll = true;
   private currentProjectView: 'chat' | 'kanban' | 'stats' | 'roadmap' | 'wiki' | 'sprint' | 'docs' = 'chat';
@@ -264,14 +262,6 @@ export class ChatWindow {
     if (topBar) this.container.appendChild(topBar);
 
     this.container.appendChild(this.messageList);
-
-    // Task panel — shows active Deep worker tasks above the input
-    this.taskPanel?.destroy();
-    if (!this.embedded) {
-      this.taskPanel = new TaskPanel(this.container);
-    } else {
-      this.taskPanel = null;
-    }
 
     // BOTTOM: Status + New + Clear + Search + Model Selector + Analyzer
     if (bottomBar) this.container.appendChild(bottomBar);
@@ -1588,7 +1578,6 @@ export class ChatWindow {
     this.sessionTabBar?.destroy();
     this.smartSuggestions?.destroy();
     this.chatSearch?.destroy();
-    this.taskPanel?.destroy();
     this.messageBubbles.forEach((bubble) => bubble.destroy());
     this.messageBubbles.clear();
     this.container.remove();
