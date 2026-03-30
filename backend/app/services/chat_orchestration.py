@@ -95,7 +95,8 @@ class DeepWorkerPool:
     """
 
     MAX_WORKERS = 3
-    TASK_TIMEOUT_SECONDS = 300  # 5 minutes
+    TASK_TIMEOUT_SECONDS = 300        # 5 min default (haiku/sonnet)
+    TASK_TIMEOUT_OPUS_SECONDS = 1200  # 20 min for opus (complex refactoring)
 
     COMPLETED_TASK_TTL = 300  # seconds to keep completed tasks visible (5 min)
 
@@ -473,6 +474,13 @@ class DeepWorkerPool:
 
             stall_task = asyncio.create_task(_stall_monitor())
 
+            # Per-model timeout: opus gets 20 min, others 5 min
+            task_timeout = (
+                self.TASK_TIMEOUT_OPUS_SECONDS
+                if (event.model or "").lower() == "opus"
+                else self.TASK_TIMEOUT_SECONDS
+            )
+
             # Route to model-specific worker (with timeout)
             try:
                 result_content = await asyncio.wait_for(
@@ -488,11 +496,11 @@ class DeepWorkerPool:
                         cancel_event=cancel_event,
                         message_queue=message_queue,
                     ),
-                    timeout=self.TASK_TIMEOUT_SECONDS,
+                    timeout=task_timeout,
                 )
             except asyncio.TimeoutError:
-                logger.warning(f"[DeepWorker] Task {event.task_id} timed out after {self.TASK_TIMEOUT_SECONDS}s")
-                supervisor.mark_problem(event.task_id, f"timeout_{self.TASK_TIMEOUT_SECONDS}s")
+                logger.warning(f"[DeepWorker] Task {event.task_id} timed out after {task_timeout}s")
+                supervisor.mark_problem(event.task_id, f"timeout_{task_timeout}s")
                 _wss.update_status(event.task_id, "timed_out", f"Timed out after {self.TASK_TIMEOUT_SECONDS}s")
                 await self._ledger_update(event.task_id, "failed", error=f"Timed out after {self.TASK_TIMEOUT_SECONDS}s")
                 await self._send_task_event("task:timeout", event.task_id, {
