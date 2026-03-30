@@ -194,22 +194,22 @@ class DeepWorkerPool:
         return {"active": active, "completed": completed}
 
     async def _stale_cleanup_loop(self) -> None:
-        """Periodically mark stale workers as failed (every 60s)."""
+        """Prune old completed-task entries from memory (every 60s).
+
+        cleanup_stale(120s) was removed: it killed Opus workers after 120s of
+        elapsed time regardless of activity. Timeout handling is done correctly
+        by check_timeouts() with a 600s threshold in WorkerSessionStore.
+        """
         try:
             while not self._stopped:
                 await asyncio.sleep(60)
                 try:
                     wss = get_worker_session_store()
-                    stale_ids = wss.cleanup_stale(timeout_seconds=120)
-                    for task_id in stale_ids:
-                        # Notify frontend about stale workers
-                        await self._send_task_event("task:completed", task_id, {
-                            "success": False,
-                            "result": "Worker timed out — no heartbeat",
-                            "sessionId": self._bus.session_id,
-                        })
+                    removed = wss.cleanup_old()
+                    if removed:
+                        logger.debug(f"[DeepWorkerPool] Pruned {removed} old sessions")
                 except Exception as e:
-                    logger.warning(f"[DeepWorkerPool] Stale cleanup error: {e}")
+                    logger.warning(f"[DeepWorkerPool] Cleanup error: {e}")
         except asyncio.CancelledError:
             pass
 
