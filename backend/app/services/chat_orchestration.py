@@ -555,6 +555,18 @@ class DeepWorkerPool:
                 logger.warning(
                     f"[Supervisor] Task {event.task_id} finished without calling task.complete"
                 )
+            else:
+                # Prefer the completion_summary from task.complete — it's what the
+                # worker explicitly chose to return, and is the full result, not just
+                # the final LLM text response (which may be "Done." or empty).
+                task_status = supervisor.get_status(event.task_id)
+                completion_summary = task_status.get("completion_summary") if task_status else None
+                if completion_summary and len(completion_summary) > len(result_content or ""):
+                    logger.info(
+                        f"[DeepWorker] Using completion_summary ({len(completion_summary)} chars) "
+                        f"over result_content ({len(result_content or '')} chars)"
+                    )
+                    result_content = completion_summary
 
             # Check for follow_up in structured worker result (must be before _format_result_for_card)
             follow_up_action = None
