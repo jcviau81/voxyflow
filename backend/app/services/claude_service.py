@@ -1569,8 +1569,7 @@ class ClaudeService:
                         f"[Anthropic] max_tokens reached on round {_+1} for {chat_id!r} "
                         f"(partial text length={len(partial)})"
                     )
-                    return partial + "
-[Truncated: max tokens reached]"
+                    return partial + "\n[Truncated: max tokens reached]"
 
                 # Collect tool_use blocks
                 tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
