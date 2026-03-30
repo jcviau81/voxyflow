@@ -1372,23 +1372,19 @@ export class CardDetailModal {
       const result = await apiClient.enrichCard(cardId);
       if (!result) throw new Error('No result');
 
-      if (!descInput.value.trim() && result.description) {
+      if (result.description) {
         descInput.value = result.description;
         if (this.card) {
           cardService.update(this.card.id, { description: result.description });
         }
       }
 
-      for (const text of result.checklist_items) {
-        const saved = await apiClient.addChecklistItem(cardId, text);
-        if (saved) {
-          const newChecklist = this.buildChecklistSection(cardId);
-          checklistSection.replaceWith(newChecklist);
-          break;
+      if (result.checklist_items?.length) {
+        for (const text of result.checklist_items) {
+          await apiClient.addChecklistItem(cardId, text);
         }
-      }
-      for (let i = 1; i < result.checklist_items.length; i++) {
-        await apiClient.addChecklistItem(cardId, result.checklist_items[i]);
+        const newChecklist = this.buildChecklistSection(cardId);
+        checklistSection.replaceWith(newChecklist);
       }
 
       const existingBadge = this.modal.querySelector('.effort-badge');
@@ -1407,6 +1403,7 @@ export class CardDetailModal {
         }
       }
 
+      if (this.card) this.onUpdated?.(this.card);
       eventBus.emit(EVENTS.TOAST_SHOW, { message: '\u2728 Card enriched!', type: 'success', duration: 3000 });
     } catch (err) {
       console.error('[CardDetailModal] enrichCard error:', err);
