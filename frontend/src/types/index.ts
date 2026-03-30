@@ -157,6 +157,7 @@ export interface Card {
   dependencies: string[];
   tags: string[];
   priority: number;
+  position?: number;  // ordering within status column (for manual sort); defaults to 0
   createdAt: number;
   updatedAt: number;
   chatHistory: string[];

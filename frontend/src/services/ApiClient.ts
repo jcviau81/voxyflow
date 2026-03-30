@@ -578,6 +578,7 @@ export class ApiClient {
         dependencies: c.dependency_ids ?? [],
         totalMinutes: c.total_minutes ?? 0,
         checklistProgress: c.checklist_progress ?? undefined,
+        position: (c.position as number) ?? 0,
         createdAt: c.created_at ? new Date(c.created_at as string).getTime() : Date.now(),
         updatedAt: c.updated_at ? new Date(c.updated_at as string).getTime() : Date.now(),
         tags: c.tags ?? [],
@@ -608,6 +609,22 @@ export class ApiClient {
       console.error('[ApiClient] patchCard error:', error);
       return null;
     }
+  }
+
+  /**
+   * Persist position updates for a batch of cards after manual reorder.
+   * Calls PATCH /api/cards/{id} with { position } for each card.
+   */
+  async reorderCards(orderedCardIds: string[]): Promise<void> {
+    const baseUrl = API_URL || '';
+    const patches = orderedCardIds.map((id, index) =>
+      fetch(`${baseUrl}/api/cards/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position: index }),
+      }).catch((err) => console.error(`[ApiClient] reorderCards patch error for ${id}:`, err)),
+    );
+    await Promise.all(patches);
   }
 
   async toggleFavorite(projectId: string): Promise<boolean> {

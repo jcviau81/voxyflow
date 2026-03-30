@@ -79,10 +79,16 @@ export class KanbanCard {
       className: 'kanban-card',
       draggable: 'true',
       'data-card-id': card.id,
+      'data-card-status': card.status,
     });
     this.render();
     this.setupDrag();
     this.setupContextMenu();
+  }
+
+  /** Expose the root DOM element (used by KanbanColumn for manual sort). */
+  getElement(): HTMLElement {
+    return this.element;
   }
 
   private setupContextMenu(): void {

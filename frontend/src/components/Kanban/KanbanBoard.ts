@@ -40,7 +40,6 @@ export class KanbanBoard {
   private priorityFilter: number | null = null;
   private agentFilter: string | null = null;
   private tagFilter: string | null = null;
-  private sortMode: 'default' | 'votes' = 'default';
 
   // Multi-select state
   private selectModeActive: boolean = false;
@@ -81,7 +80,6 @@ export class KanbanBoard {
     this.priorityFilter = null;
     this.agentFilter = null;
     this.tagFilter = null;
-    this.sortMode = 'default';
 
     // Header row (action buttons — project name + view tabs are in shared ProjectHeader)
     const header = createElement('div', { className: 'kanban-header' });
@@ -241,28 +239,6 @@ export class KanbanBoard {
       agentGroup.appendChild(chip);
     });
 
-    // Sort chips
-    const sortGroup = createElement('div', { className: 'kanban-filter-chips' });
-    const sortLabel = createElement('span', { className: 'kanban-filter-label' }, 'Sort:');
-    sortGroup.appendChild(sortLabel);
-    const sortOptions: Array<{ label: string; value: 'default' | 'votes' }> = [
-      { label: 'Default', value: 'default' },
-      { label: '▲ Votes', value: 'votes' },
-    ];
-    sortOptions.forEach((so) => {
-      const chip = createElement('button', {
-        className: 'kanban-filter-chip' + (this.sortMode === so.value ? ' active' : ''),
-      }, so.label);
-      chip.addEventListener('click', () => {
-        this.sortMode = so.value;
-        sortGroup.querySelectorAll('.kanban-filter-chip').forEach((c, i) => {
-          c.classList.toggle('active', sortOptions[i].value === this.sortMode);
-        });
-        this.refreshCards();
-      });
-      sortGroup.appendChild(chip);
-    });
-
     // Tag filter chips (built after cards are loaded — refreshed in refreshCards)
     this.tagFilterGroup = createElement('div', { className: 'kanban-filter-chips kanban-tag-filter-group' });
     const tagFilterLabel = createElement('span', { className: 'kanban-filter-label' }, '🏷️ Tags:');
@@ -271,7 +247,6 @@ export class KanbanBoard {
 
     this.filterChipsContainer.appendChild(priorityGroup);
     this.filterChipsContainer.appendChild(agentGroup);
-    this.filterChipsContainer.appendChild(sortGroup);
     this.filterChipsContainer.appendChild(this.tagFilterGroup);
     this.filterChipsContainer.appendChild(depGraphBtn);
 
@@ -542,7 +517,7 @@ export class KanbanBoard {
   private refreshCards(): void {
     const projectId = appState.get('currentProjectId');
     if (!projectId) {
-      this.columns.forEach((col) => col.setCards([]));
+      this.columns.forEach((col) => col.setCards([], ''));
       this.refreshTagFilterChips();
       this.applyFilters();
       return;
@@ -552,7 +527,8 @@ export class KanbanBoard {
       const cards = appState.getCardsByStatus(projectId, status);
       const column = this.columns.get(status);
       if (column) {
-        column.setCards(cards, this.sortMode, this.selectModeActive, (id, selected) => {
+        // Pass projectId so KanbanColumn loads/saves per-project sort preferences
+        column.setCards(cards, projectId, undefined, this.selectModeActive, (id, selected) => {
           this.onCardSelectChange(id, selected);
         });
       }
