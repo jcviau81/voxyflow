@@ -1368,6 +1368,8 @@ async def enrich_card(
             system="You are a project assistant. Generate structured task enrichment data. Respond with valid JSON only.",
             messages=[{"role": "user", "content": prompt}],
             client=claude.fast_client,
+            client_type=claude.fast_client_type,
+            use_tools=False,
         )
 
         # Strip markdown code fences if present
