@@ -547,10 +547,10 @@ class DeepWorkerPool:
 
             # Store result content for _on_task_done to pick up
             if result_content:
-                self._result_contents[event.task_id] = (result_content or "")[:500]
+                self._result_contents[event.task_id] = result_content or ""
 
             # Update session store: completed
-            _wss.update_status(event.task_id, "completed", (result_content or "")[:500])
+            _wss.update_status(event.task_id, "completed", result_content or "")
 
             # --- Worker Ledger: mark done ---
             await self._ledger_update(
