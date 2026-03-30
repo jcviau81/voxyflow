@@ -44,6 +44,44 @@ from app.tools.executor import get_executor
 
 logger = logging.getLogger("voxyflow.orchestration")
 
+def _format_result_for_card(text: str) -> str:
+    """Convert raw LLM result to clean human-readable text for card injection.
+
+    If the result is a JSON object/array, flatten it into readable key: value lines
+    instead of injecting raw JSON into the card description.
+    """
+    stripped = text.strip()
+    # Strip markdown code fences if present
+    if stripped.startswith('```'):
+        inner = stripped.split('```', 2)
+        if len(inner) >= 2:
+            block = inner[1]
+            if block.startswith('json'):
+                block = block[4:]
+            stripped = block.strip()
+
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return text  # Not JSON — return as-is
+
+    if isinstance(parsed, dict):
+        lines = []
+        for k, v in parsed.items():
+            if isinstance(v, list):
+                lines.append(f'**{k}:**')
+                for item in v:
+                    lines.append(f'  - {item}')
+            elif isinstance(v, dict):
+                lines.append(f'**{k}:** {json.dumps(v)}')
+            else:
+                lines.append(f'**{k}:** {v}')
+        return '\n'.join(lines)
+    elif isinstance(parsed, list):
+        return '\n'.join(f'- {item}' for item in parsed)
+    else:
+        return str(parsed)
+
 
 # ---------------------------------------------------------------------------
 # Deep Worker Pool — consumes ActionIntent events from the event bus
@@ -531,7 +569,8 @@ class DeepWorkerPool:
                         if card:
                             timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
                             separator = "\n\n---\n"
-                            result_block = f"📋 **Execution Result** ({timestamp})\n{result_content}"
+                            clean_result = _format_result_for_card(result_content)
+                            result_block = f"📋 **Execution Result** ({timestamp})\n{clean_result}"
                             card.description = (card.description or "") + separator + result_block
                             await db.commit()
                             logger.info(f"[DeepWorker] Auto-appended result to card {card_id}")
