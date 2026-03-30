@@ -658,32 +658,8 @@ class DeepWorkerPool:
                 except Exception as inject_err:
                     logger.warning(f"[DeepWorker] Failed to inject result into history: {inject_err}")
 
-            # Smart auto-callback: dispatcher gets notified but stays silent unless needed.
-            if dispatcher_chat_id and result_content and self._orchestrator and session_id:
-                try:
-                    callback_msg = (
-                        f"[SYSTEM: Worker '{event.intent}' just completed. "
-                        f"The full result has already been shown to the user in the chat. "
-                        f"Do NOT repeat or summarize the result. "
-                        f"Only respond if: (1) a follow-up action is clearly needed, or "
-                        f"(2) the result contains an error that requires your attention. "
-                        f"If neither applies, respond with exactly: [SILENT]"
-                    )
-                    callback_message_id = f"cb-{uuid4().hex[:8]}"
-                    logger.info(f"[DeepWorker] Triggering smart callback for task {event.task_id}")
-                    await self._orchestrator.handle_message(
-                        websocket=self._ws,
-                        content=callback_msg,
-                        message_id=callback_message_id,
-                        chat_id=dispatcher_chat_id,
-                        project_id=event.data.get("project_id"),
-                        chat_level=event.data.get("chat_level", "general"),
-                        session_id=session_id,
-                        is_callback=True,
-                        callback_depth=event.callback_depth + 1,
-                    )
-                except Exception as cb_err:
-                    logger.warning(f"[DeepWorker] Smart callback failed: {cb_err}")
+            # Callback removed: task:completed delivers full result directly to frontend.
+            # Chaining is handled deterministically via follow_up in structured worker responses.
 
             # follow_up chaining: if set, emit as new ActionIntent
             if follow_up_action and self._orchestrator and session_id:
