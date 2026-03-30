@@ -75,7 +75,10 @@ class Settings(BaseSettings):
     claude_sonnet_model: str = "claude-sonnet-4-6"
     claude_deep_model: str = "claude-opus-4-6"
     claude_analyzer_model: str = "claude-sonnet-4-6"
-    claude_max_tokens: int = 1024
+    claude_max_tokens: int = 1024           # Legacy fallback — prefer model-specific below
+    claude_max_tokens_haiku: int = 8192
+    claude_max_tokens_sonnet: int = 16000
+    claude_max_tokens_opus: int = 32000
 
     # TTS/STT — now 100% client-side (Whisper WASM + Web Speech API + browser speechSynthesis)
     # Legacy config kept for scheduler health check compatibility

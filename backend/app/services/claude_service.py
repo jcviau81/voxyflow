@@ -564,6 +564,10 @@ class ClaudeService:
         self._initialized = True
         config = get_settings()
         self.max_tokens = config.claude_max_tokens
+        # Per-model max_tokens (haiku=8192, sonnet=16000, opus=32000)
+        self.max_tokens_haiku = config.claude_max_tokens_haiku
+        self.max_tokens_sonnet = config.claude_max_tokens_sonnet
+        self.max_tokens_opus = config.claude_max_tokens_opus
         self.use_native = config.claude_use_native
 
         # Load overrides from settings.json
