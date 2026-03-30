@@ -254,8 +254,27 @@ class MemoryService:
         Returns the document ID on success, None on failure.
         """
         if not self._chromadb_enabled:
-            logger.debug("store_memory: ChromaDB not available, skipping")
-            return None
+            # File-based fallback: append to MEMORY.md so memories persist without ChromaDB
+            try:
+                import uuid as _uuid
+                from datetime import datetime as _dt, timezone as _tz
+                doc_id = f"mem-{_uuid.uuid4().hex[:12]}"
+                meta = metadata or {}
+                mem_type = meta.get('type', 'fact')
+                importance = meta.get('importance', 'medium')
+                date_str = _dt.now(_tz.utc).strftime('%Y-%m-%d %H:%M UTC')
+                MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+                entry = f"
+## [{mem_type.upper()}] ({importance}) — {date_str}
+{text}
+"
+                with open(MEMORY_FILE, 'a', encoding='utf-8') as _f:
+                    _f.write(entry)
+                logger.info(f"store_memory: wrote to MEMORY.md (file-based) — {doc_id}")
+                return doc_id
+            except Exception as fe:
+                logger.error(f"store_memory file fallback failed: {fe}")
+                return None
 
         try:
             col = self._get_or_create_collection(collection)

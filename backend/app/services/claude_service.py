@@ -1489,18 +1489,31 @@ class ClaudeService:
         if not clean_messages:
             clean_messages = [{"role": "user", "content": "(empty)"}]
 
+        # Per-model max_tokens: haiku→4096, sonnet→16000, opus→32000
+        if model == self.opus_model or "opus" in model.lower():
+            resolved_max_tokens = self.max_tokens_opus
+        elif model == self.haiku_model or "haiku" in model.lower():
+            resolved_max_tokens = self.max_tokens_haiku
+        elif model == self.fast_model or "sonnet" in model.lower():
+            resolved_max_tokens = self.max_tokens_sonnet
+        else:
+            resolved_max_tokens = self.max_tokens
+
         kwargs = {
             "model": model,
-            "max_tokens": self.max_tokens,
+            "max_tokens": resolved_max_tokens,
             "system": system,
             "messages": clean_messages,
         }
         if claude_tools:
             kwargs["tools"] = claude_tools
-            # Force workers to use a tool instead of writing prose
-            if layer in ("deep", "worker"):
+            # Only force tool_choice='any' on the FIRST turn (iteration 0)
+            # to avoid trapping Opus in an infinite tool loop on synthesis turns.
+            # We track this via a local flag set before the loop.
+            if layer in ("deep", "worker") and _first_turn:
                 kwargs["tool_choice"] = {"type": "any"}
 
+        _first_turn = True  # tool_choice='any' only on first turn to avoid infinite loops
         try:
             # Agentic tool-use loop (max 10 rounds)
             for _ in range(10):
@@ -1541,6 +1554,11 @@ class ClaudeService:
                 response = await asyncio.to_thread(
                     lambda kw=kwargs: client.messages.create(**kw)
                 )
+
+                # After first turn: remove tool_choice so model can freely emit text
+                if _first_turn:
+                    _first_turn = False
+                    kwargs.pop("tool_choice", None)
 
                 # Log prompt caching stats if available
                 usage = response.usage
