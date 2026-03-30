@@ -2457,6 +2457,9 @@ class ClaudeService:
             logger.info(f"[ServerTools] Round {round_num + 1}: response_len={len(response_text)}, tool_calls={len(tool_calls)}, has_tool_call_tag={'<tool_call>' in response_text}")
             if not tool_calls and '<tool_call>' in response_text:
                 logger.warning(f"[ServerTools] has_tool_call but parse failed. Full response: {response_text!r}")
+                # NOTE: This path is only reachable via the OpenAI-compat proxy fallback.
+                # Workers now always use native Anthropic SDK (tool_use blocks), so this
+                # guard is mainly for the fast layer's <tool_call> XML fallback path.
                 # The <tool_call> block was likely truncated mid-JSON by token limit.
                 # Do NOT return the raw response (it contains a malformed JSON blob).
                 # Return a clean error message instead so it doesn't pollute the chat.

@@ -116,7 +116,6 @@ class DeepWorkerPool:
         self._listener_task: asyncio.Task | None = None
         self._cleanup_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
-        self._callback_lock = asyncio.Lock()  # Prevents overlapping callback streams
         self._result_contents: dict[str, str] = {}  # task_id → actual result content
         self._stopped = False
 
@@ -662,11 +661,11 @@ class DeepWorkerPool:
             # Chaining is handled deterministically via follow_up in structured worker responses.
 
             # follow_up chaining: if set, emit as new ActionIntent
-            if follow_up_action and self._orchestrator and session_id:
+            if follow_up_action and self._orchestrator and event.session_id:
                 try:
                     follow_up_intent = ActionIntent(
                         task_id=f"followup-{uuid4().hex[:8]}",
-                        session_id=session_id,
+                        session_id=event.session_id,
                         intent="follow_up",
                         summary=follow_up_action,
                         model=event.model,
@@ -678,7 +677,7 @@ class DeepWorkerPool:
                         },
                         callback_depth=event.callback_depth + 1,
                     )
-                    await event_bus_registry.get_or_create(session_id).emit(follow_up_intent)
+                    await event_bus_registry.get_or_create(event.session_id).emit(follow_up_intent)
                     logger.info(f"[DeepWorker] follow_up chaining: '{follow_up_action[:80]}'")
                 except Exception as fu_err:
                     logger.warning(f"[DeepWorker] follow_up emit failed: {fu_err}")
@@ -697,6 +696,7 @@ class DeepWorkerPool:
                     "success": False,
                     "sessionId": event.session_id,
                     "projectId": event.data.get("project_id"),
+                    "cardId": event.data.get("card_id"),
                 })
             except Exception:
                 pass
