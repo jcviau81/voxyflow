@@ -556,6 +556,18 @@ class DeepWorkerPool:
                     f"[Supervisor] Task {event.task_id} finished without calling task.complete"
                 )
 
+            # Check for follow_up in structured worker result (must be before _format_result_for_card)
+            follow_up_action = None
+            try:
+                parsed_result = json.loads(result_content.strip())
+                if isinstance(parsed_result, dict) and "follow_up" in parsed_result:
+                    follow_up_action = parsed_result["follow_up"]
+                    # Use the non-follow_up content as the actual result for display
+                    result_content = parsed_result.get("result", result_content)
+                    logger.info(f"[DeepWorker] follow_up extracted from structured result: '{follow_up_action[:80]}'")
+            except (json.JSONDecodeError, ValueError):
+                pass  # Not JSON, no follow_up
+
             # Auto-append execution result to card description
             card_id = event.data.get("card_id")
             if card_id and result_content:
@@ -633,9 +645,54 @@ class DeepWorkerPool:
                 except Exception as inject_err:
                     logger.warning(f"[DeepWorker] Failed to inject result into history: {inject_err}")
 
-            # Auto-callback removed: task:completed already delivers the full result
-            # to the frontend via ChatService. A dispatcher summarize-callback was
-            # truncating the worker output — not worth the tradeoff.
+            # Smart auto-callback: dispatcher gets notified but stays silent unless needed.
+            if dispatcher_chat_id and result_content and self._orchestrator and session_id:
+                try:
+                    callback_msg = (
+                        f"[SYSTEM: Worker '{event.intent}' just completed. "
+                        f"The full result has already been shown to the user in the chat. "
+                        f"Do NOT repeat or summarize the result. "
+                        f"Only respond if: (1) a follow-up action is clearly needed, or "
+                        f"(2) the result contains an error that requires your attention. "
+                        f"If neither applies, respond with exactly: [SILENT]"
+                    )
+                    callback_message_id = f"cb-{uuid4().hex[:8]}"
+                    logger.info(f"[DeepWorker] Triggering smart callback for task {event.task_id}")
+                    await self._orchestrator.handle_message(
+                        websocket=self._ws,
+                        content=callback_msg,
+                        message_id=callback_message_id,
+                        chat_id=dispatcher_chat_id,
+                        project_id=event.data.get("project_id"),
+                        chat_level=event.data.get("chat_level", "general"),
+                        session_id=session_id,
+                        is_callback=True,
+                        callback_depth=event.callback_depth + 1,
+                    )
+                except Exception as cb_err:
+                    logger.warning(f"[DeepWorker] Smart callback failed: {cb_err}")
+
+            # follow_up chaining: if set, emit as new ActionIntent
+            if follow_up_action and self._orchestrator and session_id:
+                try:
+                    follow_up_intent = ActionIntent(
+                        task_id=f"followup-{uuid4().hex[:8]}",
+                        session_id=session_id,
+                        intent="follow_up",
+                        summary=follow_up_action,
+                        model=event.model,
+                        data={
+                            **event.data,
+                            "follow_up_prompt": follow_up_action,
+                            "parent_task_id": event.task_id,
+                            "dispatcher_chat_id": dispatcher_chat_id,
+                        },
+                        callback_depth=event.callback_depth + 1,
+                    )
+                    await event_bus_registry.get_or_create(session_id).emit(follow_up_intent)
+                    logger.info(f"[DeepWorker] follow_up chaining: '{follow_up_action[:80]}'")
+                except Exception as fu_err:
+                    logger.warning(f"[DeepWorker] follow_up emit failed: {fu_err}")
 
             logger.info(f"[DeepWorker] Task {event.task_id} completed: {event.intent}")
 
@@ -876,6 +933,7 @@ class ChatOrchestrator:
                 session_id=session_id,
                 send_model_status=send_model_status,
                 active_workers_context=active_workers_context,
+                is_callback=is_callback,
             )
 
         if not chat_success:
@@ -2313,11 +2371,14 @@ class ChatOrchestrator:
         session_id: str | None,
         send_model_status,
         active_workers_context: str = "",
+        is_callback: bool = False,
     ) -> bool:
         """Run the fast layer, streaming tokens to the WebSocket.
 
         Returns True on success, False on failure.
         Chat layers have zero tools — clean streaming only.
+        For callback responses (is_callback=True), buffers tokens and suppresses
+        sending if the full response is exactly [SILENT].
         """
         await send_model_status("fast", "active")
         start = time.time()
@@ -2325,6 +2386,9 @@ class ChatOrchestrator:
 
         try:
             first_token_sent = False
+            # For callbacks: buffer tokens to check for [SILENT] before sending
+            buffered_tokens: list[str] = [] if is_callback else []
+
             async for token in self._claude.chat_fast_stream(
                 chat_id=chat_id,
                 user_message=content,
@@ -2342,18 +2406,44 @@ class ChatOrchestrator:
                     logger.info(f"[Layer1-Fast] first token in {first_token_latency}ms")
                     first_token_sent = True
 
-                await websocket.send_json({
-                    "type": "chat:response",
-                    "payload": {
-                        "messageId": message_id,
-                        "content": token,
-                        "model": "fast",
-                        "streaming": True,
-                        "done": False,
-                        "sessionId": session_id,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                })
+                if is_callback:
+                    # Buffer — don't send yet, check for [SILENT] at end
+                    buffered_tokens.append(token)
+                else:
+                    await websocket.send_json({
+                        "type": "chat:response",
+                        "payload": {
+                            "messageId": message_id,
+                            "content": token,
+                            "model": "fast",
+                            "streaming": True,
+                            "done": False,
+                            "sessionId": session_id,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    })
+
+            # [SILENT] suppression for callback responses
+            if is_callback and fast_full_response.strip() == "[SILENT]":
+                logger.info(f"[Orchestrator] Callback response is [SILENT] — suppressing")
+                await send_model_status("fast", "idle")
+                return True
+
+            # For callbacks: flush buffered tokens now that we know it's not [SILENT]
+            if is_callback and buffered_tokens:
+                for tok in buffered_tokens:
+                    await websocket.send_json({
+                        "type": "chat:response",
+                        "payload": {
+                            "messageId": message_id,
+                            "content": tok,
+                            "model": "fast",
+                            "streaming": True,
+                            "done": False,
+                            "sessionId": session_id,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    })
 
             # Check for <tool_call> text blocks and handle them
             if TOOL_CALL_PATTERN.search(fast_full_response):
