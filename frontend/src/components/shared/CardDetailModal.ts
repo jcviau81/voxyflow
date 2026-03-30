@@ -1373,8 +1373,14 @@ export class CardDetailModal {
       if (!result) throw new Error('No result');
 
       if (result.description) {
-        descInput.value = result.description;
+        // Update CodeMirror editor if present, fallback to textarea .value
+        if (this.codeMirrorEditor) {
+          this.codeMirrorEditor.setValue(result.description);
+        } else {
+          descInput.value = result.description;
+        }
         if (this.card) {
+          this.card.description = result.description;
           cardService.update(this.card.id, { description: result.description });
         }
       }
