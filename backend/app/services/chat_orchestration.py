@@ -518,7 +518,7 @@ class DeepWorkerPool:
             if not result_content:
                 # Fallback 1: last assistant message from the task's conversation
                 try:
-                    task_history = await self._claude._load_history_async(task_chat_id)
+                    task_history = self._claude.get_history(task_chat_id)
                     for msg in reversed(task_history):
                         if msg.get("role") == "assistant":
                             raw = msg.get("content", "")
