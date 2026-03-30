@@ -1616,8 +1616,10 @@ class ClaudeService:
             if layer in ("deep", "worker") and _first_turn:
                 kwargs["tool_choice"] = {"type": "any"}
         try:
-            # Agentic tool-use loop (max 20 rounds for complex worker tasks)
-            for _ in range(20):
+            # Agentic tool-use loop — no round limit, bounded by task timeout + cancel_event
+            _round = 0
+            while True:
+                _round += 1
                 # Check cancel_event before each API round
                 if cancel_event and cancel_event.is_set():
                     logger.info(f"[Anthropic] Cancel event set — breaking tool loop for {chat_id}")
@@ -1750,7 +1752,7 @@ class ClaudeService:
                 text_parts = [b.text for b in response.content if b.type == "text"]
                 return "".join(text_parts)
 
-            logger.warning("_call_api_anthropic: tool loop exceeded 20 rounds")
+            logger.info(f"[Anthropic] tool loop ended after {_round} rounds for {chat_id!r}")
             return ""
 
         except Exception as e:
@@ -2112,7 +2114,7 @@ class ClaudeService:
         claude_tools = get_claude_tools(chat_level=chat_level, layer=layer) if use_tools else []
 
         try:
-            for _ in range(10):
+            for _ in range(20):
                 kwargs: dict = {
                     "model": model,
                     "max_tokens": self.max_tokens,
