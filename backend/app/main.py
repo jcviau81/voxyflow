@@ -35,6 +35,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger("voxyflow")
 
+# --- File-based logging (RotatingFileHandler) ---
+import os as _os
+from logging.handlers import RotatingFileHandler as _RotatingFileHandler
+_log_dir = _os.path.expanduser("~/.voxyflow/logs")
+_os.makedirs(_log_dir, exist_ok=True)
+_log_file = _os.path.join(_log_dir, "backend.log")
+_file_handler = _RotatingFileHandler(
+    _log_file,
+    maxBytes=10 * 1024 * 1024,  # 10 MB
+    backupCount=3,
+    encoding="utf-8",
+)
+_file_handler.setLevel(logging.DEBUG if get_settings().debug else logging.INFO)
+_file_handler.setFormatter(
+    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+)
+logging.getLogger().addHandler(_file_handler)
+logger.info("File logging enabled: %s (max 10MB, 3 backups)", _log_file)
+
 
 # ---------------------------------------------------------------------------
 # Lifespan

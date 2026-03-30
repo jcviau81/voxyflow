@@ -7,6 +7,7 @@ Provides:
 - Health status dict with timestamps exposed via /api/health
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -120,6 +121,8 @@ class SchedulerService:
         )
 
         self._scheduler.start()
+        # Run heartbeat immediately at startup (so ChromaDB status is known right away)
+        asyncio.ensure_future(self._heartbeat_job())
         logger.info(
             f"✅ SchedulerService started "
             f"(heartbeat every {heartbeat_interval_minutes}m, "

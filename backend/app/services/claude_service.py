@@ -279,6 +279,33 @@ INLINE_TOOLS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "memory_save",
+        "description": (
+            "Save something to Voxy's long-term memory. Use this to remember user preferences, "
+            "decisions, facts, or lessons learned for future conversations."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The information to remember",
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["decision", "preference", "fact", "lesson"],
+                    "description": "Category of memory: decision, preference, fact, or lesson",
+                },
+                "importance": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Importance level (default: medium)",
+                },
+            },
+            "required": ["content", "type"],
+        },
+    }
 ]
 
 # Names of tools that execute inline (not delegated)
@@ -315,6 +342,23 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
         try:
             result = await get_rag_service().build_rag_context(project_id, query)
             return {"result": result or "No relevant knowledge found."}
+        except Exception as e:
+            return {"error": str(e)}
+    elif name == "memory_save":
+        from app.services.memory_service import get_memory_service
+        mem_content = params.get("content", "")
+        if not mem_content:
+            return {"error": "content is required"}
+        memory_type = params.get("type", "fact")
+        importance = params.get("importance", "medium")
+        try:
+            ms = get_memory_service()
+            result = await ms.store_memory(
+                content=mem_content,
+                memory_type=memory_type,
+                importance=importance,
+            )
+            return {"saved": True, "id": result.get("id", "") if result else ""}
         except Exception as e:
             return {"error": str(e)}
     return {"error": f"Unknown inline tool: {name}"}
@@ -957,7 +1001,7 @@ class ClaudeService:
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
                     "I converse with you directly and delegate most actions to background workers "
                     "using the delegate_action tool. I also have inline tools (memory_search, "
-                    "knowledge_search) that I execute directly to recall context. When you ask "
+                    "knowledge_search, memory_save) that I execute directly to recall and save context. When you ask "
                     "me to do something like a web search or create a card, I respond briefly and "
                     "call delegate_action to trigger the worker. The worker handles it in the "
                     "background and the result appears in the chat."
