@@ -1492,6 +1492,9 @@ class ClaudeService:
         }
         if claude_tools:
             kwargs["tools"] = claude_tools
+            # Force workers to use a tool instead of writing prose
+            if layer in ("deep", "worker"):
+                kwargs["tool_choice"] = {"type": "any"}
 
         try:
             # Agentic tool-use loop (max 10 rounds)
@@ -1557,6 +1560,17 @@ class ClaudeService:
                 )
 
                 stop_reason = response.stop_reason  # "end_turn" | "tool_use" | "max_tokens"
+
+                # Handle max_tokens gracefully — don't silently drop partial result
+                if stop_reason == "max_tokens":
+                    text_parts = [b.text for b in response.content if b.type == "text"]
+                    partial = "".join(text_parts)
+                    logger.warning(
+                        f"[Anthropic] max_tokens reached on round {_+1} for {chat_id!r} "
+                        f"(partial text length={len(partial)})"
+                    )
+                    return partial + "
+[Truncated: max tokens reached]"
 
                 # Collect tool_use blocks
                 tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
