@@ -211,8 +211,8 @@
 /* ── Project Picker Dropdown ─────────────────────────────────── */
 .project-picker-dropdown {
   z-index: 1000;
-  background: var(--bg-secondary, #2a2a2a);
-  border: 1px solid var(--border-color, #444);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-light);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   max-height: 200px;
@@ -224,12 +224,12 @@
   padding: 8px 12px;
   cursor: pointer;
   font-size: 13px;
-  color: var(--color-text, #e0e0e0);
+  color: var(--color-text);
   transition: background 0.1s;
 }
 
 .project-picker-item:hover {
-  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  background: var(--color-bg-hover);
 }
 
 .project-picker-item--empty {
@@ -238,8 +238,8 @@
 }
 
 .project-picker-item--new {
-  border-top: 1px solid var(--border-color, #444);
-  color: var(--color-primary, #90caf9);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-primary);
   font-weight: 500;
 }
 

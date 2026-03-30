@@ -1529,8 +1529,8 @@
 }
 
 .dependency-graph-panel {
-  background: var(--color-surface, #1e1e2e);
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
   border-radius: var(--border-radius, 12px);
   box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   width: min(640px, 95%);
@@ -1546,10 +1546,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.08));
+  border-bottom: 1px solid var(--color-border);
   position: sticky;
   top: 0;
-  background: var(--color-surface, #1e1e2e);
+  background: var(--color-bg-elevated);
   z-index: 1;
 }
 
@@ -5696,10 +5696,10 @@
 
 .comment-textarea {
   flex: 1;
-  background: var(--color-surface-2, #313244);
-  border: 1px solid var(--color-border, #45475a);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  color: var(--color-text, #cdd6f4);
+  color: var(--color-text);
   font-size: 0.8125rem;
   padding: 8px 10px;
   resize: none;
@@ -6628,8 +6628,8 @@
 .card-context-menu {
   position: fixed;
   z-index: 9999;
-  background: var(--color-surface, #1e2030);
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-light);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   min-width: 160px;
@@ -6655,7 +6655,7 @@
 }
 
 .card-context-item:hover {
-  background: rgba(255,255,255,0.07);
+  background: var(--color-bg-hover);
 }
 
 .card-context-item--danger {
@@ -6694,8 +6694,8 @@
 .card-context-submenu {
   position: fixed;
   z-index: 10000;
-  background: var(--color-surface, #1e2030);
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-light);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.45);
   min-width: 180px;
@@ -6834,10 +6834,10 @@
   padding: 3px 10px;
   font-size: 0.8125rem;
   font-weight: 500;
-  border: 1px solid var(--color-border, #374151);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: var(--color-surface, #1f2937);
-  color: var(--color-text-muted, #9ca3af);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-muted);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease, background 0.15s ease;
@@ -6850,9 +6850,9 @@ pre:hover .code-review-btn,
 }
 
 .code-review-btn:hover:not(:disabled) {
-  background: var(--color-surface-hover, #374151);
-  color: var(--color-text, #f9fafb);
-  border-color: var(--color-primary, #f97316);
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border-color: var(--color-primary);
 }
 
 .code-review-btn:disabled {
@@ -6864,12 +6864,12 @@ pre:hover .code-review-btn,
 .code-review-result {
   margin: 8px 0 16px;
   padding: 12px 14px;
-  border-left: 3px solid var(--color-primary, #f97316);
-  background: var(--color-surface, #1f2937);
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-bg-tertiary);
   border-radius: 0 8px 8px 0;
   font-size: 0.8125rem;
   line-height: 1.5;
-  color: var(--color-text, #f3f4f6);
+  color: var(--color-text);
   animation: fadeIn 0.2s ease;
 }
 
@@ -6949,8 +6949,8 @@ pre:hover .code-review-btn,
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--color-surface, #1f2937);
-  border: 1px solid var(--color-border, #374151);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   margin-bottom: 6px;
   font-size: 0.8125rem;
@@ -6988,13 +6988,13 @@ pre:hover .code-review-btn,
 
 .code-paste-banner-dismiss {
   background: transparent;
-  color: var(--color-text-muted, #9ca3af);
-  border-color: var(--color-border, #374151);
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
 }
 
 .code-paste-banner-dismiss:hover {
-  color: var(--color-text, #f3f4f6);
-  border-color: var(--color-text-muted, #6b7280);
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
 }
 
 @keyframes fadeIn {
@@ -7074,7 +7074,7 @@ pre:hover .code-review-btn,
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  background: var(--color-surface, #1f2937);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-accent, #4ecdc4);
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(78, 205, 196, 0.2);
@@ -7093,7 +7093,7 @@ pre:hover .code-review-btn,
   align-items: center;
   gap: 8px;
   padding-right: 8px;
-  border-right: 1px solid var(--color-border, #374151);
+  border-right: 1px solid var(--color-border);
 }
 
 .bulk-select-count {
@@ -7115,17 +7115,17 @@ pre:hover .code-review-btn,
   font-size: 0.8125rem;
   font-weight: 500;
   border-radius: 6px;
-  border: 1px solid var(--color-border, #374151);
-  background: var(--color-surface-raised, #374151);
-  color: var(--color-text, #f3f4f6);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
 
 .bulk-toolbar-action:hover {
-  background: var(--color-surface-hover, #4b5563);
-  border-color: var(--color-text-muted, #9ca3af);
+  background: var(--color-bg-hover);
+  border-color: var(--color-text-muted);
 }
 
 .bulk-toolbar-action--danger {
@@ -7142,12 +7142,12 @@ pre:hover .code-review-btn,
   font-size: 0.8125rem;
   padding: 4px 8px;
   background: transparent;
-  border-color: var(--color-border, #374151);
-  color: var(--color-text-muted, #9ca3af);
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
 }
 
 .bulk-toolbar-clear:hover {
-  color: var(--color-text, #f3f4f6);
+  color: var(--color-text);
 }
 
 .bulk-toolbar-dropdown-trigger {
@@ -7165,9 +7165,9 @@ pre:hover .code-review-btn,
   padding: 5px 10px;
   font-size: 0.8125rem;
   border-radius: 6px;
-  border: 1px solid var(--color-border, #374151);
-  background: var(--color-surface-raised, #374151);
-  color: var(--color-text, #f3f4f6);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
   width: 120px;
   outline: none;
 }
@@ -7185,8 +7185,8 @@ pre:hover .code-review-btn,
   position: fixed;
   z-index: 1100;
   min-width: 150px;
-  background: var(--color-surface, #1f2937);
-  border: 1px solid var(--color-border, #374151);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-light);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   padding: 4px;
@@ -7208,7 +7208,7 @@ pre:hover .code-review-btn,
 }
 
 .bulk-toolbar-dropdown-item:hover {
-  background: var(--color-surface-raised, #374151);
+  background: var(--color-bg-hover);
 }
 
 /* Kanban 2-row layout */

@@ -664,7 +664,7 @@ export class CardDetailModal {
           title: 'Unlink file',
           type: 'button',
         }, '\u2715') as HTMLButtonElement;
-        removeBtn.style.cssText = 'background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:11px;padding:2px 4px;opacity:0.6;';
+        removeBtn.style.cssText = 'background:none;border:none;color:var(--color-text-secondary);cursor:pointer;font-size:11px;padding:2px 4px;opacity:0.6;';
         removeBtn.addEventListener('click', async () => {
           if (!this.card) return;
           try {
@@ -711,7 +711,7 @@ export class CardDetailModal {
       if (existing) { existing.remove(); return; }
 
       const dropdown = createElement('div', { className: 'file-picker-dropdown' });
-      dropdown.style.cssText = 'border:1px solid var(--border-color);border-radius:6px;max-height:160px;overflow-y:auto;margin-top:4px;background:var(--bg-secondary);';
+      dropdown.style.cssText = 'border:1px solid var(--color-border-light);border-radius:6px;max-height:160px;overflow-y:auto;margin-top:4px;background:var(--color-bg-elevated);';
 
       if (entries.length === 0) {
         dropdown.innerHTML = '<div style="padding:8px;font-size:12px;opacity:0.5;">Workspace is empty</div>';
@@ -721,10 +721,10 @@ export class CardDetailModal {
           const currentFiles = this.card.files ?? [];
           if (currentFiles.includes(entry.path)) continue; // already linked
           const opt = createElement('div', { className: 'file-picker-option' });
-          opt.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:12px;';
+          opt.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:12px;color:var(--color-text);';
           opt.textContent = entry.name;
           opt.title = entry.path;
-          opt.addEventListener('mouseenter', () => { opt.style.background = 'var(--bg-hover)'; });
+          opt.addEventListener('mouseenter', () => { opt.style.background = 'var(--color-bg-hover)'; });
           opt.addEventListener('mouseleave', () => { opt.style.background = ''; });
           opt.addEventListener('click', async () => {
             if (!this.card) return;
