@@ -1652,10 +1652,11 @@ class ClaudeService:
                                 {"role": "user", "content": f"[Supervisor] {combined}"},
                             ]
 
-                # Use async client directly if available (avoids "Streaming required" errors)
-                # client_type "anthropic_async" = AsyncAnthropic, supports native await
+                # Use streaming to satisfy proxy requirement.
+                # Collect the full streamed response and convert to a message-like object.
                 if client_type == "anthropic_async":
-                    response = await client.messages.create(**kwargs)
+                    async with client.messages.stream(**kwargs) as stream:
+                        response = await stream.get_final_message()
                 else:
                     response = await asyncio.to_thread(
                         lambda kw=kwargs: client.messages.create(**kw)
