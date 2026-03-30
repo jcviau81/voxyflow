@@ -305,7 +305,49 @@ INLINE_TOOLS = [
             },
             "required": ["content", "type"],
         },
-    }
+    },
+    {
+        "name": "workers.list",
+        "description": (
+            "List active and recent worker tasks for the current session. Use this BEFORE "
+            "dispatching a new task to check if a similar worker is already running."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Filter by session ID (uses current session if omitted)",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["running", "done", "failed", "timed_out", "cancelled"],
+                    "description": "Filter by status (default: show all)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results to return (default 10)",
+                },
+            },
+        },
+    },
+    {
+        "name": "workers.get_result",
+        "description": (
+            "Get the full details and result of a specific worker task by task_id. "
+            "Use to retrieve the outcome of a completed worker."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Worker task ID to look up",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
 ]
 
 # Names of tools that execute inline (not delegated)
@@ -365,6 +407,37 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
             return {"saved": True, "id": doc_id or ""}
         except Exception as e:
             logger.error(f"[InlineTool] memory_save failed: {e}")
+            return {"error": str(e)}
+    elif name == "workers.list":
+        from app.services.worker_session_store import get_worker_session_store
+        try:
+            store = get_worker_session_store()
+            session_id = params.get("session_id")
+            sessions = store.get_sessions(session_id=session_id)
+            status_filter = params.get("status")
+            if status_filter:
+                sessions = [s for s in sessions if s.get("status") == status_filter]
+            limit = params.get("limit", 10)
+            sessions = sessions[:limit]
+            if not sessions:
+                return {"result": "No active or recent workers found."}
+            return {"workers": sessions, "count": len(sessions)}
+        except Exception as e:
+            logger.error(f"[InlineTool] workers.list failed: {e}")
+            return {"error": str(e)}
+    elif name == "workers.get_result":
+        from app.services.worker_session_store import get_worker_session_store
+        task_id = params.get("task_id", "")
+        if not task_id:
+            return {"error": "task_id is required"}
+        try:
+            store = get_worker_session_store()
+            session = store.get_session(task_id)
+            if session is None:
+                return {"error": f"Worker task not found: {task_id}"}
+            return session
+        except Exception as e:
+            logger.error(f"[InlineTool] workers.get_result failed: {e}")
             return {"error": str(e)}
     return {"error": f"Unknown inline tool: {name}"}
 
