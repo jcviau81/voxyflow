@@ -1327,7 +1327,7 @@ class ClaudeService:
             if anthropic_base.endswith("/v1"):
                 anthropic_base = anthropic_base[:-3]
             client = _make_async_anthropic_client(worker_api_key, anthropic_base)
-            client_type = "anthropic_async"
+            client_type = "anthropic"  # Same path as sync anthropic; async detected via isinstance
             logger.info(f"[execute_worker_task] Upgraded worker client to AsyncAnthropic → {anthropic_base}")
 
         # Build worker-specific prompt
@@ -1652,9 +1652,10 @@ class ClaudeService:
                                 {"role": "user", "content": f"[Supervisor] {combined}"},
                             ]
 
-                # Use streaming to satisfy proxy requirement.
-                # Collect the full streamed response and convert to a message-like object.
-                if client_type == "anthropic_async":
+                # Use async streaming for AsyncAnthropic clients (detected by isinstance).
+                # Sync Anthropic clients fall back to asyncio.to_thread.
+                import anthropic as _anthropic
+                if isinstance(client, _anthropic.AsyncAnthropic):
                     async with client.messages.stream(**kwargs) as stream:
                         response = await stream.get_final_message()
                 else:
@@ -2700,7 +2701,7 @@ class ClaudeService:
         api_client = client or self.fast_client
         ct = client_type if client is not None else self.fast_client_type
 
-        if ct in ("anthropic", "anthropic_async"):
+        if ct == "anthropic":
             return await self._call_api_anthropic(
                 model=model, system=system, messages=messages, client=api_client,
                 use_tools=use_tools, tool_callback=tool_callback, chat_level=chat_level,
