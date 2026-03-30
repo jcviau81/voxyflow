@@ -2442,6 +2442,10 @@ class ClaudeService:
             logger.info(f"[ServerTools] Round {round_num + 1}: response_len={len(response_text)}, tool_calls={len(tool_calls)}, has_tool_call_tag={'<tool_call>' in response_text}")
             if not tool_calls and '<tool_call>' in response_text:
                 logger.warning(f"[ServerTools] has_tool_call but parse failed. Full response: {response_text!r}")
+                # The <tool_call> block was likely truncated mid-JSON by token limit.
+                # Do NOT return the raw response (it contains a malformed JSON blob).
+                # Return a clean error message instead so it doesn't pollute the chat.
+                return "[Worker: tool call was truncated by token limit and could not be executed. Please retry with a shorter output.]"
             if not tool_calls and '<tool_call>' not in response_text:
                 logger.info(f"[ServerTools] No tool calls found. Response tail: {response_text[-200:]!r}")
 
