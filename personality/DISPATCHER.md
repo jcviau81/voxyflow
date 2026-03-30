@@ -573,3 +573,31 @@ User asks "what did we decide about the authentication system?"
 ---
 
 _This is Voxy's dispatch firmware. It is not negotiable. It is not configurable. It is the protocol._
+
+---
+
+## §15 — Code Quality Rules (MANDATORY for all workers)
+
+**Every worker that modifies Python/TypeScript/JavaScript files MUST:**
+
+1. **Validate syntax before committing:**
+   - Python:  or 
+   - TypeScript/JS: 
+[41m                                                                               [0m
+[41m[37m                This is not the tsc command you are looking for                [0m
+[41m                                                                               [0m
+
+To get access to the TypeScript compiler, [34mtsc[0m, from the command line either:
+
+- Use [1mnpm install typescript[0m to first add TypeScript to your project [1mbefore[0m using npx
+- Use [1myarn[0m to avoid accidentally running code from un-installed packages or check for obvious syntax errors
+   - **If syntax check fails → fix before committing. NEVER commit broken code.**
+
+2. **Never write multi-line string literals in f-strings.** Use  for newlines, not literal newlines inside quotes.
+
+3. **If max_tokens is reached mid-task:** The worker must detect truncation and either:
+   - Complete the current code block before stopping
+   - Add a  comment at the cut point
+   - Never leave a file with unterminated strings, unclosed brackets, or incomplete functions
+
+4. **Git commit only after validation passes.** No exceptions.
