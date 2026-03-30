@@ -670,6 +670,16 @@ class DeepWorkerPool:
 
             logger.info(f"[DeepWorker] Task {event.task_id} completed: {event.intent}")
 
+            # Cleanup worker chat session — result is already injected into dispatcher history.
+            # No need to keep the task conversation around.
+            try:
+                from app.services.session_store import session_store as _ss
+                _ss.delete_session(task_chat_id)
+                self._claude._histories.pop(task_chat_id, None)
+                logger.info(f"[DeepWorker] Cleaned up worker session {task_chat_id}")
+            except Exception as _cleanup_err:
+                logger.warning(f"[DeepWorker] Session cleanup failed: {_cleanup_err}")
+
         except Exception as e:
             logger.error(f"[DeepWorker] Task {event.task_id} failed: {e}")
             _wss.update_status(event.task_id, "failed", str(e)[:500])
