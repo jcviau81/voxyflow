@@ -897,13 +897,14 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         <div className="flex-1" />
 
         {/* Actions — compact */}
-        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" onClick={handleNewCard}>
+        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="Create a new card" onClick={handleNewCard}>
           + Card
         </Button>
         <Button
           variant={executionActive ? 'destructive' : 'outline'}
           size="sm"
           className="h-6 text-[10px] px-2 shrink-0"
+          title={executionActive ? 'Stop board execution' : 'Execute all todo/in-progress cards'}
           onClick={handleExecuteBoard}
         >
           {executionActive ? '⏹' : '▶'}
@@ -912,17 +913,18 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
           variant={selectMode ? 'default' : 'outline'}
           size="sm"
           className="h-6 text-[10px] px-2 shrink-0"
+          title={selectMode ? 'Exit select mode' : 'Select multiple cards'}
           onClick={toggleSelectMode}
         >
           ☑
         </Button>
-        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" onClick={() => setDepGraphOpen(true)}>
+        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="View dependency graph" onClick={() => setDepGraphOpen(true)}>
           🔗
         </Button>
-        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" onClick={handleExport}>
+        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="Export project as JSON" onClick={handleExport}>
           📤
         </Button>
-        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" onClick={() => importInputRef.current?.click()}>
+        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="Import project from JSON" onClick={() => importInputRef.current?.click()}>
           📥
         </Button>
         <input
