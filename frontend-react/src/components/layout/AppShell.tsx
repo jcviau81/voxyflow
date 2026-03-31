@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { useViewStore } from '../../stores/useViewStore';
+import { useProjectStore } from '../../stores/useProjectStore';
 import { CardDetailModal } from '../CardDetail';
 import { Sidebar } from '../Navigation/Sidebar';
 import { TabBar } from '../Navigation/TabBar';
@@ -26,6 +27,7 @@ import { ProjectHeader } from '../Projects';
 import { WorkerPanel } from '../RightPanel/WorkerPanel';
 import { RightPanel } from '../RightPanel/RightPanel';
 import { useChatService } from '../../contexts/useChatService';
+import { useProjects } from '../../hooks/api/useProjects';
 import type { CardSuggestion } from '../../contexts/ChatProvider';
 
 export function AppShell() {
@@ -33,6 +35,14 @@ export function AppShell() {
   const [opportunities, setOpportunities] = useState<CardSuggestion[]>([]);
   const theme = useThemeStore((s) => s.theme);
   const { registerCallbacks } = useChatService();
+
+  // Sync TanStack Query projects → Zustand store so Sidebar/Nav can read from store
+  const { data: projects } = useProjects();
+  const setProjects = useProjectStore((s) => s.setProjects);
+
+  useEffect(() => {
+    if (projects) setProjects(projects);
+  }, [projects, setProjects]);
 
   // Subscribe to card suggestion events from ChatProvider
   useEffect(() => {
