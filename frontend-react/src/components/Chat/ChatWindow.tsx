@@ -7,6 +7,7 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { SessionTabBar } from './SessionTabBar';
 import { ChatSearch } from './ChatSearch';
+import { ModePill } from './ModePill';
 import type { ChatLevel } from './SmartSuggestions';
 import { cn } from '../../lib/utils';
 
@@ -185,6 +186,9 @@ export function ChatWindow({
             <span className={cn('chat-conn-dot w-2 h-2 rounded-full', connectionDotColor)} />
             <span className="chat-conn-label text-muted-foreground">{connectionLabel}</span>
           </div>
+
+          {/* Mode pill */}
+          <ModePill />
 
           <div className="flex-1" />
 
