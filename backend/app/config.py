@@ -80,10 +80,6 @@ class Settings(BaseSettings):
     claude_max_tokens_sonnet: int = 16000
     claude_max_tokens_opus: int = 32000
 
-    # TTS/STT — now 100% client-side (Whisper WASM + Web Speech API + browser speechSynthesis)
-    # Legacy config kept for scheduler health check compatibility
-    tts_service_url: str = ""  # No longer used — TTS is browser-side
-
     # Conversation
     fast_context_messages: int = 20
     deep_context_messages: int = 100

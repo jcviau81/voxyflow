@@ -1,1 +1,0 @@
-export { OpportunitiesPanel } from './OpportunitiesPanel';

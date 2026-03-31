@@ -1,7 +1,6 @@
 import './styles/main.css';
 import './styles/components.css';
 import './styles/opportunities.css';
-import './styles/ideas.css';
 import './styles/freeboard.css';
 import './styles/stats.css';
 import './styles/wiki.css';

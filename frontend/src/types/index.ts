@@ -200,10 +200,6 @@ export interface AppStateData {
   // Notification center
   notifications: NotificationEntry[];
   notificationUnreadCount: number;
-  // @deprecated — General chat now uses project session system with SYSTEM_PROJECT_ID. Kept for migration.
-  generalSessions: { id: string; label: string }[];
-  activeGeneralSessionId: string;
-  generalSessionCounter: number;
 }
 
 // Session tabs (per project/card context)
