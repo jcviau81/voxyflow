@@ -255,7 +255,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
   return (
     <div
       className={cn(
-        'group flex gap-2.5 py-[2em] animate-in fade-in duration-200',
+        'group flex gap-2.5 py-2.5 animate-in fade-in duration-200',
         isUser ? 'self-end flex-row-reverse' : 'self-start',
         isEnrichment && 'opacity-0 animate-in fade-in slide-in-from-bottom-2 duration-500 delay-300 fill-mode-forwards',
       )}
