@@ -371,7 +371,7 @@ export function CardDetailModal() {
           {/* RIGHT: Metadata sidebar */}
           <div
             className={cn(
-              'flex flex-col overflow-y-auto md:w-[280px]',
+              'flex flex-col overflow-y-auto md:w-[400px] md:min-w-[400px]',
               mobileTab === 'details' ? 'flex' : 'hidden md:flex',
             )}
           >
