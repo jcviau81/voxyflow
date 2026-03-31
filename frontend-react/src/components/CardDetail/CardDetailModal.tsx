@@ -340,9 +340,10 @@ export function CardDetailModal() {
         </div>
 
         {/* ── Three-column body ────────────────────────────────────────────── */}
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden" data-testid="card-detail-body">
           {/* LEFT: Description */}
           <div
+            data-testid="card-detail-description"
             className={cn(
               'flex flex-col border-r border-border p-4 md:w-[35%]',
               mobileTab === 'description' ? 'flex' : 'hidden md:flex',
@@ -360,6 +361,7 @@ export function CardDetailModal() {
 
           {/* CENTER: Chat */}
           <div
+            data-testid="card-detail-chat"
             className={cn(
               'flex flex-col border-r border-border md:flex-1',
               mobileTab === 'chat' ? 'flex' : 'hidden md:flex',
@@ -370,6 +372,7 @@ export function CardDetailModal() {
 
           {/* RIGHT: Metadata sidebar */}
           <div
+            data-testid="card-detail-sidebar"
             className={cn(
               'flex flex-col overflow-y-auto md:w-[400px] md:min-w-[400px]',
               mobileTab === 'details' ? 'flex' : 'hidden md:flex',
