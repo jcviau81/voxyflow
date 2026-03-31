@@ -1,3 +1,10 @@
+// System project ID (main board)
+export const SYSTEM_PROJECT_ID = 'system-main';
+
+// Streaming
+export const STREAMING_CHAR_DELAY = 15; // ms per character for simulated streaming
+export const STREAMING_SAFETY_TIMEOUT = 30_000; // 30s — force-end if no chunk arrives
+
 // Agent Personas (legacy, used by old assignedAgent field)
 export const AGENT_PERSONAS: Record<string, { name: string; emoji: string; description: string }> = {
   coder: { name: 'Coder', emoji: '👩‍💻', description: 'Code implementation & debugging' },

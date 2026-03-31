@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router-dom';
 import { WebSocketProvider } from './providers/WebSocketProvider';
+import { ChatProvider } from './contexts/ChatProvider';
 import { Toaster } from './components/ui/Toaster';
 import { router } from './router';
 
@@ -17,8 +18,10 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <WebSocketProvider>
-        <RouterProvider router={router} />
-        <Toaster />
+        <ChatProvider>
+          <RouterProvider router={router} />
+          <Toaster />
+        </ChatProvider>
       </WebSocketProvider>
     </QueryClientProvider>
   );
