@@ -11,6 +11,7 @@ module.exports = (env, argv) => {
   const isProduction = argv.mode === 'production';
 
   const config = {
+    cache: { type: 'filesystem' },
     entry: './src/main.ts',
     output: {
       path: path.resolve(__dirname, 'dist'),
