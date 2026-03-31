@@ -274,7 +274,7 @@ export function CardDetailModal() {
       <DialogContent
         showCloseButton
         className={cn(
-          'flex h-[90vh] max-h-[90vh] w-[95vw] max-w-6xl flex-col overflow-hidden p-0',
+          'flex h-[90vh] max-h-[90vh] w-[90vw] max-w-[90vw] flex-col overflow-hidden p-0',
           colorRing && `ring-2 ${colorRing}`,
         )}
         onPointerDownOutside={(e) => e.preventDefault()}
