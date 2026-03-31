@@ -16,10 +16,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { SettingsPage } from './components/Settings/SettingsPage';
 import { ProjectList } from './components/Projects';
 import { MainPage } from './pages/MainPage';
-
-function ProjectPage() {
-  return <div className="p-8 text-foreground">Project view (coming soon)</div>;
-}
+import { ProjectPage } from './pages/ProjectPage';
 
 function NotFound() {
   return <Navigate to="/" replace />;

@@ -15,6 +15,8 @@ const PROJECT_TABS: ProjectTab[] = [
   { view: 'kanban',    emoji: '📋', label: 'Kanban' },
   { view: 'freeboard', emoji: '📌', label: 'Board' },
   { view: 'knowledge', emoji: '🧠', label: 'Knowledge' },
+  { view: 'stats',     emoji: '📊', label: 'Stats' },
+  { view: 'docs',      emoji: '📄', label: 'Docs' },
 ];
 
 // Main tab only shows a subset of views
