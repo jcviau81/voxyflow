@@ -46,19 +46,19 @@ interface OpportunityCardProps {
 
 function OpportunityCard({ opp, onAccept, onDismiss }: OpportunityCardProps) {
   return (
-    <div className="opportunity-card" data-id={opp.id}>
-      <div className="opp-agent">
+    <div className="bg-muted/50 rounded-lg border border-border p-3" data-id={opp.id}>
+      <div className="text-xs text-muted-foreground mb-1 uppercase tracking-wide font-medium">
         {opp.agentEmoji || '🤖'} {opp.agentName || 'Ember'}
       </div>
-      <div className="opp-title">{opp.title}</div>
+      <div className="text-sm font-semibold text-foreground mb-1 leading-tight">{opp.title}</div>
       {opp.description && (
-        <div className="opp-description">{opp.description}</div>
+        <div className="text-xs text-muted-foreground mb-2.5 leading-relaxed">{opp.description}</div>
       )}
-      <div className="opp-actions">
-        <button className="opp-accept" onClick={() => onAccept(opp.id)}>
+      <div className="flex gap-1.5">
+        <button className="flex-1 px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-semibold cursor-pointer transition-all hover:-translate-y-px hover:shadow-md" onClick={() => onAccept(opp.id)}>
           Create Card
         </button>
-        <button className="opp-dismiss" onClick={() => onDismiss(opp.id)}>
+        <button className="px-2 py-1.5 bg-transparent text-muted-foreground border border-border rounded text-xs cursor-pointer transition-all hover:text-red-400 hover:border-red-400/30 hover:bg-red-400/5" onClick={() => onDismiss(opp.id)}>
           ✕
         </button>
       </div>
@@ -88,9 +88,9 @@ function NotificationItemActions({
       : notif.message;
 
     return (
-      <div className="notification-item-actions">
+      <div className="flex gap-1.5 mt-1.5">
         <button
-          className="notification-action-btn"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
             onSwitchTab('opportunities');
@@ -100,7 +100,7 @@ function NotificationItemActions({
           ✅ Create Card
         </button>
         <button
-          className="notification-action-btn"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
             onSwitchTab('opportunities');
@@ -120,9 +120,9 @@ function NotificationItemActions({
     notif.link
   ) {
     return (
-      <div className="notification-item-actions">
+      <div className="flex gap-1.5 mt-1.5">
         <button
-          className="notification-action-btn"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
             selectCard(notif.link!);
@@ -153,15 +153,15 @@ function NotificationItem({
 }: NotificationItemProps) {
   return (
     <div
-      className={cn('notification-item', !notif.read && 'unread')}
+      className={cn('flex items-start gap-2.5 px-4 py-2.5 border-b border-border transition-colors hover:bg-accent/50', !notif.read && 'bg-accent/5 border-l-[3px] border-l-accent')}
       data-id={notif.id}
     >
-      <span className="notification-item-icon">
+      <span className="shrink-0 text-sm">
         {TYPE_ICONS[notif.type] || '💡'}
       </span>
-      <div className="notification-item-content">
-        <span className="notification-item-message">{notif.message}</span>
-        <span className="notification-meta">
+      <div className="flex-1 min-w-0">
+        <span className="text-xs text-foreground leading-relaxed">{notif.message}</span>
+        <span className="text-[10px] text-muted-foreground mt-0.5 block">
           {formatRelativeTime(notif.timestamp)}
         </span>
         <NotificationItemActions
@@ -239,29 +239,29 @@ export function RightPanel({
   );
 
   return (
-    <div className="right-panel" data-testid="right-panel">
+    <div className="flex flex-col h-full bg-secondary overflow-hidden" data-testid="right-panel">
       {/* Tab bar */}
-      <div className="right-panel-tabs">
+      <div className="flex border-b border-border shrink-0">
         <button
-          className={cn('right-panel-tab', activeTab === 'opportunities' && 'active')}
+          className={cn('flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer border-b-2 border-transparent', activeTab === 'opportunities' && 'text-foreground border-primary')}
           data-tab="opportunities"
           title="Opportunities"
           onClick={() => switchTab('opportunities')}
         >
           💡 Opportunities
           {opportunities.length > 0 && (
-            <span className="right-panel-tab-badge">{opportunities.length}</span>
+            <span className="bg-primary text-primary-foreground text-[10px] font-bold px-1.5 rounded-full min-w-[16px] text-center">{opportunities.length}</span>
           )}
         </button>
         <button
-          className={cn('right-panel-tab', activeTab === 'notifications' && 'active')}
+          className={cn('flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer border-b-2 border-transparent', activeTab === 'notifications' && 'text-foreground border-primary')}
           data-tab="notifications"
           title="Notifications"
           onClick={() => switchTab('notifications')}
         >
           🔔 Notifications
           {notificationUnreadCount > 0 && (
-            <span className="right-panel-tab-badge unread">
+            <span className="bg-red-500 text-primary-foreground text-[10px] font-bold px-1.5 rounded-full min-w-[16px] text-center">
               {notificationUnreadCount > 99 ? '99+' : notificationUnreadCount}
             </span>
           )}
@@ -269,16 +269,16 @@ export function RightPanel({
       </div>
 
       {/* Body */}
-      <div className="right-panel-body">
+      <div className="flex-1 overflow-y-auto p-3">
         {activeTab === 'opportunities' ? (
           <>
-            <div className="opportunities-header">
-              <h3>💡 Opportunities</h3>
-              <span className="opportunities-badge">{opportunities.length}</span>
+            <div className="flex justify-between items-center mb-3.5 pb-2.5 border-b border-border">
+              <h3 className="text-sm font-semibold text-foreground">💡 Opportunities</h3>
+              <span className="bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-full min-w-[18px] text-center">{opportunities.length}</span>
             </div>
-            <div className="opportunities-list">
+            <div className="flex flex-col gap-2.5">
               {opportunities.length === 0 ? (
-                <div className="opportunities-empty">
+                <div className="text-xs text-muted-foreground text-center py-10 px-4 leading-relaxed">
                   No suggestions yet. Start chatting!
                 </div>
               ) : (
@@ -295,19 +295,19 @@ export function RightPanel({
           </>
         ) : (
           <>
-            <div className="notification-center-header">
-              <h3 className="notification-center-title">🔔 Notifications</h3>
+            <div className="flex justify-between items-center px-3 py-2 border-b border-border">
+              <h3 className="text-sm font-semibold text-foreground">🔔 Notifications</h3>
               {notifications.length > 0 && (
-                <div className="notification-center-actions">
+                <div className="flex gap-2">
                   <button
-                    className="notification-action-btn"
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                     title="Mark all as read"
                     onClick={() => markAllNotificationsRead()}
                   >
                     Mark all read
                   </button>
                   <button
-                    className="notification-action-btn notification-action-btn--danger"
+                    className="text-xs text-muted-foreground hover:text-red-400 transition-colors cursor-pointer"
                     title="Clear all notifications"
                     onClick={() => clearNotifications()}
                   >
@@ -316,9 +316,9 @@ export function RightPanel({
                 </div>
               )}
             </div>
-            <div className="notification-center-body">
+            <div className="flex-1 overflow-y-auto">
               {notifications.length === 0 ? (
-                <div className="notification-empty">✨ All caught up!</div>
+                <div className="text-xs text-muted-foreground text-center py-10">✨ All caught up!</div>
               ) : (
                 notifications.map((notif) => (
                   <NotificationItem

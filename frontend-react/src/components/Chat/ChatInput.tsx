@@ -9,6 +9,7 @@ import { useSessionStore } from '../../stores/useSessionStore';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useSlashMenu, type SlashCommand } from './SlashCommandMenu';
 import { EmojiPicker } from './EmojiPicker';
+import { ModePill } from './ModePill';
 import { SmartSuggestions, type ChatLevel } from './SmartSuggestions';
 import { cn } from '../../lib/utils';
 
@@ -426,6 +427,9 @@ export function ChatInput({
             </button>
           </div>
         )}
+
+        {/* Mode pill (Fast / Deep / Analyzer) */}
+        {!embedded && <ModePill />}
 
         {/* Send button */}
         <button

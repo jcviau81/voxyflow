@@ -94,17 +94,17 @@ interface StatusIndicatorProps {
 function StatusIndicator({ status }: StatusIndicatorProps) {
   switch (status) {
     case 'pending':
-      return <span className="worker-dot worker-dot--queued">⏳</span>;
+      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-muted-foreground">⏳</span>;
     case 'running':
-      return <div className="worker-spinner worker-spinner--fast" />;
+      return <div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin [animation-duration:0.5s]" />;
     case 'done':
-      return <span className="worker-dot worker-dot--done">✓</span>;
+      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-green-500">✓</span>;
     case 'failed':
-      return <span className="worker-dot worker-dot--failed">✕</span>;
+      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-red-500">✕</span>;
     case 'cancelled':
-      return <span className="worker-dot worker-dot--cancelled">⊘</span>;
+      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-muted-foreground">⊘</span>;
     default:
-      return <span className="worker-dot" />;
+      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold" />;
   }
 }
 
@@ -118,36 +118,46 @@ interface TaskRowProps {
 }
 
 function TaskRow({ task, onCancel, onDismiss, onToggleExpand }: TaskRowProps) {
-  const statusClass =
-    task.status === 'done' ? 'completed'
-    : task.status === 'running' ? 'executing'
-    : task.status;
-
   const elapsed = getElapsed(task);
+
+  const statusClasses =
+    task.status === 'running' ? 'border-accent border-l-[3px]'
+    : task.status === 'done' ? 'opacity-65 border-green-500 border-l-[3px]'
+    : task.status === 'failed' ? 'opacity-75 border-red-500 border-l-[3px]'
+    : task.status === 'cancelled' ? 'opacity-65 border-muted-foreground border-l-[3px]'
+    : '';
+
+  const modelBgClass =
+    task.model === 'haiku' ? 'bg-yellow-500/20'
+    : task.model === 'opus' ? 'bg-purple-500/20'
+    : 'bg-blue-500/20';
 
   return (
     <div
-      className={cn('worker-task', `worker-task--${statusClass}`)}
+      className={cn(
+        'flex items-start gap-2 p-2 bg-muted/50 rounded-lg border border-border transition-all duration-200',
+        statusClasses,
+      )}
       data-task-id={task.taskId}
     >
       {/* Status indicator */}
-      <div className="worker-task-status">
+      <div className="shrink-0">
         <StatusIndicator status={task.status} />
       </div>
 
       {/* Model badge */}
-      <span className={cn('worker-model-badge', `worker-model-badge--${task.model ?? 'sonnet'}`)}>
+      <span className={cn('inline-flex items-center justify-center w-5 h-5 rounded text-xs shrink-0 mt-px', modelBgClass)}>
         {getModelEmoji(task.model)}
       </span>
 
       {/* Content */}
-      <div className="worker-task-content">
-        <div className="worker-task-intent">{formatAction(task.action)}</div>
-        <div className="worker-task-summary">{task.description.substring(0, 60)}</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-semibold text-foreground truncate">{formatAction(task.action)}</div>
+        <div className="text-xs text-muted-foreground truncate">{task.description.substring(0, 60)}</div>
 
         {/* Error message */}
         {task.status === 'failed' && task.error && (
-          <div className="worker-task-result worker-task-result--error">
+          <div className="text-xs mt-1 text-red-400">
             {task.error.substring(0, 200)}
           </div>
         )}
@@ -155,8 +165,10 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand }: TaskRowProps) {
         {/* Expandable result summary */}
         {task.completedAt && task.resultSummary && task.status !== 'failed' && (
           <div
-            className="worker-task-result worker-task-result--expandable"
-            style={task.resultSummary.length > 60 ? { cursor: 'pointer' } : undefined}
+            className={cn(
+              'text-xs mt-1 text-muted-foreground',
+              task.resultSummary.length > 60 && 'cursor-pointer hover:text-foreground',
+            )}
             onClick={
               task.resultSummary.length > 60
                 ? (e) => { e.stopPropagation(); onToggleExpand(task.taskId); }
@@ -172,14 +184,14 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand }: TaskRowProps) {
       </div>
 
       {/* Elapsed time */}
-      <div className="worker-task-time">
+      <div className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
         {task.completedAt ? elapsed : `${elapsed}…`}
       </div>
 
       {/* Cancel button for active tasks */}
       {!task.completedAt && (
         <button
-          className="worker-task-cancel"
+          className="shrink-0 text-xs text-muted-foreground hover:text-red-400 transition-colors"
           title="Cancel task"
           onClick={(e) => { e.stopPropagation(); onCancel(task.taskId, task.sessionId); }}
         >
@@ -190,7 +202,7 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand }: TaskRowProps) {
       {/* Dismiss button for failed/cancelled tasks */}
       {(task.status === 'failed' || task.status === 'cancelled') && (
         <button
-          className="worker-task-dismiss"
+          className="shrink-0 text-xs text-muted-foreground hover:text-red-400 transition-colors"
           title="Dismiss"
           onClick={(e) => { e.stopPropagation(); onDismiss(task.taskId); }}
         >
@@ -445,21 +457,24 @@ export function WorkerPanel() {
 
   return (
     <div
-      className={cn('worker-panel', collapsed && 'collapsed')}
+      className={cn(
+        'flex flex-col h-full bg-secondary border-l border-r border-border shrink-0 overflow-hidden transition-all duration-200',
+        collapsed ? 'w-[42px]' : 'w-60',
+      )}
       data-testid="worker-panel"
     >
       {/* Header */}
-      <div className="worker-panel-header">
-        <div className="worker-panel-title-row">
-          <span className="worker-panel-title">Workers</span>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Workers</span>
           {activeCount > 0 && (
-            <span className="worker-panel-badge">{activeCount}</span>
+            <span className="bg-primary text-primary-foreground text-xs font-bold px-1.5 rounded-full min-w-[18px] text-center">{activeCount}</span>
           )}
         </div>
 
         {terminalCount > 0 && (
           <button
-            className="worker-panel-clear-dead"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             title="Clear finished tasks"
             onClick={clearTerminalTasks}
           >
@@ -468,7 +483,7 @@ export function WorkerPanel() {
         )}
 
         <button
-          className="worker-panel-collapse"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           title={collapsed ? 'Expand' : 'Collapse'}
           onClick={() => setCollapsed((c) => !c)}
         >
@@ -478,9 +493,9 @@ export function WorkerPanel() {
 
       {/* Body */}
       {!collapsed && (
-        <div className="worker-panel-body">
+        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
           {sorted.length === 0 ? (
-            <div className="worker-panel-empty">No active workers</div>
+            <div className="text-xs text-muted-foreground text-center py-8">No active workers</div>
           ) : (
             sorted.map((task) => (
               <TaskRow
