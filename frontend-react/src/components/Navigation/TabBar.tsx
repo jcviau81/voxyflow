@@ -1,0 +1,157 @@
+import { useCallback, useEffect } from 'react';
+import { cn } from '../../lib/utils';
+import { useTabStore } from '../../stores/useTabStore';
+import { useSessionStore } from '../../stores/useSessionStore';
+import { useWS } from '../../providers/WebSocketProvider';
+import type { Tab } from '../../types';
+
+export function TabBar() {
+  const openTabs = useTabStore((s) => s.openTabs);
+  const activeTab = useTabStore((s) => s.activeTab);
+  const switchTab = useTabStore((s) => s.switchTab);
+  const closeTab = useTabStore((s) => s.closeTab);
+  const sessions = useSessionStore((s) => s.sessions);
+  const closeSession = useSessionStore((s) => s.closeSession);
+  const { send } = useWS();
+
+  const handleCloseTab = useCallback(
+    async (tab: Tab) => {
+      const tabSessions = sessions[tab.id] ?? [];
+
+      if (tabSessions.length > 0) {
+        const confirmed = window.confirm(
+          `Close ${tab.label}?\n\nThis will close ${tabSessions.length} active session${tabSessions.length > 1 ? 's' : ''} for this project.`
+        );
+        if (!confirmed) return;
+
+        for (const session of tabSessions) {
+          send('session:reset', { sessionId: session.chatId, tabId: tab.id });
+          closeSession(tab.id, session.id);
+        }
+      }
+
+      closeTab(tab.id);
+    },
+    [sessions, send, closeSession, closeTab]
+  );
+
+  const handleNewProject = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('project-form-show', { detail: { mode: 'create' } }));
+  }, []);
+
+  // Keyboard shortcuts: Ctrl+Tab to cycle, Ctrl+W to close active
+  useEffect(() => {
+    const handleKeydown = (e: KeyboardEvent) => {
+      // Ctrl+Tab: cycle to next/prev tab
+      if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault();
+        const currentIndex = openTabs.findIndex((t) => t.id === activeTab);
+        const nextIndex = e.shiftKey
+          ? (currentIndex - 1 + openTabs.length) % openTabs.length
+          : (currentIndex + 1) % openTabs.length;
+        switchTab(openTabs[nextIndex].id);
+      }
+
+      // Ctrl+W / Cmd+W: close current tab
+      if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+        const activeTabObj = openTabs.find((t) => t.id === activeTab);
+        if (activeTabObj?.closable) {
+          e.preventDefault();
+          handleCloseTab(activeTabObj);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeydown);
+    return () => document.removeEventListener('keydown', handleKeydown);
+  }, [openTabs, activeTab, switchTab, handleCloseTab]);
+
+  return (
+    <div className="tab-bar flex items-center gap-0.5 overflow-x-auto" data-testid="tab-bar">
+      {openTabs.map((tab) => (
+        <TabItem
+          key={tab.id}
+          tab={tab}
+          isActive={tab.id === activeTab}
+          onSwitch={() => switchTab(tab.id)}
+          onClose={() => handleCloseTab(tab)}
+        />
+      ))}
+
+      <button
+        className={cn(
+          'tab-add flex-shrink-0 flex items-center justify-center',
+          'w-7 h-7 rounded text-sm font-medium',
+          'text-muted-foreground hover:text-foreground hover:bg-accent',
+          'transition-colors'
+        )}
+        title="New project"
+        data-testid="tab-add"
+        onClick={handleNewProject}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+interface TabItemProps {
+  tab: Tab;
+  isActive: boolean;
+  onSwitch: () => void;
+  onClose: () => void;
+}
+
+function TabItem({ tab, isActive, onSwitch, onClose }: TabItemProps) {
+  const handleAuxClick = (e: React.MouseEvent) => {
+    if (e.button === 1 && tab.closable) {
+      e.preventDefault();
+      onClose();
+    }
+  };
+
+  return (
+    <button
+      className={cn(
+        'tab group flex items-center gap-1 px-2.5 py-1 rounded text-sm',
+        'max-w-[180px] flex-shrink-0 relative transition-colors',
+        isActive
+          ? 'bg-background text-foreground shadow-sm border border-border'
+          : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+      )}
+      data-testid={`tab-${tab.id}`}
+      data-tab-id={tab.id}
+      onClick={onSwitch}
+      onAuxClick={handleAuxClick}
+    >
+      {tab.emoji && (
+        <span className="tab-emoji flex-shrink-0 text-xs leading-none">{tab.emoji}</span>
+      )}
+
+      <span className="tab-label truncate">{tab.label}</span>
+
+      {tab.hasNotification && (
+        <span className="tab-notification flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-500" />
+      )}
+
+      {tab.closable && (
+        <span
+          className={cn(
+            'tab-close flex-shrink-0 w-4 h-4 flex items-center justify-center rounded',
+            'text-xs leading-none opacity-0 group-hover:opacity-100',
+            isActive && 'opacity-60',
+            'hover:!opacity-100 hover:bg-destructive/20 hover:text-destructive',
+            'transition-opacity'
+          )}
+          data-testid={`tab-close-${tab.id}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+        >
+          ×
+        </span>
+      )}
+    </button>
+  );
+}
