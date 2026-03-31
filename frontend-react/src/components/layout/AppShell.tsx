@@ -12,21 +12,65 @@
  *         main.main-content          ← <Outlet /> (routed page)
  *       aside.worker-panel-container ← WorkerPanel (active Deep workers)
  *       aside.opportunities-container← RightPanel (Opportunities + Notifications)
- *
- * Components are stubs for now — replaced as migration progresses.
  */
 import { Outlet } from 'react-router-dom';
-import { useState } from 'react';
-import { PanelLeft } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
 import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../stores/useThemeStore';
+import { useViewStore } from '../../stores/useViewStore';
 import { CardDetailModal } from '../CardDetail';
 import { Sidebar } from '../Navigation/Sidebar';
+import { TabBar } from '../Navigation/TabBar';
+import { TopBar } from '../Navigation/TopBar';
 import { ProjectHeader } from '../Projects';
+import { WorkerPanel } from '../RightPanel/WorkerPanel';
+import { RightPanel } from '../RightPanel/RightPanel';
+import { useChatService } from '../../contexts/useChatService';
+import type { CardSuggestion } from '../../contexts/ChatProvider';
 
 export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [opportunities, setOpportunities] = useState<CardSuggestion[]>([]);
   const theme = useThemeStore((s) => s.theme);
+  const setView = useViewStore((s) => s.setView);
+  const { registerCallbacks } = useChatService();
+
+  // Subscribe to card suggestion events from ChatProvider
+  useEffect(() => {
+    return registerCallbacks({
+      onCardSuggestion: (suggestion) => {
+        setOpportunities((prev) => [...prev, suggestion]);
+      },
+    });
+  }, [registerCallbacks]);
+
+  const toggleSidebar = useCallback(() => setSidebarOpen((o) => !o), []);
+
+  // Global keyboard shortcuts (Ctrl+1 → chat, Ctrl+2 → kanban, Ctrl+B → sidebar)
+  useEffect(() => {
+    const handleKeydown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === '1') {
+        e.preventDefault();
+        setView('chat');
+      } else if (e.ctrlKey && e.key === '2') {
+        e.preventDefault();
+        setView('kanban');
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    document.addEventListener('keydown', handleKeydown);
+    return () => document.removeEventListener('keydown', handleKeydown);
+  }, [setView, toggleSidebar]);
+
+  const handleOpportunityAccepted = useCallback((id: string) => {
+    setOpportunities((prev) => prev.filter((o) => o.id !== id));
+  }, []);
+
+  const handleOpportunityDismissed = useCallback((id: string) => {
+    setOpportunities((prev) => prev.filter((o) => o.id !== id));
+  }, []);
 
   return (
     <div className={cn('app-container flex flex-col h-screen w-screen overflow-hidden', theme)}>
@@ -34,21 +78,23 @@ export function AppShell() {
       <div className="app-layout flex flex-1 overflow-hidden">
 
         {/* ── Sidebar ── */}
-        <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen((o) => !o)} />
+        <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} />
+
+        {/* Mobile overlay — tap outside to close sidebar */}
+        {sidebarOpen && (
+          <div
+            className="sidebar-overlay fixed inset-0 z-20 bg-black/40 md:hidden"
+            onClick={toggleSidebar}
+          />
+        )}
 
         {/* ── Main area ── */}
         <div className="main-area flex flex-col flex-1 overflow-hidden">
-          {/* TopBar */}
-          <header className="top-bar flex items-center gap-2 px-4 py-2 border-b border-border bg-background shrink-0">
-            <button
-              onClick={() => setSidebarOpen((o) => !o)}
-              className="top-bar-menu-btn p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-              title="Toggle sidebar (Ctrl+B)"
-            >
-              <PanelLeft size={18} />
-            </button>
-            {/* Project name + layer toggles will be rendered here once TopBar is migrated */}
-          </header>
+          {/* TopBar: hamburger + project name + mode pill + voice toggles */}
+          <TopBar onMenuClick={toggleSidebar} />
+
+          {/* TabBar: session tabs (Main + open projects) */}
+          <TabBar />
 
           {/* Project header — view tabs (Chat / Kanban / Board / Knowledge) */}
           <ProjectHeader />
@@ -59,8 +105,19 @@ export function AppShell() {
           </main>
         </div>
 
-        {/* ── Right panel placeholder ── */}
-        {/* WorkerPanel + RightPanel added once those components are migrated */}
+        {/* ── Worker panel (active Deep workers) ── */}
+        <aside className="worker-panel-container">
+          <WorkerPanel />
+        </aside>
+
+        {/* ── Right panel (Opportunities + Notifications) ── */}
+        <aside className="opportunities-container">
+          <RightPanel
+            opportunities={opportunities}
+            onOpportunityAccepted={handleOpportunityAccepted}
+            onOpportunityDismissed={handleOpportunityDismissed}
+          />
+        </aside>
       </div>
 
       {/* Global card detail modal — opens when selectedCardId is set */}
