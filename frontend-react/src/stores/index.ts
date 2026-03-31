@@ -26,3 +26,5 @@ export type { MessageState } from './useMessageStore';
 
 export { useNotificationStore } from './useNotificationStore';
 export type { NotificationState } from './useNotificationStore';
+
+export { useViewStore } from './useViewStore';

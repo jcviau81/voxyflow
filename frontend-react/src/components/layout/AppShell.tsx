@@ -22,6 +22,7 @@ import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { CardDetailModal } from '../CardDetail';
 import { Sidebar } from '../Navigation/Sidebar';
+import { ProjectHeader } from '../Projects';
 
 export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -48,6 +49,9 @@ export function AppShell() {
             </button>
             {/* Project name + layer toggles will be rendered here once TopBar is migrated */}
           </header>
+
+          {/* Project header — view tabs (Chat / Kanban / Board / Knowledge) */}
+          <ProjectHeader />
 
           {/* Routed page content */}
           <main className="main-content flex-1 overflow-auto">
