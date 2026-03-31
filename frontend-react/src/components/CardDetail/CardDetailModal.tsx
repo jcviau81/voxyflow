@@ -49,7 +49,7 @@ import { LinkedFiles } from './sections/LinkedFiles';
 // 11c sections
 import { RelationsSection } from './Relations';
 import { HistorySection } from './History';
-import { CardChatSection } from './CardChat';
+import { ChatWindow } from '../Chat/ChatWindow';
 import { DescriptionEditor } from './DescriptionEditor';
 
 // ── Color class map ─────────────────────────────────────────────────────────
@@ -367,7 +367,13 @@ export function CardDetailModal() {
               mobileTab === 'chat' ? 'flex' : 'hidden md:flex',
             )}
           >
-            <CardChatSection cardId={card.id} />
+            <ChatWindow
+              tabId={`card-${card.id}`}
+              chatLevel="card"
+              projectId={card.projectId ?? undefined}
+              cardId={card.id}
+              embedded
+            />
           </div>
 
           {/* RIGHT: Metadata sidebar */}
