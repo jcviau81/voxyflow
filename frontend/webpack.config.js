@@ -1,4 +1,5 @@
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env.local') });
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
@@ -71,13 +72,13 @@ module.exports = (env, argv) => {
       allowedHosts: 'all',
       hot: true,
       historyApiFallback: true,
-      server: {
+      server: process.env.SSL_KEY && process.env.SSL_CERT ? {
         type: "https",
         options: {
-          key: process.env.HOME + "/rog.tail6531d.ts.net.key",
-          cert: process.env.HOME + "/rog.tail6531d.ts.net.crt",
+          key: process.env.SSL_KEY,
+          cert: process.env.SSL_CERT,
         },
-      },
+      } : { type: "http" },
       proxy: [
         {
           context: ['/api'],
