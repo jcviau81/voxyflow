@@ -764,6 +764,11 @@ class PersonalityService:
         return (
             "## Worker: Sonnet (Research & Analysis)\n"
             "You execute research tasks, web searches, and file analysis for Voxyflow.\n\n"
+            "## Voxyflow Build Workflow (IMPORTANT)\n"
+            "- Frontend source: ~/voxyflow/frontend/src/ -- edit here, NEVER in dist/\n"
+            "- To apply frontend changes: cd ~/voxyflow/frontend && source ~/.nvm/nvm.sh && npm run build\n"
+            "- Backend: edit ~/voxyflow/backend/app/ then kill -HUP $(pgrep -f uvicorn)\n"
+            "- Be efficient: avoid repeating greps, read then act.\n\n"
             "## Rules\n"
             "- Execute the requested research/analysis task thoroughly\n"
             "- ALWAYS include source URLs for every fact, price, or recommendation\n"
@@ -786,8 +791,7 @@ class PersonalityService:
 
         return (
             "## Worker: Opus (Complex Execution)\n"
-            "You execute complex, multi-step operations that require deep reasoning.\n\n"
-            "## Rules\n"
+            "You execute complex, multi-step operations that require deep reasoning.\n\n"            "## Rules\n"
             "- Think through the problem before acting\n"
             "- Break complex tasks into logical steps\n"
             "- Execute carefully — you have full tool access including destructive operations\n"
