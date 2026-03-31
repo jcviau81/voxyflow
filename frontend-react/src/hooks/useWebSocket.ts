@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionState, WebSocketMessage } from '../types';
+import { useOfflineQueue, type QueuedMessage } from './useOfflineQueue';
 
 // --- Constants (mirrored from vanilla frontend) ---
 const RECONNECT_MAX_ATTEMPTS = 10;
@@ -22,12 +23,14 @@ export type MessageHandler = (payload: Record<string, unknown>) => void;
 export interface UseWebSocketReturn {
   /** Current connection state */
   connectionState: ConnectionState;
-  /** Send a typed message over the socket. Returns the message id. */
+  /** Send a typed message over the socket. Queues if offline. Returns the message id. */
   send: (type: string, payload?: Record<string, unknown>) => string;
   /** Subscribe to messages of a given type. Returns unsubscribe fn. Use '*' for wildcard. */
   subscribe: (type: string, handler: MessageHandler) => () => void;
   /** Whether the socket is currently open */
   connected: boolean;
+  /** Number of messages waiting in the offline queue */
+  queueSize: number;
 }
 
 /**
@@ -39,11 +42,13 @@ export interface UseWebSocketReturn {
  * - Message handler registry (subscribe/unsubscribe)
  * - Connection state tracking
  *
- * Offline queue is handled separately in step 5c.
+ * Offline queue integration: messages sent while disconnected are queued
+ * to localStorage and flushed in order on reconnect (step 5c).
  */
 export function useWebSocket(): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
+  const { pendingCount, enqueue, flush } = useOfflineQueue();
 
   // Mutable refs for reconnection state (avoid re-render on every attempt)
   const reconnectAttemptsRef = useRef(0);
@@ -149,6 +154,20 @@ export function useWebSocket(): UseWebSocketReturn {
         reconnectAttemptsRef.current = 0;
         setConnectionState('connected');
         startHeartbeat();
+
+        // Flush any messages queued while offline
+        flush((msg: QueuedMessage) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: msg.type,
+              payload: msg.payload,
+              id: msg.id,
+              timestamp: msg.timestamp,
+            }));
+            return true;
+          }
+          return false;
+        });
       };
 
       ws.onmessage = (event: MessageEvent) => {
@@ -175,7 +194,7 @@ export function useWebSocket(): UseWebSocketReturn {
       console.error('[useWebSocket] Connection error:', error);
       handleDisconnect();
     }
-  }, [startHeartbeat, stopHeartbeat, dispatchMessage, handleDisconnect]);
+  }, [startHeartbeat, stopHeartbeat, dispatchMessage, handleDisconnect, flush]);
 
   // Keep connectRef in sync
   useEffect(() => {
@@ -203,21 +222,17 @@ export function useWebSocket(): UseWebSocketReturn {
 
   const send = useCallback((type: string, payload: Record<string, unknown> = {}): string => {
     const id = generateId();
-    const message: WebSocketMessage = {
-      type,
-      payload,
-      id,
-      timestamp: Date.now(),
-    };
+    const timestamp = Date.now();
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
+      wsRef.current.send(JSON.stringify({ type, payload, id, timestamp }));
     } else {
-      console.warn(`[useWebSocket] Cannot send "${type}" — not connected`);
+      // Queue for offline delivery
+      enqueue({ type, payload, id, timestamp });
     }
 
     return id;
-  }, []);
+  }, [enqueue]);
 
   const subscribe = useCallback((type: string, handler: MessageHandler): (() => void) => {
     if (!handlersRef.current.has(type)) {
@@ -235,5 +250,6 @@ export function useWebSocket(): UseWebSocketReturn {
     send,
     subscribe,
     connected: connectionState === 'connected',
+    queueSize: pendingCount,
   };
 }
