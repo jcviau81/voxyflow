@@ -298,7 +298,7 @@ export class SttService {
   private async startWhisperRecording(): Promise<void> {
     try {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, sampleRate: 16000 },
+        audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true },
       });
 
       this.audioContext = new AudioContext({ sampleRate: 16000 });

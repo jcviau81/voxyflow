@@ -200,6 +200,9 @@ export class VoiceInput {
           // Play acknowledgement sound while mic is released
           await this.playAckSound();
           
+          // Extra delay after ack sound to prevent STT from capturing the tail-end audio
+          await new Promise(r => setTimeout(r, 300));
+          
           // Visual feedback
           eventBus.emit(EVENTS.TOAST_SHOW, {
             message: '✨ Listening...',
@@ -382,7 +385,7 @@ export class VoiceInput {
             this.wakeWordButton?.classList.remove('pulsing');
             await wakeWordService.start();
           }
-        }, 500);
+        }, 1000);
       });
       // Safety timeout in case TTS callback never fires (30s max)
       setTimeout(async () => {
