@@ -46,12 +46,11 @@ import { ChecklistSection } from './sections/Checklist';
 import { AttachmentsSection } from './sections/Attachments';
 import { LinkedFiles } from './sections/LinkedFiles';
 
-// Placeholder sections (11c)
-import {
-  RelationsSection,
-  DescriptionEditor,
-  CardChatSection,
-} from './placeholders';
+// 11c sections
+import { RelationsSection } from './Relations';
+import { HistorySection } from './History';
+import { CardChatSection } from './CardChat';
+import { DescriptionEditor } from './DescriptionEditor';
 
 // ── Color class map ─────────────────────────────────────────────────────────
 
@@ -461,7 +460,8 @@ export function CardDetailModal() {
                     onRemove={handleRemoveDep}
                   />
                 </div>
-                <RelationsSection cardId={card.id} />
+                <RelationsSection cardId={card.id} projectId={card.projectId ?? undefined} />
+                <HistorySection cardId={card.id} />
               </section>
 
               <hr className="border-border" />
