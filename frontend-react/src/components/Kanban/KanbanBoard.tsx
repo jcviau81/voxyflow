@@ -1,0 +1,1045 @@
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+  type DragOverEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { cn } from '@/lib/utils';
+import type { Card, CardStatus } from '../../types';
+import { useCardStore } from '../../stores/useCardStore';
+import { useProjectStore } from '../../stores/useProjectStore';
+import { useToastStore } from '../../stores/useToastStore';
+import { useCards, useArchivedCards, useRestoreCard, useDeleteCard, usePatchCard, useReorderCards } from '../../hooks/api/useCards';
+import { useExportProject, useImportProject, useExecuteBoardPlan } from '../../hooks/api/useProjects';
+import { useWebSocket } from '../../hooks/useWebSocket';
+import { KanbanCard } from './KanbanCard';
+import { AGENT_TYPE_EMOJI } from '../../lib/constants';
+import { Input } from '../ui/input';
+import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const COLUMN_STATUSES: CardStatus[] = ['idea', 'todo', 'in-progress', 'done'];
+
+const COLUMN_LABELS: Record<string, string> = {
+  idea: '💡 Idea',
+  todo: '📋 Todo',
+  'in-progress': '🔨 In Progress',
+  done: '✅ Done',
+};
+
+const PRIORITY_FILTERS: Array<{ label: string; value: number | null }> = [
+  { label: 'All', value: null },
+  { label: '🔴 Critical', value: 3 },
+  { label: '🟠 High', value: 2 },
+  { label: '🟡 Medium', value: 1 },
+  { label: '🟢 Low', value: 0 },
+];
+
+const AGENT_FILTERS: Array<{ label: string; value: string | null }> = [
+  { label: 'All', value: null },
+  ...Object.entries(AGENT_TYPE_EMOJI).map(([key, emoji]) => ({
+    label: `${emoji} ${key}`,
+    value: key,
+  })),
+];
+
+// ── Debounce helper ────────────────────────────────────────────────────────────
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
+// ── Sortable Card Wrapper ──────────────────────────────────────────────────────
+
+interface SortableCardProps {
+  card: Card;
+  selectMode: boolean;
+  isSelected: boolean;
+  onSelectChange: (id: string, selected: boolean) => void;
+  query: string;
+  priorityFilter: number | null;
+  agentFilter: string | null;
+  tagFilter: string | null;
+  onTagClick: (tag: string) => void;
+  onCardClick: (cardId: string) => void;
+  isExecuting: boolean;
+}
+
+function SortableCard({
+  card,
+  selectMode,
+  isSelected,
+  onSelectChange,
+  query,
+  priorityFilter,
+  agentFilter,
+  tagFilter,
+  onTagClick,
+  onCardClick,
+  isExecuting,
+}: SortableCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.id,
+    disabled: selectMode,
+    data: { type: 'card', card },
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <div className={cn(isExecuting && 'ring-2 ring-yellow-400/60 rounded-lg animate-pulse')}>
+        <KanbanCard
+          card={card}
+          selectMode={selectMode}
+          isSelected={isSelected}
+          onSelectChange={onSelectChange}
+          query={query}
+          priorityFilter={priorityFilter}
+          agentFilter={agentFilter}
+          tagFilter={tagFilter}
+          onTagClick={onTagClick}
+          onCardClick={onCardClick}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── KanbanColumn ───────────────────────────────────────────────────────────────
+
+interface KanbanColumnProps {
+  status: CardStatus;
+  label: string;
+  cards: Card[];
+  selectMode: boolean;
+  selectedIds: Set<string>;
+  onSelectChange: (id: string, selected: boolean) => void;
+  query: string;
+  priorityFilter: number | null;
+  agentFilter: string | null;
+  tagFilter: string | null;
+  onTagClick: (tag: string) => void;
+  onCardClick: (cardId: string) => void;
+  executingCardId: string | null;
+}
+
+function KanbanColumn({
+  status,
+  label,
+  cards,
+  selectMode,
+  selectedIds,
+  onSelectChange,
+  query,
+  priorityFilter,
+  agentFilter,
+  tagFilter,
+  onTagClick,
+  onCardClick,
+  executingCardId,
+}: KanbanColumnProps) {
+  const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
+
+  return (
+    <div
+      className="flex flex-col min-w-[260px] flex-1 rounded-xl bg-muted/40 border border-border/40"
+      data-status={status}
+    >
+      {/* Column header */}
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/30">
+        <span className="text-sm font-medium text-foreground">{label}</span>
+        <span className="text-xs text-muted-foreground tabular-nums">{cards.length}</span>
+      </div>
+
+      {/* Droppable card list */}
+      <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
+        <div className="flex flex-col gap-2 p-2 min-h-[80px] overflow-y-auto max-h-[calc(100vh-320px)]">
+          {cards.length === 0 && (
+            <div className="py-8 text-center text-xs text-muted-foreground">No cards</div>
+          )}
+          {cards.map((card) => (
+            <SortableCard
+              key={card.id}
+              card={card}
+              selectMode={selectMode}
+              isSelected={selectedIds.has(card.id)}
+              onSelectChange={onSelectChange}
+              query={query}
+              priorityFilter={priorityFilter}
+              agentFilter={agentFilter}
+              tagFilter={tagFilter}
+              onTagClick={onTagClick}
+              onCardClick={onCardClick}
+              isExecuting={executingCardId === card.id}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </div>
+  );
+}
+
+// ── Dependency Graph Overlay ───────────────────────────────────────────────────
+
+interface DepGraphOverlayProps {
+  cards: Card[];
+  cardsById: Record<string, Card>;
+  onClose: () => void;
+}
+
+function DepGraphOverlay({ cards, cardsById, onClose }: DepGraphOverlayProps) {
+  const blockedCards = useMemo(
+    () =>
+      cards.filter(
+        (c) =>
+          c.dependencies.length > 0 &&
+          c.dependencies.some((d) => {
+            const dep = cardsById[d];
+            return dep && dep.status !== 'done';
+          }),
+      ),
+    [cards, cardsById],
+  );
+
+  const readyCards = useMemo(
+    () =>
+      cards.filter((c) => {
+        if (c.status === 'done') return false;
+        if (c.dependencies.length === 0) return true;
+        return c.dependencies.every((d) => {
+          const dep = cardsById[d];
+          return dep && dep.status === 'done';
+        });
+      }),
+    [cards, cardsById],
+  );
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>🔗 Dependency Map</DialogTitle>
+        </DialogHeader>
+
+        {/* Blocked */}
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium text-destructive">
+            🚫 Blocked dependencies ({blockedCards.length})
+          </h4>
+          {blockedCards.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No blocked cards — great!</p>
+          ) : (
+            blockedCards.map((card) => (
+              <div key={card.id} className="rounded border border-border/60 p-2 text-sm">
+                <span className="font-medium">📋 {card.title}</span>
+                <ul className="mt-1 ml-4 list-disc text-xs text-muted-foreground">
+                  {card.dependencies.map((depId) => {
+                    const dep = cardsById[depId];
+                    if (!dep || dep.status === 'done') return null;
+                    return <li key={depId}>⏳ {dep.title}</li>;
+                  })}
+                </ul>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Ready */}
+        <div className="space-y-2 mt-4">
+          <h4 className="text-sm font-medium text-green-500">
+            ✅ Ready to work on ({readyCards.length})
+          </h4>
+          {readyCards.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No ready cards.</p>
+          ) : (
+            readyCards.map((card) => (
+              <div key={card.id} className="rounded border border-border/60 p-2 text-sm">
+                📋 {card.title}
+                {card.dependencies.length === 0 ? (
+                  <span className="text-xs text-muted-foreground"> (no deps)</span>
+                ) : (
+                  <span className="text-xs text-muted-foreground"> (all deps done)</span>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Bulk Action Toolbar ────────────────────────────────────────────────────────
+
+interface BulkToolbarProps {
+  selectedIds: Set<string>;
+  onClear: () => void;
+  onBulkMove: (status: CardStatus) => void;
+  onBulkArchive: () => void;
+  onBulkDelete: () => void;
+}
+
+function BulkToolbar({ selectedIds, onClear, onBulkMove, onBulkArchive, onBulkDelete }: BulkToolbarProps) {
+  if (selectedIds.size === 0) return null;
+
+  return (
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-xl border border-border bg-popover px-4 py-2.5 shadow-xl">
+      <span className="text-sm font-medium text-foreground">{selectedIds.size} selected</span>
+      <div className="h-4 w-px bg-border" />
+      {(['todo', 'in-progress', 'done'] as CardStatus[]).map((s) => (
+        <Button key={s} variant="ghost" size="sm" onClick={() => onBulkMove(s)}>
+          → {COLUMN_LABELS[s]?.split(' ').slice(1).join(' ') ?? s}
+        </Button>
+      ))}
+      <div className="h-4 w-px bg-border" />
+      <Button variant="ghost" size="sm" onClick={onBulkArchive}>
+        📦 Archive
+      </Button>
+      <Button variant="ghost" size="sm" className="text-destructive" onClick={onBulkDelete}>
+        🗑 Delete
+      </Button>
+      <div className="h-4 w-px bg-border" />
+      <Button variant="ghost" size="sm" onClick={onClear}>
+        ✕ Clear
+      </Button>
+    </div>
+  );
+}
+
+// ── Archived Section ───────────────────────────────────────────────────────────
+
+interface ArchivedSectionProps {
+  projectId: string;
+}
+
+function ArchivedSection({ projectId }: ArchivedSectionProps) {
+  const [open, setOpen] = useState(false);
+  const { data: archivedCards, isLoading } = useArchivedCards(projectId);
+  const restoreCard = useRestoreCard();
+  const deleteCard = useDeleteCard();
+  const showToast = useToastStore((s) => s.showToast);
+
+  // Only fetch when expanded — useArchivedCards has enabled: !!projectId
+  // but we gate the UI rendering on `open`
+
+  return (
+    <div className="mt-4">
+      <button
+        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
+        onClick={() => setOpen(!open)}
+      >
+        📦 Archived Cards {open ? '▾' : '▸'}
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-1 pl-2">
+          {isLoading && <div className="text-xs text-muted-foreground py-2">Loading...</div>}
+          {archivedCards && archivedCards.length === 0 && (
+            <div className="text-xs text-muted-foreground py-2">No archived cards</div>
+          )}
+          {archivedCards?.map((card) => (
+            <div key={card.id} className="flex items-center justify-between rounded border border-border/40 px-3 py-2 text-sm">
+              <div className="flex-1 min-w-0">
+                <span className="font-medium text-foreground">{card.title}</span>
+              </div>
+              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await restoreCard.mutateAsync({ cardId: card.id, projectId });
+                      showToast(`↩ "${card.title}" restored`, 'success');
+                    } catch {
+                      showToast('❌ Restore failed', 'error');
+                    }
+                  }}
+                >
+                  ↩ Restore
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={async () => {
+                    if (!confirm(`Permanently delete "${card.title}"? This cannot be undone.`)) return;
+                    try {
+                      await deleteCard.mutateAsync({ cardId: card.id, projectId });
+                      showToast(`🗑 "${card.title}" permanently deleted`, 'success');
+                    } catch {
+                      showToast('❌ Delete failed', 'error');
+                    }
+                  }}
+                >
+                  🗑 Delete
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Execution Progress Bar ─────────────────────────────────────────────────────
+
+interface ExecutionProgressProps {
+  index: number;
+  total: number;
+  cardTitle: string;
+  onStop: () => void;
+}
+
+function ExecutionProgress({ index, total, cardTitle, onStop }: ExecutionProgressProps) {
+  const pct = ((index + 1) / total) * 100;
+  return (
+    <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/5 px-4 py-2 mb-3">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-foreground">
+          Executing card {index + 1}/{total}: <strong>{cardTitle}</strong>
+        </span>
+        <Button variant="ghost" size="sm" onClick={onStop}>
+          ⏹ Stop
+        </Button>
+      </div>
+      <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className="h-full bg-yellow-500 transition-all duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Main KanbanBoard Component ─────────────────────────────────────────────────
+
+export interface KanbanBoardProps {
+  onCardClick?: (cardId: string) => void;
+}
+
+export function KanbanBoard({ onCardClick }: KanbanBoardProps) {
+  const projectId = useProjectStore((s) => s.currentProjectId);
+  const cardsById = useCardStore((s) => s.cardsById);
+  const setCardsForProject = useCardStore((s) => s.setCardsForProject);
+  const showToast = useToastStore((s) => s.showToast);
+
+  // API hooks
+  const { data: fetchedCards } = useCards(projectId ?? '');
+  const patchCard = usePatchCard();
+  const reorderCards = useReorderCards();
+  const exportProject = useExportProject();
+  const importProject = useImportProject();
+  const executeBoardPlan = useExecuteBoardPlan();
+  const deleteCardMut = useDeleteCard();
+  const { send: wsSend } = useWebSocket();
+
+  // Sync fetched cards into Zustand store
+  useEffect(() => {
+    if (projectId && fetchedCards) {
+      setCardsForProject(projectId, fetchedCards);
+    }
+  }, [projectId, fetchedCards, setCardsForProject]);
+
+  // ── Filter state ─────────────────────────────────────────────────────────
+
+  const [searchInput, setSearchInput] = useState('');
+  const query = useDebounce(searchInput, 200);
+  const [priorityFilter, setPriorityFilter] = useState<number | null>(null);
+  const [agentFilter, setAgentFilter] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+
+  // Reset filters on project change
+  useEffect(() => {
+    setSearchInput('');
+    setPriorityFilter(null);
+    setAgentFilter(null);
+    setTagFilter(null);
+  }, [projectId]);
+
+  // ── Select mode ──────────────────────────────────────────────────────────
+
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const handleSelectChange = useCallback((id: string, selected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelectMode = useCallback(() => {
+    setSelectMode((prev) => {
+      if (prev) setSelectedIds(new Set()); // exiting: clear
+      return !prev;
+    });
+  }, []);
+
+  // ── Board execution state ────────────────────────────────────────────────
+
+  const [executionActive, setExecutionActive] = useState(false);
+  const [executionId, setExecutionId] = useState<string | null>(null);
+  const [executionProgress, setExecutionProgress] = useState<{
+    index: number;
+    total: number;
+    cardTitle: string;
+    cardId: string;
+  } | null>(null);
+
+  // Listen for board execution WS events
+  const executingCardId = executionProgress?.cardId ?? null;
+
+  // ── Dep graph overlay ────────────────────────────────────────────────────
+
+  const [depGraphOpen, setDepGraphOpen] = useState(false);
+
+  // ── Import ref ───────────────────────────────────────────────────────────
+
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Cards by column ──────────────────────────────────────────────────────
+
+  const projectCards = useMemo(() => {
+    if (!projectId) return [];
+    return Object.values(cardsById)
+      .filter((c) => c.projectId === projectId)
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  }, [cardsById, projectId]);
+
+  const cardsByColumn = useMemo(() => {
+    const map: Record<string, Card[]> = {};
+    for (const status of COLUMN_STATUSES) {
+      map[status] = projectCards.filter((c) => c.status === status);
+    }
+    return map;
+  }, [projectCards]);
+
+  // All unique tags for tag filter chips
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    projectCards.forEach((c) => c.tags.forEach((t) => { if (t) tags.add(t); }));
+    return Array.from(tags).sort();
+  }, [projectCards]);
+
+  // Active filter count (for mobile badge)
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (priorityFilter !== null) count++;
+    if (agentFilter !== null) count++;
+    if (tagFilter !== null) count++;
+    if (searchInput) count++;
+    return count;
+  }, [priorityFilter, agentFilter, tagFilter, searchInput]);
+
+  // Filter match count
+  const filterMatchInfo = useMemo(() => {
+    const isFiltered = query || priorityFilter !== null || agentFilter !== null || tagFilter !== null;
+    if (!isFiltered) return null;
+
+    let visible = 0;
+    let total = 0;
+    for (const status of COLUMN_STATUSES) {
+      const cards = cardsByColumn[status] ?? [];
+      total += cards.length;
+      cards.forEach((card) => {
+        if (query && !card.title.toLowerCase().includes(query.toLowerCase())) return;
+        if (priorityFilter !== null && card.priority !== priorityFilter) return;
+        if (agentFilter && (card.agentType || 'general') !== agentFilter) return;
+        if (tagFilter && !card.tags.some((t) => t.toLowerCase() === tagFilter.toLowerCase())) return;
+        visible++;
+      });
+    }
+    return { visible, total };
+  }, [query, priorityFilter, agentFilter, tagFilter, cardsByColumn]);
+
+  // ── DnD sensors and handlers ─────────────────────────────────────────────
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const [activeCard, setActiveCard] = useState<Card | null>(null);
+
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      const card = event.active.data.current?.card as Card | undefined;
+      if (card) setActiveCard(card);
+    },
+    [],
+  );
+
+  const handleDragOver = useCallback(
+    (event: DragOverEvent) => {
+      const { active, over } = event;
+      if (!over || !active.data.current) return;
+
+      const activeCard = active.data.current.card as Card | undefined;
+      if (!activeCard) return;
+
+      // Determine target status — over could be a card or a column droppable
+      const overCard = over.data.current?.card as Card | undefined;
+      const targetStatus = overCard?.status ?? (over.id as CardStatus);
+
+      if (COLUMN_STATUSES.includes(targetStatus) && activeCard.status !== targetStatus) {
+        // Optimistically move card to new column in store
+        useCardStore.getState().moveCard(activeCard.id, targetStatus);
+      }
+    },
+    [],
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setActiveCard(null);
+      const { active, over } = event;
+      if (!over) return;
+
+      const activeCardData = active.data.current?.card as Card | undefined;
+      if (!activeCardData || !projectId) return;
+
+      const overCard = over.data.current?.card as Card | undefined;
+      const targetStatus = overCard?.status ?? activeCardData.status;
+
+      // If moved to a new status column — persist via API
+      if (activeCardData.status !== targetStatus) {
+        // Already optimistically updated in dragOver, now persist
+        patchCard.mutate({ cardId: activeCardData.id, updates: { status: targetStatus } });
+      }
+
+      // Handle reorder within same column
+      if (overCard && activeCardData.status === overCard.status && activeCardData.id !== overCard.id) {
+        const columnCards = cardsByColumn[overCard.status] ?? [];
+        const oldIndex = columnCards.findIndex((c) => c.id === activeCardData.id);
+        const newIndex = columnCards.findIndex((c) => c.id === overCard.id);
+        if (oldIndex !== -1 && newIndex !== -1) {
+          const reordered = arrayMove(columnCards, oldIndex, newIndex);
+          reorderCards.mutate(reordered.map((c) => c.id));
+        }
+      }
+    },
+    [projectId, patchCard, reorderCards, cardsByColumn],
+  );
+
+  // ── Action handlers ──────────────────────────────────────────────────────
+
+  const handleTagClick = useCallback(
+    (tag: string) => {
+      setTagFilter((prev) => (prev === tag ? null : tag));
+    },
+    [],
+  );
+
+  const handleNewCard = useCallback(() => {
+    if (!projectId) {
+      showToast('Select a project first', 'info');
+      return;
+    }
+    // Emit via onCardClick with special 'new' signal, or use a modal trigger
+    // For now, we signal via a custom event that CardDetailModal listens to
+    window.dispatchEvent(new CustomEvent('voxyflow:modal:open', {
+      detail: { type: 'card-detail', mode: 'create', projectId },
+    }));
+  }, [projectId, showToast]);
+
+  const handleExport = useCallback(async () => {
+    if (!projectId) {
+      showToast('Select a project first', 'info');
+      return;
+    }
+    try {
+      const data = await exportProject.mutateAsync(projectId);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `project-${projectId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('✅ Project exported', 'success');
+    } catch {
+      showToast('Export failed', 'error');
+    }
+  }, [projectId, exportProject, showToast]);
+
+  const handleImport = useCallback(
+    async (file: File) => {
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text) as unknown;
+        const result = await importProject.mutateAsync(data);
+        showToast(`✅ Project imported: ${result.project_title}`, 'success');
+      } catch {
+        showToast('Import failed — check file format', 'error');
+      }
+    },
+    [importProject, showToast],
+  );
+
+  const handleExecuteBoard = useCallback(async () => {
+    if (executionActive && executionId) {
+      wsSend('kanban:execute:cancel', { executionId });
+      return;
+    }
+
+    if (!projectId) {
+      showToast('Select a project first', 'info');
+      return;
+    }
+
+    try {
+      const plan = await executeBoardPlan.mutateAsync(projectId);
+      if (!plan || plan.total === 0) {
+        showToast('No todo/in-progress cards to execute', 'info');
+        return;
+      }
+
+      if (!confirm(`Execute ${plan.total} cards sequentially?\n\nCards will be processed in order and moved to Done when complete.`)) {
+        return;
+      }
+
+      setExecutionActive(true);
+      setExecutionId(plan.executionId);
+
+      // Start execution via WebSocket
+      const sessionId = 'board-exec-' + Date.now();
+      wsSend('kanban:execute:start', { projectId, sessionId });
+    } catch {
+      showToast('Failed to get execution plan', 'error');
+    }
+  }, [executionActive, executionId, projectId, executeBoardPlan, showToast, wsSend]);
+
+  const resetExecution = useCallback(() => {
+    setExecutionActive(false);
+    setExecutionId(null);
+    setExecutionProgress(null);
+  }, []);
+
+  // Listen for WS board execution events
+  useEffect(() => {
+    const handleWsMessage = (event: CustomEvent<{ type: string; payload: Record<string, unknown> }>) => {
+      const { type, payload } = event.detail;
+      if (type === 'board:execute:card:start') {
+        setExecutionProgress({
+          index: payload.index as number,
+          total: payload.total as number,
+          cardTitle: payload.cardTitle as string,
+          cardId: payload.cardId as string,
+        });
+      } else if (type === 'board:execute:complete' || type === 'board:execute:cancelled' || type === 'board:execute:error') {
+        resetExecution();
+      }
+    };
+
+    window.addEventListener('voxyflow:ws:message' as string, handleWsMessage as EventListener);
+    return () => {
+      window.removeEventListener('voxyflow:ws:message' as string, handleWsMessage as EventListener);
+    };
+  }, [resetExecution]);
+
+  // ── Bulk actions ─────────────────────────────────────────────────────────
+
+  const handleBulkMove = useCallback(
+    (status: CardStatus) => {
+      selectedIds.forEach((id) => {
+        patchCard.mutate({ cardId: id, updates: { status } });
+      });
+      showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
+      clearSelection();
+    },
+    [selectedIds, patchCard, showToast, clearSelection],
+  );
+
+  const handleBulkArchive = useCallback(() => {
+    selectedIds.forEach((id) => {
+      patchCard.mutate({ cardId: id, updates: { status: 'archived' as CardStatus } });
+    });
+    showToast(`Archived ${selectedIds.size} cards`, 'success');
+    clearSelection();
+  }, [selectedIds, patchCard, showToast, clearSelection]);
+
+  const handleBulkDelete = useCallback(() => {
+    if (!confirm(`Delete ${selectedIds.size} cards permanently? This cannot be undone.`)) return;
+    selectedIds.forEach((id) => {
+      deleteCardMut.mutate({ cardId: id, projectId: projectId ?? undefined });
+    });
+    showToast(`Deleted ${selectedIds.size} cards`, 'success');
+    clearSelection();
+  }, [selectedIds, deleteCardMut, projectId, showToast, clearSelection]);
+
+  const handleCardClickInternal = useCallback(
+    (cardId: string) => {
+      onCardClick?.(cardId);
+    },
+    [onCardClick],
+  );
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  if (!projectId) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
+        Select a project to view its board
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-4" data-testid="kanban-board">
+      {/* Header row: action buttons */}
+      <div className="flex items-center justify-end gap-2 flex-wrap">
+        <Button
+          variant={executionActive ? 'destructive' : 'outline'}
+          size="sm"
+          onClick={handleExecuteBoard}
+        >
+          {executionActive ? '⏹ Stop' : '▶ Execute Board'}
+        </Button>
+        <Button
+          variant={selectMode ? 'default' : 'outline'}
+          size="sm"
+          onClick={toggleSelectMode}
+        >
+          ☑ Select{selectMode ? ' (ON)' : ''}
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleExport}>
+          📤 Export
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => importInputRef.current?.click()}>
+          📥 Import
+        </Button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleImport(file);
+            e.target.value = '';
+          }}
+        />
+        <Button variant="outline" size="sm" onClick={handleNewCard}>
+          + New Card
+        </Button>
+      </div>
+
+      {/* Execution progress */}
+      {executionActive && executionProgress && (
+        <ExecutionProgress
+          index={executionProgress.index}
+          total={executionProgress.total}
+          cardTitle={executionProgress.cardTitle}
+          onStop={() => {
+            if (executionId) wsSend('kanban:execute:cancel', { executionId });
+          }}
+        />
+      )}
+
+      {/* Filter bar */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          {/* Search input */}
+          <div className="relative flex-1 max-w-sm">
+            <Input
+              type="text"
+              placeholder="Search cards..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="pr-8"
+            />
+            {searchInput && (
+              <button
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm"
+                onClick={() => setSearchInput('')}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Mobile filter toggle */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="md:hidden"
+            onClick={() => setMobileFiltersOpen(!mobileFiltersOpen)}
+          >
+            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+          </Button>
+
+          {/* Match count */}
+          {filterMatchInfo && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Showing {filterMatchInfo.visible} of {filterMatchInfo.total} cards
+            </span>
+          )}
+        </div>
+
+        {/* Filter chips — always visible on desktop, collapsible on mobile */}
+        <div className={cn('flex flex-col gap-2', !mobileFiltersOpen && 'hidden md:flex')}>
+          {/* Priority chips */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs text-muted-foreground font-medium">Priority:</span>
+            {PRIORITY_FILTERS.map((pf) => (
+              <button
+                key={String(pf.value)}
+                className={cn(
+                  'px-2 py-0.5 rounded-full text-xs border transition-colors',
+                  priorityFilter === pf.value
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted/50 text-muted-foreground border-border/40 hover:border-border',
+                )}
+                onClick={() => setPriorityFilter(pf.value)}
+              >
+                {pf.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Agent chips */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs text-muted-foreground font-medium">Agent:</span>
+            {AGENT_FILTERS.map((af) => (
+              <button
+                key={String(af.value)}
+                className={cn(
+                  'px-2 py-0.5 rounded-full text-xs border transition-colors',
+                  agentFilter === af.value
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted/50 text-muted-foreground border-border/40 hover:border-border',
+                )}
+                onClick={() => setAgentFilter(af.value)}
+              >
+                {af.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tag chips */}
+          {allTags.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-muted-foreground font-medium">🏷️ Tags:</span>
+              {allTags.map((tag) => (
+                <button
+                  key={tag}
+                  className={cn(
+                    'px-2 py-0.5 rounded-full text-xs border transition-colors',
+                    tagFilter === tag
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-muted/50 text-muted-foreground border-border/40 hover:border-border',
+                  )}
+                  onClick={() => handleTagClick(tag)}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Dependency graph button */}
+          <div>
+            <Button variant="outline" size="sm" onClick={() => setDepGraphOpen(true)}>
+              🔗 Dependencies
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Board columns with DnD */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {COLUMN_STATUSES.map((status) => (
+            <KanbanColumn
+              key={status}
+              status={status}
+              label={COLUMN_LABELS[status]}
+              cards={cardsByColumn[status] ?? []}
+              selectMode={selectMode}
+              selectedIds={selectedIds}
+              onSelectChange={handleSelectChange}
+              query={query}
+              priorityFilter={priorityFilter}
+              agentFilter={agentFilter}
+              tagFilter={tagFilter}
+              onTagClick={handleTagClick}
+              onCardClick={handleCardClickInternal}
+              executingCardId={executingCardId}
+            />
+          ))}
+        </div>
+
+        {/* Drag overlay — renders a ghost of the dragged card */}
+        <DragOverlay>
+          {activeCard ? (
+            <div className="opacity-80 rotate-2 scale-105">
+              <KanbanCard card={activeCard} query={query} />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      {/* Archived cards */}
+      <ArchivedSection projectId={projectId} />
+
+      {/* Dependency graph overlay */}
+      {depGraphOpen && (
+        <DepGraphOverlay
+          cards={projectCards}
+          cardsById={cardsById}
+          onClose={() => setDepGraphOpen(false)}
+        />
+      )}
+
+      {/* Bulk action toolbar */}
+      {selectMode && (
+        <BulkToolbar
+          selectedIds={selectedIds}
+          onClear={clearSelection}
+          onBulkMove={handleBulkMove}
+          onBulkArchive={handleBulkArchive}
+          onBulkDelete={handleBulkDelete}
+        />
+      )}
+    </div>
+  );
+}
