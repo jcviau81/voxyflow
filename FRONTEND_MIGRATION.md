@@ -103,24 +103,46 @@ Tant qu'à casser le frontend, autant ne pas réinventer la roue. Le frontend ac
 ## Ordre de migration (composante par composante)
 
 ### Phase 1 — Setup + fondations
-1. `npx create vite@latest frontend-react -- --template react-ts`
-2. Configurer SSL via `.env.local` (même certs que le frontend actuel)
-3. Configurer le proxy dans `vite.config.ts` (vers `:8000`)
-4. Installer et configurer Tailwind CSS + shadcn/ui
-5. Créer le store Zustand (remplace `AppState.ts`) — **nécessaire avant toute composante avec state**
-6. Porter `ApiClient.ts` → hooks TanStack Query (`useProjects`, `useCards`, etc.)
-7. Mettre en place le routing (React Router) et l'authentification (token refresh, protected routes)
+> Chaque étape = un agent shot autonome. Les sous-étapes (a/b/c) sont des passes séparées.
+
+1. Scaffold: `npx create vite@latest frontend-react -- --template react-ts`
+2. Configurer SSL via `.env.local` + proxy dans `vite.config.ts` (vers `:8000`)
+3. Installer et configurer Tailwind CSS + shadcn/ui
+4. Zustand store — split en 3 passes (source: `AppState.ts`, 885 lignes):
+   - **4a.** Core store: projects, cards, theme, reactive card store
+   - **4b.** Session/tab store: sessions CRUD, tab management, active session
+   - **4c.** Messages/notifications store: messages, activity feed, notification center
+5. API hooks — split en 3 passes (source: `ApiClient.ts`, 1455 lignes):
+   - **5a.** REST hooks par domaine: `useCards`, `useProjects`, `useSessions`, `useAgents`
+   - **5b.** WebSocket lifecycle hook: connect/disconnect/reconnect avec exponential backoff, heartbeat
+   - **5c.** Offline queue: message queuing localStorage, retry on reconnect
+6. Mettre en place le routing (React Router) et l'authentification (token refresh, protected routes)
 
 ### Phase 2 — Composantes simples + services
-8. Migrer **KanbanCard** (la plus simple, peu de state)
-9. Migrer **FreeBoard**
-10. Porter `ChatService.ts` → context + hooks WebSocket (avec reconnexion, message queuing, auth token — préserver la logique existante de `ChatService.ts`)
+7. Migrer **KanbanCard** (719 lignes — une passe)
+8. Migrer **FreeBoard** (538 lignes — une passe)
+9. Porter `ChatService.ts` → context + hooks WebSocket (738 lignes — une passe, mais spécifier clairement: préserver reconnexion, streaming accumulation, voice auto-send, session routing)
 
 ### Phase 3 — Composantes complexes
-11. Migrer **KanbanBoard** (intégrer @dnd-kit)
-12. Migrer **CardDetailModal**
-13. Migrer **ChatWindow** + **VoiceInput**
-14. Migrer **SettingsPage** (la plus grosse, garder pour la fin)
+
+10. Migrer **KanbanBoard** (936 lignes — une passe, intégrer @dnd-kit)
+
+11. Migrer **CardDetailModal** — split en 3 passes (source: 2058 lignes):
+    - **11a.** Modal shell + layout + navigation (open/close lifecycle, project picker, status/priority dropdowns)
+    - **11b.** Section components: TimeTracking, Comments (nested + replies), Checklist (drag reorder), Files/Attachments
+    - **11c.** Relations + History/Activity + embedded CardChat panel + CodeMirror editor
+
+12. Migrer **VoiceInput** (605 lignes — une passe, standalone)
+
+13. Migrer **ChatWindow** — split en 2 passes (source: 1581 lignes):
+    - **13a.** MessageList + MessageBubble rendering (virtual scroll, markdown, TTS trigger)
+    - **13b.** InputArea + slash commands menu + emoji picker + session tab bar + chat search
+
+14. Migrer **SettingsPage** — split en 4 passes (source: 2420 lignes):
+    - **14a.** Appearance + Theme panel (thème, accent color)
+    - **14b.** Models + Ollama panel (model layers, health check, dynamic model fetching)
+    - **14c.** Voice + STT/TTS panel (engine selection, Whisper config, voice preview, wake word)
+    - **14d.** GitHub + Workspace + Data + About panels (token, export/reset, health bar, jobs scheduler)
 
 ### Phase 4 — Swap final
 15. Valider E2E complet sur `frontend-react/`
@@ -198,20 +220,23 @@ Context:
 - Backend: FastAPI on :8000, WebSocket on /ws — do NOT touch
 - Keep identical UI and behavior
 
-Start with Phase 1:
-1. Scaffold frontend-react/ with create-vite react-ts template
-2. Configure vite.config.ts with proxy (/api → :8000, /ws → ws://:8000)
-   and SSL via env vars (SSL_KEY_PATH / SSL_CERT_PATH from .env.local — NOT VITE_ prefixed)
-3. Install and configure Tailwind CSS + shadcn/ui
-4. Set up Zustand store mirroring AppState.ts
-5. Port ApiClient.ts → TanStack Query hooks
-6. Set up React Router + auth (protected routes, token refresh)
-7. Then migrate KanbanCard component (simplest, least state)
+Each step/sub-step is designed as a single autonomous agent pass.
+Run them sequentially — each builds on the previous.
+
+Phase 1 (setup):     steps 1-6  (6 passes + 6 sub-passes = 12 agent shots)
+Phase 2 (simple):    steps 7-9  (3 agent shots)
+Phase 3 (complex):   steps 10-14 (10 agent shots with sub-passes)
+Phase 4 (swap):      steps 15-18 (manual / 1 agent shot)
+
+Total: ~26 agent shots
 
 Reference files to read first:
-- frontend/src/components/Kanban/KanbanCard.ts
-- frontend/src/state/AppState.ts
-- frontend/src/services/ApiClient.ts
+- frontend/src/components/Kanban/KanbanCard.ts (719 lines)
+- frontend/src/state/AppState.ts (885 lines)
+- frontend/src/services/ApiClient.ts (1455 lines)
+- frontend/src/components/Settings/SettingsPage.ts (2420 lines)
+- frontend/src/components/CardDetailModal.ts (2058 lines)
+- frontend/src/components/Chat/ChatWindow.ts (1581 lines)
 ```
 
 ---
