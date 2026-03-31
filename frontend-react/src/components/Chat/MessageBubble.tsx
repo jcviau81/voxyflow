@@ -14,14 +14,15 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function getModelBadge(model: string): string {
+/** Returns [label, badgeColorClass] for each known model. */
+function getModelBadge(model: string): [string, string] {
   switch (model) {
-    case 'fast': return '⚡ fast';
-    case 'deep': return '🧠 deep';
-    case 'sonnet': return '✨ sonnet';
-    case 'analyzer': return '🔍 analyzer';
-    case 'worker': return '⚙️ worker';
-    default: return model;
+    case 'fast': return ['⚡ fast', 'bg-sky-500/10'];
+    case 'deep': return ['🧠 deep', 'bg-purple-500/10'];
+    case 'sonnet': return ['✨ sonnet', 'bg-blue-500/10'];
+    case 'analyzer': return ['🔍 analyzer', 'bg-amber-500/10'];
+    case 'worker': return ['⚙️ worker', 'bg-green-500/10'];
+    default: return [model, ''];
   }
 }
 
@@ -100,9 +101,9 @@ function MessageContent({ content, streaming }: MessageContentProps) {
   const isEmpty = !cleaned.trim() && !streaming;
 
   return (
-    <div className="message-content prose prose-sm dark:prose-invert max-w-none">
+    <div className="prose prose-sm dark:prose-invert max-w-none">
       {isEmpty ? (
-        <span className="delegate-placeholder text-muted-foreground text-sm">⚙️ Délégation en cours…</span>
+        <span className="text-muted-foreground text-sm">⚙️ Délégation en cours…</span>
       ) : (
         <>
           <ReactMarkdown
@@ -135,7 +136,7 @@ function MessageContent({ content, streaming }: MessageContentProps) {
           >
             {cleaned}
           </ReactMarkdown>
-          {streaming && <span className="streaming-cursor inline-block animate-pulse ml-0.5">▊</span>}
+          {streaming && <span className="inline-block animate-pulse ml-0.5">▊</span>}
         </>
       )}
     </div>
@@ -174,8 +175,8 @@ function TtsButton({ text }: TtsButtonProps) {
     <button
       onClick={handleClick}
       className={cn(
-        'tts-speak-btn text-sm opacity-60 hover:opacity-100 transition-opacity',
-        speaking && 'tts-speaking opacity-100',
+        'text-sm opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity',
+        speaking && 'opacity-100',
       )}
       title={speaking ? 'Stop' : 'Read aloud'}
       type="button"
@@ -209,15 +210,15 @@ function Reactions({ messageId }: ReactionsProps) {
   }, [storageKey]);
 
   return (
-    <div className="message-reactions flex gap-1 mt-1">
+    <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity">
       {(['👍', '👎'] as const).map((emoji) => (
         <button
           key={emoji}
           onClick={() => toggle(emoji)}
           className={cn(
-            'reaction-btn text-sm px-1.5 py-0.5 rounded transition-all',
+            'text-base px-1.5 py-0.5 rounded transition-all',
             selected === emoji
-              ? 'reaction-selected bg-primary/20 scale-110'
+              ? 'bg-primary/20 scale-110'
               : 'opacity-50 hover:opacity-80',
           )}
           type="button"
@@ -254,40 +255,68 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
   return (
     <div
       className={cn(
-        'message-bubble',
-        `message-${message.role}`,
-        isEnrichment && 'message-enrichment',
-        isEnrichment && message.enrichmentAction === 'correct' && 'message-correction',
-        message.isWorkerResult && 'message-worker-result',
+        'group flex gap-2.5 max-w-[78%] animate-in fade-in duration-200',
+        isUser ? 'self-end flex-row-reverse' : 'self-start',
+        isEnrichment && 'opacity-0 animate-in fade-in slide-in-from-bottom-2 duration-500 delay-300 fill-mode-forwards',
       )}
       data-message-id={message.id}
     >
       {/* Avatar */}
-      <div className="message-avatar">{avatar}</div>
+      <div
+        className={cn(
+          'w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 text-sm',
+          isEnrichment
+            ? 'bg-transparent text-lg border-none'
+            : 'bg-muted border border-border',
+        )}
+      >
+        {avatar}
+      </div>
 
       {/* Content wrapper */}
-      <div className="message-content-wrapper">
-        <div className="message-sender-name">{senderName}</div>
+      <div className="flex flex-col gap-0.5">
+        <div
+          className={cn(
+            'text-xs font-semibold pl-0.5',
+            isUser ? 'text-blue-400' : 'text-muted-foreground',
+          )}
+        >
+          {senderName}
+        </div>
 
         {/* Content */}
         <div ref={contentRef}>
           {isUser ? (
-            <div className="message-content whitespace-pre-wrap">
+            <div className="bg-primary border border-transparent text-primary-foreground rounded-xl rounded-br-sm px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">
               {replaceEmojiShortcodes(message.content)}
             </div>
           ) : (
-            <MessageContent content={message.content} streaming={message.streaming} />
+            <div
+              className={cn(
+                'bg-muted border border-border rounded-xl rounded-bl-sm px-3.5 py-2.5 text-sm leading-relaxed',
+                isEnrichment && 'border-l-[3px] border-l-primary italic',
+                isEnrichment && message.enrichmentAction === 'correct' && 'border-l-yellow-500',
+                message.isWorkerResult && 'border-l-[3px] border-l-primary italic',
+              )}
+            >
+              <MessageContent content={message.content} streaming={message.streaming} />
+            </div>
           )}
         </div>
 
         {/* Meta row */}
-        <div className="message-meta flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-          {!isUser && message.model && (
-            <span className={cn('model-badge', `model-${message.model}`)}>
-              {getModelBadge(message.model)}
-            </span>
-          )}
-          <span className="message-time">{formatTime(message.timestamp)}</span>
+        <div className="flex items-center gap-1.5 px-1">
+          {!isUser && message.model && (() => {
+            const [label, colorClass] = getModelBadge(message.model);
+            return (
+              <span className={cn('text-xs px-1.5 py-px rounded font-mono opacity-60 tracking-wide', colorClass)}>
+                {label}
+              </span>
+            );
+          })()}
+          <span className={cn('text-xs text-muted-foreground px-1', isUser && 'text-right')}>
+            {formatTime(message.timestamp)}
+          </span>
           {!isUser && (
             <TtsButton text={getPlainText()} />
           )}
