@@ -441,11 +441,13 @@ function ExecutionProgress({ index, total, cardTitle, onStop }: ExecutionProgres
 // ── Main KanbanBoard Component ─────────────────────────────────────────────────
 
 export interface KanbanBoardProps {
+  projectId?: string;
   onCardClick?: (cardId: string) => void;
 }
 
-export function KanbanBoard({ onCardClick }: KanbanBoardProps) {
-  const projectId = useProjectStore((s) => s.currentProjectId);
+export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoardProps) {
+  const storeProjectId = useProjectStore((s) => s.currentProjectId);
+  const projectId = projectIdProp ?? storeProjectId;
   const cardsById = useCardStore((s) => s.cardsById);
   const setCardsForProject = useCardStore((s) => s.setCardsForProject);
   const showToast = useToastStore((s) => s.showToast);

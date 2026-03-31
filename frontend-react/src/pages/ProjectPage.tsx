@@ -83,11 +83,11 @@ export function ProjectPage() {
       )}
 
       {view === 'kanban' && (
-        <KanbanBoard onCardClick={handleCardClick} />
+        <KanbanBoard key={id} projectId={id} onCardClick={handleCardClick} />
       )}
 
       {view === 'freeboard' && (
-        <FreeBoard />
+        <FreeBoard key={id} projectId={id} />
       )}
 
       {view === 'knowledge' && (

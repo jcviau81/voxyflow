@@ -352,10 +352,15 @@ function AddCardForm({ onSubmit, onCancel }: AddCardFormProps) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function FreeBoard() {
+export interface FreeBoardProps {
+  projectId?: string;
+}
+
+export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   const qc = useQueryClient();
 
-  const currentProjectId = useProjectStore((s) => s.currentProjectId) ?? SYSTEM_PROJECT_ID;
+  const storeProjectId = useProjectStore((s) => s.currentProjectId);
+  const currentProjectId = projectIdProp ?? storeProjectId ?? SYSTEM_PROJECT_ID;
   const projects = useProjectStore((s) => s.projects);
   const selectCard = useProjectStore((s) => s.selectCard);
   const showToast = useToastStore((s) => s.showToast);
