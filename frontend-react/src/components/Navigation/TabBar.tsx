@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { Lightbulb, Bell, X } from 'lucide-react';
+import { Lightbulb, Bell, X, Home, Folder } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
@@ -198,8 +198,12 @@ function TabItem({ tab, isActive, onSwitch, onClose }: TabItemProps) {
       onClick={onSwitch}
       onAuxClick={handleAuxClick}
     >
-      {tab.emoji && (
+      {tab.id === 'main' ? (
+        <Home size={13} className="flex-shrink-0" />
+      ) : tab.emoji ? (
         <span className="tab-emoji flex-shrink-0 text-xs leading-none">{tab.emoji}</span>
+      ) : (
+        <Folder size={13} className="flex-shrink-0" />
       )}
 
       <span className="tab-label truncate">{tab.label}</span>
