@@ -21,6 +21,7 @@ import { Settings, Home, PanelLeft } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useThemeStore } from '../../stores/useThemeStore';
+import { CardDetailModal } from '../CardDetail';
 
 export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -133,6 +134,9 @@ export function AppShell() {
         {/* ── Right panel placeholder ── */}
         {/* WorkerPanel + RightPanel added once those components are migrated */}
       </div>
+
+      {/* Global card detail modal — opens when selectedCardId is set */}
+      <CardDetailModal />
     </div>
   );
 }
