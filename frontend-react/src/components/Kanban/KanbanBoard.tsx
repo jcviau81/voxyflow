@@ -23,7 +23,7 @@ import type { Card, CardStatus } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
-import { useCards, useArchivedCards, useRestoreCard, useDeleteCard, usePatchCard, useReorderCards } from '../../hooks/api/useCards';
+import { useCards, useArchivedCards, useRestoreCard, useDeleteCard, usePatchCard, useReorderCards, useCreateCard } from '../../hooks/api/useCards';
 import { useExportProject, useImportProject, useExecuteBoardPlan } from '../../hooks/api/useProjects';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { KanbanCard } from './KanbanCard';
@@ -448,6 +448,7 @@ export interface KanbanBoardProps {
 
 export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoardProps) {
   const storeProjectId = useProjectStore((s) => s.currentProjectId);
+  const selectCard = useProjectStore((s) => s.selectCard);
   const projectId = projectIdProp ?? storeProjectId;
   const cardsById = useCardStore((s) => s.cardsById);
   const setCardsForProject = useCardStore((s) => s.setCardsForProject);
@@ -455,6 +456,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
 
   // API hooks
   const { data: fetchedCards } = useCards(projectId ?? '');
+  const createCard = useCreateCard();
   const patchCard = usePatchCard();
   const reorderCards = useReorderCards();
   const exportProject = useExportProject();
@@ -655,17 +657,21 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     [],
   );
 
-  const handleNewCard = useCallback(() => {
+  const handleNewCard = useCallback(async () => {
     if (!projectId) {
       showToast('Select a project first', 'info');
       return;
     }
-    // Emit via onCardClick with special 'new' signal, or use a modal trigger
-    // For now, we signal via a custom event that CardDetailModal listens to
-    window.dispatchEvent(new CustomEvent('voxyflow:modal:open', {
-      detail: { type: 'card-detail', mode: 'create', projectId },
-    }));
-  }, [projectId, showToast]);
+    try {
+      const newCard = await createCard.mutateAsync({ projectId, title: 'New card', status: 'todo' });
+      useCardStore.setState((state) => ({
+        cardsById: { ...state.cardsById, [newCard.id]: newCard },
+      }));
+      selectCard(newCard.id);
+    } catch {
+      showToast('Failed to create card', 'error');
+    }
+  }, [projectId, createCard, selectCard, showToast]);
 
   const handleExport = useCallback(async () => {
     if (!projectId) {

@@ -1,10 +1,9 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import React, { useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
-import { SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
-import { useCards, usePatchCard, useDeleteCard, useMoveCard, cardKeys } from '../../hooks/api/useCards';
+import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
+import { useCards, usePatchCard, useDeleteCard, useMoveCard, useCreateCard } from '../../hooks/api/useCards';
 import { AGENT_TYPE_EMOJI, AGENT_PERSONAS } from '../../lib/constants';
 import type { Card } from '../../types';
 import {
@@ -18,16 +17,6 @@ import {
 // ── Color config ──────────────────────────────────────────────────────────────
 
 type CardColor = 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange';
-
-const COLOR_OPTIONS: { value: CardColor | null; label: string }[] = [
-  { value: null,     label: 'None'   },
-  { value: 'yellow', label: 'Yellow' },
-  { value: 'blue',   label: 'Blue'   },
-  { value: 'green',  label: 'Green'  },
-  { value: 'pink',   label: 'Pink'   },
-  { value: 'purple', label: 'Purple' },
-  { value: 'orange', label: 'Orange' },
-];
 
 const COLOR_CARD_CLASSES: Record<CardColor, string> = {
   yellow: 'bg-yellow-500/10 border-yellow-500/30',
@@ -45,15 +34,6 @@ const COLOR_DOT_CLASSES: Record<CardColor, string> = {
   pink:   'bg-pink-400',
   purple: 'bg-purple-400',
   orange: 'bg-orange-400',
-};
-
-const COLOR_SWATCH_CLASSES: Record<CardColor, string> = {
-  yellow: 'bg-yellow-400 hover:ring-yellow-400',
-  blue:   'bg-blue-400   hover:ring-blue-400',
-  green:  'bg-green-400  hover:ring-green-400',
-  pink:   'bg-pink-400   hover:ring-pink-400',
-  purple: 'bg-purple-400 hover:ring-purple-400',
-  orange: 'bg-orange-400 hover:ring-orange-400',
 };
 
 // ── Status labels ─────────────────────────────────────────────────────────────
@@ -235,120 +215,6 @@ function FreeBoardCard({
   );
 }
 
-// ── Add form ──────────────────────────────────────────────────────────────────
-
-interface AddCardFormProps {
-  onSubmit: (title: string, description: string, color: CardColor | null) => void;
-  onCancel: () => void;
-}
-
-function AddCardForm({ onSubmit, onCancel }: AddCardFormProps) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [selectedColor, setSelectedColor] = useState<CardColor | null>(null);
-  const titleRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    titleRef.current?.focus();
-  }, []);
-
-  const handleSubmit = () => {
-    const trimmed = title.trim();
-    if (!trimmed) {
-      titleRef.current?.focus();
-      return;
-    }
-    onSubmit(trimmed, description.trim(), selectedColor);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    } else if (e.key === 'Escape') {
-      onCancel();
-    }
-  };
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
-      <input
-        ref={titleRef}
-        type="text"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Card title..."
-        className={cn(
-          'w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground',
-          'border-b border-border/60 pb-1.5 focus:outline-none focus:border-border',
-        )}
-      />
-      <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
-        placeholder="Details (optional)..."
-        rows={3}
-        className={cn(
-          'w-full bg-transparent text-[11px] text-foreground placeholder:text-muted-foreground',
-          'resize-none focus:outline-none',
-        )}
-      />
-
-      {/* Color selector */}
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] text-muted-foreground">Color:</span>
-        {/* None swatch */}
-        <button
-          type="button"
-          title="None"
-          onClick={() => setSelectedColor(null)}
-          className={cn(
-            'w-5 h-5 rounded-full border border-border bg-muted transition-all',
-            'hover:ring-2 hover:ring-offset-1 hover:ring-border',
-            selectedColor === null && 'ring-2 ring-offset-1 ring-primary',
-          )}
-        />
-        {COLOR_OPTIONS.filter(o => o.value !== null).map(({ value, label }) => (
-          <button
-            key={value}
-            type="button"
-            title={label}
-            onClick={() => setSelectedColor(value)}
-            className={cn(
-              'w-5 h-5 rounded-full transition-all ring-offset-background',
-              COLOR_SWATCH_CLASSES[value as CardColor],
-              'hover:ring-2 hover:ring-offset-1',
-              selectedColor === value && 'ring-2 ring-offset-1',
-            )}
-          />
-        ))}
-      </div>
-
-      {/* Actions row */}
-      <div className="flex items-center gap-2 justify-end pt-1">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-3 py-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleSubmit}
-          className={cn(
-            'px-3 py-1 text-[12px] rounded bg-primary text-primary-foreground',
-            'hover:bg-primary/90 transition-colors',
-          )}
-        >
-          Add card
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -357,8 +223,6 @@ export interface FreeBoardProps {
 }
 
 export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
-  const qc = useQueryClient();
-
   const storeProjectId = useProjectStore((s) => s.currentProjectId);
   const currentProjectId = projectIdProp ?? storeProjectId ?? SYSTEM_PROJECT_ID;
   const projects = useProjectStore((s) => s.projects);
@@ -381,50 +245,31 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
     [projects],
   );
 
-  const [showForm, setShowForm] = useState(false);
-
   const patchCard = usePatchCard();
   const deleteCard = useDeleteCard();
   const moveCard = useMoveCard();
+  const createCard = useCreateCard();
 
-  // Create card with optional color — useCreateCard doesn't expose color, so inline
-  const createCard = useMutation({
-    mutationFn: async (data: { title: string; description: string; color: CardColor | null }) => {
-      const res = await fetch(`/api/projects/${currentProjectId}/cards`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: data.title,
-          description: data.description || '',
-          color: data.color ?? null,
-          priority: 0,
-          status: 'card',
-        }),
+  const handleAddCard = useCallback(async () => {
+    if (!currentProjectId) return;
+    try {
+      const newCard = await createCard.mutateAsync({
+        projectId: currentProjectId,
+        title: 'New card',
+        status: 'todo',
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: cardKeys.byProject(currentProjectId) });
-    },
-  });
-
-  const handleFormSubmit = useCallback(
-    async (title: string, description: string, color: CardColor | null) => {
-      setShowForm(false);
-      try {
-        await createCard.mutateAsync({ title, description, color });
-      } catch {
-        showToast('Failed to create card', 'error');
-      }
-    },
-    [createCard, showToast],
-  );
+      useCardStore.setState((state) => ({
+        cardsById: { ...state.cardsById, [newCard.id]: newCard },
+      }));
+      selectCard(newCard.id);
+    } catch {
+      showToast('Failed to create card', 'error');
+    }
+  }, [currentProjectId, createCard, selectCard, showToast]);
 
   const handleCardClick = useCallback(
     (cardId: string) => {
       selectCard(cardId);
-      // Modal wiring will be completed in a later migration step
     },
     [selectCard],
   );
@@ -479,13 +324,13 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border/40">
         <button
-          onClick={() => setShowForm((v) => !v)}
+          onClick={handleAddCard}
+          disabled={createCard.isPending}
           data-testid="freeboard-add-btn"
           className={cn(
             'px-3 py-1.5 text-[13px] rounded border border-border/60',
             'text-muted-foreground hover:text-foreground hover:border-border',
-            'hover:bg-accent transition-all',
-            showForm && 'bg-accent text-foreground border-border',
+            'hover:bg-accent transition-all disabled:opacity-50',
           )}
         >
           + Add Card
@@ -495,22 +340,12 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
       {/* Grid */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
-          {/* Add form at the top */}
-          {showForm && (
-            <AddCardForm
-              onSubmit={handleFormSubmit}
-              onCancel={() => setShowForm(false)}
-            />
-          )}
-
           {isLoading ? (
             <div className="col-span-full flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <div className="text-3xl mb-2">🗒️</div>
               <div className="text-sm">Loading...</div>
             </div>
-          ) : boardCards.length === 0 && !showForm ? (
+          ) : boardCards.length === 0 ? (
             <div className="col-span-full flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <div className="text-3xl mb-2">🗒️</div>
               <div className="text-sm">No cards yet. Add one!</div>
             </div>
           ) : (
