@@ -39,11 +39,15 @@ import { VoteSection } from './VoteSection';
 import { ProjectPicker } from './ProjectPicker';
 import { DependenciesSection } from './DependenciesSection';
 
-// Placeholder sections (11b / 11c)
+// Section components (step 11b)
+import { TimeTracking } from './sections/TimeTracking';
+import { CommentsSection } from './sections/Comments';
+import { ChecklistSection } from './sections/Checklist';
+import { AttachmentsSection } from './sections/Attachments';
+import { LinkedFiles } from './sections/LinkedFiles';
+
+// Placeholder sections (11c)
 import {
-  ChecklistSection,
-  FilesSection,
-  AttachmentsSection,
   RelationsSection,
   DescriptionEditor,
   CardChatSection,
@@ -420,14 +424,25 @@ export function CardDetailModal() {
 
               <hr className="border-border" />
 
-              {/* Group 4: Tracking (placeholders for 11b) */}
+              {/* Group 4: Tracking */}
               <section className="space-y-3">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
                   Tracking
                 </span>
+                <TimeTracking cardId={card.id} />
                 <ChecklistSection cardId={card.id} />
-                <FilesSection cardId={card.id} files={card.files ?? []} />
+                <LinkedFiles cardId={card.id} files={card.files ?? []} />
                 <AttachmentsSection cardId={card.id} />
+              </section>
+
+              <hr className="border-border" />
+
+              {/* Group 4b: Discussion */}
+              <section className="space-y-3">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  Discussion
+                </span>
+                <CommentsSection cardId={card.id} />
               </section>
 
               <hr className="border-border" />

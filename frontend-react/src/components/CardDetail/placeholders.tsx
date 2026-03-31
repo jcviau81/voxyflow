@@ -1,54 +1,8 @@
 /**
- * Placeholder components for CardDetailModal sections.
- * These will be fully implemented in migration steps 11b and 11c.
+ * Placeholder components for CardDetailModal sections not yet implemented.
+ * 11b sections (TimeTracking, Comments, Checklist, Attachments, LinkedFiles) are in sections/.
+ * Remaining placeholders are for step 11c.
  */
-
-// ── 11b placeholders ────────────────────────────────────────────────────────
-
-export function TimeTrackingSection({ cardId: _cardId }: { cardId: string }) {
-  return (
-    <div className="space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">Time Tracking</span>
-      <p className="text-xs text-muted-foreground/60">Coming in step 11b</p>
-    </div>
-  );
-}
-
-export function CommentsSection({ cardId: _cardId }: { cardId: string }) {
-  return (
-    <div className="space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">Comments</span>
-      <p className="text-xs text-muted-foreground/60">Coming in step 11b</p>
-    </div>
-  );
-}
-
-export function ChecklistSection({ cardId: _cardId }: { cardId: string }) {
-  return (
-    <div className="space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">Checklist</span>
-      <p className="text-xs text-muted-foreground/60">Coming in step 11b</p>
-    </div>
-  );
-}
-
-export function FilesSection({ cardId: _cardId, files: _files }: { cardId: string; files: string[] }) {
-  return (
-    <div className="space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">Files</span>
-      <p className="text-xs text-muted-foreground/60">Coming in step 11b</p>
-    </div>
-  );
-}
-
-export function AttachmentsSection({ cardId: _cardId }: { cardId: string }) {
-  return (
-    <div className="space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">Attachments</span>
-      <p className="text-xs text-muted-foreground/60">Coming in step 11b</p>
-    </div>
-  );
-}
 
 // ── 11c placeholders ────────────────────────────────────────────────────────
 
