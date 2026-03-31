@@ -1,18 +1,36 @@
 import { useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
+import { useProjectStore } from '../../stores/useProjectStore';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useWS } from '../../providers/WebSocketProvider';
 import type { Tab } from '../../types';
 
 export function TabBar() {
+  const navigate = useNavigate();
   const openTabs = useTabStore((s) => s.openTabs);
   const activeTab = useTabStore((s) => s.activeTab);
   const switchTab = useTabStore((s) => s.switchTab);
   const closeTab = useTabStore((s) => s.closeTab);
+  const selectProject = useProjectStore((s) => s.selectProject);
   const sessions = useSessionStore((s) => s.sessions);
   const closeSession = useSessionStore((s) => s.closeSession);
   const { send } = useWS();
+
+  const handleSwitchTab = useCallback(
+    (tabId: string) => {
+      switchTab(tabId);
+      if (tabId === 'main') {
+        selectProject(null);
+        navigate('/');
+      } else {
+        selectProject(tabId);
+        navigate(`/project/${tabId}`);
+      }
+    },
+    [switchTab, selectProject, navigate],
+  );
 
   const handleCloseTab = useCallback(
     async (tab: Tab) => {
@@ -49,7 +67,7 @@ export function TabBar() {
         const nextIndex = e.shiftKey
           ? (currentIndex - 1 + openTabs.length) % openTabs.length
           : (currentIndex + 1) % openTabs.length;
-        switchTab(openTabs[nextIndex].id);
+        handleSwitchTab(openTabs[nextIndex].id);
       }
 
       // Ctrl+W / Cmd+W: close current tab
@@ -64,7 +82,7 @@ export function TabBar() {
 
     document.addEventListener('keydown', handleKeydown);
     return () => document.removeEventListener('keydown', handleKeydown);
-  }, [openTabs, activeTab, switchTab, handleCloseTab]);
+  }, [openTabs, activeTab, handleSwitchTab, handleCloseTab]);
 
   return (
     <div className="tab-bar flex items-center gap-0.5 overflow-x-auto" data-testid="tab-bar">
@@ -73,7 +91,7 @@ export function TabBar() {
           key={tab.id}
           tab={tab}
           isActive={tab.id === activeTab}
-          onSwitch={() => switchTab(tab.id)}
+          onSwitch={() => handleSwitchTab(tab.id)}
           onClose={() => handleCloseTab(tab)}
         />
       ))}
