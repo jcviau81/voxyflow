@@ -14,6 +14,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      port: 3000,
+      host: '0.0.0.0',
       https: env.SSL_KEY_PATH ? {
         key: fs.readFileSync(env.SSL_KEY_PATH),
         cert: fs.readFileSync(env.SSL_CERT_PATH),
