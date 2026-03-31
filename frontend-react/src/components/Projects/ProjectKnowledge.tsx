@@ -1,7 +1,11 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
+import { cn } from '../../lib/utils';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ProjectDocument {
   id: string;
@@ -16,6 +20,14 @@ interface WikiPageSummary {
   title: string;
   updated_at: string;
 }
+
+interface WikiPageDetail extends WikiPageSummary {
+  project_id: string;
+  content: string;
+  created_at: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -42,29 +54,20 @@ function getDocIcon(filename: string, mimeType: string): string {
 
 const ALLOWED_EXTS = ['.txt', '.md', '.pdf', '.docx', '.xlsx'];
 
-interface KnowledgeSectionProps {
-  title: string;
-  children: React.ReactNode;
+type KnowledgeTab = 'documents' | 'wiki' | 'rag';
+
+// ─── Documents tab ────────────────────────────────────────────────────────────
+
+interface DocumentsTabProps {
+  projectId: string;
 }
 
-function KnowledgeSection({ title, children }: KnowledgeSectionProps) {
-  return (
-    <div className="knowledge-section">
-      <h3 className="knowledge-section-title">{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-export function ProjectKnowledge() {
-  const projectId = useProjectStore(s => s.currentProjectId);
-  const project = useProjectStore(s => s.getActiveProject());
+function DocumentsTab({ projectId }: DocumentsTabProps) {
   const { showToast } = useToastStore();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // --- Documents ---
   const { data: docs = [] } = useQuery<ProjectDocument[]>({
     queryKey: ['projects', projectId, 'documents'],
     queryFn: async () => {
@@ -73,26 +76,11 @@ export function ProjectKnowledge() {
       const data = await res.json() as ProjectDocument[] | { documents: ProjectDocument[] };
       return Array.isArray(data) ? data : (data.documents ?? []);
     },
-    enabled: !!projectId,
     staleTime: 30_000,
-  });
-
-  // --- Wiki pages ---
-  const { data: wikiPages = [] } = useQuery<WikiPageSummary[]>({
-    queryKey: ['projects', projectId, 'wiki'],
-    queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/wiki`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json() as Promise<WikiPageSummary[]>;
-    },
-    enabled: !!projectId,
-    staleTime: 60_000,
-    retry: false,
   });
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
-      if (!projectId) throw new Error('No project selected');
       const formData = new FormData();
       formData.append('file', file);
       const res = await fetch(`/api/projects/${projectId}/documents`, { method: 'POST', body: formData });
@@ -106,9 +94,7 @@ export function ProjectKnowledge() {
       void qc.invalidateQueries({ queryKey: ['projects', projectId, 'documents'] });
       showToast('Document indexed', 'success', 3000);
     },
-    onError: (err: Error) => {
-      showToast(`Upload failed: ${err.message}`, 'error');
-    },
+    onError: (err: Error) => showToast(`Upload failed: ${err.message}`, 'error'),
   });
 
   const deleteMutation = useMutation({
@@ -120,9 +106,7 @@ export function ProjectKnowledge() {
       void qc.invalidateQueries({ queryKey: ['projects', projectId, 'documents'] });
       showToast(`"${filename}" removed`, 'info', 2500);
     },
-    onError: () => {
-      showToast('Delete failed', 'error');
-    },
+    onError: () => showToast('Delete failed', 'error'),
   });
 
   const handleFile = useCallback((file: File) => {
@@ -149,18 +133,322 @@ export function ProjectKnowledge() {
     if (file) handleFile(file);
   }, [handleFile]);
 
-  if (!projectId) {
-    return (
-      <div className="knowledge-view">
-        <div className="knowledge-empty">No project selected.</div>
+  return (
+    <div className="knowledge-view">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".txt,.md,.pdf,.docx,.xlsx"
+        style={{ display: 'none' }}
+        onChange={handleFileInputChange}
+      />
+
+      <div className="knowledge-upload-row">
+        <button
+          className="btn btn-primary knowledge-upload-btn"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadMutation.isPending}
+        >
+          {uploadMutation.isPending ? '⏳ Uploading…' : '⬆️ Upload'}
+        </button>
       </div>
-    );
-  }
+
+      <div
+        className={`knowledge-drop-zone${isDragOver ? ' dragover' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <span>Drag &amp; drop files here, or click <strong>Upload</strong></span>
+      </div>
+
+      <div className="knowledge-list">
+        {docs.length === 0 ? (
+          <div className="knowledge-empty">No documents uploaded yet.</div>
+        ) : (
+          docs.map((doc) => (
+            <div key={doc.id} className="knowledge-item">
+              <span className="knowledge-item-icon">{getDocIcon(doc.filename, doc.mime_type)}</span>
+              <span className="knowledge-item-name">{doc.filename}</span>
+              <span className="knowledge-item-meta">{formatBytes(doc.file_size)} · {formatDate(doc.created_at)}</span>
+              <button
+                className="btn btn-ghost knowledge-item-delete"
+                title="Delete"
+                onClick={() => deleteMutation.mutate({ docId: doc.id, filename: doc.filename })}
+                disabled={deleteMutation.isPending}
+              >
+                🗑️
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Wiki tab ─────────────────────────────────────────────────────────────────
+
+interface WikiTabProps {
+  projectId: string;
+}
+
+function WikiTab({ projectId }: WikiTabProps) {
+  const { showToast } = useToastStore();
+  const qc = useQueryClient();
+
+  const [activePageId, setActivePageId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // List
+  const { data: pages = [] } = useQuery<WikiPageSummary[]>({
+    queryKey: ['projects', projectId, 'wiki'],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/wiki`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<WikiPageSummary[]>;
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  // Detail
+  const { data: activePage } = useQuery<WikiPageDetail>({
+    queryKey: ['projects', projectId, 'wiki', activePageId],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/wiki/${activePageId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<WikiPageDetail>;
+    },
+    enabled: !!activePageId,
+    staleTime: 30_000,
+  });
+
+  // Auto-select first page
+  useEffect(() => {
+    if (pages.length > 0 && !activePageId) {
+      setActivePageId(pages[0].id);
+    }
+  }, [pages, activePageId]);
+
+  // Sync editor state when active page loads
+  useEffect(() => {
+    if (activePage) {
+      setEditTitle(activePage.title);
+      setEditContent(activePage.content);
+      setDirty(false);
+      setPreviewMode(false);
+    }
+  }, [activePage]);
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/wiki`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'New Page', content: '' }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<WikiPageDetail>;
+    },
+    onSuccess: (page) => {
+      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'wiki'] });
+      setActivePageId(page.id);
+      setTimeout(() => titleInputRef.current?.focus(), 50);
+    },
+    onError: () => showToast('Failed to create page', 'error'),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!activePageId) throw new Error('No active page');
+      const res = await fetch(`/api/projects/${projectId}/wiki/${activePageId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: editTitle.trim() || 'Untitled', content: editContent }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<WikiPageDetail>;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'wiki'] });
+      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'wiki', activePageId] });
+      setDirty(false);
+      showToast('Wiki page saved', 'success', 2000);
+    },
+    onError: () => showToast('Failed to save page', 'error'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      if (!activePageId) throw new Error('No active page');
+      const res = await fetch(`/api/projects/${projectId}/wiki/${activePageId}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'wiki'] });
+      const remaining = pages.filter(p => p.id !== activePageId);
+      setActivePageId(remaining.length > 0 ? remaining[0].id : null);
+      showToast('Page deleted', 'success', 2000);
+    },
+    onError: () => showToast('Failed to delete page', 'error'),
+  });
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      if (dirty) saveMutation.mutate();
+    }
+  }, [dirty, saveMutation]);
+
+  const handleDeleteClick = useCallback(() => {
+    if (!activePage) return;
+    if (window.confirm(`Delete page "${activePage.title}"? This cannot be undone.`)) {
+      deleteMutation.mutate();
+    }
+  }, [activePage, deleteMutation]);
+
+  return (
+    <div className="wiki-view">
+      {/* Sidebar */}
+      <div className="wiki-sidebar">
+        <div className="wiki-sidebar-header">
+          <span className="wiki-sidebar-title">Pages</span>
+          <button
+            className="wiki-new-page-btn"
+            title="New page"
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
+          >
+            +
+          </button>
+        </div>
+
+        <div className="wiki-page-list">
+          {pages.length === 0 ? (
+            <div className="wiki-no-pages">No pages yet. Hit + to start.</div>
+          ) : (
+            pages.map((page) => (
+              <div
+                key={page.id}
+                className={cn('wiki-page-item', activePageId === page.id && 'active')}
+                onClick={() => {
+                  if (activePageId !== page.id) {
+                    setActivePageId(page.id);
+                  }
+                }}
+              >
+                <span className="wiki-page-item-title">{page.title || 'Untitled'}</span>
+                <span className="wiki-page-item-date">{formatDate(page.updated_at)}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Editor */}
+      <div className="wiki-editor">
+        {!activePageId ? (
+          <div className="wiki-empty-state">
+            <p>Select a page from the sidebar or create a new one.</p>
+          </div>
+        ) : (
+          <>
+            <div className="wiki-toolbar">
+              <input
+                ref={titleInputRef}
+                className="wiki-title-input"
+                type="text"
+                placeholder="Page title…"
+                value={editTitle}
+                onChange={(e) => { setEditTitle(e.target.value); setDirty(true); }}
+              />
+              <button
+                className="wiki-save-btn"
+                title="Save (Ctrl+S)"
+                onClick={() => saveMutation.mutate()}
+                disabled={!dirty || saveMutation.isPending}
+              >
+                {saveMutation.isPending ? '⏳' : '💾'} Save
+              </button>
+              <button
+                className={cn('wiki-preview-btn', previewMode && 'active')}
+                title="Toggle preview"
+                onClick={() => setPreviewMode(p => !p)}
+              >
+                {previewMode ? '✏️ Edit' : '👁 Preview'}
+              </button>
+              <button
+                className="wiki-delete-btn"
+                title="Delete page"
+                onClick={handleDeleteClick}
+                disabled={deleteMutation.isPending}
+              >
+                🗑️
+              </button>
+            </div>
+
+            <div className="wiki-body">
+              {previewMode ? (
+                <div className="wiki-preview prose prose-sm dark:prose-invert max-w-none">
+                  <ReactMarkdown>{editContent}</ReactMarkdown>
+                </div>
+              ) : (
+                <textarea
+                  className="wiki-content-textarea"
+                  placeholder="Write your page in Markdown…"
+                  value={editContent}
+                  onChange={(e) => { setEditContent(e.target.value); setDirty(true); }}
+                  onKeyDown={handleKeyDown}
+                />
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── RAG Sources tab ──────────────────────────────────────────────────────────
+
+interface RagTabProps {
+  projectId: string;
+}
+
+function RagTab({ projectId }: RagTabProps) {
+  const project = useProjectStore(s => s.getActiveProject());
+
+  const { data: docs = [] } = useQuery<ProjectDocument[]>({
+    queryKey: ['projects', projectId, 'documents'],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/documents`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as ProjectDocument[] | { documents: ProjectDocument[] };
+      return Array.isArray(data) ? data : (data.documents ?? []);
+    },
+    staleTime: 30_000,
+  });
+
+  const { data: wikiPages = [] } = useQuery<WikiPageSummary[]>({
+    queryKey: ['projects', projectId, 'wiki'],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/wiki`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<WikiPageSummary[]>;
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
 
   const techStack = project?.techStack as string[] | undefined;
-
-  // RAG summary entries
   const ragItems: Array<{ icon: string; name: string; status: string }> = [];
+
   if (techStack && techStack.length > 0) {
     for (const tech of techStack) {
       ragItems.push({ icon: '⚙️', name: tech, status: 'auto-detected' });
@@ -183,98 +471,64 @@ export function ProjectKnowledge() {
 
   return (
     <div className="knowledge-view">
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".txt,.md,.pdf,.docx,.xlsx"
-        style={{ display: 'none' }}
-        onChange={handleFileInputChange}
-      />
-
-      {/* Section 1: Documents */}
-      <KnowledgeSection title="📄 Documents">
-        {/* Upload area */}
-        <div className="knowledge-upload-row">
-          <button
-            className="btn btn-primary knowledge-upload-btn"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadMutation.isPending}
-          >
-            {uploadMutation.isPending ? '⏳ Uploading…' : '⬆️ Upload'}
-          </button>
-        </div>
-
-        {/* Drop zone */}
-        <div
-          className={`knowledge-drop-zone${isDragOver ? ' dragover' : ''}`}
-          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-          onDragLeave={() => setIsDragOver(false)}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <span>Drag &amp; drop files here, or click <strong>Upload</strong></span>
-        </div>
-
-        {/* Docs list */}
-        <div className="knowledge-list">
-          {docs.length === 0 ? (
-            <div className="knowledge-empty">No documents uploaded yet.</div>
-          ) : (
-            docs.map((doc) => (
-              <div key={doc.id} className="knowledge-item">
-                <span className="knowledge-item-icon">{getDocIcon(doc.filename, doc.mime_type)}</span>
-                <span className="knowledge-item-name">{doc.filename}</span>
-                <span className="knowledge-item-meta">{formatBytes(doc.file_size)} · {formatDate(doc.created_at)}</span>
-                <button
-                  className="btn btn-ghost knowledge-item-delete"
-                  title="Delete"
-                  onClick={() => deleteMutation.mutate({ docId: doc.id, filename: doc.filename })}
-                  disabled={deleteMutation.isPending}
-                >
-                  🗑️
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      </KnowledgeSection>
-
-      {/* Section 2: Wiki Pages */}
-      <KnowledgeSection title="📖 Wiki Pages">
-        <div className="knowledge-list">
-          {wikiPages.length === 0 ? (
-            <div className="knowledge-empty">No wiki pages yet.</div>
-          ) : (
-            wikiPages.map((page) => (
-              <div key={page.id} className="knowledge-item">
-                <span className="knowledge-item-icon">📖</span>
-                <span className="knowledge-item-name">{page.title || 'Untitled'}</span>
-                <span className="knowledge-item-meta">{formatDate(page.updated_at)}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </KnowledgeSection>
-
-      {/* Section 3: RAG Sources */}
-      <KnowledgeSection title="🔗 RAG Sources">
-        <div className="knowledge-list">
-          {ragItems.length === 0 ? (
-            <div className="knowledge-empty">
-              No knowledge sources yet. Add documents above or link external docs.
+      <div className="knowledge-list">
+        {ragItems.length === 0 ? (
+          <div className="knowledge-empty">
+            No knowledge sources yet. Add documents or wiki pages.
+          </div>
+        ) : (
+          ragItems.map((item, i) => (
+            <div key={i} className="knowledge-item">
+              <span className="knowledge-item-icon">{item.icon}</span>
+              <span className="knowledge-item-name">{item.name}</span>
+              <span className="knowledge-rag-status indexed">{item.status}</span>
             </div>
-          ) : (
-            ragItems.map((item, i) => (
-              <div key={i} className="knowledge-item">
-                <span className="knowledge-item-icon">{item.icon}</span>
-                <span className="knowledge-item-name">{item.name}</span>
-                <span className="knowledge-rag-status indexed">{item.status}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </KnowledgeSection>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+const KNOWLEDGE_TABS: { id: KnowledgeTab; label: string }[] = [
+  { id: 'documents', label: '📄 Documents' },
+  { id: 'wiki',      label: '📖 Wiki' },
+  { id: 'rag',       label: '🔗 RAG Sources' },
+];
+
+export function ProjectKnowledge() {
+  const projectId = useProjectStore(s => s.currentProjectId);
+  const [activeTab, setActiveTab] = useState<KnowledgeTab>('documents');
+
+  if (!projectId) {
+    return (
+      <div className="knowledge-view">
+        <div className="knowledge-empty">No project selected.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="knowledge-container">
+      {/* Sub-tab bar */}
+      <div className="knowledge-tabs">
+        {KNOWLEDGE_TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={cn('knowledge-tab-btn', activeTab === tab.id && 'active')}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {activeTab === 'documents' && <DocumentsTab projectId={projectId} />}
+      {activeTab === 'wiki'      && <WikiTab projectId={projectId} />}
+      {activeTab === 'rag'       && <RagTab projectId={projectId} />}
     </div>
   );
 }

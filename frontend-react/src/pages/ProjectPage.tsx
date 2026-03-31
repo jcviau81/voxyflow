@@ -20,12 +20,11 @@ import { KanbanBoard } from '../components/Kanban/KanbanBoard';
 import { FreeBoard } from '../components/Board/FreeBoard';
 import { ProjectKnowledge } from '../components/Projects/ProjectKnowledge';
 import { ProjectStats } from '../components/Projects/ProjectStats';
-import { ProjectDocuments } from '../components/Projects/ProjectDocuments';
 import { useViewStore } from '../stores/useViewStore';
 import { useProjectStore } from '../stores/useProjectStore';
 import { cn } from '../lib/utils';
 
-const PROJECT_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'knowledge', 'stats', 'docs']);
+const PROJECT_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'knowledge', 'stats']);
 
 export function ProjectPage() {
   const { id } = useParams<{ id: string }>();
@@ -96,10 +95,6 @@ export function ProjectPage() {
 
       {view === 'stats' && (
         <ProjectStats />
-      )}
-
-      {view === 'docs' && (
-        <ProjectDocuments />
       )}
     </div>
   );
