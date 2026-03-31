@@ -79,40 +79,47 @@ export function StandupSection({ projectId }: StandupSectionProps) {
   }
 
   return (
-    <div className="standup-section">
-      <h3 className="standup-section-title">📋 Daily Standup</h3>
+    <div className="bg-card border border-border rounded-xl p-5">
+      <h3 className="text-base font-bold text-foreground mb-4">📋 Daily Standup</h3>
 
-      <div className="standup-controls">
+      <div className="flex items-center gap-4 flex-wrap">
         <button
-          className={`standup-gen-btn${loading ? ' loading' : ''}`}
+          className="bg-[var(--color-accent)] text-white border-none rounded-lg px-4 py-2 text-sm font-semibold cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-55 disabled:cursor-not-allowed"
           disabled={loading}
           onClick={generateStandup}
         >
           {loading ? '⏳ Generating…' : '✨ Generate Standup'}
         </button>
 
-        <label className="standup-schedule-label">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
           <input
             type="checkbox"
             checked={scheduled}
             onChange={e => toggleSchedule(e.target.checked)}
+            className="accent-[var(--color-accent)] w-4 h-4 cursor-pointer"
           />
           <span>⏰ Schedule daily (09:00)</span>
         </label>
       </div>
 
       {summary && (
-        <div className="standup-card">
+        <div
+          className="mt-4 bg-muted/30 border border-border rounded-lg p-4 flex flex-col gap-3"
+          style={{ borderLeftWidth: '3px', borderLeftColor: 'var(--color-accent)' }}
+        >
           {generatedAt && (
-            <div className="standup-card-meta">
+            <div className="text-[0.8125rem] text-muted-foreground">
               Generated {new Date(generatedAt).toLocaleString()}
             </div>
           )}
           <div
-            className="standup-card-content"
+            className="text-sm text-foreground leading-relaxed [&_ul]:my-1 [&_ul]:pl-5 [&_ul]:mb-2 [&_li]:mb-[3px] [&_strong]:text-foreground [&_strong]:font-bold [&_h4]:text-sm [&_h4]:font-bold [&_h4]:mt-3 [&_h4]:mb-1"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(summary) }}
           />
-          <button className="standup-copy-btn" onClick={copyToClipboard}>
+          <button
+            className="self-start bg-transparent border border-border rounded-lg px-3.5 py-1.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            onClick={copyToClipboard}
+          >
             {copied ? '✅ Copied!' : '📋 Copy to Clipboard'}
           </button>
         </div>

@@ -22,14 +22,14 @@ export function ProjectStats() {
 
   if (!currentProjectId) {
     return (
-      <div className="stats-view">
-        <div className="stats-empty">No project selected.</div>
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        No project selected.
       </div>
     );
   }
 
   return (
-    <div className="stats-view">
+    <div className="p-6 h-full overflow-y-auto space-y-6">
       <StatsGrid
         cards={cards}
         activities={activities}

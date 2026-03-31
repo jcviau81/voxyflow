@@ -14,6 +14,26 @@ interface HealthSectionProps {
   projectId: string;
 }
 
+const SCORE_COLOR: Record<string, string> = {
+  green:  '#4ade80',
+  yellow: '#fbbf24',
+  red:    '#f87171',
+};
+
+const GRADE_COLOR: Record<string, string> = {
+  a: '#4ade80',
+  b: '#a3e635',
+  c: '#fbbf24',
+  d: '#fb923c',
+  f: '#f87171',
+};
+
+const ISSUE_COLOR: Record<string, string> = {
+  critical: '#f87171',
+  warning:  '#fbbf24',
+  info:     '#60a5fa',
+};
+
 export function HealthSection({ projectId }: HealthSectionProps) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<HealthData | null>(null);
@@ -43,19 +63,20 @@ export function HealthSection({ projectId }: HealthSectionProps) {
     }
   }
 
-  const scoreClass = data
-    ? data.score > 80 ? 'health-score--green'
-    : data.score > 60 ? 'health-score--yellow'
-    : 'health-score--red'
+  const scoreColor = data
+    ? data.score > 80 ? SCORE_COLOR.green
+    : data.score > 60 ? SCORE_COLOR.yellow
+    : SCORE_COLOR.red
     : '';
 
   return (
-    <div className="health-check-section">
-      <h3 className="health-check-section-title">🏥 Health Check</h3>
+    <div className="pt-2">
+      <h3 className="text-base font-bold text-foreground mb-3.5">🏥 Health Check</h3>
 
-      <div className="health-check-controls">
+      <div className="flex items-center gap-3 mb-3.5">
         <button
-          className={`health-run-btn${loading ? ' loading' : ''}`}
+          className="border-none rounded-lg px-5 py-2 text-sm font-semibold text-white cursor-pointer transition-opacity hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+          style={{ background: 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)' }}
           disabled={loading}
           onClick={runHealthCheck}
         >
@@ -64,40 +85,59 @@ export function HealthSection({ projectId }: HealthSectionProps) {
       </div>
 
       {data && (
-        <div className="health-card">
-          <div className="health-card-meta">
+        <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4">
+          <div className="text-[0.8125rem] text-muted-foreground">
             Analysed {new Date(data.generated_at).toLocaleString()}
           </div>
 
-          <div className="health-score-row">
-            <div className={`health-score ${scoreClass}`}>{data.score}</div>
-            <div className={`health-grade health-grade--${data.grade.toLowerCase()}`}>
+          <div className="flex items-center gap-4">
+            <div
+              className="text-[3.5rem] font-extrabold leading-none tracking-[-2px]"
+              style={{ color: scoreColor }}
+            >
+              {data.score}
+            </div>
+            <div
+              className="text-[1.8rem] font-extrabold px-4 py-1 rounded-lg leading-none border-2"
+              style={{
+                color: GRADE_COLOR[data.grade.toLowerCase()] ?? '#9ca3af',
+                borderColor: GRADE_COLOR[data.grade.toLowerCase()] ?? '#9ca3af',
+              }}
+            >
               {data.grade}
             </div>
           </div>
 
-          <p className="health-summary">{data.summary}</p>
+          <p className="text-sm text-muted-foreground leading-relaxed italic">{data.summary}</p>
 
           {data.strengths.length > 0 && (
-            <div className="health-strengths">
-              <div className="health-list-title">Strengths</div>
-              <ul className="health-list">
+            <div>
+              <div className="text-[0.8125rem] font-bold uppercase tracking-[0.06em] text-muted-foreground mb-2">
+                Strengths
+              </div>
+              <ul className="flex flex-col gap-1.5 list-none p-0 m-0">
                 {data.strengths.map((s, i) => (
-                  <li key={i} className="health-strength-item">✅ {s}</li>
+                  <li key={i} className="text-sm" style={{ color: '#4ade80' }}>✅ {s}</li>
                 ))}
               </ul>
             </div>
           )}
 
           {data.issues.length > 0 && (
-            <div className="health-issues">
-              <div className="health-list-title">Issues</div>
-              <ul className="health-list">
+            <div>
+              <div className="text-[0.8125rem] font-bold uppercase tracking-[0.06em] text-muted-foreground mb-2">
+                Issues
+              </div>
+              <ul className="flex flex-col gap-1.5 list-none p-0 m-0">
                 {data.issues.map((issue, i) => {
                   const icon = issue.severity === 'critical' ? '🔴'
                     : issue.severity === 'warning' ? '🟡' : '🔵';
                   return (
-                    <li key={i} className={`health-issue-item health-issue-item--${issue.severity}`}>
+                    <li
+                      key={i}
+                      className="text-sm"
+                      style={{ color: ISSUE_COLOR[issue.severity] ?? '#9ca3af' }}
+                    >
                       {icon} {issue.message}
                     </li>
                   );
@@ -107,18 +147,20 @@ export function HealthSection({ projectId }: HealthSectionProps) {
           )}
 
           {data.recommendations.length > 0 && (
-            <div className="health-recommendations">
-              <div className="health-list-title">Recommendations</div>
-              <ul className="health-list">
+            <div>
+              <div className="text-[0.8125rem] font-bold uppercase tracking-[0.06em] text-muted-foreground mb-2">
+                Recommendations
+              </div>
+              <ul className="flex flex-col gap-1.5 list-none p-0 m-0">
                 {data.recommendations.map((rec, i) => (
-                  <li key={i} className="health-rec-item">💡 {rec}</li>
+                  <li key={i} className="text-sm text-muted-foreground">💡 {rec}</li>
                 ))}
               </ul>
             </div>
           )}
 
           {data.issues.length === 0 && (
-            <div className="health-all-clear">
+            <div className="text-sm font-semibold" style={{ color: '#4ade80' }}>
               ✅ No issues detected — project looks healthy!
             </div>
           )}

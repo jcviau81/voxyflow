@@ -64,39 +64,50 @@ export function BriefSection({ projectId, projectName }: BriefSectionProps) {
   }
 
   return (
-    <div className="brief-section">
-      <h3 className="brief-section-title">📄 Project Brief</h3>
+    <div className="pt-6 border-t border-border">
+      <h3 className="text-base font-bold text-foreground mb-3.5">📄 Project Brief</h3>
 
-      <div className="brief-controls">
+      <div className="flex items-center gap-3 flex-wrap mb-4">
         <button
-          className={`brief-gen-btn${loading ? ' loading' : ''}`}
+          className="inline-flex items-center gap-2 border-none rounded-lg px-4 py-2 text-sm font-semibold text-white cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-65 disabled:cursor-not-allowed"
+          style={{
+            background: loading
+              ? 'linear-gradient(135deg, #5a52d5 0%, #8b44d4 100%)'
+              : 'linear-gradient(135deg, #6c63ff 0%, #a855f7 100%)',
+          }}
           disabled={loading}
           onClick={generateBrief}
         >
           {loading ? (
-            <>⏳ Generating… <span className="brief-loading-note">(Using Deep model — may take 10-15s…)</span></>
+            <>⏳ Generating… <span className="text-xs font-normal opacity-85">(Using Deep model — may take 10-15s…)</span></>
           ) : (
-            <>✨ Generate Brief <span className="brief-model-note">Opus</span></>
+            <>✨ Generate Brief <span className="bg-white/25 rounded px-1.5 py-0.5 text-[0.8125rem] font-bold tracking-[0.04em] uppercase">Opus</span></>
           )}
         </button>
       </div>
 
       {brief && (
-        <div className="brief-card">
+        <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-3.5">
           {generatedAt && (
-            <div className="brief-card-meta">
+            <div className="text-[0.8125rem] text-muted-foreground">
               Generated {new Date(generatedAt).toLocaleString()} · Deep model (Opus)
             </div>
           )}
           <div
-            className="brief-card-content"
+            className="text-sm text-foreground leading-[1.7] [&_ul]:my-1 [&_ul]:pl-5.5 [&_ul]:mb-2.5 [&_li]:mb-1 [&_strong]:text-foreground [&_strong]:font-bold [&_h4]:text-[0.95rem] [&_h4]:font-bold [&_h4]:mt-4.5 [&_h4]:mb-1.5 [&_h4]:border-b [&_h4]:border-border [&_h4]:pb-1"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(brief) }}
           />
-          <div className="brief-actions">
-            <button className="brief-action-btn" onClick={copyToClipboard}>
+          <div className="flex gap-2.5 flex-wrap">
+            <button
+              className="bg-transparent border border-border rounded-lg px-3.5 py-1.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              onClick={copyToClipboard}
+            >
               {copied ? '✅ Copied!' : '📋 Copy to Clipboard'}
             </button>
-            <button className="brief-action-btn" onClick={downloadMarkdown}>
+            <button
+              className="bg-transparent border border-border rounded-lg px-3.5 py-1.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              onClick={downloadMarkdown}
+            >
               ⬇️ Download .md
             </button>
           </div>

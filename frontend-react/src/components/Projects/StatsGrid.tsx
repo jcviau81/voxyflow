@@ -25,6 +25,22 @@ const AGENT_COLORS: Record<string, string> = {
   unassigned: '#5c5c6b',
 };
 
+function StatCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`bg-card border border-border rounded-xl p-5 flex flex-col gap-3 transition-colors hover:border-white/[0.12] ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+function StatCardTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[0.8125rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
 interface BarRowProps {
   label: string;
   count: number;
@@ -34,12 +50,15 @@ interface BarRowProps {
 
 function BarRow({ label, count, pct, color }: BarRowProps) {
   return (
-    <div className="bar">
-      <div className="bar-label">{label}</div>
-      <div className="bar-track">
-        <div className="bar-fill" style={{ width: `${pct}%`, background: color }} />
+    <div className="grid grid-cols-[130px_1fr_28px] items-center gap-2">
+      <div className="text-xs text-muted-foreground truncate">{label}</div>
+      <div className="h-2 bg-white/[0.06] rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full min-w-[2px] transition-all duration-500"
+          style={{ width: `${pct}%`, background: color }}
+        />
       </div>
-      <div className="bar-count">{count}</div>
+      <div className="text-[0.8125rem] font-semibold text-muted-foreground text-right">{count}</div>
     </div>
   );
 }
@@ -55,9 +74,9 @@ function ProgressRing({ cards }: ProgressRingProps) {
   const offset = circumference - (pct / 100) * circumference;
 
   return (
-    <div className="stat-card progress-ring-card">
-      <div className="stat-card-title">Progress</div>
-      <div className="progress-ring">
+    <StatCard className="items-center">
+      <StatCardTitle>Progress</StatCardTitle>
+      <div className="flex items-center justify-center">
         <svg viewBox="0 0 120 120" width="120" height="120">
           <circle cx="60" cy="60" r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="10" />
           <circle
@@ -75,50 +94,44 @@ function ProgressRing({ cards }: ProgressRingProps) {
           </text>
         </svg>
       </div>
-      <div className="stat-card-sub">{done} of {total} cards done</div>
-    </div>
+      <div className="text-xs text-muted-foreground text-center">{done} of {total} cards done</div>
+    </StatCard>
   );
 }
 
-interface StatusChartProps { cards: Card[] }
-
-function StatusChart({ cards }: StatusChartProps) {
+function StatusChart({ cards }: { cards: Card[] }) {
   const total = cards.length || 1;
   return (
-    <div className="stat-card">
-      <div className="stat-card-title">Cards by Status</div>
-      <div className="bar-chart">
+    <StatCard>
+      <StatCardTitle>Cards by Status</StatCardTitle>
+      <div className="flex flex-col gap-2.5">
         {STATUS_CONFIG.map(cfg => {
           const count = cards.filter(c => c.status === cfg.key).length;
           const pct = Math.round((count / total) * 100);
           return <BarRow key={cfg.key} label={cfg.label} count={count} pct={pct} color={cfg.color} />;
         })}
       </div>
-    </div>
+    </StatCard>
   );
 }
 
-interface PriorityChartProps { cards: Card[] }
-
-function PriorityChart({ cards }: PriorityChartProps) {
+function PriorityChart({ cards }: { cards: Card[] }) {
   const total = cards.length || 1;
   return (
-    <div className="stat-card">
-      <div className="stat-card-title">Cards by Priority</div>
-      <div className="bar-chart">
+    <StatCard>
+      <StatCardTitle>Cards by Priority</StatCardTitle>
+      <div className="flex flex-col gap-2.5">
         {PRIORITY_CONFIG.map(cfg => {
           const count = cards.filter(c => c.priority === cfg.value).length;
           const pct = Math.round((count / total) * 100);
           return <BarRow key={cfg.value} label={cfg.label} count={count} pct={pct} color={cfg.color} />;
         })}
       </div>
-    </div>
+    </StatCard>
   );
 }
 
-interface AgentChartProps { cards: Card[] }
-
-function AgentChart({ cards }: AgentChartProps) {
+function AgentChart({ cards }: { cards: Card[] }) {
   const agentCounts: Record<string, number> = {};
   for (const c of cards) {
     const agent = c.agentType || c.assignedAgent || 'unassigned';
@@ -128,11 +141,11 @@ function AgentChart({ cards }: AgentChartProps) {
   const total = cards.length || 1;
 
   return (
-    <div className="stat-card">
-      <div className="stat-card-title">Cards by Agent</div>
-      <div className="bar-chart">
+    <StatCard>
+      <StatCardTitle>Cards by Agent</StatCardTitle>
+      <div className="flex flex-col gap-2.5">
         {sorted.length === 0 ? (
-          <div className="stat-empty-row">No agents assigned yet.</div>
+          <div className="text-xs text-muted-foreground py-1">No agents assigned yet.</div>
         ) : sorted.map(([agent, count]) => {
           const pct = Math.round((count / total) * 100);
           const color = AGENT_COLORS[agent] || '#9e9ea8';
@@ -142,13 +155,11 @@ function AgentChart({ cards }: AgentChartProps) {
           return <BarRow key={agent} label={label} count={count} pct={pct} color={color} />;
         })}
       </div>
-    </div>
+    </StatCard>
   );
 }
 
-interface VelocityCardProps { activities: ActivityEntry[] }
-
-function VelocityCard({ activities }: VelocityCardProps) {
+function VelocityCard({ activities }: { activities: ActivityEntry[] }) {
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const doneRecently = activities.filter(
     a => a.type === 'card_moved' &&
@@ -169,55 +180,59 @@ function VelocityCard({ activities }: VelocityCardProps) {
   const maxCount = Math.max(...days.map(d => d.count), 1);
 
   return (
-    <div className="stat-card">
-      <div className="stat-card-title">Velocity (last 7 days)</div>
-      <div className="stat-big-number">{doneRecently.length}</div>
-      <div className="stat-card-sub">
+    <StatCard>
+      <StatCardTitle>Velocity (last 7 days)</StatCardTitle>
+      <div className="text-5xl font-extrabold text-foreground leading-none text-center">
+        {doneRecently.length}
+      </div>
+      <div className="text-xs text-muted-foreground text-center">
         {doneRecently.length === 1 ? 'card completed' : 'cards completed'}
       </div>
-      <div className="sparkline">
+      <div className="flex items-end gap-1.5 h-14 pt-2">
         {days.map((day, i) => (
-          <div key={i} className="sparkline-bar-wrap">
+          <div key={i} className="flex flex-col items-center flex-1 gap-1">
             <div
-              className="sparkline-bar"
-              style={{ height: `${Math.round((day.count / maxCount) * 40)}px` }}
+              className="w-full rounded-t-[3px] min-h-[2px] transition-all duration-500"
+              style={{
+                height: `${Math.round((day.count / maxCount) * 40)}px`,
+                background: 'var(--color-accent)',
+              }}
               title={`${day.label}: ${day.count}`}
             />
-            <div className="sparkline-label">{day.label.slice(0, 1)}</div>
+            <div className="text-[0.8125rem] text-muted-foreground uppercase">
+              {day.label.slice(0, 1)}
+            </div>
           </div>
         ))}
       </div>
-    </div>
+    </StatCard>
   );
 }
 
-interface FocusTimeCardProps {
-  focusAnalytics: {
-    total_sessions: number;
-    total_minutes: number;
-  } | null;
-}
-
-function FocusTimeCard({ focusAnalytics }: FocusTimeCardProps) {
+function FocusTimeCard({ focusAnalytics }: {
+  focusAnalytics: { total_sessions: number; total_minutes: number } | null;
+}) {
   return (
-    <div className="stat-card">
-      <div className="stat-card-title">⏱ Focus Time</div>
+    <StatCard>
+      <StatCardTitle>⏱ Focus Time</StatCardTitle>
       {focusAnalytics ? (
         <>
-          <div className="stat-big-number">
+          <div className="text-5xl font-extrabold text-foreground leading-none text-center">
             {focusAnalytics.total_minutes >= 60
               ? `${Math.floor(focusAnalytics.total_minutes / 60)}h ${focusAnalytics.total_minutes % 60}m`
               : `${focusAnalytics.total_minutes}m`}
           </div>
-          <div className="stat-card-sub">{focusAnalytics.total_sessions} sessions total</div>
+          <div className="text-xs text-muted-foreground text-center">
+            {focusAnalytics.total_sessions} sessions total
+          </div>
         </>
       ) : (
         <>
-          <div className="stat-big-number stat-muted">—</div>
-          <div className="stat-card-sub">No focus sessions yet</div>
+          <div className="text-5xl font-extrabold text-muted-foreground leading-none text-center">—</div>
+          <div className="text-xs text-muted-foreground text-center">No focus sessions yet</div>
         </>
       )}
-    </div>
+    </StatCard>
   );
 }
 
@@ -229,7 +244,7 @@ interface StatsGridProps {
 
 export function StatsGrid({ cards, activities, focusAnalytics }: StatsGridProps) {
   return (
-    <div className="stats-grid">
+    <div className="grid grid-cols-2 gap-4 max-[700px]:grid-cols-1">
       <ProgressRing cards={cards} />
       <StatusChart cards={cards} />
       <PriorityChart cards={cards} />
