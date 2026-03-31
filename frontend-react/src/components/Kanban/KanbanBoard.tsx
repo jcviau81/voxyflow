@@ -476,7 +476,6 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const [priorityFilter, setPriorityFilter] = useState<number | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Reset filters on project change
   useEffect(() => {
@@ -556,16 +555,6 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     projectCards.forEach((c) => c.tags.forEach((t) => { if (t) tags.add(t); }));
     return Array.from(tags).sort();
   }, [projectCards]);
-
-  // Active filter count (for mobile badge)
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (priorityFilter !== null) count++;
-    if (agentFilter !== null) count++;
-    if (tagFilter !== null) count++;
-    if (searchInput) count++;
-    return count;
-  }, [priorityFilter, agentFilter, tagFilter, searchInput]);
 
   // Filter match count
   const filterMatchInfo = useMemo(() => {
@@ -820,28 +809,121 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   }
 
   return (
-    <div className="flex flex-col gap-3 p-4" data-testid="kanban-board">
-      {/* Header row: action buttons */}
-      <div className="flex items-center justify-end gap-2 flex-wrap">
+    <div className="flex flex-col h-full overflow-hidden" data-testid="kanban-board">
+      {/* Compact toolbar: search + filters + actions — single row */}
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-background shrink-0 overflow-x-auto">
+        {/* Search */}
+        <div className="relative shrink-0 w-40">
+          <Input
+            type="text"
+            placeholder="Search..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="h-7 text-xs pr-6"
+          />
+          {searchInput && (
+            <button
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+              onClick={() => setSearchInput('')}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div className="w-px h-5 bg-border shrink-0" />
+
+        {/* Filter chips — inline, single row */}
+        {PRIORITY_FILTERS.slice(1).map((pf) => (
+          <button
+            key={String(pf.value)}
+            className={cn(
+              'shrink-0 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+              priorityFilter === pf.value
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'text-muted-foreground border-transparent hover:border-border',
+            )}
+            onClick={() => setPriorityFilter(priorityFilter === pf.value ? null : pf.value)}
+          >
+            {pf.label}
+          </button>
+        ))}
+
+        <div className="w-px h-5 bg-border shrink-0" />
+
+        {AGENT_FILTERS.slice(1).map((af) => (
+          <button
+            key={String(af.value)}
+            className={cn(
+              'shrink-0 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+              agentFilter === af.value
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'text-muted-foreground border-transparent hover:border-border',
+            )}
+            onClick={() => setAgentFilter(agentFilter === af.value ? null : af.value)}
+          >
+            {af.label}
+          </button>
+        ))}
+
+        {allTags.length > 0 && (
+          <>
+            <div className="w-px h-5 bg-border shrink-0" />
+            {allTags.slice(0, 5).map((tag) => (
+              <button
+                key={tag}
+                className={cn(
+                  'shrink-0 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+                  tagFilter === tag
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'text-muted-foreground border-transparent hover:border-border',
+                )}
+                onClick={() => handleTagClick(tag)}
+              >
+                {tag}
+              </button>
+            ))}
+          </>
+        )}
+
+        {filterMatchInfo && (
+          <span className="shrink-0 text-[10px] text-muted-foreground ml-1">
+            {filterMatchInfo.visible}/{filterMatchInfo.total}
+          </span>
+        )}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Actions — compact */}
+        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" onClick={handleNewCard}>
+          + Card
+        </Button>
         <Button
           variant={executionActive ? 'destructive' : 'outline'}
           size="sm"
+          className="h-6 text-[10px] px-2 shrink-0"
           onClick={handleExecuteBoard}
         >
-          {executionActive ? '⏹ Stop' : '▶ Execute Board'}
+          {executionActive ? '⏹' : '▶'}
         </Button>
         <Button
           variant={selectMode ? 'default' : 'outline'}
           size="sm"
+          className="h-6 text-[10px] px-2 shrink-0"
           onClick={toggleSelectMode}
         >
-          ☑ Select{selectMode ? ' (ON)' : ''}
+          ☑
         </Button>
-        <Button variant="outline" size="sm" onClick={handleExport}>
-          📤 Export
+        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" onClick={() => setDepGraphOpen(true)}>
+          🔗
         </Button>
-        <Button variant="outline" size="sm" onClick={() => importInputRef.current?.click()}>
-          📥 Import
+        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" onClick={handleExport}>
+          📤
+        </Button>
+        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" onClick={() => importInputRef.current?.click()}>
+          📥
         </Button>
         <input
           ref={importInputRef}
@@ -854,9 +936,6 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
             e.target.value = '';
           }}
         />
-        <Button variant="outline" size="sm" onClick={handleNewCard}>
-          + New Card
-        </Button>
       </div>
 
       {/* Execution progress */}
@@ -871,116 +950,6 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         />
       )}
 
-      {/* Filter bar */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          {/* Search input */}
-          <div className="relative flex-1 max-w-sm">
-            <Input
-              type="text"
-              placeholder="Search cards..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="pr-8"
-            />
-            {searchInput && (
-              <button
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm"
-                onClick={() => setSearchInput('')}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
-          {/* Mobile filter toggle */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="md:hidden"
-            onClick={() => setMobileFiltersOpen(!mobileFiltersOpen)}
-          >
-            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-          </Button>
-
-          {/* Match count */}
-          {filterMatchInfo && (
-            <span className="text-xs text-muted-foreground whitespace-nowrap">
-              Showing {filterMatchInfo.visible} of {filterMatchInfo.total} cards
-            </span>
-          )}
-        </div>
-
-        {/* Filter chips — always visible on desktop, collapsible on mobile */}
-        <div className={cn('flex flex-col gap-2', !mobileFiltersOpen && 'hidden md:flex')}>
-          {/* Priority chips */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs text-muted-foreground font-medium">Priority:</span>
-            {PRIORITY_FILTERS.map((pf) => (
-              <button
-                key={String(pf.value)}
-                className={cn(
-                  'px-2 py-0.5 rounded-full text-xs border transition-colors',
-                  priorityFilter === pf.value
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-muted/50 text-muted-foreground border-border/40 hover:border-border',
-                )}
-                onClick={() => setPriorityFilter(pf.value)}
-              >
-                {pf.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Agent chips */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs text-muted-foreground font-medium">Agent:</span>
-            {AGENT_FILTERS.map((af) => (
-              <button
-                key={String(af.value)}
-                className={cn(
-                  'px-2 py-0.5 rounded-full text-xs border transition-colors',
-                  agentFilter === af.value
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-muted/50 text-muted-foreground border-border/40 hover:border-border',
-                )}
-                onClick={() => setAgentFilter(af.value)}
-              >
-                {af.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Tag chips */}
-          {allTags.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs text-muted-foreground font-medium">🏷️ Tags:</span>
-              {allTags.map((tag) => (
-                <button
-                  key={tag}
-                  className={cn(
-                    'px-2 py-0.5 rounded-full text-xs border transition-colors',
-                    tagFilter === tag
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-muted/50 text-muted-foreground border-border/40 hover:border-border',
-                  )}
-                  onClick={() => handleTagClick(tag)}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Dependency graph button */}
-          <div>
-            <Button variant="outline" size="sm" onClick={() => setDepGraphOpen(true)}>
-              🔗 Dependencies
-            </Button>
-          </div>
-        </div>
-      </div>
-
       {/* Board columns with DnD */}
       <DndContext
         sensors={sensors}
@@ -989,7 +958,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1 overflow-auto p-3">
           {COLUMN_STATUSES.map((status) => (
             <KanbanColumn
               key={status}
