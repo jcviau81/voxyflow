@@ -10,11 +10,16 @@
  */
 
 import { useState } from 'react';
-import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Sliders } from 'lucide-react';
+import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Clock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { AppearancePanel } from './AppearancePanel';
 import { ModelPanel } from './ModelPanel';
 import { VoicePanel } from './VoicePanel';
+import { GitHubPanel } from './GitHubPanel';
+import { WorkspacePanel } from './WorkspacePanel';
+import { DataPanel } from './DataPanel';
+import { AboutPanel } from './AboutPanel';
+import { JobsPanel } from './JobsPanel';
 
 // ── Panel registry ─────────────────────────────────────────────────────────
 
@@ -25,6 +30,7 @@ type PanelId =
   | 'github'
   | 'workspace'
   | 'data'
+  | 'jobs'
   | 'about';
 
 interface NavItem {
@@ -40,39 +46,22 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'github',     label: 'GitHub',     icon: GitBranch },
   { id: 'workspace',  label: 'Workspace',  icon: FolderOpen },
   { id: 'data',       label: 'Data',       icon: Database },
+  { id: 'jobs',       label: 'Jobs',       icon: Clock },
   { id: 'about',      label: 'About',      icon: Info },
 ];
-
-// ── Placeholder panel ──────────────────────────────────────────────────────
-
-function ComingSoonPanel({ label }: { label: string }) {
-  return (
-    <div className="p-6 flex flex-col items-start gap-2">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Sliders size={16} />
-        <span className="text-sm font-medium">{label}</span>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        This panel will be implemented in a future migration step.
-      </p>
-    </div>
-  );
-}
 
 // ── Panel renderer ─────────────────────────────────────────────────────────
 
 function renderPanel(id: PanelId) {
   switch (id) {
-    case 'appearance':
-      return <AppearancePanel />;
-    case 'models':
-      return <ModelPanel />;
-    case 'voice':
-      return <VoicePanel />;
-    default: {
-      const item = NAV_ITEMS.find((n) => n.id === id);
-      return <ComingSoonPanel label={item?.label ?? id} />;
-    }
+    case 'appearance': return <AppearancePanel />;
+    case 'models':     return <ModelPanel />;
+    case 'voice':      return <VoicePanel />;
+    case 'github':     return <GitHubPanel />;
+    case 'workspace':  return <WorkspacePanel />;
+    case 'data':       return <DataPanel />;
+    case 'jobs':       return <JobsPanel />;
+    case 'about':      return <AboutPanel />;
   }
 }
 
