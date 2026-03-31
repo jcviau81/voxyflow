@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Timer, Loader2, RefreshCw, Trophy } from 'lucide-react';
 
 interface FocusAnalytics {
   total_sessions: number;
@@ -47,15 +48,18 @@ export function FocusSection({ projectId, onAnalyticsLoaded }: FocusSectionProps
       className="border border-border rounded-xl px-6 py-5"
       style={{ background: 'var(--color-surface-elevated, #1e1e2e)' }}
     >
-      <h3 className="text-[1.05rem] font-bold text-foreground mb-3.5">⏱ Focus Analytics</h3>
+      <h3 className="flex items-center gap-2 text-[1.05rem] font-bold text-foreground mb-3.5"><Timer size={16} /> Focus Analytics</h3>
 
       <div className="mb-4">
         <button
-          className="bg-white/[0.06] border border-white/[0.12] rounded-md text-muted-foreground text-sm px-3 py-1 cursor-pointer transition-colors hover:bg-white/[0.1] hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 bg-white/[0.06] border border-white/[0.12] rounded-md text-muted-foreground text-sm px-3 py-1 cursor-pointer transition-colors hover:bg-white/[0.1] hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={loading}
           onClick={loadAnalytics}
         >
-          {loading ? '⏳ Loading…' : '🔄 Refresh'}
+          {loading
+            ? <><Loader2 size={13} className="animate-spin" /> Loading…</>
+            : <><RefreshCw size={13} /> Refresh</>
+          }
         </button>
       </div>
 
@@ -99,7 +103,7 @@ export function FocusSection({ projectId, onAnalyticsLoaded }: FocusSectionProps
                 border: '1px solid rgba(167, 139, 250, 0.2)',
               }}
             >
-              <span className="text-base shrink-0">🏆</span>
+              <Trophy size={15} className="shrink-0 text-yellow-400" />
               <span className="leading-[1.4]">
                 Most focused: &quot;{data.by_card[0].title}&quot; — {data.by_card[0].minutes}m across{' '}
                 {data.by_card[0].sessions} session{data.by_card[0].sessions !== 1 ? 's' : ''}

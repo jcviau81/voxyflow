@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Timer, X } from 'lucide-react';
 import { useTimeEntries, useLogTime, useDeleteTimeEntry } from '../../../hooks/api/useCards';
 
 function formatMinutes(minutes: number): string {
@@ -38,7 +39,7 @@ export function TimeTracking({ cardId }: { cardId: string }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-muted-foreground">⏱ Time Tracking</label>
+        <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground"><Timer size={12} /> Time Tracking</label>
         <button
           type="button"
           onClick={() => setShowForm((v) => !v)}
@@ -49,7 +50,7 @@ export function TimeTracking({ cardId }: { cardId: string }) {
       </div>
 
       <p className="text-[11px] text-muted-foreground/60">
-        {total > 0 ? `⏱ ${formatMinutes(total)} total` : '⏱ No time logged yet'}
+        {total > 0 ? `${formatMinutes(total)} total` : 'No time logged yet'}
       </p>
 
       {showForm && (
@@ -110,7 +111,7 @@ export function TimeTracking({ cardId }: { cardId: string }) {
                 className="ml-auto text-muted-foreground/40 hover:text-muted-foreground"
                 title="Delete entry"
               >
-                ×
+                <X size={10} />
               </button>
             </div>
           ))}

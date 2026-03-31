@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { ClipboardList, Sparkles, Loader2, Clock, Clipboard, Check } from 'lucide-react';
 
 function renderMarkdown(text: string): string {
   return text
@@ -80,15 +81,18 @@ export function StandupSection({ projectId }: StandupSectionProps) {
 
   return (
     <div className="bg-card border border-border rounded-xl p-5">
-      <h3 className="text-base font-bold text-foreground mb-4">📋 Daily Standup</h3>
+      <h3 className="flex items-center gap-2 text-base font-bold text-foreground mb-4"><ClipboardList size={16} /> Daily Standup</h3>
 
       <div className="flex items-center gap-4 flex-wrap">
         <button
-          className="bg-[var(--color-accent)] text-white border-none rounded-lg px-4 py-2 text-sm font-semibold cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-55 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 bg-[var(--color-accent)] text-white border-none rounded-lg px-4 py-2 text-sm font-semibold cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-55 disabled:cursor-not-allowed"
           disabled={loading}
           onClick={generateStandup}
         >
-          {loading ? '⏳ Generating…' : '✨ Generate Standup'}
+          {loading
+            ? <><Loader2 size={14} className="animate-spin" /> Generating…</>
+            : <><Sparkles size={14} /> Generate Standup</>
+          }
         </button>
 
         <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
@@ -98,7 +102,7 @@ export function StandupSection({ projectId }: StandupSectionProps) {
             onChange={e => toggleSchedule(e.target.checked)}
             className="accent-[var(--color-accent)] w-4 h-4 cursor-pointer"
           />
-          <span>⏰ Schedule daily (09:00)</span>
+          <span className="flex items-center gap-1"><Clock size={13} /> Schedule daily (09:00)</span>
         </label>
       </div>
 
@@ -117,10 +121,13 @@ export function StandupSection({ projectId }: StandupSectionProps) {
             dangerouslySetInnerHTML={{ __html: renderMarkdown(summary) }}
           />
           <button
-            className="self-start bg-transparent border border-border rounded-lg px-3.5 py-1.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            className="self-start flex items-center gap-1.5 bg-transparent border border-border rounded-lg px-3.5 py-1.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
             onClick={copyToClipboard}
           >
-            {copied ? '✅ Copied!' : '📋 Copy to Clipboard'}
+            {copied
+              ? <><Check size={12} /> Copied!</>
+              : <><Clipboard size={12} /> Copy to Clipboard</>
+            }
           </button>
         </div>
       )}

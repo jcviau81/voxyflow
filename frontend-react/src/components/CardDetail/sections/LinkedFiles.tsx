@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link, X } from 'lucide-react';
 import { useCardStore } from '../../../stores/useCardStore';
 
 interface WorkspaceFile {
@@ -70,13 +71,13 @@ export function LinkedFiles({ cardId, files }: { cardId: string; files: string[]
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-muted-foreground">📁 Linked Files</label>
+        <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground"><Link size={12} /> Linked Files</label>
         <button
           type="button"
           onClick={loadWorkspaceFiles}
           className="text-xs text-muted-foreground/60 hover:text-muted-foreground"
         >
-          {loading ? '…' : showPicker ? '× Close' : '+ Link file'}
+          {loading ? '…' : showPicker ? <><X size={10} /> Close</> : '+ Link file'}
         </button>
       </div>
 
@@ -95,7 +96,7 @@ export function LinkedFiles({ cardId, files }: { cardId: string; files: string[]
                 className="text-muted-foreground/40 hover:text-muted-foreground"
                 title="Unlink file"
               >
-                ×
+                <X size={10} />
               </button>
             </div>
           ))}

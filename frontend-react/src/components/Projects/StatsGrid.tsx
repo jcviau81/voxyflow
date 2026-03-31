@@ -1,3 +1,4 @@
+import { Timer } from 'lucide-react';
 import type { Card, ActivityEntry } from '../../types';
 
 const STATUS_CONFIG = [
@@ -151,7 +152,7 @@ function AgentChart({ cards }: { cards: Card[] }) {
           const color = AGENT_COLORS[agent] || '#9e9ea8';
           const label = agent === 'unassigned'
             ? '— Unassigned'
-            : `🤖 ${agent.charAt(0).toUpperCase() + agent.slice(1)}`;
+            : agent.charAt(0).toUpperCase() + agent.slice(1);
           return <BarRow key={agent} label={label} count={count} pct={pct} color={color} />;
         })}
       </div>
@@ -214,7 +215,7 @@ function FocusTimeCard({ focusAnalytics }: {
 }) {
   return (
     <StatCard>
-      <StatCardTitle>⏱ Focus Time</StatCardTitle>
+      <StatCardTitle><span className="inline-flex items-center gap-1"><Timer size={12} /> Focus Time</span></StatCardTitle>
       {focusAnalytics ? (
         <>
           <div className="text-5xl font-extrabold text-foreground leading-none text-center">

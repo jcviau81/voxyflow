@@ -4,6 +4,7 @@
  */
 
 import { useState, useMemo } from 'react';
+import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CardRelation, CardRelationType } from '../../types';
 import { useRelations, useAddRelation, useDeleteRelation } from '../../hooks/api/useCards';
@@ -139,7 +140,7 @@ export function RelationsSection({ cardId, projectId }: Props) {
               className="ml-auto text-muted-foreground/60 hover:text-red-400"
               title="Remove relation"
             >
-              ×
+              <X size={10} />
             </button>
           </div>
         ))}

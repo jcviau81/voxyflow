@@ -1,20 +1,23 @@
 import { useEffect } from 'react';
+import { Bell, X, Lightbulb, ExternalLink, CheckCircle2, Trash2, AlertTriangle, FileText, Target, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import type { NotificationEntry, NotificationType } from '../../types';
 
-const TYPE_ICONS: Record<string, string> = {
-  card_moved:       '📋',
-  card_created:     '✅',
-  card_deleted:     '🗑️',
-  card_enriched:    '✨',
-  opportunity:      '🔔',
-  service_down:     '⚠️',
-  document_indexed: '📄',
-  focus_completed:  '🎯',
-  system:           '💡',
-};
+function NotifIcon({ type }: { type: string }) {
+  switch (type) {
+    case 'card_moved':       return <ExternalLink size={13} />;
+    case 'card_created':     return <CheckCircle2 size={13} className="text-green-500" />;
+    case 'card_deleted':     return <Trash2 size={13} className="text-red-400" />;
+    case 'card_enriched':    return <Sparkles size={13} className="text-yellow-400" />;
+    case 'opportunity':      return <Bell size={13} />;
+    case 'service_down':     return <AlertTriangle size={13} className="text-orange-400" />;
+    case 'document_indexed': return <FileText size={13} />;
+    case 'focus_completed':  return <Target size={13} className="text-blue-400" />;
+    default:                 return <Lightbulb size={13} />;
+  }
+}
 
 function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
@@ -43,7 +46,7 @@ function NotificationItem({ notif, onOpenOpportunities, selectCard }: Notificati
         !notif.read && 'bg-accent/5 border-l-[3px] border-l-accent',
       )}
     >
-      <span className="shrink-0 text-sm">{TYPE_ICONS[notif.type] || '💡'}</span>
+      <span className="shrink-0 mt-0.5 text-muted-foreground"><NotifIcon type={notif.type} /></span>
       <div className="flex-1 min-w-0">
         <span className="text-xs text-foreground leading-relaxed">{notif.message}</span>
         <span className="text-[10px] text-muted-foreground mt-0.5 block">
@@ -54,10 +57,10 @@ function NotificationItem({ notif, onOpenOpportunities, selectCard }: Notificati
         {type === 'opportunity' && (
           <div className="flex gap-1.5 mt-1.5">
             <button
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               onClick={(e) => { e.stopPropagation(); onOpenOpportunities(); }}
             >
-              💡 View in Opportunities
+              <Lightbulb size={11} /> View in Opportunities
             </button>
           </div>
         )}
@@ -65,10 +68,10 @@ function NotificationItem({ notif, onOpenOpportunities, selectCard }: Notificati
         {(type === 'card_created' || type === 'card_moved' || type === 'card_enriched') && notif.link && (
           <div className="flex gap-1.5 mt-1.5">
             <button
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               onClick={(e) => { e.stopPropagation(); selectCard(notif.link!); }}
             >
-              📋 Open Card
+              <ExternalLink size={11} /> Open Card
             </button>
           </div>
         )}
@@ -97,7 +100,7 @@ export function NotificationsPanel({ onClose, onOpenOpportunities }: Notificatio
     <div className="flex flex-col h-full bg-secondary overflow-hidden" data-testid="notifications-panel">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-        <span className="text-sm font-semibold text-foreground">🔔 Notifications</span>
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground"><Bell size={15} /> Notifications</span>
         <div className="flex items-center gap-1">
           {notifications.length > 0 && (
             <>
@@ -120,7 +123,7 @@ export function NotificationsPanel({ onClose, onOpenOpportunities }: Notificatio
             title="Close"
             onClick={onClose}
           >
-            ×
+            <X size={15} />
           </button>
         </div>
       </div>
@@ -128,7 +131,7 @@ export function NotificationsPanel({ onClose, onOpenOpportunities }: Notificatio
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
         {notifications.length === 0 ? (
-          <div className="text-xs text-muted-foreground text-center py-10">✨ All caught up!</div>
+          <div className="text-xs text-muted-foreground text-center py-10">All caught up!</div>
         ) : (
           notifications.map((notif) => (
             <NotificationItem

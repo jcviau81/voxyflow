@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Activity, Loader2, CheckCircle2, Lightbulb } from 'lucide-react';
 
 interface HealthData {
   score: number;
@@ -71,16 +72,16 @@ export function HealthSection({ projectId }: HealthSectionProps) {
 
   return (
     <div className="pt-2">
-      <h3 className="text-base font-bold text-foreground mb-3.5">🏥 Health Check</h3>
+      <h3 className="flex items-center gap-2 text-base font-bold text-foreground mb-3.5"><Activity size={16} /> Health Check</h3>
 
       <div className="flex items-center gap-3 mb-3.5">
         <button
-          className="border-none rounded-lg px-5 py-2 text-sm font-semibold text-white cursor-pointer transition-opacity hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 border-none rounded-lg px-5 py-2 text-sm font-semibold text-white cursor-pointer transition-opacity hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
           style={{ background: 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)' }}
           disabled={loading}
           onClick={runHealthCheck}
         >
-          {loading ? '⏳ Analysing…' : '🏥 Run Health Check'}
+          {loading ? <><Loader2 size={14} className="animate-spin" /> Analysing…</> : <><Activity size={14} /> Run Health Check</>}
         </button>
       </div>
 
@@ -117,7 +118,7 @@ export function HealthSection({ projectId }: HealthSectionProps) {
               </div>
               <ul className="flex flex-col gap-1.5 list-none p-0 m-0">
                 {data.strengths.map((s, i) => (
-                  <li key={i} className="text-sm" style={{ color: '#4ade80' }}>✅ {s}</li>
+                  <li key={i} className="flex items-center gap-1.5 text-sm" style={{ color: '#4ade80' }}><CheckCircle2 size={13} /> {s}</li>
                 ))}
               </ul>
             </div>
@@ -130,15 +131,17 @@ export function HealthSection({ projectId }: HealthSectionProps) {
               </div>
               <ul className="flex flex-col gap-1.5 list-none p-0 m-0">
                 {data.issues.map((issue, i) => {
-                  const icon = issue.severity === 'critical' ? '🔴'
-                    : issue.severity === 'warning' ? '🟡' : '🔵';
                   return (
                     <li
                       key={i}
-                      className="text-sm"
+                      className="flex items-start gap-1.5 text-sm"
                       style={{ color: ISSUE_COLOR[issue.severity] ?? '#9ca3af' }}
                     >
-                      {icon} {issue.message}
+                      <span
+                        className="mt-[3px] shrink-0 w-2 h-2 rounded-full"
+                        style={{ background: ISSUE_COLOR[issue.severity] ?? '#9ca3af' }}
+                      />
+                      {issue.message}
                     </li>
                   );
                 })}
@@ -153,15 +156,15 @@ export function HealthSection({ projectId }: HealthSectionProps) {
               </div>
               <ul className="flex flex-col gap-1.5 list-none p-0 m-0">
                 {data.recommendations.map((rec, i) => (
-                  <li key={i} className="text-sm text-muted-foreground">💡 {rec}</li>
+                  <li key={i} className="flex items-start gap-1.5 text-sm text-muted-foreground"><Lightbulb size={13} className="shrink-0 mt-[1px]" /> {rec}</li>
                 ))}
               </ul>
             </div>
           )}
 
           {data.issues.length === 0 && (
-            <div className="text-sm font-semibold" style={{ color: '#4ade80' }}>
-              ✅ No issues detected — project looks healthy!
+            <div className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: '#4ade80' }}>
+              <CheckCircle2 size={14} /> No issues detected — project looks healthy!
             </div>
           )}
         </div>

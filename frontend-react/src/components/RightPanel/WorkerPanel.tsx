@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useWorkerTasksQuery } from '../../hooks/api/useWorkerTasks';
@@ -94,7 +95,7 @@ interface StatusIndicatorProps {
 function StatusIndicator({ status }: StatusIndicatorProps) {
   switch (status) {
     case 'pending':
-      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-muted-foreground">⏳</span>;
+      return <Loader2 size={14} className="text-muted-foreground animate-spin" />;
     case 'running':
       return <div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin [animation-duration:0.5s]" />;
     case 'done':

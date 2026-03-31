@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react';
+import { Lightbulb, Bell, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
@@ -120,13 +121,13 @@ export function TabBar({ opportunityCount = 0, onPanelToggle }: TabBarProps) {
       {/* Right-side panel triggers */}
       <div className="ml-auto flex items-center gap-0.5 pl-2 flex-shrink-0">
         <PanelTrigger
-          icon="💡"
+          icon={<Lightbulb size={15} />}
           count={opportunityCount}
           title="Opportunities"
           onClick={() => onPanelToggle?.('opportunities')}
         />
         <PanelTrigger
-          icon="🔔"
+          icon={<Bell size={15} />}
           count={notificationUnreadCount}
           title="Notifications"
           badge="red"
@@ -138,7 +139,7 @@ export function TabBar({ opportunityCount = 0, onPanelToggle }: TabBarProps) {
 }
 
 interface PanelTriggerProps {
-  icon: string;
+  icon: React.ReactNode;
   count: number;
   title: string;
   badge?: 'primary' | 'red';
@@ -222,7 +223,7 @@ function TabItem({ tab, isActive, onSwitch, onClose }: TabItemProps) {
             onClose();
           }}
         >
-          ×
+          <X size={10} />
         </span>
       )}
     </button>

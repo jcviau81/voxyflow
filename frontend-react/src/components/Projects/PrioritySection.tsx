@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Target, Loader2, CheckCircle2, MessageSquare } from 'lucide-react';
 import type { Card } from '../../types';
 
 interface PriorityData {
@@ -74,21 +75,21 @@ export function PrioritySection({ projectId, cards }: PrioritySectionProps) {
 
   return (
     <div className="bg-card border border-border rounded-xl px-6 py-5 flex flex-col gap-4">
-      <h3 className="text-base font-bold text-foreground m-0">🎯 Smart Priority</h3>
+      <h3 className="flex items-center gap-2 text-base font-bold text-foreground m-0"><Target size={16} /> Smart Priority</h3>
 
       <div className="flex items-center gap-2.5 flex-wrap">
         <button
-          className="border-none rounded-lg px-4 py-2 text-sm font-semibold text-white cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-sm font-semibold text-white cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}
           disabled={loading}
           onClick={analyzePriority}
         >
-          {loading ? '⏳ Analyzing…' : '🎯 Analyze Priority'}
+          {loading ? <><Loader2 size={14} className="animate-spin" /> Analyzing…</> : <><Target size={14} /> Analyze Priority</>}
         </button>
 
         {data && data.ordered_cards.length > 0 && (
           <button
-            className="rounded-lg px-4 py-2 text-sm font-semibold cursor-pointer transition-colors hover:bg-[rgba(74,222,128,0.2)]"
+            className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold cursor-pointer transition-colors hover:bg-[rgba(74,222,128,0.2)]"
             style={{
               background: 'rgba(74, 222, 128, 0.12)',
               color: '#4ade80',
@@ -97,7 +98,10 @@ export function PrioritySection({ projectId, cards }: PrioritySectionProps) {
             disabled={applying}
             onClick={applyToKanban}
           >
-            {applying ? '⏳ Applying…' : '✅ Apply to Kanban'}
+            {applying
+              ? <><Loader2 size={14} className="animate-spin" /> Applying…</>
+              : <><CheckCircle2 size={14} /> Apply to Kanban</>
+            }
           </button>
         )}
       </div>
@@ -150,8 +154,8 @@ export function PrioritySection({ projectId, cards }: PrioritySectionProps) {
                         </span>
                       </div>
                       {item.reasoning && i < 3 && (
-                        <div className="text-[0.8125rem] text-muted-foreground italic leading-[1.45] pt-1">
-                          💬 {item.reasoning}
+                        <div className="flex items-start gap-1 text-[0.8125rem] text-muted-foreground italic leading-[1.45] pt-1">
+                          <MessageSquare size={11} className="shrink-0 mt-[2px]" /> {item.reasoning}
                         </div>
                       )}
                     </div>

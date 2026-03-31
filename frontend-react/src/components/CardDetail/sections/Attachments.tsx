@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { Download, X } from 'lucide-react';
 import type { CardAttachment } from '../../../types';
 import {
   useAttachments,
@@ -142,7 +143,7 @@ function AttachmentItem({
           title={`Download ${attachment.filename}`}
           onClick={(e) => e.stopPropagation()}
         >
-          ⬇️
+          <Download size={12} />
         </a>
         <button
           type="button"
@@ -152,7 +153,7 @@ function AttachmentItem({
           className="text-muted-foreground/40 hover:text-red-400"
           title={`Delete ${attachment.filename}`}
         >
-          ×
+          <X size={10} />
         </button>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { Home, MessageSquare, LayoutGrid, Pin, Brain, BarChart2, Pencil } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -6,16 +7,16 @@ import type { ViewMode } from '../../types';
 
 interface ProjectTab {
   view: ViewMode;
-  emoji: string;
+  icon: React.ReactNode;
   label: string;
 }
 
 const PROJECT_TABS: ProjectTab[] = [
-  { view: 'chat',      emoji: '💬', label: 'Chat' },
-  { view: 'kanban',    emoji: '📋', label: 'Kanban' },
-  { view: 'freeboard', emoji: '📌', label: 'Board' },
-  { view: 'knowledge', emoji: '🧠', label: 'Knowledge' },
-  { view: 'stats',     emoji: '📊', label: 'Stats' },
+  { view: 'chat',      icon: <MessageSquare size={13} />, label: 'Chat' },
+  { view: 'kanban',    icon: <LayoutGrid size={13} />,    label: 'Kanban' },
+  { view: 'freeboard', icon: <Pin size={13} />,           label: 'Board' },
+  { view: 'knowledge', icon: <Brain size={13} />,         label: 'Knowledge' },
+  { view: 'stats',     icon: <BarChart2 size={13} />,     label: 'Stats' },
 ];
 
 // Main tab only shows a subset of views
@@ -52,24 +53,27 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
       {/* Left: project emoji + name */}
       {isMainTab ? (
         <div className="project-header__title flex items-center gap-1.5">
-          <span className="project-header__emoji text-base">🏠</span>
+          <Home size={15} className="text-muted-foreground" />
           <span className="project-header__name text-sm font-medium text-foreground">Main</span>
         </div>
       ) : (
-        <button
-          className="project-header__title flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-accent transition-colors cursor-pointer"
-          title="Project properties"
-          onClick={() => {
-            if (currentProjectId) {
-              onOpenProjectProperties?.(currentProjectId);
-            }
-          }}
-        >
+        <div className="project-header__title flex items-center gap-1.5">
           <span className="project-header__emoji text-base">{project!.emoji || '📁'}</span>
           <span className="project-header__name text-sm font-medium text-foreground">
             {project!.name}
           </span>
-        </button>
+          <button
+            className="gap-1.5 p-1 rounded hover:bg-accent transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
+            title="Project properties"
+            onClick={() => {
+              if (currentProjectId) {
+                onOpenProjectProperties?.(currentProjectId);
+              }
+            }}
+          >
+            <Pencil size={13} />
+          </button>
+        </div>
       )}
 
       {/* Right: view navigation tabs */}
@@ -84,13 +88,13 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
                 if (currentView !== tab.view) setView(tab.view);
               }}
               className={cn(
-                'project-header__tab px-3 py-1 text-xs rounded transition-colors',
+                'project-header__tab flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors',
                 isActive
                   ? 'project-header__tab--active bg-accent text-accent-foreground font-medium'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
               )}
             >
-              {tab.emoji} {tab.label}
+              {tab.icon} {tab.label}
             </button>
           );
         })}

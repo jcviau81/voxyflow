@@ -6,6 +6,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { Zap, Brain, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const LAYER_STORAGE_KEY = 'voxyflow_layer_toggles';
@@ -69,7 +70,7 @@ export function ModePill({ className }: { className?: string }) {
         title="Fast mode (Sonnet)"
         onClick={() => setDeepMode(false)}
       >
-        ⚡
+        <Zap size={13} />
       </button>
       <button
         className={cn(
@@ -81,7 +82,7 @@ export function ModePill({ className }: { className?: string }) {
         title="Deep mode (Opus)"
         onClick={() => setDeepMode(true)}
       >
-        🧠
+        <Brain size={13} />
       </button>
       <button
         className={cn(
@@ -93,7 +94,7 @@ export function ModePill({ className }: { className?: string }) {
         title="Analyzer (card suggestions)"
         onClick={toggleAnalyzer}
       >
-        🔍
+        <Search size={13} />
       </button>
     </div>
   );

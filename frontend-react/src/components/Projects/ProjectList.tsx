@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { Star, Archive, Folder, LayoutGrid, CheckCircle2, BarChart2, Send, Pencil } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useProjects, useArchiveProject, useDeleteProject, useToggleFavorite, useExportProject } from '../../hooks/api/useProjects';
@@ -109,13 +110,16 @@ function ProjectCard({
           title={project.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
           className="sidebar-favorite-star text-lg leading-none opacity-60 hover:opacity-100 transition-opacity shrink-0"
         >
-          {project.isFavorite ? '⭐' : '☆'}
+          {project.isFavorite
+            ? <Star size={16} className="fill-yellow-400 text-yellow-400" />
+            : <Star size={16} className="text-muted-foreground" />
+          }
         </button>
 
         {/* Archived badge */}
         {project.archived && (
-          <span className="project-archived-badge px-2 py-0.5 rounded text-xs bg-yellow-500/10 text-yellow-600 border border-yellow-500/30 shrink-0">
-            📦 Archived
+          <span className="flex items-center gap-1 project-archived-badge px-2 py-0.5 rounded text-xs bg-yellow-500/10 text-yellow-600 border border-yellow-500/30 shrink-0">
+            <Archive size={11} /> Archived
           </span>
         )}
       </div>
@@ -226,17 +230,17 @@ function ProjectCard({
               ▶ Open
             </ActionButton>
             <ActionButton onClick={() => onExport(project)}>
-              📤 Export
+              <Send size={11} className="inline mr-1" /> Export
             </ActionButton>
             <ActionButton
               data-testid={`project-edit-${project.id}`}
               onClick={() => onEdit(project)}
             >
-              ✏️ Edit
+              <Pencil size={11} className="inline mr-1" /> Edit
             </ActionButton>
             {!project.isSystem && project.deletable !== false && (
               <ActionButton onClick={() => onArchive(project)}>
-                📦 Archive
+                <Archive size={11} className="inline mr-1" /> Archive
               </ActionButton>
             )}
           </>
@@ -329,16 +333,16 @@ export function ProjectList() {
   const totalCards = baseList.reduce((sum, p) => sum + getStats(p).total, 0);
   const totalDone  = baseList.reduce((sum, p) => sum + getStats(p).done, 0);
 
-  const summaryStats = isArchivedView
-    ? [{ label: 'Archived', value: String(baseList.length), icon: '📦' }]
+  const summaryStats: { label: string; value: string; icon: React.ReactNode }[] = isArchivedView
+    ? [{ label: 'Archived', value: String(baseList.length), icon: <Archive size={22} /> }]
     : [
-        { label: 'Projects',   value: String(activeProjects.length), icon: '📁' },
-        { label: 'Total cards', value: String(totalCards), icon: '🃏' },
-        { label: 'Done',        value: String(totalDone), icon: '✅' },
+        { label: 'Projects',    value: String(activeProjects.length), icon: <Folder size={22} /> },
+        { label: 'Total cards', value: String(totalCards),            icon: <LayoutGrid size={22} /> },
+        { label: 'Done',        value: String(totalDone),             icon: <CheckCircle2 size={22} /> },
         {
           label: 'Completion',
           value: totalCards > 0 ? `${Math.round((totalDone / totalCards) * 100)}%` : '—',
-          icon: '📊',
+          icon: <BarChart2 size={22} />,
         },
       ];
 
@@ -409,7 +413,7 @@ export function ProjectList() {
               key={label}
               className="project-summary-stat flex flex-col items-center gap-0.5 p-3 rounded-xl border border-border bg-card"
             >
-              <span className="project-summary-icon text-2xl">{icon}</span>
+              <span className="project-summary-icon text-muted-foreground">{icon}</span>
               <span className="project-summary-value text-xl font-bold text-foreground">{value}</span>
               <span className="project-summary-label text-xs text-muted-foreground">{label}</span>
             </div>
@@ -422,7 +426,7 @@ export function ProjectList() {
             { key: 'all',       label: 'All' },
             { key: 'active',    label: 'Active' },
             { key: 'completed', label: 'Completed' },
-            { key: 'archived',  label: '📦 Archived' },
+            { key: 'archived',  label: 'Archived' },
           ] as { key: FilterMode; label: string }[]).map(({ key, label }) => (
             <button
               key={key}

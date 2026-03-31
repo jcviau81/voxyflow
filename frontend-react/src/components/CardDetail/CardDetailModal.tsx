@@ -51,6 +51,7 @@ import { RelationsSection } from './Relations';
 import { HistorySection } from './History';
 import { ChatWindow } from '../Chat/ChatWindow';
 import { DescriptionEditor } from './DescriptionEditor';
+import { Copy, Archive } from 'lucide-react';
 
 // ── Color class map ─────────────────────────────────────────────────────────
 
@@ -307,16 +308,16 @@ export function CardDetailModal() {
             type="button"
             onClick={handleDuplicate}
             disabled={duplicateCard.isPending}
-            className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
           >
-            📋 Duplicate
+            <Copy size={12} /> Duplicate
           </button>
           <button
             type="button"
             onClick={handleArchive}
-            className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
           >
-            📦 Archive
+            <Archive size={12} /> Archive
           </button>
         </div>
 
@@ -486,14 +487,14 @@ export function CardDetailModal() {
                   <button
                     type="button"
                     onClick={handleArchive}
-                    className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
+                    className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
                   >
-                    📦 Archive
+                    <Archive size={12} /> Archive
                   </button>
                   <button
                     type="button"
                     onClick={handleDelete}
-                    className="rounded-md border border-red-500/30 px-2.5 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                    className="flex items-center gap-1.5 rounded-md border border-red-500/30 px-2.5 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
                   >
                     🗑️ Delete
                   </button>

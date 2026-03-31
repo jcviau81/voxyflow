@@ -2,8 +2,8 @@
  * Sidebar — React port of frontend/src/components/Navigation/Sidebar.ts
  *
  * Sections (top → bottom):
- *   1. Brand (🔥 Voxyflow)
- *   2. Main item (🏠 Main) — always at top
+ *   1. Brand (Voxyflow)
+ *   2. Main item — always at top
  *   3. Favorites section — starred projects with progress dots
  *   4. Active Sessions section — sessions across open tabs with close button
  *   5. All Projects link + New Project + Archived count
@@ -27,6 +27,12 @@ import {
   Sun,
   FolderPlus,
   ChevronRight,
+  Flame,
+  Star,
+  MessageCircle,
+  Folder,
+  Archive,
+  X,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -57,17 +63,17 @@ interface SessionEntry {
 type DotColor = 'done' | 'halfway' | 'started' | 'empty';
 
 const DOT_CLASS: Record<DotColor, string> = {
-  done: 'bg-green-500',
+  done:    'bg-green-500',
   halfway: 'bg-yellow-400',
   started: 'bg-blue-400',
-  empty: 'bg-muted-foreground/30',
+  empty:   'bg-muted-foreground/30',
 };
 
 // ─── Connection status dot ─────────────────────────────────────────────────────
 
 const CONNECTION_DOT_CLASS = {
-  connected: 'bg-green-500',
-  connecting: 'bg-yellow-400',
+  connected:    'bg-green-500',
+  connecting:   'bg-yellow-400',
   reconnecting: 'bg-yellow-500',
   disconnected: 'bg-red-500',
 } as const;
@@ -126,14 +132,17 @@ function ProjectItem({
     >
       {/* Favorite star */}
       <button
-        className="shrink-0 text-xs leading-none hover:scale-110 transition-transform"
+        className="shrink-0 leading-none hover:scale-110 transition-transform"
         title={project.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
         onClick={(e) => {
           e.stopPropagation();
           onToggleFavorite(project.id);
         }}
       >
-        {project.isFavorite ? '⭐' : '☆'}
+        <Star
+          size={12}
+          className={project.isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}
+        />
       </button>
 
       {/* Project name */}
@@ -204,7 +213,6 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
       const tabSessions = sessions[sessionTabId] || [];
       if (tabSessions.length <= 1) {
-        // Store refuses to close last session, but vanilla would create a fresh one
         createSession(sessionTabId);
       } else {
         closeSessionInStore(sessionTabId, session.id);
@@ -254,7 +262,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
     >
       {/* ── Brand ── */}
       <div className="sidebar-brand flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
-        <span className="text-xl leading-none">🔥</span>
+        <Flame size={18} className="text-orange-500 shrink-0" />
         <span className="font-semibold text-sm text-foreground whitespace-nowrap">Voxyflow</span>
       </div>
 
@@ -284,8 +292,9 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         {/* ── Favorites ── */}
         {favoriteProjects.length > 0 && (
           <div className="sidebar-favorites mt-3">
-            <p className="sidebar-section-header px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-              ⭐ Favorites
+            <p className="sidebar-section-header px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
+              <Star size={10} className="shrink-0" />
+              Favorites
             </p>
             {favoriteProjects.map((proj) => (
               <ProjectItem
@@ -301,8 +310,9 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         {/* ── Active Sessions ── */}
         {sessionEntries.length > 0 && (
           <div className="sidebar-sessions mt-3">
-            <p className="sidebar-section-header px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-              💬 Active Sessions
+            <p className="sidebar-section-header px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
+              <MessageCircle size={10} className="shrink-0" />
+              Active Sessions
             </p>
             {sessionEntries.map(({ tabId, session, label }) => {
               const sessionTabId = tabId === 'main' ? 'system-main' : tabId;
@@ -322,23 +332,26 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
                   onClick={() => handleSwitchSession(tabId, session)}
                 >
                   {/* Status dot */}
-                  <span className="shrink-0 text-xs leading-none">
-                    {isCurrent ? '🟢' : '⚫'}
-                  </span>
+                  <span
+                    className={cn(
+                      'shrink-0 w-2 h-2 rounded-full',
+                      isCurrent ? 'bg-green-500' : 'bg-muted-foreground/30',
+                    )}
+                  />
 
                   {/* Breadcrumb label */}
                   <span className="sidebar-session-label flex-1 truncate text-xs">{label}</span>
 
                   {/* Close button — visible on hover */}
                   <button
-                    className="sidebar-session-close shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground leading-none px-0.5"
+                    className="sidebar-session-close shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
                     title="Close session"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleCloseSession(tabId, session);
                     }}
                   >
-                    ×
+                    <X size={12} />
                   </button>
                 </div>
               );
@@ -354,7 +367,10 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             title="All projects"
             onClick={() => navigate('/projects')}
           >
-            <span>📁 All Projects</span>
+            <span className="flex items-center gap-1.5">
+              <Folder size={10} className="shrink-0" />
+              All Projects
+            </span>
             <ChevronRight size={12} />
           </button>
 
@@ -378,10 +394,8 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
               title={`${archivedProjects.length} archived project${archivedProjects.length > 1 ? 's' : ''}`}
               onClick={() => navigate('/projects?filter=archived')}
             >
-              <span className="shrink-0">📦</span>
-              <span className="truncate">
-                Archived ({archivedProjects.length})
-              </span>
+              <Archive size={14} className="shrink-0" />
+              <span className="truncate">Archived ({archivedProjects.length})</span>
             </button>
           )}
         </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { MessageSquare, X } from 'lucide-react';
 import { useComments, useAddComment, useDeleteComment } from '../../../hooks/api/useCards';
 
 export function CommentsSection({ cardId }: { cardId: string }) {
@@ -15,8 +16,8 @@ export function CommentsSection({ cardId }: { cardId: string }) {
 
   return (
     <div className="space-y-2">
-      <label className="text-xs font-medium text-muted-foreground">
-        💬 Comments {comments.length > 0 && `(${comments.length})`}
+      <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+        <MessageSquare size={12} /> Comments {comments.length > 0 && `(${comments.length})`}
       </label>
 
       {isLoading ? (
@@ -56,7 +57,7 @@ export function CommentsSection({ cardId }: { cardId: string }) {
                   className="flex-shrink-0 text-muted-foreground/40 hover:text-muted-foreground"
                   title="Delete comment"
                 >
-                  ×
+                  <X size={10} />
                 </button>
               </div>
             );

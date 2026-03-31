@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FileText, Sparkles, Loader2, Clipboard, Check, Download } from 'lucide-react';
 
 function renderMarkdown(text: string): string {
   return text
@@ -65,11 +66,11 @@ export function BriefSection({ projectId, projectName }: BriefSectionProps) {
 
   return (
     <div className="pt-6 border-t border-border">
-      <h3 className="text-base font-bold text-foreground mb-3.5">📄 Project Brief</h3>
+      <h3 className="flex items-center gap-2 text-base font-bold text-foreground mb-3.5"><FileText size={16} /> Project Brief</h3>
 
       <div className="flex items-center gap-3 flex-wrap mb-4">
         <button
-          className="inline-flex items-center gap-2 border-none rounded-lg px-4 py-2 text-sm font-semibold text-white cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-65 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 border-none rounded-lg px-4 py-2 text-sm font-semibold text-white cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-65 disabled:cursor-not-allowed"
           style={{
             background: loading
               ? 'linear-gradient(135deg, #5a52d5 0%, #8b44d4 100%)'
@@ -79,9 +80,9 @@ export function BriefSection({ projectId, projectName }: BriefSectionProps) {
           onClick={generateBrief}
         >
           {loading ? (
-            <>⏳ Generating… <span className="text-xs font-normal opacity-85">(Using Deep model — may take 10-15s…)</span></>
+            <><Loader2 size={14} className="animate-spin" /> Generating… <span className="text-xs font-normal opacity-85">(Using Deep model — may take 10-15s…)</span></>
           ) : (
-            <>✨ Generate Brief <span className="bg-white/25 rounded px-1.5 py-0.5 text-[0.8125rem] font-bold tracking-[0.04em] uppercase">Opus</span></>
+            <><Sparkles size={14} /> Generate Brief <span className="bg-white/25 rounded px-1.5 py-0.5 text-[0.8125rem] font-bold tracking-[0.04em] uppercase">Opus</span></>
           )}
         </button>
       </div>
@@ -99,16 +100,16 @@ export function BriefSection({ projectId, projectName }: BriefSectionProps) {
           />
           <div className="flex gap-2.5 flex-wrap">
             <button
-              className="bg-transparent border border-border rounded-lg px-3.5 py-1.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              className="flex items-center gap-1.5 bg-transparent border border-border rounded-lg px-3.5 py-1.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
               onClick={copyToClipboard}
             >
-              {copied ? '✅ Copied!' : '📋 Copy to Clipboard'}
+              {copied ? <><Check size={12} /> Copied!</> : <><Clipboard size={12} /> Copy to Clipboard</>}
             </button>
             <button
-              className="bg-transparent border border-border rounded-lg px-3.5 py-1.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              className="flex items-center gap-1.5 bg-transparent border border-border rounded-lg px-3.5 py-1.5 text-xs text-muted-foreground cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
               onClick={downloadMarkdown}
             >
-              ⬇️ Download .md
+              <Download size={12} /> Download .md
             </button>
           </div>
         </div>

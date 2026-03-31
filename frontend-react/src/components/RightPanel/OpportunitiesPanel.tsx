@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { Lightbulb, Bot, X } from 'lucide-react';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useCardStore } from '../../stores/useCardStore';
 import type { CardSuggestion } from '../../contexts/ChatProvider';
@@ -12,8 +13,8 @@ interface OpportunityCardProps {
 function OpportunityCard({ opp, onAccept, onDismiss }: OpportunityCardProps) {
   return (
     <div className="bg-muted/50 rounded-lg border border-border p-3">
-      <div className="text-xs text-muted-foreground mb-1 uppercase tracking-wide font-medium">
-        {opp.agentEmoji || '🤖'} {opp.agentName || 'Ember'}
+      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1 uppercase tracking-wide font-medium">
+        <Bot size={11} /> {opp.agentName || 'Ember'}
       </div>
       <div className="text-sm font-semibold text-foreground mb-1 leading-tight">{opp.title}</div>
       {opp.description && (
@@ -27,10 +28,10 @@ function OpportunityCard({ opp, onAccept, onDismiss }: OpportunityCardProps) {
           Create Card
         </button>
         <button
-          className="px-2 py-1.5 bg-transparent text-muted-foreground border border-border rounded text-xs cursor-pointer transition-all hover:text-red-400 hover:border-red-400/30 hover:bg-red-400/5"
+          className="flex items-center justify-center px-2 py-1.5 bg-transparent text-muted-foreground border border-border rounded text-xs cursor-pointer transition-all hover:text-red-400 hover:border-red-400/30 hover:bg-red-400/5"
           onClick={() => onDismiss(opp.id)}
         >
-          ✕
+          <X size={12} />
         </button>
       </div>
     </div>
@@ -80,7 +81,7 @@ export function OpportunitiesPanel({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">💡 Opportunities</span>
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground"><Lightbulb size={15} /> Opportunities</span>
           {opportunities.length > 0 && (
             <span className="bg-primary text-primary-foreground text-[10px] font-bold px-1.5 rounded-full min-w-[16px] text-center">
               {opportunities.length}
@@ -92,7 +93,7 @@ export function OpportunitiesPanel({
           title="Close"
           onClick={onClose}
         >
-          ×
+          <X size={15} />
         </button>
       </div>
 

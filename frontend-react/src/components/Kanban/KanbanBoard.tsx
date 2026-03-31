@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { Archive, X } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -317,15 +318,15 @@ function BulkToolbar({ selectedIds, onClear, onBulkMove, onBulkArchive, onBulkDe
         </Button>
       ))}
       <div className="h-4 w-px bg-border" />
-      <Button variant="ghost" size="sm" onClick={onBulkArchive}>
-        📦 Archive
+      <Button variant="ghost" size="sm" onClick={onBulkArchive} className="flex items-center gap-1.5">
+        <Archive size={13} /> Archive
       </Button>
-      <Button variant="ghost" size="sm" className="text-destructive" onClick={onBulkDelete}>
+      <Button variant="ghost" size="sm" className="flex items-center gap-1.5 text-destructive" onClick={onBulkDelete}>
         🗑 Delete
       </Button>
       <div className="h-4 w-px bg-border" />
-      <Button variant="ghost" size="sm" onClick={onClear}>
-        ✕ Clear
+      <Button variant="ghost" size="sm" onClick={onClear} className="flex items-center gap-1.5">
+        <X size={13} /> Clear
       </Button>
     </div>
   );
@@ -353,7 +354,7 @@ function ArchivedSection({ projectId }: ArchivedSectionProps) {
         className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
         onClick={() => setOpen(!open)}
       >
-        📦 Archived Cards {open ? '▾' : '▸'}
+        <Archive size={14} /> Archived Cards {open ? '▾' : '▸'}
       </button>
 
       {open && (

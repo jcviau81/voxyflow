@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ListChecks, X } from 'lucide-react';
 import type { ChecklistItem } from '../../../types';
 import {
   useChecklist,
@@ -26,8 +27,8 @@ export function ChecklistSection({ cardId }: { cardId: string }) {
 
   return (
     <div className="space-y-2">
-      <label className="text-xs font-medium text-muted-foreground">
-        ☑️ Checklist {total > 0 && `(${done}/${total})`}
+      <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+        <ListChecks size={12} /> Checklist {total > 0 && `(${done}/${total})`}
       </label>
 
       {total > 0 && (
@@ -140,7 +141,7 @@ function ChecklistItemRow({
         className="text-muted-foreground/40 hover:text-muted-foreground"
         title="Remove item"
       >
-        ×
+        <X size={10} />
       </button>
     </div>
   );

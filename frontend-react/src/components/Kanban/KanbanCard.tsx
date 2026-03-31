@@ -1,4 +1,5 @@
 import React, { useMemo, useCallback, useState } from 'react';
+import { Pin, Copy, Pencil, Target, FolderInput, Archive, Timer } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
@@ -287,7 +288,7 @@ export function KanbanCard({
   if (card.totalMinutes && card.totalMinutes > 0) {
     const h = Math.floor(card.totalMinutes / 60);
     const m = card.totalMinutes % 60;
-    timeLabel = h > 0 ? `⏱ ${h}h${m > 0 ? ` ${m}m` : ''}` : `⏱ ${m}m`;
+    timeLabel = h > 0 ? `${h}h${m > 0 ? ` ${m}m` : ''}` : `${m}m`;
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -358,13 +359,13 @@ export function KanbanCard({
               <span>▶</span> Execute
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={handleMoveToBoard}>
-              <span>📌</span> Move to Board
+              <Pin size={13} /> Move to Board
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={handleDuplicate}>
-              <span>📋</span> Duplicate
+              <Copy size={13} /> Duplicate
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={handleCopyId}>
-              <span>📋</span> Copy Card ID
+              <Copy size={13} /> Copy Card ID
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => {
@@ -372,10 +373,10 @@ export function KanbanCard({
                 onCardClick?.(card.id);
               }}
             >
-              <span>✏️</span> Edit
+              <Pencil size={13} /> Edit
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onFocusMode?.(card.id)}>
-              <span>🎯</span> Focus Mode
+              <Target size={13} /> Focus Mode
             </DropdownMenuItem>
 
             <DropdownMenuSeparator />
@@ -383,7 +384,7 @@ export function KanbanCard({
             {/* Clone to Project */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={otherProjects.length === 0}>
-                <span>📤</span> Clone to Project
+                <Copy size={13} /> Clone to Project
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 {otherProjects.map((p) => (
@@ -397,7 +398,7 @@ export function KanbanCard({
             {/* Move to Project */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={otherProjects.length === 0}>
-                <span>✈️</span> Move to Project
+                <FolderInput size={13} /> Move to Project
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 {otherProjects.map((p) => (
@@ -411,7 +412,7 @@ export function KanbanCard({
             <DropdownMenuSeparator />
 
             <DropdownMenuItem onSelect={handleArchive}>
-              <span>📦</span> Archive
+              <Archive size={13} /> Archive
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
               <span>🗑️</span> Delete
@@ -472,9 +473,9 @@ export function KanbanCard({
           {timeLabel && (
             <span
               title={`${card.totalMinutes} minutes logged`}
-              className="text-[10px] text-muted-foreground font-medium"
+              className="flex items-center gap-0.5 text-[10px] text-muted-foreground font-medium"
             >
-              {timeLabel}
+              <Timer size={10} /> {timeLabel}
             </span>
           )}
 
