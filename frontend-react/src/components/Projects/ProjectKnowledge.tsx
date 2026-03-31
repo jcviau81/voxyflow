@@ -498,8 +498,13 @@ const KNOWLEDGE_TABS: { id: KnowledgeTab; label: string }[] = [
   { id: 'rag',       label: '🔗 RAG Sources' },
 ];
 
-export function ProjectKnowledge() {
-  const projectId = useProjectStore(s => s.currentProjectId);
+interface ProjectKnowledgeProps {
+  projectId?: string;
+}
+
+export function ProjectKnowledge({ projectId: projectIdProp }: ProjectKnowledgeProps = {}) {
+  const storeProjectId = useProjectStore(s => s.currentProjectId);
+  const projectId = projectIdProp ?? storeProjectId;
   const [activeTab, setActiveTab] = useState<KnowledgeTab>('documents');
 
   if (!projectId) {

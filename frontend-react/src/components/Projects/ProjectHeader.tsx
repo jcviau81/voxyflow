@@ -19,7 +19,7 @@ const PROJECT_TABS: ProjectTab[] = [
 ];
 
 // Main tab only shows a subset of views
-const MAIN_VIEWS: ViewMode[] = ['chat', 'kanban', 'freeboard'];
+const MAIN_VIEWS: ViewMode[] = ['chat', 'kanban', 'freeboard', 'knowledge'];
 
 interface ProjectHeaderProps {
   onOpenProjectProperties?: (projectId: string) => void;

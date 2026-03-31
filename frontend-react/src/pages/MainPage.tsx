@@ -16,12 +16,13 @@ import { VoiceInput } from '../components/Voice/VoiceInput';
 import { KanbanBoard } from '../components/Kanban/KanbanBoard';
 import { FreeBoard } from '../components/Board/FreeBoard';
 import { ProjectList } from '../components/Projects/ProjectList';
+import { ProjectKnowledge } from '../components/Projects/ProjectKnowledge';
 import { useViewStore } from '../stores/useViewStore';
 import { useProjectStore } from '../stores/useProjectStore';
 import { SYSTEM_PROJECT_ID } from '../lib/constants';
 import { cn } from '../lib/utils';
 
-const MAIN_TAB_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'projects']);
+const MAIN_TAB_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'projects', 'knowledge']);
 
 export function MainPage() {
   const currentView = useViewStore((s) => s.currentView);
@@ -64,6 +65,10 @@ export function MainPage() {
 
       {view === 'projects' && (
         <ProjectList />
+      )}
+
+      {view === 'knowledge' && (
+        <ProjectKnowledge projectId={SYSTEM_PROJECT_ID} />
       )}
     </div>
   );
