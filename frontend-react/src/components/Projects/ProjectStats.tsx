@@ -12,9 +12,12 @@ import { FocusSection, type FocusAnalytics } from './FocusSection';
 export function ProjectStats() {
   const currentProjectId = useProjectStore(s => s.currentProjectId);
   const project = useProjectStore(s => s.getActiveProject());
-  const activities = useNotificationStore(s =>
-    currentProjectId ? s.getActivities(currentProjectId, 50) : []
+  // Access the raw array reference (stable) — slicing inside the selector creates
+  // a new reference every call, causing Zustand to loop infinitely.
+  const rawActivities = useNotificationStore(s =>
+    currentProjectId ? s.activities[currentProjectId] : null
   );
+  const activities = rawActivities?.slice(0, 50) ?? [];
 
   const { data: cards = [] } = useCards(currentProjectId ?? '');
 
