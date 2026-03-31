@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ConnectionState, WebSocketMessage } from '../types';
 import { useOfflineQueue, type QueuedMessage } from './useOfflineQueue';
 
@@ -245,11 +245,16 @@ export function useWebSocket(): UseWebSocketReturn {
     };
   }, []);
 
-  return {
-    connectionState,
-    send,
-    subscribe,
-    connected: connectionState === 'connected',
-    queueSize: pendingCount,
-  };
+  const connected = connectionState === 'connected';
+
+  return useMemo(
+    () => ({
+      connectionState,
+      send,
+      subscribe,
+      connected,
+      queueSize: pendingCount,
+    }),
+    [connectionState, send, subscribe, connected, pendingCount],
+  );
 }

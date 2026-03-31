@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -41,13 +42,13 @@ export function MessageList({
   emptySlot,
   loading = false,
 }: MessageListProps) {
-  const messages = useMessageStore((s) => {
-    let msgs = s.messages;
-    if (sessionId) msgs = msgs.filter((m) => m.sessionId === sessionId);
-    else if (cardId) msgs = msgs.filter((m) => m.cardId === cardId);
-    else if (projectId) msgs = msgs.filter((m) => m.projectId === projectId);
-    return msgs;
-  });
+  const allMessages = useMessageStore((s) => s.messages);
+  const messages = useMemo(() => {
+    if (sessionId) return allMessages.filter((m) => m.sessionId === sessionId);
+    if (cardId) return allMessages.filter((m) => m.cardId === cardId);
+    if (projectId) return allMessages.filter((m) => m.projectId === projectId);
+    return allMessages;
+  }, [allMessages, sessionId, cardId, projectId]);
 
   const { registerCallbacks } = useChatService();
 

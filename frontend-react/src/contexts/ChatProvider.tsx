@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   type ReactNode,
 } from 'react';
@@ -926,20 +927,36 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // Context value (stable object via ref pattern to avoid needless re-renders)
   // ---------------------------------------------------------------------------
 
-  const contextValue: ChatContextValue = {
-    sendMessage,
-    sendSystemInit,
-    loadHistory,
-    getHistory,
-    clearHistory,
-    simulateStreaming,
-    setActiveSessionId,
-    registerCallbacks,
-    getLayerState,
-    handleVoiceTranscript,
-    handleVoiceStop,
-    createCardFromSuggestion,
-  };
+  const contextValue = useMemo<ChatContextValue>(
+    () => ({
+      sendMessage,
+      sendSystemInit,
+      loadHistory,
+      getHistory,
+      clearHistory,
+      simulateStreaming,
+      setActiveSessionId,
+      registerCallbacks,
+      getLayerState,
+      handleVoiceTranscript,
+      handleVoiceStop,
+      createCardFromSuggestion,
+    }),
+    [
+      sendMessage,
+      sendSystemInit,
+      loadHistory,
+      getHistory,
+      clearHistory,
+      simulateStreaming,
+      setActiveSessionId,
+      registerCallbacks,
+      getLayerState,
+      handleVoiceTranscript,
+      handleVoiceStop,
+      createCardFromSuggestion,
+    ],
+  );
 
   return <ChatContext.Provider value={contextValue}>{children}</ChatContext.Provider>;
 }

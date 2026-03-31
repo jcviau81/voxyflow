@@ -32,7 +32,6 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [opportunities, setOpportunities] = useState<CardSuggestion[]>([]);
   const theme = useThemeStore((s) => s.theme);
-  const setView = useViewStore((s) => s.setView);
   const { registerCallbacks } = useChatService();
 
   // Subscribe to card suggestion events from ChatProvider
@@ -42,7 +41,9 @@ export function AppShell() {
         setOpportunities((prev) => [...prev, suggestion]);
       },
     });
-  }, [registerCallbacks]);
+    // registerCallbacks is stable (useCallback with [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleSidebar = useCallback(() => setSidebarOpen((o) => !o), []);
 
@@ -51,10 +52,10 @@ export function AppShell() {
     const handleKeydown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === '1') {
         e.preventDefault();
-        setView('chat');
+        useViewStore.getState().setView('chat');
       } else if (e.ctrlKey && e.key === '2') {
         e.preventDefault();
-        setView('kanban');
+        useViewStore.getState().setView('kanban');
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
         e.preventDefault();
         toggleSidebar();
@@ -62,7 +63,7 @@ export function AppShell() {
     };
     document.addEventListener('keydown', handleKeydown);
     return () => document.removeEventListener('keydown', handleKeydown);
-  }, [setView, toggleSidebar]);
+  }, [toggleSidebar]);
 
   const handleOpportunityAccepted = useCallback((id: string) => {
     setOpportunities((prev) => prev.filter((o) => o.id !== id));
