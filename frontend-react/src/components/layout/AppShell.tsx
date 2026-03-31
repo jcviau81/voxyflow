@@ -14,7 +14,7 @@
  *       aside.opportunities-container← RightPanel (Opportunities + Notifications)
  */
 import { Outlet } from 'react-router-dom';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { useViewStore } from '../../stores/useViewStore';
@@ -38,11 +38,14 @@ export function AppShell() {
 
   // Sync TanStack Query projects → Zustand store so Sidebar/Nav can read from store
   const { data: projects } = useProjects();
-  const setProjects = useProjectStore((s) => s.setProjects);
+  const projectsRef = useRef(projects);
 
   useEffect(() => {
-    if (projects) setProjects(projects);
-  }, [projects, setProjects]);
+    if (projects && projects !== projectsRef.current) {
+      projectsRef.current = projects;
+      useProjectStore.getState().setProjects(projects);
+    }
+  }, [projects]);
 
   // Subscribe to card suggestion events from ChatProvider
   useEffect(() => {

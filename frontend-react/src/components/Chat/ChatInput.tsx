@@ -71,9 +71,7 @@ export function ChatInput({
 
   const { sendMessage, sendSystemInit, registerCallbacks } = useChatService();
   const { connected } = useWS();
-  const getActiveChatId = useSessionStore((s) => s.getActiveChatId);
   const updateSessionTitle = useSessionStore((s) => s.updateSessionTitle);
-  const getActiveSession = useSessionStore((s) => s.getActiveSession);
 
   // Voice settings from localStorage
   const [sttAutoSend, setSttAutoSend] = useState(() => {
@@ -133,7 +131,7 @@ export function ChatInput({
             '- `Ctrl+Shift+N` — New session',
             '- `Ctrl+Shift+F` — Search chat history',
           ].join('\n');
-          sendSystemInit(helpText, projectId, cardId, getActiveChatId(tabId));
+          sendSystemInit(helpText, projectId, cardId, useSessionStore.getState().getActiveChatId(tabId));
           break;
         }
         case '/agent': {
@@ -143,13 +141,13 @@ export function ChatInput({
               `/agent ${agentName}`,
               projectId,
               cardId,
-              getActiveChatId(tabId),
+              useSessionStore.getState().getActiveChatId(tabId),
             );
           }
           break;
         }
         case '/meeting':
-          sendMessage('/meeting', projectId, cardId, getActiveChatId(tabId));
+          sendMessage('/meeting', projectId, cardId, useSessionStore.getState().getActiveChatId(tabId));
           break;
       }
 
@@ -157,7 +155,7 @@ export function ChatInput({
       textareaRef.current.value = '';
       autoResize();
     },
-    [projectId, cardId, tabId, sendMessage, sendSystemInit, getActiveChatId, onNewSession, onClearChat],
+    [projectId, cardId, tabId, sendMessage, sendSystemInit, onNewSession, onClearChat],
   );
 
   const slashMenu = useSlashMenu(executeSlashCommand);
@@ -190,13 +188,13 @@ export function ChatInput({
     }
 
     // Update session title from first message if still default
-    const session = getActiveSession(tabId);
+    const session = useSessionStore.getState().getActiveSession(tabId);
     if (session && /^Session \d+$/.test(session.title)) {
       const title = content.slice(0, 25).trim() || 'Session';
       updateSessionTitle(tabId, session.id, title);
     }
 
-    const sessionId = getActiveChatId(tabId);
+    const sessionId = useSessionStore.getState().getActiveChatId(tabId);
     sendMessage(content, projectId, cardId, sessionId);
 
     // Clear + reset textarea
@@ -204,7 +202,7 @@ export function ChatInput({
     autoResize();
     el.focus();
     suggestions.onUserTyping('');
-  }, [tabId, projectId, cardId, sendMessage, getActiveChatId, getActiveSession, updateSessionTitle, autoResize, suggestions]);
+  }, [tabId, projectId, cardId, sendMessage, updateSessionTitle, autoResize, suggestions]);
 
   // ---------------------------------------------------------------------------
   // Keyboard handlers
@@ -276,10 +274,10 @@ export function ChatInput({
       `Please review this code:\n\`\`\`\n${pendingPaste}\n\`\`\``,
       projectId,
       cardId,
-      getActiveChatId(tabId),
+      useSessionStore.getState().getActiveChatId(tabId),
     );
     setPendingPaste(null);
-  }, [pendingPaste, projectId, cardId, tabId, sendMessage, getActiveChatId]);
+  }, [pendingPaste, projectId, cardId, tabId, sendMessage]);
 
   // ---------------------------------------------------------------------------
   // Emoji insertion

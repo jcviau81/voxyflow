@@ -84,9 +84,8 @@ function formatTime(ts: number): string {
 export function CardDetailModal() {
   const selectedCardId = useProjectStore((s) => s.selectedCardId);
   const selectCard = useProjectStore((s) => s.selectCard);
-  const getCard = useCardStore((s) => s.getCard);
   const updateCardStore = useCardStore((s) => s.updateCard);
-  const getCardsByProject = useCardStore((s) => s.getCardsByProject);
+  const cardsById = useCardStore((s) => s.cardsById);
   const showToast = useToastStore((s) => s.showToast);
 
   // Mutations
@@ -103,7 +102,7 @@ export function CardDetailModal() {
   const descriptionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Resolve current card from store
-  const card: Card | undefined = selectedCardId ? getCard(selectedCardId) : undefined;
+  const card: Card | undefined = selectedCardId ? cardsById[selectedCardId] : undefined;
   const isOpen = !!card;
 
   // Determine if on main board
@@ -111,8 +110,10 @@ export function CardDetailModal() {
 
   // Project cards for dependency picker
   const projectCards = useMemo(
-    () => (card?.projectId ? getCardsByProject(card.projectId) : []),
-    [card?.projectId, getCardsByProject],
+    () => card?.projectId
+      ? Object.values(cardsById).filter((c) => c.projectId === card.projectId)
+      : [],
+    [card?.projectId, cardsById],
   );
 
   // Sync description when card changes

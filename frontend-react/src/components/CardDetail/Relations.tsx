@@ -3,7 +3,7 @@
  * Port of the vanilla buildRelationsSection().
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import type { CardRelation, CardRelationType } from '../../types';
 import { useRelations, useAddRelation, useDeleteRelation } from '../../hooks/api/useCards';
@@ -69,15 +69,18 @@ export function RelationsSection({ cardId, projectId }: Props) {
   const { data: relations = [], isLoading } = useRelations(cardId);
   const addRelation = useAddRelation();
   const deleteRelation = useDeleteRelation();
-  const getCardsByProject = useCardStore((s) => s.getCardsByProject);
+  const cardsById = useCardStore((s) => s.cardsById);
   const showToast = useToastStore((s) => s.showToast);
 
   const [selectedCard, setSelectedCard] = useState('');
   const [selectedType, setSelectedType] = useState<CardRelationType>('relates_to');
 
-  const projectCards = projectId
-    ? getCardsByProject(projectId).filter((c) => c.id !== cardId)
-    : [];
+  const projectCards = useMemo(
+    () => projectId
+      ? Object.values(cardsById).filter((c) => c.projectId === projectId && c.id !== cardId)
+      : [],
+    [cardsById, projectId, cardId],
+  );
 
   const handleAdd = () => {
     if (!selectedCard) return;

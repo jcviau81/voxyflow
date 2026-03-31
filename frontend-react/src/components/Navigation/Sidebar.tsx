@@ -15,7 +15,7 @@
  *   onToggle — called to flip the open/close state in the parent
  */
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Home,
@@ -84,7 +84,11 @@ function ProjectItem({
   onToggleFavorite: (id: string) => void;
 }) {
   const navigate = useNavigate();
-  const cards = useCardStore((s) => s.getCardsByProject(project.id));
+  const cardsById = useCardStore((s) => s.cardsById);
+  const cards = useMemo(
+    () => Object.values(cardsById).filter((c) => c.projectId === project.id),
+    [cardsById, project.id],
+  );
   const openTabs = useTabStore((s) => s.openTabs);
   const openProjectTab = useTabStore((s) => s.openProjectTab);
 

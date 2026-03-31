@@ -20,8 +20,6 @@ interface VoiceInputProps {
 export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputProps) {
   const chat = useChatService();
   const showToast = useToastStore((s) => s.showToast);
-  const getActiveTab = useTabStore((s) => s.getActiveTab);
-  const getActiveChatId = useSessionStore((s) => s.getActiveChatId);
 
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -84,9 +82,9 @@ export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputPr
     const text = autoSendBufferRef.current.trim();
     if (!text) return;
 
-    const activeTab = getActiveTab();
+    const activeTab = useTabStore.getState().getActiveTab();
     const contextTabId = activeTab === 'main' ? SYSTEM_PROJECT_ID : activeTab;
-    const sessionId = wakeWordSessionIdRef.current || getActiveChatId(contextTabId);
+    const sessionId = wakeWordSessionIdRef.current || useSessionStore.getState().getActiveChatId(contextTabId);
     chat.sendMessage(text, undefined, undefined, sessionId);
     eventBus.emit(VOICE_EVENTS.VOICE_MESSAGE_SENT);
 
@@ -97,7 +95,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputPr
     setWakeWordPulsing(false);
 
     if (sttService.recording) stopRecording();
-  }, [chat, getActiveTab, getActiveChatId, stopRecording]);
+  }, [chat, stopRecording]);
 
   const scheduleWakeWordRestart = useCallback(() => {
     if (!wakeWordEnabled) return;
@@ -126,9 +124,9 @@ export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputPr
     setWakeWordEnabled(next);
 
     if (next) {
-      const activeTab = getActiveTab();
+      const activeTab = useTabStore.getState().getActiveTab();
       const contextTabId = activeTab === 'main' ? SYSTEM_PROJECT_ID : activeTab;
-      wakeWordSessionIdRef.current = getActiveChatId(contextTabId);
+      wakeWordSessionIdRef.current = useSessionStore.getState().getActiveChatId(contextTabId);
 
       ttsService.forceNative = true;
       await wakeWordService.start();
@@ -160,7 +158,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputPr
       parsed.voice.wake_word_enabled = next;
       localStorage.setItem('voxyflow_settings', JSON.stringify(parsed));
     } catch { /* ignore */ }
-  }, [wakeWordEnabled, getActiveTab, getActiveChatId, showToast]);
+  }, [wakeWordEnabled, showToast]);
 
   // ── Event bus subscriptions ────────────────────────────────────────────────
 
@@ -315,9 +313,9 @@ export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputPr
         if (parsed?.voice?.wake_word_enabled) {
           setWakeWordEnabled(true);
           // Start wake word asynchronously
-          const activeTab = getActiveTab();
+          const activeTab = useTabStore.getState().getActiveTab();
           const contextTabId = activeTab === 'main' ? SYSTEM_PROJECT_ID : activeTab;
-          wakeWordSessionIdRef.current = getActiveChatId(contextTabId);
+          wakeWordSessionIdRef.current = useSessionStore.getState().getActiveChatId(contextTabId);
           ttsService.forceNative = true;
           wakeWordService.start().catch(() => {});
         }

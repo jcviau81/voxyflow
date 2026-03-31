@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useChatService } from '../../contexts/useChatService';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useSessionStore } from '../../stores/useSessionStore';
@@ -43,12 +43,17 @@ export function ChatWindow({
 }: ChatWindowProps) {
   const { connectionState, connected } = useWS();
   const { loadHistory } = useChatService();
-  const getActiveChatId = useSessionStore((s) => s.getActiveChatId);
   const createSession = useSessionStore((s) => s.createSession);
   const replaceSessionMessages = useMessageStore((s) => s.replaceSessionMessages);
 
   const [searchOpen, setSearchOpen] = useState(false);
-  const sessionId = useSessionStore((s) => s.getActiveChatId(tabId));
+  const activeSession = useSessionStore((s) => s.activeSession);
+  const allSessions = useSessionStore((s) => s.sessions);
+  const sessionId = useMemo(
+    () => useSessionStore.getState().getActiveChatId(tabId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSession, allSessions, tabId],
+  );
 
   // ---------------------------------------------------------------------------
   // Load history when session changes
@@ -65,12 +70,12 @@ export function ChatWindow({
 
   const handleSessionSwitch = useCallback(
     (_newSessionId: string) => {
-      const chatId = getActiveChatId(tabId);
+      const chatId = useSessionStore.getState().getActiveChatId(tabId);
       if (chatId) {
         loadHistory(chatId, projectId, cardId, chatId, true).catch(() => {});
       }
     },
-    [tabId, projectId, cardId, getActiveChatId, loadHistory],
+    [tabId, projectId, cardId, loadHistory],
   );
 
   const handleNewSession = useCallback(() => {

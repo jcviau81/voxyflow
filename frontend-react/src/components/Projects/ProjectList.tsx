@@ -290,8 +290,6 @@ export function ProjectList() {
   const { data: allProjectsRaw = [], isLoading } = useProjects();
 
   const { currentProjectId, selectProject } = useProjectStore();
-  const getCardsByProject = useCardStore((s) => s.getCardsByProject);
-
   const archiveMutation = useArchiveProject();
   const deleteMutation = useDeleteProject();
   const favoriteMutation = useToggleFavorite();
@@ -299,7 +297,7 @@ export function ProjectList() {
 
   // ── Derive card stats ─────────────────────────────────────────────────────
   const getStats = useCallback((project: Project): CardStats => {
-    const cards = getCardsByProject(project.id);
+    const cards = useCardStore.getState().getCardsByProject(project.id);
     const total = cards.length;
     const done = cards.filter((c) => c.status === 'done').length;
     const inProgress = cards.filter((c) => c.status === 'in-progress').length;
@@ -307,7 +305,7 @@ export function ProjectList() {
     const ideas = cards.filter((c) => c.status === 'idea').length;
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     return { total, done, inProgress, todo, ideas, pct };
-  }, [getCardsByProject]);
+  }, []);
 
   const isCompleted = useCallback((p: Project) => {
     const { total, pct } = getStats(p);

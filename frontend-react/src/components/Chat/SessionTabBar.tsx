@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useWS } from '../../providers/WebSocketProvider';
 import { cn } from '../../lib/utils';
@@ -34,7 +34,12 @@ export function SessionTabBar({
   scope = 'project',
   onSessionSwitch,
 }: SessionTabBarProps) {
-  const sessions = useSessionStore((s) => s.getSessions(tabId, scope));
+  const allSessions = useSessionStore((s) => s.sessions);
+  const sessions = useMemo(
+    () => useSessionStore.getState().getSessions(tabId, scope),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allSessions, tabId, scope],
+  );
   const activeSessionId = useSessionStore((s) => s.activeSession[tabId] ?? '');
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const closeSession = useSessionStore((s) => s.closeSession);
