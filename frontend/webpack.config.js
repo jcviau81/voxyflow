@@ -72,8 +72,10 @@ module.exports = (env, argv) => {
       hot: true,
       historyApiFallback: true,
       server: {
-        type: "http",
+        type: "https",
         options: {
+          key: process.env.HOME + "/rog.tail6531d.ts.net.key",
+          cert: process.env.HOME + "/rog.tail6531d.ts.net.crt",
         },
       },
       proxy: [
