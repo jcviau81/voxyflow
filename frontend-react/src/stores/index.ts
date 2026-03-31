@@ -5,7 +5,15 @@ export { useCardStore, SYSTEM_PROJECT_ID } from './useCardStore';
 export type { CardState } from './useCardStore';
 
 export { useThemeStore } from './useThemeStore';
-export type { ThemeState, Theme, AccentColor } from './useThemeStore';
+export type {
+  ThemeState,
+  Theme,
+  AccentColor,
+  FontSize,
+  SidebarWidth,
+  CardDensity,
+  AnimationSpeed,
+} from './useThemeStore';
 
 export { useSessionStore } from './useSessionStore';
 export type { SessionState } from './useSessionStore';

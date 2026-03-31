@@ -1,43 +1,65 @@
 /**
- * useThemeStore — theme (dark/light) + accent color.
+ * useThemeStore — full appearance state.
  *
- * Mirrors the theme logic from AppState.setTheme().
- * Persists to localStorage and syncs the data-theme attribute on <html>.
+ * Mirrors ThemeService.ts + AppState.setTheme() from the vanilla frontend.
+ * Persists to localStorage and applies CSS variables / class names to <html>.
  */
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import {
+  type FontSize,
+  type SidebarWidth,
+  type CardDensity,
+  type AnimationSpeed,
+  DEFAULT_ACCENT,
+  applyAccentColor,
+  applyFontSize,
+  applySidebarWidth,
+  applyCardDensity,
+  applyAnimationSpeed,
+} from '../lib/themeConstants';
+
+export type { FontSize, SidebarWidth, CardDensity, AnimationSpeed };
 
 export type Theme = 'dark' | 'light';
 
-export type AccentColor =
-  | 'blue'
-  | 'purple'
-  | 'green'
-  | 'orange'
-  | 'pink'
-  | 'red'
-  | 'yellow'
-  | 'teal';
+/** Hex string — e.g. '#6c5ce7'. Use ACCENT_PRESETS for the picker. */
+export type AccentColor = string;
 
 export interface ThemeState {
   theme: Theme;
+  /** Hex string matching one of ACCENT_PRESETS (or custom). */
   accentColor: AccentColor;
+  fontSize: FontSize;
+  sidebarWidth: SidebarWidth;
+  cardDensity: CardDensity;
+  animationSpeed: AnimationSpeed;
 
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
-  setAccentColor: (color: AccentColor) => void;
+  setAccentColor: (hex: string) => void;
+  setFontSize: (size: FontSize) => void;
+  setSidebarWidth: (width: SidebarWidth) => void;
+  setCardDensity: (density: CardDensity) => void;
+  setAnimationSpeed: (speed: AnimationSpeed) => void;
 }
 
 function applyTheme(theme: Theme): void {
-  document.documentElement.setAttribute('data-theme', theme);
+  const root = document.documentElement;
+  root.setAttribute('data-theme', theme);
+  root.classList.toggle('dark', theme === 'dark');
 }
 
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => ({
       theme: 'dark',
-      accentColor: 'blue',
+      accentColor: DEFAULT_ACCENT,
+      fontSize: 'medium' as FontSize,
+      sidebarWidth: 'normal' as SidebarWidth,
+      cardDensity: 'comfortable' as CardDensity,
+      animationSpeed: 'normal' as AnimationSpeed,
 
       setTheme: (theme) => {
         applyTheme(theme);
@@ -50,20 +72,49 @@ export const useThemeStore = create<ThemeState>()(
         set({ theme: next });
       },
 
-      setAccentColor: (accentColor) => {
-        document.documentElement.setAttribute('data-accent', accentColor);
-        set({ accentColor });
+      setAccentColor: (hex) => {
+        applyAccentColor(hex);
+        set({ accentColor: hex });
+      },
+
+      setFontSize: (fontSize) => {
+        applyFontSize(fontSize);
+        set({ fontSize });
+      },
+
+      setSidebarWidth: (sidebarWidth) => {
+        applySidebarWidth(sidebarWidth);
+        set({ sidebarWidth });
+      },
+
+      setCardDensity: (cardDensity) => {
+        applyCardDensity(cardDensity);
+        set({ cardDensity });
+      },
+
+      setAnimationSpeed: (animationSpeed) => {
+        applyAnimationSpeed(animationSpeed);
+        set({ animationSpeed });
       },
     }),
     {
       name: 'voxyflow_theme',
-      partialize: (state) => ({ theme: state.theme, accentColor: state.accentColor }),
+      partialize: (state) => ({
+        theme: state.theme,
+        accentColor: state.accentColor,
+        fontSize: state.fontSize,
+        sidebarWidth: state.sidebarWidth,
+        cardDensity: state.cardDensity,
+        animationSpeed: state.animationSpeed,
+      }),
       onRehydrateStorage: () => (state) => {
-        // Apply persisted theme to <html> on page load
-        if (state) {
-          applyTheme(state.theme);
-          document.documentElement.setAttribute('data-accent', state.accentColor);
-        }
+        if (!state) return;
+        applyTheme(state.theme);
+        applyAccentColor(state.accentColor ?? DEFAULT_ACCENT);
+        applyFontSize(state.fontSize ?? 'medium');
+        applySidebarWidth(state.sidebarWidth ?? 'normal');
+        applyCardDensity(state.cardDensity ?? 'comfortable');
+        applyAnimationSpeed(state.animationSpeed ?? 'normal');
       },
     }
   )

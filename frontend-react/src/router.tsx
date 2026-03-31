@@ -13,6 +13,8 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
+import { SettingsPage } from './components/Settings/SettingsPage';
+
 // Placeholder page components — replaced as migration progresses.
 function MainPage() {
   return <div className="p-8 text-foreground">Main — Chat / Kanban / FreeBoard (coming soon)</div>;
@@ -20,10 +22,6 @@ function MainPage() {
 
 function ProjectPage() {
   return <div className="p-8 text-foreground">Project view (coming soon)</div>;
-}
-
-function SettingsPage() {
-  return <div className="p-8 text-foreground">Settings (coming soon)</div>;
 }
 
 function NotFound() {
