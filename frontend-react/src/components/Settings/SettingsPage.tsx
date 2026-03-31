@@ -14,6 +14,7 @@ import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Sliders } fro
 import { cn } from '../../lib/utils';
 import { AppearancePanel } from './AppearancePanel';
 import { ModelPanel } from './ModelPanel';
+import { VoicePanel } from './VoicePanel';
 
 // ── Panel registry ─────────────────────────────────────────────────────────
 
@@ -66,6 +67,8 @@ function renderPanel(id: PanelId) {
       return <AppearancePanel />;
     case 'models':
       return <ModelPanel />;
+    case 'voice':
+      return <VoicePanel />;
     default: {
       const item = NAV_ITEMS.find((n) => n.id === id);
       return <ComingSoonPanel label={item?.label ?? id} />;
