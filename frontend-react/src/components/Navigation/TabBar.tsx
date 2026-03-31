@@ -93,7 +93,7 @@ export function TabBar({ opportunityCount = 0, onPanelToggle }: TabBarProps) {
   }, [openTabs, activeTab, handleSwitchTab, handleCloseTab]);
 
   return (
-    <div className="tab-bar flex items-center gap-0.5 overflow-x-auto" data-testid="tab-bar">
+    <div className="tab-bar flex items-center gap-2 px-2 py-1.5 overflow-x-auto border-b border-border" data-testid="tab-bar">
       {openTabs.map((tab) => (
         <TabItem
           key={tab.id}
@@ -187,10 +187,10 @@ function TabItem({ tab, isActive, onSwitch, onClose }: TabItemProps) {
   return (
     <button
       className={cn(
-        'tab group flex items-center gap-1 px-2.5 py-1 rounded text-sm',
+        'tab group flex items-center gap-2 p-1 rounded text-sm',
         'max-w-[180px] flex-shrink-0 relative transition-colors',
         isActive
-          ? 'bg-background text-foreground shadow-sm border border-border'
+          ? 'bg-background bg-accent text-foreground shadow-sm border border-border transition-colors'
           : 'text-muted-foreground hover:text-foreground hover:bg-accent'
       )}
       data-testid={`tab-${tab.id}`}

@@ -291,7 +291,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
         {/* ── Favorites ── */}
         {favoriteProjects.length > 0 && (
-          <div className="sidebar-favorites mt-3">
+          <div className="sidebar-favorites mt-3 pt-2 border-t border-border">
             <p className="sidebar-section-header px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
               <Star size={10} className="shrink-0" />
               Favorites
@@ -309,7 +309,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
         {/* ── Active Sessions ── */}
         {sessionEntries.length > 0 && (
-          <div className="sidebar-sessions mt-3">
+          <div className="sidebar-sessions mt-3 pt-2 border-t border-border">
             <p className="sidebar-section-header px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
               <MessageCircle size={10} className="shrink-0" />
               Active Sessions
@@ -360,7 +360,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         )}
 
         {/* ── All Projects ── */}
-        <div className="sidebar-projects mt-3">
+        <div className="sidebar-projects mt-3 pt-2 border-t border-border">
           {/* Header with "All Projects" link */}
           <button
             className="sidebar-section-header w-full flex items-center justify-between px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
@@ -399,20 +399,20 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             </button>
           )}
         </div>
-
-        {/* ── Connection status ── */}
-        <div className="sidebar-status flex items-center gap-2 px-5 py-2 mt-2">
-          <span
-            className={cn(
-              'status-dot shrink-0 w-2 h-2 rounded-full',
-              CONNECTION_DOT_CLASS[connectionState],
-            )}
-          />
-          <span className="status-text text-xs text-muted-foreground capitalize whitespace-nowrap">
-            {connectionState}
-          </span>
-        </div>
       </nav>
+
+      {/* ── Connection status ── */}
+      <div className="sidebar-status flex align-middle items-center gap-2 px-5 py-2 mt-2">
+        <span
+          className={cn(
+            'status-dot shrink-0 w-2 h-2 rounded-full',
+            CONNECTION_DOT_CLASS[connectionState],
+          )}
+        />
+        <span className="status-text text-xs text-muted-foreground capitalize whitespace-nowrap">
+          {connectionState}
+        </span>
+      </div>
 
       {/* ── Footer ── */}
       <div
