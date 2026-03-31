@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Sliders } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { AppearancePanel } from './AppearancePanel';
+import { ModelPanel } from './ModelPanel';
 
 // ── Panel registry ─────────────────────────────────────────────────────────
 
@@ -63,6 +64,8 @@ function renderPanel(id: PanelId) {
   switch (id) {
     case 'appearance':
       return <AppearancePanel />;
+    case 'models':
+      return <ModelPanel />;
     default: {
       const item = NAV_ITEMS.find((n) => n.id === id);
       return <ComingSoonPanel label={item?.label ?? id} />;
