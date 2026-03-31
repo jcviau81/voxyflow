@@ -14,6 +14,7 @@ import { AppShell } from './components/layout/AppShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 import { SettingsPage } from './components/Settings/SettingsPage';
+import { ProjectList } from './components/Projects';
 
 // Placeholder page components — replaced as migration progresses.
 function MainPage() {
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <MainPage /> },
+      { path: 'projects', element: <ProjectList /> },
       { path: 'project/:id', element: <ProjectPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: '*', element: <NotFound /> },
