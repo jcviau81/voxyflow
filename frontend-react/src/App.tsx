@@ -1,5 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider } from 'react-router-dom';
 import { WebSocketProvider } from './providers/WebSocketProvider';
+import { router } from './router';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -14,7 +16,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <WebSocketProvider>
-        <h1>Hello Voxyflow</h1>
+        <RouterProvider router={router} />
       </WebSocketProvider>
     </QueryClientProvider>
   );
