@@ -23,7 +23,7 @@
   min-width: 60px;
   padding: 6px 10px;
   border-radius: var(--border-radius-sm);
-  background: var(--color-bg-primary, rgba(255,255,255,0.03));
+  background: var(--color-bg-secondary);
   transition: background var(--transition-fast);
 }
 
@@ -134,7 +134,7 @@
   font-size: 0.7rem;
   padding: 2px 8px;
   border-radius: 10px;
-  background: var(--color-surface-hover, rgba(255, 255, 255, 0.08));
+  background: var(--color-bg-hover);
   color: var(--color-text-muted);
   white-space: nowrap;
   margin-left: auto;

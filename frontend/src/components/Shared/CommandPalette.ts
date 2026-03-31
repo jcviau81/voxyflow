@@ -4,7 +4,6 @@ import { eventBus } from '../../utils/EventBus';
 import { EVENTS } from '../../utils/constants';
 import { Tab } from '../../types';
 import { FocusMode } from '../FocusMode/FocusMode';
-import { openMeetingNotesModal } from '../Chat/MeetingNotesModal';
 import { historyManager } from '../../utils/HistoryManager';
 
 interface PaletteAction {
@@ -185,13 +184,6 @@ export class CommandPalette {
         action: () => {
           if (this.shortcutsModalShow) this.shortcutsModalShow();
         },
-      },
-      {
-        id: 'import-meeting-notes',
-        label: 'Import Meeting Notes',
-        icon: '📝',
-        category: 'Actions',
-        action: () => openMeetingNotesModal(),
       },
       {
         id: 'focus-mode',

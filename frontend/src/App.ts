@@ -11,7 +11,7 @@ import { TopBar } from './components/Navigation/TopBar';
 import { TabBar } from './components/Navigation/TabBar';
 import { ChatWindow } from './components/Chat/ChatWindow';
 import { KanbanBoard } from './components/Kanban/KanbanBoard';
-import { CardDetailModal } from './components/shared/CardDetailModal';
+import { CardDetailModal } from './components/Shared/CardDetailModal';
 import { ProjectList } from './components/Projects/ProjectList';
 import { ProjectForm } from './components/Projects/ProjectForm';
 import { ProjectHeader } from './components/Projects/ProjectHeader';
@@ -26,7 +26,6 @@ import { FocusMode } from './components/FocusMode/FocusMode';
 import { historyManager } from './utils/HistoryManager';
 import { ProjectStats } from './components/Projects/ProjectStats';
 import { ProjectKnowledge } from './components/Projects/ProjectKnowledge';
-import { SprintPlanner } from './components/Projects/SprintPlanner';
 import { ProjectDocuments } from './components/Projects/ProjectDocuments';
 
 export class App {
@@ -581,7 +580,7 @@ export class App {
         component = new ProjectKnowledge(this.mainContent);
         break;
       case 'sprint':
-        component = new SprintPlanner(this.mainContent);
+        // SprintPlanner removed
         break;
       case 'docs':
         component = new ProjectDocuments(this.mainContent);

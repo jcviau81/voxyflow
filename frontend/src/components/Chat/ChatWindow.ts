@@ -17,7 +17,6 @@ import { ChatSearch } from './ChatSearch';
 import { SmartSuggestions } from './SmartSuggestions';
 import { codeReviewService } from '../../services/CodeReviewService';
 import { ttsService, cleanTextForSpeech } from '../../services/TtsService';
-import { openMeetingNotesModal } from './MeetingNotesModal';
 
 export interface ChatWindowOptions {
   /** When true, hides header, bottom bar, session tabs, task panel, search — keeps messages + input */
@@ -1413,9 +1412,6 @@ export class ChatWindow {
         break;
       }
 
-      case '/meeting':
-        openMeetingNotesModal();
-        break;
 
       default:
         break;

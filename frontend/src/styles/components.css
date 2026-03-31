@@ -997,7 +997,7 @@
 
 .kanban-action-btn {
   padding: 6px 12px;
-  background: var(--color-surface-2, rgba(255, 255, 255, 0.06));
+  background: var(--color-bg-hover);
   color: var(--color-text-secondary, #aaa);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
   border-radius: var(--border-radius-sm);
@@ -1008,7 +1008,7 @@
 }
 
 .kanban-action-btn:hover {
-  background: var(--color-surface-3, rgba(255, 255, 255, 0.1));
+  background: var(--color-border-light);
   color: var(--color-text, #fff);
   border-color: var(--color-primary, #ff6b6b);
 }
@@ -1045,80 +1045,6 @@
   border-bottom: 1px solid var(--color-border);
   font-size: 0.8125rem;
   font-weight: 600;
-  gap: 6px;
-}
-
-/* ── Column sort button & dropdown ── */
-.kanban-sort-wrapper {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.kanban-sort-btn {
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-  line-height: 1;
-  padding: 2px 5px;
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition);
-}
-
-.kanban-sort-btn:hover {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text);
-}
-
-.kanban-sort-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 200;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  min-width: 170px;
-  padding: 4px 0;
-  white-space: nowrap;
-}
-
-.kanban-sort-menu-item {
-  display: block;
-  width: 100%;
-  background: transparent;
-  border: none;
-  color: var(--color-text);
-  font-size: 0.8125rem;
-  padding: 7px 14px;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.kanban-sort-menu-item:hover {
-  background: var(--color-bg-tertiary);
-}
-
-.kanban-sort-menu-item.active {
-  color: var(--color-accent);
-  font-weight: 600;
-}
-
-/* ── Manual drag-and-drop intra-column indicators ── */
-.kanban-card--dragging-manual {
-  opacity: 0.4;
-  outline: 2px dashed var(--color-accent);
-}
-
-.kanban-card--drag-over-top {
-  border-top: 2px solid var(--color-accent) !important;
-}
-
-.kanban-card--drag-over-bottom {
-  border-bottom: 2px solid var(--color-accent) !important;
 }
 
 .kanban-column-count {
@@ -1343,7 +1269,7 @@
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--color-text-secondary, #aaa);
-  background: var(--color-surface-2, rgba(255,255,255,0.06));
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border, rgba(255,255,255,0.08));
   border-radius: 8px;
   padding: 1px 6px;
@@ -1351,7 +1277,7 @@
   transition: background var(--transition);
 }
 .card-dependency-badge:hover {
-  background: var(--color-surface-3, rgba(255,255,255,0.12));
+  background: var(--color-border-light);
   color: var(--color-text, #fff);
 }
 
@@ -1384,7 +1310,7 @@
 
 .kanban-execution-progress {
   padding: 8px 12px;
-  background: var(--color-surface-2, rgba(255, 255, 255, 0.04));
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-primary, rgba(78, 205, 196, 0.3));
   border-radius: var(--border-radius-sm);
   margin-bottom: 8px;
@@ -1458,7 +1384,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: var(--color-surface-2, rgba(255,255,255,0.06));
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border, rgba(255,255,255,0.1));
   border-radius: 12px;
   padding: 3px 8px 3px 10px;
@@ -1495,7 +1421,7 @@
 .dep-add-select {
   width: 100%;
   padding: 6px 10px;
-  background: var(--color-surface-2, rgba(255,255,255,0.06));
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border, rgba(255,255,255,0.1));
   border-radius: var(--border-radius-sm);
   color: var(--color-text, #e0e0e0);
@@ -1529,8 +1455,8 @@
 }
 
 .dependency-graph-panel {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
   border-radius: var(--border-radius, 12px);
   box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   width: min(640px, 95%);
@@ -1546,10 +1472,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.08));
   position: sticky;
   top: 0;
-  background: var(--color-bg-elevated);
+  background: var(--color-bg-secondary);
   z-index: 1;
 }
 
@@ -1564,7 +1490,7 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--color-surface-2, rgba(255,255,255,0.06));
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border);
   color: var(--color-text-muted);
   font-size: 0.875rem;
@@ -1605,7 +1531,7 @@
 .dep-graph-item {
   padding: 8px 10px;
   margin-bottom: 6px;
-  background: var(--color-surface-2, rgba(255,255,255,0.04));
+  background: var(--color-bg-hover);
   border-radius: var(--border-radius-sm);
   border-left: 3px solid rgba(255,140,0,0.4);
   font-size: 0.8125rem;
@@ -4231,7 +4157,7 @@
 .github-panel-refresh-btn:hover,
 .github-panel-toggle-btn:hover {
   color: var(--color-text, #e0e0e0);
-  background: var(--color-hover, rgba(255,255,255,0.06));
+  background: var(--color-bg-hover);
 }
 
 /* Stats row */
@@ -4316,7 +4242,7 @@
 
 .github-issue-item:hover,
 .github-pr-item:hover {
-  background: var(--color-hover, rgba(255,255,255,0.03));
+  background: var(--color-bg-hover);
 }
 
 .github-item-link {
@@ -5636,8 +5562,8 @@
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--color-accent, #cba6f7), #89b4fa);
-  color: #1e1e2e;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-info));
+  color: #fff;
   font-size: 0.8125rem;
   font-weight: 700;
   display: flex;
@@ -5685,7 +5611,7 @@
 }
 
 .comment-delete:hover {
-  color: var(--color-danger, #f38ba8);
+  color: var(--color-error);
 }
 
 .comment-input-row {
@@ -5710,16 +5636,16 @@
 
 .comment-textarea:focus {
   outline: none;
-  border-color: var(--color-accent, #cba6f7);
+  border-color: var(--color-accent);
 }
 
 .comment-textarea::placeholder {
-  color: var(--color-text-muted, #6c7086);
+  color: var(--color-text-muted);
 }
 
 .comment-submit-btn {
-  background: var(--color-accent, #cba6f7);
-  color: #1e1e2e;
+  background: var(--color-accent);
+  color: #fff;
   border: none;
   border-radius: 8px;
   font-size: 0.8125rem;
@@ -6386,14 +6312,14 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--color-surface-2, rgba(255,255,255,0.04));
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border, rgba(255,255,255,0.08));
   border-radius: 8px;
   transition: background 0.15s;
 }
 
 .relation-item:hover {
-  background: var(--color-surface-3, rgba(255,255,255,0.08));
+  background: var(--color-border-light);
 }
 
 .relation-icon {
@@ -6488,7 +6414,7 @@
 .relation-type-select {
   flex: 1;
   min-width: 120px;
-  background: var(--color-surface-2, rgba(255,255,255,0.06));
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border, rgba(255,255,255,0.12));
   color: var(--color-text, #e5e7eb);
   border-radius: 6px;
@@ -6575,7 +6501,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  background: var(--color-surface-2, rgba(255,255,255,0.04));
+  background: var(--color-bg-hover);
   border-radius: 6px;
   font-size: 0.8125rem;
   flex-wrap: wrap;
@@ -6629,9 +6555,9 @@
   position: fixed;
   z-index: 9999;
   background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border-light);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: var(--shadow-lg);
   min-width: 160px;
   padding: 4px 0;
   animation: contextMenuFadeIn 0.1s ease;
@@ -6648,7 +6574,7 @@
   gap: 8px;
   padding: 8px 14px;
   font-size: 0.8125rem;
-  color: var(--color-text, #e2e8f0);
+  color: var(--color-text);
   cursor: pointer;
   transition: background 0.1s;
   user-select: none;
@@ -6659,11 +6585,11 @@
 }
 
 .card-context-item--danger {
-  color: #f87171;
+  color: var(--color-error);
 }
 
 .card-context-item--danger:hover {
-  background: rgba(248, 113, 113, 0.1);
+  background: rgba(239, 83, 80, 0.1);
 }
 
 .card-context-icon {
@@ -6695,9 +6621,9 @@
   position: fixed;
   z-index: 10000;
   background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border-light);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  box-shadow: var(--shadow-lg);
   min-width: 180px;
   padding: 4px 0;
   animation: contextMenuFadeIn 0.1s ease;
@@ -6709,7 +6635,7 @@
   gap: 8px;
   padding: 8px 14px;
   font-size: 0.8125rem;
-  color: var(--color-text, #e2e8f0);
+  color: var(--color-text);
   cursor: pointer;
   transition: background 0.1s;
   user-select: none;
@@ -6719,8 +6645,8 @@
 }
 
 .card-context-submenu-item:hover {
-  background: rgba(78, 205, 196, 0.12);
-  color: var(--color-accent, #4ecdc4);
+  background: var(--color-accent-glow);
+  color: var(--color-accent);
 }
 
 /* ── Card Actions Button (...) ─────────────────────────────────────────────── */
@@ -6757,16 +6683,16 @@
 }
 
 .card-actions-btn:hover {
-  background: rgba(255,255,255,0.1);
-  color: var(--color-text, #e2e8f0);
+  background: var(--color-bg-hover);
+  color: var(--color-text);
 }
 
 /* ── Duplicate Button in Card Detail Modal ─────────────────────────────────── */
 
 .duplicate-btn {
-  background: rgba(78, 205, 196, 0.12);
+  background: var(--color-accent-glow);
   border: 1px solid rgba(78, 205, 196, 0.3);
-  color: #4ecdc4;
+  color: var(--color-accent);
   border-radius: 6px;
   padding: 5px 10px;
   font-size: 0.8125rem;
@@ -6789,7 +6715,7 @@
 .execute-btn {
   background: rgba(76, 175, 80, 0.12);
   border: 1px solid rgba(76, 175, 80, 0.3);
-  color: #4caf50;
+  color: var(--color-success);
   border-radius: 6px;
   padding: 5px 10px;
   font-size: 0.8125rem;
@@ -6801,7 +6727,7 @@
 
 .execute-btn:hover:not(:disabled) {
   background: rgba(76, 175, 80, 0.22);
-  border-color: rgba(76, 175, 80, 0.5);
+  border-color: var(--color-success);
 }
 
 .execute-btn:disabled {
@@ -6836,7 +6762,7 @@
   font-weight: 500;
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: var(--color-bg-tertiary);
+  background: var(--color-bg-elevated);
   color: var(--color-text-muted);
   cursor: pointer;
   opacity: 0;
@@ -6850,7 +6776,7 @@ pre:hover .code-review-btn,
 }
 
 .code-review-btn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
+  background: var(--color-bg-tertiary);
   color: var(--color-text);
   border-color: var(--color-primary);
 }
@@ -6865,7 +6791,7 @@ pre:hover .code-review-btn,
   margin: 8px 0 16px;
   padding: 12px 14px;
   border-left: 3px solid var(--color-primary);
-  background: var(--color-bg-tertiary);
+  background: var(--color-bg-elevated);
   border-radius: 0 8px 8px 0;
   font-size: 0.8125rem;
   line-height: 1.5;
@@ -6879,13 +6805,13 @@ pre:hover .code-review-btn,
   justify-content: space-between;
   font-weight: 600;
   margin-bottom: 8px;
-  color: var(--color-primary, #f97316);
+  color: var(--color-primary);
 }
 
 .code-review-result-close {
   background: none;
   border: none;
-  color: var(--color-text-muted, #9ca3af);
+  color: var(--color-text-muted);
   cursor: pointer;
   font-size: 0.875rem;
   padding: 0 4px;
@@ -6893,12 +6819,12 @@ pre:hover .code-review-btn,
 }
 
 .code-review-result-close:hover {
-  color: var(--color-text, #f3f4f6);
+  color: var(--color-text);
 }
 
 .code-review-summary {
   margin: 0 0 10px;
-  color: var(--color-text, #e5e7eb);
+  color: var(--color-text);
 }
 
 .code-review-section-title {
@@ -6906,7 +6832,7 @@ pre:hover .code-review-btn,
   font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--color-text-muted, #9ca3af);
+  color: var(--color-text-muted);
   margin: 10px 0 4px;
 }
 
@@ -6922,25 +6848,25 @@ pre:hover .code-review-btn,
   font-size: 0.8125rem;
 }
 
-.code-review-issue-error { color: #f87171; }
-.code-review-issue-warning { color: #fbbf24; }
-.code-review-issue-info { color: #60a5fa; }
+.code-review-issue-error { color: var(--color-error); }
+.code-review-issue-warning { color: var(--color-warning); }
+.code-review-issue-info { color: var(--color-info); }
 
 .code-review-suggestion {
   padding: 3px 0;
   font-size: 0.8125rem;
-  color: var(--color-text, #d1d5db);
+  color: var(--color-text-secondary);
 }
 
 .code-review-no-issues {
   margin: 4px 0 0;
-  color: #4ade80;
+  color: var(--color-success);
   font-size: 0.8125rem;
 }
 
 .code-review-error {
-  border-left-color: #f87171;
-  color: #f87171;
+  border-left-color: var(--color-error);
+  color: var(--color-error);
 }
 
 /* Code paste detection banner */
@@ -6949,7 +6875,7 @@ pre:hover .code-review-btn,
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--color-bg-tertiary);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: 8px;
   margin-bottom: 6px;
@@ -6963,7 +6889,7 @@ pre:hover .code-review-btn,
 
 .code-paste-banner-label {
   flex: 1;
-  color: var(--color-text, #e5e7eb);
+  color: var(--color-text);
 }
 
 .code-paste-banner-btn {
@@ -6977,13 +6903,13 @@ pre:hover .code-review-btn,
 }
 
 .code-paste-banner-review {
-  background: var(--color-primary, #f97316);
+  background: var(--color-primary);
   color: #fff;
-  border-color: var(--color-primary, #f97316);
+  border-color: var(--color-primary);
 }
 
 .code-paste-banner-review:hover {
-  background: #ea6c0a;
+  background: var(--color-primary-hover);
 }
 
 .code-paste-banner-dismiss {
@@ -7075,9 +7001,9 @@ pre:hover .code-review-btn,
   gap: 8px;
   padding: 10px 16px;
   background: var(--color-bg-elevated);
-  border: 1px solid var(--color-accent, #4ecdc4);
+  border: 1px solid var(--color-accent);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(78, 205, 196, 0.2);
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--color-accent-glow);
   flex-wrap: wrap;
   max-width: 90vw;
   animation: bulk-toolbar-in 0.2s ease;
@@ -7099,7 +7025,7 @@ pre:hover .code-review-btn,
 .bulk-select-count {
   font-size: 0.8125rem;
   font-weight: 600;
-  color: var(--color-accent, #4ecdc4);
+  color: var(--color-accent);
   white-space: nowrap;
 }
 
@@ -7129,13 +7055,13 @@ pre:hover .code-review-btn,
 }
 
 .bulk-toolbar-action--danger {
-  color: #f87171;
+  color: var(--color-error);
   border-color: rgba(248, 113, 113, 0.3);
 }
 
 .bulk-toolbar-action--danger:hover {
-  background: rgba(248, 113, 113, 0.15);
-  border-color: #f87171;
+  background: rgba(239, 83, 80, 0.15);
+  border-color: var(--color-error);
 }
 
 .bulk-toolbar-clear {
@@ -7173,11 +7099,11 @@ pre:hover .code-review-btn,
 }
 
 .bulk-toolbar-assign-input:focus {
-  border-color: var(--color-accent, #4ecdc4);
+  border-color: var(--color-accent);
 }
 
 .bulk-toolbar-assign-input::placeholder {
-  color: var(--color-text-muted, #9ca3af);
+  color: var(--color-text-muted);
 }
 
 /* Bulk action dropdown */
@@ -7186,9 +7112,9 @@ pre:hover .code-review-btn,
   z-index: 1100;
   min-width: 150px;
   background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border-light);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
   padding: 4px;
   animation: fadeIn 0.12s ease;
 }
@@ -7202,7 +7128,7 @@ pre:hover .code-review-btn,
   background: transparent;
   border: none;
   border-radius: 4px;
-  color: var(--color-text, #f3f4f6);
+  color: var(--color-text);
   cursor: pointer;
   transition: background 0.1s;
 }

@@ -88,7 +88,7 @@
   line-height: 1.5;
   background: transparent;
   padding: 0;
-  color: #cdd6f4;
+  color: var(--color-code-text, #cdd6f4);
 }
 
 /* Copy button on code blocks */
@@ -96,7 +96,7 @@
   position: absolute;
   top: 6px;
   right: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-bg-hover);
   border: none;
   color: var(--color-text-muted);
   padding: 3px 8px;
@@ -108,7 +108,7 @@
 }
 
 .code-copy-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--color-border-light);
   color: var(--color-text);
 }
 
@@ -338,8 +338,8 @@
 /* ============= HIGHLIGHT.JS THEME (Catppuccin-ish Dark) ============= */
 
 .hljs {
-  color: #cdd6f4;
-  background: #12121a;
+  color: var(--color-code-text, #cdd6f4);
+  background: var(--color-code-bg, #12121a);
 }
 
 .hljs-keyword,
@@ -414,4 +414,75 @@
 
 .hljs-strong {
   font-weight: 700;
+}
+
+/* ============= HIGHLIGHT.JS — Light Theme Overrides ============= */
+
+[data-theme="light"] .hljs {
+  color: var(--color-code-text);
+  background: var(--color-code-bg);
+}
+
+[data-theme="light"] .hljs-keyword,
+[data-theme="light"] .hljs-selector-tag,
+[data-theme="light"] .hljs-title,
+[data-theme="light"] .hljs-section,
+[data-theme="light"] .hljs-doctag,
+[data-theme="light"] .hljs-name,
+[data-theme="light"] .hljs-strong {
+  color: #8839ef;
+}
+
+[data-theme="light"] .hljs-comment,
+[data-theme="light"] .hljs-quote {
+  color: #9ca0b0;
+}
+
+[data-theme="light"] .hljs-string,
+[data-theme="light"] .hljs-title.class_,
+[data-theme="light"] .hljs-title.class_.inherited__,
+[data-theme="light"] .hljs-template-variable,
+[data-theme="light"] .hljs-template-tag,
+[data-theme="light"] .hljs-addition {
+  color: #40a02b;
+}
+
+[data-theme="light"] .hljs-number,
+[data-theme="light"] .hljs-literal,
+[data-theme="light"] .hljs-type,
+[data-theme="light"] .hljs-params,
+[data-theme="light"] .hljs-link {
+  color: #fe640b;
+}
+
+[data-theme="light"] .hljs-built_in,
+[data-theme="light"] .hljs-builtin-name {
+  color: #179299;
+}
+
+[data-theme="light"] .hljs-attr,
+[data-theme="light"] .hljs-variable,
+[data-theme="light"] .hljs-selector-id,
+[data-theme="light"] .hljs-selector-class {
+  color: #df8e1d;
+}
+
+[data-theme="light"] .hljs-symbol,
+[data-theme="light"] .hljs-bullet,
+[data-theme="light"] .hljs-subst {
+  color: #d20f39;
+}
+
+[data-theme="light"] .hljs-meta {
+  color: #1e66f5;
+}
+
+[data-theme="light"] .hljs-deletion {
+  color: #d20f39;
+  background: rgba(210, 15, 57, 0.08);
+}
+
+[data-theme="light"] .hljs-addition {
+  color: #40a02b;
+  background: rgba(64, 160, 43, 0.08);
 }
