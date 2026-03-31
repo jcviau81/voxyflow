@@ -1,0 +1,56 @@
+import { useState } from 'react';
+import { useProjectStore } from '../../stores/useProjectStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useCards } from '../../hooks/api/useCards';
+import { StatsGrid } from './StatsGrid';
+import { StandupSection } from './StandupSection';
+import { BriefSection } from './BriefSection';
+import { HealthSection } from './HealthSection';
+import { PrioritySection } from './PrioritySection';
+import { FocusSection, type FocusAnalytics } from './FocusSection';
+
+export function ProjectStats() {
+  const currentProjectId = useProjectStore(s => s.currentProjectId);
+  const project = useProjectStore(s => s.getActiveProject());
+  const activities = useNotificationStore(s =>
+    currentProjectId ? s.getActivities(currentProjectId, 50) : []
+  );
+
+  const { data: cards = [] } = useCards(currentProjectId ?? '');
+
+  const [focusAnalytics, setFocusAnalytics] = useState<FocusAnalytics | null>(null);
+
+  if (!currentProjectId) {
+    return (
+      <div className="stats-view">
+        <div className="stats-empty">No project selected.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="stats-view">
+      <StatsGrid
+        cards={cards}
+        activities={activities}
+        focusAnalytics={focusAnalytics}
+      />
+
+      <StandupSection projectId={currentProjectId} />
+
+      <BriefSection
+        projectId={currentProjectId}
+        projectName={project?.name ?? 'project'}
+      />
+
+      <HealthSection projectId={currentProjectId} />
+
+      <PrioritySection projectId={currentProjectId} cards={cards} />
+
+      <FocusSection
+        projectId={currentProjectId}
+        onAnalyticsLoaded={setFocusAnalytics}
+      />
+    </div>
+  );
+}
