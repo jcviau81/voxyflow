@@ -2,8 +2,8 @@
  * CardDetailModal — React port of the vanilla CardDetailModal.
  *
  * Three-column layout:
- *   LEFT:   Description editor (CodeMirror placeholder for now)
- *   CENTER: Embedded card chat (placeholder for now)
+ *   LEFT:   DescriptionEditor (CodeMirror-backed)
+ *   CENTER: CardChat (embedded per-card chat)
  *   RIGHT:  Metadata sidebar (status, agent, tags, color, people, deps, etc.)
  *
  * Opens when useProjectStore.selectedCardId is set.

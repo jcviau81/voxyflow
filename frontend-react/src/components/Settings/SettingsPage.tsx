@@ -2,8 +2,7 @@
  * SettingsPage — settings layout shell with sidebar navigation between panels.
  *
  * Matches the section structure of the vanilla SettingsPage.ts (2420 lines).
- * Only the Appearance panel is implemented in step 14a; the rest are placeholders
- * that will be filled in steps 14b–14d.
+ * All panels are implemented: Appearance, Models, GitHub, Voice, Workspace, Data, Jobs, About.
  *
  * Vanilla sections:
  *   Appearance · Personality · Models · GitHub · Voice · Workspace · Connection · Data · Jobs · About

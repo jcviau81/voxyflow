@@ -4,6 +4,7 @@ import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
+import { useChatService } from '../../contexts/useChatService';
 import {
   usePatchCard,
   useDuplicateCard,
@@ -107,6 +108,7 @@ export function KanbanCard({
   const [isDragging, setIsDragging] = useState(false);
 
   const showToast = useToastStore((s) => s.showToast);
+  const { sendMessage } = useChatService();
   const projects = useProjectStore((s) => s.projects);
   const { selectCard } = useProjectStore();
   const cardsById = useCardStore((s) => s.cardsById);
@@ -186,7 +188,7 @@ export function KanbanCard({
     try {
       const result = await executeCard.mutateAsync(card.id);
       if (result) {
-        // TODO: route to ChatContext.sendMessage when chat is migrated (step 9)
+        sendMessage(result.prompt, card.projectId || undefined, card.id);
         showToast(`▶ Executing: "${card.title}"`, 'success');
       }
     } catch {
