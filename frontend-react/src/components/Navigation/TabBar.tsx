@@ -4,10 +4,16 @@ import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useSessionStore } from '../../stores/useSessionStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useWS } from '../../providers/WebSocketProvider';
 import type { Tab } from '../../types';
 
-export function TabBar() {
+interface TabBarProps {
+  opportunityCount?: number;
+  onPanelToggle?: (tab: 'opportunities' | 'notifications') => void;
+}
+
+export function TabBar({ opportunityCount = 0, onPanelToggle }: TabBarProps) {
   const navigate = useNavigate();
   const openTabs = useTabStore((s) => s.openTabs);
   const activeTab = useTabStore((s) => s.activeTab);
@@ -16,6 +22,7 @@ export function TabBar() {
   const selectProject = useProjectStore((s) => s.selectProject);
   const sessions = useSessionStore((s) => s.sessions);
   const closeSession = useSessionStore((s) => s.closeSession);
+  const notificationUnreadCount = useNotificationStore((s) => s.notificationUnreadCount);
   const { send } = useWS();
 
   const handleSwitchTab = useCallback(
@@ -109,7 +116,55 @@ export function TabBar() {
       >
         +
       </button>
+
+      {/* Right-side panel triggers */}
+      <div className="ml-auto flex items-center gap-0.5 pl-2 flex-shrink-0">
+        <PanelTrigger
+          icon="💡"
+          count={opportunityCount}
+          title="Opportunities"
+          onClick={() => onPanelToggle?.('opportunities')}
+        />
+        <PanelTrigger
+          icon="🔔"
+          count={notificationUnreadCount}
+          title="Notifications"
+          badge="red"
+          onClick={() => onPanelToggle?.('notifications')}
+        />
+      </div>
     </div>
+  );
+}
+
+interface PanelTriggerProps {
+  icon: string;
+  count: number;
+  title: string;
+  badge?: 'primary' | 'red';
+  onClick?: () => void;
+}
+
+function PanelTrigger({ icon, count, title, badge = 'primary', onClick }: PanelTriggerProps) {
+  return (
+    <button
+      className="relative flex items-center justify-center w-7 h-7 rounded text-base text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex-shrink-0"
+      title={title}
+      onClick={onClick}
+    >
+      {icon}
+      {count > 0 && (
+        <span
+          className={cn(
+            'absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-[3px]',
+            'text-[9px] font-bold leading-[14px] text-center rounded-full text-white',
+            badge === 'red' ? 'bg-red-500' : 'bg-primary',
+          )}
+        >
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </button>
   );
 }
 

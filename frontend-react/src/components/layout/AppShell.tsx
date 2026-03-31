@@ -6,12 +6,11 @@
  *     .app-layout
  *       aside.sidebar-container      ← Sidebar (nav + projects + footer)
  *       .main-area
- *         .top-bar-container         ← TopBar (hamburger, project name, layer toggles)
- *         .tab-bar-container         ← TabBar (session tabs)
+ *         .tab-bar-container         ← TabBar (session tabs + panel triggers)
  *         .project-header-container  ← ProjectHeader (view tabs: kanban/chat/stats…)
  *         main.main-content          ← <Outlet /> (routed page)
  *       aside.worker-panel-container ← WorkerPanel (active Deep workers)
- *       aside.opportunities-container← RightPanel (Opportunities + Notifications)
+ *     RightPanel drawer (fixed, toggled from TabBar)
  */
 import { Outlet } from 'react-router-dom';
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -22,7 +21,6 @@ import { useProjectStore } from '../../stores/useProjectStore';
 import { CardDetailModal } from '../CardDetail';
 import { Sidebar } from '../Navigation/Sidebar';
 import { TabBar } from '../Navigation/TabBar';
-import { TopBar } from '../Navigation/TopBar';
 import { ProjectHeader } from '../Projects';
 import { WorkerPanel } from '../RightPanel/WorkerPanel';
 import { RightPanel } from '../RightPanel/RightPanel';
@@ -33,6 +31,8 @@ import type { CardSuggestion } from '../../contexts/ChatProvider';
 export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [opportunities, setOpportunities] = useState<CardSuggestion[]>([]);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState<'opportunities' | 'notifications'>('opportunities');
   const theme = useThemeStore((s) => s.theme);
   const { registerCallbacks } = useChatService();
 
@@ -59,6 +59,18 @@ export function AppShell() {
   }, []);
 
   const toggleSidebar = useCallback(() => setSidebarOpen((o) => !o), []);
+
+  const handlePanelToggle = useCallback((tab: 'opportunities' | 'notifications') => {
+    setPanelTab((prev) => {
+      // If already open on same tab → close
+      if (panelOpen && prev === tab) {
+        setPanelOpen(false);
+        return prev;
+      }
+      setPanelOpen(true);
+      return tab;
+    });
+  }, [panelOpen]);
 
   // Global keyboard shortcuts (Ctrl+1 → chat, Ctrl+2 → kanban, Ctrl+B → sidebar)
   useEffect(() => {
@@ -104,11 +116,11 @@ export function AppShell() {
 
         {/* ── Main area ── */}
         <div className="main-area flex flex-col flex-1 overflow-hidden">
-          {/* TopBar: hamburger + project name + mode pill + voice toggles */}
-          <TopBar onMenuClick={toggleSidebar} />
-
           {/* TabBar: session tabs (Main + open projects) */}
-          <TabBar />
+          <TabBar
+            opportunityCount={opportunities.length}
+            onPanelToggle={handlePanelToggle}
+          />
 
           {/* Project header — view tabs (Chat / Kanban / Board / Knowledge) */}
           <ProjectHeader />
@@ -123,16 +135,31 @@ export function AppShell() {
         <aside className="worker-panel-container">
           <WorkerPanel />
         </aside>
-
-        {/* ── Right panel (Opportunities + Notifications) ── */}
-        <aside className="opportunities-container">
-          <RightPanel
-            opportunities={opportunities}
-            onOpportunityAccepted={handleOpportunityAccepted}
-            onOpportunityDismissed={handleOpportunityDismissed}
-          />
-        </aside>
       </div>
+
+      {/* ── Right panel drawer (Opportunities + Notifications) ── */}
+      {panelOpen && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setPanelOpen(false)}
+        />
+      )}
+      <aside
+        className={cn(
+          'fixed top-0 right-0 bottom-0 z-50 w-72 flex flex-col',
+          'bg-secondary border-l border-border shadow-2xl',
+          'transition-transform duration-200',
+          panelOpen ? 'translate-x-0' : 'translate-x-full',
+        )}
+      >
+        <RightPanel
+          opportunities={opportunities}
+          onOpportunityAccepted={handleOpportunityAccepted}
+          onOpportunityDismissed={handleOpportunityDismissed}
+          defaultTab={panelTab}
+          onClose={() => setPanelOpen(false)}
+        />
+      </aside>
 
       {/* Global card detail modal — opens when selectedCardId is set */}
       <CardDetailModal />

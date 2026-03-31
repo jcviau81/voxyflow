@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -182,6 +182,7 @@ export interface RightPanelProps {
   onOpportunityAccepted: (id: string) => void;
   onOpportunityDismissed: (id: string) => void;
   defaultTab?: RightPanelTab;
+  onClose?: () => void;
 }
 
 export function RightPanel({
@@ -189,8 +190,14 @@ export function RightPanel({
   onOpportunityAccepted,
   onOpportunityDismissed,
   defaultTab = 'opportunities',
+  onClose,
 }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<RightPanelTab>(defaultTab);
+
+  // Sync active tab when the trigger icon changes it
+  useEffect(() => {
+    setActiveTab(defaultTab);
+  }, [defaultTab]);
 
   const notifications = useNotificationStore((s) => s.notifications);
   const notificationUnreadCount = useNotificationStore(
@@ -241,9 +248,9 @@ export function RightPanel({
   return (
     <div className="flex flex-col h-full bg-secondary overflow-hidden" data-testid="right-panel">
       {/* Tab bar */}
-      <div className="flex border-b border-border shrink-0">
+      <div className="flex items-center border-b border-border shrink-0">
         <button
-          className={cn('flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer border-b-2 border-transparent', activeTab === 'opportunities' && 'text-foreground border-primary')}
+          className={cn('flex flex-1 items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer border-b-2 border-transparent', activeTab === 'opportunities' && 'text-foreground border-primary')}
           data-tab="opportunities"
           title="Opportunities"
           onClick={() => switchTab('opportunities')}
@@ -254,7 +261,7 @@ export function RightPanel({
           )}
         </button>
         <button
-          className={cn('flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer border-b-2 border-transparent', activeTab === 'notifications' && 'text-foreground border-primary')}
+          className={cn('flex flex-1 items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer border-b-2 border-transparent', activeTab === 'notifications' && 'text-foreground border-primary')}
           data-tab="notifications"
           title="Notifications"
           onClick={() => switchTab('notifications')}
@@ -266,6 +273,15 @@ export function RightPanel({
             </span>
           )}
         </button>
+        {onClose && (
+          <button
+            className="flex items-center justify-center w-7 h-7 mr-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex-shrink-0"
+            title="Close"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        )}
       </div>
 
       {/* Body */}
