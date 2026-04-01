@@ -10,6 +10,7 @@ import { useWS } from '../../providers/WebSocketProvider';
 import { useSlashMenu, type SlashCommand } from './SlashCommandMenu';
 import { EmojiPicker } from './EmojiPicker';
 import { SmartSuggestions, type ChatLevel } from './SmartSuggestions';
+import { Mic, Volume2, SendHorizonal } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -418,7 +419,7 @@ export function ChatInput({
               title={sttAutoSend ? 'Auto-send voice: ON' : 'Auto-send voice: OFF'}
               onClick={() => toggleVoiceSetting('stt_auto_send')}
             >
-              {'\uD83D\uDCE4'}
+              <Mic size={14} />
             </button>
             <button
               type="button"
@@ -429,7 +430,7 @@ export function ChatInput({
               title={ttsAutoPlay ? 'Auto-play TTS: ON' : 'Auto-play TTS: OFF'}
               onClick={() => toggleVoiceSetting('tts_auto_play')}
             >
-              {'\uD83D\uDD0A'}
+              <Volume2 size={14} />
             </button>
           </div>
         )}
@@ -447,7 +448,7 @@ export function ChatInput({
           disabled={!connected}
           onClick={sendCurrentMessage}
         >
-          &rarr;
+          <SendHorizonal size={16} />
         </button>
       </div>
     </div>
