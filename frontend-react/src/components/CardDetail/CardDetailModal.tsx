@@ -34,7 +34,7 @@ import { StatusButtons } from './StatusButtons';
 import { AgentSelector } from './AgentSelector';
 import { TagsSection } from './TagsSection';
 import { ColorPicker } from './ColorPicker';
-import { VoteSection } from './VoteSection';
+
 import { ProjectPicker } from './ProjectPicker';
 import { DependenciesSection } from './DependenciesSection';
 
@@ -381,7 +381,7 @@ export function CardDetailModal() {
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Agent</label>
                   <AgentSelector current={card.agentType ?? 'general'} onChange={handleAgentChange} />
                 </div>
-                <VoteSection cardId={card.id} votes={card.votes ?? 0} />
+
               </section>
 
               <hr className="border-border" />
