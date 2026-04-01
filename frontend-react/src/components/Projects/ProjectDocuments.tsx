@@ -1,7 +1,9 @@
 import { useRef, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Upload, Trash2, Loader2, File, FileText, FileCode, BookOpen, Sheet } from 'lucide-react';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
+import type { LucideIcon } from 'lucide-react';
 
 interface ProjectDocument {
   id: string;
@@ -25,13 +27,18 @@ function formatDate(iso: string): string {
   }
 }
 
-function getDocIcon(filename: string, mimeType: string): string {
+function getDocIconComponent(filename: string, mimeType: string): LucideIcon {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  if (ext === 'pdf' || mimeType === 'application/pdf') return '📕';
-  if (ext === 'xlsx' || ext === 'xls' || mimeType.includes('spreadsheet') || mimeType.includes('excel')) return '📊';
-  if (ext === 'docx' || ext === 'doc' || mimeType.includes('word') || mimeType.includes('msword')) return '📝';
-  if (ext === 'md') return '📋';
-  return '📄';
+  if (ext === 'pdf' || mimeType === 'application/pdf') return BookOpen;
+  if (ext === 'xlsx' || ext === 'xls' || mimeType.includes('spreadsheet') || mimeType.includes('excel')) return Sheet;
+  if (ext === 'docx' || ext === 'doc' || mimeType.includes('word') || mimeType.includes('msword')) return FileText;
+  if (ext === 'md') return FileCode;
+  return File;
+}
+
+function DocIcon({ filename, mimeType }: { filename: string; mimeType: string }) {
+  const Icon = getDocIconComponent(filename, mimeType);
+  return <Icon size={14} className="shrink-0 text-muted-foreground" />;
 }
 
 const ALLOWED_EXTS = ['.txt', '.md', '.pdf', '.docx', '.xlsx'];
@@ -139,7 +146,9 @@ export function ProjectDocuments() {
           onClick={() => fileInputRef.current?.click()}
           disabled={uploadMutation.isPending}
         >
-          {uploadMutation.isPending ? '⏳ Uploading…' : '⬆️ Upload'}
+          {uploadMutation.isPending
+            ? <><Loader2 size={13} className="animate-spin" /> Uploading…</>
+            : <><Upload size={13} /> Upload</>}
         </button>
       </div>
 
@@ -177,7 +186,7 @@ export function ProjectDocuments() {
         ) : (
           docs.map((doc) => (
             <div key={doc.id} className="doc-item">
-              <span className="doc-icon">{getDocIcon(doc.filename, doc.mime_type)}</span>
+              <span className="doc-icon"><DocIcon filename={doc.filename} mimeType={doc.mime_type} /></span>
               <span className="doc-name">{doc.filename}</span>
               <span className="doc-meta">{formatBytes(doc.file_size)} · {formatDate(doc.created_at)}</span>
               <button
@@ -189,7 +198,7 @@ export function ProjectDocuments() {
                 onClick={() => deleteMutation.mutate({ docId: doc.id, filename: doc.filename })}
                 disabled={deleteMutation.isPending}
               >
-                🗑️
+                <Trash2 size={13} />
               </button>
             </div>
           ))

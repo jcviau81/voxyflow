@@ -1,6 +1,12 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
+import {
+  Upload, Save, Eye, Pencil, Trash2, Plus, Loader2,
+  File, FileText, FileCode, BookOpen, Sheet,
+  Files, BookMarked, Database, Settings,
+  type LucideIcon,
+} from 'lucide-react';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { cn } from '../../lib/utils';
@@ -43,13 +49,18 @@ function formatDate(iso: string): string {
   }
 }
 
-function getDocIcon(filename: string, mimeType: string): string {
+function getDocIconComponent(filename: string, mimeType: string): LucideIcon {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  if (ext === 'pdf' || mimeType === 'application/pdf') return '📕';
-  if (ext === 'xlsx' || ext === 'xls' || mimeType.includes('spreadsheet') || mimeType.includes('excel')) return '📊';
-  if (ext === 'docx' || ext === 'doc' || mimeType.includes('word') || mimeType.includes('msword')) return '📝';
-  if (ext === 'md') return '📋';
-  return '📄';
+  if (ext === 'pdf' || mimeType === 'application/pdf') return BookOpen;
+  if (ext === 'xlsx' || ext === 'xls' || mimeType.includes('spreadsheet') || mimeType.includes('excel')) return Sheet;
+  if (ext === 'docx' || ext === 'doc' || mimeType.includes('word') || mimeType.includes('msword')) return FileText;
+  if (ext === 'md') return FileCode;
+  return File;
+}
+
+function DocIcon({ filename, mimeType, size = 14 }: { filename: string; mimeType: string; size?: number }) {
+  const Icon = getDocIconComponent(filename, mimeType);
+  return <Icon size={size} className="shrink-0 text-muted-foreground" />;
 }
 
 const ALLOWED_EXTS = ['.txt', '.md', '.pdf', '.docx', '.xlsx'];
@@ -149,7 +160,9 @@ function DocumentsTab({ projectId }: DocumentsTabProps) {
           onClick={() => fileInputRef.current?.click()}
           disabled={uploadMutation.isPending}
         >
-          {uploadMutation.isPending ? '⏳ Uploading…' : '⬆️ Upload'}
+          {uploadMutation.isPending
+            ? <><Loader2 size={13} className="animate-spin" /> Uploading…</>
+            : <><Upload size={13} /> Upload</>}
         </button>
       </div>
 
@@ -169,7 +182,9 @@ function DocumentsTab({ projectId }: DocumentsTabProps) {
         ) : (
           docs.map((doc) => (
             <div key={doc.id} className="knowledge-item">
-              <span className="knowledge-item-icon">{getDocIcon(doc.filename, doc.mime_type)}</span>
+              <span className="knowledge-item-icon">
+                <DocIcon filename={doc.filename} mimeType={doc.mime_type} />
+              </span>
               <span className="knowledge-item-name">{doc.filename}</span>
               <span className="knowledge-item-meta">{formatBytes(doc.file_size)} · {formatDate(doc.created_at)}</span>
               <button
@@ -178,7 +193,7 @@ function DocumentsTab({ projectId }: DocumentsTabProps) {
                 onClick={() => deleteMutation.mutate({ docId: doc.id, filename: doc.filename })}
                 disabled={deleteMutation.isPending}
               >
-                🗑️
+                <Trash2 size={13} />
               </button>
             </div>
           ))
@@ -205,7 +220,6 @@ function WikiTab({ projectId }: WikiTabProps) {
   const [previewMode, setPreviewMode] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
-  // List
   const { data: pages = [] } = useQuery<WikiPageSummary[]>({
     queryKey: ['projects', projectId, 'wiki'],
     queryFn: async () => {
@@ -217,7 +231,6 @@ function WikiTab({ projectId }: WikiTabProps) {
     retry: false,
   });
 
-  // Detail
   const { data: activePage } = useQuery<WikiPageDetail>({
     queryKey: ['projects', projectId, 'wiki', activePageId],
     queryFn: async () => {
@@ -229,14 +242,12 @@ function WikiTab({ projectId }: WikiTabProps) {
     staleTime: 30_000,
   });
 
-  // Auto-select first page
   useEffect(() => {
     if (pages.length > 0 && !activePageId) {
       setActivePageId(pages[0].id);
     }
   }, [pages, activePageId]);
 
-  // Sync editor state when active page loads
   useEffect(() => {
     if (activePage) {
       setEditTitle(activePage.title);
@@ -325,7 +336,7 @@ function WikiTab({ projectId }: WikiTabProps) {
             onClick={() => createMutation.mutate()}
             disabled={createMutation.isPending}
           >
-            +
+            <Plus size={13} />
           </button>
         </div>
 
@@ -338,9 +349,7 @@ function WikiTab({ projectId }: WikiTabProps) {
                 key={page.id}
                 className={cn('wiki-page-item', activePageId === page.id && 'active')}
                 onClick={() => {
-                  if (activePageId !== page.id) {
-                    setActivePageId(page.id);
-                  }
+                  if (activePageId !== page.id) setActivePageId(page.id);
                 }}
               >
                 <span className="wiki-page-item-title">{page.title || 'Untitled'}</span>
@@ -374,14 +383,16 @@ function WikiTab({ projectId }: WikiTabProps) {
                 onClick={() => saveMutation.mutate()}
                 disabled={!dirty || saveMutation.isPending}
               >
-                {saveMutation.isPending ? '⏳' : '💾'} Save
+                {saveMutation.isPending
+                  ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                  : <><Save size={13} /> Save</>}
               </button>
               <button
                 className={cn('wiki-preview-btn', previewMode && 'active')}
                 title="Toggle preview"
                 onClick={() => setPreviewMode(p => !p)}
               >
-                {previewMode ? '✏️ Edit' : '👁 Preview'}
+                {previewMode ? <><Pencil size={13} /> Edit</> : <><Eye size={13} /> Preview</>}
               </button>
               <button
                 className="wiki-delete-btn"
@@ -389,7 +400,7 @@ function WikiTab({ projectId }: WikiTabProps) {
                 onClick={handleDeleteClick}
                 disabled={deleteMutation.isPending}
               >
-                🗑️
+                <Trash2 size={13} />
               </button>
             </div>
 
@@ -447,23 +458,23 @@ function RagTab({ projectId }: RagTabProps) {
   });
 
   const techStack = project?.techStack as string[] | undefined;
-  const ragItems: Array<{ icon: string; name: string; status: string }> = [];
+  const ragItems: Array<{ Icon: LucideIcon; name: string; status: string }> = [];
 
   if (techStack && techStack.length > 0) {
     for (const tech of techStack) {
-      ragItems.push({ icon: '⚙️', name: tech, status: 'auto-detected' });
+      ragItems.push({ Icon: Settings, name: tech, status: 'auto-detected' });
     }
   }
   if (docs.length > 0) {
     ragItems.push({
-      icon: '📄',
+      Icon: Files,
       name: `${docs.length} document${docs.length === 1 ? '' : 's'} indexed`,
       status: 'indexed',
     });
   }
   if (wikiPages.length > 0) {
     ragItems.push({
-      icon: '📖',
+      Icon: BookMarked,
       name: `${wikiPages.length} wiki page${wikiPages.length === 1 ? '' : 's'}`,
       status: 'indexed',
     });
@@ -479,7 +490,9 @@ function RagTab({ projectId }: RagTabProps) {
         ) : (
           ragItems.map((item, i) => (
             <div key={i} className="knowledge-item">
-              <span className="knowledge-item-icon">{item.icon}</span>
+              <span className="knowledge-item-icon">
+                <item.Icon size={14} className="text-muted-foreground" />
+              </span>
               <span className="knowledge-item-name">{item.name}</span>
               <span className="knowledge-rag-status indexed">{item.status}</span>
             </div>
@@ -492,10 +505,10 @@ function RagTab({ projectId }: RagTabProps) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const KNOWLEDGE_TABS: { id: KnowledgeTab; label: string }[] = [
-  { id: 'documents', label: '📄 Documents' },
-  { id: 'wiki',      label: '📖 Wiki' },
-  { id: 'rag',       label: '🔗 RAG Sources' },
+const KNOWLEDGE_TABS: { id: KnowledgeTab; Icon: LucideIcon; label: string }[] = [
+  { id: 'documents', Icon: Files,       label: 'Documents' },
+  { id: 'wiki',      Icon: BookMarked,  label: 'Wiki' },
+  { id: 'rag',       Icon: Database,    label: 'RAG Sources' },
 ];
 
 interface ProjectKnowledgeProps {
@@ -525,6 +538,7 @@ export function ProjectKnowledge({ projectId: projectIdProp }: ProjectKnowledgeP
             className={cn('knowledge-tab-btn', activeTab === tab.id && 'active')}
             onClick={() => setActiveTab(tab.id)}
           >
+            <tab.Icon size={13} />
             {tab.label}
           </button>
         ))}
