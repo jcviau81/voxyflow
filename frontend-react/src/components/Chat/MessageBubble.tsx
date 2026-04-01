@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Volume2, Square } from 'lucide-react';
 import type { Message } from '../../types';
 import { ttsService, cleanTextForSpeech } from '../../services/ttsService';
 import { cn } from '../../lib/utils';
@@ -175,13 +176,15 @@ function TtsButton({ text }: TtsButtonProps) {
     <button
       onClick={handleClick}
       className={cn(
-        'text-sm opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity',
-        speaking && 'opacity-100',
+        'opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity',
+        speaking && 'opacity-100 text-primary',
       )}
       title={speaking ? 'Stop' : 'Read aloud'}
       type="button"
     >
-      {speaking ? '⏹' : '🔊'}
+      {speaking
+        ? <Square size={13} className="text-muted-foreground" />
+        : <Volume2 size={13} className="text-muted-foreground" />}
     </button>
   );
 }
@@ -251,6 +254,20 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
   const getPlainText = useCallback(() => {
     return contentRef.current?.textContent || message.content;
   }, [message.content]);
+
+  // Auto-play TTS when streaming finishes, if setting is enabled
+  const prevStreamingRef = useRef(message.streaming);
+  useEffect(() => {
+    if (prevStreamingRef.current === true && !message.streaming && !isUser) {
+      try {
+        const settings = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+        if (settings?.voice?.tts_auto_play) {
+          ttsService.speak(cleanTextForSpeech(message.content));
+        }
+      } catch { /* ignore */ }
+    }
+    prevStreamingRef.current = message.streaming;
+  }, [message.streaming, message.content, isUser]);
 
   return (
     <div

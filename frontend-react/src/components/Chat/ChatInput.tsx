@@ -307,6 +307,13 @@ export function ChatInput({
           suggestions.onUserTyping(text);
         }
       },
+      onVoiceRecordingStop: () => {
+        if (textareaRef.current) {
+          textareaRef.current.value = '';
+          autoResize();
+          suggestions.onUserTyping('');
+        }
+      },
       onMessageStreamEnd: ({ content }) => {
         suggestions.onAiResponse(content);
       },

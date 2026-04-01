@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { Mic, Square, Radio } from 'lucide-react';
 import { eventBus } from '../../utils/eventBus';
 import { VOICE_EVENTS, STT_EVENTS, type SttResult } from '../../utils/voiceEvents';
 import { sttService } from '../../services/sttService';
@@ -396,37 +397,37 @@ export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputPr
           isMobile ? (
             <button
               type="button"
-              className={`voice-btn p-2 rounded-lg text-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted'}`}
+              className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
               data-tooltip={pttTooltip}
               onTouchStart={handlePttTouchStart}
               onClick={handlePttClick}
               aria-label={isRecording ? 'Stop recording' : 'Start recording'}
             >
-              {isRecording ? '⏹️' : '🎤'}
+              {isRecording ? <Square size={16} /> : <Mic size={16} />}
             </button>
           ) : (
             <button
               type="button"
-              className={`voice-btn p-2 rounded-lg text-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted'}`}
+              className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
               data-tooltip={pttTooltip}
               onMouseDown={handlePttMouseDown}
               onMouseUp={handlePttMouseUp}
               onMouseLeave={handlePttMouseLeave}
               aria-label={isRecording ? 'Stop recording' : 'Hold to talk (Alt+V)'}
             >
-              {isRecording ? '⏹️' : '🎤'}
+              {isRecording ? <Square size={16} /> : <Mic size={16} />}
             </button>
           )
         )}
 
         <button
           type="button"
-          className={`wake-word-btn p-2 rounded-lg text-lg transition-colors${wakeWordEnabled ? ' active bg-purple-500 text-white' : ' hover:bg-muted'}${wakeWordPulsing ? ' animate-pulse' : ''}`}
+          className={`wake-word-btn p-2 rounded-lg transition-colors${wakeWordEnabled ? ' active bg-purple-500 text-white' : ' hover:bg-muted text-muted-foreground'}${wakeWordPulsing ? ' animate-pulse' : ''}`}
           data-tooltip={wakeWordEnabled ? 'Wake Word Mode ON' : 'Wake Word Mode'}
           onClick={toggleWakeWord}
           aria-label={wakeWordEnabled ? 'Disable wake word mode' : 'Enable wake word mode'}
         >
-          🎙️
+          <Radio size={16} />
         </button>
       </div>
 
