@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useState } from 'react';
-import { Pin, Copy, Pencil, Target, FolderInput, Archive, Timer, Play, CheckSquare, Link2, CheckCircle2, Circle, Trash2 } from 'lucide-react';
+import { Pin, Copy, Pencil, Target, FolderInput, Archive, Timer, Play, CheckSquare, Link2, CheckCircle2, Circle, Trash2, Folder } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
@@ -429,7 +429,7 @@ export function KanbanCard({
               <DropdownMenuSubContent>
                 {otherProjects.map((p) => (
                   <DropdownMenuItem key={p.id} onSelect={() => handleMoveTo(p.id, p.name)}>
-                    <span>{p.emoji ?? '📁'}</span> {p.name}
+                    {p.emoji ? <span>{p.emoji}</span> : <Folder size={13} />} {p.name}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>
