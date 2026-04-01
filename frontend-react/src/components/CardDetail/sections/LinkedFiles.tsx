@@ -31,7 +31,8 @@ export function LinkedFiles({
     try {
       const resp = await fetch(`/api/projects/${projectId}/documents`);
       if (resp.ok) {
-        setDocs((await resp.json()) as KnowledgeDoc[]);
+        const data = await resp.json() as { documents: KnowledgeDoc[] };
+        setDocs(data.documents ?? []);
       }
     } catch (e) {
       console.error('[LinkedFiles] Failed to load knowledge docs:', e);
