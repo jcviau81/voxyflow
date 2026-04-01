@@ -34,14 +34,12 @@ import { StatusButtons } from './StatusButtons';
 import { AgentSelector } from './AgentSelector';
 import { TagsSection } from './TagsSection';
 import { ColorPicker } from './ColorPicker';
-import { AssigneeWatchers } from './AssigneeWatchers';
 import { VoteSection } from './VoteSection';
 import { ProjectPicker } from './ProjectPicker';
 import { DependenciesSection } from './DependenciesSection';
 
 // Section components (step 11b)
 import { TimeTracking } from './sections/TimeTracking';
-import { CommentsSection } from './sections/Comments';
 import { ChecklistSection } from './sections/Checklist';
 import { AttachmentsSection } from './sections/Attachments';
 import { LinkedFiles } from './sections/LinkedFiles';
@@ -185,16 +183,6 @@ export function CardDetailModal() {
       save({ tags: card.tags.filter((t) => t !== tag) });
     },
     [card, save],
-  );
-
-  const handleAssigneeChange = useCallback(
-    (assignee: string | null) => save({ assignee }),
-    [save],
-  );
-
-  const handleWatchersChange = useCallback(
-    (watchers: string) => save({ watchers }),
-    [save],
   );
 
   const handleAddDep = useCallback(
@@ -419,21 +407,6 @@ export function CardDetailModal() {
 
               <hr className="border-border" />
 
-              {/* Group 3: People */}
-              <section className="space-y-3">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                  People
-                </span>
-                <AssigneeWatchers
-                  assignee={card.assignee}
-                  watchers={card.watchers ?? ''}
-                  onAssigneeChange={handleAssigneeChange}
-                  onWatchersChange={handleWatchersChange}
-                />
-              </section>
-
-              <hr className="border-border" />
-
               {/* Group 4: Tracking */}
               <section className="space-y-3">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
@@ -443,16 +416,6 @@ export function CardDetailModal() {
                 <ChecklistSection cardId={card.id} />
                 <LinkedFiles cardId={card.id} files={card.files ?? []} />
                 <AttachmentsSection cardId={card.id} />
-              </section>
-
-              <hr className="border-border" />
-
-              {/* Group 4b: Discussion */}
-              <section className="space-y-3">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                  Discussion
-                </span>
-                <CommentsSection cardId={card.id} />
               </section>
 
               <hr className="border-border" />
