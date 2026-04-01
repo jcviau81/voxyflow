@@ -14,6 +14,16 @@ const AGENT_ICONS: Record<string, LucideIcon> = {
   qa:         FlaskConical,
 };
 
+const AGENT_COLORS: Record<string, string> = {
+  general:    'text-slate-400',
+  researcher: 'text-blue-400',
+  coder:      'text-emerald-400',
+  designer:   'text-pink-400',
+  architect:  'text-orange-400',
+  writer:     'text-violet-400',
+  qa:         'text-amber-400',
+};
+
 // Fallback agents derived from AGENT_TYPE_EMOJI when API hasn't loaded yet
 const FALLBACK_AGENTS: AgentInfo[] = Object.entries(AGENT_TYPE_EMOJI).map(([type, emoji]) => ({
   type,
@@ -60,7 +70,7 @@ export function AgentSelector({ current, onChange }: AgentSelectorProps) {
                 : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted',
             )}
           >
-            {Icon && <Icon size={11} />}
+            {Icon && <Icon size={11} className={AGENT_COLORS[agent.type]} />}
             {agent.name}
           </button>
         );
