@@ -206,7 +206,7 @@ _orchestrator = ChatOrchestrator(_claude_service, _analyzer_service)
 
 
 # Serve frontend (SPA)
-_frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+_frontend_dist = Path(__file__).parent.parent.parent / "frontend-react" / "dist"
 if _frontend_dist.exists():
     app.mount("/static-dist", StaticFiles(directory=str(_frontend_dist)), name="static-dist")
 
