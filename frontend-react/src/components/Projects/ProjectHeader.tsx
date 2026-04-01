@@ -88,7 +88,7 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
                 if (currentView !== tab.view) setView(tab.view);
               }}
               className={cn(
-                'project-header__tab flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors',
+                'project-header__tab flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors cursor-pointer',
                 isActive
                   ? 'project-header__tab--active bg-accent text-accent-foreground font-medium'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'

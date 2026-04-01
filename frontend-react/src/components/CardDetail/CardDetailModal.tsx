@@ -38,8 +38,7 @@ import { ColorPicker } from './ColorPicker';
 import { ProjectPicker } from './ProjectPicker';
 import { DependenciesSection } from './DependenciesSection';
 
-// Section components (step 11b)
-import { TimeTracking } from './sections/TimeTracking';
+
 import { ChecklistSection } from './sections/Checklist';
 import { AttachmentsSection } from './sections/Attachments';
 import { LinkedFiles } from './sections/LinkedFiles';
@@ -272,7 +271,7 @@ export function CardDetailModal() {
         <DialogTitle className="sr-only">{card.title}</DialogTitle>
 
         {/* ── Header ───────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+        <div className="flex items-center items-center gap-2 border-b border-border px-4 py-2.5">
           <input
             ref={titleRef}
             defaultValue={card.title}
@@ -281,32 +280,34 @@ export function CardDetailModal() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
             }}
-            className="flex-1 bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50"
+            className="flex bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50"
             placeholder="Card title..."
           />
-          <button
-            type="button"
-            onClick={handleExecute}
-            disabled={executeCard.isPending}
-            className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-          >
-            {executeCard.isPending ? '▶ Executing...' : '▶ Execute'}
-          </button>
-          <button
-            type="button"
-            onClick={handleDuplicate}
-            disabled={duplicateCard.isPending}
-            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-          >
-            <Copy size={12} /> Duplicate
-          </button>
-          <button
-            type="button"
-            onClick={handleArchive}
-            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-          >
-            <Archive size={12} /> Archive
-          </button>
+          <div className='flex gap-1.5'>
+            <button
+              type="button"
+              onClick={handleExecute}
+              disabled={executeCard.isPending}
+              className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+            >
+              {executeCard.isPending ? '▶ Executing...' : '▶ Execute'}
+            </button>
+            <button
+              type="button"
+              onClick={handleDuplicate}
+              disabled={duplicateCard.isPending}
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+            >
+              <Copy size={12} /> Duplicate
+            </button>
+            <button
+              type="button"
+              onClick={handleArchive}
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+            >
+              <Archive size={12} /> Archive
+            </button>
+          </div>
         </div>
 
         {/* ── Mobile tab bar (hidden on desktop) ───────────────────────────── */}
@@ -378,7 +379,7 @@ export function CardDetailModal() {
               <section className="space-y-3">
                 <StatusButtons current={card.status} onChange={handleStatusChange} />
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Agent</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground cursor-pointer">Agent</label>
                   <AgentSelector current={card.agentType ?? 'general'} onChange={handleAgentChange} />
                 </div>
 
@@ -412,7 +413,7 @@ export function CardDetailModal() {
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
                   Tracking
                 </span>
-                <TimeTracking cardId={card.id} />
+
                 <ChecklistSection cardId={card.id} />
                 <LinkedFiles cardId={card.id} files={card.files ?? []} />
                 <AttachmentsSection cardId={card.id} />

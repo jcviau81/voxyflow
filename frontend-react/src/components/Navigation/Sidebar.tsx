@@ -363,7 +363,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         <div className="sidebar-projects mt-3 pt-2 border-t border-border">
           {/* Header with "All Projects" link */}
           <button
-            className="sidebar-section-header w-full flex items-center justify-between px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+            className="sidebar-section-header w-full flex items-center justify-between px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap cursor-pointer"
             title="All projects"
             onClick={() => navigate('/projects')}
           >
@@ -376,7 +376,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
           {/* New project */}
           <button
-            className="sidebar-new-project flex items-center gap-2 w-full px-3 py-1.5 mx-2 rounded-md text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap"
+            className="sidebar-new-project flex items-center gap-2 w-full px-3 py-1.5 mx-2 rounded-md text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap cursor-pointer"
             style={{ width: 'calc(100% - 1rem)' }}
             data-testid="sidebar-new-project"
             onClick={() => navigate('/projects?new=1')}
@@ -388,7 +388,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           {/* Archived link */}
           {archivedProjects.length > 0 && (
             <button
-              className="sidebar-archived-link flex items-center gap-2 w-full px-3 py-1.5 mx-2 rounded-md text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap"
+              className="sidebar-archived-link flex items-center gap-2 w-full px-3 py-1.5 mx-2 rounded-md text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap cursor-pointer"
               style={{ width: 'calc(100% - 1rem)' }}
               data-testid="sidebar-archived"
               title={`${archivedProjects.length} archived project${archivedProjects.length > 1 ? 's' : ''}`}
@@ -422,14 +422,14 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         {/* Notification bell */}
         <div className="notification-bell-wrapper relative">
           <button
-            className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
             data-action="notifications"
             title="Notifications"
           >
             <Bell size={16} />
           </button>
           {notificationUnreadCount > 0 && (
-            <span className="notification-badge absolute -top-1 -right-1 flex items-center justify-center min-w-[16px] h-4 px-0.5 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none">
+            <span className="notification-badge absolute -top-1 -right-1 flex items-center justify-center min-w-[16px] h-4 px-0.5 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold leading-none cursor-pointer">
               {notificationUnreadCount > 99 ? '99+' : notificationUnreadCount}
             </span>
           )}
@@ -437,7 +437,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
         {/* Theme toggle */}
         <button
-          className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
           data-action="theme-toggle"
           title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           onClick={toggleTheme}
@@ -451,7 +451,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           className={({ isActive }) =>
             cn(
               'sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground',
-              'hover:bg-accent hover:text-accent-foreground transition-colors',
+              'hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer',
               isActive && 'text-foreground bg-accent',
             )
           }
@@ -463,7 +463,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
         {/* Docs */}
         <button
-          className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
           data-action="docs"
           title="Documentation"
         >
@@ -472,7 +472,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
         {/* Help */}
         <button
-          className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
           data-action="help"
           title="Help"
         >

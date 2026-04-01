@@ -106,7 +106,7 @@ export function TabBar({ opportunityCount = 0, onPanelToggle }: TabBarProps) {
 
       <button
         className={cn(
-          'tab-add flex-shrink-0 flex items-center justify-center',
+          'tab-add flex-shrink-0 flex items-center justify-center cursor-pointer' ,
           'w-7 h-7 rounded text-sm font-medium',
           'text-muted-foreground hover:text-foreground hover:bg-accent',
           'transition-colors'
@@ -149,7 +149,7 @@ interface PanelTriggerProps {
 function PanelTrigger({ icon, count, title, badge = 'primary', onClick }: PanelTriggerProps) {
   return (
     <button
-      className="relative flex items-center justify-center w-7 h-7 rounded text-base text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex-shrink-0"
+      className="relative flex items-center justify-center w-7 h-7 rounded text-base text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex-shrink-0 cursor-pointer"
       title={title}
       onClick={onClick}
     >
@@ -187,8 +187,8 @@ function TabItem({ tab, isActive, onSwitch, onClose }: TabItemProps) {
   return (
     <button
       className={cn(
-        'tab group flex items-center gap-2 p-1 rounded text-sm',
-        'max-w-[180px] flex-shrink-0 relative transition-colors',
+        'tab group flex items-center gap-2 p-1 rounded text-sm transition-colors hover:bg-accent cursor-pointer hover:bg-accent',
+        'max-w-[180px] flex-shrink-0 relative transition-colors cursor-pointer',
         isActive
           ? 'bg-background bg-accent text-foreground shadow-sm border border-border transition-colors'
           : 'text-muted-foreground hover:text-foreground hover:bg-accent'
