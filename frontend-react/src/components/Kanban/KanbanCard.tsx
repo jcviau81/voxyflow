@@ -382,16 +382,16 @@ export function KanbanCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onSelect={handleExecute}>
-              <Play size={13} /> Execute
+              <Play size={13} className="text-emerald-400" /> Execute
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={handleMoveToBoard}>
-              <Pin size={13} /> Move to Board
+              <Pin size={13} className="text-blue-400" /> Move to Board
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={handleDuplicate}>
-              <Copy size={13} /> Duplicate
+              <Copy size={13} className="text-violet-400" /> Duplicate
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={handleCopyId}>
-              <Copy size={13} /> Copy Card ID
+              <Copy size={13} className="text-muted-foreground" /> Copy Card ID
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => {
@@ -399,10 +399,10 @@ export function KanbanCard({
                 onCardClick?.(card.id);
               }}
             >
-              <Pencil size={13} /> Edit
+              <Pencil size={13} className="text-amber-400" /> Edit
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onFocusMode?.(card.id)}>
-              <Target size={13} /> Focus Mode
+              <Target size={13} className="text-sky-400" /> Focus Mode
             </DropdownMenuItem>
 
             <DropdownMenuSeparator />
@@ -410,7 +410,7 @@ export function KanbanCard({
             {/* Clone to Project */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={otherProjects.length === 0}>
-                <Copy size={13} /> Clone to Project
+                <Copy size={13} className="text-violet-400" /> Clone to Project
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 {otherProjects.map((p) => (
@@ -424,7 +424,7 @@ export function KanbanCard({
             {/* Move to Project */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={otherProjects.length === 0}>
-                <FolderInput size={13} /> Move to Project
+                <FolderInput size={13} className="text-orange-400" /> Move to Project
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 {otherProjects.map((p) => (
@@ -438,7 +438,7 @@ export function KanbanCard({
             <DropdownMenuSeparator />
 
             <DropdownMenuItem onSelect={handleArchive}>
-              <Archive size={13} /> Archive
+              <Archive size={13} className="text-muted-foreground" /> Archive
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
               <Trash2 size={13} /> Delete
