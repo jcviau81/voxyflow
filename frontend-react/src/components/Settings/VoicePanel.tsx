@@ -273,10 +273,15 @@ export function VoicePanel() {
     defaultValues: DEFAULT_VOICE,
   });
 
-  // Populate form once settings loaded
+  // Populate form once settings loaded (merge backend + localStorage for frontend-only fields)
   useEffect(() => {
     if (!rawSettings) return;
-    reset({ ...DEFAULT_VOICE, ...(rawSettings.voice ?? {}) });
+    let localVoice: Partial<VoiceSettings> = {};
+    try {
+      const stored = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+      localVoice = stored?.voice ?? {};
+    } catch { /* ignore */ }
+    reset({ ...DEFAULT_VOICE, ...(rawSettings.voice ?? {}), ...localVoice });
   }, [rawSettings, reset]);
 
   const sttEngine = watch('stt_engine');
@@ -392,7 +397,14 @@ export function VoicePanel() {
       });
     },
     onMutate: () => setSaveStatus('saving'),
-    onSuccess: () => {
+    onSuccess: (_data, voiceData) => {
+      // Sync to localStorage so chat components pick up the change
+      try {
+        const stored = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+        stored.voice = voiceData;
+        localStorage.setItem('voxyflow_settings', JSON.stringify(stored));
+      } catch { /* ignore */ }
+      eventBus.emit('settings:changed');
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 3000);
     },

@@ -25,11 +25,24 @@ class TtsService {
   }
 
   get isEnabled(): boolean {
-    try { return localStorage.getItem('tts_enabled') !== 'false'; } catch { return true; }
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        return settings?.voice?.tts_enabled ?? true;
+      }
+    } catch { /* ignore */ }
+    return true;
   }
 
   setEnabled(value: boolean): void {
-    try { localStorage.setItem('tts_enabled', value ? 'true' : 'false'); } catch { /* ignore */ }
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      const settings = stored ? JSON.parse(stored) : {};
+      if (!settings.voice) settings.voice = {};
+      settings.voice.tts_enabled = value;
+      localStorage.setItem('voxyflow_settings', JSON.stringify(settings));
+    } catch { /* ignore */ }
   }
 
   private getVoiceSettings(): { tts_url: string; tts_voice: string; tts_speed: number; tts_auto_play: boolean } {

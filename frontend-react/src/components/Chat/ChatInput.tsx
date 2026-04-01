@@ -14,6 +14,7 @@ import { AudioLines, Volume2, SendHorizonal } from 'lucide-react';
 import { VoiceInput } from '../Voice/VoiceInput';
 import { Tooltip, TooltipProvider } from '../ui/tooltip';
 import { cn } from '../../lib/utils';
+import { eventBus } from '../../utils/eventBus';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -89,6 +90,30 @@ export function ChatInput({
       return s?.voice?.tts_auto_play ?? false;
     } catch { return false; }
   });
+  const [ttsEnabled, setTtsEnabled] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+      return s?.voice?.tts_enabled ?? true;
+    } catch { return true; }
+  });
+  const [sttEnabled, setSttEnabled] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+      return s?.voice?.stt_builtin_enabled ?? true;
+    } catch { return true; }
+  });
+
+  // Sync voice toggles when settings change (e.g. from Settings panel)
+  useEffect(() => {
+    const sync = () => {
+      try {
+        const s = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+        setTtsEnabled(s?.voice?.tts_enabled ?? true);
+        setSttEnabled(s?.voice?.stt_builtin_enabled ?? true);
+      } catch { /* ignore */ }
+    };
+    return eventBus.on('settings:changed', sync);
+  }, []);
 
   // Smart suggestions hook
   const suggestions = SmartSuggestions({
@@ -413,7 +438,7 @@ export function ChatInput({
         {!embedded && (
           <TooltipProvider>
             <div className="voice-controls flex items-center gap-1 flex-shrink-0">
-              <Tooltip content={sttAutoSend ? 'Auto-send: ON — voice sends after 3s silence' : 'Auto-send: OFF — fill input only'}>
+              {sttEnabled && <Tooltip content={sttAutoSend ? 'Auto-send: ON — voice sends after 3s silence' : 'Auto-send: OFF — fill input only'}>
                 <button
                   type="button"
                   className={cn(
@@ -424,8 +449,8 @@ export function ChatInput({
                 >
                   <AudioLines size={14} />
                 </button>
-              </Tooltip>
-              <Tooltip content={ttsAutoPlay ? 'Auto-play TTS: ON — responses read aloud automatically' : 'Auto-play TTS: OFF'}>
+              </Tooltip>}
+              {ttsEnabled && <Tooltip content={ttsAutoPlay ? 'Auto-play TTS: ON — responses read aloud automatically' : 'Auto-play TTS: OFF'}>
                 <button
                   type="button"
                   className={cn(
@@ -436,8 +461,8 @@ export function ChatInput({
                 >
                   <Volume2 size={14} />
                 </button>
-              </Tooltip>
-              <VoiceInput compact />
+              </Tooltip>}
+              {sttEnabled && <VoiceInput compact />}
             </div>
           </TooltipProvider>
         )}

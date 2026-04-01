@@ -6,6 +6,7 @@ import { Volume2, Square } from 'lucide-react';
 import type { Message } from '../../types';
 import { ttsService, cleanTextForSpeech } from '../../services/ttsService';
 import { cn } from '../../lib/utils';
+import { eventBus } from '../../utils/eventBus';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -152,13 +153,27 @@ interface TtsButtonProps {
   text: string;
 }
 
+function readTtsEnabled(): boolean {
+  try {
+    const s = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+    return s?.voice?.tts_enabled ?? true;
+  } catch { return true; }
+}
+
 function TtsButton({ text }: TtsButtonProps) {
   const [speaking, setSpeaking] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(readTtsEnabled);
 
   useEffect(() => {
     const unsub = ttsService.onEnd(() => setSpeaking(false));
     return unsub;
   }, []);
+
+  useEffect(() => {
+    return eventBus.on('settings:changed', () => setTtsEnabled(readTtsEnabled()));
+  }, []);
+
+  if (!ttsEnabled) return null;
 
   const handleClick = useCallback(async () => {
     if (speaking && ttsService.isSpeaking) {
