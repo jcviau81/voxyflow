@@ -359,7 +359,7 @@ export function KanbanCard({
           data-checkbox="true"
           className={cn(
             'transition-opacity z-10',
-            selectMode ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-60',
+            selectMode ? 'opacity-100' : 'opacity-60',
           )}
           onClick={(e) => e.stopPropagation()}
         >
@@ -390,7 +390,7 @@ export function KanbanCard({
               onClick={(e) => e.stopPropagation()}
               className={cn(
                 'flex-shrink-0 px-1.5 py-0.5 rounded text-muted-foreground text-sm',
-                'opacity-0 group-hover/card:opacity-100 transition-opacity',
+                'opacity-60 hover:opacity-100 transition-opacity',
                 'hover:bg-accent hover:text-accent-foreground',
               )}
               title="Card actions"
