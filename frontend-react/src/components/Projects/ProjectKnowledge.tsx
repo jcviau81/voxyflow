@@ -156,7 +156,7 @@ function DocumentsTab({ projectId }: DocumentsTabProps) {
 
       <div className="knowledge-upload-row">
         <button
-          className="btn btn-primary knowledge-upload-btn"
+          className="btn flex flex-col btn-primary place-items-center text-center"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploadMutation.isPending}
         >
@@ -176,9 +176,9 @@ function DocumentsTab({ projectId }: DocumentsTabProps) {
         <span>Drag &amp; drop files here, or click <strong>Upload</strong></span>
       </div>
 
-      <div className="knowledge-list">
+      <div className="knowledge-list place-items-center">
         {docs.length === 0 ? (
-          <div className="knowledge-empty">No documents uploaded yet.</div>
+          <div className="knowledge-empty place-items-center">No documents uploaded yet.</div>
         ) : (
           docs.map((doc) => (
             <div key={doc.id} className="knowledge-item">
@@ -378,29 +378,30 @@ function WikiTab({ projectId }: WikiTabProps) {
                 onChange={(e) => { setEditTitle(e.target.value); setDirty(true); }}
               />
               <button
-                className="wiki-save-btn"
+                className="btn flex align-middle gap-1.5 wiki-save-btn items-center rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer"
                 title="Save (Ctrl+S)"
                 onClick={() => saveMutation.mutate()}
                 disabled={!dirty || saveMutation.isPending}
               >
                 {saveMutation.isPending
-                  ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
-                  : <><Save size={13} /> Save</>}
+                ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                : <><Save size={13} /> Save</>}
               </button>
               <button
-                className={cn('wiki-preview-btn', previewMode && 'active')}
+                className={cn('btn flex align-middle gap-1.5 wiki-preview-btn rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer', previewMode && 'active')}
                 title="Toggle preview"
                 onClick={() => setPreviewMode(p => !p)}
               >
-                {previewMode ? <><Pencil size={13} /> Edit</> : <><Eye size={13} /> Preview</>}
+                {previewMode ? <><Pencil size={13} /> Edit</> 
+                : <><Eye size={13} /> Preview</>}
               </button>
               <button
-                className="wiki-delete-btn"
+                className="btn flex align-middle gap-1.5 wiki-delete-btn rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer"
                 title="Delete page"
                 onClick={handleDeleteClick}
                 disabled={deleteMutation.isPending}
               >
-                <Trash2 size={13} />
+                <><Trash2 size={13} /> Trash</>
               </button>
             </div>
 
@@ -531,11 +532,11 @@ export function ProjectKnowledge({ projectId: projectIdProp }: ProjectKnowledgeP
   return (
     <div className="knowledge-container">
       {/* Sub-tab bar */}
-      <div className="knowledge-tabs">
+      <div className="knowledge-tabs p-0">
         {KNOWLEDGE_TABS.map(tab => (
           <button
             key={tab.id}
-            className={cn('knowledge-tab-btn', activeTab === tab.id && 'active')}
+            className={cn('flex gap-1.5 items-center knowledge-tab-btn', activeTab === tab.id && 'active')}
             onClick={() => setActiveTab(tab.id)}
           >
             <tab.Icon size={13} />

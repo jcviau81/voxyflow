@@ -188,8 +188,6 @@ button, [role="button"] {
 
 .knowledge-tabs {
   display: flex;
-  gap: 2px;
-  padding: 8px 16px 0;
   border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.08));
   background: var(--color-bg-secondary);
   flex-shrink: 0;
@@ -233,7 +231,7 @@ button, [role="button"] {
 
 .knowledge-upload-row {
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   margin-bottom: 8px;
 }
 
@@ -474,14 +472,10 @@ button, [role="button"] {
 .wiki-delete-btn {
   background: var(--color-bg-tertiary);
   color: var(--color-text-muted);
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
   border-radius: 6px;
   padding: 5px 12px;
   font-size: 0.82rem;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
-  white-space: nowrap;
-  flex-shrink: 0;
 }
 
 .wiki-save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
