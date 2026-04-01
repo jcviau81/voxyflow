@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import { X } from 'lucide-react';
+import { X, Link2, Copy, ShieldAlert, ShieldX, GitBranch, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CardRelation, CardRelationType } from '../../types';
 import { useRelations, useAddRelation, useDeleteRelation } from '../../hooks/api/useCards';
@@ -21,14 +21,14 @@ const RELATION_TYPES: CardRelationType[] = [
   'cloned_from',
 ];
 
-const RELATION_ICON: Record<string, string> = {
-  duplicates: '📋',
-  duplicated_by: '📋',
-  blocks: '🚫',
-  is_blocked_by: '⛔',
-  relates_to: '🔗',
-  cloned_from: '🧬',
-  cloned_to: '🧬',
+const RELATION_ICON: Record<string, LucideIcon> = {
+  duplicates:   Copy,
+  duplicated_by: Copy,
+  blocks:       ShieldAlert,
+  is_blocked_by: ShieldX,
+  relates_to:   Link2,
+  cloned_from:  GitBranch,
+  cloned_to:    GitBranch,
 };
 
 const RELATION_LABEL: Record<string, string> = {
@@ -103,8 +103,8 @@ export function RelationsSection({ cardId, projectId }: Props) {
 
   return (
     <div className="space-y-2">
-      <span className="text-xs font-medium text-muted-foreground">
-        🔗 Related Cards ({relations.length})
+      <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+        <Link2 size={11} /> Related Cards ({relations.length})
       </span>
 
       {/* List */}
@@ -120,7 +120,7 @@ export function RelationsSection({ cardId, projectId }: Props) {
             key={rel.id}
             className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs"
           >
-            <span>{RELATION_ICON[rel.relationType] ?? '🔗'}</span>
+            {(() => { const Icon = RELATION_ICON[rel.relationType] ?? Link2; return <Icon size={11} className="shrink-0 text-muted-foreground" />; })()}
             <span
               className={cn(
                 'rounded px-1.5 py-0.5 text-[10px] font-medium',
@@ -159,7 +159,7 @@ export function RelationsSection({ cardId, projectId }: Props) {
             </option>
             {projectCards.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.status === 'done' ? '✅' : '⏳'} {c.title}
+                {c.status === 'done' ? '✓' : '○'} {c.title}
               </option>
             ))}
           </select>
@@ -170,7 +170,7 @@ export function RelationsSection({ cardId, projectId }: Props) {
           >
             {RELATION_TYPES.map((t) => (
               <option key={t} value={t}>
-                {RELATION_ICON[t]} {RELATION_LABEL[t]}
+                {RELATION_LABEL[t]}
               </option>
             ))}
           </select>

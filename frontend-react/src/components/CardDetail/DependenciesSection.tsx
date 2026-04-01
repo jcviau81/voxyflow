@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { X, CheckCircle2, Circle } from 'lucide-react';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 
@@ -30,7 +30,10 @@ export function DependenciesSection({ card, projectCards, onAdd, onRemove }: Dep
               >
                 {dep ? (
                   <>
-                    {dep.status === 'done' ? '✅' : '⏳'} {dep.title}
+                    {dep.status === 'done'
+                      ? <CheckCircle2 size={10} className="text-emerald-400 shrink-0" />
+                      : <Circle size={10} className="text-muted-foreground shrink-0" />}
+                    {dep.title}
                   </>
                 ) : (
                   depId
@@ -63,7 +66,7 @@ export function DependenciesSection({ card, projectCards, onAdd, onRemove }: Dep
           </option>
           {otherCards.map((c) => (
             <option key={c.id} value={c.id} disabled={card.dependencies.includes(c.id)}>
-              {c.status === 'done' ? '✅' : '⏳'} {c.title}
+              {c.status === 'done' ? '✓' : '○'} {c.title}
             </option>
           ))}
         </select>

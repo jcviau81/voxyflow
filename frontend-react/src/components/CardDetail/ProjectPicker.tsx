@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Rocket } from 'lucide-react';
+import { Rocket, Folder } from 'lucide-react';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useMoveCard } from '../../hooks/api/useCards';
 import { useToastStore } from '../../stores/useToastStore';
@@ -70,7 +70,9 @@ export function ProjectPicker({ cardId, onMoved }: ProjectPickerProps) {
                 onClick={() => handleSelect(p.id, p.name)}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
               >
-                <span>{p.emoji || '📁'}</span>
+                {p.emoji
+                  ? <span>{p.emoji}</span>
+                  : <Folder size={13} className="text-muted-foreground" />}
                 <span className="truncate">{p.name}</span>
               </button>
             ))

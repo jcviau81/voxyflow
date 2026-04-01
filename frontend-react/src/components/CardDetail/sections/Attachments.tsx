@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Download, X } from 'lucide-react';
+import { Download, X, Upload, File, FileText, Sheet, Image, FileArchive, Video, Music, BookOpen, type LucideIcon } from 'lucide-react';
 import type { CardAttachment } from '../../../types';
 import {
   useAttachments,
@@ -8,17 +8,20 @@ import {
   getAttachmentDownloadUrl,
 } from '../../../hooks/api/useCards';
 
-function getAttachmentIcon(mimeType: string): string {
-  if (mimeType.startsWith('image/')) return '🖼️';
-  if (mimeType.includes('pdf')) return '📄';
-  if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv'))
-    return '📊';
-  if (mimeType.includes('word') || mimeType.includes('document')) return '📝';
-  if (mimeType.includes('zip') || mimeType.includes('archive') || mimeType.includes('tar'))
-    return '🗜️';
-  if (mimeType.startsWith('video/')) return '🎬';
-  if (mimeType.startsWith('audio/')) return '🎵';
-  return '📄';
+function getAttachmentIconComponent(mimeType: string): LucideIcon {
+  if (mimeType.startsWith('image/')) return Image;
+  if (mimeType.includes('pdf')) return BookOpen;
+  if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) return Sheet;
+  if (mimeType.includes('word') || mimeType.includes('document')) return FileText;
+  if (mimeType.includes('zip') || mimeType.includes('archive') || mimeType.includes('tar')) return FileArchive;
+  if (mimeType.startsWith('video/')) return Video;
+  if (mimeType.startsWith('audio/')) return Music;
+  return File;
+}
+
+function AttachmentIcon({ mimeType }: { mimeType: string }) {
+  const Icon = getAttachmentIconComponent(mimeType);
+  return <Icon size={12} className="shrink-0 text-muted-foreground" />;
 }
 
 function formatFileSize(bytes: number): string {
@@ -42,8 +45,8 @@ export function AttachmentsSection({ cardId }: { cardId: string }) {
 
   return (
     <div className="space-y-2">
-      <label className="text-xs font-medium text-muted-foreground">
-        📎 Attachments {attachments.length > 0 && `(${attachments.length})`}
+      <label className="flex gap-1.5 items-center text-xs font-medium text-muted-foreground">
+        <File size={12} /> Files {attachments.length > 0 && `(${attachments.length})`}
       </label>
 
       {/* Drop zone */}
@@ -65,7 +68,9 @@ export function AttachmentsSection({ cardId }: { cardId: string }) {
           if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
         }}
       >
-        📎 Drop files here or <strong>click to upload</strong>
+        <div className='flex flex-wrap gap-1.5 align-middle justify-center'>
+          <File size={12} /> Drop files here or <strong>click to upload</strong>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -81,7 +86,7 @@ export function AttachmentsSection({ cardId }: { cardId: string }) {
       </div>
 
       {upload.isPending && (
-        <p className="text-[10px] text-muted-foreground/60">⬆️ Uploading…</p>
+        <p className="text-[10px] text-muted-foreground/60"> <Upload size={12} /> Uploading…</p>
       )}
 
       {isLoading ? (
@@ -131,7 +136,7 @@ function AttachmentItem({
         />
       )}
       <div className="flex items-center gap-1.5 text-[11px]">
-        <span>{getAttachmentIcon(attachment.mimeType)}</span>
+        <AttachmentIcon mimeType={attachment.mimeType} />
         <span className="flex-1 truncate font-medium" title={attachment.filename}>
           {attachment.filename}
         </span>
