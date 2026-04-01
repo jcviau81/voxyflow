@@ -509,12 +509,6 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     setSelectMode(false);
   }, []);
 
-  const toggleSelectMode = useCallback(() => {
-    setSelectMode((prev) => {
-      if (prev) setSelectedIds(new Set());
-      return !prev;
-    });
-  }, []);
 
   // ── Board execution state ────────────────────────────────────────────────
 
@@ -919,15 +913,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         >
           {executionActive ? '⏹' : '▶'}
         </Button>
-        <Button
-          variant={selectMode ? 'default' : 'outline'}
-          size="sm"
-          className="h-6 text-[10px] px-2 shrink-0"
-          title={selectMode ? 'Exit select mode' : 'Select multiple cards'}
-          onClick={toggleSelectMode}
-        >
-          ☑
-        </Button>
+
         <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="View dependency graph" onClick={() => setDepGraphOpen(true)}>
           🔗
         </Button>

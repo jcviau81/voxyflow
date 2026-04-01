@@ -332,29 +332,30 @@ export function KanbanCard({
       onDragStart={handleDragStart}
       onDragEnd={() => setIsDragging(false)}
     >
-      {/* Selection checkbox — always visible in selectMode, shown on hover otherwise */}
-      <div
-        data-checkbox="true"
-        className={cn(
-          'absolute top-2.5 left-2.5 transition-opacity z-10',
-          selectMode ? 'opacity-100' : 'opacity-0 pointer-events-none group-hover/card:opacity-60',
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <input
-          type="checkbox"
-          aria-label={`Select card: ${card.title}`}
-          checked={isSelected}
-          onChange={(e) => {
-            e.stopPropagation();
-            onSelectChange?.(card.id, e.target.checked);
-          }}
-          className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer"
-        />
-      </div>
+      
 
       {/* Header: title + actions button */}
-      <div className={cn('flex items-start gap-2', selectMode && 'pl-5')}>
+      <div className={cn('flex items-start gap-2', selectMode && 'flex pl-5')}>
+        {/* Selection checkbox — always visible in selectMode, shown on hover otherwise */}
+        <div
+          data-checkbox="true"
+          className={cn(
+            'transition-opacity z-10',
+            selectMode ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-60',
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            aria-label={`Select card: ${card.title}`}
+            checked={isSelected}
+            onChange={(e) => {
+              e.stopPropagation();
+              onSelectChange?.(card.id, e.target.checked);
+            }}
+            className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer"
+          />
+        </div>
         {card.color && CARD_COLOR_DOT[card.color] && (
           <span className={cn('mt-1.5 flex-shrink-0 w-2 h-2 rounded-full', CARD_COLOR_DOT[card.color])} />
         )}
