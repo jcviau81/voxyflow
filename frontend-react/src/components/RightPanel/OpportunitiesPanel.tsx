@@ -63,7 +63,7 @@ export function OpportunitiesPanel({
           projectId: currentProjectId,
           title: opp.title,
           description: opp.description,
-          status: 'todo',
+          status: 'idea',
           agentType: opp.agentType,
           priority: 0,
           dependencies: [],

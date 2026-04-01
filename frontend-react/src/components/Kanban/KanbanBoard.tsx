@@ -663,7 +663,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       return;
     }
     try {
-      const newCard = await createCard.mutateAsync({ projectId, title: 'New card', status: 'todo' });
+      const newCard = await createCard.mutateAsync({ projectId, title: 'New card', status: 'idea' });
       useCardStore.setState((state) => ({
         cardsById: { ...state.cardsById, [newCard.id]: newCard },
       }));

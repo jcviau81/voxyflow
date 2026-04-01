@@ -256,7 +256,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
       const newCard = await createCard.mutateAsync({
         projectId: currentProjectId,
         title: 'New card',
-        status: 'todo',
+        status: 'idea',
       });
       useCardStore.setState((state) => ({
         cardsById: { ...state.cardsById, [newCard.id]: newCard },
