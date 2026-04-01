@@ -81,42 +81,71 @@ class TtsService {
     this._processing = false;
   }
 
+  private splitSentences(text: string): string[] {
+    const sentences = text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
+    return sentences.length > 0 ? sentences : [text];
+  }
+
+  private async fetchTtsAudio(text: string, language: string): Promise<Blob> {
+    const response = await fetch('/api/settings/tts/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, language }),
+    });
+    if (!response.ok) throw new Error(`TTS server returned ${response.status}`);
+    return response.blob();
+  }
+
+  private playBlob(blob: Blob, speed: number): Promise<void> {
+    const url = URL.createObjectURL(blob);
+    return new Promise<void>((resolve) => {
+      const audio = new Audio(url);
+      this._currentAudio = audio;
+      audio.playbackRate = speed;
+      const done = () => {
+        this._currentAudio = null;
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.onended = done;
+      audio.onerror = done;
+      audio.play().catch(done);
+    });
+  }
+
   private async speakServer(text: string, serverUrl: string, speed: number): Promise<void> {
     const lang = this.detectLanguage();
     const langShort = lang.split('-')[0];
     this._isSpeaking = true;
     try {
-      const response = await fetch('/api/settings/tts/speak', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, language: langShort }),
-      });
-      if (!response.ok) throw new Error(`TTS server returned ${response.status}`);
+      const sentences = this.splitSentences(text);
 
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      if (sentences.length === 1) {
+        // Single sentence — no prefetch needed
+        const blob = await this.fetchTtsAudio(sentences[0], langShort);
+        await this.playBlob(blob, speed);
+      } else {
+        // Multiple sentences — prefetch next while current plays
+        let nextFetch: Promise<Blob> | null = this.fetchTtsAudio(sentences[0], langShort);
 
-      return new Promise<void>((resolve) => {
-        const audio = new Audio(url);
-        this._currentAudio = audio;
-        audio.playbackRate = speed;
-        const done = () => {
-          this._isSpeaking = false;
-          this._currentAudio = null;
-          URL.revokeObjectURL(url);
-          this._notifyEnd();
-          resolve();
-        };
-        audio.onended = done;
-        audio.onerror = done;
-        audio.play().catch(done);
-      });
+        for (let i = 0; i < sentences.length; i++) {
+          const currentBlob = await nextFetch!;
+          // Start fetching next sentence while current one plays
+          nextFetch = (i + 1 < sentences.length)
+            ? this.fetchTtsAudio(sentences[i + 1], langShort)
+            : null;
+          await this.playBlob(currentBlob, speed);
+        }
+      }
+
+      this._isSpeaking = false;
+      this._notifyEnd();
     } catch (err) {
       console.warn('[TtsService] Server TTS failed, falling back to browser:', err);
       this._isSpeaking = false;
       await this.speakBrowser(text, speed);
     }
-    void serverUrl; // suppress unused warning — url used in fetch above
+    void serverUrl;
   }
 
   private async speakBrowser(text: string, speed: number): Promise<void> {

@@ -384,7 +384,7 @@ async def tts_speak(request: Request):
     endpoint = tts_url.rstrip("/") + "/speak"
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(endpoint, json={"text": text, "language": language})
             resp.raise_for_status()
         return Response(content=resp.content, media_type="audio/wav")
