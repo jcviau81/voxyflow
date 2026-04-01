@@ -25,7 +25,27 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { AGENT_TYPE_EMOJI, AGENT_PERSONAS } from '../../lib/constants';
+import { Bot, Search, Code2, Paintbrush, Building2, PenLine, FlaskConical, type LucideIcon } from 'lucide-react';
+
+const AGENT_ICONS: Record<string, LucideIcon> = {
+  general:    Bot,
+  researcher: Search,
+  coder:      Code2,
+  designer:   Paintbrush,
+  architect:  Building2,
+  writer:     PenLine,
+  qa:         FlaskConical,
+};
+
+const AGENT_COLORS: Record<string, string> = {
+  general:    'text-slate-400',
+  researcher: 'text-blue-400',
+  coder:      'text-emerald-400',
+  designer:   'text-pink-400',
+  architect:  'text-orange-400',
+  writer:     'text-violet-400',
+  qa:         'text-amber-400',
+};
 
 // ── Card color classes ───────────────────────────────────────────────────────
 
@@ -294,12 +314,10 @@ export function KanbanCard({
 
   // ── Derived display values ────────────────────────────────────────────────
 
-  let agentEmoji: string | null = null;
-  if (card.agentType && card.agentType !== 'general') {
-    agentEmoji = AGENT_TYPE_EMOJI[card.agentType] ?? null;
-  } else if (!card.agentType && card.assignedAgent) {
-    agentEmoji = AGENT_PERSONAS[card.assignedAgent]?.emoji ?? null;
-  }
+  const agentType = card.agentType || 'general';
+  const AgentIcon = AGENT_ICONS[agentType] ?? null;
+  const agentIconColor = AGENT_COLORS[agentType] ?? 'text-muted-foreground';
+  const showAgentBadge = agentType !== 'general';
 
   const visibleTags = card.tags.slice(0, 3);
   const hiddenTagCount = card.tags.length - visibleTags.length;
@@ -455,19 +473,16 @@ export function KanbanCard({
       )}
 
       {/* Footer: badges */}
-      {(agentEmoji ||
+      {(showAgentBadge ||
         card.tags.length > 0 ||
         timeLabel ||
         (card.checklistProgress && card.checklistProgress.total > 0) ||
         card.dependencies.length > 0) && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {/* Agent badge */}
-          {agentEmoji && (
-            <span
-              title={card.agentType ?? card.assignedAgent ?? ''}
-              className="text-sm leading-none"
-            >
-              {agentEmoji}
+          {showAgentBadge && AgentIcon && (
+            <span title={agentType} className="leading-none">
+              <AgentIcon size={13} className={agentIconColor} />
             </span>
           )}
 
