@@ -38,7 +38,7 @@ export function StatusButtons({ current, onChange }: StatusButtonsProps) {
           type="button"
           onClick={() => onChange(status)}
           className={cn(
-            'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
+            'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer',
             current === status ? STATUS_ACTIVE[status] : STATUS_COLORS[status],
             'hover:opacity-80',
           )}
