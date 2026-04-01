@@ -56,7 +56,7 @@ export function MainPage() {
       )}
 
       {view === 'kanban' && (
-        <KanbanBoard onCardClick={handleCardClick} />
+        <KanbanBoard projectId={SYSTEM_PROJECT_ID} onCardClick={handleCardClick} />
       )}
 
       {view === 'freeboard' && (
