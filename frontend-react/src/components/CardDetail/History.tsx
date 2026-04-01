@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { History, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CardHistoryEntry } from '../../types';
 import { useCardHistory } from '../../hooks/api/useCards';
@@ -112,8 +113,9 @@ export function HistorySection({ cardId }: { cardId: string }) {
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
       >
-        <span>{expanded ? '▼' : '▶'}</span>
-        <span>📜 History</span>
+        {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        <History size={11} />
+        <span>History</span>
       </button>
 
       {/* Body */}
