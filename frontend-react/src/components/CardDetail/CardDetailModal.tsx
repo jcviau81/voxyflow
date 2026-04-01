@@ -48,7 +48,7 @@ import { RelationsSection } from './Relations';
 import { HistorySection } from './History';
 import { ChatWindow } from '../Chat/ChatWindow';
 import { DescriptionEditor } from './DescriptionEditor';
-import { Copy, Archive, Trash2 } from 'lucide-react';
+import { Copy, Archive, Trash2, Play, Loader2 } from 'lucide-react';
 
 // ── Color class map ─────────────────────────────────────────────────────────
 
@@ -293,22 +293,24 @@ export function CardDetailModal() {
               type="button"
               onClick={handleExecute}
               disabled={executeCard.isPending}
-              className="rounded-md border border-border px-2.5 py-1 text-xs bg-emerald-600 font-medium transition-colors hover:bg-emerald-500 cursor-pointer"
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25"
             >
-              {executeCard.isPending ? '▶ Executing...' : '▶ Execute'}
+              {executeCard.isPending
+                ? <><Loader2 size={12} className="animate-spin" /> Executing…</>
+                : <><Play size={12} /> Execute</>}
             </button>
             <button
               type="button"
               onClick={handleDuplicate}
               disabled={duplicateCard.isPending}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 bg-violet-500/15 text-violet-400 border border-violet-500/30 hover:bg-violet-500/25"
             >
               <Copy size={12} /> Duplicate
             </button>
             <button
               type="button"
               onClick={handleArchive}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25"
             >
               <Archive size={12} /> Archive
             </button>
