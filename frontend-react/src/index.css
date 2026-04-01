@@ -48,6 +48,10 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+button, [role="button"] {
+    cursor: pointer;
+}
+
 :root {
     color-scheme: light;
     --background: oklch(1 0 0);
