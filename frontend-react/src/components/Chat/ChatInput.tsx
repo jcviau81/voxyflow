@@ -433,7 +433,7 @@ export function ChatInput({
           className={cn(
             'chat-send-btn flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-sm font-medium transition-colors',
             connected
-              ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+              ? 'bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer'
               : 'bg-muted text-muted-foreground cursor-not-allowed',
           )}
           title="Send message"
