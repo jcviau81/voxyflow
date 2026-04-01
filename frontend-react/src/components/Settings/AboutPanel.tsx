@@ -97,7 +97,19 @@ function HealthBar() {
 // ── AboutPanel ─────────────────────────────────────────────────────────────
 
 export function AboutPanel() {
-  const handleResetOnboarding = () => {
+  const handleResetOnboarding = async () => {
+    // Clear the backend flag so OnboardingGuard redirects to /onboarding
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const settings = await res.json();
+        await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...settings, onboarding_complete: false }),
+        });
+      }
+    } catch { /* best-effort */ }
     localStorage.removeItem('onboarding_complete');
     location.reload();
   };

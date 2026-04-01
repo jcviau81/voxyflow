@@ -5,6 +5,7 @@
  * 'settings' | 'stats' | 'roadmap' | 'wiki' | 'sprint' | 'docs' | 'knowledge'
  *
  * Route mapping:
+ *   /onboarding     → First-launch setup (shown when onboarding_complete is false)
  *   /               → Main tab (chat + kanban + freeboard accessible via tab state)
  *   /project/:id    → Project tab (kanban/chat/stats/roadmap/wiki/sprint/docs/knowledge)
  *   /settings       → Settings page
@@ -12,11 +13,13 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { OnboardingGuard } from './components/OnboardingGuard';
 
 import { SettingsPage } from './components/Settings/SettingsPage';
 import { ProjectList } from './components/Projects';
 import { MainPage } from './pages/MainPage';
 import { ProjectPage } from './pages/ProjectPage';
+import { OnboardingPage } from './pages/OnboardingPage';
 
 function NotFound() {
   return <Navigate to="/" replace />;
@@ -24,10 +27,16 @@ function NotFound() {
 
 export const router = createBrowserRouter([
   {
+    path: 'onboarding',
+    element: <OnboardingPage />,
+  },
+  {
     element: (
-      <ProtectedRoute>
-        <AppShell />
-      </ProtectedRoute>
+      <OnboardingGuard>
+        <ProtectedRoute>
+          <AppShell />
+        </ProtectedRoute>
+      </OnboardingGuard>
     ),
     children: [
       { index: true, element: <MainPage /> },
