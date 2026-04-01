@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useState } from 'react';
-import { Pin, Copy, Pencil, Target, FolderInput, Archive, Timer, Play, CheckSquare, Link2, CheckCircle2, Circle, Trash2, Folder } from 'lucide-react';
+import { Pin, Copy, Pencil, Target, FolderInput, Archive, Timer, Play, CheckSquare, Link2, Trash2, Folder } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';

@@ -12,6 +12,7 @@ import { EmojiPicker } from './EmojiPicker';
 import { SmartSuggestions, type ChatLevel } from './SmartSuggestions';
 import { AudioLines, Volume2, SendHorizonal } from 'lucide-react';
 import { VoiceInput } from '../Voice/VoiceInput';
+import { Tooltip, TooltipProvider } from '../ui/tooltip';
 import { cn } from '../../lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -410,31 +411,35 @@ export function ChatInput({
 
         {/* Voice controls — all 4 icons grouped together */}
         {!embedded && (
-          <div className="voice-controls flex items-center gap-1 flex-shrink-0">
-            <button
-              type="button"
-              className={cn(
-                'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
-                sttAutoSend ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
-              )}
-              title={sttAutoSend ? 'Auto-send voice: ON' : 'Auto-send voice: OFF'}
-              onClick={() => toggleVoiceSetting('stt_auto_send')}
-            >
-              <AudioLines size={14} />
-            </button>
-            <button
-              type="button"
-              className={cn(
-                'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
-                ttsAutoPlay ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
-              )}
-              title={ttsAutoPlay ? 'Auto-play TTS: ON' : 'Auto-play TTS: OFF'}
-              onClick={() => toggleVoiceSetting('tts_auto_play')}
-            >
-              <Volume2 size={14} />
-            </button>
-            <VoiceInput compact />
-          </div>
+          <TooltipProvider>
+            <div className="voice-controls flex items-center gap-1 flex-shrink-0">
+              <Tooltip content={sttAutoSend ? 'Auto-send: ON — voice sends after 3s silence' : 'Auto-send: OFF — fill input only'}>
+                <button
+                  type="button"
+                  className={cn(
+                    'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
+                    sttAutoSend ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
+                  )}
+                  onClick={() => toggleVoiceSetting('stt_auto_send')}
+                >
+                  <AudioLines size={14} />
+                </button>
+              </Tooltip>
+              <Tooltip content={ttsAutoPlay ? 'Auto-play TTS: ON — responses read aloud automatically' : 'Auto-play TTS: OFF'}>
+                <button
+                  type="button"
+                  className={cn(
+                    'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
+                    ttsAutoPlay ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
+                  )}
+                  onClick={() => toggleVoiceSetting('tts_auto_play')}
+                >
+                  <Volume2 size={14} />
+                </button>
+              </Tooltip>
+              <VoiceInput compact />
+            </div>
+          </TooltipProvider>
         )}
 
         {/* Send button */}

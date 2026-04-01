@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Mic, Square, Radio } from 'lucide-react';
+import { Tooltip, TooltipProvider } from '../ui/tooltip';
 import { eventBus } from '../../utils/eventBus';
 import { VOICE_EVENTS, STT_EVENTS, type SttResult } from '../../utils/voiceEvents';
 import { sttService } from '../../services/sttService';
@@ -383,53 +384,51 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
 
   // ── PTT button tooltip ────────────────────────────────────────────────────
 
-  const pttTooltip = isRecording
-    ? 'Recording…'
-    : sttService.currentEngine === 'whisper_local'
-    ? 'Push to Talk (Alt+V) · Whisper Local 🔒'
-    : 'Push to Talk (Alt+V)';
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   const buttons = (
-    <div className="voice-buttons flex items-center gap-1">
+    <TooltipProvider>
+      <div className="voice-buttons flex items-center gap-1">
         {sttBuiltinEnabled && (
-          isMobile ? (
-            <button
-              type="button"
-              className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
-              data-tooltip={pttTooltip}
-              onTouchStart={handlePttTouchStart}
-              onClick={handlePttClick}
-              aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-            >
-              {isRecording ? <Square size={16} /> : <Mic size={16} />}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
-              data-tooltip={pttTooltip}
-              onMouseDown={handlePttMouseDown}
-              onMouseUp={handlePttMouseUp}
-              onMouseLeave={handlePttMouseLeave}
-              aria-label={isRecording ? 'Stop recording' : 'Hold to talk (Alt+V)'}
-            >
-              {isRecording ? <Square size={16} /> : <Mic size={16} />}
-            </button>
-          )
+          <Tooltip content={isRecording ? 'Recording… click to stop' : sttService.currentEngine === 'whisper_local' ? 'Push to talk (hold) · Alt+V · Whisper Local' : 'Push to talk (hold) · Alt+V'}>
+            {isMobile ? (
+              <button
+                type="button"
+                className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
+                onTouchStart={handlePttTouchStart}
+                onClick={handlePttClick}
+                aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+              >
+                {isRecording ? <Square size={16} /> : <Mic size={16} />}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
+                onMouseDown={handlePttMouseDown}
+                onMouseUp={handlePttMouseUp}
+                onMouseLeave={handlePttMouseLeave}
+                aria-label={isRecording ? 'Stop recording' : 'Hold to talk (Alt+V)'}
+              >
+                {isRecording ? <Square size={16} /> : <Mic size={16} />}
+              </button>
+            )}
+          </Tooltip>
         )}
 
-        <button
-          type="button"
-          className={`wake-word-btn p-2 rounded-lg transition-colors${wakeWordEnabled ? ' active bg-purple-500 text-white' : ' hover:bg-muted text-muted-foreground'}${wakeWordPulsing ? ' animate-pulse' : ''}`}
-          data-tooltip={wakeWordEnabled ? 'Wake Word Mode ON' : 'Wake Word Mode'}
-          onClick={toggleWakeWord}
-          aria-label={wakeWordEnabled ? 'Disable wake word mode' : 'Enable wake word mode'}
-        >
-          <Radio size={16} />
-        </button>
+        <Tooltip content={wakeWordEnabled ? 'Wake word ON — say "Alexa" to start' : 'Wake word mode — say "Alexa" to start recording'}>
+          <button
+            type="button"
+            className={`wake-word-btn p-2 rounded-lg transition-colors${wakeWordEnabled ? ' active bg-purple-500 text-white' : ' hover:bg-muted text-muted-foreground'}${wakeWordPulsing ? ' animate-pulse' : ''}`}
+            onClick={toggleWakeWord}
+            aria-label={wakeWordEnabled ? 'Disable wake word mode' : 'Enable wake word mode'}
+          >
+            <Radio size={16} />
+          </button>
+        </Tooltip>
       </div>
+    </TooltipProvider>
   );
 
   if (compact) return buttons;
