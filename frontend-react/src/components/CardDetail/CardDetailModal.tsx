@@ -159,8 +159,13 @@ export function CardDetailModal() {
   );
 
   const handleAgentChange = useCallback(
-    (agentType: string) => save({ agent_type: agentType }),
-    [save],
+    (agentType: string) => {
+      if (!card) return;
+      // Optimistic update uses camelCase (Card type); API expects snake_case
+      updateCardStore(card.id, { agentType } as Partial<Card>);
+      patchCard.mutate({ cardId: card.id, updates: { agent_type: agentType } });
+    },
+    [card, updateCardStore, patchCard],
   );
 
   const handleColorChange = useCallback(
