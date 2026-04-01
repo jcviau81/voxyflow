@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useState } from 'react';
-import { Pin, Copy, Pencil, Target, FolderInput, Archive, Timer } from 'lucide-react';
+import { Pin, Copy, Pencil, Target, FolderInput, Archive, Timer, Play, CheckSquare, Link2, CheckCircle2, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
@@ -165,7 +165,7 @@ export function KanbanCard({
     return card.dependencies
       .map((id) => {
         const dep = cardsById[id];
-        return dep ? `${dep.status === 'done' ? '✅' : '⏳'} ${dep.title}` : '(unknown card)';
+        return dep ? `${dep.status === 'done' ? '✓' : '○'} ${dep.title}` : '(unknown card)';
       })
       .join('\n');
   }, [card.dependencies, cardsById]);
@@ -210,10 +210,10 @@ export function KanbanCard({
       const result = await executeCard.mutateAsync(card.id);
       if (result) {
         sendMessage(result.prompt, card.projectId || undefined, card.id);
-        showToast(`▶ Executing: "${card.title}"`, 'success');
+        showToast(`Executing: "${card.title}"`, 'success');
       }
     } catch {
-      showToast('❌ Execution failed', 'error');
+      showToast('Execution failed', 'error');
     }
   };
 
@@ -222,25 +222,25 @@ export function KanbanCard({
       await patchCard.mutateAsync({ cardId: card.id, updates: { status: 'card' } });
       showToast('Card moved to Board', 'success');
     } catch {
-      showToast('❌ Move failed', 'error');
+      showToast('Move failed', 'error');
     }
   };
 
   const handleDuplicate = async () => {
     try {
       await duplicateCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
-      showToast(`📋 Duplicated: "${card.title}"`, 'success');
+      showToast(`Duplicated: "${card.title}"`, 'success');
     } catch {
-      showToast('❌ Duplication failed', 'error');
+      showToast('Duplication failed', 'error');
     }
   };
 
   const handleCopyId = async () => {
     try {
       await navigator.clipboard.writeText(card.id);
-      showToast('✅ Card ID copied!', 'success');
+      showToast('Card ID copied!', 'success');
     } catch {
-      showToast('❌ Failed to copy ID', 'error');
+      showToast('Failed to copy ID', 'error');
     }
   };
 
@@ -249,7 +249,7 @@ export function KanbanCard({
       await archiveCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
       showToast(`📦 "${card.title}" archived`, 'success');
     } catch {
-      showToast('❌ Archive failed', 'error');
+      showToast('Archive failed', 'error');
     }
   };
 
@@ -258,7 +258,7 @@ export function KanbanCard({
     try {
       await deleteCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
     } catch {
-      showToast('❌ Delete failed', 'error');
+      showToast('Delete failed', 'error');
     }
   };
 
@@ -271,7 +271,7 @@ export function KanbanCard({
       });
       showToast(`📤 Cloned to "${projectTitle}"`, 'success');
     } catch {
-      showToast('❌ Clone failed', 'error');
+      showToast('Clone failed', 'error');
     }
   };
 
@@ -284,7 +284,7 @@ export function KanbanCard({
       });
       showToast(`✈️ Moved to "${projectTitle}"`, 'success');
     } catch {
-      showToast('❌ Move failed', 'error');
+      showToast('Move failed', 'error');
     }
   };
 
@@ -335,7 +335,7 @@ export function KanbanCard({
       
 
       {/* Header: title + actions button */}
-      <div className={cn('flex items-start gap-2', selectMode && 'flex pl-5')}>
+      <div className={cn('flex items-start gap-2', selectMode && 'checked')}>
         {/* Selection checkbox — always visible in selectMode, shown on hover otherwise */}
         <div
           data-checkbox="true"
@@ -382,7 +382,7 @@ export function KanbanCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onSelect={handleExecute}>
-              <span>▶</span> Execute
+              <Play size={13} /> Execute
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={handleMoveToBoard}>
               <Pin size={13} /> Move to Board
@@ -516,7 +516,7 @@ export function KanbanCard({
                   : 'text-muted-foreground',
               )}
             >
-              ☑ {card.checklistProgress.completed}/{card.checklistProgress.total}
+              <CheckSquare size={10} className="inline-block" /> {card.checklistProgress.completed}/{card.checklistProgress.total}
             </span>
           )}
 
@@ -529,7 +529,7 @@ export function KanbanCard({
                 isBlocked ? 'text-orange-400' : 'text-muted-foreground',
               )}
             >
-              🔗 {card.dependencies.length}
+              <Link2 size={10} className="inline-block" /> {card.dependencies.length}
             </span>
           )}
         </div>
