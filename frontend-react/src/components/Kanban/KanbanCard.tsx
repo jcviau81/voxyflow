@@ -27,7 +27,27 @@ import {
 } from '../ui/dropdown-menu';
 import { AGENT_TYPE_EMOJI, AGENT_PERSONAS } from '../../lib/constants';
 
-// ── Color helpers ────────────────────────────────────────────────────────────
+// ── Card color classes ───────────────────────────────────────────────────────
+
+const CARD_COLOR_CLASSES: Record<string, string> = {
+  yellow: 'bg-yellow-500/10 border-yellow-500/30',
+  blue:   'bg-blue-500/10   border-blue-500/30',
+  green:  'bg-green-500/10  border-green-500/30',
+  pink:   'bg-pink-500/10   border-pink-500/30',
+  purple: 'bg-purple-500/10 border-purple-500/30',
+  orange: 'bg-orange-500/10 border-orange-500/30',
+};
+
+const CARD_COLOR_DOT: Record<string, string> = {
+  yellow: 'bg-yellow-400',
+  blue:   'bg-blue-400',
+  green:  'bg-green-400',
+  pink:   'bg-pink-400',
+  purple: 'bg-purple-400',
+  orange: 'bg-orange-400',
+};
+
+// ── Tag color helpers ────────────────────────────────────────────────────────
 
 const TAG_COLORS: Array<[string, string]> = [
   ['rgba(255, 107, 107, 0.18)', '#ff6b6b'],
@@ -298,7 +318,9 @@ export function KanbanCard({
       className={cn(
         'group/card relative rounded-lg border border-border/60 bg-card p-3',
         'cursor-pointer select-none transition-all duration-150',
-        'hover:border-border hover:shadow-md hover:shadow-black/20',
+        'hover:shadow-md hover:shadow-black/20',
+        card.color && CARD_COLOR_CLASSES[card.color],
+        !card.color && 'hover:border-border',
         isDragging && 'opacity-40 scale-95',
         isSelected && 'border-primary/60 ring-1 ring-primary/40 bg-primary/5',
         isBlocked && 'border-orange-500/40 bg-orange-500/5',
@@ -333,6 +355,9 @@ export function KanbanCard({
 
       {/* Header: title + actions button */}
       <div className={cn('flex items-start gap-2', selectMode && 'pl-5')}>
+        {card.color && CARD_COLOR_DOT[card.color] && (
+          <span className={cn('mt-1.5 flex-shrink-0 w-2 h-2 rounded-full', CARD_COLOR_DOT[card.color])} />
+        )}
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-medium text-foreground leading-snug break-words">
             {query ? highlightText(card.title, query) : card.title}
