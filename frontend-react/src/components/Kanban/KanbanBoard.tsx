@@ -1,5 +1,10 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Archive, X } from 'lucide-react';
+import {
+  Archive, X, Play, Square, Link2, Upload, Download, Trash2, RotateCcw,
+  AlertCircle, AlertTriangle, Minus, ArrowDown, ChevronRight,
+  Bot, Search, Code2, Paintbrush, Building2, PenLine, FlaskConical,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -27,7 +32,6 @@ import { useCards, useArchivedCards, useRestoreCard, useDeleteCard, usePatchCard
 import { useExportProject, useImportProject, useExecuteBoardPlan } from '../../hooks/api/useProjects';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { KanbanCard } from './KanbanCard';
-import { AGENT_TYPE_EMOJI } from '../../lib/constants';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -43,18 +47,38 @@ const COLUMN_LABELS: Record<string, string> = {
   done: 'Done',
 };
 
-const PRIORITY_FILTERS: Array<{ label: string; value: number | null }> = [
+const PRIORITY_FILTERS: Array<{ label: string; value: number | null; icon?: LucideIcon; color?: string }> = [
   { label: 'All', value: null },
-  { label: '🔴 Critical', value: 3 },
-  { label: '🟠 High', value: 2 },
-  { label: '🟡 Medium', value: 1 },
-  { label: '🟢 Low', value: 0 },
+  { label: 'Critical', value: 3, icon: AlertCircle,   color: 'text-red-400' },
+  { label: 'High',     value: 2, icon: AlertTriangle, color: 'text-orange-400' },
+  { label: 'Medium',   value: 1, icon: Minus,         color: 'text-yellow-400' },
+  { label: 'Low',      value: 0, icon: ArrowDown,     color: 'text-green-400' },
 ];
+
+const AGENT_ICONS: Record<string, LucideIcon> = {
+  general:    Bot,
+  researcher: Search,
+  coder:      Code2,
+  designer:   Paintbrush,
+  architect:  Building2,
+  writer:     PenLine,
+  qa:         FlaskConical,
+};
+
+const AGENT_COLORS: Record<string, string> = {
+  general:    'text-slate-400',
+  researcher: 'text-blue-400',
+  coder:      'text-emerald-400',
+  designer:   'text-pink-400',
+  architect:  'text-orange-400',
+  writer:     'text-violet-400',
+  qa:         'text-amber-400',
+};
 
 const AGENT_FILTERS: Array<{ label: string; value: string | null }> = [
   { label: 'All', value: null },
-  ...Object.entries(AGENT_TYPE_EMOJI).map(([key, emoji]) => ({
-    label: `${emoji} ${key}`,
+  ...Object.keys(AGENT_ICONS).filter((k) => k !== 'general').map((key) => ({
+    label: key.charAt(0).toUpperCase() + key.slice(1),
     value: key,
   })),
 ];
@@ -244,25 +268,25 @@ function DepGraphOverlay({ cards, cardsById, onClose }: DepGraphOverlayProps) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>🔗 Dependency Map</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Link2 size={15} className="text-sky-400" /> Dependency Map</DialogTitle>
         </DialogHeader>
 
         {/* Blocked */}
         <div className="space-y-2">
-          <h4 className="text-sm font-medium text-destructive">
-            🚫 Blocked dependencies ({blockedCards.length})
+          <h4 className="text-sm font-medium text-destructive flex items-center gap-1.5">
+            <AlertCircle size={13} /> Blocked dependencies ({blockedCards.length})
           </h4>
           {blockedCards.length === 0 ? (
             <p className="text-xs text-muted-foreground">No blocked cards — great!</p>
           ) : (
             blockedCards.map((card) => (
               <div key={card.id} className="rounded border border-border/60 p-2 text-sm">
-                <span className="font-medium">📋 {card.title}</span>
+                <span className="font-medium">{card.title}</span>
                 <ul className="mt-1 ml-4 list-disc text-xs text-muted-foreground">
                   {card.dependencies.map((depId) => {
                     const dep = cardsById[depId];
                     if (!dep || dep.status === 'done') return null;
-                    return <li key={depId}>⏳ {dep.title}</li>;
+                    return <li key={depId}>{dep.title}</li>;
                   })}
                 </ul>
               </div>
@@ -272,15 +296,15 @@ function DepGraphOverlay({ cards, cardsById, onClose }: DepGraphOverlayProps) {
 
         {/* Ready */}
         <div className="space-y-2 mt-4">
-          <h4 className="text-sm font-medium text-green-500">
-            ✅ Ready to work on ({readyCards.length})
+          <h4 className="text-sm font-medium text-green-500 flex items-center gap-1.5">
+            <Play size={13} /> Ready to work on ({readyCards.length})
           </h4>
           {readyCards.length === 0 ? (
             <p className="text-xs text-muted-foreground">No ready cards.</p>
           ) : (
             readyCards.map((card) => (
               <div key={card.id} className="rounded border border-border/60 p-2 text-sm">
-                📋 {card.title}
+                {card.title}
                 {card.dependencies.length === 0 ? (
                   <span className="text-xs text-muted-foreground"> (no deps)</span>
                 ) : (
@@ -313,8 +337,8 @@ function BulkToolbar({ selectedIds, onClear, onBulkMove, onBulkArchive, onBulkDe
       <span className="text-sm font-medium text-foreground">{selectedIds.size} selected</span>
       <div className="h-4 w-px bg-border" />
       {(['todo', 'in-progress', 'done'] as CardStatus[]).map((s) => (
-        <Button key={s} variant="ghost" size="sm" onClick={() => onBulkMove(s)}>
-          → {COLUMN_LABELS[s]?.split(' ').slice(1).join(' ') ?? s}
+        <Button key={s} variant="ghost" size="sm" className="flex items-center gap-1" onClick={() => onBulkMove(s)}>
+          <ChevronRight size={12} /> {COLUMN_LABELS[s]}
         </Button>
       ))}
       <div className="h-4 w-px bg-border" />
@@ -322,7 +346,7 @@ function BulkToolbar({ selectedIds, onClear, onBulkMove, onBulkArchive, onBulkDe
         <Archive size={13} /> Archive
       </Button>
       <Button variant="ghost" size="sm" className="flex items-center gap-1.5 text-destructive" onClick={onBulkDelete}>
-        🗑 Delete
+        <Trash2 size={13} /> Delete
       </Button>
       <div className="h-4 w-px bg-border" />
       <Button variant="ghost" size="sm" onClick={onClear} className="flex items-center gap-1.5">
@@ -354,7 +378,7 @@ function ArchivedSection({ projectId }: ArchivedSectionProps) {
         className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
         onClick={() => setOpen(!open)}
       >
-        <Archive size={14} /> Archived Cards {open ? '▾' : '▸'}
+        <Archive size={14} className="text-muted-foreground" /> Archived Cards <ChevronRight size={12} className={cn('transition-transform', open && 'rotate-90')} />
       </button>
 
       {open && (
@@ -375,13 +399,13 @@ function ArchivedSection({ projectId }: ArchivedSectionProps) {
                   onClick={async () => {
                     try {
                       await restoreCard.mutateAsync({ cardId: card.id, projectId });
-                      showToast(`↩ "${card.title}" restored`, 'success');
+                      showToast(`"${card.title}" restored`, 'success');
                     } catch {
-                      showToast('❌ Restore failed', 'error');
+                      showToast('Restore failed', 'error');
                     }
                   }}
                 >
-                  ↩ Restore
+                  <RotateCcw size={12} className="text-emerald-400" /> Restore
                 </Button>
                 <Button
                   variant="ghost"
@@ -391,13 +415,13 @@ function ArchivedSection({ projectId }: ArchivedSectionProps) {
                     if (!confirm(`Permanently delete "${card.title}"? This cannot be undone.`)) return;
                     try {
                       await deleteCard.mutateAsync({ cardId: card.id, projectId });
-                      showToast(`🗑 "${card.title}" permanently deleted`, 'success');
+                      showToast(`"${card.title}" permanently deleted`, 'success');
                     } catch {
-                      showToast('❌ Delete failed', 'error');
+                      showToast('Delete failed', 'error');
                     }
                   }}
                 >
-                  🗑 Delete
+                  <Trash2 size={12} /> Delete
                 </Button>
               </div>
             </div>
@@ -425,8 +449,8 @@ function ExecutionProgress({ index, total, cardTitle, onStop }: ExecutionProgres
         <span className="text-foreground">
           Executing card {index + 1}/{total}: <strong>{cardTitle}</strong>
         </span>
-        <Button variant="ghost" size="sm" onClick={onStop}>
-          ⏹ Stop
+        <Button variant="ghost" size="sm" onClick={onStop} className="flex items-center gap-1.5">
+          <Square size={13} className="text-destructive" /> Stop
         </Button>
       </div>
       <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
@@ -827,10 +851,10 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
           />
           {searchInput && (
             <button
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               onClick={() => setSearchInput('')}
             >
-              ✕
+              <X size={11} />
             </button>
           )}
         </div>
@@ -839,37 +863,46 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         <div className="w-px h-5 bg-border shrink-0" />
 
         {/* Filter chips — inline, single row */}
-        {PRIORITY_FILTERS.slice(1).map((pf) => (
-          <button
-            key={String(pf.value)}
-            className={cn(
-              'shrink-0 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
-              priorityFilter === pf.value
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'text-muted-foreground border-transparent hover:border-border',
-            )}
-            onClick={() => setPriorityFilter(priorityFilter === pf.value ? null : pf.value)}
-          >
-            {pf.label}
-          </button>
-        ))}
+        {PRIORITY_FILTERS.slice(1).map((pf) => {
+          const PIcon = pf.icon;
+          return (
+            <button
+              key={String(pf.value)}
+              className={cn(
+                'shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+                priorityFilter === pf.value
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'text-muted-foreground border-transparent hover:border-border',
+              )}
+              onClick={() => setPriorityFilter(priorityFilter === pf.value ? null : pf.value)}
+            >
+              {PIcon && <PIcon size={10} className={priorityFilter === pf.value ? undefined : pf.color} />}
+              {pf.label}
+            </button>
+          );
+        })}
 
         <div className="w-px h-5 bg-border shrink-0" />
 
-        {AGENT_FILTERS.slice(1).map((af) => (
-          <button
-            key={String(af.value)}
-            className={cn(
-              'shrink-0 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
-              agentFilter === af.value
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'text-muted-foreground border-transparent hover:border-border',
-            )}
-            onClick={() => setAgentFilter(agentFilter === af.value ? null : af.value)}
-          >
-            {af.label}
-          </button>
-        ))}
+        {AGENT_FILTERS.slice(1).map((af) => {
+          const AIcon = af.value ? AGENT_ICONS[af.value] : undefined;
+          const aColor = af.value ? AGENT_COLORS[af.value] : undefined;
+          return (
+            <button
+              key={String(af.value)}
+              className={cn(
+                'shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+                agentFilter === af.value
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'text-muted-foreground border-transparent hover:border-border',
+              )}
+              onClick={() => setAgentFilter(agentFilter === af.value ? null : af.value)}
+            >
+              {AIcon && <AIcon size={10} className={agentFilter === af.value ? undefined : aColor} />}
+              {af.label}
+            </button>
+          );
+        })}
 
         {allTags.length > 0 && (
           <>
@@ -907,21 +940,23 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         <Button
           variant={executionActive ? 'destructive' : 'outline'}
           size="sm"
-          className="h-6 text-[10px] px-2 shrink-0"
+          className="h-6 px-2 shrink-0"
           title={executionActive ? 'Stop board execution' : 'Execute all todo/in-progress cards'}
           onClick={handleExecuteBoard}
         >
-          {executionActive ? '⏹' : '▶'}
+          {executionActive
+            ? <Square size={12} />
+            : <Play size={12} className="text-emerald-400" />}
         </Button>
 
-        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="View dependency graph" onClick={() => setDepGraphOpen(true)}>
-          🔗
+        <Button variant="outline" size="sm" className="h-6 px-2 shrink-0" title="View dependency graph" onClick={() => setDepGraphOpen(true)}>
+          <Link2 size={12} className="text-sky-400" />
         </Button>
-        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="Export project as JSON" onClick={handleExport}>
-          📤
+        <Button variant="outline" size="sm" className="h-6 px-2 shrink-0" title="Export project as JSON" onClick={handleExport}>
+          <Upload size={12} className="text-violet-400" />
         </Button>
-        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="Import project from JSON" onClick={() => importInputRef.current?.click()}>
-          📥
+        <Button variant="outline" size="sm" className="h-6 px-2 shrink-0" title="Import project from JSON" onClick={() => importInputRef.current?.click()}>
+          <Download size={12} className="text-blue-400" />
         </Button>
         <input
           ref={importInputRef}
