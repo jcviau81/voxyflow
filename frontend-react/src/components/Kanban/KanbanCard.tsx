@@ -415,7 +415,7 @@ export function KanbanCard({
               <DropdownMenuSubContent>
                 {otherProjects.map((p) => (
                   <DropdownMenuItem key={p.id} onSelect={() => handleCloneTo(p.id, p.name)}>
-                    <span>{p.emoji ?? '📁'}</span> {p.name}
+                    {p.emoji ? <span>{p.emoji}</span> : <Folder size={13} />} {p.name}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>
