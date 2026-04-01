@@ -1,4 +1,5 @@
 import React, { useMemo, useCallback } from 'react';
+import { LayoutGrid } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
@@ -196,10 +197,10 @@ function FreeBoardCard({
         {/* Move to Kanban */}
         <button
           onClick={(e) => { e.stopPropagation(); onMoveToKanban(card); }}
-          className="w-6 h-6 flex items-center justify-center rounded text-sm hover:bg-accent transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           title="Move to Kanban"
         >
-          📋
+          <LayoutGrid size={13} />
         </button>
 
         {/* Delete */}

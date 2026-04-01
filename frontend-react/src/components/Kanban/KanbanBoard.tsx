@@ -34,13 +34,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const COLUMN_STATUSES: CardStatus[] = ['idea', 'todo', 'in-progress', 'done'];
+const COLUMN_STATUSES: CardStatus[] = ['todo', 'in-progress', 'done'];
 
 const COLUMN_LABELS: Record<string, string> = {
-  idea: '💡 Idea',
-  todo: '📋 Todo',
-  'in-progress': '🔨 In Progress',
-  done: '✅ Done',
+  todo: 'Todo',
+  'in-progress': 'In Progress',
+  done: 'Done',
 };
 
 const PRIORITY_FILTERS: Array<{ label: string; value: number | null }> = [
@@ -663,7 +662,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       return;
     }
     try {
-      const newCard = await createCard.mutateAsync({ projectId, title: 'New card', status: 'idea' });
+      const newCard = await createCard.mutateAsync({ projectId, title: 'New card', status: 'todo' });
       useCardStore.setState((state) => ({
         cardsById: { ...state.cardsById, [newCard.id]: newCard },
       }));
