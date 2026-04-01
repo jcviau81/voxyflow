@@ -498,17 +498,20 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       const next = new Set(prev);
       if (selected) next.add(id);
       else next.delete(id);
+      // Auto-enter/exit select mode based on selection count
+      setSelectMode(next.size > 0);
       return next;
     });
   }, []);
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
+    setSelectMode(false);
   }, []);
 
   const toggleSelectMode = useCallback(() => {
     setSelectMode((prev) => {
-      if (prev) setSelectedIds(new Set()); // exiting: clear
+      if (prev) setSelectedIds(new Set());
       return !prev;
     });
   }, []);
