@@ -360,18 +360,26 @@ export function VoicePanel() {
   const handleTtsTest = useCallback(async () => {
     setTtsTestStatus('Testing…');
     try {
-      const url = (control._formValues as VoiceSettings).tts_url;
-      await apiFetch('/api/settings/tts/speak', {
+      const token = localStorage.getItem('voxyflow_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/settings/tts/speak', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: 'Voxyflow TTS test. Hello!', url }),
+        headers,
+        body: JSON.stringify({ text: 'Voxyflow TTS test. Hello!', language: 'fr' }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      audio.onended = () => URL.revokeObjectURL(audioUrl);
+      await audio.play();
       setTtsTestStatus('✓ Playing');
       setTimeout(() => setTtsTestStatus(''), 3000);
     } catch {
       setTtsTestStatus('✗ Failed (server may be down)');
     }
-  }, [control]);
+  }, []);
 
   // Save mutation
   const saveMutation = useMutation({
