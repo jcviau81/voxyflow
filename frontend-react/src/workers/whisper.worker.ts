@@ -31,7 +31,7 @@ async function loadModel(modelId: string): Promise<void> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     transcriber = await (pipeline as any)('automatic-speech-recognition', modelId, {
-      dtype: 'q8',
+      dtype: 'fp32',
       device: 'wasm',
       progress_callback: (progress: Record<string, unknown>) => {
         if (typeof progress.progress === 'number') {

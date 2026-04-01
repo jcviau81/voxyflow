@@ -31,9 +31,35 @@ class SttService {
 
   constructor() {
     this._isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    this.engine = 'webspeech';
     this._lang = this.detectLanguage();
+
+    // Restore engine + model from saved settings
+    const saved = this.loadSavedSettings();
+    this.engine = saved.engine;
     this.initWebSpeech();
+
+    if (saved.engine === 'whisper_local' && saved.modelId) {
+      this._whisperModel = saved.modelId;
+      this.initWhisperWorker();
+      this.loadModelInWorker(saved.modelId);
+    }
+  }
+
+  private loadSavedSettings(): { engine: SttEngine; modelId: string } {
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      if (stored) {
+        const s = JSON.parse(stored);
+        const v = s?.voice;
+        if (v) {
+          const engineMap: Record<string, SttEngine> = { native: 'webspeech', whisper_local: 'whisper_local', whisper_server: 'whisper' };
+          const engine = engineMap[v.stt_engine] || 'webspeech';
+          const modelId = v.whisper_model_id || '';
+          return { engine, modelId };
+        }
+      }
+    } catch { /* ignore */ }
+    return { engine: 'webspeech', modelId: '' };
   }
 
   private initWebSpeech(): void {
@@ -168,6 +194,10 @@ class SttService {
       new URL('../workers/whisper.worker.ts', import.meta.url),
       { type: 'module' },
     );
+
+    this.whisperWorker.onerror = (err) => {
+      console.error('[SttService] Whisper worker error:', err);
+    };
 
     this.whisperWorker.onmessage = (event: MessageEvent) => {
       const { type, status, message, progress, text } = event.data;
@@ -306,9 +336,8 @@ class SttService {
     } else if (this.engine === 'whisper_local' && !this._modelReady) {
       eventBus.emit(VOICE_EVENTS.VOICE_ERROR, {
         error: 'model-not-ready',
-        message: 'Whisper model not loaded yet. Using Web Speech API as fallback.',
+        message: 'Whisper model is still loading. Please wait.',
       });
-      this.startWebSpeechRecording();
     } else {
       this.startWebSpeechRecording();
     }

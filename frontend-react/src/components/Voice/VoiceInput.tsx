@@ -41,7 +41,6 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
   const wakeWordSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeWordSessionIdRef = useRef<string | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
-  const isMobile = useRef(/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth <= 768 || 'ontouchstart' in window).current;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -69,9 +68,9 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
     } catch { /* ignore */ }
   }, []);
 
-  const startRecording = useCallback(() => {
+  const startRecording = useCallback(async () => {
     ttsService.stop();
-    sttService.startRecording();
+    await sttService.startRecording();
   }, []);
 
   const stopRecording = useCallback(() => {
@@ -356,15 +355,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
 
   // ── PTT / toggle handlers ─────────────────────────────────────────────────
 
-  const handlePttMouseDown = useCallback(() => startRecording(), [startRecording]);
-  const handlePttMouseUp = useCallback(() => stopRecording(), [stopRecording]);
-  const handlePttMouseLeave = useCallback(() => { if (sttService.recording) stopRecording(); }, [stopRecording]);
-  const handlePttTouchStart = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    if (sttService.recording) stopRecording();
-    else startRecording();
-  }, [startRecording, stopRecording]);
-  const handlePttClick = useCallback((e: React.MouseEvent) => {
+  const handlePttClick = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     if (sttService.recording) stopRecording();
     else startRecording();
@@ -392,28 +383,14 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
       <div className="voice-buttons flex items-center gap-1">
         {sttBuiltinEnabled && (
           <Tooltip content={isRecording ? 'Recording… click to stop' : sttService.currentEngine === 'whisper_local' ? 'Push to talk (hold) · Alt+V · Whisper Local' : 'Push to talk (hold) · Alt+V'}>
-            {isMobile ? (
-              <button
-                type="button"
-                className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
-                onTouchStart={handlePttTouchStart}
-                onClick={handlePttClick}
-                aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-              >
-                {isRecording ? <Square size={16} /> : <Mic size={16} />}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
-                onMouseDown={handlePttMouseDown}
-                onMouseUp={handlePttMouseUp}
-                onMouseLeave={handlePttMouseLeave}
-                aria-label={isRecording ? 'Stop recording' : 'Hold to talk (Alt+V)'}
-              >
-                {isRecording ? <Square size={16} /> : <Mic size={16} />}
-              </button>
-            )}
+            <button
+              type="button"
+              className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
+              onClick={handlePttClick}
+              aria-label={isRecording ? 'Stop recording' : 'Click to talk (Alt+V)'}
+            >
+              {isRecording ? <Square size={16} /> : <Mic size={16} />}
+            </button>
           </Tooltip>
         )}
 
