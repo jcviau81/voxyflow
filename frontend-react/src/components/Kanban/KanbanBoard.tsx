@@ -34,9 +34,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const COLUMN_STATUSES: CardStatus[] = ['todo', 'in-progress', 'done'];
+const COLUMN_STATUSES: CardStatus[] = ['idea', 'todo', 'in-progress', 'done'];
 
 const COLUMN_LABELS: Record<string, string> = {
+  idea: 'Idea',
   todo: 'Todo',
   'in-progress': 'In Progress',
   done: 'Done',

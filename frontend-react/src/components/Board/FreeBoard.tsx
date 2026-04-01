@@ -235,7 +235,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   const boardCards = useMemo(
     () =>
       cards
-        .filter((c) => c.status === 'card' || c.status === 'idea')
+        .filter((c) => c.status === 'card')
         .sort((a, b) => b.createdAt - a.createdAt),
     [cards],
   );
@@ -257,7 +257,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
       const newCard = await createCard.mutateAsync({
         projectId: currentProjectId,
         title: 'New card',
-        status: 'idea',
+        status: 'card',
       });
       useCardStore.setState((state) => ({
         cardsById: { ...state.cardsById, [newCard.id]: newCard },
@@ -278,7 +278,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   const handleMoveToKanban = useCallback(
     async (card: Card) => {
       try {
-        await patchCard.mutateAsync({ cardId: card.id, updates: { status: 'todo' } });
+        await patchCard.mutateAsync({ cardId: card.id, updates: { status: 'idea' } });
         showToast('Card moved to Kanban', 'success');
       } catch {
         showToast('Failed to move card', 'error');
