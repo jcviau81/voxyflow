@@ -179,8 +179,9 @@ export function useWebSocket(): UseWebSocketReturn {
         }
       };
 
-      ws.onerror = (event: Event) => {
-        console.error('[useWebSocket] WebSocket error:', event);
+      ws.onerror = () => {
+        // Browser WebSocket error events carry no detail for security reasons.
+        // onclose fires immediately after and handles reconnection.
       };
 
       ws.onclose = () => {
