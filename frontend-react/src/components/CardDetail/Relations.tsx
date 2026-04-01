@@ -152,7 +152,7 @@ export function RelationsSection({ cardId, projectId }: Props) {
           <select
             value={selectedCard}
             onChange={(e) => setSelectedCard(e.target.value)}
-            className="flex-1 rounded-md border border-border bg-transparent px-1.5 py-1 text-xs outline-none"
+            className="flex-1 rounded-md border border-border bg-card text-foreground px-1.5 py-1 text-xs outline-none"
           >
             <option value="" disabled>
               Select card…
@@ -166,7 +166,7 @@ export function RelationsSection({ cardId, projectId }: Props) {
           <select
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value as CardRelationType)}
-            className="rounded-md border border-border bg-transparent px-1.5 py-1 text-xs outline-none"
+            className="rounded-md border border-border bg-card text-foreground px-1.5 py-1 text-xs outline-none"
           >
             {RELATION_TYPES.map((t) => (
               <option key={t} value={t}>

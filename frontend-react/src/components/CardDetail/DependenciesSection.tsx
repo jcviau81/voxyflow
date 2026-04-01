@@ -52,7 +52,7 @@ export function DependenciesSection({ card, projectCards, onAdd, onRemove }: Dep
       {/* Add dependency dropdown */}
       {otherCards.length > 0 ? (
         <select
-          className="w-full rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+          className="w-full rounded border border-border bg-card text-foreground px-2 py-1 text-xs outline-none"
           value=""
           onChange={(e) => {
             if (e.target.value) onAdd(e.target.value);
