@@ -16,9 +16,11 @@ const WAKE_WORD_SEND_DELAY_MS = 3000;
 interface VoiceInputProps {
   sttBuiltinEnabled?: boolean;
   className?: string;
+  /** Renders only the two action buttons (no indicators/transcript) for inline use */
+  compact?: boolean;
 }
 
-export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputProps) {
+export function VoiceInput({ sttBuiltinEnabled = true, className, compact = false }: VoiceInputProps) {
   const chat = useChatService();
   const showToast = useToastStore((s) => s.showToast);
 
@@ -389,10 +391,8 @@ export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputPr
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  return (
-    <div className={`voice-input flex flex-col gap-1${className ? ` ${className}` : ''}`} data-testid="voice-input-btn">
-      {/* Buttons row */}
-      <div className="voice-buttons flex items-center gap-1">
+  const buttons = (
+    <div className="voice-buttons flex items-center gap-1">
         {sttBuiltinEnabled && (
           isMobile ? (
             <button
@@ -430,6 +430,14 @@ export function VoiceInput({ sttBuiltinEnabled = true, className }: VoiceInputPr
           <Radio size={16} />
         </button>
       </div>
+  );
+
+  if (compact) return buttons;
+
+  return (
+    <div className={`voice-input flex flex-col gap-1${className ? ` ${className}` : ''}`} data-testid="voice-input-btn">
+      {/* Buttons row */}
+      {buttons}
 
       {/* Recording / transcribing indicator */}
       {showIndicator && (

@@ -11,6 +11,7 @@ import { useSlashMenu, type SlashCommand } from './SlashCommandMenu';
 import { EmojiPicker } from './EmojiPicker';
 import { SmartSuggestions, type ChatLevel } from './SmartSuggestions';
 import { AudioLines, Volume2, SendHorizonal } from 'lucide-react';
+import { VoiceInput } from '../Voice/VoiceInput';
 import { cn } from '../../lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -407,13 +408,13 @@ export function ChatInput({
           disabled={!connected}
         />
 
-        {/* Voice toggles */}
+        {/* Voice controls — all 4 icons grouped together */}
         {!embedded && (
-          <div className="voice-toggles flex items-center gap-1 flex-shrink-0">
+          <div className="voice-controls flex items-center gap-1 flex-shrink-0">
             <button
               type="button"
               className={cn(
-                'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded text-sm transition-colors',
+                'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
                 sttAutoSend ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
               )}
               title={sttAutoSend ? 'Auto-send voice: ON' : 'Auto-send voice: OFF'}
@@ -424,7 +425,7 @@ export function ChatInput({
             <button
               type="button"
               className={cn(
-                'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded text-sm transition-colors',
+                'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
                 ttsAutoPlay ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
               )}
               title={ttsAutoPlay ? 'Auto-play TTS: ON' : 'Auto-play TTS: OFF'}
@@ -432,6 +433,7 @@ export function ChatInput({
             >
               <Volume2 size={14} />
             </button>
+            <VoiceInput compact />
           </div>
         )}
 

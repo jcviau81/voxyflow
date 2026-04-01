@@ -15,7 +15,6 @@
 import { useEffect } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { ChatWindow } from '../components/Chat/ChatWindow';
-import { VoiceInput } from '../components/Voice/VoiceInput';
 import { KanbanBoard } from '../components/Kanban/KanbanBoard';
 import { FreeBoard } from '../components/Board/FreeBoard';
 import { ProjectKnowledge } from '../components/Projects/ProjectKnowledge';
@@ -77,7 +76,6 @@ export function ProjectPage() {
             projectId={id}
             className="flex-1"
           />
-          <VoiceInput className="px-3 pb-2" />
         </div>
       )}
 

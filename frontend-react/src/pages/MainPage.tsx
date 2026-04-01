@@ -12,7 +12,6 @@
  */
 import { useEffect } from 'react';
 import { ChatWindow } from '../components/Chat/ChatWindow';
-import { VoiceInput } from '../components/Voice/VoiceInput';
 import { KanbanBoard } from '../components/Kanban/KanbanBoard';
 import { FreeBoard } from '../components/Board/FreeBoard';
 import { ProjectList } from '../components/Projects/ProjectList';
@@ -51,7 +50,6 @@ export function MainPage() {
             chatLevel="general"
             className="flex-1"
           />
-          <VoiceInput className="px-3 pb-2" />
         </div>
       )}
 
