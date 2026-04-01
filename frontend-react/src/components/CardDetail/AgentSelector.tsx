@@ -18,9 +18,19 @@ interface AgentSelectorProps {
   onChange: (agentType: string) => void;
 }
 
+const GENERAL_AGENT: AgentInfo = {
+  type: 'general',
+  name: 'General',
+  emoji: '🤖',
+  description: 'General-purpose agent',
+  strengths: [],
+  keywords: [],
+};
+
 export function AgentSelector({ current, onChange }: AgentSelectorProps) {
   const { data: agents } = useAgents();
-  const list = agents && agents.length > 0 ? agents : FALLBACK_AGENTS;
+  const base = agents && agents.length > 0 ? agents : FALLBACK_AGENTS;
+  const list = base.some((a) => a.type === 'general') ? base : [GENERAL_AGENT, ...base];
 
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -31,9 +41,9 @@ export function AgentSelector({ current, onChange }: AgentSelectorProps) {
           title={agent.description}
           onClick={() => onChange(agent.type)}
           className={cn(
-            'rounded-md border px-2 py-1 text-xs transition-colors',
+            'rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer',
             current === agent.type
-              ? 'border-accent bg-accent/20 text-accent-foreground'
+              ? 'border-accent bg-accent-foreground/20 text-accent-foreground '
               : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted',
           )}
         >
