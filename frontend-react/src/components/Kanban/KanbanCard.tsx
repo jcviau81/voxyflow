@@ -247,7 +247,7 @@ export function KanbanCard({
   const handleArchive = async () => {
     try {
       await archiveCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
-      showToast(`📦 "${card.title}" archived`, 'success');
+      showToast(`"${card.title}" archived`, 'success');
     } catch {
       showToast('Archive failed', 'error');
     }
@@ -269,7 +269,7 @@ export function KanbanCard({
         targetProjectId: projectId,
         sourceProjectId: card.projectId ?? undefined,
       });
-      showToast(`📤 Cloned to "${projectTitle}"`, 'success');
+      showToast(`Cloned to "${projectTitle}"`, 'success');
     } catch {
       showToast('Clone failed', 'error');
     }
