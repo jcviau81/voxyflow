@@ -934,7 +934,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         <div className="flex-1" />
 
         {/* Actions — compact */}
-        <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="Create a new card" onClick={handleNewCard}>
+        <Button variant="default" size="sm" className="h-6 text-[10px] px-2 shrink-0" title="Create a new card" onClick={handleNewCard}>
           + Card
         </Button>
         <Button
