@@ -48,7 +48,7 @@ import { RelationsSection } from './Relations';
 import { HistorySection } from './History';
 import { ChatWindow } from '../Chat/ChatWindow';
 import { DescriptionEditor } from './DescriptionEditor';
-import { Copy, Archive } from 'lucide-react';
+import { Copy, Archive, Trash2 } from 'lucide-react';
 
 // ── Color class map ─────────────────────────────────────────────────────────
 
@@ -288,7 +288,7 @@ export function CardDetailModal() {
               type="button"
               onClick={handleExecute}
               disabled={executeCard.isPending}
-              className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+              className="rounded-md border border-border px-2.5 py-1 text-xs bg-emerald-600 font-medium transition-colors hover:bg-emerald-500 cursor-pointer"
             >
               {executeCard.isPending ? '▶ Executing...' : '▶ Execute'}
             </button>
@@ -377,12 +377,14 @@ export function CardDetailModal() {
             <div className="space-y-5 p-4">
               {/* Group 1: Status & Agent */}
               <section className="space-y-3">
-                <StatusButtons current={card.status} onChange={handleStatusChange} />
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground cursor-pointer">Status</label>
+                  <StatusButtons current={card.status} onChange={handleStatusChange} />
+                </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground cursor-pointer">Agent</label>
                   <AgentSelector current={card.agentType ?? 'general'} onChange={handleAgentChange} />
                 </div>
-
               </section>
 
               <hr className="border-border" />
@@ -410,32 +412,23 @@ export function CardDetailModal() {
 
               {/* Group 4: Tracking */}
               <section className="space-y-3">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                  Tracking
-                </span>
-
                 <ChecklistSection cardId={card.id} />
-                <LinkedFiles cardId={card.id} files={card.files ?? []} />
+                <hr className="border-border" />
+                <LinkedFiles cardId={card.id} projectId={card.projectId ?? undefined} files={card.files ?? []} />
                 <AttachmentsSection cardId={card.id} />
-              </section>
 
-              <hr className="border-border" />
-
-              {/* Group 5: Links */}
-              <section className="space-y-3">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                  Links
-                </span>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Dependencies</label>
-                  <DependenciesSection
-                    card={card}
-                    projectCards={projectCards}
-                    onAdd={handleAddDep}
-                    onRemove={handleRemoveDep}
-                  />
-                </div>
+                <hr className="border-border" />
+                
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Dependencies</label>
+                <DependenciesSection
+                  card={card}
+                  projectCards={projectCards}
+                  onAdd={handleAddDep}
+                  onRemove={handleRemoveDep}
+                />
+              
                 <RelationsSection cardId={card.id} projectId={card.projectId ?? undefined} />
+                <hr className="border-border" />
                 <HistorySection cardId={card.id} />
               </section>
 
@@ -451,16 +444,16 @@ export function CardDetailModal() {
                   <button
                     type="button"
                     onClick={handleArchive}
-                    className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
+                    className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
                   >
                     <Archive size={12} /> Archive
                   </button>
                   <button
                     type="button"
                     onClick={handleDelete}
-                    className="flex items-center gap-1.5 rounded-md border border-red-500/30 px-2.5 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                    className="flex items-center gap-1.5 rounded-md border border-red-500/30 px-2.5 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 cursor-pointer"
                   >
-                    🗑️ Delete
+                    <Trash2 size={12} /> Delete
                   </button>
                 </div>
               </section>
