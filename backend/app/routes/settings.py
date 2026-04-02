@@ -156,17 +156,20 @@ async def get_settings():
     # 1. Try DB (source of truth)
     db_data = await _load_settings_from_db()
     if db_data is not None:
-        _cached_default_worker_model = db_data.get("models", {}).get("default_worker_model", "sonnet")
-        return db_data
+        # Merge with Pydantic defaults so new fields are always present
+        merged = AppSettings(**db_data).dict()
+        _cached_default_worker_model = merged.get("models", {}).get("default_worker_model", "sonnet")
+        return merged
 
     # 2. Fallback to settings.json — and migrate into DB
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE) as f:
             file_data = json.load(f)
-        await _save_settings_to_db(file_data)
-        _cached_default_worker_model = file_data.get("models", {}).get("default_worker_model", "sonnet")
+        merged = AppSettings(**file_data).dict()
+        await _save_settings_to_db(merged)
+        _cached_default_worker_model = merged.get("models", {}).get("default_worker_model", "sonnet")
         logger.info("Migrated settings from settings.json into SQLite")
-        return file_data
+        return merged
 
     # 3. Defaults
     return AppSettings().dict()

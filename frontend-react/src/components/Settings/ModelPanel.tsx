@@ -342,7 +342,7 @@ export function ModelPanel() {
       fast:     { ...dm.fast,     ...(sm.fast     || {}) },
       deep:     { ...dm.deep,     ...(sm.deep     || {}) },
       analyzer: { ...dm.analyzer, ...(sm.analyzer || {}) },
-      default_worker_model: (sm as Record<string, unknown>).default_worker_model as string || dm.default_worker_model,
+      default_worker_model: sm.default_worker_model ?? dm.default_worker_model,
     };
     reset(merged);
 
