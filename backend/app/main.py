@@ -25,6 +25,7 @@ from app.services.rag_service import get_rag_service
 from app.services.scheduler_service import get_scheduler_service
 from app.services.pending_results import pending_store
 from app.services.board_executor import execute_board, cancel_execution, build_execution_plan, CardPlan, _build_card_prompt
+from app.routes.settings import get_default_worker_model
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +92,17 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Voxyflow starting up...")
     await init_db()
     logger.info("✅ Database initialized")
+
+    # Initialize default_worker_model cache from DB settings
+    from app.routes.settings import _load_settings_from_db, get_default_worker_model
+    try:
+        _db_settings = await _load_settings_from_db()
+        if _db_settings:
+            import app.routes.settings as _settings_mod
+            _settings_mod._cached_default_worker_model = _db_settings.get("models", {}).get("default_worker_model", "sonnet")
+        logger.info("✅ Default worker model: %s", get_default_worker_model())
+    except Exception as _e:
+        logger.warning("Failed to load default_worker_model from DB: %s — using 'sonnet'", _e)
 
     # Cleanup stale worker tasks (done/failed/cancelled older than 24h)
     await _cleanup_stale_worker_tasks()
@@ -490,6 +502,7 @@ async def general_websocket(websocket: WebSocket):
                             pool = _orchestrator.start_worker_pool(session_id, websocket)
                             bus = event_bus_registry.get_or_create(session_id)
                             task_id = f"task-{uuid4().hex[:8]}"
+                            worker_model = get_default_worker_model()
                             event = ActionIntent(
                                 task_id=task_id,
                                 intent_type="complex",
@@ -500,12 +513,12 @@ async def general_websocket(websocket: WebSocket):
                                     "description": prompt,
                                     "project_id": project_id,
                                     "card_id": card_id,
-                                    "model": "sonnet",
+                                    "model": worker_model,
                                     "complexity": "complex",
                                 },
                                 session_id=session_id,
                                 complexity="complex",
-                                model="sonnet",
+                                model=worker_model,
                                 callback_depth=0,
                             )
                             await bus.emit(event)

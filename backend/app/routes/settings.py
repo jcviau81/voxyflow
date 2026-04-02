@@ -23,6 +23,14 @@ SETTINGS_FILE = str(VOXYFLOW_DIR / "settings.json")
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
 
+_cached_default_worker_model: str = "sonnet"
+
+
+def get_default_worker_model() -> str:
+    """Return the cached default worker model (haiku/sonnet/opus). Updated on settings save."""
+    return _cached_default_worker_model
+
+
 async def _load_settings_from_db() -> dict | None:
     """Load settings from SQLite. Returns None if not found."""
     try:
@@ -93,6 +101,7 @@ class ModelsSettings(BaseModel):
         model="claude-haiku-4",
         enabled=True,
     )
+    default_worker_model: str = "sonnet"  # "haiku" | "sonnet" | "opus"
 
 
 class SchedulerSettings(BaseModel):
@@ -142,9 +151,12 @@ async def get_settings():
 
     If DB is empty but settings.json exists, migrate into DB automatically.
     """
+    global _cached_default_worker_model
+
     # 1. Try DB (source of truth)
     db_data = await _load_settings_from_db()
     if db_data is not None:
+        _cached_default_worker_model = db_data.get("models", {}).get("default_worker_model", "sonnet")
         return db_data
 
     # 2. Fallback to settings.json — and migrate into DB
@@ -152,6 +164,7 @@ async def get_settings():
         with open(SETTINGS_FILE) as f:
             file_data = json.load(f)
         await _save_settings_to_db(file_data)
+        _cached_default_worker_model = file_data.get("models", {}).get("default_worker_model", "sonnet")
         logger.info("Migrated settings from settings.json into SQLite")
         return file_data
 
@@ -162,6 +175,8 @@ async def get_settings():
 @router.put("")
 async def save_settings(settings: AppSettings):
     """Save settings to DB (source of truth) and settings.json (backup)."""
+    global _cached_default_worker_model
+    _cached_default_worker_model = settings.models.default_worker_model
     data = settings.dict()
 
     # Write to DB

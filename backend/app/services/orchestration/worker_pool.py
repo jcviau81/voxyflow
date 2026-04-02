@@ -19,6 +19,7 @@ from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_regi
 from app.services.pending_results import pending_store
 from app.services.worker_session_store import get_worker_session_store
 from app.services.worker_supervisor import get_worker_supervisor
+from app.routes.settings import get_default_worker_model
 
 if TYPE_CHECKING:
     from app.services.chat_orchestration import ChatOrchestrator
@@ -214,7 +215,7 @@ class DeepWorkerPool:
                 await self._semaphore.acquire()
                 self._task_meta[event.task_id] = {
                     "action": event.intent or "unknown",
-                    "model": event.model or "sonnet",
+                    "model": event.model or get_default_worker_model(),
                     "description": event.summary or "",
                     "started_at": time.time(),
                 }
@@ -257,7 +258,7 @@ class DeepWorkerPool:
                 task_id=event.task_id,
                 session_id=event.session_id or self._bus.session_id,
                 project_id=event.data.get("project_id"),
-                model=event.model or "sonnet",
+                model=event.model or get_default_worker_model(),
                 intent=event.intent or "unknown",
                 summary=event.summary or "",
             )
@@ -268,7 +269,7 @@ class DeepWorkerPool:
                 project_id=event.data.get("project_id"),
                 action=event.intent or "unknown",
                 description=(event.summary or "")[:500],
-                model=event.model or "sonnet",
+                model=event.model or get_default_worker_model(),
             )
 
             await self._send_task_event("task:started", event.task_id, {

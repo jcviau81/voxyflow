@@ -35,6 +35,7 @@ interface ModelsSettings {
   fast: ModelLayerConfig;
   deep: ModelLayerConfig;
   analyzer: ModelLayerConfig;
+  default_worker_model: string;
 }
 
 interface AppSettings {
@@ -68,6 +69,7 @@ const DEFAULT_MODELS: ModelsSettings = {
   fast:     { ...DEFAULT_LAYER, model: 'claude-sonnet-4' },
   deep:     { ...DEFAULT_LAYER, model: 'claude-opus-4' },
   analyzer: { ...DEFAULT_LAYER, model: 'claude-haiku-4' },
+  default_worker_model: 'sonnet',
 };
 
 const LAYER_META: Record<LayerKey, { label: string; placeholder: string; showEnabled: boolean }> = {
@@ -340,6 +342,7 @@ export function ModelPanel() {
       fast:     { ...dm.fast,     ...(sm.fast     || {}) },
       deep:     { ...dm.deep,     ...(sm.deep     || {}) },
       analyzer: { ...dm.analyzer, ...(sm.analyzer || {}) },
+      default_worker_model: (sm as Record<string, unknown>).default_worker_model as string || dm.default_worker_model,
     };
     reset(merged);
 
@@ -470,6 +473,29 @@ export function ModelPanel() {
             ollamaUrl={ollamaUrl}
           />
         ))}
+      </div>
+
+      {/* ── Default worker model ── */}
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-medium whitespace-nowrap">Default worker model:</label>
+        <Controller
+          control={control}
+          name="default_worker_model"
+          render={({ field }) => (
+            <select
+              className="setting-input text-sm rounded border border-input bg-background px-2 py-1"
+              value={field.value}
+              onChange={field.onChange}
+            >
+              <option value="haiku">Haiku (fast / cheap)</option>
+              <option value="sonnet">Sonnet (balanced)</option>
+              <option value="opus">Opus (powerful)</option>
+            </select>
+          )}
+        />
+        <span className="text-xs text-muted-foreground">
+          Model used for background workers and card execution
+        </span>
       </div>
 
       {/* ── Save button ── */}
