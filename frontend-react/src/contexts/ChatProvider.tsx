@@ -207,10 +207,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const getLayerState = useCallback((): Record<string, boolean> => {
     try {
-      const stored = localStorage.getItem('voxyflow_layer_state');
+      const stored = localStorage.getItem('voxyflow_layer_toggles');
       if (stored) return JSON.parse(stored);
     } catch { /* ignore */ }
-    return {};
+    return { deep: true, analyzer: false };
   }, []);
 
   // ---------------------------------------------------------------------------
