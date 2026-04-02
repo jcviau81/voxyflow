@@ -21,6 +21,7 @@ import type { Card, CardStatus } from '../../types';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
 import { useToastStore } from '../../stores/useToastStore';
+import { useChatService } from '../../contexts/useChatService';
 import {
   usePatchCard,
   useDuplicateCard,
@@ -92,6 +93,7 @@ export function CardDetailModal() {
   const archiveCard = useArchiveCard();
   const deleteCard = useDeleteCard();
   const executeCard = useExecuteCard();
+  const { sendMessage } = useChatService();
 
   // Local state
   const [mobileTab, setMobileTab] = useState<MobileTab>('description');
@@ -249,12 +251,13 @@ export function CardDetailModal() {
   const handleExecute = useCallback(() => {
     if (!card) return;
     executeCard.mutate(card.id, {
-      onSuccess: () => {
+      onSuccess: (result) => {
+        sendMessage(result.prompt, card.projectId || undefined, card.id);
         showToast(`Executing: "${card.title}"`, 'success');
       },
       onError: () => showToast('Execution failed', 'error'),
     });
-  }, [card, executeCard, showToast]);
+  }, [card, executeCard, sendMessage, showToast]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
