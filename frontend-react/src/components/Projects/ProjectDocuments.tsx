@@ -137,7 +137,7 @@ export function ProjectDocuments() {
       <div className="docs-header">
         <span
           className="badge"
-          style={{ background: 'var(--color-accent, #7c6ff7)', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '11px', fontWeight: 600 }}
+          style={{ background: 'var(--color-accent, #ff6b6b)', color: '#fff', borderRadius: '12px', padding: '2px 8px', fontSize: '11px', fontWeight: 600 }}
         >
           {docs.length}
         </span>

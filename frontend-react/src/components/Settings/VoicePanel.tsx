@@ -158,9 +158,9 @@ function PillGroup<T extends string>({ options, value, onChange }: PillGroupProp
           onClick={() => onChange(opt.value)}
           className={cn(
             'px-3 py-1 text-xs rounded-md border transition-colors',
-            'border-border hover:border-[var(--color-accent,#6c5ce7)] hover:text-foreground',
+            'border-border hover:border-[var(--color-accent,#ff6b6b)] hover:text-foreground',
             value === opt.value
-              ? 'bg-[var(--color-accent,#6c5ce7)] text-white border-[var(--color-accent,#6c5ce7)] font-medium'
+              ? 'bg-[var(--color-accent,#ff6b6b)] text-white border-[var(--color-accent,#ff6b6b)] font-medium'
               : 'bg-transparent text-muted-foreground',
           )}
         >
@@ -196,8 +196,8 @@ function Toggle({
       />
       <div className={cn(
         'w-10 h-5 rounded-full transition-colors',
-        'peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--color-accent,#6c5ce7)]',
-        checked ? 'bg-[var(--color-accent,#6c5ce7)]' : 'bg-muted',
+        'peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--color-accent,#ff6b6b)]',
+        checked ? 'bg-[var(--color-accent,#ff6b6b)]' : 'bg-muted',
       )}>
         <div className={cn(
           'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform',
@@ -781,7 +781,7 @@ export function VoicePanel() {
             <input
               type="range"
               min="0.5" max="2.0" step="0.1"
-              className="w-full accent-[var(--color-accent,#6c5ce7)]"
+              className="w-full accent-[var(--color-accent,#ff6b6b)]"
               value={field.value}
               onChange={(e) => field.onChange(parseFloat(e.target.value))}
             />
@@ -803,7 +803,7 @@ export function VoicePanel() {
             <input
               type="range"
               min="0" max="100"
-              className="w-full accent-[var(--color-accent,#6c5ce7)]"
+              className="w-full accent-[var(--color-accent,#ff6b6b)]"
               value={field.value}
               onChange={(e) => field.onChange(parseInt(e.target.value))}
             />
@@ -837,7 +837,7 @@ export function VoicePanel() {
           disabled={saveMutation.isPending}
           className={cn(
             'px-4 py-1.5 text-sm font-medium rounded transition-colors',
-            'bg-[var(--color-accent,#6c5ce7)] text-white hover:opacity-90',
+            'bg-[var(--color-accent,#ff6b6b)] text-white hover:opacity-90',
             'disabled:opacity-50 disabled:cursor-not-allowed',
           )}
         >

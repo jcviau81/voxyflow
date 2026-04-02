@@ -10,6 +10,7 @@ export type AnimationSpeed = 'off' | 'normal' | 'snappy';
 
 /** Accent color presets — name shown in UI, value is the hex applied to --color-accent */
 export const ACCENT_PRESETS: Array<{ name: string; value: string }> = [
+  { name: 'Coral',  value: '#ff6b6b' },
   { name: 'Purple', value: '#6c5ce7' },
   { name: 'Blue',   value: '#0984e3' },
   { name: 'Green',  value: '#00b894' },
@@ -20,7 +21,7 @@ export const ACCENT_PRESETS: Array<{ name: string; value: string }> = [
   { name: 'Yellow', value: '#fdcb6e' },
 ];
 
-export const DEFAULT_ACCENT = '#6c5ce7';
+export const DEFAULT_ACCENT = '#ff6b6b';
 
 export const FONT_SIZE_MAP: Record<FontSize, { base: string; card: string }> = {
   small:      { base: '14px', card: '13px' },

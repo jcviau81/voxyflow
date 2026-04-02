@@ -100,7 +100,7 @@ button, [role="button"] {
     --color-text-muted: oklch(0.6 0 0);
     --color-border: oklch(0.922 0 0);
     --color-border-light: oklch(0.88 0 0);
-    --color-primary: #7c6ff7;
+    --color-primary: #ff6b6b;
     --border-radius: 8px;
     --border-radius-sm: 6px;
     --border-radius-lg: 12px;
@@ -155,7 +155,7 @@ button, [role="button"] {
     --color-text-muted: #5c5c6b;
     --color-border: rgba(255, 255, 255, 0.07);
     --color-border-light: rgba(255, 255, 255, 0.12);
-    --color-primary: #7c6ff7;
+    --color-primary: #ff6b6b;
     --border-radius: 8px;
     --border-radius-sm: 6px;
     --border-radius-lg: 12px;
@@ -212,7 +212,7 @@ button, [role="button"] {
 
 .knowledge-tab-btn.active {
   color: var(--color-text);
-  border-bottom-color: var(--color-primary, #7c6ff7);
+  border-bottom-color: var(--color-primary, #ff6b6b);
   font-weight: 500;
 }
 
@@ -250,7 +250,7 @@ button, [role="button"] {
 
 .knowledge-drop-zone:hover,
 .knowledge-drop-zone.dragover {
-  border-color: var(--color-primary, #7c6ff7);
+  border-color: var(--color-primary, #ff6b6b);
   background: rgba(124, 111, 247, 0.06);
 }
 
@@ -358,7 +358,7 @@ button, [role="button"] {
 }
 
 .wiki-new-page-btn {
-  background: var(--color-primary, #7c6ff7);
+  background: var(--color-primary, #ff6b6b);
   color: #fff;
   border: none;
   border-radius: 50%;
@@ -405,7 +405,7 @@ button, [role="button"] {
 
 .wiki-page-item.active {
   background: var(--color-bg-tertiary);
-  border-left-color: var(--color-primary, #7c6ff7);
+  border-left-color: var(--color-primary, #ff6b6b);
 }
 
 .wiki-page-item-title {
@@ -417,7 +417,7 @@ button, [role="button"] {
   text-overflow: ellipsis;
 }
 
-.wiki-page-item.active .wiki-page-item-title { color: var(--color-primary, #7c6ff7); }
+.wiki-page-item.active .wiki-page-item-title { color: var(--color-primary, #ff6b6b); }
 
 .wiki-page-item-date {
   font-size: 0.75rem;
@@ -541,7 +541,7 @@ button, [role="button"] {
 
 .wiki-preview p { margin-bottom: 1em; }
 
-.wiki-preview a { color: var(--color-primary, #7c6ff7); text-decoration: none; }
+.wiki-preview a { color: var(--color-primary, #ff6b6b); text-decoration: none; }
 .wiki-preview a:hover { text-decoration: underline; }
 
 .wiki-preview code {
@@ -564,7 +564,7 @@ button, [role="button"] {
 .wiki-preview pre code { background: transparent; padding: 0; }
 
 .wiki-preview blockquote {
-  border-left: 3px solid var(--color-primary, #7c6ff7);
+  border-left: 3px solid var(--color-primary, #ff6b6b);
   margin: 0 0 1em 0;
   padding: 8px 16px;
   background: var(--color-bg-secondary);

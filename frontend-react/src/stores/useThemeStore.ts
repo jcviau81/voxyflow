@@ -24,7 +24,7 @@ export type { FontSize, SidebarWidth, CardDensity, AnimationSpeed };
 
 export type Theme = 'dark' | 'light';
 
-/** Hex string — e.g. '#6c5ce7'. Use ACCENT_PRESETS for the picker. */
+/** Hex string — e.g. '#ff6b6b'. Use ACCENT_PRESETS for the picker. */
 export type AccentColor = string;
 
 export interface ThemeState {
