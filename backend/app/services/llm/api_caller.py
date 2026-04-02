@@ -630,7 +630,8 @@ class ApiCallerMixin:
         claude_tools = get_claude_tools(chat_level=chat_level, layer=layer) if use_tools else []
 
         try:
-            for _ in range(20):
+            max_tool_rounds = 20
+            for _ in range(max_tool_rounds):
                 kwargs: dict = {
                     "model": model,
                     "max_tokens": self.max_tokens,
@@ -695,7 +696,7 @@ class ApiCallerMixin:
 
                 return choice.message.content or ""
 
-            logger.warning("_call_api_openai: tool loop exceeded 10 rounds")
+            logger.warning("_call_api_openai: tool loop exceeded %d rounds", max_tool_rounds)
             return ""
 
         except Exception as e:
