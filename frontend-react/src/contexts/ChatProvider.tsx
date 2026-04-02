@@ -364,13 +364,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (buffer) {
       voiceAutoSendBufferRef.current = '';
 
-      // Use the exact same sendMessage as the manual send button.
-      // No emitCallbacks — avoids any state cascade that could break rendering.
       if (sendMessageRef.current) {
         sendMessageRef.current(buffer, undefined, undefined, activeSessionIdRef.current);
       }
+
+      // Clear the textarea after send
+      emitCallbacks('onVoiceFillInput', { text: '' });
     }
-  }, []);
+  }, [emitCallbacks]);
 
   // ---------------------------------------------------------------------------
   // WebSocket subscriptions
