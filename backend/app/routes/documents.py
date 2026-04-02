@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import Document, Project, get_db, new_uuid, utcnow
 from app.models.document import DocumentListResponse, DocumentResponse
 from app.services.document_parser import UnsupportedFileType, get_document_parser_registry
-from app.services.rag_service import get_rag_service
+from app.services.rag_service import RAGService, get_rag_service
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ async def upload_document(
     project_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    rag: RAGService = Depends(get_rag_service),
 ):
     """
     Upload a file and index it into the project's RAG knowledge base.
@@ -116,7 +117,6 @@ async def upload_document(
     await db.flush()  # Get ID without committing yet
 
     # Index into ChromaDB (failure is non-fatal)
-    rag = get_rag_service()
     chunks_indexed = await rag.index_document(project_id, doc_id, parsed)
 
     # Update indexed_at timestamp if indexing succeeded
@@ -168,6 +168,7 @@ async def delete_document(
     project_id: str,
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    rag: RAGService = Depends(get_rag_service),
 ):
     """
     Delete a document record and remove its chunks from the ChromaDB index.
@@ -188,7 +189,6 @@ async def delete_document(
         )
 
     # Remove from ChromaDB index first (non-fatal)
-    rag = get_rag_service()
     await rag.delete_document(project_id, document_id)
 
     # Remove from DB

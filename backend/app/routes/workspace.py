@@ -1,10 +1,10 @@
 """Workspace file API — read/write/list/delete files in Voxy's workspace."""
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.services.workspace_service import get_workspace_service
+from app.services.workspace_service import WorkspaceService, get_workspace_service
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +17,11 @@ class FileWriteRequest(BaseModel):
 
 
 @router.get("/files")
-async def list_files(path: str = ""):
+async def list_files(
+    path: str = "",
+    ws: WorkspaceService = Depends(get_workspace_service),
+):
     """List files and directories in workspace (or subdirectory)."""
-    ws = get_workspace_service()
     try:
         return await ws.list_files(path)
     except ValueError as e:
@@ -27,9 +29,11 @@ async def list_files(path: str = ""):
 
 
 @router.get("/file")
-async def read_file(path: str):
+async def read_file(
+    path: str,
+    ws: WorkspaceService = Depends(get_workspace_service),
+):
     """Read file content from workspace."""
-    ws = get_workspace_service()
     try:
         content = await ws.read_file(path)
         return {"path": path, "content": content, "size": len(content)}
@@ -40,9 +44,11 @@ async def read_file(path: str):
 
 
 @router.post("/file")
-async def write_file(body: FileWriteRequest):
+async def write_file(
+    body: FileWriteRequest,
+    ws: WorkspaceService = Depends(get_workspace_service),
+):
     """Create or update a file in workspace."""
-    ws = get_workspace_service()
     try:
         saved_path = await ws.write_file(body.path, body.content)
         return {"status": "saved", "path": saved_path, "size": len(body.content)}
@@ -51,9 +57,11 @@ async def write_file(body: FileWriteRequest):
 
 
 @router.delete("/file")
-async def delete_file(path: str):
+async def delete_file(
+    path: str,
+    ws: WorkspaceService = Depends(get_workspace_service),
+):
     """Delete a file from workspace."""
-    ws = get_workspace_service()
     try:
         await ws.delete_file(path)
         return {"status": "deleted", "path": path}
@@ -64,9 +72,8 @@ async def delete_file(path: str):
 
 
 @router.get("/tree")
-async def get_tree():
+async def get_tree(ws: WorkspaceService = Depends(get_workspace_service)):
     """Get full directory tree (recursive)."""
-    ws = get_workspace_service()
     try:
         return await ws.get_tree()
     except ValueError as e:

@@ -200,18 +200,15 @@ Constantes canoniques ajoutées dans `config.py`:
 
 ## Phase 6 — Architecture et patterns
 
-### 6.1 Remplacer les singletons par de l'injection de dependances
+### ~~6.1 Remplacer les singletons par de l'injection de dependances~~ ✅
 
-**Fichiers concernes**: tous les `get_*_service()` dans `backend/app/`
+**FAIT** — 4 fichiers route migrés vers `Depends()`:
+- `workers.py` — `WorkerSessionStore`
+- `health.py` — `SchedulerService`
+- `workspace.py` — `WorkspaceService`
+- `documents.py` — `RAGService`
 
-**Actions**:
-1. Utiliser le systeme de `Depends()` de FastAPI:
-```python
-async def get_rag(rag: RAGService = Depends(get_rag_service)):
-    ...
-```
-2. Cela rend les services mockables pour les tests
-3. Migration incrementale: un service a la fois
+Note: `jobs.py` laissé tel quel — appel dans un helper interne, pas un endpoint FastAPI.
 
 ---
 
@@ -304,5 +301,5 @@ def make_llm_client(provider: str, *, async_mode: bool = True) -> Any:
 | 3 — Error handling | ✅ (complet) | 2026-04-02 |
 | 4 — Config/constantes | ✅ (partiel — remplacement complet des enums en Phase 2) | 2026-04-02 |
 | 5 — Performance frontend | 🔄 (5.1+5.2 ✅, 5.3 pagination TODO) | 2026-04-02 |
-| 6 — Architecture | TODO | |
+| 6 — Architecture | 🔄 (6.1 ✅, 6.2+6.3 TODO) | 2026-04-02 |
 | 7 — Nettoyage | ✅ | 2026-04-02 |
