@@ -3,6 +3,7 @@ import { useChatService } from '../../contexts/useChatService';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useMessageStore } from '../../stores/useMessageStore';
+import { useToastStore } from '../../stores/useToastStore';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { SessionTabBar } from './SessionTabBar';
@@ -43,9 +44,10 @@ export function ChatWindow({
   className,
 }: ChatWindowProps) {
   const { connectionState, connected } = useWS();
-  const { loadHistory, setActiveSessionId } = useChatService();
+  const { loadHistory, setActiveSessionId, sendSystemInit } = useChatService();
   const createSession = useSessionStore((s) => s.createSession);
   const replaceSessionMessages = useMessageStore((s) => s.replaceSessionMessages);
+  const showToast = useToastStore((s) => s.showToast);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const activeSession = useSessionStore((s) => s.activeSession);
@@ -88,7 +90,18 @@ export function ChatWindow({
     const session = createSession(tabId, chatLevel);
     // Clear messages for new session context
     replaceSessionMessages([], session.chatId, projectId, cardId);
-  }, [tabId, chatLevel, createSession, replaceSessionMessages, projectId, cardId]);
+    showToast('New session started', 'info', 2000);
+
+    // Send a silent init so Voxy greets the user in the new session
+    setTimeout(() => {
+      sendSystemInit(
+        '[New session started. Greet the user briefly and ask how you can help.]',
+        projectId,
+        cardId,
+        session.chatId,
+      );
+    }, 300);
+  }, [tabId, chatLevel, createSession, replaceSessionMessages, projectId, cardId, showToast, sendSystemInit]);
 
   const handleClearChat = useCallback(() => {
     replaceSessionMessages([], sessionId, projectId, cardId);
