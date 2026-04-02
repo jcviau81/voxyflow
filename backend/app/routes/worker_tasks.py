@@ -75,7 +75,7 @@ async def get_worker_task(
     task = result.scalar_one_or_none()
 
     if task is None:
-        raise HTTPException(status_code=404, detail="Worker task not found")
+        raise HTTPException(status_code=404, detail="Worker task not found.")
 
     return {
         "id": task.id,

@@ -67,7 +67,7 @@ async def create_card(
     # Verify project exists
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     # Auto-route to agent if not specified
     agent_type = body.agent_type
@@ -202,10 +202,10 @@ async def assign_card_to_project(
     """Move a card to a project (assign project_id). Changes internal status from 'card' to 'idea'."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     old_status = card.status
     card.project_id = project_id
@@ -237,7 +237,7 @@ async def unassign_card_from_project(
     """Detach a card from its project (back to Main Board / system-main). Internal status becomes 'card'."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     old_project_id = card.project_id
     old_status = card.status
@@ -272,7 +272,7 @@ async def get_card(card_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     card = result.scalar_one_or_none()
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     _broadcast_card_change(card)
     return _card_to_response(card)
 
@@ -285,7 +285,7 @@ async def update_card(
 ):
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     update_data = body.model_dump(exclude_unset=True)
 
@@ -337,7 +337,7 @@ async def assign_agent(
     """Assign or reassign a card to a specific agent type."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     agent_type = AgentType(body.agent_type)
     persona = get_persona(agent_type)
@@ -367,7 +367,7 @@ async def get_routing_suggestion(
     """Get agent routing suggestion for a card (without applying it)."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     router_service = get_agent_router()
     details = router_service.route_with_details(
@@ -385,7 +385,7 @@ async def duplicate_card(card_id: str, db: AsyncSession = Depends(get_db)):
     """Duplicate a card: copies all fields except id/created_at. Title gets ' (copy)' appended."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     new_card = Card(
         id=new_uuid(),
@@ -429,7 +429,7 @@ async def execute_card(card_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     card = result.scalar_one_or_none()
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     # Build checklist section
     checklist_lines = []
@@ -485,7 +485,7 @@ async def execute_board_plan(
     """
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     from app.services.board_executor import build_execution_plan
 
@@ -506,7 +506,7 @@ async def execute_board_plan(
 async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     project_id = card.project_id or 'system-main'
     await db.delete(card)
     await db.commit()
@@ -518,9 +518,9 @@ async def archive_card(card_id: str, db: AsyncSession = Depends(get_db)):
     """Archive a card (soft-delete). Sets archived_at timestamp."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     if card.archived_at:
-        raise HTTPException(400, "Card is already archived")
+        raise HTTPException(400, "Card is already archived.")
 
     old_status = card.status
     card.archived_at = utcnow()
@@ -547,9 +547,9 @@ async def restore_card(card_id: str, db: AsyncSession = Depends(get_db)):
     """Restore an archived card back to active."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     if not card.archived_at:
-        raise HTTPException(400, "Card is not archived")
+        raise HTTPException(400, "Card is not archived.")
 
     old_archived = str(card.archived_at)
     card.archived_at = None
@@ -593,14 +593,14 @@ async def clone_card_to_project(
     """Clone a card to another project. Appends ' (cloned)' to title and creates a cloned_from relation."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     target_project = await db.get(Project, target_project_id)
     if not target_project:
-        raise HTTPException(404, "Target project not found")
+        raise HTTPException(404, "Target project not found.")
 
     if card.project_id == target_project_id:
-        raise HTTPException(400, "Card is already in the target project")
+        raise HTTPException(400, "Card is already in the target project.")
 
     new_card = Card(
         id=new_uuid(),
@@ -670,14 +670,14 @@ async def move_card_to_project(
     """Move a card to another project. Moves all checklist items, comments, and attachments."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     target_project = await db.get(Project, target_project_id)
     if not target_project:
-        raise HTTPException(404, "Target project not found")
+        raise HTTPException(404, "Target project not found.")
 
     if card.project_id == target_project_id:
-        raise HTTPException(400, "Card is already in the target project")
+        raise HTTPException(400, "Card is already in the target project.")
 
     card.project_id = target_project_id
     card.updated_at = utcnow()
@@ -716,7 +716,7 @@ async def get_card_history(
     """Return card change history, newest first, max 50 entries."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     stmt = (
         select(CardHistory)
@@ -749,7 +749,7 @@ async def vote_card(card_id: str, db: AsyncSession = Depends(get_db)):
     """Increment vote count on a card. Returns {"votes": <new_count>}."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     card.votes = (card.votes or 0) + 1
     card.updated_at = utcnow()
     await db.commit()
@@ -761,7 +761,7 @@ async def unvote_card(card_id: str, db: AsyncSession = Depends(get_db)):
     """Decrement vote count on a card (min 0). Returns {"votes": <new_count>}."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     card.votes = max(0, (card.votes or 0) - 1)
     card.updated_at = utcnow()
     await db.commit()
@@ -816,7 +816,7 @@ async def log_time(
     """Log time spent on a card."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     entry = TimeEntry(
         id=new_uuid(),
@@ -839,7 +839,7 @@ async def list_time_entries(
     """List all time entries for a card, newest first."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     stmt = select(TimeEntry).where(TimeEntry.card_id == card_id).order_by(TimeEntry.logged_at.desc())
     result = await db.execute(stmt)
@@ -857,7 +857,7 @@ async def delete_time_entry(
     result = await db.execute(stmt)
     entry = result.scalar_one_or_none()
     if not entry:
-        raise HTTPException(404, "Time entry not found")
+        raise HTTPException(404, "Time entry not found.")
     await db.delete(entry)
     await db.commit()
 
@@ -875,7 +875,7 @@ async def add_comment(
     """Add a comment to a card."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     comment = CardComment(
         id=new_uuid(),
@@ -898,7 +898,7 @@ async def list_comments(
     """List all comments for a card, newest first."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     stmt = select(CardComment).where(CardComment.card_id == card_id).order_by(CardComment.created_at.desc())
     result = await db.execute(stmt)
@@ -916,7 +916,7 @@ async def delete_comment(
     result = await db.execute(stmt)
     comment = result.scalar_one_or_none()
     if not comment:
-        raise HTTPException(404, "Comment not found")
+        raise HTTPException(404, "Comment not found.")
     await db.delete(comment)
     await db.commit()
 
@@ -934,7 +934,7 @@ async def add_checklist_item(
     """Add a checklist item to a card."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     # Determine next position
     stmt = select(func.max(ChecklistItem.position)).where(ChecklistItem.card_id == card_id)
@@ -963,7 +963,7 @@ async def list_checklist_items(
     """List all checklist items for a card, ordered by position."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     stmt = select(ChecklistItem).where(ChecklistItem.card_id == card_id).order_by(ChecklistItem.position)
     result = await db.execute(stmt)
@@ -982,7 +982,7 @@ async def update_checklist_item(
     result = await db.execute(stmt)
     item = result.scalar_one_or_none()
     if not item:
-        raise HTTPException(404, "Checklist item not found")
+        raise HTTPException(404, "Checklist item not found.")
 
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -1004,7 +1004,7 @@ async def delete_checklist_item(
     result = await db.execute(stmt)
     item = result.scalar_one_or_none()
     if not item:
-        raise HTTPException(404, "Checklist item not found")
+        raise HTTPException(404, "Checklist item not found.")
     await db.delete(item)
     await db.commit()
 
@@ -1027,7 +1027,7 @@ async def upload_attachment(
     """Upload a file and attach it to a card. Max 50 MB, any type accepted."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     filename = file.filename or "attachment"
 
@@ -1085,7 +1085,7 @@ async def list_attachments(
     """List all attachments for a card."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     stmt = (
         select(CardAttachment)
@@ -1114,11 +1114,11 @@ async def download_attachment(
     result = await db.execute(stmt)
     attachment = result.scalar_one_or_none()
     if not attachment:
-        raise HTTPException(404, "Attachment not found")
+        raise HTTPException(404, "Attachment not found.")
 
     storage_path = Path(attachment.storage_path)
     if not storage_path.exists():
-        raise HTTPException(404, "Attachment file not found on disk")
+        raise HTTPException(404, "Attachment file not found on disk.")
 
     return FileResponse(
         path=str(storage_path),
@@ -1145,7 +1145,7 @@ async def delete_attachment(
     result = await db.execute(stmt)
     attachment = result.scalar_one_or_none()
     if not attachment:
-        raise HTTPException(404, "Attachment not found")
+        raise HTTPException(404, "Attachment not found.")
 
     # Remove file from disk (non-fatal if missing)
     storage_path = Path(attachment.storage_path)
@@ -1199,14 +1199,14 @@ async def add_relation(
 
     source_card = await db.get(Card, card_id)
     if not source_card:
-        raise HTTPException(404, "Source card not found")
+        raise HTTPException(404, "Source card not found.")
 
     target_card = await db.get(Card, body.target_card_id)
     if not target_card:
-        raise HTTPException(404, "Target card not found")
+        raise HTTPException(404, "Target card not found.")
 
     if card_id == body.target_card_id:
-        raise HTTPException(400, "A card cannot relate to itself")
+        raise HTTPException(400, "A card cannot relate to itself.")
 
     # Prevent duplicate relations of the same type
     stmt = select(CardRelation).where(
@@ -1216,7 +1216,7 @@ async def add_relation(
     )
     existing = (await db.execute(stmt)).scalar_one_or_none()
     if existing:
-        raise HTTPException(409, "This relation already exists")
+        raise HTTPException(409, "This relation already exists.")
 
     relation = CardRelation(
         id=new_uuid(),
@@ -1249,7 +1249,7 @@ async def list_relations(
     """List all relations for a card (both as source and as target)."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     # Relations where this card is source
     stmt_src = select(CardRelation).where(CardRelation.source_card_id == card_id)
@@ -1313,9 +1313,9 @@ async def delete_relation(
     stmt = select(CardRelation).where(CardRelation.id == relation_id)
     relation = (await db.execute(stmt)).scalar_one_or_none()
     if not relation:
-        raise HTTPException(404, "Relation not found")
+        raise HTTPException(404, "Relation not found.")
     if relation.source_card_id != card_id and relation.target_card_id != card_id:
-        raise HTTPException(403, "Card is not part of this relation")
+        raise HTTPException(403, "Card is not part of this relation.")
     await db.delete(relation)
     await db.commit()
 
@@ -1335,7 +1335,7 @@ async def enrich_card(
     """AI enrichment: generate description, checklist, effort, and tags for a card."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
 
     from app.services.claude_service import ClaudeService
     claude = ClaudeService()
@@ -1421,7 +1421,7 @@ async def list_card_files(card_id: str, db: AsyncSession = Depends(get_db)):
     """List file references for a card."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     return json.loads(card.files) if card.files else []
 
 
@@ -1430,10 +1430,10 @@ async def add_card_file(card_id: str, body: FileRefRequest, db: AsyncSession = D
     """Add a file reference to a card."""
     # Reject path traversal
     if ".." in body.path:
-        raise HTTPException(400, "Path traversal not allowed")
+        raise HTTPException(400, "Path traversal not allowed.")
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     files = json.loads(card.files) if card.files else []
     if body.path not in files:
         files.append(body.path)
@@ -1448,7 +1448,7 @@ async def remove_card_file(card_id: str, path: str, db: AsyncSession = Depends(g
     """Remove a file reference from a card."""
     card = await db.get(Card, card_id)
     if not card:
-        raise HTTPException(404, "Card not found")
+        raise HTTPException(404, "Card not found.")
     files = json.loads(card.files) if card.files else []
     if path in files:
         files.remove(path)

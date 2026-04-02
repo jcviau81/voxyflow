@@ -311,7 +311,7 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
     return project
 
 
@@ -320,11 +320,11 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     """Delete a project and all its cards (irreversible)."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     # Prevent deletion of system/non-deletable projects
     if getattr(project, 'deletable', True) is False or getattr(project, 'is_system', False):
-        raise HTTPException(403, "Cannot delete system project")
+        raise HTTPException(403, "Cannot delete system project.")
 
     # Delete all cards belonging to this project
     stmt = select(Card).where(Card.project_id == project_id)
@@ -341,11 +341,11 @@ async def archive_project(project_id: str, db: AsyncSession = Depends(get_db)):
     """Archive a project (hide from main list, keep all data)."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     # Prevent archiving system projects
     if getattr(project, 'is_system', False):
-        raise HTTPException(403, "Cannot archive system project")
+        raise HTTPException(403, "Cannot archive system project.")
 
     project.status = "archived"
     project.updated_at = utcnow()
@@ -359,7 +359,7 @@ async def restore_project(project_id: str, db: AsyncSession = Depends(get_db)):
     """Restore an archived project back to active."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
     project.status = "active"
     project.updated_at = utcnow()
     await db.commit()
@@ -375,7 +375,7 @@ async def update_project(
 ):
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -395,7 +395,7 @@ async def toggle_favorite(
     """Toggle the is_favorite flag on a project."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
     project.is_favorite = not project.is_favorite
     project.updated_at = utcnow()
     await db.commit()
@@ -418,7 +418,7 @@ async def export_project(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     cards_data = [
         {
@@ -556,10 +556,10 @@ async def extract_meeting_notes(
     """
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     if not body.notes or not body.notes.strip():
-        raise HTTPException(400, "Meeting notes cannot be empty")
+        raise HTTPException(400, "Meeting notes cannot be empty.")
 
     from app.services.claude_service import ClaudeService
     svc = ClaudeService()
@@ -593,7 +593,7 @@ async def confirm_meeting_notes(
     """
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     card_ids = []
     for i, card_data in enumerate(body.cards):
@@ -644,7 +644,7 @@ async def generate_brief(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     cards = project.cards
 
@@ -902,7 +902,7 @@ async def project_health_check(project_id: str, db: AsyncSession = Depends(get_d
     result = await db.execute(stmt)
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     cards = list(project.cards)
     sprints = list(project.sprints) if hasattr(project, "sprints") else []
@@ -978,7 +978,7 @@ async def generate_standup(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     cards = project.cards
 
@@ -1045,7 +1045,7 @@ async def set_standup_schedule(
     # Verify project exists
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     schedule = f"0 {body.minute} {body.hour} * * *"  # cron: daily at HH:MM
 
@@ -1116,7 +1116,7 @@ async def list_wiki_pages(project_id: str, db: AsyncSession = Depends(get_db)):
     """List all wiki pages for a project (title + id + updated_at)."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
     stmt = (
         select(WikiPage)
         .where(WikiPage.project_id == project_id)
@@ -1143,7 +1143,7 @@ async def create_wiki_page(
     """Create a new wiki page for a project."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
     page = WikiPage(
         id=new_uuid(),
         project_id=project_id,
@@ -1168,7 +1168,7 @@ async def get_wiki_page(project_id: str, page_id: str, db: AsyncSession = Depend
     """Get full content of a single wiki page."""
     page = await db.get(WikiPage, page_id)
     if not page or page.project_id != project_id:
-        raise HTTPException(404, "Wiki page not found")
+        raise HTTPException(404, "Wiki page not found.")
     return WikiPageDetail(
         id=page.id,
         project_id=page.project_id,
@@ -1189,7 +1189,7 @@ async def update_wiki_page(
     """Update a wiki page's title and/or content."""
     page = await db.get(WikiPage, page_id)
     if not page or page.project_id != project_id:
-        raise HTTPException(404, "Wiki page not found")
+        raise HTTPException(404, "Wiki page not found.")
     if body.title is not None:
         page.title = body.title
     if body.content is not None:
@@ -1216,7 +1216,7 @@ async def delete_wiki_page(
     """Delete a wiki page."""
     page = await db.get(WikiPage, page_id)
     if not page or page.project_id != project_id:
-        raise HTTPException(404, "Wiki page not found")
+        raise HTTPException(404, "Wiki page not found.")
     await db.delete(page)
     await db.commit()
 
@@ -1270,7 +1270,7 @@ async def list_sprints(project_id: str, db: AsyncSession = Depends(get_db)):
     """List all sprints for a project with card counts."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     stmt = select(Sprint).where(Sprint.project_id == project_id).order_by(Sprint.start_date)
     result = await db.execute(stmt)
@@ -1298,7 +1298,7 @@ async def create_sprint(
     """Create a new sprint for a project."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     try:
         start = datetime.fromisoformat(body.start_date.replace("Z", "+00:00"))
@@ -1307,7 +1307,7 @@ async def create_sprint(
         raise HTTPException(400, f"Invalid date format: {e}")
 
     if end <= start:
-        raise HTTPException(400, "end_date must be after start_date")
+        raise HTTPException(400, "end_date must be after start_date.")
 
     sprint = Sprint(
         id=new_uuid(),
@@ -1334,7 +1334,7 @@ async def update_sprint(
     """Update sprint name, goal, or dates."""
     sprint = await db.get(Sprint, sprint_id)
     if not sprint or sprint.project_id != project_id:
-        raise HTTPException(404, "Sprint not found")
+        raise HTTPException(404, "Sprint not found.")
 
     if body.name is not None:
         sprint.name = body.name
@@ -1371,7 +1371,7 @@ async def delete_sprint(
     """Delete a sprint. Cards in this sprint lose their sprint assignment."""
     sprint = await db.get(Sprint, sprint_id)
     if not sprint or sprint.project_id != project_id:
-        raise HTTPException(404, "Sprint not found")
+        raise HTTPException(404, "Sprint not found.")
 
     # Unassign cards from this sprint
     stmt = select(Card).where(Card.sprint_id == sprint_id)
@@ -1392,11 +1392,11 @@ async def start_sprint(
     """Activate a sprint (set status to 'active'). Only one sprint can be active at a time."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     sprint = await db.get(Sprint, sprint_id)
     if not sprint or sprint.project_id != project_id:
-        raise HTTPException(404, "Sprint not found")
+        raise HTTPException(404, "Sprint not found.")
 
     # Deactivate any currently active sprint
     stmt = select(Sprint).where(Sprint.project_id == project_id, Sprint.status == "active")
@@ -1516,7 +1516,7 @@ async def smart_prioritize(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     all_cards = list(project.cards)
 
@@ -1616,7 +1616,7 @@ async def complete_sprint(
     """Mark a sprint as completed."""
     sprint = await db.get(Sprint, sprint_id)
     if not sprint or sprint.project_id != project_id:
-        raise HTTPException(404, "Sprint not found")
+        raise HTTPException(404, "Sprint not found.")
 
     sprint.status = "completed"
     await db.commit()

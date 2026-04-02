@@ -71,7 +71,7 @@ async def get_chat(chat_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     chat = result.scalar_one_or_none()
     if not chat:
-        raise HTTPException(404, "Chat not found")
+        raise HTTPException(404, "Chat not found.")
     return chat
 
 
@@ -88,7 +88,7 @@ async def add_message(
     # Verify chat exists
     chat = await db.get(Chat, chat_id)
     if not chat:
-        raise HTTPException(404, "Chat not found")
+        raise HTTPException(404, "Chat not found.")
 
     msg = Message(
         id=new_uuid(),

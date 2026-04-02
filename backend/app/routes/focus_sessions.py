@@ -68,7 +68,7 @@ async def create_focus_session(
 ):
     """Log a completed or interrupted Pomodoro focus session."""
     if body.duration_minutes < 0:
-        raise HTTPException(400, "duration_minutes must be >= 0")
+        raise HTTPException(400, "duration_minutes must be >= 0.")
 
     # Validate FK references if provided
     if body.card_id:
@@ -123,7 +123,7 @@ async def get_project_focus_analytics(
     """Return focus session analytics for a project (all time for totals, last 7 days for by_day)."""
     project = await db.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(404, "Project not found.")
 
     # Fetch all sessions for this project
     stmt = select(FocusSession).where(FocusSession.project_id == project_id)

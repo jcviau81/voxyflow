@@ -37,5 +37,5 @@ async def get_worker_session(task_id: str):
     store = get_worker_session_store()
     session = store.get_session(task_id)
     if session is None:
-        raise HTTPException(status_code=404, detail="Worker session not found")
+        raise HTTPException(status_code=404, detail="Worker session not found.")
     return session

@@ -63,16 +63,16 @@ async def _gh_get(path: str) -> dict:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, headers=_github_headers())
     except httpx.TimeoutException:
-        raise HTTPException(504, "GitHub API timeout")
+        raise HTTPException(504, "GitHub API timeout.")
     except Exception as e:
         raise HTTPException(502, f"GitHub API unreachable: {e}")
 
     if resp.status_code == 401:
-        raise HTTPException(401, "GitHub token invalid or expired")
+        raise HTTPException(401, "GitHub token invalid or expired.")
     if resp.status_code == 403:
-        raise HTTPException(403, "GitHub rate limit exceeded or access forbidden")
+        raise HTTPException(403, "GitHub rate limit exceeded or access forbidden.")
     if resp.status_code == 404:
-        raise HTTPException(404, "Repository not found")
+        raise HTTPException(404, "Repository not found.")
     if not resp.is_success:
         raise HTTPException(resp.status_code, f"GitHub API error: {resp.text[:200]}")
 
@@ -293,12 +293,12 @@ async def create_repo(payload: CreateRepoPayload):
                 f"{GITHUB_API}/user/repos", headers=headers, json=body
             )
     except httpx.TimeoutException:
-        raise HTTPException(504, "GitHub API timeout")
+        raise HTTPException(504, "GitHub API timeout.")
     except Exception as e:
         raise HTTPException(502, f"GitHub API unreachable: {e}")
 
     if resp.status_code == 401:
-        raise HTTPException(401, "GitHub token invalid or expired")
+        raise HTTPException(401, "GitHub token invalid or expired.")
     if resp.status_code == 422:
         detail = resp.json().get("message", "Repository already exists or invalid name")
         raise HTTPException(422, detail)
@@ -329,7 +329,7 @@ async def save_github_token(payload: TokenPayload):
     """Save a GitHub PAT to settings."""
     token = payload.token.strip()
     if not token.startswith(("ghp_", "github_pat_")):
-        raise HTTPException(400, "Token must start with ghp_ or github_pat_")
+        raise HTTPException(400, "Token must start with ghp_ or github_pat_.")
 
     settings = {}
     try:
@@ -403,7 +403,7 @@ async def clone_repo(owner: str, repo: str, target_dir: str | None = None):
 
         return {"status": "cloned", "path": target_dir}
     except subprocess.TimeoutExpired:
-        raise HTTPException(504, "Clone timeout")
+        raise HTTPException(504, "Clone timeout.")
     except HTTPException:
         raise
     except Exception as e:
