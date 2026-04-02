@@ -43,7 +43,7 @@ export function ChatWindow({
   className,
 }: ChatWindowProps) {
   const { connectionState, connected } = useWS();
-  const { loadHistory } = useChatService();
+  const { loadHistory, setActiveSessionId } = useChatService();
   const createSession = useSessionStore((s) => s.createSession);
   const replaceSessionMessages = useMessageStore((s) => s.replaceSessionMessages);
 
@@ -55,6 +55,11 @@ export function ChatWindow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeSession, allSessions, tabId],
   );
+
+  // Keep ChatProvider's activeSessionIdRef in sync — used by flushVoiceAutoSend
+  useEffect(() => {
+    setActiveSessionId(sessionId);
+  }, [sessionId, setActiveSessionId]);
 
   // ---------------------------------------------------------------------------
   // Load history when session changes

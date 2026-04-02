@@ -127,6 +127,11 @@ export function ChatInput({
     },
   });
 
+  // Stable ref to suggestions — avoids re-running registerCallbacks on every render
+  // (SmartSuggestions returns a new object each render since it's called as a function)
+  const suggestionsRef = useRef(suggestions);
+  suggestionsRef.current = suggestions;
+
   // ---------------------------------------------------------------------------
   // Slash command handling
   // ---------------------------------------------------------------------------
@@ -229,8 +234,8 @@ export function ChatInput({
     el.value = '';
     autoResize();
     el.focus();
-    suggestions.onUserTyping('');
-  }, [tabId, projectId, cardId, sendMessage, updateSessionTitle, autoResize, suggestions]);
+    suggestionsRef.current.onUserTyping('');
+  }, [tabId, projectId, cardId, sendMessage, updateSessionTitle, autoResize]);
 
   // ---------------------------------------------------------------------------
   // Keyboard handlers
@@ -262,7 +267,7 @@ export function ChatInput({
     const value = textareaRef.current?.value ?? '';
 
     // Smart suggestions visibility
-    suggestions.onUserTyping(value);
+    suggestionsRef.current.onUserTyping(value);
 
     // Slash menu
     if (value.startsWith('/')) {
@@ -280,7 +285,7 @@ export function ChatInput({
         }
       }, DICTATION_AUTO_SEND_DELAY);
     }
-  }, [autoResize, suggestions, slashMenu, sttAutoSend, sendCurrentMessage]);
+  }, [autoResize, slashMenu, sttAutoSend, sendCurrentMessage]);
 
   // ---------------------------------------------------------------------------
   // Paste → code detection
@@ -332,27 +337,28 @@ export function ChatInput({
         if (textareaRef.current) {
           textareaRef.current.value = text;
           autoResize();
-          suggestions.onUserTyping(text);
+          suggestionsRef.current.onUserTyping(text);
         }
       },
       onVoiceRecordingStop: () => {
         if (textareaRef.current) {
           textareaRef.current.value = '';
           autoResize();
-          suggestions.onUserTyping('');
+          suggestionsRef.current.onUserTyping('');
         }
       },
       onMessageStreamEnd: ({ content }) => {
-        suggestions.onAiResponse(content);
+        suggestionsRef.current.onAiResponse(content);
       },
       onMessageReceived: (msg) => {
         if (msg.role === 'assistant' && !msg.streaming) {
-          suggestions.onAiResponse(msg.content);
+          suggestionsRef.current.onAiResponse(msg.content);
         }
       },
     });
     return unsub;
-  }, [registerCallbacks, autoResize, suggestions]);
+  }, [registerCallbacks, autoResize]);
+
 
   // ---------------------------------------------------------------------------
   // Voice toggle helpers

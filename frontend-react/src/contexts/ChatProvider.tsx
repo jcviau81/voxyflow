@@ -141,6 +141,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const voiceAutoSendBufferRef = useRef('');
   const callbacksRef = useRef<Set<ChatCallbacks>>(new Set());
 
+  // Stable ref for sendMessage — lets flushVoiceAutoSend use the same code path
+  // as manual send, without creating a dependency cycle.
+  const sendMessageRef = useRef<ChatContextValue['sendMessage'] | null>(null);
+
   // Stable refs for store methods (avoid stale closures)
   const messageStoreRef = useRef(messageStore);
   messageStoreRef.current = messageStore;
@@ -359,38 +363,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const buffer = voiceAutoSendBufferRef.current;
     if (buffer) {
       voiceAutoSendBufferRef.current = '';
-      // Build and send the message
-      const message = messageStoreRef.current.addMessage({
-        role: 'user',
-        content: buffer,
-        projectId: projectStoreRef.current.currentProjectId || undefined,
-        sessionId: activeSessionIdRef.current,
-      });
 
-      const layers = getLayerState();
-      const currentProjectId =
-        message.projectId || projectStoreRef.current.currentProjectId || SYSTEM_PROJECT_ID;
-      const currentCardId = message.cardId || projectStoreRef.current.selectedCardId;
-      let chatLevel: 'general' | 'project' | 'card' = 'general';
-      if (currentCardId) chatLevel = 'card';
-      else if (currentProjectId && currentProjectId !== SYSTEM_PROJECT_ID) chatLevel = 'project';
-
-      send('chat:message', {
-        content: buffer,
-        projectId: currentProjectId,
-        cardId: currentCardId || undefined,
-        messageId: message.id,
-        chatLevel,
-        layers,
-        sessionId: activeSessionIdRef.current || undefined,
-        chatId: activeSessionIdRef.current || undefined,
-      });
-
-      emitCallbacks('onVoiceFillInput', { text: '' });
-      emitCallbacks('onVoiceBufferUpdate', { text: '' });
-      emitCallbacks('onVoiceRecordingStop');
+      // Use the exact same sendMessage as the manual send button.
+      // No emitCallbacks — avoids any state cascade that could break rendering.
+      if (sendMessageRef.current) {
+        sendMessageRef.current(buffer, undefined, undefined, activeSessionIdRef.current);
+      }
     }
-  }, [send, getLayerState, emitCallbacks]);
+  }, []);
 
   // ---------------------------------------------------------------------------
   // WebSocket subscriptions
@@ -748,6 +728,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     },
     [send, getLayerState],
   );
+
+  // Keep sendMessageRef in sync so flushVoiceAutoSend can use it
+  sendMessageRef.current = sendMessage;
 
   const sendSystemInit = useCallback(
     (
