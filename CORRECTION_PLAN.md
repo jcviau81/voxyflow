@@ -173,38 +173,17 @@ Constantes canoniques ajoutées dans `config.py`:
 
 ## Phase 5 — Performance et qualite frontend
 
-### 5.1 Ajouter le virtual scrolling pour les messages
+### ~~5.1 Ajouter le virtual scrolling pour les messages~~ ✅
 
-**Fichier**: `frontend-react/src/components/Chat/MessageList.tsx`
-
-**Actions**:
-1. `@tanstack/react-virtual` est deja installe — l'utiliser
-2. Implementer un `useVirtualizer` pour la liste de messages
-3. Tester avec 1000+ messages pour valider la fluidite
+**DÉJÀ FAIT** — `MessageList.tsx` utilise `useVirtualizer` de `@tanstack/react-virtual`.
 
 ---
 
-### 5.2 Optimiser le card store avec Immer
+### ~~5.2 Optimiser le card store avec Immer~~ ✅
 
-**Fichier**: `frontend-react/src/stores/useCardStore.ts`
-
-**Avant**:
-```typescript
-set((state) => ({
-  cardsById: { ...state.cardsById, [card.id]: card },
-}));
-```
-
-**Apres**:
-```typescript
-// Dans la creation du store, ajouter le middleware Immer
-import { immer } from "zustand/middleware/immer";
-
-// Puis:
-set((state) => {
-  state.cardsById[card.id] = card;
-});
-```
+**FAIT** — `useCardStore.ts` refactorisé avec `immer` middleware de zustand.
+- `immer` installé (`npm install immer`)
+- Toutes les mutations utilisent maintenant le pattern draft : `set((state) => { state.cardsById[id] = card; })`
 
 ---
 
@@ -270,11 +249,9 @@ def make_llm_client(provider: str, *, async_mode: bool = True) -> Any:
 
 ## Phase 7 — Nettoyage et hygiene
 
-### 7.1 Supprimer le code commente
+### ~~7.1 Supprimer le code commente~~ ✅
 
-**Fichiers concernes**: `requirements.txt` (lignes ~20-24), et tout autre fichier avec du code commente
-
-**Regle**: si c'est commente depuis plus de 2 semaines et jamais utilise, supprimer. Git garde l'historique.
+**FAIT** — `requirements.txt` : `sherpa-onnx` et `faster-whisper` supprimés (optionnels, jamais activés).
 
 ---
 
@@ -296,19 +273,12 @@ def make_llm_client(provider: str, *, async_mode: bool = True) -> Any:
 
 ---
 
-### 7.4 Retirer les imports avec underscore inutiles
+### ~~7.4 Retirer les imports avec underscore inutiles~~ ✅
 
-**Fichier**: `backend/app/main.py` (lignes ~39-40)
-
-```python
-# AVANT
-import os as _os
-from logging.handlers import RotatingFileHandler as _RotatingFileHandler
-
-# APRES
-import os
-from logging.handlers import RotatingFileHandler
-```
+**FAIT** — `backend/app/main.py` :
+- `import os as _os` → `import os` (déplacé en tête de fichier)
+- `from logging.handlers import RotatingFileHandler as _RotatingFileHandler` → import normal
+- `import os as _os_cors` supprimé (réutilise le `os` déjà importé)
 
 ---
 
@@ -334,6 +304,6 @@ from logging.handlers import RotatingFileHandler
 | 2 — Split fichiers | ✅ (claude_service: 2767→1041, chat_orchestration: 2656→1593) | 2026-04-02 |
 | 3 — Error handling | ✅ (complet) | 2026-04-02 |
 | 4 — Config/constantes | ✅ (partiel — remplacement complet des enums en Phase 2) | 2026-04-02 |
-| 5 — Performance frontend | TODO | |
+| 5 — Performance frontend | 🔄 (5.1+5.2 ✅, 5.3 pagination TODO) | 2026-04-02 |
 | 6 — Architecture | TODO | |
 | 7 — Nettoyage | TODO | |

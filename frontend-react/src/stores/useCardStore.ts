@@ -9,6 +9,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { immer } from 'zustand/middleware/immer';
 import type { Card, CardStatus } from '../types';
 import { generateId } from '../lib/utils';
 
@@ -46,7 +47,7 @@ export interface CardState {
 
 export const useCardStore = create<CardState>()(
   persist(
-    (set, get) => ({
+    immer((set, get) => ({
       cardsById: {},
 
       addCard: (data) => {
@@ -57,39 +58,32 @@ export const useCardStore = create<CardState>()(
           updatedAt: Date.now(),
           chatHistory: [],
         };
-        set((state) => ({
-          cardsById: { ...state.cardsById, [card.id]: card },
-        }));
+        set((state) => {
+          state.cardsById[card.id] = card;
+        });
         return card;
       },
 
       updateCard: (id, updates) => {
         set((state) => {
-          const existing = state.cardsById[id];
-          if (!existing) return state;
-          return {
-            cardsById: {
-              ...state.cardsById,
-              [id]: { ...existing, ...updates, updatedAt: Date.now() },
-            },
-          };
+          if (!state.cardsById[id]) return;
+          Object.assign(state.cardsById[id], updates);
+          state.cardsById[id].updatedAt = Date.now();
         });
       },
 
       deleteCard: (id) => {
         const card = get().cardsById[id];
         set((state) => {
-          const next = { ...state.cardsById };
-          delete next[id];
-          return { cardsById: next };
+          delete state.cardsById[id];
         });
         return card;
       },
 
       upsertCard: (card) => {
-        set((state) => ({
-          cardsById: { ...state.cardsById, [card.id]: card },
-        }));
+        set((state) => {
+          state.cardsById[card.id] = card;
+        });
       },
 
       setCards: (cards) => {
@@ -102,31 +96,20 @@ export const useCardStore = create<CardState>()(
 
       setCardsForProject: (projectId, cards) => {
         set((state) => {
-          // Remove existing cards for this project
-          const next: Record<string, Card> = {};
           for (const [id, card] of Object.entries(state.cardsById)) {
-            if (card.projectId !== projectId) {
-              next[id] = card;
-            }
+            if (card.projectId === projectId) delete state.cardsById[id];
           }
-          // Insert new cards
           for (const card of cards) {
-            next[card.id] = card;
+            state.cardsById[card.id] = card;
           }
-          return { cardsById: next };
         });
       },
 
       moveCard: (cardId, newStatus) => {
         set((state) => {
-          const existing = state.cardsById[cardId];
-          if (!existing) return state;
-          return {
-            cardsById: {
-              ...state.cardsById,
-              [cardId]: { ...existing, status: newStatus, updatedAt: Date.now() },
-            },
-          };
+          if (!state.cardsById[cardId]) return;
+          state.cardsById[cardId].status = newStatus;
+          state.cardsById[cardId].updatedAt = Date.now();
         });
       },
 
@@ -146,7 +129,7 @@ export const useCardStore = create<CardState>()(
         Object.values(get().cardsById).filter((c) => c.projectId === SYSTEM_PROJECT_ID),
 
       setMainBoardCards: (cards) => get().setCardsForProject(SYSTEM_PROJECT_ID, cards),
-    }),
+    })),
     {
       name: 'voxyflow_cards',
       partialize: (state) => ({ cardsById: state.cardsById }),

@@ -3,7 +3,9 @@
 import asyncio
 import json
 import logging
+import os
 import time
+from logging.handlers import RotatingFileHandler
 from uuid import uuid4
 
 from contextlib import asynccontextmanager
@@ -35,13 +37,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("voxyflow")
 
-# --- File-based logging (RotatingFileHandler) ---
-import os as _os
-from logging.handlers import RotatingFileHandler as _RotatingFileHandler
-_log_dir = _os.path.expanduser("~/.voxyflow/logs")
-_os.makedirs(_log_dir, exist_ok=True)
-_log_file = _os.path.join(_log_dir, "backend.log")
-_file_handler = _RotatingFileHandler(
+# --- File-based logging ---
+_log_dir = os.path.expanduser("~/.voxyflow/logs")
+os.makedirs(_log_dir, exist_ok=True)
+_log_file = os.path.join(_log_dir, "backend.log")
+_file_handler = RotatingFileHandler(
     _log_file,
     maxBytes=10 * 1024 * 1024,  # 10 MB
     backupCount=3,
@@ -173,8 +173,7 @@ app = FastAPI(
 # CORS — restricted to allowed origins (configure via VOXYFLOW_CORS_ORIGINS env var)
 # Default: localhost only. For Tailscale: set VOXYFLOW_CORS_ORIGINS to your Tailscale IP/hostname.
 # Example: VOXYFLOW_CORS_ORIGINS="http://100.x.x.x:5173,http://machine.ts.net:5173"
-import os as _os_cors
-_ALLOWED_ORIGINS = _os_cors.environ.get(
+_ALLOWED_ORIGINS = os.environ.get(
     "VOXYFLOW_CORS_ORIGINS",
     "http://localhost:5173,http://localhost:3000"
 ).split(",")
