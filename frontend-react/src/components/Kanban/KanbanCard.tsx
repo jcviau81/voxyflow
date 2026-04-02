@@ -149,7 +149,7 @@ export function KanbanCard({
   const [isDragging, setIsDragging] = useState(false);
 
   const showToast = useToastStore((s) => s.showToast);
-  const { sendMessage } = useChatService();
+  const { executeCard: executeCardWS } = useChatService();
   const projects = useProjectStore((s) => s.projects);
   const { selectCard } = useProjectStore();
   const cardsById = useCardStore((s) => s.cardsById);
@@ -227,11 +227,9 @@ export function KanbanCard({
 
   const handleExecute = async () => {
     try {
-      const result = await executeCard.mutateAsync(card.id);
-      if (result) {
-        sendMessage(result.prompt, card.projectId || undefined, card.id);
-        showToast(`Executing: "${card.title}"`, 'success');
-      }
+      await executeCard.mutateAsync(card.id);
+      executeCardWS(card.id, card.projectId || undefined);
+      showToast(`Executing: "${card.title}"`, 'success');
     } catch {
       showToast('Execution failed', 'error');
     }

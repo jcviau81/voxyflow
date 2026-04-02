@@ -24,7 +24,7 @@ from app.services.chat_orchestration import ChatOrchestrator
 from app.services.rag_service import get_rag_service
 from app.services.scheduler_service import get_scheduler_service
 from app.services.pending_results import pending_store
-from app.services.board_executor import execute_board, cancel_execution, build_execution_plan, CardPlan
+from app.services.board_executor import execute_board, cancel_execution, build_execution_plan, CardPlan, _build_card_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +471,52 @@ async def general_websocket(websocket: WebSocket):
                     if execution_id:
                         cancelled = cancel_execution(execution_id)
                         logger.info(f"[WS] kanban:execute:cancel → {execution_id}, found={cancelled}")
+
+                elif msg_type == "card:execute":
+                    card_id = payload.get("cardId")
+                    project_id = payload.get("projectId")
+                    session_id = payload.get("sessionId") or str(uuid4())
+
+                    if not card_id:
+                        await websocket.send_json({
+                            "type": "card:execute:error",
+                            "payload": {"error": "cardId is required"},
+                            "timestamp": int(time.time() * 1000),
+                        })
+                    else:
+                        try:
+                            from app.services.event_bus import ActionIntent, event_bus_registry
+                            prompt, project_name = await _build_card_prompt(card_id)
+                            pool = _orchestrator.start_worker_pool(session_id, websocket)
+                            bus = event_bus_registry.get_or_create(session_id)
+                            task_id = f"task-{uuid4().hex[:8]}"
+                            event = ActionIntent(
+                                task_id=task_id,
+                                intent_type="complex",
+                                intent="execute_card",
+                                summary=f"Execute card",
+                                data={
+                                    "action": "execute_card",
+                                    "description": prompt,
+                                    "project_id": project_id,
+                                    "card_id": card_id,
+                                    "model": "sonnet",
+                                    "complexity": "complex",
+                                },
+                                session_id=session_id,
+                                complexity="complex",
+                                model="sonnet",
+                                callback_depth=0,
+                            )
+                            await bus.emit(event)
+                            logger.info(f"[WS] card:execute → task {task_id}, card {card_id}")
+                        except Exception as e:
+                            logger.error(f"[WS] card:execute failed: {e}")
+                            await websocket.send_json({
+                                "type": "card:execute:error",
+                                "payload": {"error": str(e)},
+                                "timestamp": int(time.time() * 1000),
+                            })
 
                 elif msg_type == "task:cancel":
                     task_id = payload.get("taskId")

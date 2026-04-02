@@ -109,6 +109,8 @@ export interface ChatContextValue {
   handleVoiceStop: () => void;
   /** Create a card from a suggestion (called by Opportunities panel) */
   createCardFromSuggestion: (data: { title: string; description?: string }) => void;
+  /** Directly spawn a worker to execute a card (bypasses chat layer) */
+  executeCard: (cardId: string, projectId?: string) => void;
 }
 
 export const ChatContext = createContext<ChatContextValue | null>(null);
@@ -907,6 +909,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [cardStore, showToast],
   );
 
+  const executeCard = useCallback(
+    (cardId: string, projectId?: string) => {
+      const sessionId = activeSessionIdRef.current;
+      send('card:execute', { cardId, projectId, sessionId });
+    },
+    [send],
+  );
+
   // ---------------------------------------------------------------------------
   // Context value (stable object via ref pattern to avoid needless re-renders)
   // ---------------------------------------------------------------------------
@@ -925,6 +935,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       handleVoiceTranscript,
       handleVoiceStop,
       createCardFromSuggestion,
+      executeCard,
     }),
     [
       sendMessage,
@@ -939,6 +950,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       handleVoiceTranscript,
       handleVoiceStop,
       createCardFromSuggestion,
+      executeCard,
     ],
   );
 
