@@ -18,7 +18,9 @@ import {
   STREAMING_CHAR_DELAY,
   AGENT_PERSONAS,
 } from '../lib/constants';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '../types';
+import { cardKeys } from '../hooks/api/useCards';
 
 // ---------------------------------------------------------------------------
 // Chat event callback types — components subscribe to these via context
@@ -130,6 +132,7 @@ interface StreamState {
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { send, subscribe, connectionState } = useWS();
+  const queryClient = useQueryClient();
   const messageStore = useMessageStore();
   const projectStore = useProjectStore();
   const cardStore = useCardStore();
@@ -654,6 +657,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // Note: In React, voice transcripts will come via component props/callbacks,
     // but we keep the WS handler for backend-initiated transcripts.
 
+    // --- cards:changed — invalidate card queries when workers or tools update cards ---
+    unsubs.push(
+      subscribe('cards:changed', (payload) => {
+        const { projectId, cardId } = payload as { projectId?: string; cardId?: string };
+        if (cardId) {
+          void queryClient.invalidateQueries({ queryKey: cardKeys.detail(cardId) });
+        }
+        if (projectId) {
+          void queryClient.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
+        }
+      }),
+    );
+
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
@@ -669,6 +685,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     getProjectIdFromSession,
     getAgentEmoji,
     emitCallbacks,
+    queryClient,
   ]);
 
   // --- Force-end streaming on WS disconnect ---

@@ -503,6 +503,12 @@ class DeepWorkerPool:
                                 "result": {"success": True},
                                 "sessionId": event.session_id,
                             })
+                            # Broadcast card change so all frontends refresh
+                            from app.services.ws_broadcast import ws_broadcast
+                            ws_broadcast.emit_sync("cards:changed", {
+                                "projectId": event.data.get("project_id"),
+                                "cardId": card_id,
+                            })
                 except Exception as append_err:
                     logger.warning(f"[DeepWorker] Failed to auto-append result to card: {append_err}")
 
