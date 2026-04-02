@@ -647,7 +647,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       if (!activeCardData || !projectId) return;
 
       const overCard = over.data.current?.card as Card | undefined;
-      const targetStatus = overCard?.status ?? activeCardData.status;
+      const targetStatus = overCard?.status ?? (over.id as CardStatus);
 
       // If moved to a new status column — persist via API
       if (activeCardData.status !== targetStatus) {
