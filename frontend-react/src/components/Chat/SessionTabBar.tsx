@@ -58,7 +58,7 @@ export function SessionTabBar({
     (sessionId: string) => {
       const session = sessions.find((s) => s.id === sessionId);
       if (session) {
-        send('session:reset', { sessionId: session.chatId, tabId });
+        send('session:reset', { sessionId: session.chatId, chatId: session.chatId, tabId });
       }
 
       if (sessions.length > 1) {

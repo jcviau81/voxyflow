@@ -44,6 +44,7 @@ export function ChatWindow({
   className,
 }: ChatWindowProps) {
   const { connectionState, connected } = useWS();
+  const { send } = useWS();
   const { loadHistory, setActiveSessionId, sendSystemInit } = useChatService();
   const createSession = useSessionStore((s) => s.createSession);
   const replaceSessionMessages = useMessageStore((s) => s.replaceSessionMessages);
@@ -87,8 +88,12 @@ export function ChatWindow({
   );
 
   const handleNewSession = useCallback(() => {
+    // Reset the current session on the backend before creating a new one
+    if (sessionId) {
+      send('session:reset', { sessionId, chatId: sessionId, tabId });
+    }
+
     const session = createSession(tabId, chatLevel);
-    // Clear messages for new session context
     replaceSessionMessages([], session.chatId, projectId, cardId);
     showToast('New session started', 'info', 2000);
 
@@ -101,7 +106,7 @@ export function ChatWindow({
         session.chatId,
       );
     }, 300);
-  }, [tabId, chatLevel, createSession, replaceSessionMessages, projectId, cardId, showToast, sendSystemInit]);
+  }, [tabId, chatLevel, sessionId, createSession, replaceSessionMessages, projectId, cardId, showToast, sendSystemInit, send]);
 
   const handleClearChat = useCallback(() => {
     replaceSessionMessages([], sessionId, projectId, cardId);

@@ -57,11 +57,12 @@ export const useSessionStore = create<SessionState>()(
           return existing[existing.length - 1];
         }
         const sessionNumber = existing.length + 1;
-        // First session uses the base chatId (no suffix), matching the vanilla behavior
+        // Use a unique suffix so new sessions never collide with old chat history
+        const uniqueSuffix = Date.now().toString(36);
         const chatId =
           sessionNumber === 1
             ? `${scope}:${tabId}`
-            : `${scope}:${tabId}:session-${sessionNumber}`;
+            : `${scope}:${tabId}:s-${uniqueSuffix}`;
         const session: SessionInfo = {
           id: generateId(),
           chatId,
