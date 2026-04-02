@@ -552,6 +552,36 @@ class DeepWorkerPool:
                         msg_type="worker_result",
                     )
                     logger.info(f"[DeepWorker] Injected result into dispatcher history for {dispatcher_chat_id}")
+
+                    # Re-trigger dispatcher so it processes the worker result
+                    from starlette.websockets import WebSocketState
+                    if (
+                        self._orchestrator
+                        and self._ws.client_state == WebSocketState.CONNECTED
+                    ):
+                        try:
+                            callback_msg = (
+                                f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) completed. "
+                                f"The result is in your conversation history above. "
+                                f"Present the result to the user naturally and decide if follow-up actions are needed.]"
+                            )
+                            callback_message_id = f"worker-cb-{uuid4().hex[:8]}"
+                            logger.info(f"[DeepWorker] Re-triggering dispatcher after {event.intent}")
+
+                            await self._orchestrator.handle_message(
+                                websocket=self._ws,
+                                content=callback_msg,
+                                message_id=callback_message_id,
+                                chat_id=dispatcher_chat_id,
+                                project_id=event.data.get("project_id"),
+                                chat_level="project" if event.data.get("project_id") else "general",
+                                session_id=event.session_id,
+                                is_callback=True,
+                                callback_depth=1,
+                            )
+                        except Exception as cb_err:
+                            logger.warning(f"[DeepWorker] Dispatcher re-trigger failed: {cb_err}", exc_info=True)
+
                 except Exception as inject_err:
                     logger.warning(f"[DeepWorker] Failed to inject result into history: {inject_err}")
 

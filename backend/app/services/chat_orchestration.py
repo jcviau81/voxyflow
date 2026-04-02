@@ -73,6 +73,8 @@ class ChatOrchestrator(LayerRunnersMixin):
         # Pending confirmations for destructive direct actions (taskId → delegate data)
         self._pending_confirms: dict[str, dict] = {}
 
+    MAX_CALLBACK_DEPTH = 2  # Prevent infinite dispatcher↔worker re-trigger loops
+
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
@@ -181,7 +183,7 @@ class ChatOrchestrator(LayerRunnersMixin):
             return _bg_tasks
 
         # --- Parse delegates and emit to event bus (BACKGROUND — non-blocking) ---
-        if session_id:
+        if session_id and callback_depth < self.MAX_CALLBACK_DEPTH:
             # Guard: don't fire delegates if the response contains a question
             # (model is asking for confirmation — wait for user to answer first)
             _response_for_guard = ""
