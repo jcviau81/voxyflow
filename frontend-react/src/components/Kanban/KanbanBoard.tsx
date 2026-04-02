@@ -608,11 +608,15 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   );
 
   const [activeCard, setActiveCard] = useState<Card | null>(null);
+  const dragOriginStatusRef = useRef<CardStatus | null>(null);
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       const card = event.active.data.current?.card as Card | undefined;
-      if (card) setActiveCard(card);
+      if (card) {
+        setActiveCard(card);
+        dragOriginStatusRef.current = card.status;
+      }
     },
     [],
   );
@@ -639,7 +643,9 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      const originStatus = dragOriginStatusRef.current;
       setActiveCard(null);
+      dragOriginStatusRef.current = null;
       const { active, over } = event;
       if (!over) return;
 
@@ -650,8 +656,10 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       const targetStatus = overCard?.status ?? (over.id as CardStatus);
 
       // If moved to a new status column — persist via API
-      if (activeCardData.status !== targetStatus) {
-        // Already optimistically updated in dragOver, now persist
+      // Use originStatus (captured at drag start) because handleDragOver
+      // optimistically updates the card's status in the store, which means
+      // activeCardData.status may already reflect the new column.
+      if (originStatus && originStatus !== targetStatus) {
         patchCard.mutate({ cardId: activeCardData.id, updates: { status: targetStatus } });
       }
 

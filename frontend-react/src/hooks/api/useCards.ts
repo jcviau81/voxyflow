@@ -344,15 +344,14 @@ export function useReorderCards() {
     mutationFn: async (orderedCardIds: string[]) => {
       await Promise.all(
         orderedCardIds.map((id, index) =>
-          fetch(`${API}/api/cards/${id}`, {
+          apiFetch(`/api/cards/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ position: index }),
-          }).catch((err) => console.error(`reorderCards patch error for ${id}:`, err))
+          })
         )
       );
     },
-    // No cache invalidation — caller manages optimistic UI
   });
 }
 
