@@ -340,6 +340,7 @@ export function useMoveCard() {
 }
 
 export function useReorderCards() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (orderedCardIds: string[]) => {
       await Promise.all(
@@ -351,6 +352,9 @@ export function useReorderCards() {
           })
         )
       );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: cardKeys.all });
     },
   });
 }

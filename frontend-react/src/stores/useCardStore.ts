@@ -31,8 +31,9 @@ export interface CardState {
   /** Replace cards for a single project, keeping other projects intact. */
   setCardsForProject: (projectId: string, cards: Card[]) => void;
 
-  // Move
+  // Move / reorder
   moveCard: (cardId: string, newStatus: CardStatus) => void;
+  reorderCards: (orderedIds: string[]) => void;
 
   // Queries (derived — not persisted)
   getCard: (id: string) => Card | undefined;
@@ -110,6 +111,16 @@ export const useCardStore = create<CardState>()(
           if (!state.cardsById[cardId]) return;
           state.cardsById[cardId].status = newStatus;
           state.cardsById[cardId].updatedAt = Date.now();
+        });
+      },
+
+      reorderCards: (orderedIds) => {
+        set((state) => {
+          orderedIds.forEach((id, index) => {
+            if (state.cardsById[id]) {
+              state.cardsById[id].position = index;
+            }
+          });
         });
       },
 

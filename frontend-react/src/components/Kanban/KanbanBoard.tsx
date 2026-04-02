@@ -664,14 +664,20 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       }
 
       // Handle reorder within same column
-      if (overCard && activeCardData.status === overCard.status && activeCardData.id !== overCard.id) {
-        const columnCards = cardsByColumn[overCard.status] ?? [];
-        const oldIndex = columnCards.findIndex((c) => c.id === activeCardData.id);
-        const newIndex = columnCards.findIndex((c) => c.id === overCard.id);
-        if (oldIndex !== -1 && newIndex !== -1) {
-          const reordered = arrayMove(columnCards, oldIndex, newIndex);
-          reorderCards.mutate(reordered.map((c) => c.id));
-        }
+      const effectiveStatus = targetStatus;
+      const columnCards = cardsByColumn[effectiveStatus] ?? [];
+      const oldIndex = columnCards.findIndex((c) => c.id === activeCardData.id);
+      const overIndex = overCard
+        ? columnCards.findIndex((c) => c.id === overCard.id)
+        : -1;
+
+      if (oldIndex !== -1 && overIndex !== -1 && oldIndex !== overIndex) {
+        const reordered = arrayMove(columnCards, oldIndex, overIndex);
+        const orderedIds = reordered.map((c) => c.id);
+        // Optimistic UI update
+        useCardStore.getState().reorderCards(orderedIds);
+        // Persist to backend
+        reorderCards.mutate(orderedIds);
       }
     },
     [projectId, patchCard, reorderCards, cardsByColumn],
