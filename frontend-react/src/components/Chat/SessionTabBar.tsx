@@ -44,6 +44,7 @@ export function SessionTabBar({
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const closeSession = useSessionStore((s) => s.closeSession);
   const createSession = useSessionStore((s) => s.createSession);
+  const resetLastSession = useSessionStore((s) => s.resetLastSession);
   const { send } = useWS();
 
   const handleSwitch = useCallback(
@@ -63,7 +64,6 @@ export function SessionTabBar({
 
       if (sessions.length > 1) {
         closeSession(tabId, sessionId);
-        // If we just closed the active session, the store auto-switches
         if (sessionId === activeSessionId) {
           const remaining = sessions.filter((s) => s.id !== sessionId);
           if (remaining.length > 0) {
@@ -71,13 +71,12 @@ export function SessionTabBar({
           }
         }
       } else {
-        // Last session — reset it (clear history, create fresh)
-        closeSession(tabId, sessionId);
-        const newSession = createSession(tabId, scope);
+        // Last session — wipe all and start fresh as Session 1
+        const newSession = resetLastSession(tabId, scope);
         onSessionSwitch?.(newSession.id);
       }
     },
-    [sessions, tabId, activeSessionId, send, closeSession, createSession, scope, onSessionSwitch],
+    [sessions, tabId, activeSessionId, send, closeSession, resetLastSession, scope, onSessionSwitch],
   );
 
   const handleNew = useCallback(() => {

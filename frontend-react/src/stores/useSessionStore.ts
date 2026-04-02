@@ -20,8 +20,11 @@ export interface SessionState {
   // Replace all sessions for a tabId with server-sourced data (startup sync)
   setServerSessions: (tabId: string, sessions: SessionInfo[]) => void;
 
-  // Close a session — won't close the last one; switches active if needed
+  // Close a session — won't close the last one (use resetLastSession instead)
   closeSession: (tabId: string, sessionId: string) => void;
+
+  // Replace all sessions with a single fresh Session 1 (used when resetting the last session)
+  resetLastSession: (tabId: string, scope?: 'general' | 'project' | 'card') => SessionInfo;
 
   // Set the active session for a tabId
   setActiveSession: (tabId: string, sessionId: string) => void;
@@ -130,9 +133,13 @@ export const useSessionStore = create<SessionState>()(
 
       closeSession: (tabId, sessionId) => {
         const existing = get().sessions[tabId] || [];
-        if (existing.length <= 1) return; // Never close the last session
-
         const updated = existing.filter((s) => s.id !== sessionId);
+
+        if (updated.length === 0) {
+          // Last session — don't leave an empty tab, handled by resetLastSession
+          return;
+        }
+
         set((state) => {
           const wasActive = state.activeSession[tabId] === sessionId;
           return {
@@ -142,14 +149,32 @@ export const useSessionStore = create<SessionState>()(
             },
             activeSession: {
               ...state.activeSession,
-              [tabId]: wasActive
-                ? updated.length > 0
-                  ? updated[0].id
-                  : ''
-                : state.activeSession[tabId],
+              [tabId]: wasActive ? updated[0].id : state.activeSession[tabId],
             },
           };
         });
+      },
+
+      resetLastSession: (tabId, scope = 'project') => {
+        // Replace ALL sessions for this tab with a single fresh Session 1
+        const chatId = `${scope}:${tabId}`;
+        const session: SessionInfo = {
+          id: generateId(),
+          chatId,
+          title: 'Session 1',
+          createdAt: Date.now(),
+        };
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [tabId]: [session],
+          },
+          activeSession: {
+            ...state.activeSession,
+            [tabId]: session.id,
+          },
+        }));
+        return session;
       },
 
       setActiveSession: (tabId, sessionId) => {

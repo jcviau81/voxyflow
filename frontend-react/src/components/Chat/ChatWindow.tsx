@@ -46,7 +46,7 @@ export function ChatWindow({
   const { connectionState, connected } = useWS();
   const { send } = useWS();
   const { loadHistory, setActiveSessionId, sendSystemInit } = useChatService();
-  const createSession = useSessionStore((s) => s.createSession);
+  const resetLastSession = useSessionStore((s) => s.resetLastSession);
   const replaceSessionMessages = useMessageStore((s) => s.replaceSessionMessages);
   const showToast = useToastStore((s) => s.showToast);
 
@@ -88,12 +88,13 @@ export function ChatWindow({
   );
 
   const handleNewSession = useCallback(() => {
-    // Reset the current session on the backend before creating a new one
+    // Reset the current session on the backend
     if (sessionId) {
       send('session:reset', { sessionId, chatId: sessionId, tabId });
     }
 
-    const session = createSession(tabId, chatLevel);
+    // Wipe all sessions for this tab and start fresh as Session 1
+    const session = resetLastSession(tabId, chatLevel);
     replaceSessionMessages([], session.chatId, projectId, cardId);
     showToast('New session started', 'info', 2000);
 
@@ -106,7 +107,7 @@ export function ChatWindow({
         session.chatId,
       );
     }, 300);
-  }, [tabId, chatLevel, sessionId, createSession, replaceSessionMessages, projectId, cardId, showToast, sendSystemInit, send]);
+  }, [tabId, chatLevel, sessionId, resetLastSession, replaceSessionMessages, projectId, cardId, showToast, sendSystemInit, send]);
 
   const handleClearChat = useCallback(() => {
     replaceSessionMessages([], sessionId, projectId, cardId);
