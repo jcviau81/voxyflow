@@ -93,16 +93,22 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("✅ Database initialized")
 
-    # Initialize default_worker_model cache from DB settings
-    from app.routes.settings import _load_settings_from_db, get_default_worker_model
+    # Sync settings from DB → settings.json so ClaudeService picks them up
+    from app.routes.settings import _load_settings_from_db, get_default_worker_model, AppSettings, SETTINGS_FILE
     try:
         _db_settings = await _load_settings_from_db()
         if _db_settings:
             import app.routes.settings as _settings_mod
             _settings_mod._cached_default_worker_model = _db_settings.get("models", {}).get("default_worker_model", "sonnet")
+            # Write DB settings to settings.json so _load_model_overrides() finds them
+            _merged = AppSettings(**_db_settings).dict()
+            os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+            with open(SETTINGS_FILE, "w") as _f:
+                json.dump(_merged, _f, indent=2)
+            logger.info("✅ Settings synced from DB → settings.json")
         logger.info("✅ Default worker model: %s", get_default_worker_model())
     except Exception as _e:
-        logger.warning("Failed to load default_worker_model from DB: %s — using 'sonnet'", _e)
+        logger.warning("Failed to load settings from DB: %s — using defaults", _e)
 
     # Cleanup stale worker tasks (done/failed/cancelled older than 24h)
     await _cleanup_stale_worker_tasks()
