@@ -55,7 +55,7 @@ Ces correctifs doivent etre faits **avant tout deploiement** au-dela de localhos
 
 Objectif: aucun fichier ne devrait depasser ~500 lignes.
 
-### 2.1 Decouper `claude_service.py` (2,767 lignes)
+### 2.1 Decouper `claude_service.py` (2,767 → 2,668 lignes)
 
 **Fichier**: `backend/app/services/claude_service.py`
 
@@ -69,29 +69,27 @@ Objectif: aucun fichier ne devrait depasser ~500 lignes.
 | `services/llm/tool_executor.py` | Execution des tools et parsing des resultats | Tool calls, delegation |
 | `services/llm/cache_manager.py` | Gestion du cache et de l'historique | Cache prompt, history management |
 
-**Etapes**:
-1. Creer le dossier `backend/app/services/llm/`
-2. Extraire chaque module un a la fois, en gardant les imports fonctionnels
-3. `claude_service.py` devient un facade mince qui delegue aux sous-modules
-4. Tester apres chaque extraction (pas tout d'un coup)
+**Fait**:
+- `services/llm/__init__.py` créé
+- `services/llm/client_factory.py` — `_make_anthropic_client`, `_make_async_anthropic_client`, `_make_openai_client`
+- `services/llm/model_utils.py` — `_LRUDict`, `_MODEL_MAP`, `_resolve_model`, `_strip_think_tags`, `_is_thinking_model`, `_inject_no_think`
+- `claude_service.py` importe depuis ces modules ✅
+
+**Reste** (lors d'une prochaine session):
+- Extraire `DELEGATE_ACTION_TOOL`, `INLINE_TOOLS`, `_execute_inline_tool` → `llm/tool_defs.py`
+- Extraire les `_call_api_*` methods → `llm/api_caller.py`
 
 ---
 
-### 2.2 Decouper `chat_orchestration.py` (2,656 lignes)
+### 2.2 Decouper `chat_orchestration.py` (2,656 → 1,908 lignes) ✅ (partiel)
 
-**Fichier**: `backend/app/services/chat_orchestration.py`
+**Fait**:
+- `services/orchestration/__init__.py` créé
+- `services/orchestration/worker_pool.py` — `DeepWorkerPool` + `_format_result_for_card` (~750 lignes extraites)
+- `chat_orchestration.py` importe depuis le nouveau module ✅
 
-**Decoupage propose**:
-
-| Nouveau fichier | Responsabilite |
-|---|---|
-| `services/orchestration/fast_layer.py` | Logique du mode Fast |
-| `services/orchestration/deep_layer.py` | Logique du mode Deep |
-| `services/orchestration/analyzer_layer.py` | Logique de l'Analyzer |
-| `services/orchestration/delegate_handler.py` | Parsing et execution des blocs delegate |
-| `services/orchestration/event_bus.py` | Systeme d'evenements interne |
-
-**Meme approche**: extraction incrementale, test apres chaque etape.
+**Reste** (lors d'une prochaine session):
+- Extraire `_run_fast_layer`, `_run_deep_chat_layer`, `_run_analyzer_layer` → fichiers dédiés
 
 ---
 
@@ -350,7 +348,7 @@ from logging.handlers import RotatingFileHandler
 | Phase | Status | Date completee |
 |---|---|---|
 | 1 — Securite | ✅ (3/4 — auth reportée) | 2026-04-01 |
-| 2 — Split fichiers | TODO | |
+| 2 — Split fichiers | 🔄 En cours (partiel) | 2026-04-02 |
 | 3 — Error handling | ✅ (partiel — gros fichiers en Phase 2) | 2026-04-02 |
 | 4 — Config/constantes | ✅ (partiel — remplacement complet des enums en Phase 2) | 2026-04-02 |
 | 5 — Performance frontend | TODO | |

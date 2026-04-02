@@ -4,12 +4,25 @@ import asyncio
 import json
 import logging
 import os
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
 
 from app.config import get_settings
+from app.services.llm.client_factory import (
+    _make_anthropic_client,
+    _make_async_anthropic_client,
+    _make_openai_client,
+)
+from app.services.llm.model_utils import (
+    _LRUDict,
+    _MODEL_MAP,
+    _resolve_model,
+    _strip_think_tags,
+    _is_thinking_model,
+    _inject_no_think,
+)
 from app.services.personality_service import get_personality_service
 from app.services.memory_service import get_memory_service
 from app.services.agent_personas import AgentType, get_persona_prompt
@@ -114,62 +127,7 @@ def _make_cached_system(
 # LRU Dict — bounded dict that evicts the oldest entry on overflow
 # ---------------------------------------------------------------------------
 
-class _LRUDict(OrderedDict):
-    """An OrderedDict subclass that enforces a maximum size by evicting the
-    least-recently-used (oldest) entry whenever the limit is exceeded.
-
-    Usage: drop-in replacement for plain dict / defaultdict in cases where
-    the key space is theoretically unbounded (e.g. chat_id per user session).
-    """
-
-    def __init__(self, maxsize: int = 500, default_factory=None):
-        super().__init__()
-        self._maxsize = maxsize
-        self._default_factory = default_factory
-
-    def __getitem__(self, key):
-        value = super().__getitem__(key)
-        # Move to end so it is treated as most-recently-used
-        self.move_to_end(key)
-        return value
-
-    def __setitem__(self, key, value):
-        if key in self:
-            self.move_to_end(key)
-        super().__setitem__(key, value)
-        # Evict oldest entries until we are within the size limit
-        while len(self) > self._maxsize:
-            oldest_key, _ = next(iter(self.items()))
-            logger.debug(f"[LRUDict] Evicting key: {oldest_key!r} (maxsize={self._maxsize})")
-            super().__delitem__(oldest_key)
-
-    def __missing__(self, key):
-        """Support defaultdict-style default_factory."""
-        if self._default_factory is None:
-            raise KeyError(key)
-        value = self._default_factory()
-        self[key] = value
-        return value
-
-# ---------------------------------------------------------------------------
-# Model name mapping: short names → Anthropic full names
-# ---------------------------------------------------------------------------
-_MODEL_MAP = {
-    "claude-haiku-4":   "claude-haiku-4-5-20251001",
-    "claude-sonnet-4":  "claude-sonnet-4-6",
-    "claude-opus-4":    "claude-opus-4-6",
-    "claude-haiku-3":   "claude-3-haiku-20240307",
-    "claude-sonnet-3":  "claude-3-5-sonnet-20241022",
-    "claude-opus-3":    "claude-3-opus-20240229",
-}
-
-
-def _resolve_model(name: str, native: bool = True) -> str:
-    """Return the full Anthropic model name for a short alias, or the name unchanged.
-    When using the proxy (native=False), keep short names as-is."""
-    if not native:
-        return name
-    return _MODEL_MAP.get(name, name)
+# _LRUDict, _MODEL_MAP, _resolve_model → app.services.llm.model_utils
 
 
 # ---------------------------------------------------------------------------
@@ -552,65 +510,8 @@ def _load_model_overrides() -> dict:
 # Client factories
 # ---------------------------------------------------------------------------
 
-def _make_anthropic_client(api_key: str, api_base: str = ""):
-    """Create a native Anthropic SDK client (sync)."""
-    import anthropic
-    kwargs = {"api_key": api_key} if api_key else {}
-    if api_base:
-        kwargs["base_url"] = api_base
-    return anthropic.Anthropic(**kwargs)
-
-
-def _make_async_anthropic_client(api_key: str, api_base: str = ""):
-    """Create a native async Anthropic SDK client (for worker tasks)."""
-    import anthropic
-    kwargs = {"api_key": api_key} if api_key else {}
-    if api_base:
-        kwargs["base_url"] = api_base
-    return anthropic.AsyncAnthropic(**kwargs)
-
-
-def _make_openai_client(provider_url: str, api_key: str):
-    """Create an OpenAI-compatible client (proxy fallback)."""
-    from openai import OpenAI
-    return OpenAI(
-        base_url=provider_url or get_settings().claude_proxy_url,
-        api_key=api_key if api_key else "not-needed",
-    )
-
-
-import re as _re
-
-def _strip_think_tags(text: str) -> str:
-    """Strip <think>...</think> blocks from model output (Qwen3, DeepSeek-R1, etc.)."""
-    return _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL).strip()
-
-
-def _is_thinking_model(model_name: str) -> bool:
-    """Detect models that emit <think> tokens (Qwen3, DeepSeek-R1, etc.)."""
-    if not model_name:
-        return False
-    lower = model_name.lower()
-    return any(x in lower for x in ("qwen3", "qwen2.5-think", "deepseek-r1", "deepseek-r2", "qwq"))
-
-
-def _inject_no_think(system: str | list, model_name: str) -> str | list:
-    """Prepend /no_think to system prompt for thinking models to disable chain-of-thought."""
-    if not _is_thinking_model(model_name):
-        return system
-    prefix = "/no_think\n\n"
-    if isinstance(system, str):
-        return prefix + system
-    if isinstance(system, list):
-        # List of content blocks — prepend to first text block
-        result = list(system)
-        for i, block in enumerate(result):
-            if isinstance(block, dict) and block.get("text"):
-                result[i] = {**block, "text": prefix + block["text"]}
-                return result
-        # No text block found — prepend a new one
-        return [{"type": "text", "text": prefix}] + result
-    return system
+# _make_anthropic_client, _make_async_anthropic_client, _make_openai_client → app.services.llm.client_factory
+# _strip_think_tags, _is_thinking_model, _inject_no_think → app.services.llm.model_utils
 
 
 def _get_api_key_from_settings(layer_cfg: dict) -> str:
