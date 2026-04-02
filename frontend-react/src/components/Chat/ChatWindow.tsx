@@ -216,6 +216,16 @@ export function ChatWindow({
           >
             Clear
           </button>
+
+          {/* New session button */}
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title="New session (Ctrl+Shift+N)"
+            onClick={handleNewSession}
+          >
+            Reset
+          </button>
         </div>
       )}
 
