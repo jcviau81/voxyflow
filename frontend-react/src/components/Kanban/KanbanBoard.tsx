@@ -771,14 +771,14 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   useEffect(() => {
     const handleWsMessage = (event: CustomEvent<{ type: string; payload: Record<string, unknown> }>) => {
       const { type, payload } = event.detail;
-      if (type === 'board:execute:card:start') {
+      if (type === 'kanban:execute:card:start') {
         setExecutionProgress({
           index: payload.index as number,
           total: payload.total as number,
           cardTitle: payload.cardTitle as string,
           cardId: payload.cardId as string,
         });
-      } else if (type === 'board:execute:complete' || type === 'board:execute:cancelled' || type === 'board:execute:error') {
+      } else if (type === 'kanban:execute:complete' || type === 'kanban:execute:cancelled' || type === 'kanban:execute:error') {
         resetExecution();
       }
     };
