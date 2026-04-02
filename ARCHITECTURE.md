@@ -67,9 +67,9 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 - TTS responses for conversational flow
 - Visual kanban cards auto-generated from conversation
 
-### Zero-Framework Frontend
-- Vanilla TypeScript, no React/Vue/Angular
-- Direct DOM manipulation for maximum performance
+### React Frontend
+- React 19 + TypeScript + Vite
+- Zustand for state management, TanStack Query for data fetching
 - Custom component system with lifecycle management
 - EventBus pattern for decoupled communication
 
@@ -84,7 +84,7 @@ Cards and conversations can be routed to specialized agents:
 7. **QA** 🧪 — Testing strategies, edge cases, validation
 
 ### ReactiveCardStore (Single Source of Truth)
-All card data on the frontend flows through `ReactiveCardStore` (`frontend/src/state/ReactiveCardStore.ts`), a centralized Map-based singleton. Components subscribe to global or per-card changes and re-render automatically. This replaces ad-hoc fetching patterns and eliminates stale data.
+All card data on the frontend flows through `useCardStore` (`frontend-react/src/stores/useCardStore.ts`), a centralized Map-based singleton. Components subscribe to global or per-card changes and re-render automatically. This replaces ad-hoc fetching patterns and eliminates stale data.
 
 ### WebSocket Live Sync (`cards:changed`)
 When any card is mutated via REST (create/update/move/delete), the backend broadcasts a `cards:changed` event to all connected WebSocket clients via `WSBroadcast` (`backend/app/services/ws_broadcast.py`). The frontend receives this, re-fetches the affected project's cards, and updates the ReactiveCardStore — giving real-time multi-tab sync and instant worker feedback.
@@ -144,23 +144,22 @@ voxyflow/
 │       ├── models/
 │       ├── routes/
 │       └── services/
-└── frontend/
+└── frontend-react/
     ├── package.json
     ├── tsconfig.json
-    ├── webpack.config.js
-    ├── .env.example
-    ├── README.md
-    ├── public/
-    │   ├── index.html
-    │   ├── manifest.json
-    │   └── sw.ts
+    ├── vite.config.ts
+    ├── index.html
     └── src/
-        ├── main.ts
-        ├── App.ts
+        ├── main.tsx
+        ├── App.tsx
+        ├── router.tsx
         ├── types/
-        ├── state/
+        ├── stores/
+        ├── hooks/
         ├── services/
+        ├── contexts/
+        ├── providers/
         ├── components/
-        ├── styles/
+        ├── pages/
         └── utils/
 ```

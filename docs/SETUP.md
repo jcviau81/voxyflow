@@ -317,7 +317,7 @@ voxyflow.example.com {
   }
   # Static frontend
   handle {
-    root * /path/to/frontend/dist
+    root * /path/to/frontend-react/dist
     file_server
   }
 }
@@ -330,7 +330,7 @@ voxyflow.local {
   tls internal
   handle /api/* { reverse_proxy localhost:8000 }
   handle /ws    { reverse_proxy localhost:8000 }
-  handle        { root * /path/to/frontend/dist; file_server }
+  handle        { root * /path/to/frontend-react/dist; file_server }
 }
 ```
 

@@ -50,8 +50,8 @@ data/
 workspace/
 
 # Playwright
-frontend/test-results/
-frontend/playwright-report/
+frontend-react/test-results/
+frontend-react/playwright-report/
 certs/
 
 # User settings (may contain API keys)
@@ -61,15 +61,3 @@ settings.json
 *.backup
 *.bak
 *.bak2
-
-# Compiled frontend artifacts at root (should be in frontend/dist/)
-frontend/*.wasm
-frontend/*.mjs
-frontend/*.mjs.LICENSE.txt
-frontend/*.js.map
-frontend/css/
-frontend/icons/
-frontend/index.html
-frontend/manifest.json
-frontend/service-worker.*
-frontend/workbox-*

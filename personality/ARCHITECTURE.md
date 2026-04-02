@@ -314,7 +314,7 @@ When in doubt about how you work, what you can do, or what things are called —
 ## §11 — ReactiveCardStore (Frontend State)
 
 All card data on the frontend flows through a single centralized store:
-`frontend/src/state/ReactiveCardStore.ts`
+`frontend-react/src/stores/useCardStore.ts`
 
 ### What it does
 
@@ -385,7 +385,7 @@ ApiClient receives WS message type="cards:changed"
       → All subscribed components re-render
 ```
 
-**File:** `frontend/src/services/ApiClient.ts` (WS handler setup in constructor)
+**File:** `frontend-react/src/hooks/useWebSocket.ts` (WS handler setup in constructor)
 
 ### Why it matters
 

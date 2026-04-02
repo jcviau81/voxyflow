@@ -5,10 +5,10 @@ The following features are implemented but hidden from the interface pending a m
 
 | Feature | Location | How to re-enable |
 |---------|----------|-----------------|
-| Stats tab (📊) | `frontend/src/components/Projects/ProjectHeader.ts` | Uncomment `stats` entry in `PROJECT_TABS` |
+| Stats tab (📊) | `frontend-react/src/components/Projects/ProjectHeader.tsx` | Uncomment `stats` entry in `PROJECT_TABS` |
 | Roadmap tab (📅) | Same file | Uncomment `roadmap` entry |
 | Sprints tab (🏃) | Same file | Uncomment `sprint` entry |
-| /standup command | `frontend/src/components/Chat/SlashCommands.ts` | Uncomment the entry |
+| /standup command | `frontend-react/src/components/Chat/SlashCommandMenu.tsx` | Uncomment the entry |
 
 These are not deleted — they are deferred until the kanban + core tool flow is solid.
 

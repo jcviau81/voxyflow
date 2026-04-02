@@ -107,9 +107,9 @@ voxyflow.example.com {
 # Build stage
 FROM node:18-alpine AS build
 WORKDIR /app
-COPY frontend/package*.json ./
+COPY frontend-react/package*.json ./
 RUN npm ci
-COPY frontend/ .
+COPY frontend-react/ .
 RUN npm run build
 
 # Serve stage
