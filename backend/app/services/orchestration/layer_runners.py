@@ -155,16 +155,16 @@ class LayerRunnersMixin:
             logger.error(f"[Layer1-Fast] error: {e}")
             try:
                 await send_model_status("fast", "error")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Best-effort send failed (WS likely closed): %s", e)
             try:
                 await websocket.send_json({
                     "type": "chat:error",
                     "payload": {"messageId": message_id, "error": str(e), "sessionId": session_id},
                     "timestamp": int(time.time() * 1000),
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Best-effort send failed (WS likely closed): %s", e)
             return False
         finally:
             # Safety net: always reset to idle even if WS is closed
@@ -273,16 +273,16 @@ class LayerRunnersMixin:
             logger.error(f"[Layer-Deep-Chat] error: {e}")
             try:
                 await send_model_status("deep", "error")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Best-effort send failed (WS likely closed): %s", e)
             try:
                 await websocket.send_json({
                     "type": "chat:error",
                     "payload": {"messageId": message_id, "error": str(e), "sessionId": session_id},
                     "timestamp": int(time.time() * 1000),
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Best-effort send failed (WS likely closed): %s", e)
             return False
         finally:
             # Safety net: always reset to idle even if WS is closed

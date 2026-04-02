@@ -813,9 +813,8 @@ class ChatOrchestrator(LayerRunnersMixin):
                 ws_broadcast.emit_sync("cards:changed", {
                     "projectId": project_id or "system-main",
                 })
-            except Exception:
-                pass
-
+            except Exception as e:
+                logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
         # --- For READ actions: re-trigger dispatcher so Voxy sees the result ---
         is_read_action = action in READ_ACTIONS
         if is_read_action and result.get("success") and chat_id and confirmation_msg:
@@ -872,8 +871,8 @@ class ChatOrchestrator(LayerRunnersMixin):
                             },
                             "timestamp": int(time.time() * 1000),
                         })
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
         elif confirmation_msg:
             # --- WRITE actions: just send chat confirmation (no re-trigger) ---
             msg_id = f"direct-msg-{uuid4().hex[:8]}"
@@ -1014,9 +1013,8 @@ class ChatOrchestrator(LayerRunnersMixin):
                 },
                 "timestamp": int(time.time() * 1000),
             })
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
         result = await DirectExecutor.execute(data, project_id=project_id)
 
         # Notify: action completed
@@ -1033,9 +1031,8 @@ class ChatOrchestrator(LayerRunnersMixin):
                 },
                 "timestamp": int(time.time() * 1000),
             })
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
         # Broadcast card change
         if result.get("success"):
             try:
@@ -1043,9 +1040,8 @@ class ChatOrchestrator(LayerRunnersMixin):
                 ws_broadcast.emit_sync("cards:changed", {
                     "projectId": project_id or "system-main",
                 })
-            except Exception:
-                pass
-
+            except Exception as e:
+                logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
         # Chat confirmation
         confirmation_msg = self._build_direct_confirmation(action, result)
         if confirmation_msg:
@@ -1062,9 +1058,8 @@ class ChatOrchestrator(LayerRunnersMixin):
                     },
                     "timestamp": int(time.time() * 1000),
                 })
-            except Exception:
-                pass
-
+            except Exception as e:
+                logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
     # ------------------------------------------------------------------
     # Safety Net: Detect missing delegates
     # ------------------------------------------------------------------
@@ -1384,9 +1379,8 @@ class ChatOrchestrator(LayerRunnersMixin):
                         },
                         "timestamp": int(time.time() * 1000),
                     })
-                except Exception:
-                    pass
-
+                except Exception as e:
+                    logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
     async def _execute_tools_and_followup(
         self,
         tool_calls: list,
@@ -1586,8 +1580,7 @@ class ChatOrchestrator(LayerRunnersMixin):
                 },
                 "timestamp": int(time.time() * 1000),
             })
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
         logger.info(f"[ToolCallFallback] Async follow-up complete ({len(followup_full)} chars)")
 

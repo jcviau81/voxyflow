@@ -244,8 +244,8 @@ class ApiCallerMixin:
                                 ret = tool_callback(mcp_name, arguments, result)
                                 if asyncio.iscoroutine(ret):
                                     await ret
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("tool_callback raised (non-fatal): %s", e)
 
                         tool_results.append({
                             "type": "tool_result",
@@ -578,8 +578,8 @@ class ApiCallerMixin:
                     if tool_callback:
                         try:
                             tool_callback(mcp_name, arguments, result)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("tool_callback raised (non-fatal): %s", e)
 
                     tool_results.append({
                         "type": "tool_result",
@@ -681,8 +681,8 @@ class ApiCallerMixin:
                         if tool_callback:
                             try:
                                 tool_callback(mcp_name, arguments, result)
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("tool_callback raised (non-fatal): %s", e)
 
                         tool_results.append({
                             "role": "tool",
@@ -823,8 +823,8 @@ class ApiCallerMixin:
                     if tool_callback:
                         try:
                             tool_callback(mcp_name, arguments, result)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("tool_callback raised (non-fatal): %s", e)
 
                     tool_results.append({
                         "role": "tool",
@@ -863,7 +863,8 @@ class ApiCallerMixin:
             with open(settings_path) as f:
                 data = json.load(f)
             return data.get("tools", {})
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to load tool settings: %s", e)
             return {}
 
     async def _call_api_server_tools(
@@ -1118,8 +1119,8 @@ class ApiCallerMixin:
             for tc, result in zip(tool_calls, results):
                 try:
                     tool_callback(tc.name, tc.arguments, result)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("tool_callback raised (non-fatal): %s", e)
 
         # Build result injection
         result_blocks = []
@@ -1164,8 +1165,8 @@ class ApiCallerMixin:
                 for tc, result in zip(tool_calls, results):
                     try:
                         tool_callback(tc.name, tc.arguments, result)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("tool_callback raised (non-fatal): %s", e)
 
             result_blocks = []
             for tc, result in zip(tool_calls, results):

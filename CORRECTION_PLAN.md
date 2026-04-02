@@ -55,41 +55,25 @@ Ces correctifs doivent etre faits **avant tout deploiement** au-dela de localhos
 
 Objectif: aucun fichier ne devrait depasser ~500 lignes.
 
-### 2.1 Decouper `claude_service.py` (2,767 → 2,668 lignes)
+### ~~2.1 Decouper `claude_service.py`~~ ✅ (2,767 → 1,041 lignes)
 
 **Fichier**: `backend/app/services/claude_service.py`
 
-**Decoupage propose**:
-
-| Nouveau fichier | Responsabilite | Lignes approximatives a extraire |
-|---|---|---|
-| `services/llm/client_factory.py` | Creation des clients Anthropic/OpenAI | `_make_anthropic_client`, `_make_async_anthropic_client`, `_make_openai_client` |
-| `services/llm/model_router.py` | Selection du modele selon le layer (fast/deep/analyzer) | Logique de routing des modeles |
-| `services/llm/message_handler.py` | Construction et envoi des messages | Preparation des prompts, streaming |
-| `services/llm/tool_executor.py` | Execution des tools et parsing des resultats | Tool calls, delegation |
-| `services/llm/cache_manager.py` | Gestion du cache et de l'historique | Cache prompt, history management |
-
-**Fait**:
-- `services/llm/__init__.py` créé
+**Modules extraits**:
 - `services/llm/client_factory.py` — `_make_anthropic_client`, `_make_async_anthropic_client`, `_make_openai_client`
 - `services/llm/model_utils.py` — `_LRUDict`, `_MODEL_MAP`, `_resolve_model`, `_strip_think_tags`, `_is_thinking_model`, `_inject_no_think`
-- `claude_service.py` importe depuis ces modules ✅
-
-**Reste** (lors d'une prochaine session):
-- Extraire `DELEGATE_ACTION_TOOL`, `INLINE_TOOLS`, `_execute_inline_tool` → `llm/tool_defs.py`
-- Extraire les `_call_api_*` methods → `llm/api_caller.py`
+- `services/llm/tool_defs.py` — `DELEGATE_ACTION_TOOL`, `INLINE_TOOLS`, `_execute_inline_tool`, `get_claude_tools`, `_call_mcp_tool`, etc.
+- `services/llm/api_caller.py` — `ApiCallerMixin` avec les 9 méthodes `_call_api_*`
+- `ClaudeService` hérite de `ApiCallerMixin` ✅
 
 ---
 
-### 2.2 Decouper `chat_orchestration.py` (2,656 → 1,908 lignes) ✅ (partiel)
+### ~~2.2 Decouper `chat_orchestration.py`~~ ✅ (2,656 → 1,593 lignes)
 
-**Fait**:
-- `services/orchestration/__init__.py` créé
-- `services/orchestration/worker_pool.py` — `DeepWorkerPool` + `_format_result_for_card` (~750 lignes extraites)
-- `chat_orchestration.py` importe depuis le nouveau module ✅
-
-**Reste** (lors d'une prochaine session):
-- Extraire `_run_fast_layer`, `_run_deep_chat_layer`, `_run_analyzer_layer` → fichiers dédiés
+**Modules extraits**:
+- `services/orchestration/worker_pool.py` — `DeepWorkerPool` + `_format_result_for_card` (~750 lignes)
+- `services/orchestration/layer_runners.py` — `LayerRunnersMixin` avec `_run_fast_layer`, `_run_deep_chat_layer`, `_run_analyzer_layer`
+- `ChatOrchestrator` hérite de `LayerRunnersMixin` ✅
 
 ---
 
@@ -122,13 +106,12 @@ Objectif: aucun fichier ne devrait depasser ~500 lignes.
 
 ## Phase 3 — Error handling
 
-### ~~3.1 Remplacer les `except Exception: pass` par du logging~~ ✅ (partiel)
+### ~~3.1 Remplacer les `except Exception: pass` par du logging~~ ✅
 
 **FAIT** — fichiers indépendants corrigés:
 - `config.py`, `github.py`, `models.py`, `techdetect.py` → logger ajouté + pass remplacés
 - `board_executor.py`, `scheduler_service.py`, `worker_session_store.py`, `pending_results.py`, `memory_service.py` → pass remplacés
-
-**Reporté à Phase 2** — `claude_service.py` et `chat_orchestration.py` (~40 occurrences restantes) seront traités lors du split de ces fichiers.
+- `chat_orchestration.py`, `llm/api_caller.py`, `orchestration/layer_runners.py` → 18 occurrences restantes corrigées après split Phase 2
 
 ---
 
@@ -333,10 +316,10 @@ from logging.handlers import RotatingFileHandler
 
 ```
 ✅ Phase 1 (securite)          — FAIT (2026-04-01)
-✅ Phase 3 (error handling)     — FAIT partiel (2026-04-02) — reste: claude_service + chat_orchestration en Phase 2
-→  Phase 4 (config/constantes)  — Prochaine étape
-   Phase 2 (split fichiers)     — Apres Phase 4
-   Phase 5 (performance)        — UX
+✅ Phase 2 (split fichiers)     — FAIT (2026-04-02)
+✅ Phase 3 (error handling)     — FAIT (2026-04-02)
+✅ Phase 4 (config/constantes)  — FAIT partiel (2026-04-02) — remplacement enums complet en Phase 2
+→  Phase 5 (performance)        — Virtual scrolling, pagination
    Phase 6 (architecture)       — Scalabilite
    Phase 7 (nettoyage)          — Au fur et a mesure
 ```
@@ -348,8 +331,8 @@ from logging.handlers import RotatingFileHandler
 | Phase | Status | Date completee |
 |---|---|---|
 | 1 — Securite | ✅ (3/4 — auth reportée) | 2026-04-01 |
-| 2 — Split fichiers | 🔄 En cours (partiel) | 2026-04-02 |
-| 3 — Error handling | ✅ (partiel — gros fichiers en Phase 2) | 2026-04-02 |
+| 2 — Split fichiers | ✅ (claude_service: 2767→1041, chat_orchestration: 2656→1593) | 2026-04-02 |
+| 3 — Error handling | ✅ (complet) | 2026-04-02 |
 | 4 — Config/constantes | ✅ (partiel — remplacement complet des enums en Phase 2) | 2026-04-02 |
 | 5 — Performance frontend | TODO | |
 | 6 — Architecture | TODO | |
