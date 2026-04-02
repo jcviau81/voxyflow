@@ -4,6 +4,8 @@ import logging
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -111,14 +113,15 @@ async def get_available_models():
     providers: dict[str, ProviderInfo] = {}
 
     # Check Claude proxy
+    claude_proxy_url = get_settings().claude_proxy_url
     claude_reachable = False
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get("http://localhost:3457/v1/models")
+            resp = await client.get(f"{claude_proxy_url}/models")
             claude_reachable = resp.status_code == 200
     except Exception as e:
         logger.debug("Claude proxy not reachable: %s", e)
-    providers["claude"] = ProviderInfo(type="claude", reachable=claude_reachable, url="http://localhost:3457/v1")
+    providers["claude"] = ProviderInfo(type="claude", reachable=claude_reachable, url=claude_proxy_url)
 
     # Check Ollama
     ollama_reachable = False

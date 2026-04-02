@@ -9,11 +9,12 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.config import SETTINGS_FILE
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/github", tags=["github"])
 
-SETTINGS_FILE = os.path.expanduser("~/voxyflow/settings.json")
 GITHUB_API = "https://api.github.com"
 
 

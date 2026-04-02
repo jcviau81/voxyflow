@@ -574,7 +574,7 @@ def _make_openai_client(provider_url: str, api_key: str):
     """Create an OpenAI-compatible client (proxy fallback)."""
     from openai import OpenAI
     return OpenAI(
-        base_url=provider_url or "http://localhost:3457/v1",
+        base_url=provider_url or get_settings().claude_proxy_url,
         api_key=api_key if api_key else "not-needed",
     )
 

@@ -1,15 +1,27 @@
 """
 Application configuration via environment variables + keyring.
 
-Config hierarchy (highest priority wins):
-  1. Environment variables (e.g. DATABASE_URL=...)
-  2. .env file (backend/.env — loaded by pydantic-settings)
-  3. Defaults defined below (XDG-compliant paths)
+== TWO-TIER CONFIG SYSTEM ==
 
-What goes WHERE:
-  - .env / env vars  → Infrastructure: DB path, host, port, API keys, external URLs
-  - DB app_settings  → App preferences: LLM models, TTS config, UI settings
-  - This file         → Sensible defaults only (never instance-specific paths)
+Tier 1 — Infrastructure (this file, pydantic-settings):
+  Priority: env vars > .env file > defaults here
+  Contains: DB path, host/port, API keys, external URLs
+  Loaded once at startup via get_settings().
+
+Tier 2 — App settings (routes/settings.py, DB app_settings table):
+  Priority: DB > settings.json (auto-migrated into DB on first load) > defaults
+  Contains: LLM model choices, TTS config, personality, UI preferences
+  Managed via the Settings UI; DB is the source of truth after first run.
+
+== CANONICAL PATHS (import from here, don't redefine) ==
+
+  VOXYFLOW_DIR  — app directory (settings.json, personality/, workspace/)
+                  Override: VOXYFLOW_DIR env var
+                  Default: ~/voxyflow
+
+  VOXYFLOW_DATA_DIR — data directory (SQLite DB, worker sessions, jobs)
+                       Override: VOXYFLOW_DATA_DIR env var
+                       Default: ~/.voxyflow
 """
 
 import logging
@@ -20,8 +32,10 @@ from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
-# Canonical data directory — follows XDG user data pattern
-_VOXYFLOW_HOME = Path.home() / ".voxyflow"
+# Canonical path constants — import these instead of recomputing in each module
+VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", str(Path.home() / "voxyflow")))
+VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
+SETTINGS_FILE = VOXYFLOW_DIR / "settings.json"
 
 # Resolve .env relative to the backend/ directory (works regardless of cwd)
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -64,8 +78,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # Database — default: ~/.voxyflow/voxyflow.db (XDG user data dir pattern)
-    database_url: str = f"sqlite+aiosqlite:///{_VOXYFLOW_HOME / 'voxyflow.db'}"
+    # Database — default: ~/.voxyflow/voxyflow.db (respects VOXYFLOW_DATA_DIR)
+    database_url: str = f"sqlite+aiosqlite:///{VOXYFLOW_DATA_DIR / 'voxyflow.db'}"
 
     # Claude API — native Anthropic SDK (preferred)
     claude_use_native: bool = False   # False = OpenAI-compatible proxy (claude-max-api). True requires direct API access.
@@ -92,8 +106,9 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Ensure the data directory exists
-        _VOXYFLOW_HOME.mkdir(parents=True, exist_ok=True)
+        # Ensure both directories exist
+        VOXYFLOW_DIR.mkdir(parents=True, exist_ok=True)
+        VOXYFLOW_DATA_DIR.mkdir(parents=True, exist_ok=True)
         # Load claude_api_key from keyring → env if not already set
         if not self.claude_api_key or self.claude_api_key in ("placeholder", "not-needed"):
             keyring_key = _get_secret(

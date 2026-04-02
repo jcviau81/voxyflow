@@ -148,80 +148,45 @@ Objectif: aucun fichier ne devrait depasser ~500 lignes.
 
 ## Phase 4 — Configuration et constantes
 
-### 4.1 Unifier les sources de configuration
+### ~~4.1 Unifier les sources de configuration~~ ✅
 
-**Probleme**: 5 sources (env vars, `.env`, `settings.json`, DB, hardcode).
+**FAIT** — système à deux niveaux documenté dans `config.py`:
+- **Tier 1** (infra): env vars > .env > defaults dans `config.py`
+- **Tier 2** (app settings): DB > settings.json (auto-migration) > defaults
 
-**Solution**: Etablir une hierarchie claire et documentee:
+Constantes canoniques ajoutées dans `config.py`:
+- `VOXYFLOW_DIR` (app: settings.json, personality, workspace) — respecte `VOXYFLOW_DIR` env var
+- `VOXYFLOW_DATA_DIR` (data: DB, jobs, sessions) — respecte `VOXYFLOW_DATA_DIR` env var
+- `SETTINGS_FILE` = `VOXYFLOW_DIR / "settings.json"`
 
-```
-Priorite (la plus haute gagne):
-1. Variables d'environnement (override runtime)
-2. Base de donnees app_settings (config utilisateur persistee)
-3. settings.json (config fichier local)
-4. Valeurs par defaut dans config.py (fallback)
-```
+`github.py` corrigé: utilisait `~/voxyflow` hardcodé sans env var, importe maintenant depuis `config.py`.
 
-**Actions**:
-1. Documenter cette hierarchie dans `backend/app/config.py` en commentaire de tete
-2. Creer une fonction `get_setting(key)` centralisee qui respecte cette priorite
-3. Supprimer les lectures ad-hoc de settings.json eparpillees dans le code
+**Note**: les autres fichiers (`personality_service.py`, `claude_service.py`, etc.) définissent encore leur propre `VOXYFLOW_DIR` — migration complète lors du split Phase 2.
 
 ---
 
-### 4.2 Extraire les magic strings en enums
+### ~~4.2 Extraire les magic strings en enums~~ ✅ (partiel)
 
-**Fichiers concernes**: `database.py`, `KanbanBoard.tsx`, routes diverses
+**FAIT** — enums créés:
+- `backend/app/models/enums.py`: `CardStatus`, `WorkerTaskStatus`, `WorkerSessionStatus`
+- `frontend-react/src/constants/statuses.ts`: `CARD_STATUS`, `TASK_STATUS` (avec types TypeScript)
+- `board_executor.py` migré pour utiliser `CardStatus`
 
-**Actions**:
-
-Backend — creer `backend/app/models/enums.py`:
-```python
-from enum import StrEnum
-
-class CardStatus(StrEnum):
-    IDEA = "idea"
-    TODO = "todo"
-    IN_PROGRESS = "in-progress"
-    DONE = "done"
-    CARD = "card"
-
-class TaskStatus(StrEnum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-```
-
-Frontend — creer `frontend-react/src/constants/statuses.ts`:
-```typescript
-export const CARD_STATUS = {
-  IDEA: "idea",
-  TODO: "todo",
-  IN_PROGRESS: "in-progress",
-  DONE: "done",
-} as const;
-```
-
-Remplacer toutes les strings hardcodees par les enums/constantes.
+**Reporté à Phase 2** — remplacement complet dans `claude_service.py`, `chat_orchestration.py`, `projects.py`, `KanbanBoard.tsx`.
 
 ---
 
-### 4.3 Eliminer les localhost hardcodes
+### ~~4.3 Eliminer les localhost hardcodes~~ ✅
 
-**Fichiers concernes**:
-- `backend/app/config.py` (ligne ~73)
-- `backend/app/services/scheduler_service.py` (lignes ~163-164)
-- `backend/app/routes/models.py` (ligne ~117)
-- `backend/app/routes/settings.py` (lignes ~79, 85, 91)
+**FAIT** — vrais hardcodes corrigés:
+- `routes/models.py` : utilise maintenant `get_settings().claude_proxy_url`
+- `claude_service.py` : fallback utilise maintenant `get_settings().claude_proxy_url`
 
-**Action**: Remplacer chaque occurrence par une lecture de `config.py` ou d'une variable d'environnement:
-```python
-# config.py
-api_base_url: str = os.environ.get("VOXYFLOW_API_BASE", "http://localhost:3457/v1")
-```
-
-Puis utiliser `settings.api_base_url` partout au lieu de la string hardcodee.
+**Non-problèmes confirmés**:
+- `config.py` : c'est le default déclaré, overridable via env var `CLAUDE_PROXY_URL` ✅
+- `mcp_server.py` : déjà derrière `VOXYFLOW_API_BASE` env var ✅
+- `routes/settings.py` : defaults de l'UI Settings, configurables par l'utilisateur ✅
+- `scheduler_service.py:163-164` : dans un commentaire, pas du code ✅
 
 ---
 
@@ -387,7 +352,7 @@ from logging.handlers import RotatingFileHandler
 | 1 — Securite | ✅ (3/4 — auth reportée) | 2026-04-01 |
 | 2 — Split fichiers | TODO | |
 | 3 — Error handling | ✅ (partiel — gros fichiers en Phase 2) | 2026-04-02 |
-| 4 — Config/constantes | TODO | |
+| 4 — Config/constantes | ✅ (partiel — remplacement complet des enums en Phase 2) | 2026-04-02 |
 | 5 — Performance frontend | TODO | |
 | 6 — Architecture | TODO | |
 | 7 — Nettoyage | TODO | |

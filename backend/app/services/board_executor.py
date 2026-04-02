@@ -17,11 +17,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.database import Card, Project, async_session
+from app.models.enums import CardStatus
 
 logger = logging.getLogger("voxyflow.board_executor")
 
 # Column priority for execution ordering
-COLUMN_PRIORITY = {"todo": 1, "in-progress": 2}
+COLUMN_PRIORITY = {CardStatus.TODO: 1, CardStatus.IN_PROGRESS: 2}
 
 
 @dataclass
@@ -60,7 +61,7 @@ async def build_execution_plan(
 ) -> ExecutionPlan:
     """Query cards for a project and build an ordered execution plan."""
     if statuses is None:
-        statuses = ["todo", "in-progress"]
+        statuses = [CardStatus.TODO, CardStatus.IN_PROGRESS]
 
     async with async_session() as db:
         stmt = (
@@ -124,8 +125,8 @@ async def _build_card_prompt(card_id: str) -> tuple[str, str | None]:
             if project:
                 project_name = project.title
             # Move to in-progress
-            if card.status in ("idea", "todo"):
-                card.status = "in-progress"
+            if card.status in (CardStatus.IDEA, CardStatus.TODO):
+                card.status = CardStatus.IN_PROGRESS
                 await db.commit()
 
         # Build structured prompt
@@ -152,7 +153,7 @@ async def _move_card_to_done(card_id: str) -> None:
     async with async_session() as db:
         card = await db.get(Card, card_id)
         if card:
-            card.status = "done"
+            card.status = CardStatus.DONE
             await db.commit()
 
 
