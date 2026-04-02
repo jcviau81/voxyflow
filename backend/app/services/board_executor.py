@@ -279,8 +279,8 @@ async def execute_board(
                 },
                 "timestamp": int(time.time() * 1000),
             })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to send error notification via websocket: %s", e)
     finally:
         _active_executions.pop(execution_id, None)
 

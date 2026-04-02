@@ -12,10 +12,13 @@ What goes WHERE:
   - This file         → Sensible defaults only (never instance-specific paths)
 """
 
+import logging
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 # Canonical data directory — follows XDG user data pattern
 _VOXYFLOW_HOME = Path.home() / ".voxyflow"
@@ -34,8 +37,8 @@ def _get_secret(service: str, key: str, env_var: str = None, default: str = "") 
         val = keyring.get_password(service, key)
         if val:
             return val
-    except Exception:
-        pass  # keyring not available (headless, docker, etc.)
+    except Exception as e:
+        logger.debug("keyring not available (%s) — skipping", e)
 
     # 2. Try environment variable
     if env_var:

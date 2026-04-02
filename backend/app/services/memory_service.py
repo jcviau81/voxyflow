@@ -943,8 +943,8 @@ class MemoryService:
                                 "collection": "file-based",
                             })
                             break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to search MEMORY.md: %s", e)
 
         results.sort(key=lambda r: r["score"], reverse=True)
         return results[:max_results]

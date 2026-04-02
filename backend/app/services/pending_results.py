@@ -68,8 +68,8 @@ class PendingResultStore:
                 # Remove corrupt files
                 try:
                     filepath.unlink()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to delete corrupt pending result file %s: %s", filepath, e)
 
         if results:
             logger.info(f"[PendingResults] Found {len(results)} pending results for session {session_id}")
@@ -91,12 +91,12 @@ class PendingResultStore:
             for filepath in session_dir.glob("*.json"):
                 try:
                     filepath.unlink()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to delete pending result file %s: %s", filepath, e)
             try:
                 session_dir.rmdir()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to remove session dir %s: %s", session_dir, e)
 
 
 # Global singleton

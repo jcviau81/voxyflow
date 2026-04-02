@@ -1,9 +1,12 @@
 """Tech stack auto-detection endpoint."""
 
+import json
+import logging
+import os
 from fastapi import APIRouter
 from pathlib import Path
-import json
-import os
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tech", tags=["tech"])
 
@@ -122,8 +125,8 @@ async def detect_tech(project_path: str):
                                 {**tech_info, "version": version, "source": f"{prefix}package.json"}
                             )
                             seen.add(key)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to parse package.json in %s: %s", scan_dir, e)
 
         # Deep scan requirements.txt
         req_path = scan_dir / "requirements.txt"
@@ -149,8 +152,8 @@ async def detect_tech(project_path: str):
                                 }
                             )
                             seen.add(key)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to parse requirements.txt in %s: %s", scan_dir, e)
 
     # Count files by extension
     file_counts: dict[str, int] = {}

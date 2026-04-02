@@ -91,8 +91,8 @@ async def get_available_models():
                     # Strip /v1 suffix for base URL
                     ollama_url = u.replace("/v1", "").rstrip("/")
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to read settings.json for ollama URL detection: %s", e)
 
     # Build layers info
     layers: dict[str, LayerInfo] = {}
@@ -116,8 +116,8 @@ async def get_available_models():
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get("http://localhost:3457/v1/models")
             claude_reachable = resp.status_code == 200
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Claude proxy not reachable: %s", e)
     providers["claude"] = ProviderInfo(type="claude", reachable=claude_reachable, url="http://localhost:3457/v1")
 
     # Check Ollama
@@ -126,8 +126,8 @@ async def get_available_models():
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get(ollama_url + "/api/tags")
             ollama_reachable = resp.status_code == 200
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Ollama not reachable: %s", e)
     providers["ollama"] = ProviderInfo(type="ollama", reachable=ollama_reachable, url=ollama_url)
 
     return AvailableModelsResponse(layers=layers, providers=providers)

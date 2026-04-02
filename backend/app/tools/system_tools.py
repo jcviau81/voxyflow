@@ -15,6 +15,7 @@ import fnmatch
 import json
 import logging
 import os
+import shlex
 import time
 from datetime import datetime
 from pathlib import Path
@@ -151,8 +152,8 @@ async def system_exec(params: dict) -> dict:
 
     start = time.monotonic()
     try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
+        proc = await asyncio.create_subprocess_exec(
+            *shlex.split(command),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,

@@ -9,95 +9,45 @@
 
 Ces correctifs doivent etre faits **avant tout deploiement** au-dela de localhost.
 
-### 1.1 Retirer les cles API du code source
+### ~~1.1 Retirer les cles API du code source~~ ✅
 
-**Severite**: CRITIQUE
-**Fichiers concernes**:
-- `settings.json` (ligne ~16-32) — contient `sk-cliproxy-thething-001`
-- `settings.json.example` — ne doit contenir que des placeholders
-
-**Actions**:
-1. Ajouter `settings.json` au `.gitignore`
-2. Creer un `settings.json.example` avec des valeurs placeholder (`"YOUR_API_KEY_HERE"`)
-3. Supprimer `settings.json` du suivi git: `git rm --cached settings.json`
-4. Documenter dans le README comment configurer les cles (env vars ou fichier local)
-5. Scanner l'historique git pour les cles exposees (utiliser `git filter-repo` ou `BFG Repo-Cleaner` si le repo est public)
-
-**Validation**: `grep -r "sk-" . --include="*.json" --include="*.py"` ne retourne rien de committe.
+**Severite**: CRITIQUE — **DEJA FAIT**
+- `settings.json` est dans `.gitignore` (ligne 58)
+- `settings.json.example` existe avec de vrais placeholders
 
 ---
 
-### 1.2 Restreindre la configuration CORS
+### ~~1.2 Restreindre la configuration CORS~~ ✅
 
-**Severite**: CRITIQUE
-**Fichier**: `backend/app/main.py` (lignes ~174-180)
-
-**Avant**:
-```python
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-```
-
-**Apres**:
-```python
-_ALLOWED_ORIGINS = os.environ.get(
-    "VOXYFLOW_CORS_ORIGINS",
-    "http://localhost:5173,http://localhost:3000"
-).split(",")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-)
-```
-
-**Validation**: Tester un `fetch()` depuis une origine non listee — doit etre refuse.
+**Severite**: CRITIQUE — **FAIT**
+- `allow_origins=["*"]` remplace par `VOXYFLOW_CORS_ORIGINS` (env var)
+- Default: `http://localhost:5173,http://localhost:3000`
+- Pour Tailscale: setter `VOXYFLOW_CORS_ORIGINS` avec les IPs/hostnames Tailscale
 
 ---
 
-### 1.3 Remplacer `create_subprocess_shell` par `create_subprocess_exec`
+### ~~1.3 Remplacer `create_subprocess_shell` par `create_subprocess_exec`~~ ✅
 
-**Severite**: HAUTE
-**Fichier**: `backend/app/services/tools/system_tools.py` (ligne ~154)
-
-**Avant**:
-```python
-proc = await asyncio.create_subprocess_shell(command, ...)
-```
-
-**Apres**:
-```python
-import shlex
-args = shlex.split(command)
-proc = await asyncio.create_subprocess_exec(*args, ...)
-```
-
-**Validation**: Tester avec une commande contenant `; rm -rf /` — doit echouer proprement.
+**Severite**: HAUTE — **FAIT**
+- `backend/app/tools/system_tools.py` — `shlex` importé, `create_subprocess_exec(*shlex.split(command))` en place
 
 ---
 
-### 1.4 Preparer un stub d'authentification
+### 1.4 Authentification locale (users/password/JWT)
 
-**Severite**: HAUTE
-**Fichier**: `frontend-react/src/hooks/useAuth.ts`
+**Severite**: MOYENNE — **REPORTÉ** (à faire avant d'ouvrir l'accès famille)
+**Contexte**: Voxyflow est single-install sur machine contrôlée (Tailscale). Pas de cloud auth, pas de SSO, pas de LDAP.
 
-**Actions**:
-1. Pour l'instant (usage local), garder `isAuthenticated = true` mais mettre a jour le commentaire:
-   ```typescript
-   // WARNING: Auth bypassed for local development only.
-   // Must implement real auth before any network deployment.
-   const isAuthenticated = true;
-   ```
-2. Creer un ticket/TODO pour implementer un vrai auth flow (API key header ou OAuth) avant deploiement
-3. Ajouter un middleware FastAPI cote backend qui valide un header `X-API-Key` (meme un simple token local)
+**Décision**: Auth locale simple, auto-hébergée.
+
+**Scope quand on s'y attaque**:
+- Table `users` dans le SQLite existant (username + password bcrypt)
+- Endpoint `/auth/login` qui retourne un JWT
+- Middleware FastAPI qui valide le JWT sur toutes les routes
+- Écran de login dans le frontend
+- `useAuth.ts` branché sur le vrai flow
+
+**Pour l'instant**: `isAuthenticated = true` dans `useAuth.ts` est intentionnel — l'auth réseau est déléguée à Tailscale pour les machines personnelles.
 
 ---
 
@@ -174,90 +124,25 @@ Objectif: aucun fichier ne devrait depasser ~500 lignes.
 
 ## Phase 3 — Error handling
 
-### 3.1 Remplacer les `except Exception: pass` par du logging
+### ~~3.1 Remplacer les `except Exception: pass` par du logging~~ ✅ (partiel)
 
-**Fichiers concernes** (liste non exhaustive):
-- `backend/app/config.py` (ligne ~37)
-- `backend/app/services/personality_service.py` (ligne ~455)
-- `backend/app/services/scheduler_service.py` (ligne ~350)
+**FAIT** — fichiers indépendants corrigés:
+- `config.py`, `github.py`, `models.py`, `techdetect.py` → logger ajouté + pass remplacés
+- `board_executor.py`, `scheduler_service.py`, `worker_session_store.py`, `pending_results.py`, `memory_service.py` → pass remplacés
 
-**Pattern a appliquer**:
-
-```python
-# AVANT
-try:
-    do_something()
-except Exception:
-    pass
-
-# APRES
-try:
-    do_something()
-except Exception:
-    logger.exception("Failed to do_something")
-    # Re-raise si c'est un path critique, ou continuer si c'est optionnel
-```
-
-**Actions**:
-1. `grep -rn "except Exception" backend/` pour lister tous les cas
-2. Pour chaque occurrence, decider: est-ce un path critique (re-raise) ou optionnel (log + continuer)?
-3. Ajouter `logger.exception()` partout — jamais de `pass` silencieux
+**Reporté à Phase 2** — `claude_service.py` et `chat_orchestration.py` (~40 occurrences restantes) seront traités lors du split de ces fichiers.
 
 ---
 
-### 3.2 Proteger le path WebSocket critique
+### ~~3.2 Proteger le path WebSocket critique~~ ✅
 
-**Fichier**: `backend/app/main.py` (ligne ~341)
-
-**Avant**:
-```python
-new_tasks = await _orchestrator.handle_message(...)
-if new_tasks:
-    bg_tasks.extend(new_tasks)
-```
-
-**Apres**:
-```python
-try:
-    new_tasks = await _orchestrator.handle_message(...)
-    if new_tasks:
-        bg_tasks.extend(new_tasks)
-except Exception:
-    logger.exception("Orchestration failed for message")
-    await websocket.send_json({
-        "type": "error",
-        "message": "Internal error processing your message. Please retry."
-    })
-```
+**FAIT** — `backend/app/main.py` : `handle_message` wrappé dans try/except, erreur envoyée au client si orchestration plante.
 
 ---
 
-### 3.3 Ajouter un Error Boundary React
+### ~~3.3 Ajouter un Error Boundary React~~ ✅
 
-**Fichier a creer**: `frontend-react/src/components/ErrorBoundary.tsx`
-
-```tsx
-import { Component, type ReactNode } from "react";
-
-interface Props { children: ReactNode; fallback?: ReactNode; }
-interface State { hasError: boolean; }
-
-export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false };
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error("ErrorBoundary caught:", error, info);
-  }
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback ?? <div>Something went wrong. Please refresh.</div>;
-    }
-    return this.props.children;
-  }
-}
-```
-
-Wrapper le composant racine dans `App.tsx` avec `<ErrorBoundary>`.
+**FAIT** — `ErrorBoundary.tsx` créé, wrappé autour de toute l'app dans `App.tsx`.
 
 ---
 
@@ -499,9 +384,9 @@ Continu:    Phase 7 (nettoyage)          — Au fur et a mesure
 
 | Phase | Status | Date completee |
 |---|---|---|
-| 1 — Securite | TODO | |
+| 1 — Securite | ✅ (3/4 — auth reportée) | 2026-04-01 |
 | 2 — Split fichiers | TODO | |
-| 3 — Error handling | TODO | |
+| 3 — Error handling | ✅ (partiel — gros fichiers en Phase 2) | 2026-04-02 |
 | 4 — Config/constantes | TODO | |
 | 5 — Performance frontend | TODO | |
 | 6 — Architecture | TODO | |

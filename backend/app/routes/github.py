@@ -1,12 +1,15 @@
 """GitHub integration endpoints."""
 
 import json
+import logging
 import os
 import subprocess
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/github", tags=["github"])
 
@@ -22,8 +25,8 @@ def _load_pat() -> str | None:
         token = keyring.get_password("voxyflow", "github_pat")
         if token:
             return token
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("keyring not available (%s) — skipping", e)
 
     # 2) settings.json github.pat OR github.token
     try:
@@ -34,8 +37,8 @@ def _load_pat() -> str | None:
             token = gh.get("pat") or gh.get("token")
             if token:
                 return token
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to read GitHub token from settings.json: %s", e)
 
     # 3) Environment variable
     return os.environ.get("GITHUB_TOKEN") or None
@@ -250,9 +253,9 @@ async def github_status():
                 if user.returncode == 0:
                     result["username"] = user.stdout.strip()
     except FileNotFoundError:
-        pass
-    except Exception:
-        pass
+        pass  # git not installed
+    except Exception as e:
+        logger.debug("Failed to detect git username: %s", e)
 
     if _load_pat():
         result["token_configured"] = True
@@ -332,8 +335,8 @@ async def save_github_token(payload: TokenPayload):
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE) as f:
                 settings = json.load(f)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to read settings.json for token save: %s", e)
 
     if "github" not in settings:
         settings["github"] = {}
@@ -358,8 +361,8 @@ async def delete_github_token():
                 settings["github"].pop("pat", None)
                 with open(SETTINGS_FILE, "w") as f:
                     json.dump(settings, f, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to delete GitHub token from settings.json: %s", e)
     return {"deleted": True}
 
 

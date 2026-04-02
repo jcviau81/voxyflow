@@ -3,6 +3,7 @@ import { RouterProvider } from 'react-router-dom';
 import { WebSocketProvider } from './providers/WebSocketProvider';
 import { ChatProvider } from './contexts/ChatProvider';
 import { Toaster } from './components/ui/Toaster';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { router } from './router';
 
 const queryClient = new QueryClient({
@@ -16,14 +17,16 @@ const queryClient = new QueryClient({
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <WebSocketProvider>
-        <ChatProvider>
-          <RouterProvider router={router} />
-          <Toaster />
-        </ChatProvider>
-      </WebSocketProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <WebSocketProvider>
+          <ChatProvider>
+            <RouterProvider router={router} />
+            <Toaster />
+          </ChatProvider>
+        </WebSocketProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

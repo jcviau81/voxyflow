@@ -114,8 +114,8 @@ class WorkerSessionStore:
                 logger.warning(f"[WorkerSessionStore] Failed to load {filepath.name}: {e}")
                 try:
                     filepath.unlink()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to delete corrupt session file %s: %s", filepath.name, e)
         # Persist any timeout corrections
         for s in self._sessions.values():
             if s.status == "timed_out":
@@ -134,8 +134,8 @@ class WorkerSessionStore:
         filepath = self._data_dir / f"{task_id}.json"
         try:
             filepath.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to delete session file %s: %s", filepath.name, e)
 
     def register(
         self,

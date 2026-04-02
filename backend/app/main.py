@@ -170,13 +170,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — permissive for MVP (single-user, localhost)
+# CORS — restricted to allowed origins (configure via VOXYFLOW_CORS_ORIGINS env var)
+# Default: localhost only. For Tailscale: set VOXYFLOW_CORS_ORIGINS to your Tailscale IP/hostname.
+# Example: VOXYFLOW_CORS_ORIGINS="http://100.x.x.x:5173,http://machine.ts.net:5173"
+import os as _os_cors
+_ALLOWED_ORIGINS = _os_cors.environ.get(
+    "VOXYFLOW_CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:3000"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Routes
@@ -338,19 +346,29 @@ async def general_websocket(websocket: WebSocket):
 
                     # 3-Layer orchestration (Fast + Deep + Analyzer in parallel)
                     # Fix 3: collect returned background tasks for cleanup on disconnect
-                    new_tasks = await _orchestrator.handle_message(
-                        websocket=websocket,
-                        content=content,
-                        message_id=message_id,
-                        chat_id=chat_id,
-                        project_id=project_id,
-                        layers=msg_layers,
-                        chat_level=chat_level,
-                        card_id=card_id,
-                        session_id=session_id,
-                    )
-                    if new_tasks:
-                        bg_tasks.extend(new_tasks)
+                    try:
+                        new_tasks = await _orchestrator.handle_message(
+                            websocket=websocket,
+                            content=content,
+                            message_id=message_id,
+                            chat_id=chat_id,
+                            project_id=project_id,
+                            layers=msg_layers,
+                            chat_level=chat_level,
+                            card_id=card_id,
+                            session_id=session_id,
+                        )
+                        if new_tasks:
+                            bg_tasks.extend(new_tasks)
+                    except Exception:
+                        logger.exception("Orchestration failed for message %s", message_id)
+                        try:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "Internal error processing your message. Please retry.",
+                            })
+                        except Exception:
+                            pass  # websocket may already be closed
 
                     # Broadcast completed assistant response to OTHER connected clients
                     # (after orchestrator returns — fast layer is complete at this point)

@@ -347,8 +347,8 @@ class SchedulerService:
                                         msg_time = _dt.fromisoformat(str(msg_ts))
                                     if msg_time < cutoff:
                                         continue
-                                except Exception:
-                                    pass  # can't parse timestamp → index anyway
+                                except Exception as e:
+                                    logger.debug("Can't parse message timestamp, indexing anyway: %s", e)
 
                         logger.info(f"[RAGIndex] Re-indexing project '{project.title}' (id={project.id})")
 
