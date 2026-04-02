@@ -369,13 +369,13 @@ from logging.handlers import RotatingFileHandler
 ## Ordre d'execution recommande
 
 ```
-Semaine 1:  Phase 1 (securite)          — NON NEGOCIABLE
-Semaine 2:  Phase 3 (error handling)     — Stabilite
-Semaine 3:  Phase 4 (config/constantes)  — Maintenabilite
-Semaine 4-5: Phase 2 (split fichiers)   — Lisibilite
-Semaine 6:  Phase 5 (performance)        — UX
-Semaine 7:  Phase 6 (architecture)       — Scalabilite
-Continu:    Phase 7 (nettoyage)          — Au fur et a mesure
+✅ Phase 1 (securite)          — FAIT (2026-04-01)
+✅ Phase 3 (error handling)     — FAIT partiel (2026-04-02) — reste: claude_service + chat_orchestration en Phase 2
+→  Phase 4 (config/constantes)  — Prochaine étape
+   Phase 2 (split fichiers)     — Apres Phase 4
+   Phase 5 (performance)        — UX
+   Phase 6 (architecture)       — Scalabilite
+   Phase 7 (nettoyage)          — Au fur et a mesure
 ```
 
 ---
