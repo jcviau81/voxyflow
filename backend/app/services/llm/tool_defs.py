@@ -149,8 +149,140 @@ INLINE_TOOLS = [
             "required": ["content", "type"],
         },
     },
+    # --- Card CRUD (inline — instant, no worker needed) ---
     {
-        "name": "workers.list",
+        "name": "card_list",
+        "description": (
+            "List cards in the current project. Returns card titles, statuses, and IDs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "string",
+                    "description": "Project ID (uses current project if omitted)",
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Filter by status (idea, todo, in-progress, done, archived)",
+                },
+            },
+        },
+    },
+    {
+        "name": "card_get",
+        "description": (
+            "Get full details of a specific card by ID."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "card_id": {
+                    "type": "string",
+                    "description": "Card ID to look up",
+                },
+            },
+            "required": ["card_id"],
+        },
+    },
+    {
+        "name": "card_create",
+        "description": (
+            "Create a new card in the current project. Returns the created card."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Card title (required)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Card description/body",
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Initial status (default: todo)",
+                },
+                "priority": {
+                    "type": "integer",
+                    "description": "Priority 0-4 (default: 0)",
+                },
+                "project_id": {
+                    "type": "string",
+                    "description": "Target project ID (uses current project if omitted)",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "card_update",
+        "description": (
+            "Update an existing card's title, description, or priority."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "card_id": {
+                    "type": "string",
+                    "description": "Card ID to update (required if card_title not given)",
+                },
+                "card_title": {
+                    "type": "string",
+                    "description": "Card title to find (required if card_id not given)",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "New title",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "New description",
+                },
+                "priority": {
+                    "type": "integer",
+                    "description": "New priority 0-4",
+                },
+                "project_id": {
+                    "type": "string",
+                    "description": "Project ID for card_title lookup",
+                },
+            },
+        },
+    },
+    {
+        "name": "card_move",
+        "description": (
+            "Move a card to a different status column."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "card_id": {
+                    "type": "string",
+                    "description": "Card ID to move (required if card_title not given)",
+                },
+                "card_title": {
+                    "type": "string",
+                    "description": "Card title to find (required if card_id not given)",
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Target status: idea, todo, in-progress, done, archived",
+                },
+                "project_id": {
+                    "type": "string",
+                    "description": "Project ID for card_title lookup",
+                },
+            },
+            "required": ["status"],
+        },
+    },
+    # --- Worker management (inline) ---
+    {
+        "name": "workers_list",
         "description": (
             "List active and recent worker tasks for the current session. Use this BEFORE "
             "dispatching a new task to check if a similar worker is already running."
@@ -175,7 +307,7 @@ INLINE_TOOLS = [
         },
     },
     {
-        "name": "workers.get_result",
+        "name": "workers_get_result",
         "description": (
             "Get the full details and result of a specific worker task by task_id. "
             "Use to retrieve the outcome of a completed worker."
@@ -250,7 +382,15 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
         except Exception as e:
             logger.error(f"[InlineTool] memory_save failed: {e}")
             return {"error": str(e)}
-    elif name == "workers.list":
+    elif name in ("card_list", "card_get", "card_create", "card_update", "card_move"):
+        mcp_name = "voxyflow." + name.replace("_", ".", 1)
+        try:
+            result = await _call_mcp_tool(mcp_name, params)
+            return result
+        except Exception as e:
+            logger.error(f"[InlineTool] {name} failed: {e}")
+            return {"error": str(e)}
+    elif name == "workers_list":
         from app.services.worker_session_store import get_worker_session_store
         try:
             store = get_worker_session_store()
@@ -265,9 +405,9 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
                 return {"result": "No active or recent workers found."}
             return {"workers": sessions, "count": len(sessions)}
         except Exception as e:
-            logger.error(f"[InlineTool] workers.list failed: {e}")
+            logger.error(f"[InlineTool] workers_list failed: {e}")
             return {"error": str(e)}
-    elif name == "workers.get_result":
+    elif name == "workers_get_result":
         from app.services.worker_session_store import get_worker_session_store
         task_id = params.get("task_id", "")
         if not task_id:
@@ -279,7 +419,7 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
                 return {"error": f"Worker task not found: {task_id}"}
             return session
         except Exception as e:
-            logger.error(f"[InlineTool] workers.get_result failed: {e}")
+            logger.error(f"[InlineTool] workers_get_result failed: {e}")
             return {"error": str(e)}
     return {"error": f"Unknown inline tool: {name}"}
 

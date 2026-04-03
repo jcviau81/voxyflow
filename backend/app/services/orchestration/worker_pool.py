@@ -95,6 +95,9 @@ class DeepWorkerPool:
         self._cleanup_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
         self._result_contents: dict[str, str] = {}  # task_id → actual result content
+        self._callback_lock = asyncio.Lock()  # Serialize worker→dispatcher callbacks
+        self._task_tool_events: dict[str, list[dict]] = {}  # task_id → bounded tool event buffer
+        self._MAX_TOOL_EVENTS = 50
         self._stopped = False
 
     def start(self) -> None:
@@ -159,6 +162,24 @@ class DeepWorkerPool:
         logger.info(f"[DeepWorkerPool] Task {task_id} cancelled successfully")
         return True
 
+    def peek(self, task_id: str) -> dict | None:
+        """Return tool activity summary for a specific task."""
+        events = self._task_tool_events.get(task_id)
+        meta = self._task_meta.get(task_id)
+        if not meta:
+            return None
+        return {
+            "task_id": task_id,
+            "action": meta["action"],
+            "model": meta["model"],
+            "status": "running" if task_id in self._active_tasks else "completed",
+            "tool_count": len(events) if events else 0,
+            "last_tool": events[-1]["tool"] if events else None,
+            "last_tool_at": events[-1]["at"] if events else None,
+            "recent_tools": [e["tool"] for e in (events or [])[-5:]],
+            "running_seconds": int(time.time() - meta["started_at"]),
+        }
+
     def get_active_tasks(self) -> dict:
         """Return active and recently completed tasks for dispatcher context injection."""
         now = time.time()
@@ -172,12 +193,15 @@ class DeepWorkerPool:
         for task_id, meta in self._task_meta.items():
             if task_id in self._active_tasks:
                 elapsed = int(now - meta["started_at"])
+                tool_events = self._task_tool_events.get(task_id)
                 active.append({
                     "task_id": task_id[:8],
                     "action": meta["action"],
                     "model": meta["model"],
                     "description": meta["description"],
                     "running_seconds": elapsed,
+                    "tool_count": len(tool_events) if tool_events else 0,
+                    "last_tool": tool_events[-1]["tool"] if tool_events else None,
                 })
 
         completed = []
@@ -189,9 +213,49 @@ class DeepWorkerPool:
                 "model": t["model"],
                 "seconds_ago": ago,
                 "result": t["result"],
+                "success": t.get("success", True),
             })
 
         return {"active": active, "completed": completed}
+
+    async def _summarize_result(self, result: str, intent: str, max_chars: int = 2000) -> str:
+        """Summarize a large worker result for dispatcher injection.
+
+        Results <= max_chars pass through unchanged.
+        Larger results are summarized via Haiku with truncation fallback.
+        """
+        if len(result) <= max_chars:
+            return result
+
+        try:
+            summary = await self._claude._call_api(
+                model=self._claude.haiku_model,
+                system=(
+                    "Summarize this worker task result concisely. "
+                    "Preserve key facts, IDs, names, and outcomes. "
+                    "Output only the summary, max 500 chars."
+                ),
+                messages=[{
+                    "role": "user",
+                    "content": f"Task: {intent}\n\nResult:\n{result[:8000]}",
+                }],
+                client=self._claude.haiku_client,
+                client_type=self._claude.haiku_client_type,
+                use_tools=False,
+                layer="analyzer",
+                chat_level="general",
+            )
+            if summary and len(summary.strip()) > 20:
+                return summary.strip()
+        except Exception as e:
+            logger.warning(f"[DeepWorker] Haiku summarization failed: {e}")
+
+        # Fallback: smart truncation
+        return (
+            result[:500]
+            + f"\n\n[... {len(result) - 800} chars omitted ...]\n\n"
+            + result[-300:]
+        )
 
     async def _stale_cleanup_loop(self) -> None:
         """Prune old completed-task entries from memory (every 60s)."""
@@ -236,11 +300,14 @@ class DeepWorkerPool:
             self._semaphore.release()
             meta = self._task_meta.pop(task_id, None)
             if meta:
+                success = True
                 result = "success"
                 if removed.cancelled():
                     result = "cancelled"
+                    success = False
                 elif removed.exception():
                     result = f"error: {removed.exception()}"
+                    success = False
                 actual_result = self._result_contents.pop(task_id, result)
                 self._completed_tasks.append({
                     "task_id": task_id,
@@ -248,7 +315,18 @@ class DeepWorkerPool:
                     "model": meta["model"],
                     "completed_at": time.time(),
                     "result": actual_result,
+                    "success": success,
                 })
+
+            # Schedule tool event buffer cleanup after 60s
+            def _cleanup_tool_events(tid: str = task_id) -> None:
+                self._task_tool_events.pop(tid, None)
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.call_later(60, _cleanup_tool_events)
+            except RuntimeError:
+                _cleanup_tool_events()
 
     async def _execute_event(self, event: ActionIntent) -> None:
         """Execute a single ActionIntent via model-routed worker (haiku/sonnet/opus)."""
@@ -359,6 +437,13 @@ class DeepWorkerPool:
 
             async def _tool_callback(tool_name: str, arguments: dict, result: dict):
                 supervisor.record_tool_call(event.task_id, tool_name, arguments)
+
+                # Buffer tool event for dispatcher peek
+                tool_buf = self._task_tool_events.setdefault(event.task_id, [])
+                tool_buf.append({"tool": tool_name, "at": time.time()})
+                if len(tool_buf) > self._MAX_TOOL_EVENTS:
+                    tool_buf[:] = tool_buf[-self._MAX_TOOL_EVENTS:]
+
                 if supervisor.check_repetition(event.task_id):
                     logger.warning(f"[Supervisor] Cancelling task {event.task_id} — repetitive loop detected")
                     supervisor.mark_problem(event.task_id, "repetitive_loop")
@@ -532,38 +617,26 @@ class DeepWorkerPool:
                 "cardId": event.data.get("card_id"),
             })
 
+            # --- Notify dispatcher: embed result in a single user message ---
+            # Previously injected result as role="assistant" which caused consecutive
+            # same-role messages (Anthropic API rejects). Now we merge the result
+            # directly into the callback user message for proper role alternation.
             dispatcher_chat_id = event.data.get("dispatcher_chat_id")
-            if dispatcher_chat_id and result_content:
+            if dispatcher_chat_id and self._orchestrator:
                 try:
-                    MAX_RESULT_CHARS = 20000
-                    truncated = result_content[:MAX_RESULT_CHARS]
-                    if len(result_content) > MAX_RESULT_CHARS:
-                        truncated += f"\n\n[... truncated, {len(result_content) - MAX_RESULT_CHARS} chars omitted]"
-
-                    worker_msg = (
-                        f"[Worker Result — {event.intent}]\n"
-                        f"{truncated}"
-                    )
-                    await self._claude._append_and_persist_async(
-                        chat_id=dispatcher_chat_id,
-                        role="assistant",
-                        content=worker_msg,
-                        model=event.model,
-                        msg_type="worker_result",
-                    )
-                    logger.info(f"[DeepWorker] Injected result into dispatcher history for {dispatcher_chat_id}")
-
-                    # Re-trigger dispatcher so it processes the worker result
                     from starlette.websockets import WebSocketState
-                    if (
-                        self._orchestrator
-                        and self._ws.client_state == WebSocketState.CONNECTED
-                    ):
-                        try:
+                    if self._ws.client_state == WebSocketState.CONNECTED:
+                        async with self._callback_lock:
+                            summarized = result_content or "(no output)"
+                            if result_content:
+                                summarized = await self._summarize_result(result_content, event.intent or "")
+
                             callback_msg = (
-                                f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) completed. "
-                                f"The result is in your conversation history above. "
-                                f"Present the result to the user naturally and decide if follow-up actions are needed.]"
+                                f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) completed successfully.]\n\n"
+                                f"--- Worker Result ---\n"
+                                f"{summarized}\n"
+                                f"--- End Result ---\n\n"
+                                f"Present this result to the user naturally and decide if follow-up actions are needed."
                             )
                             callback_message_id = f"worker-cb-{uuid4().hex[:8]}"
                             logger.info(f"[DeepWorker] Re-triggering dispatcher after {event.intent}")
@@ -579,11 +652,8 @@ class DeepWorkerPool:
                                 is_callback=True,
                                 callback_depth=1,
                             )
-                        except Exception as cb_err:
-                            logger.warning(f"[DeepWorker] Dispatcher re-trigger failed: {cb_err}", exc_info=True)
-
-                except Exception as inject_err:
-                    logger.warning(f"[DeepWorker] Failed to inject result into history: {inject_err}")
+                except Exception as cb_err:
+                    logger.warning(f"[DeepWorker] Dispatcher callback failed: {cb_err}", exc_info=True)
 
             if follow_up_action and self._orchestrator and event.session_id:
                 try:
@@ -632,6 +702,36 @@ class DeepWorkerPool:
                 })
             except Exception:
                 pass
+
+            # Notify dispatcher about failure so it can inform the user
+            dispatcher_chat_id = event.data.get("dispatcher_chat_id")
+            if dispatcher_chat_id and self._orchestrator:
+                try:
+                    from starlette.websockets import WebSocketState
+                    if self._ws.client_state == WebSocketState.CONNECTED:
+                        async with self._callback_lock:
+                            error_msg = str(e)[:500]
+                            callback_msg = (
+                                f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) FAILED.]\n\n"
+                                f"Error: {error_msg}\n\n"
+                                f"Inform the user about the failure and suggest alternatives if appropriate."
+                            )
+                            callback_message_id = f"worker-err-{uuid4().hex[:8]}"
+                            logger.info(f"[DeepWorker] Notifying dispatcher about failed task {event.task_id}")
+
+                            await self._orchestrator.handle_message(
+                                websocket=self._ws,
+                                content=callback_msg,
+                                message_id=callback_message_id,
+                                chat_id=dispatcher_chat_id,
+                                project_id=event.data.get("project_id"),
+                                chat_level="project" if event.data.get("project_id") else "general",
+                                session_id=event.session_id,
+                                is_callback=True,
+                                callback_depth=1,
+                            )
+                except Exception as cb_err:
+                    logger.warning(f"[DeepWorker] Failed to notify dispatcher about error: {cb_err}")
         finally:
             try:
                 supervisor = get_worker_supervisor()

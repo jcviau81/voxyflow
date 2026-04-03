@@ -572,12 +572,11 @@ class ClaudeService(ApiCallerMixin):
             if use_native_delegate:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-                    "I converse with you directly and delegate most actions to background workers "
-                    "using the delegate_action tool. I also have inline tools (memory_search, "
-                    "knowledge_search, memory_save) that I execute directly to recall and save context. When you ask "
-                    "me to do something like a web search or create a card, I respond briefly and "
-                    "call delegate_action to trigger the worker. The worker handles it in the "
-                    "background and the result appears in the chat."
+                    "I converse with you directly and use inline tools for fast operations. "
+                    "My inline tools: memory_search, memory_save, knowledge_search, "
+                    "card_list, card_get, card_create, card_update, card_move, "
+                    "workers_list, workers_get_result. For complex tasks (research, code, "
+                    "multi-step ops), I delegate to background workers via delegate_action."
                 )
             else:
                 priming_assistant = (

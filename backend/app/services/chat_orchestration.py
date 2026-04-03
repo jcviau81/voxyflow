@@ -322,16 +322,20 @@ class ChatOrchestrator(LayerRunnersMixin):
             lines.append("[Active Workers]")
             for t in active:
                 desc = f' — "{t["description"]}"' if t["description"] else ""
+                tool_info = ""
+                if t.get("last_tool"):
+                    tool_info = f" — last tool: {t['last_tool']} ({t['tool_count']} calls)"
                 lines.append(
                     f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
-                    f"— running {t['running_seconds']}s{desc}"
+                    f"— running {t['running_seconds']}s{desc}{tool_info}"
                 )
         if completed:
             lines.append("[Recently Completed]")
             for t in completed:
+                status = "done" if t.get("success", True) else "FAILED"
                 lines.append(
                     f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
-                    f"— completed {t['seconds_ago']}s ago — {t['result']}"
+                    f"— {status} {t['seconds_ago']}s ago — {t['result']}"
                 )
 
         return "\n".join(lines)
