@@ -607,6 +607,15 @@ class DeepWorkerPool:
                 result_summary=(result_content or "")[:500],
             )
 
+            # Record completion in session timeline
+            if event.session_id:
+                from app.services.orchestration.session_timeline import get_timeline
+                get_timeline().record(
+                    event.session_id, "completed", event.intent or "unknown",
+                    task_id=event.task_id, model=event.model,
+                    summary=(result_content or "")[:120],
+                )
+
             await self._send_task_event("task:completed", event.task_id, {
                 "intent": event.intent,
                 "summary": event.summary,
@@ -702,6 +711,15 @@ class DeepWorkerPool:
                 })
             except Exception:
                 pass
+
+            # Record failure in session timeline
+            if event.session_id:
+                from app.services.orchestration.session_timeline import get_timeline
+                get_timeline().record(
+                    event.session_id, "failed", event.intent or "unknown",
+                    task_id=event.task_id, model=event.model,
+                    summary=str(e)[:120],
+                )
 
             # Notify dispatcher about failure so it can inform the user
             dispatcher_chat_id = event.data.get("dispatcher_chat_id")

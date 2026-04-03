@@ -43,6 +43,7 @@ from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
 from app.tools.executor import get_executor
 from app.services.orchestration.worker_pool import DeepWorkerPool, _format_result_for_card
 from app.services.orchestration.layer_runners import LayerRunnersMixin
+from app.services.orchestration.session_timeline import get_timeline
 
 logger = logging.getLogger("voxyflow.orchestration")
 
@@ -298,47 +299,53 @@ class ChatOrchestrator(LayerRunnersMixin):
     # ------------------------------------------------------------------
 
     def get_active_workers_context(self, session_id: str | None) -> str:
-        """Build a text block describing active/recently-completed workers.
+        """Build a text block describing active/recently-completed workers
+        plus the session timeline.
 
         Injected into the dispatcher's system prompt so it knows what's
-        running in the background before responding.
+        running in the background and what happened so far.
         """
         if not session_id:
             return ""
 
+        parts: list[str] = []
+
+        # Session timeline — chronological ledger of all actions
+        timeline_text = get_timeline().format(session_id)
+        if timeline_text:
+            parts.append("[Session Timeline]\n" + timeline_text)
+
+        # Live worker status
         pool = self._worker_pools.get(session_id)
-        if not pool:
-            return ""
+        if pool:
+            info = pool.get_active_tasks()
+            active = info["active"]
+            completed = info["completed"]
 
-        info = pool.get_active_tasks()
-        active = info["active"]
-        completed = info["completed"]
+            if active:
+                lines = ["[Active Workers]"]
+                for t in active:
+                    desc = f' — "{t["description"]}"' if t["description"] else ""
+                    tool_info = ""
+                    if t.get("last_tool"):
+                        tool_info = f" — last tool: {t['last_tool']} ({t['tool_count']} calls)"
+                    lines.append(
+                        f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
+                        f"— running {t['running_seconds']}s{desc}{tool_info}"
+                    )
+                parts.append("\n".join(lines))
 
-        if not active and not completed:
-            return ""
+            if completed:
+                lines = ["[Recently Completed]"]
+                for t in completed:
+                    status = "done" if t.get("success", True) else "FAILED"
+                    lines.append(
+                        f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
+                        f"— {status} {t['seconds_ago']}s ago — {t['result']}"
+                    )
+                parts.append("\n".join(lines))
 
-        lines = []
-        if active:
-            lines.append("[Active Workers]")
-            for t in active:
-                desc = f' — "{t["description"]}"' if t["description"] else ""
-                tool_info = ""
-                if t.get("last_tool"):
-                    tool_info = f" — last tool: {t['last_tool']} ({t['tool_count']} calls)"
-                lines.append(
-                    f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
-                    f"— running {t['running_seconds']}s{desc}{tool_info}"
-                )
-        if completed:
-            lines.append("[Recently Completed]")
-            for t in completed:
-                status = "done" if t.get("success", True) else "FAILED"
-                lines.append(
-                    f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
-                    f"— {status} {t['seconds_ago']}s ago — {t['result']}"
-                )
-
-        return "\n".join(lines)
+        return "\n\n".join(parts)
 
     # ------------------------------------------------------------------
     # Event Bus: Worker pool lifecycle
@@ -589,6 +596,7 @@ class ChatOrchestrator(LayerRunnersMixin):
             )
 
             await bus.emit(event)
+            get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
             logger.info(f"[Orchestrator] Emitted native delegate: {intent} → task {task_id} (model={model}, cb_depth={callback_depth})")
 
     # ------------------------------------------------------------------
@@ -720,6 +728,7 @@ class ChatOrchestrator(LayerRunnersMixin):
                 )
 
                 await bus.emit(event)
+                get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
                 logger.info(f"[Orchestrator] Emitted delegate: {intent} → task {task_id} (cb_depth={callback_depth})")
 
             except Exception as e:
@@ -803,6 +812,15 @@ class ChatOrchestrator(LayerRunnersMixin):
             })
         except Exception as e:
             logger.warning(f"[DirectExecutor] Failed to send action:completed: {e}")
+
+        # Record in session timeline
+        if session_id:
+            success = result.get("success", False)
+            result_preview = str(result.get("result", ""))[:80]
+            get_timeline().record(
+                session_id, "direct", action, task_id=task_id,
+                summary=result_preview if success else f"FAILED: {result_preview}",
+            )
 
         # --- Build confirmation message FIRST (needed by injection and chat) ---
         confirmation_msg = self._build_direct_confirmation(action, result)
@@ -1190,6 +1208,7 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         bus = event_bus_registry.get_or_create(session_id)
         await bus.emit(event)
+        get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=f"[auto-recovered] {summary}")
         logger.info(f"[SafetyNet] Emitted auto-recovered delegate: {intent} → task {task_id}")
 
         # Notify frontend about the auto-recovery
