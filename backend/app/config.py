@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     # Conversation
     fast_context_messages: int = 20
     deep_context_messages: int = 100
-    chat_window_size: int = 10  # sliding window: keep N recent messages verbatim, summarize older
+    chat_window_size: int = 6  # sliding window: keep N recent messages verbatim, summarize older
     analyzer_enabled: bool = True
     delegate_safety_net_enabled: bool = True
 
