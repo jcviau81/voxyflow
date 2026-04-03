@@ -280,6 +280,23 @@ INLINE_TOOLS = [
             "required": ["status"],
         },
     },
+    {
+        "name": "card_archive",
+        "description": (
+            "Archive a card (soft-delete). The card is hidden from the board but NOT deleted. "
+            "Use this instead of card.delete — cards must be archived before they can be permanently deleted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "card_id": {
+                    "type": "string",
+                    "description": "Card ID to archive",
+                },
+            },
+            "required": ["card_id"],
+        },
+    },
     # --- Worker management (inline) ---
     {
         "name": "workers_list",
@@ -381,6 +398,16 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
             return {"saved": True, "id": doc_id or ""}
         except Exception as e:
             logger.error(f"[InlineTool] memory_save failed: {e}")
+            return {"error": str(e)}
+    elif name == "card_archive":
+        card_id = params.get("card_id", "")
+        if not card_id:
+            return {"error": "card_id is required"}
+        try:
+            result = await _call_mcp_tool("voxyflow.card.archive", {"card_id": card_id})
+            return result
+        except Exception as e:
+            logger.error(f"[InlineTool] card_archive failed: {e}")
             return {"error": str(e)}
     elif name in ("card_list", "card_get", "card_create", "card_update", "card_move"):
         mcp_name = "voxyflow." + name.replace("_", ".", 1)

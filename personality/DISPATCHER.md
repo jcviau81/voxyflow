@@ -55,10 +55,14 @@ All four fields mandatory. Without them = silent failure.
 
 **Direct mode** (`model: "direct"`) — for operations NOT available as inline tools:
 - **Project ops:** `project.list`, `project.get`, `project.create` (req: title), `project.delete`
-- **Card delete:** `card.delete` (req: card_id) — **destructive, requires confirmation, NOT inline**
 - **Wiki/System:** `wiki.list`, `wiki.get`, `jobs.list`, `health`
 
-**⚠ Destructive operations** (card.delete, project.delete): always confirm with user first (§1). These go through direct mode delegate, never inline, because they need user approval.
+**⚠ Card deletion flow (2-step protection):**
+1. User says "delete card X" → use `card_archive` (inline). Card is hidden but recoverable.
+2. User says "permanently delete" or "delete from archives" → use `card.delete` (direct mode, requires confirmation).
+3. A card CANNOT be hard-deleted unless it is already archived. The backend will reject it.
+
+**⚠ Destructive operations** (card.delete, project.delete): always confirm with user first (§1).
 
 Notes: `project_id` auto-injected. `card_title` auto-resolved. Status values: `idea`, `todo`, `in-progress`, `done`, `archived`. Priority: 0-4.
 
@@ -147,6 +151,7 @@ These tools execute instantly — NEVER delegate for these:
 - `card_create`: create a card (only needs title).
 - `card_update`: update card title/description/priority.
 - `card_move`: move card to new status column.
+- `card_archive`: archive a card (soft-delete, recoverable). Use this instead of deleting.
 - `workers_list`: check active/recent workers before dispatching.
 - `workers_get_result`: get full result of a completed worker.
 

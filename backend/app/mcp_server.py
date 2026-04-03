@@ -255,13 +255,25 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_http": ("PATCH", "/api/cards/{card_id}", lambda p: {"status": p.get("new_status") or p["status"]}),
     },
     {
-        "name": "voxyflow.card.delete",
-        "description": "Delete a card (irreversible).",
+        "name": "voxyflow.card.archive",
+        "description": "Archive a card (soft-delete). Card is hidden but recoverable.",
         "inputSchema": {
             "type": "object",
             "required": ["card_id"],
             "properties": {
-                "card_id": {"type": "string", "description": "Card ID to delete"},
+                "card_id": {"type": "string", "description": "Card ID to archive"},
+            },
+        },
+        "_http": ("POST", "/api/cards/{card_id}/archive", None),
+    },
+    {
+        "name": "voxyflow.card.delete",
+        "description": "Permanently delete a card. Card must be archived first.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID to delete (must be archived)"},
             },
         },
         "_http": ("DELETE", "/api/cards/{card_id}", None),

@@ -503,10 +503,17 @@ async def execute_board_plan(
 
 
 @router.delete("/cards/{card_id}", status_code=204)
-async def delete_card(card_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_card(card_id: str, force: bool = False, db: AsyncSession = Depends(get_db)):
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found.")
+    if not card.archived_at and not force:
+        raise HTTPException(
+            400,
+            "Cannot delete a card that is not archived. "
+            "Archive it first (POST /api/cards/{card_id}/archive), "
+            "then delete from archives.",
+        )
     project_id = card.project_id or 'system-main'
     await db.delete(card)
     await db.commit()
