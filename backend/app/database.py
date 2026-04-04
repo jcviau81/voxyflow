@@ -150,10 +150,10 @@ async def init_db():
                 created_at DATETIME NOT NULL
             )
         """))
-        # On startup: mark stuck running/pending tasks as failed (survived crash/restart)
+        # On startup: mark stuck running/pending tasks as cancelled (orphaned by restart)
         await conn.execute(text(
-            "UPDATE worker_tasks SET status='failed', error='Process restarted — task aborted' "
-            "WHERE status IN ('running', 'pending')"
+            "UPDATE worker_tasks SET status='cancelled', error='Process restarted — task cancelled', "
+            "completed_at=CURRENT_TIMESTAMP WHERE status IN ('running', 'pending')"
         ))
 
 

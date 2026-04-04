@@ -112,7 +112,11 @@ class DeepWorkerPool:
         logger.info(f"[DeepWorkerPool] Updated WebSocket for session {self._bus.session_id}")
 
     async def stop(self) -> None:
-        """Stop the pool and cancel all active tasks."""
+        """Stop the pool and cancel all active tasks.
+
+        Marks any pending/running worker tasks as 'cancelled' in the DB
+        so they don't get auto-recovered as orphans on the next session.
+        """
         self._stopped = True
         self._bus.close()
         if self._listener_task:
@@ -127,10 +131,54 @@ class DeepWorkerPool:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
+        # Cancel active asyncio tasks and update DB records
+        cancelled_ids = list(self._active_tasks.keys())
         for task_id, task in list(self._active_tasks.items()):
             task.cancel()
         self._active_tasks.clear()
-        logger.info(f"[DeepWorkerPool] Stopped for session {self._bus.session_id}")
+        # Mark cancelled tasks in the DB ledger
+        for task_id in cancelled_ids:
+            try:
+                await self._ledger_update(
+                    task_id, "cancelled",
+                    error="Session closed — task cancelled",
+                )
+            except Exception as e:
+                logger.warning(f"[DeepWorkerPool] Failed to cancel task {task_id} in DB: {e}")
+        # Also cancel any pending/running tasks for this session in the DB
+        # (covers tasks that finished spawning but aren't in _active_tasks)
+        await self._cancel_session_tasks(self._bus.session_id)
+        logger.info(
+            f"[DeepWorkerPool] Stopped for session {self._bus.session_id}"
+            f" — cancelled {len(cancelled_ids)} active task(s)"
+        )
+
+    @staticmethod
+    async def _cancel_session_tasks(session_id: str) -> int:
+        """Mark all pending/running tasks for a session as cancelled in the DB."""
+        try:
+            from app.database import async_session, WorkerTask, utcnow
+            from sqlalchemy import update, and_
+            async with async_session() as db:
+                result = await db.execute(
+                    update(WorkerTask)
+                    .where(and_(
+                        WorkerTask.session_id == session_id,
+                        WorkerTask.status.in_(["pending", "running"]),
+                    ))
+                    .values(
+                        status="cancelled",
+                        error="Session closed — task cancelled",
+                        completed_at=utcnow(),
+                    )
+                )
+                await db.commit()
+                if result.rowcount > 0:
+                    logger.info(f"[Ledger] Cancelled {result.rowcount} orphan task(s) for session {session_id}")
+                return result.rowcount
+        except Exception as e:
+            logger.warning(f"[Ledger] Failed to cancel session tasks for {session_id}: {e}")
+            return 0
 
     async def cancel_task(self, task_id: str) -> bool:
         """Cancel a specific running task by task_id.
@@ -153,6 +201,9 @@ class DeepWorkerPool:
             pass
 
         self._semaphore.release()
+
+        # Update DB ledger
+        await self._ledger_update(task_id, "cancelled", error="User cancelled")
 
         await self._send_task_event("task:cancelled", task_id, {
             "reason": "user_cancelled",
@@ -839,7 +890,7 @@ class DeepWorkerPool:
                         row.result_summary = result_summary[:500]
                     if error is not None:
                         row.error = error[:500]
-                    if status in ("done", "failed", "cancelled"):
+                    if status in ("done", "failed", "cancelled", "timed_out"):
                         row.completed_at = utcnow()
                     await db.commit()
                     logger.debug(f"[Ledger] Updated task {task_id} → {status}")

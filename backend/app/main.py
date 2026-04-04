@@ -584,14 +584,21 @@ async def general_websocket(websocket: WebSocket):
     finally:
         # Unregister from broadcast
         ws_broadcast.unregister(websocket)
-        # NOTE: Do NOT cancel bg_tasks or stop worker pools on disconnect.
-        # Workers must survive a browser refresh — they continue running and
-        # store their results via pending_store for delivery on reconnect.
+        # Cancel background tasks that haven't completed
         if bg_tasks:
             running = sum(1 for t in bg_tasks if not t.done())
-            logger.info(f"[WS] Disconnected — {running} background task(s) still running (workers persist)")
-        # NOTE: Worker pools for active_session_ids are kept alive intentionally.
-        # They will be stopped only on explicit session:reset from the frontend.
+            for t in bg_tasks:
+                if not t.done():
+                    t.cancel()
+            logger.info(f"[WS] Disconnected — cancelled {running} background task(s)")
+        # Stop worker pools and mark their pending/running tasks as cancelled.
+        # This prevents orphan workers from auto-recovering without context.
+        for sid in list(active_session_ids):
+            try:
+                await _orchestrator.stop_worker_pool(sid)
+                logger.info(f"[WS] Disconnect cleanup — stopped worker pool for {sid}")
+            except Exception as _e:
+                logger.warning(f"[WS] Disconnect cleanup failed for {sid}: {_e}")
 
 
 # ---------------------------------------------------------------------------
