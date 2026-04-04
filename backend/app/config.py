@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     # Database — default: ~/.voxyflow/voxyflow.db (respects VOXYFLOW_DATA_DIR)
     database_url: str = f"sqlite+aiosqlite:///{VOXYFLOW_DATA_DIR / 'voxyflow.db'}"
 
+    # Claude Code CLI — spawn `claude -p` subprocesses (uses Max subscription)
+    claude_use_cli: bool = False     # True = CLI subprocess path (takes precedence over native/proxy)
+    claude_cli_path: str = "claude"  # Path to claude CLI binary
+
     # Claude API — native Anthropic SDK (preferred)
     claude_use_native: bool = False   # False = OpenAI-compatible proxy (claude-max-api). True requires direct API access.
     claude_api_key: str = ""         # Loaded from keyring / env ANTHROPIC_API_KEY

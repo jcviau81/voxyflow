@@ -1,4 +1,4 @@
-"""API caller mixin for ClaudeService — Anthropic, OpenAI-compat, and server-tools paths.
+"""API caller mixin for ClaudeService — Anthropic, OpenAI-compat, CLI, and server-tools paths.
 
 Extracted from claude_service.py. Relies on self attributes from ClaudeService:
   self.deep_model, self.fast_model, self.haiku_model
@@ -6,6 +6,7 @@ Extracted from claude_service.py. Relies on self attributes from ClaudeService:
   self.fast_client, self.fast_client_type
   self._infer_layer(), self._load_tool_settings(), self._should_use_server_tools()
   self._pending_delegates
+  self._cli_backend (when client_type == "cli")
 """
 
 from __future__ import annotations
@@ -1183,7 +1184,80 @@ class ApiCallerMixin:
         logger.warning("_call_api_stream_server_tools: tool loop exceeded max rounds")
 
     # ------------------------------------------------------------------
-    # Dispatcher: routes to native or fallback based on client_type
+    # Claude CLI subprocess path
+    # ------------------------------------------------------------------
+
+    async def _call_api_cli(
+        self,
+        model: str,
+        system: str | list[dict],
+        messages: list[dict],
+        use_tools: bool = False,
+        layer: str = "fast",
+        chat_id: str = "",
+        cancel_event: Optional[asyncio.Event] = None,
+        message_queue: Optional[asyncio.Queue] = None,
+    ) -> str:
+        """Non-streaming call via Claude CLI subprocess."""
+        text, usage = await self._cli_backend.call(
+            model=model,
+            system=system,
+            messages=messages,
+            use_tools=use_tools,
+            cancel_event=cancel_event,
+        )
+        # Log token usage
+        _log_token_usage(
+            layer=layer,
+            model=model,
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            chat_id=chat_id,
+            cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
+            cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+        )
+        # Drain message_queue if anything was queued (can't inject mid-CLI)
+        if message_queue:
+            while not message_queue.empty():
+                try:
+                    msg = message_queue.get_nowait()
+                    logger.warning(f"[CLI] Drained queued message (not injectable): {str(msg)[:100]}")
+                except asyncio.QueueEmpty:
+                    break
+        return text
+
+    async def _call_api_stream_cli(
+        self,
+        model: str,
+        system: str | list[dict],
+        messages: list[dict],
+        use_tools: bool = False,
+        layer: str = "fast",
+        chat_id: str = "",
+    ) -> AsyncIterator[str]:
+        """Streaming call via Claude CLI subprocess."""
+        async for token in self._cli_backend.stream(
+            model=model,
+            system=system,
+            messages=messages,
+            use_tools=use_tools,
+        ):
+            yield token
+        # Log token usage from the completed stream
+        usage = self._cli_backend.last_usage
+        if usage:
+            _log_token_usage(
+                layer=layer,
+                model=model,
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+                chat_id=chat_id,
+                cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
+                cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+            )
+
+    # ------------------------------------------------------------------
+    # Dispatcher: routes to native, CLI, or fallback based on client_type
     # ------------------------------------------------------------------
 
     def _should_use_server_tools(self, client_type: str) -> bool:
@@ -1217,10 +1291,16 @@ class ApiCallerMixin:
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
     ) -> str:
-        """Dispatch to native Anthropic SDK, OpenAI-compat, or server-side tools."""
+        """Dispatch to native Anthropic SDK, CLI subprocess, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
         ct = client_type if client is not None else self.fast_client_type
 
+        if ct == "cli":
+            return await self._call_api_cli(
+                model=model, system=system, messages=messages,
+                use_tools=use_tools, layer=layer, chat_id=chat_id,
+                cancel_event=cancel_event, message_queue=message_queue,
+            )
         if ct == "anthropic":
             return await self._call_api_anthropic(
                 model=model, system=system, messages=messages, client=api_client,
@@ -1256,9 +1336,17 @@ class ApiCallerMixin:
         layer: str = "fast",
         chat_id: str = "",
     ) -> AsyncIterator[str]:
-        """Dispatch streaming to native Anthropic SDK, OpenAI-compat, or server-side tools."""
+        """Dispatch streaming to CLI subprocess, native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
         ct = client_type if client is not None else self.fast_client_type
+
+        if ct == "cli":
+            async for token in self._call_api_stream_cli(
+                model=model, system=system, messages=messages,
+                use_tools=use_tools, layer=layer, chat_id=chat_id,
+            ):
+                yield token
+            return
 
         if ct == "anthropic":
             async for token in self._call_api_stream_anthropic(

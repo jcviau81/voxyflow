@@ -15,6 +15,7 @@ from app.services.llm.client_factory import (
     _make_async_anthropic_client,
     _make_openai_client,
 )
+from app.services.llm.cli_backend import ClaudeCliBackend
 from app.services.llm.model_utils import (
     _LRUDict,
     _MODEL_MAP,
@@ -108,8 +109,10 @@ class ClaudeService(ApiCallerMixin):
     """
     Handles Claude API calls for both conversation layers.
 
-    Primary path: native Anthropic Python SDK (claude_use_native=True).
-    Fallback path: OpenAI-compatible proxy at localhost:3457 (claude_use_native=False).
+    Three backend paths (in precedence order):
+      1. CLI subprocess: claude_use_cli=True  → spawns `claude -p` (Max subscription)
+      2. Native Anthropic SDK: claude_use_native=True → direct API calls
+      3. OpenAI-compatible proxy: fallback at localhost:3457
 
     Model/provider overrides can be configured via the Settings UI (settings.json).
     All calls are personality-infused via PersonalityService.
@@ -133,6 +136,10 @@ class ClaudeService(ApiCallerMixin):
         self.max_tokens_sonnet = config.claude_max_tokens_sonnet
         self.max_tokens_opus = config.claude_max_tokens_opus
         self.use_native = config.claude_use_native
+        self.use_cli = config.claude_use_cli
+
+        # CLI backend (shared across all layers when use_cli=True)
+        self._cli_backend = ClaudeCliBackend(config.claude_cli_path) if self.use_cli else None
 
         # Load overrides from settings.json
         overrides = _load_model_overrides()
@@ -145,7 +152,10 @@ class ClaudeService(ApiCallerMixin):
         fast_model_raw = fast_cfg.get("model", "").strip()
         self.fast_model = _resolve_model(fast_model_raw or config.claude_sonnet_model)
         fast_key = _get_api_key_from_settings(fast_cfg) or default_api_key
-        if self.use_native and fast_key:
+        if self.use_cli:
+            self.fast_client = None
+            self.fast_client_type = "cli"
+        elif self.use_native and fast_key:
             self.fast_client = _make_anthropic_client(fast_key, fast_cfg.get("provider_url", config.claude_api_base))
             self.fast_client_type = "anthropic"
         else:
@@ -160,7 +170,10 @@ class ClaudeService(ApiCallerMixin):
         deep_model_raw = deep_cfg.get("model", "").strip()
         self.deep_model = _resolve_model(deep_model_raw or config.claude_deep_model)
         deep_key = _get_api_key_from_settings(deep_cfg) or default_api_key
-        if self.use_native and deep_key:
+        if self.use_cli:
+            self.deep_client = None
+            self.deep_client_type = "cli"
+        elif self.use_native and deep_key:
             self.deep_client = _make_anthropic_client(deep_key, deep_cfg.get("provider_url", config.claude_api_base))
             self.deep_client_type = "anthropic"
         else:
@@ -175,7 +188,10 @@ class ClaudeService(ApiCallerMixin):
         haiku_model_raw = haiku_cfg.get("model", "").strip()
         self.haiku_model = _resolve_model(haiku_model_raw or "claude-haiku-4")
         haiku_key = _get_api_key_from_settings(haiku_cfg) or default_api_key
-        if self.use_native and haiku_key:
+        if self.use_cli:
+            self.haiku_client = None
+            self.haiku_client_type = "cli"
+        elif self.use_native and haiku_key:
             self.haiku_client = _make_anthropic_client(haiku_key, haiku_cfg.get("provider_url", config.claude_api_base))
             self.haiku_client_type = "anthropic"
         else:
@@ -190,7 +206,10 @@ class ClaudeService(ApiCallerMixin):
         analyzer_model_raw = analyzer_cfg.get("model", "").strip()
         self.analyzer_model = _resolve_model(analyzer_model_raw or config.claude_analyzer_model)
         analyzer_key = _get_api_key_from_settings(analyzer_cfg) or default_api_key
-        if self.use_native and analyzer_key:
+        if self.use_cli:
+            self.analyzer_client = None
+            self.analyzer_client_type = "cli"
+        elif self.use_native and analyzer_key:
             self.analyzer_client = _make_anthropic_client(analyzer_key, analyzer_cfg.get("provider_url", config.claude_api_base))
             self.analyzer_client_type = "anthropic"
         else:
@@ -201,8 +220,11 @@ class ClaudeService(ApiCallerMixin):
             self.analyzer_client_type = "openai"
 
         # Legacy single client (backward compat, always OpenAI-compat proxy)
-        from openai import OpenAI as _OAI
-        self.client = _OAI(base_url=config.claude_proxy_url, api_key=config.claude_api_key or "not-needed")
+        if not self.use_cli:
+            from openai import OpenAI as _OAI
+            self.client = _OAI(base_url=config.claude_proxy_url, api_key=config.claude_api_key or "not-needed")
+        else:
+            self.client = None
 
         self.personality = get_personality_service()
         self.memory = get_memory_service()
@@ -216,7 +238,7 @@ class ClaudeService(ApiCallerMixin):
         self._pending_delegates: dict[str, list[dict]] = {}
 
         logger.info(
-            f"ClaudeService initialized — native={self.use_native} | "
+            f"ClaudeService initialized — cli={self.use_cli} native={self.use_native} | "
             f"fast={self.fast_model}({self.fast_client_type}) | "
             f"deep={self.deep_model}({self.deep_client_type}) | "
             f"haiku={self.haiku_model}({self.haiku_client_type})"
@@ -240,7 +262,10 @@ class ClaudeService(ApiCallerMixin):
             key = _get_api_key_from_settings(cfg) or default_api_key
             purl = cfg.get("provider_url", "")
 
-            if self.use_native and key and ("claude" in model.lower() or "anthropic" in purl.lower()):
+            if self.use_cli:
+                client = None
+                client_type = "cli"
+            elif self.use_native and key and ("claude" in model.lower() or "anthropic" in purl.lower()):
                 client = _make_anthropic_client(key, purl or config.claude_api_base)
                 client_type = "anthropic"
             else:
@@ -799,6 +824,7 @@ class ClaudeService(ApiCallerMixin):
         # XML <tool_call> truncation issues with the OpenAI-compat proxy path.
         # Using AsyncAnthropic avoids "Streaming required for long requests" errors.
         # The client is pointed at CLIProxyAPI which supports /v1/messages.
+        # CLI path: no upgrade needed — Claude CLI handles tools via MCP.
         if client_type == "openai":
             _cfg = get_settings()
             worker_api_url = _cfg.claude_proxy_url  # e.g. http://100.96.26.98:3457/v1
@@ -835,7 +861,7 @@ class ClaudeService(ApiCallerMixin):
                 logger.warning(f"RAG context injection failed (execute_worker_task): {e}")
 
         system_prompt = _make_cached_system(
-            base_prompt, dynamic_parts, is_anthropic=(client_type == "anthropic")
+            base_prompt, dynamic_parts, is_anthropic=(client_type in ("anthropic", "cli"))
         )
         system_prompt = _inject_no_think(system_prompt, model_name)
 
