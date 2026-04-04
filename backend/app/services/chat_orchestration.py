@@ -584,10 +584,11 @@ class ChatOrchestrator(LayerRunnersMixin):
                     "chat_level": chat_level,
                     "project_context": project_context,
                     "card_context": card_context,
-                    "project_id": project_id,
                     "card_id": card_id,
                     "dispatcher_chat_id": chat_id,
                     **data,  # Include all fields from delegate_action
+                    # Fallback chain: delegate.data['project_id'] → session project_id → None
+                    "project_id": data.get("project_id") or project_id,
                 },
                 session_id=session_id,
                 complexity=complexity,
@@ -716,10 +717,11 @@ class ChatOrchestrator(LayerRunnersMixin):
                         "chat_level": chat_level,
                         "project_context": project_context,
                         "card_context": card_context,
-                        "project_id": project_id,
                         "card_id": card_id,
                         "dispatcher_chat_id": chat_id,
                         **data,  # Include original delegate data
+                        # Fallback chain: delegate.data['project_id'] → session project_id → None
+                        "project_id": data.get("project_id") or project_id,
                     },
                     session_id=session_id,
                     complexity=complexity,
@@ -1192,11 +1194,12 @@ class ChatOrchestrator(LayerRunnersMixin):
                 "chat_level": chat_level,
                 "project_context": project_context,
                 "card_context": card_context,
-                "project_id": project_id,
                 "card_id": card_id,
                 "dispatcher_chat_id": chat_id,
                 "auto_recovered": True,
                 **data,
+                # Fallback chain: delegate.data['project_id'] → session project_id → None
+                "project_id": data.get("project_id") or project_id,
             },
             session_id=session_id,
             complexity=complexity,
