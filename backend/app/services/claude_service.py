@@ -541,8 +541,10 @@ class ClaudeService(ApiCallerMixin):
 
         Native Anthropic path: uses delegate_action tool_use for dispatching.
         Proxy path: zero tools, relies on <delegate> XML blocks in text.
+        CLI+MCP path: inline tools via MCP + <delegate> XML blocks for complex tasks.
         """
         use_native_delegate = self.fast_client_type == "anthropic"
+        use_cli_mcp = self.fast_client_type == "cli"
 
         await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
@@ -554,12 +556,14 @@ class ClaudeService(ApiCallerMixin):
             include_daily=True,
             query=user_message,
         )
+        # Determine tool mode for personality prompt
+        native_tools_mode = "cli_mcp" if use_cli_mcp else use_native_delegate
         # Static base prompt — personality + dispatcher + tools only (cacheable)
         base_prompt = self.personality.build_fast_prompt(
             chat_level=chat_level,
             project=project_context,
             card=card_context,
-            native_tools=use_native_delegate,
+            native_tools=native_tools_mode,
         )
 
         # Collect dynamic context (changes per-call — injected OUTSIDE the cached block)
@@ -586,7 +590,10 @@ class ClaudeService(ApiCallerMixin):
             dynamic_parts.append("## Background Workers Status\n" + active_workers_context)
 
         # Build system param with prompt caching for Anthropic native path
-        system_prompt = _make_cached_system(base_prompt, dynamic_parts, is_anthropic=use_native_delegate)
+        system_prompt = _make_cached_system(
+            base_prompt, dynamic_parts,
+            is_anthropic=(use_native_delegate or use_cli_mcp),
+        )
         # Inject /no_think for thinking models (Qwen3, DeepSeek-R1, etc.)
         system_prompt = _inject_no_think(system_prompt, self.fast_model)
 
@@ -602,6 +609,14 @@ class ClaudeService(ApiCallerMixin):
                     "card_list, card_get, card_create, card_update, card_move, "
                     "workers_list, workers_get_result. For complex tasks (research, code, "
                     "multi-step ops), I delegate to background workers via delegate_action."
+                )
+            elif use_cli_mcp:
+                priming_assistant = (
+                    "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
+                    "I converse with you directly and use MCP tools for fast operations "
+                    "(card CRUD, memory search, project/wiki lookups). For complex tasks "
+                    "(research, code, multi-step ops), I include <delegate> blocks in my "
+                    "response to trigger background workers."
                 )
             else:
                 priming_assistant = (
@@ -637,6 +652,21 @@ class ClaudeService(ApiCallerMixin):
                 full_response += token
                 yield token
             logger.info(f"[chat_fast_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
+        elif use_cli_mcp:
+            # CLI+MCP: inline tools via MCP, <delegate> XML for complex tasks
+            full_response = ""
+            async for token in self._call_api_stream(
+                model=self.fast_model,
+                system=system_prompt,
+                messages=primed_messages,
+                client=self.fast_client,
+                client_type=self.fast_client_type,
+                use_tools=True,
+                chat_level=chat_level,
+            ):
+                full_response += token
+                yield token
+            logger.info(f"[chat_fast_stream] CLI+MCP path — inline tools via MCP, XML delegates")
         else:
             # Proxy fallback: no tools, XML delegate blocks
             full_response = ""
@@ -674,8 +704,10 @@ class ClaudeService(ApiCallerMixin):
 
         Native Anthropic path: uses delegate_action tool_use for dispatching.
         Proxy path: zero tools, relies on <delegate> XML blocks in text.
+        CLI+MCP path: inline tools via MCP + <delegate> XML blocks for complex tasks.
         """
         use_native_delegate = self.deep_client_type == "anthropic"
+        use_cli_mcp = self.deep_client_type == "cli"
 
         await self._append_and_persist_async(chat_id, "user", user_message, model="deep")
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
@@ -687,13 +719,15 @@ class ClaudeService(ApiCallerMixin):
             include_daily=True,
             query=user_message,
         )
+        # Determine tool mode for personality prompt
+        native_tools_mode = "cli_mcp" if use_cli_mcp else use_native_delegate
         # Static base prompt — personality + dispatcher + tools only (cacheable)
         base_prompt = self.personality.build_deep_prompt(
             chat_level=chat_level,
             project=project_context,
             card=card_context,
             is_chat_responder=True,
-            native_tools=use_native_delegate,
+            native_tools=native_tools_mode,
         )
 
         # Collect dynamic context (changes per-call — injected OUTSIDE the cached block)
@@ -720,7 +754,10 @@ class ClaudeService(ApiCallerMixin):
             dynamic_parts.append("## Background Workers Status\n" + active_workers_context)
 
         # Build system param with prompt caching for Anthropic native path
-        system_prompt = _make_cached_system(base_prompt, dynamic_parts, is_anthropic=use_native_delegate)
+        system_prompt = _make_cached_system(
+            base_prompt, dynamic_parts,
+            is_anthropic=(use_native_delegate or use_cli_mcp),
+        )
         # Inject /no_think for thinking models (Qwen3, DeepSeek-R1, etc.)
         system_prompt = _inject_no_think(system_prompt, self.deep_model)
 
@@ -734,6 +771,14 @@ class ClaudeService(ApiCallerMixin):
                     "I converse with you directly and delegate all actions to background workers "
                     "using the delegate_action tool. I never execute actions myself. When you ask "
                     "me to do something, I respond briefly and call delegate_action to trigger the worker."
+                )
+            elif use_cli_mcp:
+                priming_assistant = (
+                    "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
+                    "I converse with you directly and use MCP tools for fast operations "
+                    "(card CRUD, memory search, project/wiki lookups). For complex tasks "
+                    "(research, code, multi-step ops), I include <delegate> blocks in my "
+                    "response to trigger background workers."
                 )
             else:
                 priming_assistant = (
@@ -768,6 +813,21 @@ class ClaudeService(ApiCallerMixin):
                 full_response += token
                 yield token
             logger.info(f"[chat_deep_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
+        elif use_cli_mcp:
+            # CLI+MCP: inline tools via MCP, <delegate> XML for complex tasks
+            full_response = ""
+            async for token in self._call_api_stream(
+                model=self.deep_model,
+                system=system_prompt,
+                messages=primed_messages,
+                client=self.deep_client,
+                client_type=self.deep_client_type,
+                use_tools=True,
+                chat_level=chat_level,
+            ):
+                full_response += token
+                yield token
+            logger.info(f"[chat_deep_stream] CLI+MCP path — inline tools via MCP, XML delegates")
         else:
             full_response = ""
             async for token in self._call_api_stream(

@@ -155,7 +155,9 @@ class ClaudeCliBackend:
             "--model", _model_flag(model),
             "--system-prompt", system_prompt,
             "--no-session-persistence",
-            "--permission-mode", "auto",
+            # bypassPermissions: Voxyflow MCP tools are our own REST API — safe to auto-approve.
+            # "auto" does not cover MCP tool calls, which would stall the subprocess.
+            "--permission-mode", "bypassPermissions",
         ]
 
         if streaming:

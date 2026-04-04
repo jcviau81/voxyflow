@@ -499,8 +499,10 @@ class PersonalityService:
         if dispatcher:
             voice_instructions += "\n\n" + dispatcher
 
-        # Delegate instructions — different for native tool_use vs XML fallback
-        if native_tools:
+        # Delegate instructions — different for native tool_use vs CLI+MCP vs XML fallback
+        if native_tools == "cli_mcp":
+            voice_instructions += self._build_cli_mcp_delegate_instructions()
+        elif native_tools:
             voice_instructions += self._build_native_delegate_instructions()
         else:
             voice_instructions += self._build_xml_delegate_instructions()
@@ -536,6 +538,38 @@ class PersonalityService:
             "NEVER use Bash(), WebSearch(), Read(), Write(), or any CLI tool directly.\n"
             "NEVER say 'I don't have access to tools' — you DO, via delegate_action.\n"
             "NEVER say 'my knowledge cuts off at...' — delegate a web search instead."
+        )
+
+    def _build_cli_mcp_delegate_instructions(self) -> str:
+        """Delegate instructions for CLI+MCP mode: inline tools via MCP + XML delegates."""
+        return (
+            "\n\n## ⚡ Your Tools — Inline MCP + Delegate\n"
+            "You have TWO ways to act:\n\n"
+            "### 1. Inline MCP Tools (use directly for fast operations)\n"
+            "You can call these tools directly — they execute immediately:\n"
+            "- `memory.search` / `knowledge.search` — search memory and knowledge base\n"
+            "- `voxyflow.card.list` / `voxyflow.card.get` / `voxyflow.card.create` / "
+            "`voxyflow.card.update` / `voxyflow.card.move` / `voxyflow.card.archive` — card operations\n"
+            "- `voxyflow.workers.list` / `voxyflow.workers.get_result` — check worker status\n"
+            "- `voxyflow.project.list` / `voxyflow.project.get` — project info\n"
+            "- `voxyflow.wiki.list` / `voxyflow.wiki.get` — wiki pages\n\n"
+            "Use these for quick lookups and simple CRUD. No delegation needed.\n\n"
+            "### 2. <delegate> Blocks (for complex/long-running tasks)\n"
+            "For tasks that need research, multi-step execution, web access, or code work — "
+            "include a <delegate> block at the END of your response:\n"
+            "<delegate>\n"
+            '{"action": "...", "model": "haiku|sonnet|opus", "description": "..."}\n'
+            "</delegate>\n\n"
+            "Examples of when to delegate:\n"
+            "- Web search/research → <delegate> with model=sonnet\n"
+            "- Running commands or code → <delegate> with model=sonnet or opus\n"
+            "- Complex multi-step tasks → <delegate> with model=opus\n\n"
+            "WITHOUT the <delegate> block, complex tasks will NOT execute.\n"
+            "When in doubt about complexity, DELEGATE.\n\n"
+            "## 🚫 ENVIRONMENT CONSTRAINT\n"
+            "You are running INSIDE Voxyflow's chat layer via Claude Code CLI.\n"
+            "You may see CLI tools (Bash, Read, Write, WebSearch) — DO NOT USE THEM.\n"
+            "Use ONLY: your MCP tools (listed above) + <delegate> blocks + natural language."
         )
 
     def _build_xml_delegate_instructions(self) -> str:
@@ -619,8 +653,10 @@ class PersonalityService:
                 "EXCEPTION: If the user is just chatting or asking a question — respond normally, no delegation."
             )
 
-            # Delegate format instructions — native tool_use vs XML fallback
-            if native_tools:
+            # Delegate format instructions — native tool_use vs CLI+MCP vs XML fallback
+            if native_tools == "cli_mcp":
+                voice_instructions += self._build_cli_mcp_delegate_instructions()
+            elif native_tools:
                 voice_instructions += self._build_native_delegate_instructions()
             else:
                 voice_instructions += self._build_xml_delegate_instructions()
