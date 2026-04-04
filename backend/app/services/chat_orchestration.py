@@ -546,16 +546,16 @@ class ChatOrchestrator(LayerRunnersMixin):
         bus = event_bus_registry.get_or_create(session_id)
 
         for data in worker_delegates:
-            intent = data.get("action", "unknown")
-            summary = data.get("summary", data.get("description", ""))
-            complexity = data.get("complexity", "simple")
-            model = data.get("model", "sonnet")
+            intent = data.get("action") or "unknown"
+            summary = data.get("summary") or data.get("description") or ""
+            complexity = data.get("complexity") or "simple"
+            model = data.get("model") or "sonnet"
             if model not in ("haiku", "sonnet", "opus"):
                 model = "sonnet"
 
             # Auto-upgrade model for coding tasks
             _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
-            description_lower = data.get("description", "").lower()
+            description_lower = (data.get("description") or "").lower()
             if any(kw in description_lower for kw in _CODING_KEYWORDS):
                 if model == "haiku":
                     original_model = model
@@ -676,18 +676,18 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         for data in worker_delegates:
             try:
-                intent = data.get("intent", data.get("action", "unknown"))
-                summary = data.get("summary", data.get("description", ""))
-                complexity = data.get("complexity", "simple")
+                intent = data.get("intent") or data.get("action") or "unknown"
+                summary = data.get("summary") or data.get("description") or ""
+                complexity = data.get("complexity") or "simple"
 
                 # Extract model from delegate JSON (haiku/sonnet/opus)
-                model = data.get("model", "sonnet")
+                model = data.get("model") or "sonnet"
                 if model not in ("haiku", "sonnet", "opus"):
                     model = "sonnet"
 
                 # Auto-upgrade model for coding tasks (XML path)
                 _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
-                description_lower = data.get("description", "").lower()
+                description_lower = (data.get("description") or "").lower()
                 if any(kw in description_lower for kw in _CODING_KEYWORDS):
                     if model == "haiku":
                         original_model = model

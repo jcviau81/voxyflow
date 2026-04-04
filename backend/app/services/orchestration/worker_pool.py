@@ -411,7 +411,7 @@ class DeepWorkerPool:
 
             logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent} (model={event.model})")
 
-            intent_lower = event.intent.lower()
+            intent_lower = (event.intent or "unknown").lower()
             is_move_or_update = any(kw in intent_lower for kw in [
                 "move", "update", "change_status", "complete", "finish",
                 "start_work", "mark_done", "mark_complete"
@@ -471,7 +471,7 @@ class DeepWorkerPool:
 
             chat_level = event.data.get("chat_level", "general")
             if chat_level == "general":
-                intent_lower = event.intent.lower()
+                intent_lower = (event.intent or "unknown").lower()
                 if (
                     event.data.get("project_id")
                     or "project" in intent_lower
