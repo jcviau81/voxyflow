@@ -662,6 +662,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.fast_client,
                 client_type=self.fast_client_type,
                 use_tools=True,
+                mcp_role="dispatcher",
                 chat_level=chat_level,
             ):
                 full_response += token
@@ -823,6 +824,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.deep_client,
                 client_type=self.deep_client_type,
                 use_tools=True,
+                mcp_role="dispatcher",
                 chat_level=chat_level,
             ):
                 full_response += token

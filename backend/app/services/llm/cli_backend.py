@@ -116,8 +116,13 @@ class ClaudeCliBackend:
         """Token usage from the most recent call (for logging)."""
         return self._last_usage
 
-    def _build_mcp_config(self) -> str:
-        """Build MCP config JSON string pointing to Voxyflow's stdio server."""
+    def _build_mcp_config(self, role: str = "worker") -> str:
+        """Build MCP config JSON string pointing to Voxyflow's stdio server.
+
+        Args:
+            role: "dispatcher" limits tools to lightweight CRUD + knowledge;
+                  "worker" (default) exposes all tools including system, file, git, tmux.
+        """
         # Find the Python interpreter — prefer the backend venv, then current interpreter
         venv_python = str(_BACKEND_DIR / "venv" / "bin" / "python3")
         if os.path.exists(venv_python):
@@ -135,6 +140,7 @@ class ClaudeCliBackend:
                         "VOXYFLOW_API_BASE": os.environ.get(
                             "VOXYFLOW_API_BASE", "http://localhost:8000"
                         ),
+                        "VOXYFLOW_MCP_ROLE": role,
                     },
                 }
             }
@@ -148,8 +154,14 @@ class ClaudeCliBackend:
         *,
         streaming: bool = False,
         use_tools: bool = False,
+        mcp_role: str = "worker",
     ) -> list[str]:
-        """Build the CLI argument list."""
+        """Build the CLI argument list.
+
+        Args:
+            mcp_role: "dispatcher" for chat layers (limited tools),
+                      "worker" for worker tasks (all tools).
+        """
         args = [
             "-p",
             "--model", _model_flag(model),
@@ -173,8 +185,7 @@ class ClaudeCliBackend:
         args.extend(["--tools", ""])
 
         if use_tools:
-            # Worker tasks: load Voxyflow MCP tools only
-            args.extend(["--mcp-config", self._build_mcp_config()])
+            args.extend(["--mcp-config", self._build_mcp_config(role=mcp_role)])
 
         # Prevent Claude Code from loading its own MCP servers (openfeeder, Gmail, etc.)
         # which add ~1700 tokens of system prompt noise. For workers, --strict-mcp-config
@@ -192,6 +203,7 @@ class ClaudeCliBackend:
         messages: list[dict],
         *,
         use_tools: bool = False,
+        mcp_role: str = "worker",
         cancel_event: Optional[asyncio.Event] = None,
     ) -> tuple[str, dict]:
         """Non-streaming CLI call. Returns (response_text, usage_dict).
@@ -202,7 +214,7 @@ class ClaudeCliBackend:
         prompt = _format_messages(messages)
         args = self._build_args(
             model, system_prompt,
-            streaming=False, use_tools=use_tools,
+            streaming=False, use_tools=use_tools, mcp_role=mcp_role,
         )
 
         logger.info(
@@ -288,6 +300,7 @@ class ClaudeCliBackend:
         messages: list[dict],
         *,
         use_tools: bool = False,
+        mcp_role: str = "worker",
     ) -> AsyncIterator[str]:
         """Streaming CLI call via --output-format stream-json.
 
@@ -298,7 +311,7 @@ class ClaudeCliBackend:
         prompt = _format_messages(messages)
         args = self._build_args(
             model, system_prompt,
-            streaming=True, use_tools=use_tools,
+            streaming=True, use_tools=use_tools, mcp_role=mcp_role,
         )
 
         logger.info(

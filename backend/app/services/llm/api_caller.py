@@ -1193,6 +1193,7 @@ class ApiCallerMixin:
         system: str | list[dict],
         messages: list[dict],
         use_tools: bool = False,
+        mcp_role: str = "worker",
         layer: str = "fast",
         chat_id: str = "",
         cancel_event: Optional[asyncio.Event] = None,
@@ -1204,6 +1205,7 @@ class ApiCallerMixin:
             system=system,
             messages=messages,
             use_tools=use_tools,
+            mcp_role=mcp_role,
             cancel_event=cancel_event,
         )
         # Log token usage
@@ -1232,6 +1234,7 @@ class ApiCallerMixin:
         system: str | list[dict],
         messages: list[dict],
         use_tools: bool = False,
+        mcp_role: str = "worker",
         layer: str = "fast",
         chat_id: str = "",
     ) -> AsyncIterator[str]:
@@ -1241,6 +1244,7 @@ class ApiCallerMixin:
             system=system,
             messages=messages,
             use_tools=use_tools,
+            mcp_role=mcp_role,
         ):
             yield token
         # Log token usage from the completed stream
@@ -1284,6 +1288,7 @@ class ApiCallerMixin:
         client=None,
         client_type: str = "anthropic",
         use_tools: bool = True,
+        mcp_role: str = "worker",
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
         layer: str = "fast",
@@ -1298,7 +1303,7 @@ class ApiCallerMixin:
         if ct == "cli":
             return await self._call_api_cli(
                 model=model, system=system, messages=messages,
-                use_tools=use_tools, layer=layer, chat_id=chat_id,
+                use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
                 cancel_event=cancel_event, message_queue=message_queue,
             )
         if ct == "anthropic":
@@ -1331,6 +1336,7 @@ class ApiCallerMixin:
         client=None,
         client_type: str = "anthropic",
         use_tools: bool = True,
+        mcp_role: str = "worker",
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         chat_level: str = "general",
         layer: str = "fast",
@@ -1343,7 +1349,7 @@ class ApiCallerMixin:
         if ct == "cli":
             async for token in self._call_api_stream_cli(
                 model=model, system=system, messages=messages,
-                use_tools=use_tools, layer=layer, chat_id=chat_id,
+                use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
             ):
                 yield token
             return

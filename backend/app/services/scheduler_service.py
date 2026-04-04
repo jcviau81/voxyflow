@@ -172,17 +172,20 @@ class SchedulerService:
             _settings = get_settings()
 
             async with httpx.AsyncClient(timeout=5.0) as client:
-                # Claude proxy
-                try:
-                    r = await client.get(_settings.claude_proxy_url + "/models")
-                    status = "ok" if r.status_code < 500 else "down"
-                except Exception as e:
-                    status = "down"
-                    logger.warning(f"[Heartbeat] Claude proxy down: {e}")
-                prev = self._health["claude_proxy"].get("status")
-                self._health["claude_proxy"] = {"status": status, "checked_at": _now_iso()}
-                if prev not in (None, "unknown") and prev != status:
-                    logger.warning(f"[Heartbeat] Claude proxy status changed: {prev} → {status}")
+                # Claude proxy — skip check when using CLI backend (no proxy needed)
+                if _settings.claude_use_cli:
+                    self._health["claude_proxy"] = {"status": "not_applicable", "checked_at": _now_iso()}
+                else:
+                    try:
+                        r = await client.get(_settings.claude_proxy_url + "/models")
+                        status = "ok" if r.status_code < 500 else "down"
+                    except Exception as e:
+                        status = "down"
+                        logger.warning(f"[Heartbeat] Claude proxy down: {e}")
+                    prev = self._health["claude_proxy"].get("status")
+                    self._health["claude_proxy"] = {"status": status, "checked_at": _now_iso()}
+                    if prev not in (None, "unknown") and prev != status:
+                        logger.warning(f"[Heartbeat] Claude proxy status changed: {prev} → {status}")
 
                 # XTTS server — removed (TTS is now client-side)
                 self._health["xtts"] = {"status": "removed", "checked_at": _now_iso()}
@@ -449,11 +452,15 @@ class SchedulerService:
 
     def get_health_status(self) -> dict:
         """Return current health of all monitored services."""
-        statuses = [v.get("status", "unknown") for v in self._health.values()]
+        # Ignore services that are removed or not applicable for overall status
+        active_statuses = [
+            v.get("status", "unknown") for v in self._health.values()
+            if v.get("status") not in ("removed", "not_applicable")
+        ]
 
-        if all(s == "ok" for s in statuses):
+        if not active_statuses or all(s == "ok" for s in active_statuses):
             overall = "ok"
-        elif all(s == "down" for s in statuses):
+        elif all(s == "down" for s in active_statuses):
             overall = "down"
         else:
             overall = "degraded"

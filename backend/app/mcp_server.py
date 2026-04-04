@@ -36,6 +36,13 @@ logger = logging.getLogger("voxyflow.mcp")
 
 VOXYFLOW_API_BASE = os.environ.get("VOXYFLOW_API_BASE", "http://localhost:8000")
 
+# Role-based tool filtering: "dispatcher" limits tools to lightweight CRUD +
+# knowledge; "worker" (or unset) exposes everything.  Set via env var
+# VOXYFLOW_MCP_ROLE passed through the MCP config.
+VOXYFLOW_MCP_ROLE = os.environ.get("VOXYFLOW_MCP_ROLE", "worker")
+
+# Tools tagged _role="worker" are hidden from the dispatcher.
+# Tools with no _role tag (or _role="all") are available to everyone.
 
 # ---------------------------------------------------------------------------
 # MCP Tool definitions
@@ -437,19 +444,20 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "project_id": {"type": "string", "description": "Project ID"},
             },
         },
-        "_http": ("GET", "/api/documents/projects/{project_id}/documents", None),
+        "_http": ("GET", "/api/projects/{project_id}/documents", None),
     },
     {
         "name": "voxyflow.doc.delete",
         "description": "Delete a document from a project.",
         "inputSchema": {
             "type": "object",
-            "required": ["document_id"],
+            "required": ["project_id", "document_id"],
             "properties": {
+                "project_id": {"type": "string", "description": "Project ID"},
                 "document_id": {"type": "string", "description": "Document ID to delete"},
             },
         },
-        "_http": ("DELETE", "/api/documents/documents/{document_id}", None),
+        "_http": ("DELETE", "/api/projects/{project_id}/documents/{document_id}", None),
     },
 
     # ---- Worker Ledger -----------------------------------------------------
@@ -541,6 +549,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "system_exec",
+        "_role": "worker",
     },
     {
         "name": "web.search",
@@ -554,6 +563,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "web_search",
+        "_role": "worker",
     },
     {
         "name": "web.fetch",
@@ -567,6 +577,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "web_fetch",
+        "_role": "worker",
     },
     {
         "name": "file.read",
@@ -581,6 +592,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "file_read",
+        "_role": "worker",
     },
     {
         "name": "file.write",
@@ -600,6 +612,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "file_write",
+        "_role": "worker",
     },
     {
         "name": "file.patch",
@@ -614,6 +627,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "file_patch",
+        "_role": "worker",
     },
     {
         "name": "file.list",
@@ -628,6 +642,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "file_list",
+        "_role": "worker",
     },
 
     # ---- Git ---------------------------------------------------------------
@@ -641,6 +656,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "git_status",
+        "_role": "worker",
     },
     {
         "name": "git.log",
@@ -653,6 +669,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "git_log",
+        "_role": "worker",
     },
     {
         "name": "git.diff",
@@ -665,6 +682,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "git_diff",
+        "_role": "worker",
     },
     {
         "name": "git.branches",
@@ -676,6 +694,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "git_branches",
+        "_role": "worker",
     },
     {
         "name": "git.commit",
@@ -689,6 +708,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "git_commit",
+        "_role": "worker",
     },
 
     # ---- Tmux --------------------------------------------------------------
@@ -700,6 +720,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             "properties": {},
         },
         "_handler": "tmux_list",
+        "_role": "worker",
     },
     {
         "name": "tmux.run",
@@ -713,6 +734,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "tmux_run",
+        "_role": "worker",
     },
     {
         "name": "tmux.send",
@@ -726,6 +748,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "tmux_send",
+        "_role": "worker",
     },
     {
         "name": "tmux.capture",
@@ -738,6 +761,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "tmux_capture",
+        "_role": "worker",
     },
     {
         "name": "tmux.new",
@@ -751,6 +775,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "tmux_new",
+        "_role": "worker",
     },
     {
         "name": "tmux.kill",
@@ -763,6 +788,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "tmux_kill",
+        "_role": "worker",
     },
 
     # ---- Worker Supervision ------------------------------------------------
@@ -784,6 +810,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "task_complete",
+        "_role": "worker",
     },
 
     # ---- Memory (semantic search across all memory) -------------------------
@@ -994,11 +1021,19 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
 # Build MCP tool list (without _http internal key)
 # ---------------------------------------------------------------------------
 
+def _visible_tools() -> list[dict]:
+    """Return tool definitions visible to the current role."""
+    role = VOXYFLOW_MCP_ROLE
+    if role == "dispatcher":
+        return [t for t in _TOOL_DEFINITIONS if t.get("_role", "all") != "worker"]
+    return _TOOL_DEFINITIONS  # workers see everything
+
+
 def _public_tool_defs() -> list[dict]:
-    """Return tool definitions without internal keys (_http, _handler)."""
+    """Return tool definitions without internal keys (_http, _handler, _role)."""
     return [
-        {k: v for k, v in t.items() if k not in ("_http", "_handler")}
-        for t in _TOOL_DEFINITIONS
+        {k: v for k, v in t.items() if not k.startswith("_")}
+        for t in _visible_tools()
     ]
 
 
@@ -1018,9 +1053,9 @@ if MCP_AVAILABLE:
 
     @server.list_tools()
     async def list_tools() -> list[Tool]:
-        """Expose all Voxyflow tools as MCP tools."""
+        """Expose Voxyflow tools filtered by role (dispatcher vs worker)."""
         tools = []
-        for defn in _TOOL_DEFINITIONS:
+        for defn in _visible_tools():
             tools.append(
                 Tool(
                     name=defn["name"],
@@ -1028,6 +1063,7 @@ if MCP_AVAILABLE:
                     inputSchema=defn["inputSchema"],
                 )
             )
+        logger.info(f"[MCP] list_tools → role={VOXYFLOW_MCP_ROLE}, {len(tools)} tools exposed")
         return tools
 
     @server.call_tool()
@@ -1038,6 +1074,14 @@ if MCP_AVAILABLE:
             return [TextContent(type="text", text=json.dumps({
                 "success": False,
                 "error": f"Unknown tool: {name}",
+            }))]
+
+        # Enforce role-based access (defense in depth — even if list_tools filters)
+        if VOXYFLOW_MCP_ROLE == "dispatcher" and tool_def.get("_role") == "worker":
+            logger.warning(f"[MCP] Blocked dispatcher from calling worker-only tool: {name}")
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Tool '{name}' is not available to the dispatcher. Delegate this task to a worker.",
             }))]
 
         try:
