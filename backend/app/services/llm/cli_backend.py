@@ -167,14 +167,19 @@ class ClaudeCliBackend:
         else:
             args.extend(["--output-format", "json"])
 
+        # Always disable built-in CLI tools (Bash, Edit, Read, etc.)
+        args.extend(["--tools", ""])
+
         if use_tools:
-            # MCP tools for worker tasks — disable built-in tools
-            args.extend(["--tools", ""])
+            # Worker tasks: load Voxyflow MCP tools only
             args.extend(["--mcp-config", self._build_mcp_config()])
-            args.extend(["--strict-mcp-config"])
-        else:
-            # No tools at all (chat layers — delegates via XML)
-            args.extend(["--tools", ""])
+
+        # Prevent Claude Code from loading its own MCP servers (openfeeder, Gmail, etc.)
+        # which add ~1700 tokens of system prompt noise. For workers, --strict-mcp-config
+        # ensures only our Voxyflow MCP server is loaded; for chat, no MCP at all.
+        args.extend(["--strict-mcp-config"])
+        if not use_tools:
+            args.extend(["--mcp-config", '{"mcpServers":{}}'])
 
         return args
 
