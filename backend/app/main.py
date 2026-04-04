@@ -148,7 +148,6 @@ async def lifespan(app: FastAPI):
     _heartbeat_interval = 2
     _rag_interval = 15
     try:
-        import json, os
         from pathlib import Path
         _voxyflow_dir = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow")))
         _settings_file = _voxyflow_dir / "settings.json"
