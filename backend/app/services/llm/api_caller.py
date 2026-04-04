@@ -1198,6 +1198,7 @@ class ApiCallerMixin:
         chat_id: str = "",
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
+        tool_callback: Optional[Callable] = None,
     ) -> str:
         """Non-streaming call via Claude CLI subprocess."""
         text, usage = await self._cli_backend.call(
@@ -1207,6 +1208,7 @@ class ApiCallerMixin:
             use_tools=use_tools,
             mcp_role=mcp_role,
             cancel_event=cancel_event,
+            tool_callback=tool_callback,
         )
         # Log token usage
         _log_token_usage(
@@ -1305,6 +1307,7 @@ class ApiCallerMixin:
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
                 cancel_event=cancel_event, message_queue=message_queue,
+                tool_callback=tool_callback,
             )
         if ct == "anthropic":
             return await self._call_api_anthropic(

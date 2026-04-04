@@ -18,7 +18,7 @@ import logging
 import os
 import signal
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -205,11 +205,24 @@ class ClaudeCliBackend:
         use_tools: bool = False,
         mcp_role: str = "worker",
         cancel_event: Optional[asyncio.Event] = None,
+        tool_callback: Optional[Callable] = None,
     ) -> tuple[str, dict]:
         """Non-streaming CLI call. Returns (response_text, usage_dict).
 
         Used by chat_fast() and execute_worker_task().
+
+        When *tool_callback* is provided, uses stream-json mode internally
+        to capture MCP tool_use events and invoke the callback for each,
+        giving the dispatcher visibility into worker progress.
         """
+        # If tool_callback is provided, use stream-json to capture tool events
+        if tool_callback and use_tools:
+            return await self._call_with_tool_events(
+                model=model, system=system, messages=messages,
+                use_tools=use_tools, mcp_role=mcp_role,
+                cancel_event=cancel_event, tool_callback=tool_callback,
+            )
+
         system_prompt = _flatten_system(system)
         prompt = _format_messages(messages)
         args = self._build_args(
@@ -292,6 +305,149 @@ class ClaudeCliBackend:
         )
 
         return response_text, usage
+
+    async def _call_with_tool_events(
+        self,
+        model: str,
+        system: str | list[dict],
+        messages: list[dict],
+        *,
+        use_tools: bool = True,
+        mcp_role: str = "worker",
+        cancel_event: Optional[asyncio.Event] = None,
+        tool_callback: Optional[Callable] = None,
+    ) -> tuple[str, dict]:
+        """CLI call using stream-json to capture MCP tool events.
+
+        Internally streams, but accumulates the full response text and
+        invokes tool_callback(tool_name, arguments, result) for each
+        MCP tool call observed in the stream.
+        """
+        system_prompt = _flatten_system(system)
+        prompt = _format_messages(messages)
+        args = self._build_args(
+            model, system_prompt,
+            streaming=True, use_tools=use_tools, mcp_role=mcp_role,
+        )
+
+        logger.info(
+            f"[CLI-events] Spawning: {self.cli_path} -p --model {_model_flag(model)} "
+            f"tools={use_tools} prompt_len={len(prompt)}"
+        )
+
+        proc = await asyncio.create_subprocess_exec(
+            self.cli_path, *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        proc.stdin.write(prompt.encode("utf-8"))
+        await proc.stdin.drain()
+        proc.stdin.close()
+        await proc.stdin.wait_closed()
+
+        # Monitor cancel_event
+        cancel_task = None
+        if cancel_event:
+            async def _watch_cancel():
+                while not cancel_event.is_set():
+                    await asyncio.sleep(0.5)
+                logger.info("[CLI-events] cancel_event set — terminating subprocess")
+                try:
+                    proc.terminate()
+                    await asyncio.sleep(2)
+                    if proc.returncode is None:
+                        proc.kill()
+                except ProcessLookupError:
+                    pass
+            cancel_task = asyncio.create_task(_watch_cancel())
+
+        result_text = ""
+        usage = {}
+        # Track pending tool_use blocks: id → {name, arguments}
+        pending_tools: dict[str, dict] = {}
+
+        try:
+            async for raw_line in proc.stdout:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                event_type = event.get("type")
+
+                if event_type == "assistant":
+                    # Parse content blocks for tool_use entries
+                    msg = event.get("message", {})
+                    for block in msg.get("content", []):
+                        if block.get("type") == "tool_use":
+                            tid = block.get("id", "")
+                            pending_tools[tid] = {
+                                "name": block.get("name", ""),
+                                "arguments": block.get("input", {}),
+                            }
+
+                elif event_type == "user":
+                    # Tool results come as type="user" with content[].type="tool_result"
+                    msg = event.get("message", {})
+                    for block in msg.get("content", []):
+                        if block.get("type") == "tool_result":
+                            tid = block.get("tool_use_id", "")
+                            tool_info = pending_tools.pop(tid, None)
+                            if tool_info and tool_callback:
+                                # Strip MCP prefix (mcp__voxyflow__) for cleaner names
+                                raw_name = tool_info["name"]
+                                name = raw_name.replace("mcp__voxyflow__", "").replace("_", ".", 1) if raw_name.startswith("mcp__voxyflow__") else raw_name
+                                tool_args = tool_info["arguments"]
+                                # Extract text from content blocks
+                                result_content = block.get("content", "")
+                                if isinstance(result_content, list):
+                                    result_content = " ".join(
+                                        b.get("text", "") for b in result_content
+                                        if isinstance(b, dict)
+                                    )
+                                tool_result = {"content": result_content}
+                                try:
+                                    ret = tool_callback(name, tool_args, tool_result)
+                                    if asyncio.iscoroutine(ret):
+                                        await ret
+                                except Exception as e:
+                                    logger.debug(f"[CLI-events] tool_callback error: {e}")
+
+                elif event_type == "result":
+                    result_text = event.get("result", "")
+                    usage = event.get("usage", {})
+                    self._last_usage = usage
+
+        finally:
+            if cancel_task:
+                cancel_task.cancel()
+                try:
+                    await cancel_task
+                except asyncio.CancelledError:
+                    pass
+
+        await proc.wait()
+
+        if cancel_event and cancel_event.is_set():
+            return "[Task cancelled by supervisor]", {}
+
+        if proc.returncode != 0:
+            stderr_text = (await proc.stderr.read()).decode("utf-8", errors="replace")
+            logger.error(f"[CLI-events] Process exited with code {proc.returncode}: {stderr_text[:500]}")
+            return f"[CLI error: process exited with code {proc.returncode}]", {}
+
+        logger.info(
+            f"[CLI-events] Complete: {len(result_text)} chars, "
+            f"in={usage.get('input_tokens', 0)} out={usage.get('output_tokens', 0)} "
+            f"cache_read={usage.get('cache_read_input_tokens', 0)}"
+        )
+
+        return result_text, usage
 
     async def stream(
         self,
