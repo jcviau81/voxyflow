@@ -46,6 +46,18 @@ Proxy at `localhost:3457`. Being deprecated (Anthropic cutting third-party harne
 4. Model responds conversationally + calls MCP tools inline + emits `<delegate>` for complex tasks
 5. Orchestrator parses `<delegate>` blocks → spawns workers
 
+## Dev Restart (ROG)
+Script: `~/voxy-dev.sh` — pulls, restarts backend (systemd), rebuilds frontend.
+```bash
+~/voxy-dev.sh                    # full: pull + backend + frontend build
+~/voxy-dev.sh --backend-only     # restart backend only
+~/voxy-dev.sh --frontend-only    # rebuild frontend only
+~/voxy-dev.sh --no-pull          # skip git pull
+~/voxy-dev.sh --backend-only --no-pull  # restart backend, no pull (most common during dev)
+```
+Backend: `systemctl --user restart voxyflow-backend` (uvicorn on port 8000)
+Frontend: built with Vite, served via Caddy → backend
+
 ## Current .env (ROG)
 ```
 CLAUDE_USE_CLI=true
