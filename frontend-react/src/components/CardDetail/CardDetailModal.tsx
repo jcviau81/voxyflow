@@ -356,14 +356,11 @@ export function CardDetailModal() {
               mobileTab === 'description' ? 'flex' : 'hidden md:flex',
             )}
           >
-            <label className="mb-2 text-xs font-medium text-muted-foreground">Description</label>
-            <div className="min-h-0 flex-1 overflow-auto">
-              <DescriptionEditor
-                cardId={card.id}
-                value={description}
-                onChange={handleDescriptionChange}
-              />
-            </div>
+            <DescriptionEditor
+              cardId={card.id}
+              value={description}
+              onChange={handleDescriptionChange}
+            />
           </div>
 
           {/* CENTER: Chat */}

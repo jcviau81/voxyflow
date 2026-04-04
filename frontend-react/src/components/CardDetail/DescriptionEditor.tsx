@@ -5,9 +5,12 @@
  * Uses @uiw/react-codemirror for React integration.
  * Features: markdown syntax highlighting, JS/Python code block support,
  * line numbers, dark/light theme sync, auto-save on blur.
+ *
+ * Edit/Preview toggle: switch between CodeMirror editor and react-markdown
+ * rendered preview. Preferred mode is persisted in localStorage.
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { javascript } from '@codemirror/lang-javascript';
@@ -17,8 +20,35 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { LanguageDescription } from '@codemirror/language';
 import { useThemeStore } from '../../stores/useThemeStore';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Eye, Pencil } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
-// ── Theme built from CSS variables ───────────────────────────────────────────
+// ── Mode persistence ────────────────────────────────────────────────────────
+
+const STORAGE_KEY = 'voxyflow_desc_editor_mode';
+
+function readPersistedMode(): 'edit' | 'preview' {
+  try {
+    const val = localStorage.getItem(STORAGE_KEY);
+    if (val === 'preview') return 'preview';
+  } catch {
+    // ignore
+  }
+  return 'edit';
+}
+
+function persistMode(mode: 'edit' | 'preview') {
+  try {
+    localStorage.setItem(STORAGE_KEY, mode);
+  } catch {
+    // ignore
+  }
+}
+
+// ── Theme built from CSS variables ──────────────────────────────────────────
 // Applied in both modes so the editor always matches the app surface colors.
 
 const baseTheme = EditorView.theme({
@@ -67,7 +97,7 @@ const baseTheme = EditorView.theme({
   },
 });
 
-// ── Syntax highlighting that works in both light and dark ────────────────────
+// ── Syntax highlighting that works in both light and dark ───────────────────
 
 const darkHighlight = syntaxHighlighting(
   HighlightStyle.define([
@@ -107,6 +137,68 @@ const lightHighlight = syntaxHighlighting(
   ])
 );
 
+// ── Markdown Preview ────────────────────────────────────────────────────────
+
+interface MarkdownPreviewProps {
+  value: string;
+}
+
+function MarkdownPreview({ value }: MarkdownPreviewProps) {
+  if (!value.trim()) {
+    return (
+      <p className="text-sm text-muted-foreground italic">No description yet…</p>
+    );
+  }
+
+  return (
+    <div className="prose prose-sm dark:prose-invert max-w-none">
+      <ReactMarkdown
+        components={{
+          code({ className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || '');
+            const isBlock = className?.includes('language-');
+            const code = String(children).replace(/\n$/, '');
+            if (isBlock) {
+              return (
+                <div className="relative group">
+                  <div className="flex items-center justify-between bg-[#1e1e1e] px-3 py-1 rounded-t text-xs text-gray-400">
+                    <span>{match?.[1] ?? 'code'}</span>
+                  </div>
+                  <SyntaxHighlighter
+                    style={vscDarkPlus}
+                    language={match?.[1] ?? 'text'}
+                    PreTag="div"
+                    customStyle={{ margin: 0, borderRadius: '0 0 4px 4px', fontSize: '0.85em' }}
+                  >
+                    {code}
+                  </SyntaxHighlighter>
+                </div>
+              );
+            }
+            return (
+              <code
+                className="bg-muted px-1 py-0.5 rounded text-sm font-mono"
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          },
+          a({ href, children }) {
+            return (
+              <a href={href} target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
+            );
+          },
+        }}
+      >
+        {value}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -117,6 +209,12 @@ interface Props {
 
 export function DescriptionEditor({ cardId: _cardId, value, onChange }: Props) {
   const theme = useThemeStore((s) => s.theme);
+  const [mode, setMode] = useState<'edit' | 'preview'>(readPersistedMode);
+
+  // Persist mode changes
+  useEffect(() => {
+    persistMode(mode);
+  }, [mode]);
 
   const extensions = useMemo(
     () => [
@@ -149,24 +247,58 @@ export function DescriptionEditor({ cardId: _cardId, value, onChange }: Props) {
     [onChange],
   );
 
+  const toggleMode = useCallback(() => {
+    setMode((m) => (m === 'edit' ? 'preview' : 'edit'));
+  }, []);
+
   return (
-    <div className="flex h-full flex-col [&_.cm-editor]:flex-1">
-      <CodeMirror
-        value={value}
-        onChange={handleChange}
-        extensions={extensions}
-        theme="none"
-        placeholder="Write card description… (Markdown supported)"
-        basicSetup={{
-          lineNumbers: true,
-          highlightActiveLine: true,
-          highlightActiveLineGutter: true,
-          history: true,
-          bracketMatching: true,
-          indentOnInput: true,
-          foldGutter: false,
-        }}
-      />
+    <div className="flex h-full flex-col">
+      {/* ── Mode toggle bar ── */}
+      <div className="mb-2 flex items-center justify-end">
+        <button
+          type="button"
+          onClick={toggleMode}
+          title={mode === 'edit' ? 'Switch to Preview' : 'Switch to Edit'}
+          className={cn(
+            'flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer',
+            mode === 'preview'
+              ? 'border-accent bg-accent text-accent-foreground'
+              : 'border-border bg-transparent text-muted-foreground hover:bg-muted',
+          )}
+        >
+          {mode === 'edit' ? (
+            <><Eye size={12} /> Preview</>
+          ) : (
+            <><Pencil size={12} /> Edit</>
+          )}
+        </button>
+      </div>
+
+      {/* ── Content ── */}
+      {mode === 'edit' ? (
+        <div className="min-h-0 flex-1 overflow-auto [&_.cm-editor]:flex-1">
+          <CodeMirror
+            value={value}
+            onChange={handleChange}
+            extensions={extensions}
+            theme="none"
+            placeholder="Write card description… (Markdown supported)"
+            basicSetup={{
+              lineNumbers: true,
+              highlightActiveLine: true,
+              highlightActiveLineGutter: true,
+              history: true,
+              bracketMatching: true,
+              indentOnInput: true,
+              foldGutter: false,
+            }}
+          />
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border bg-card p-4">
+          <MarkdownPreview value={value} />
+        </div>
+      )}
     </div>
   );
 }
