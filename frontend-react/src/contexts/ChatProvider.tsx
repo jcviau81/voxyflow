@@ -20,7 +20,7 @@ import {
 } from '../lib/constants';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '../types';
-import { cardKeys } from '../hooks/api/useCards';
+import { cardKeys, mapRawCard } from '../hooks/api/useCards';
 
 // ---------------------------------------------------------------------------
 // Chat event callback types — components subscribe to these via context
@@ -663,6 +663,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const { projectId, cardId } = payload as { projectId?: string; cardId?: string };
         if (cardId) {
           void queryClient.invalidateQueries({ queryKey: cardKeys.detail(cardId) });
+          // Fetch updated card and upsert into Zustand so open modals update in real-time
+          fetch(`/api/cards/${cardId}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((raw) => {
+              if (raw) useCardStore.getState().upsertCard(mapRawCard(raw as Record<string, unknown>));
+            })
+            .catch(() => {});
         }
         if (projectId) {
           void queryClient.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });

@@ -5,7 +5,7 @@ const API = '';
 
 // --- Mappers ---
 
-function mapRawCard(c: Record<string, unknown>): Card {
+export function mapRawCard(c: Record<string, unknown>): Card {
   return {
     ...(c as unknown as Card),
     projectId: (c.project_id as string) ?? null,

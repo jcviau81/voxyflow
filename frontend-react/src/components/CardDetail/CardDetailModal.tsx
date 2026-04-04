@@ -117,10 +117,16 @@ export function CardDetailModal() {
     [card?.projectId, cardsById],
   );
 
-  // Sync description when card changes
+  // Sync local state when card data changes (including real-time updates from workers)
   useEffect(() => {
     if (card) setDescription(card.description ?? '');
-  }, [card?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [card?.id, card?.description]);
+
+  useEffect(() => {
+    if (card && titleRef.current && titleRef.current !== document.activeElement) {
+      titleRef.current.value = card.title;
+    }
+  }, [card?.title]);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
