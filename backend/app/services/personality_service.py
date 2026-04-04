@@ -236,27 +236,47 @@ class PersonalityService:
             cards = project.get("cards", [])
             total = len(cards)
             done = sum(1 for c in cards if c.get("status") == "done")
-            in_progress = sum(1 for c in cards if c.get("status") == "in_progress")
-            todo = sum(1 for c in cards if c.get("status") == "todo")
-            ideas = sum(1 for c in cards if c.get("status") == "idea")
+            in_progress_cards = [c for c in cards if c.get("status") == "in_progress"]
+            todo_cards = [c for c in cards if c.get("status") == "todo"]
+            idea_cards = [c for c in cards if c.get("status") == "idea"]
 
-            recent_cards = sorted(cards, key=lambda c: c.get("updated_at", ""), reverse=True)[:3]
-            if recent_cards:
-                activity_lines = "\n".join(
-                    f"  - [{c.get('status', '?')}] {c.get('title', 'Untitled')}"
-                    for c in recent_cards
-                )
+            state_line = (
+                f"State: {total} cards — {done} done, {len(in_progress_cards)} in progress, "
+                f"{len(todo_cards)} todo, {len(idea_cards)} ideas"
+            )
+
+            # In-progress titles
+            if in_progress_cards:
+                ip_lines = "\n".join(f"  - {c.get('title', 'Untitled')}" for c in in_progress_cards)
+                in_progress_block = f"In progress:\n{ip_lines}"
             else:
-                activity_lines = "  (no recent activity)"
+                in_progress_block = "In progress: (none)"
+
+            # Todo titles
+            if todo_cards:
+                td_lines = "\n".join(f"  - {c.get('title', 'Untitled')}" for c in todo_cards)
+                todo_block = f"Todo:\n{td_lines}"
+            else:
+                todo_block = "Todo: (none)"
+
+            # Idea titles (top 5)
+            if idea_cards:
+                top_ideas = idea_cards[:5]
+                id_lines = "\n".join(f"  - {c.get('title', 'Untitled')}" for c in top_ideas)
+                ideas_block = f"Ideas (top {len(top_ideas)}):\n{id_lines}"
+                if len(idea_cards) > 5:
+                    ideas_block += f"\n  … and {len(idea_cards) - 5} more"
+            else:
+                ideas_block = "Ideas: (none)"
 
             parts.append(
                 f"## Project Context: {name}\n"
                 f"Description: {description}\n"
                 f"Tech Stack: {tech_stack}\n"
                 f"GitHub: {github_url}\n\n"
-                f"State: {total} cards — {done} done, {in_progress} in progress, {todo} todo, {ideas} ideas\n"
-                f"Active sprint: {sprint_name}\n"
-                f"Recent activity:\n{activity_lines}"
+                f"{state_line}\n"
+                f"Active sprint: {sprint_name}\n\n"
+                f"{in_progress_block}\n{todo_block}\n{ideas_block}"
             )
 
         if chat_level == "card" and card:
