@@ -912,7 +912,9 @@ class ClaudeService(ApiCallerMixin):
         # Mandatory task.complete instruction for workers
         dynamic_parts.append(
             "IMPORTANT: When your task is complete, you MUST call the task.complete tool "
-            "with a summary of what you did and a status (success/partial/failed). "
+            "with a status (success/partial/failed) and a summary containing the ACTUAL RESULTS. "
+            "Include full stdout/stderr from commands, real data values, concrete findings. "
+            "The user only sees the summary — never write generic 'Done' or 'Task complete'. "
             "This is mandatory — never finish without calling task.complete."
         )
 

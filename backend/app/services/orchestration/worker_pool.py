@@ -422,7 +422,10 @@ class DeepWorkerPool:
                 f"Intent: {event.intent}\n"
                 f"Summary: {event.summary}\n"
                 f"Task ID: {event.task_id}\n"
-                f"\nWhen done, call task.complete(task_id=\"{event.task_id}\", summary=\"...\", status=\"success|partial|failed\").\n"
+                f"\nWhen done, call task.complete(task_id=\"{event.task_id}\", summary=\"<ACTUAL RESULTS HERE>\", status=\"success|partial|failed\").\n"
+                f"CRITICAL: The summary MUST contain the concrete output — full stdout from commands, "
+                f"actual data retrieved, real values returned. Never write just 'Done' or 'Task complete'. "
+                f"The user only sees the summary, so include everything they need.\n"
             )
 
             if is_move_or_update:
