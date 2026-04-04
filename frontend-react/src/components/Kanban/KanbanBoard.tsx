@@ -12,6 +12,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
@@ -189,9 +190,11 @@ function KanbanColumn({
   executingCardId,
 }: KanbanColumnProps) {
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
+  const { setNodeRef } = useDroppable({ id: status });
 
   return (
     <div
+      ref={setNodeRef}
       className="flex flex-col min-w-[260px] flex-1 rounded-xl bg-muted/40 border border-border/40"
       data-status={status}
     >
@@ -621,6 +624,16 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     [],
   );
 
+  const resolveTargetStatus = useCallback(
+    (over: DragOverEvent['over']): CardStatus | null => {
+      if (!over) return null;
+      const overCard = over.data.current?.card as Card | undefined;
+      const candidate = overCard?.status ?? (over.id as CardStatus);
+      return COLUMN_STATUSES.includes(candidate) ? candidate : null;
+    },
+    [],
+  );
+
   const handleDragOver = useCallback(
     (event: DragOverEvent) => {
       const { active, over } = event;
@@ -629,16 +642,12 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       const activeCard = active.data.current.card as Card | undefined;
       if (!activeCard) return;
 
-      // Determine target status — over could be a card or a column droppable
-      const overCard = over.data.current?.card as Card | undefined;
-      const targetStatus = overCard?.status ?? (over.id as CardStatus);
-
-      if (COLUMN_STATUSES.includes(targetStatus) && activeCard.status !== targetStatus) {
-        // Optimistically move card to new column in store
+      const targetStatus = resolveTargetStatus(over);
+      if (targetStatus && activeCard.status !== targetStatus) {
         useCardStore.getState().moveCard(activeCard.id, targetStatus);
       }
     },
-    [],
+    [resolveTargetStatus],
   );
 
   const handleDragEnd = useCallback(
@@ -647,25 +656,28 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       setActiveCard(null);
       dragOriginStatusRef.current = null;
       const { active, over } = event;
-      if (!over) return;
 
       const activeCardData = active.data.current?.card as Card | undefined;
       if (!activeCardData || !projectId) return;
 
-      const overCard = over.data.current?.card as Card | undefined;
-      const targetStatus = overCard?.status ?? (over.id as CardStatus);
+      const targetStatus = resolveTargetStatus(over);
+
+      // Rollback if dropped outside a valid column
+      if (!targetStatus) {
+        if (originStatus) {
+          useCardStore.getState().moveCard(activeCardData.id, originStatus);
+        }
+        return;
+      }
 
       // If moved to a new status column — persist via API
-      // Use originStatus (captured at drag start) because handleDragOver
-      // optimistically updates the card's status in the store, which means
-      // activeCardData.status may already reflect the new column.
       if (originStatus && originStatus !== targetStatus) {
         patchCard.mutate({ cardId: activeCardData.id, updates: { status: targetStatus } });
       }
 
       // Handle reorder within same column
-      const effectiveStatus = targetStatus;
-      const columnCards = cardsByColumn[effectiveStatus] ?? [];
+      const overCard = over?.data.current?.card as Card | undefined;
+      const columnCards = cardsByColumn[targetStatus] ?? [];
       const oldIndex = columnCards.findIndex((c) => c.id === activeCardData.id);
       const overIndex = overCard
         ? columnCards.findIndex((c) => c.id === overCard.id)
@@ -674,13 +686,11 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       if (oldIndex !== -1 && overIndex !== -1 && oldIndex !== overIndex) {
         const reordered = arrayMove(columnCards, oldIndex, overIndex);
         const orderedIds = reordered.map((c) => c.id);
-        // Optimistic UI update
         useCardStore.getState().reorderCards(orderedIds);
-        // Persist to backend
         reorderCards.mutate(orderedIds);
       }
     },
-    [projectId, patchCard, reorderCards, cardsByColumn],
+    [projectId, patchCard, reorderCards, cardsByColumn, resolveTargetStatus],
   );
 
   // ── Action handlers ──────────────────────────────────────────────────────
