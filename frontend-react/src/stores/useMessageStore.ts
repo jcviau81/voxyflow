@@ -59,11 +59,12 @@ export const useMessageStore = create<MessageState>()(
           return;
         }
         set((s) => {
+          const safeSlice = (c: unknown) => (typeof c === 'string' ? c : String(c ?? '')).slice(0, 50);
           const existingKeys = new Set(
-            s.messages.map((m) => `${m.role}:${m.timestamp}:${m.content.slice(0, 50)}`),
+            s.messages.map((m) => `${m.role}:${m.timestamp}:${safeSlice(m.content)}`),
           );
           const toAdd = newMessages.filter(
-            (m) => !existingKeys.has(`${m.role}:${m.timestamp}:${m.content.slice(0, 50)}`),
+            (m) => !existingKeys.has(`${m.role}:${m.timestamp}:${safeSlice(m.content)}`),
           );
           if (toAdd.length === 0) return s;
           return { messages: [...s.messages, ...toAdd] };

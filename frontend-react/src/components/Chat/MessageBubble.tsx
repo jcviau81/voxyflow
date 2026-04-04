@@ -91,7 +91,9 @@ interface MessageContentProps {
 }
 
 function MessageContent({ content, streaming }: MessageContentProps) {
-  const processed = replaceEmojiShortcodes(content);
+  // Guard: ensure content is always a string (stale localStorage or malformed WS payload)
+  const safeContent = typeof content === 'string' ? content : JSON.stringify(content ?? '');
+  const processed = replaceEmojiShortcodes(safeContent);
 
   // Hide delegate/tool_call blocks from rendered output
   const cleaned = processed
@@ -320,7 +322,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
         <div ref={contentRef}>
           {isUser ? (
             <div className="bg-primary border border-transparent text-primary-foreground rounded-xl rounded-br-sm px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">
-              {replaceEmojiShortcodes(message.content)}
+              {replaceEmojiShortcodes(typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? ''))}
             </div>
           ) : (
             <div
