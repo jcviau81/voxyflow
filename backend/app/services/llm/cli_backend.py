@@ -90,11 +90,25 @@ def _format_messages(messages: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
+def _find_claude_cli(explicit_path: str = "claude") -> str:
+    """Resolve the Claude CLI binary path.
+
+    Priority: explicit path > ~/.local/bin/claude > $PATH lookup.
+    """
+    if explicit_path != "claude" and os.path.isfile(explicit_path):
+        return explicit_path
+    # Common install location (npm global, pipx, etc.)
+    local_bin = os.path.expanduser("~/.local/bin/claude")
+    if os.path.isfile(local_bin):
+        return local_bin
+    return explicit_path  # fallback to bare name (relies on PATH)
+
+
 class ClaudeCliBackend:
     """Manages Claude Code CLI subprocess calls."""
 
     def __init__(self, cli_path: str = "claude"):
-        self.cli_path = cli_path
+        self.cli_path = _find_claude_cli(cli_path)
         self._last_usage: dict = {}
 
     @property
