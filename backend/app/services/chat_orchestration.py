@@ -1244,7 +1244,7 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         if project_id:
             try:
-                from app.database import async_session, Project, Card, Sprint
+                from app.database import async_session, Project, Card
                 from sqlalchemy import select
                 async with async_session() as db:
                     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -1264,16 +1264,6 @@ class ChatOrchestrator(LayerRunnersMixin):
                             for c in proj_cards
                         ]
 
-                        # Fetch active sprint
-                        sprint_result = await db.execute(
-                            select(Sprint).where(
-                                Sprint.project_id == project_id,
-                                Sprint.status == "active",
-                            )
-                        )
-                        active_sprint = sprint_result.scalar_one_or_none()
-                        sprint_name = active_sprint.name if active_sprint else None
-
                         project_context = {
                             "id": proj.id,
                             "title": proj.title,
@@ -1281,7 +1271,6 @@ class ChatOrchestrator(LayerRunnersMixin):
                             "tech_stack": getattr(proj, "tech_stack", "") or "",
                             "github_url": proj.github_url or "",
                             "cards": cards_list,
-                            "active_sprint_name": sprint_name,
                         }
 
                     if card_id:

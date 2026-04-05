@@ -170,7 +170,7 @@ class PersonalityService:
         return (
             f"## Project: {name}\n"
             f"You are Voxy, working on **{name}**. This is your context right now — you know this project, you're inside it.\n\n"
-            f"You can create cards, move them, update them, assign agents, write wiki pages, manage sprints. "
+            f"You can create cards, move them, update them, assign agents, write wiki pages. "
             f"When the user asks you to do something in this project, do it — don't explain that you can. "
             f"Stay focused here unless they explicitly ask about something else."
         )
@@ -231,8 +231,6 @@ class PersonalityService:
             description = project.get("description") or "No description"
             tech_stack = project.get("tech_stack") or "Not specified"
             github_url = project.get("github_url") or "Not linked"
-            sprint_name = project.get("active_sprint_name") or "None"
-
             cards = project.get("cards", [])
             total = len(cards)
             done = sum(1 for c in cards if c.get("status") == "done")
@@ -274,8 +272,7 @@ class PersonalityService:
                 f"Description: {description}\n"
                 f"Tech Stack: {tech_stack}\n"
                 f"GitHub: {github_url}\n\n"
-                f"{state_line}\n"
-                f"Active sprint: {sprint_name}\n\n"
+                f"{state_line}\n\n"
                 f"{in_progress_block}\n{todo_block}\n{ideas_block}"
             )
 
