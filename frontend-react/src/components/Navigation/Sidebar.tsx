@@ -44,6 +44,7 @@ import { useThemeStore } from '../../stores/useThemeStore';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useToggleFavorite } from '../../hooks/api/useProjects';
 import type { Project, SessionInfo } from '../../types';
+import { CliSessionsBadge } from './CliSessionsBadge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -358,6 +359,9 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             })}
           </div>
         )}
+
+        {/* ── CLI Processes ── */}
+        <CliSessionsBadge />
 
         {/* ── All Projects ── */}
         <div className="sidebar-projects mt-3 pt-2 border-t border-border">

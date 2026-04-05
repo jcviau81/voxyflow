@@ -556,6 +556,7 @@ class DeepWorkerPool:
                     tool_callback=tool_callback,
                     cancel_event=cancel_event,
                     message_queue=message_queue,
+                    session_id=event.session_id or "",
                 )
             except asyncio.CancelledError:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")

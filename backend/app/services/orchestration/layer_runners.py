@@ -69,6 +69,7 @@ class LayerRunnersMixin:
                 project_id=project_id,
                 project_names=project_names,
                 active_workers_context=active_workers_context,
+                session_id=session_id or "",
             ):
                 fast_full_response += token
                 if not first_token_sent:
@@ -213,6 +214,7 @@ class LayerRunnersMixin:
                 project_id=project_id,
                 project_names=project_names,
                 active_workers_context=active_workers_context,
+                session_id=session_id or "",
             ):
                 deep_full_response += token
                 if not first_token_sent:

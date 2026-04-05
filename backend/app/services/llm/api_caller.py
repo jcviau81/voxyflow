@@ -1199,6 +1199,9 @@ class ApiCallerMixin:
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
         tool_callback: Optional[Callable] = None,
+        session_id: str = "",
+        project_id: str = "",
+        session_type: str = "worker",
     ) -> str:
         """Non-streaming call via Claude CLI subprocess."""
         text, usage = await self._cli_backend.call(
@@ -1209,6 +1212,10 @@ class ApiCallerMixin:
             mcp_role=mcp_role,
             cancel_event=cancel_event,
             tool_callback=tool_callback,
+            session_id=session_id,
+            chat_id=chat_id,
+            project_id=project_id,
+            session_type=session_type,
         )
         # Log token usage
         _log_token_usage(
@@ -1239,6 +1246,9 @@ class ApiCallerMixin:
         mcp_role: str = "worker",
         layer: str = "fast",
         chat_id: str = "",
+        session_id: str = "",
+        project_id: str = "",
+        session_type: str = "chat",
     ) -> AsyncIterator[str]:
         """Streaming call via Claude CLI subprocess."""
         async for token in self._cli_backend.stream(
@@ -1247,6 +1257,10 @@ class ApiCallerMixin:
             messages=messages,
             use_tools=use_tools,
             mcp_role=mcp_role,
+            session_id=session_id,
+            chat_id=chat_id,
+            project_id=project_id,
+            session_type=session_type,
         ):
             yield token
         # Log token usage from the completed stream
@@ -1297,6 +1311,9 @@ class ApiCallerMixin:
         chat_id: str = "",
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
+        session_id: str = "",
+        project_id: str = "",
+        session_type: str = "worker",
     ) -> str:
         """Dispatch to native Anthropic SDK, CLI subprocess, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
@@ -1308,6 +1325,7 @@ class ApiCallerMixin:
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
                 cancel_event=cancel_event, message_queue=message_queue,
                 tool_callback=tool_callback,
+                session_id=session_id, project_id=project_id, session_type=session_type,
             )
         if ct == "anthropic":
             return await self._call_api_anthropic(
@@ -1344,6 +1362,9 @@ class ApiCallerMixin:
         chat_level: str = "general",
         layer: str = "fast",
         chat_id: str = "",
+        session_id: str = "",
+        project_id: str = "",
+        session_type: str = "chat",
     ) -> AsyncIterator[str]:
         """Dispatch streaming to CLI subprocess, native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
@@ -1353,6 +1374,7 @@ class ApiCallerMixin:
             async for token in self._call_api_stream_cli(
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
+                session_id=session_id, project_id=project_id, session_type=session_type,
             ):
                 yield token
             return

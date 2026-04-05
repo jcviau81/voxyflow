@@ -538,6 +538,17 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_http": ("DELETE", "/api/projects/{project_id}/documents/{document_id}", None),
     },
 
+    # ---- CLI Sessions ------------------------------------------------------
+    {
+        "name": "voxyflow.sessions.list",
+        "description": "List active CLI subprocess sessions (chat and worker processes). Shows running processes with model, duration, and session details.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+        "_http": ("GET", "/api/cli-sessions/active", None),
+    },
+
     # ---- Worker Ledger -----------------------------------------------------
     {
         "name": "voxyflow.workers.list",

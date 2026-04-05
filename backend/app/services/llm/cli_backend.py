@@ -17,8 +17,13 @@ import json
 import logging
 import os
 import signal
+import time
 from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
+
+from app.services.cli_session_registry import (
+    CliSession, get_cli_session_registry, new_cli_session_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +211,10 @@ class ClaudeCliBackend:
         mcp_role: str = "worker",
         cancel_event: Optional[asyncio.Event] = None,
         tool_callback: Optional[Callable] = None,
+        session_id: str = "",
+        chat_id: str = "",
+        project_id: str = "",
+        session_type: str = "worker",
     ) -> tuple[str, dict]:
         """Non-streaming CLI call. Returns (response_text, usage_dict).
 
@@ -221,6 +230,8 @@ class ClaudeCliBackend:
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role,
                 cancel_event=cancel_event, tool_callback=tool_callback,
+                session_id=session_id, chat_id=chat_id,
+                project_id=project_id, session_type=session_type,
             )
 
         system_prompt = _flatten_system(system)
@@ -242,6 +253,15 @@ class ClaudeCliBackend:
             stderr=asyncio.subprocess.PIPE,
         )
 
+        _cancel = cancel_event or asyncio.Event()
+        _reg_id = new_cli_session_id()
+        get_cli_session_registry().register(CliSession(
+            id=_reg_id, pid=proc.pid, session_id=session_id,
+            chat_id=chat_id, project_id=project_id or None,
+            model=_model_flag(model), session_type=session_type,
+            started_at=time.time(), cancel_event=_cancel, _process=proc,
+        ))
+
         # Monitor cancel_event in parallel
         cancel_task = None
         if cancel_event:
@@ -262,6 +282,7 @@ class ClaudeCliBackend:
         try:
             stdout, stderr = await proc.communicate(input=prompt.encode("utf-8"))
         finally:
+            get_cli_session_registry().deregister(_reg_id)
             if cancel_task:
                 cancel_task.cancel()
                 try:
@@ -316,6 +337,10 @@ class ClaudeCliBackend:
         mcp_role: str = "worker",
         cancel_event: Optional[asyncio.Event] = None,
         tool_callback: Optional[Callable] = None,
+        session_id: str = "",
+        chat_id: str = "",
+        project_id: str = "",
+        session_type: str = "worker",
     ) -> tuple[str, dict]:
         """CLI call using stream-json to capture MCP tool events.
 
@@ -341,6 +366,15 @@ class ClaudeCliBackend:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+
+        _cancel = cancel_event or asyncio.Event()
+        _reg_id = new_cli_session_id()
+        get_cli_session_registry().register(CliSession(
+            id=_reg_id, pid=proc.pid, session_id=session_id,
+            chat_id=chat_id, project_id=project_id or None,
+            model=_model_flag(model), session_type=session_type,
+            started_at=time.time(), cancel_event=_cancel, _process=proc,
+        ))
 
         proc.stdin.write(prompt.encode("utf-8"))
         await proc.stdin.drain()
@@ -424,6 +458,7 @@ class ClaudeCliBackend:
                     self._last_usage = usage
 
         finally:
+            get_cli_session_registry().deregister(_reg_id)
             if cancel_task:
                 cancel_task.cancel()
                 try:
@@ -457,6 +492,10 @@ class ClaudeCliBackend:
         *,
         use_tools: bool = False,
         mcp_role: str = "worker",
+        session_id: str = "",
+        chat_id: str = "",
+        project_id: str = "",
+        session_type: str = "chat",
     ) -> AsyncIterator[str]:
         """Streaming CLI call via --output-format stream-json.
 
@@ -481,6 +520,14 @@ class ClaudeCliBackend:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+
+        _reg_id = new_cli_session_id()
+        get_cli_session_registry().register(CliSession(
+            id=_reg_id, pid=proc.pid, session_id=session_id,
+            chat_id=chat_id, project_id=project_id or None,
+            model=_model_flag(model), session_type=session_type,
+            started_at=time.time(), cancel_event=asyncio.Event(), _process=proc,
+        ))
 
         # Write prompt to stdin and close it
         proc.stdin.write(prompt.encode("utf-8"))
@@ -524,6 +571,7 @@ class ClaudeCliBackend:
                     yield result_text[yielded_length:]
 
         await proc.wait()
+        get_cli_session_registry().deregister(_reg_id)
 
         if proc.returncode != 0:
             stderr_text = (await proc.stderr.read()).decode("utf-8", errors="replace")

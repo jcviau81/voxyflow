@@ -536,6 +536,7 @@ class ClaudeService(ApiCallerMixin):
         project_id: Optional[str] = None,
         project_names: Optional[list] = None,
         active_workers_context: str = "",
+        session_id: str = "",
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer.
 
@@ -664,6 +665,8 @@ class ClaudeService(ApiCallerMixin):
                 use_tools=True,
                 mcp_role="dispatcher",
                 chat_level=chat_level,
+                session_id=session_id, project_id=project_id or "",
+                session_type="chat",
             ):
                 full_response += token
                 yield token
@@ -679,6 +682,8 @@ class ClaudeService(ApiCallerMixin):
                 client_type=self.fast_client_type,
                 use_tools=False,
                 chat_level=chat_level,
+                session_id=session_id, project_id=project_id or "",
+                session_type="chat",
             ):
                 full_response += token
                 yield token
@@ -700,6 +705,7 @@ class ClaudeService(ApiCallerMixin):
         project_id: Optional[str] = None,
         project_names: Optional[list] = None,
         active_workers_context: str = "",
+        session_id: str = "",
     ) -> AsyncIterator[str]:
         """Deep layer (streaming): Yield tokens from the deep model directly to chat.
 
@@ -826,6 +832,8 @@ class ClaudeService(ApiCallerMixin):
                 use_tools=True,
                 mcp_role="dispatcher",
                 chat_level=chat_level,
+                session_id=session_id, project_id=project_id or "",
+                session_type="chat",
             ):
                 full_response += token
                 yield token
@@ -840,6 +848,8 @@ class ClaudeService(ApiCallerMixin):
                 client_type=self.deep_client_type,
                 use_tools=False,
                 chat_level=chat_level,
+                session_id=session_id, project_id=project_id or "",
+                session_type="chat",
             ):
                 full_response += token
                 yield token
@@ -863,6 +873,7 @@ class ClaudeService(ApiCallerMixin):
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
+        session_id: str = "",
     ) -> str:
         """Execute a delegated task with the specified worker model (haiku/sonnet/opus)."""
         # Select client/model based on model param
@@ -941,6 +952,8 @@ class ClaudeService(ApiCallerMixin):
             chat_level=chat_level,
             cancel_event=cancel_event,
             message_queue=message_queue,
+            session_id=session_id, project_id=project_id or "",
+            session_type="worker",
         )
         return (_strip_think_tags(result) if _is_thinking_model(model_name) else result) if result else result
 
