@@ -310,6 +310,84 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_http": ("POST", "/api/cards/{card_id}/enrich", None),
     },
 
+    # ---- Checklist ---------------------------------------------------------
+    {
+        "name": "voxyflow.card.checklist.add",
+        "description": "Add a single checklist item to a card.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "text"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+                "text": {"type": "string", "description": "Checklist item text"},
+            },
+        },
+        "_http": ("POST", "/api/cards/{card_id}/checklist", lambda p: {
+            "text": p["text"],
+        }),
+    },
+    {
+        "name": "voxyflow.card.checklist.add_bulk",
+        "description": "Add multiple checklist items to a card in one call. Use this when creating a full checklist (3-5 items).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "items"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+                "items": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of checklist item texts",
+                },
+            },
+        },
+        "_http": ("POST", "/api/cards/{card_id}/checklist/bulk", lambda p: [
+            {"text": t} for t in p.get("items", [])
+        ]),
+    },
+    {
+        "name": "voxyflow.card.checklist.list",
+        "description": "List all checklist items for a card.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+            },
+        },
+        "_http": ("GET", "/api/cards/{card_id}/checklist", None),
+    },
+    {
+        "name": "voxyflow.card.checklist.update",
+        "description": "Update a checklist item (toggle completed or edit text).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "item_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+                "item_id": {"type": "string", "description": "Checklist item ID"},
+                "text": {"type": "string", "description": "New text (optional)"},
+                "completed": {"type": "boolean", "description": "Mark as completed (optional)"},
+            },
+        },
+        "_http": ("PATCH", "/api/cards/{card_id}/checklist/{item_id}", lambda p: {
+            k: v for k, v in p.items() if k in ("text", "completed") and v is not None
+        }),
+    },
+    {
+        "name": "voxyflow.card.checklist.delete",
+        "description": "Delete a checklist item.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "item_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+                "item_id": {"type": "string", "description": "Checklist item ID"},
+            },
+        },
+        "_http": ("DELETE", "/api/cards/{card_id}/checklist/{item_id}", None),
+    },
+
     # ---- Wiki --------------------------------------------------------------
     {
         "name": "voxyflow.wiki.list",

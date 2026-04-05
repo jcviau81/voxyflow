@@ -1016,6 +1016,40 @@ async def delete_checklist_item(
     await db.commit()
 
 
+@router.post("/cards/{card_id}/checklist/bulk", response_model=list[ChecklistItemResponse], status_code=201)
+async def add_checklist_items_bulk(
+    card_id: str,
+    body: list[ChecklistItemCreate],
+    db: AsyncSession = Depends(get_db),
+):
+    """Add multiple checklist items to a card in one call."""
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Card not found.")
+
+    stmt = select(func.max(ChecklistItem.position)).where(ChecklistItem.card_id == card_id)
+    result = await db.execute(stmt)
+    max_pos = result.scalar() or -1
+
+    items = []
+    for i, entry in enumerate(body):
+        item = ChecklistItem(
+            id=new_uuid(),
+            card_id=card_id,
+            text=entry.text,
+            completed=False,
+            position=max_pos + 1 + i,
+            created_at=utcnow(),
+        )
+        db.add(item)
+        items.append(item)
+
+    await db.commit()
+    for item in items:
+        await db.refresh(item)
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Attachment endpoints
 # ---------------------------------------------------------------------------
