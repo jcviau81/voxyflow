@@ -62,9 +62,6 @@ export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }:
     [sessions, send, closeSession, closeTab]
   );
 
-  const handleNewProject = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('project-form-show', { detail: { mode: 'create' } }));
-  }, []);
 
   // Keyboard shortcuts: Ctrl+Tab to cycle, Ctrl+W to close active
   useEffect(() => {
