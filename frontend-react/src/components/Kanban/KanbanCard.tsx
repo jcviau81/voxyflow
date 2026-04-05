@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useState } from 'react';
-import { Pin, Copy, Pencil, Target, FolderInput, Archive, Timer, Play, CheckSquare, Link2, Trash2, Folder } from 'lucide-react';
+import { Pin, Copy, Pencil, FolderInput, Archive, Timer, Play, CheckSquare, Link2, Trash2, Folder } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
@@ -127,8 +127,6 @@ export interface KanbanCardProps {
   onTagClick?: (tag: string) => void;
   /** Called when the card body or Edit menu item is clicked */
   onCardClick?: (cardId: string) => void;
-  /** Called when Focus Mode is triggered */
-  onFocusMode?: (cardId: string) => void;
   /** True when a worker is actively executing this card */
   isWorkerActive?: boolean;
 }
@@ -146,7 +144,6 @@ export function KanbanCard({
   tagFilter = null,
   onTagClick,
   onCardClick,
-  onFocusMode,
   isWorkerActive = false,
 }: KanbanCardProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -428,10 +425,6 @@ export function KanbanCard({
             >
               <Pencil size={13} className="text-amber-400" /> Edit
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onFocusMode?.(card.id)}>
-              <Target size={13} className="text-sky-400" /> Focus Mode
-            </DropdownMenuItem>
-
             <DropdownMenuSeparator />
 
             {/* Clone to Project */}
