@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
-import { useCards, usePatchCard, useDeleteCard, useMoveCard, useCreateCard } from '../../hooks/api/useCards';
+import { useCards, usePatchCard, useDeleteCard, useArchiveCard, useMoveCard, useCreateCard } from '../../hooks/api/useCards';
 import { AGENT_TYPE_EMOJI, AGENT_PERSONAS } from '../../lib/constants';
 import type { Card } from '../../types';
 import {
@@ -248,6 +248,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
 
   const patchCard = usePatchCard();
   const deleteCard = useDeleteCard();
+  const archiveCard = useArchiveCard();
   const moveCard = useMoveCard();
   const createCard = useCreateCard();
 
@@ -289,11 +290,12 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
 
   const handleDelete = useCallback(
     async (card: Card) => {
-      if (!confirm(`Delete "${card.title}"? This cannot be undone.`)) return;
+      if (!confirm(`Archive "${card.title}"?`)) return;
       try {
-        await deleteCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
+        await archiveCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
+        showToast(`"${card.title}" archived`, 'success');
       } catch {
-        showToast('Failed to delete card', 'error');
+        showToast('Failed to archive card', 'error');
       }
     },
     [deleteCard, showToast],
