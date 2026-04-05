@@ -460,9 +460,6 @@ export function KanbanCard({
             <DropdownMenuItem onSelect={handleArchive}>
               <Archive size={13} className="text-muted-foreground" /> Archive
             </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
-              <Trash2 size={13} /> Delete
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
