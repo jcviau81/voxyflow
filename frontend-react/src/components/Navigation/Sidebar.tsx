@@ -179,6 +179,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
   const { connectionState, send } = useWS();
   const toggleFavoriteMutation = useToggleFavorite();
   const cardsById = useCardStore((s) => s.cardsById);
+  const selectedCardId = useProjectStore((s) => s.selectedCardId);
 
   // Derived data
   const activeProjects = projects.filter((p) => !p.archived && p.id !== SYSTEM_PROJECT_ID);
@@ -206,17 +207,19 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
     }
   }
 
-  // Include card chat sessions (tabId = "card-{cardId}", not in openTabs)
-  for (const [key, tabSessions] of Object.entries(sessions)) {
-    if (!key.startsWith('card-') || tabSessions.length === 0) continue;
-    const cardId = key.replace('card-', '');
-    const card = cardsById[cardId];
-    for (const session of tabSessions) {
-      sessionEntries.push({
-        tabId: key,
-        session,
-        label: `${card?.title?.slice(0, 25) || 'Card'} › ${session.title || 'Chat'}`,
-      });
+  // Include the currently open card's chat session (only when modal is open)
+  if (selectedCardId) {
+    const cardSessionKey = `card-${selectedCardId}`;
+    const cardSessions = sessions[cardSessionKey] || [];
+    if (cardSessions.length > 0) {
+      const card = cardsById[selectedCardId];
+      for (const session of cardSessions) {
+        sessionEntries.push({
+          tabId: cardSessionKey,
+          session,
+          label: `${card?.title?.slice(0, 25) || 'Card'} › ${session.title || 'Chat'}`,
+        });
+      }
     }
   }
 
