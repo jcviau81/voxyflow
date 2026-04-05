@@ -1274,19 +1274,27 @@ class ApiCallerMixin:
         project_id: str = "",
         session_type: str = "chat",
     ) -> AsyncIterator[str]:
-        """Streaming call via Claude CLI subprocess."""
-        async for token in self._cli_backend.stream(
-            model=model,
-            system=system,
-            messages=messages,
-            use_tools=use_tools,
-            mcp_role=mcp_role,
-            session_id=session_id,
-            chat_id=chat_id,
-            project_id=project_id,
-            session_type=session_type,
-        ):
-            yield token
+        """Streaming call via Claude CLI subprocess.
+
+        Chat sessions use persistent processes (kept alive across turns).
+        Workers and other session types use one-shot processes.
+        """
+        if session_type == "chat" and chat_id:
+            async for token in self._cli_backend.stream_persistent(
+                model=model, system=system, messages=messages,
+                chat_id=chat_id, use_tools=use_tools, mcp_role=mcp_role,
+                session_id=session_id, project_id=project_id,
+                session_type=session_type,
+            ):
+                yield token
+        else:
+            async for token in self._cli_backend.stream(
+                model=model, system=system, messages=messages,
+                use_tools=use_tools, mcp_role=mcp_role,
+                session_id=session_id, chat_id=chat_id,
+                project_id=project_id, session_type=session_type,
+            ):
+                yield token
         # Log token usage from the completed stream
         usage = self._cli_backend.last_usage
         if usage:

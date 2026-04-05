@@ -655,11 +655,27 @@ class ClaudeService(ApiCallerMixin):
             logger.info(f"[chat_fast_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
         elif use_cli_mcp:
             # CLI+MCP: inline tools via MCP, <delegate> XML for complex tasks
+            # For persistent sessions: if process exists, send only the new message
+            # with dynamic context as prefix (saves tokens)
+            is_persistent = (
+                self._cli_backend
+                and self._cli_backend.has_persistent_chat(chat_id)
+            )
+            if is_persistent:
+                # Build compact dynamic context for subsequent turns
+                dynamic_ctx = dynamic_context.strip() if dynamic_context else ""
+                user_msg = user_message
+                if dynamic_ctx:
+                    user_msg = f"[Context update]\n{dynamic_ctx}\n\n{user_message}"
+                stream_messages = [{"role": "user", "content": user_msg}]
+            else:
+                stream_messages = primed_messages
+
             full_response = ""
             async for token in self._call_api_stream(
                 model=self.fast_model,
                 system=system_prompt,
-                messages=primed_messages,
+                messages=stream_messages,
                 client=self.fast_client,
                 client_type=self.fast_client_type,
                 use_tools=True,
@@ -670,7 +686,11 @@ class ClaudeService(ApiCallerMixin):
             ):
                 full_response += token
                 yield token
-            logger.info(f"[chat_fast_stream] CLI+MCP path — inline tools via MCP, XML delegates")
+            logger.info(
+                f"[chat_fast_stream] CLI+MCP path — "
+                f"{'persistent' if is_persistent else 'new session'}, "
+                f"inline tools via MCP, XML delegates"
+            )
         else:
             # Proxy fallback: no tools, XML delegate blocks
             full_response = ""
@@ -821,12 +841,25 @@ class ClaudeService(ApiCallerMixin):
                 yield token
             logger.info(f"[chat_deep_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
         elif use_cli_mcp:
-            # CLI+MCP: inline tools via MCP, <delegate> XML for complex tasks
+            # CLI+MCP: persistent session optimization
+            is_persistent = (
+                self._cli_backend
+                and self._cli_backend.has_persistent_chat(chat_id)
+            )
+            if is_persistent:
+                dynamic_ctx = dynamic_context.strip() if dynamic_context else ""
+                user_msg = user_message
+                if dynamic_ctx:
+                    user_msg = f"[Context update]\n{dynamic_ctx}\n\n{user_message}"
+                stream_messages = [{"role": "user", "content": user_msg}]
+            else:
+                stream_messages = primed_messages
+
             full_response = ""
             async for token in self._call_api_stream(
                 model=self.deep_model,
                 system=system_prompt,
-                messages=primed_messages,
+                messages=stream_messages,
                 client=self.deep_client,
                 client_type=self.deep_client_type,
                 use_tools=True,

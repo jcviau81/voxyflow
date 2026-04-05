@@ -19,6 +19,7 @@ import os
 import signal
 import time
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import AsyncIterator, Callable, Optional
 
 from app.services.cli_session_registry import (
@@ -109,12 +110,25 @@ def _find_claude_cli(explicit_path: str = "claude") -> str:
     return explicit_path  # fallback to bare name (relies on PATH)
 
 
+@dataclass
+class PersistentChatProcess:
+    """Wraps a persistent claude -p subprocess for multi-turn chat."""
+    proc: asyncio.subprocess.Process
+    response_queue: asyncio.Queue  # str tokens or None (turn done sentinel)
+    usage_result: dict
+    reader_task: asyncio.Task
+    turn_lock: asyncio.Lock
+    chat_id: str
+    registry_id: str
+
+
 class ClaudeCliBackend:
     """Manages Claude Code CLI subprocess calls."""
 
     def __init__(self, cli_path: str = "claude"):
         self.cli_path = _find_claude_cli(cli_path)
         self._last_usage: dict = {}
+        self._persistent_chats: dict[str, PersistentChatProcess] = {}
 
     @property
     def last_usage(self) -> dict:
@@ -500,6 +514,223 @@ class ClaudeCliBackend:
         )
 
         return result_text, usage
+
+    # ------------------------------------------------------------------
+    # Persistent chat sessions — keep CLI process alive across turns
+    # ------------------------------------------------------------------
+
+    async def _persistent_stdout_reader(
+        self,
+        proc: asyncio.subprocess.Process,
+        response_queue: asyncio.Queue,
+        usage_holder: dict,
+    ) -> None:
+        """Background task: reads stdout events and routes tokens to response_queue.
+
+        Runs for the lifetime of the persistent process. Each turn ends
+        when a 'result' event is received (sends None sentinel).
+        """
+        try:
+            async for raw_line in proc.stdout:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                event_type = event.get("type")
+
+                if event_type == "stream_event":
+                    inner = event.get("event", {})
+                    if inner.get("type") == "content_block_delta":
+                        delta = inner.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            text = delta.get("text", "")
+                            if text:
+                                await response_queue.put(text)
+
+                elif event_type == "result":
+                    usage = event.get("usage", {})
+                    usage_holder.clear()
+                    usage_holder.update(usage)
+                    self._last_usage = usage
+                    # Signal turn complete
+                    await response_queue.put(None)
+
+        except Exception as e:
+            logger.warning(f"[CLI-persistent] stdout reader error: {e}")
+        finally:
+            # Process died — signal any waiting consumer
+            await response_queue.put(None)
+
+    async def _spawn_persistent_chat(
+        self,
+        chat_id: str,
+        model: str,
+        system: str | list[dict],
+        messages: list[dict],
+        *,
+        use_tools: bool = False,
+        mcp_role: str = "dispatcher",
+        session_id: str = "",
+        project_id: str = "",
+    ) -> PersistentChatProcess:
+        """Spawn a persistent claude -p process for multi-turn chat."""
+        system_prompt = _flatten_system(system)
+        prompt = _format_messages(messages)
+        args = self._build_args(
+            model, system_prompt,
+            streaming=True, use_tools=use_tools, mcp_role=mcp_role,
+            interactive=True,
+        )
+
+        logger.info(
+            f"[CLI-persistent] Spawning persistent chat: model={_model_flag(model)} "
+            f"chat_id={chat_id} prompt_len={len(prompt)} tools={use_tools}"
+        )
+
+        proc = await asyncio.create_subprocess_exec(
+            self.cli_path, *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            limit=16 * 1024 * 1024,
+        )
+
+        # Register in session registry
+        _reg_id = new_cli_session_id()
+        get_cli_session_registry().register(CliSession(
+            id=_reg_id, pid=proc.pid, session_id=session_id,
+            chat_id=chat_id, project_id=project_id or None,
+            model=_model_flag(model), session_type="chat",
+            started_at=time.time(), cancel_event=asyncio.Event(),
+            _process=proc, last_activity=time.time(),
+        ))
+
+        # Send initial prompt via stream-json stdin
+        initial_msg = json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": prompt},
+        }) + "\n"
+        proc.stdin.write(initial_msg.encode("utf-8"))
+        await proc.stdin.drain()
+
+        # Start background reader
+        response_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        usage_holder: dict = {}
+        reader_task = asyncio.create_task(
+            self._persistent_stdout_reader(proc, response_queue, usage_holder)
+        )
+
+        pcp = PersistentChatProcess(
+            proc=proc,
+            response_queue=response_queue,
+            usage_result=usage_holder,
+            reader_task=reader_task,
+            turn_lock=asyncio.Lock(),
+            chat_id=chat_id,
+            registry_id=_reg_id,
+        )
+        self._persistent_chats[chat_id] = pcp
+        return pcp
+
+    async def stream_persistent(
+        self,
+        model: str,
+        system: str | list[dict],
+        messages: list[dict],
+        *,
+        chat_id: str,
+        use_tools: bool = False,
+        mcp_role: str = "dispatcher",
+        session_id: str = "",
+        project_id: str = "",
+        session_type: str = "chat",
+    ) -> AsyncIterator[str]:
+        """Persistent streaming — reuses subprocess across turns.
+
+        First call spawns the process with full history. Subsequent calls
+        inject only the new user message via stdin stream-json.
+        """
+        pcp = self._persistent_chats.get(chat_id)
+
+        # Check if process is alive
+        if pcp and pcp.proc.returncode is not None:
+            logger.info(f"[CLI-persistent] Dead process for {chat_id}, respawning")
+            await self.kill_persistent_chat(chat_id)
+            pcp = None
+
+        try:
+            if not pcp:
+                # First message — spawn with full history + system prompt
+                pcp = await self._spawn_persistent_chat(
+                    chat_id=chat_id, model=model, system=system, messages=messages,
+                    use_tools=use_tools, mcp_role=mcp_role,
+                    session_id=session_id, project_id=project_id,
+                )
+                # Yield tokens from the first turn
+                async with pcp.turn_lock:
+                    while True:
+                        token = await pcp.response_queue.get()
+                        if token is None:
+                            break
+                        yield token
+                    self._last_usage = pcp.usage_result.copy()
+            else:
+                # Subsequent message — inject only the last user message
+                async with pcp.turn_lock:
+                    user_content = messages[-1]["content"] if messages else ""
+                    event = json.dumps({
+                        "type": "user",
+                        "message": {"role": "user", "content": user_content},
+                    }) + "\n"
+                    pcp.proc.stdin.write(event.encode("utf-8"))
+                    await pcp.proc.stdin.drain()
+
+                    while True:
+                        token = await pcp.response_queue.get()
+                        if token is None:
+                            break
+                        yield token
+                    self._last_usage = pcp.usage_result.copy()
+
+            # Update activity timestamp
+            get_cli_session_registry().touch(pcp.registry_id)
+
+        except Exception as e:
+            logger.warning(f"[CLI-persistent] Error for {chat_id}, falling back to one-shot: {e}")
+            await self.kill_persistent_chat(chat_id)
+            # Fallback to one-shot stream
+            async for token in self.stream(
+                model=model, system=system, messages=messages,
+                use_tools=use_tools, mcp_role=mcp_role,
+                session_id=session_id, chat_id=chat_id,
+                project_id=project_id, session_type=session_type,
+            ):
+                yield token
+
+    async def kill_persistent_chat(self, chat_id: str) -> None:
+        """Kill a persistent chat process and clean up."""
+        pcp = self._persistent_chats.pop(chat_id, None)
+        if not pcp:
+            return
+        logger.info(f"[CLI-persistent] Killing persistent chat for {chat_id}")
+        pcp.reader_task.cancel()
+        try:
+            pcp.proc.terminate()
+            await asyncio.sleep(1)
+            if pcp.proc.returncode is None:
+                pcp.proc.kill()
+        except ProcessLookupError:
+            pass
+        get_cli_session_registry().deregister(pcp.registry_id)
+
+    def has_persistent_chat(self, chat_id: str) -> bool:
+        """Check if a persistent chat process exists and is alive."""
+        pcp = self._persistent_chats.get(chat_id)
+        return pcp is not None and pcp.proc.returncode is None
 
     # ------------------------------------------------------------------
     # Steerable workers — stream-json input for mid-execution steering

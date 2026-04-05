@@ -30,6 +30,7 @@ class CliSession:
     _process: asyncio.subprocess.Process = field(repr=False)
     task_id: str = ""           # Voxyflow task_id (for steering lookup)
     steer_queue: Optional[asyncio.Queue] = field(default=None, repr=False)  # Steering message queue
+    last_activity: float = 0.0  # Updated on each message (for inactivity timeout)
 
 
 class CliSessionRegistry:
@@ -115,6 +116,40 @@ class CliSessionRegistry:
         await session.steer_queue.put(message)
         logger.info(f"[CliRegistry] Steering message queued for session {session_id} (pid={session.pid}): {message[:80]}")
         return True
+
+    def get_by_chat_id(self, chat_id: str) -> Optional[CliSession]:
+        """Find an active CLI session by chat_id (e.g. 'project:xyz')."""
+        for session in self._sessions.values():
+            if session.chat_id == chat_id:
+                return session
+        return None
+
+    async def kill_by_chat_id(self, chat_id: str) -> bool:
+        """Kill an active CLI session by chat_id."""
+        session = self.get_by_chat_id(chat_id)
+        if session:
+            return await self.kill(session.id)
+        return False
+
+    async def cleanup_inactive(self, max_idle_seconds: float = 1800) -> int:
+        """Kill sessions idle for more than max_idle_seconds. Returns count killed."""
+        now = time.time()
+        to_kill = [
+            s.id for s in self._sessions.values()
+            if s.last_activity > 0 and (now - s.last_activity) > max_idle_seconds
+        ]
+        count = 0
+        for sid in to_kill:
+            if await self.kill(sid):
+                logger.info(f"[CliRegistry] Killed inactive session {sid} (idle > {max_idle_seconds}s)")
+                count += 1
+        return count
+
+    def touch(self, session_id: str) -> None:
+        """Update last_activity timestamp for a session."""
+        session = self._sessions.get(session_id)
+        if session:
+            session.last_activity = time.time()
 
     def find_by_task_session(self, task_chat_id: str) -> Optional[CliSession]:
         """Find an active session by its chat_id (e.g. 'task-<task_id>')."""

@@ -169,7 +169,23 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("⏸️  Scheduler disabled via settings")
 
+    # Background task: cleanup idle persistent chat sessions every 5 minutes
+    async def _cleanup_idle_sessions():
+        from app.services.cli_session_registry import get_cli_session_registry
+        while True:
+            await asyncio.sleep(300)  # 5 minutes
+            try:
+                killed = await get_cli_session_registry().cleanup_inactive(1800)  # 30 min idle
+                if killed:
+                    logger.info(f"[Cleanup] Killed {killed} idle persistent chat sessions")
+            except Exception as e:
+                logger.debug(f"[Cleanup] idle session cleanup error: {e}")
+
+    _idle_cleanup_task = asyncio.create_task(_cleanup_idle_sessions())
+
     yield
+
+    _idle_cleanup_task.cancel()
 
     # Kill all active CLI sessions
     from app.services.cli_session_registry import get_cli_session_registry
