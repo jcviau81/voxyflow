@@ -235,7 +235,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   const boardCards = useMemo(
     () =>
       cards
-        .filter((c) => c.status === 'card')
+        .filter((c) => c.status !== 'archived')
         .sort((a, b) => b.createdAt - a.createdAt),
     [cards],
   );
