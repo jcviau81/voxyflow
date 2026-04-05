@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useState } from 'react';
-import { Pin, Copy, Pencil, FolderInput, Archive, Timer, Play, CheckSquare, Link2, Trash2, Folder } from 'lucide-react';
+import { Pin, Copy, Pencil, FolderInput, Archive, Timer, Play, CheckSquare, Link2, Folder } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
@@ -10,7 +10,6 @@ import {
   usePatchCard,
   useDuplicateCard,
   useArchiveCard,
-  useDeleteCard,
   useCloneCard,
   useMoveCard,
   useExecuteCard,
@@ -157,7 +156,7 @@ export function KanbanCard({
   const patchCard = usePatchCard();
   const duplicateCard = useDuplicateCard();
   const archiveCard = useArchiveCard();
-  const deleteCard = useDeleteCard();
+
   const cloneCard = useCloneCard();
   const moveCard = useMoveCard();
   const executeCard = useExecuteCard();
@@ -271,14 +270,6 @@ export function KanbanCard({
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`Delete "${card.title}"? This is permanent and cannot be undone.`)) return;
-    try {
-      await deleteCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
-    } catch {
-      showToast('Delete failed', 'error');
-    }
-  };
 
   const handleCloneTo = async (projectId: string, projectTitle: string) => {
     try {
