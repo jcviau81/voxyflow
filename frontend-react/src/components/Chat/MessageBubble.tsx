@@ -289,8 +289,8 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
   return (
     <div
       className={cn(
-        'group flex gap-2.5 py-2 px-8 animate-in fade-in duration-200',
-        isUser ? 'self-end flex-row-reverse ml-40' : 'self-start mr-40',
+        'group flex gap-2.5 py-2 px-4 md:px-8 animate-in fade-in duration-200',
+        isUser ? 'self-end flex-row-reverse md:ml-40' : 'self-start md:mr-40',
         isEnrichment && 'opacity-0 animate-in fade-in slide-in-from-bottom-2 duration-500 delay-300 fill-mode-forwards',
       )}
       data-message-id={message.id}

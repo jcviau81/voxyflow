@@ -388,10 +388,14 @@ export function ChatInput({
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+
   return (
     <div className="chat-input-area relative border-t border-border bg-background px-3 py-2">
-      {/* Smart suggestions */}
-      {suggestions.element}
+      {/* Smart suggestions — inline on desktop, popout on mobile */}
+      <div className="hidden md:block">
+        {suggestions.element}
+      </div>
 
       {/* Code paste banner */}
       {pendingPaste && (
@@ -419,6 +423,56 @@ export function ChatInput({
       {/* Slash command menu */}
       {slashMenu.element}
 
+      {/* Voice controls bar — above textarea for more input space */}
+      {!embedded && (
+        <TooltipProvider>
+          <div className="voice-controls flex items-center gap-1 mb-1.5">
+            {sttEnabled && <Tooltip content={sttAutoSend ? 'Auto-send: ON — voice sends after 3s silence' : 'Auto-send: OFF — fill input only'}>
+              <button
+                type="button"
+                className={cn(
+                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
+                  sttAutoSend ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
+                )}
+                onClick={() => toggleVoiceSetting('stt_auto_send')}
+              >
+                <AudioLines size={14} />
+              </button>
+            </Tooltip>}
+            {ttsEnabled && <Tooltip content={ttsAutoPlay ? 'Auto-play TTS: ON — responses read aloud' : 'Auto-play TTS: OFF'}>
+              <button
+                type="button"
+                className={cn(
+                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
+                  ttsAutoPlay ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
+                )}
+                onClick={() => toggleVoiceSetting('tts_auto_play')}
+              >
+                <Volume2 size={14} />
+              </button>
+            </Tooltip>}
+            {sttEnabled && <VoiceInput compact />}
+
+            {/* Mobile suggestion toggle */}
+            <button
+              type="button"
+              className="md:hidden ml-auto w-8 h-8 flex items-center justify-center rounded text-muted-foreground hover:bg-accent transition-colors"
+              onClick={() => setSuggestionsOpen((v) => !v)}
+              title="Suggestions"
+            >
+              <span className="text-xs">💡</span>
+            </button>
+          </div>
+        </TooltipProvider>
+      )}
+
+      {/* Mobile suggestions popout */}
+      {suggestionsOpen && (
+        <div className="md:hidden mb-1.5" onClick={() => setSuggestionsOpen(false)}>
+          {suggestions.element}
+        </div>
+      )}
+
       {/* Input row */}
       <div className="chat-input-row flex items-end gap-2">
         {/* Emoji picker */}
@@ -439,39 +493,6 @@ export function ChatInput({
           onPaste={handlePaste}
           disabled={!connected}
         />
-
-        {/* Voice controls — all 4 icons grouped together */}
-        {!embedded && (
-          <TooltipProvider>
-            <div className="voice-controls flex items-center gap-1 flex-shrink-0">
-              {sttEnabled && <Tooltip content={sttAutoSend ? 'Auto-send: ON — voice sends after 3s silence' : 'Auto-send: OFF — fill input only'}>
-                <button
-                  type="button"
-                  className={cn(
-                    'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
-                    sttAutoSend ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
-                  )}
-                  onClick={() => toggleVoiceSetting('stt_auto_send')}
-                >
-                  <AudioLines size={14} />
-                </button>
-              </Tooltip>}
-              {ttsEnabled && <Tooltip content={ttsAutoPlay ? 'Auto-play TTS: ON — responses read aloud automatically' : 'Auto-play TTS: OFF'}>
-                <button
-                  type="button"
-                  className={cn(
-                    'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
-                    ttsAutoPlay ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
-                  )}
-                  onClick={() => toggleVoiceSetting('tts_auto_play')}
-                >
-                  <Volume2 size={14} />
-                </button>
-              </Tooltip>}
-              {sttEnabled && <VoiceInput compact />}
-            </div>
-          </TooltipProvider>
-        )}
 
         {/* Send button */}
         <button
