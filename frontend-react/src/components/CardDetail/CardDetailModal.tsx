@@ -25,9 +25,7 @@ import { useChatService } from '../../contexts/useChatService';
 
 import {
   usePatchCard,
-  useDuplicateCard,
   useArchiveCard,
-  useDeleteCard,
   useExecuteCard,
 } from '../../hooks/api/useCards';
 
@@ -50,7 +48,7 @@ import { RelationsSection } from './Relations';
 import { HistorySection } from './History';
 import { ChatWindow } from '../Chat/ChatWindow';
 import { DescriptionEditor } from './DescriptionEditor';
-import { Copy, Archive, Trash2, Play, Loader2 } from 'lucide-react';
+import { Archive, Play, Loader2 } from 'lucide-react';
 
 // ── Color class map ─────────────────────────────────────────────────────────
 
@@ -90,9 +88,7 @@ export function CardDetailModal() {
 
   // Mutations
   const patchCard = usePatchCard();
-  const duplicateCard = useDuplicateCard();
   const archiveCard = useArchiveCard();
-  const deleteCard = useDeleteCard();
   const executeCard = useExecuteCard();
   const { executeCard: executeCardWS } = useChatService();
 
@@ -214,20 +210,6 @@ export function CardDetailModal() {
     [card, save],
   );
 
-  const handleDuplicate = useCallback(() => {
-    if (!card) return;
-    duplicateCard.mutate(
-      { cardId: card.id, projectId: card.projectId ?? undefined },
-      {
-        onSuccess: () => {
-          showToast(`Duplicated: "${card.title}"`, 'success');
-          close();
-        },
-        onError: () => showToast('Duplication failed', 'error'),
-      },
-    );
-  }, [card, duplicateCard, showToast, close]);
-
   const handleArchive = useCallback(() => {
     if (!card) return;
     archiveCard.mutate(
@@ -240,20 +222,6 @@ export function CardDetailModal() {
       },
     );
   }, [card, archiveCard, showToast, close]);
-
-  const handleDelete = useCallback(() => {
-    if (!card) return;
-    if (!window.confirm(`Delete "${card.title}"?`)) return;
-    deleteCard.mutate(
-      { cardId: card.id, projectId: card.projectId ?? undefined },
-      {
-        onSuccess: () => {
-          showToast(`Deleted: "${card.title}"`, 'info');
-          close();
-        },
-      },
-    );
-  }, [card, deleteCard, showToast, close]);
 
   const handleExecute = useCallback(() => {
     if (!card) return;
@@ -295,36 +263,9 @@ export function CardDetailModal() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
             }}
-            className="flex bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50"
+            className="flex-1 bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50"
             placeholder="Card title..."
           />
-          <div className='flex gap-1.5'>
-            <button
-              type="button"
-              onClick={handleExecute}
-              disabled={executeCard.isPending}
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25"
-            >
-              {executeCard.isPending
-                ? <><Loader2 size={12} className="animate-spin" /> Executing…</>
-                : <><Play size={12} /> Execute</>}
-            </button>
-            <button
-              type="button"
-              onClick={handleDuplicate}
-              disabled={duplicateCard.isPending}
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 bg-violet-500/15 text-violet-400 border border-violet-500/30 hover:bg-violet-500/25"
-            >
-              <Copy size={12} /> Duplicate
-            </button>
-            <button
-              type="button"
-              onClick={handleArchive}
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25"
-            >
-              <Archive size={12} /> Archive
-            </button>
-          </div>
         </div>
 
         {/* ── Mobile tab bar (hidden on desktop) ───────────────────────────── */}
@@ -389,6 +330,18 @@ export function CardDetailModal() {
             )}
           >
             <div className="space-y-5 p-4">
+              {/* Execute */}
+              <button
+                type="button"
+                onClick={handleExecute}
+                disabled={executeCard.isPending}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25"
+              >
+                {executeCard.isPending
+                  ? <><Loader2 size={14} className="animate-spin" /> Executing…</>
+                  : <><Play size={14} /> Execute</>}
+              </button>
+
               {/* Group 1: Status & Agent */}
               <section className="space-y-3">
                 <div>
@@ -454,22 +407,13 @@ export function CardDetailModal() {
                   <div>Created: {formatTime(card.createdAt)}</div>
                   <div>Updated: {formatTime(card.updatedAt)}</div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handleArchive}
-                    className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
-                  >
-                    <Archive size={12} /> Archive
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    className="flex items-center gap-1.5 rounded-md border border-red-500/30 px-2.5 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 cursor-pointer"
-                  >
-                    <Trash2 size={12} /> Delete
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={handleArchive}
+                  className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+                >
+                  <Archive size={12} /> Archive
+                </button>
               </section>
             </div>
           </div>
