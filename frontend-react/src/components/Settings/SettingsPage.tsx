@@ -9,7 +9,9 @@
  */
 
 import { useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Clock, User } from 'lucide-react';
+import { PageHeader } from '../layout/PageHeader';
 import { cn } from '../../lib/utils';
 import { AppearancePanel } from './AppearancePanel';
 import { PersonalityPanel } from './PersonalityPanel';
@@ -72,9 +74,12 @@ function renderPanel(id: PanelId) {
 
 export function SettingsPage() {
   const [activePanel, setActivePanel] = useState<PanelId>('appearance');
+  const { sidebarToggle } = useOutletContext<{ sidebarToggle: () => void }>();
 
   return (
-    <div className="settings-page flex h-full overflow-hidden" data-testid="settings-page">
+    <div className="settings-page flex flex-col h-full overflow-hidden" data-testid="settings-page">
+      <PageHeader title="Settings" onSidebarToggle={sidebarToggle} />
+      <div className="flex flex-1 overflow-hidden">
 
       {/* ── Sidebar nav ── */}
       <aside className="settings-nav w-48 shrink-0 border-r border-border bg-muted/20 overflow-y-auto">
@@ -109,6 +114,7 @@ export function SettingsPage() {
         {renderPanel(activePanel)}
       </main>
 
+      </div>
     </div>
   );
 }

@@ -11,7 +11,7 @@
  *       aside.worker-panel-container ← WorkerPanel (active Deep workers)
  *     OpportunitiesPanel / NotificationsPanel drawers (fixed, toggled from TabBar)
  */
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../stores/useThemeStore';
@@ -31,6 +31,8 @@ import type { CardSuggestion } from '../../contexts/ChatProvider';
 type OpenPanel = 'opportunities' | 'notifications' | null;
 
 export function AppShell() {
+  const location = useLocation();
+  const isFullPage = ['/settings', '/jobs', '/projects'].includes(location.pathname);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [opportunities, setOpportunities] = useState<CardSuggestion[]>([]);
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
@@ -113,14 +115,18 @@ export function AppShell() {
 
         {/* ── Main area ── */}
         <div className="main-area flex flex-col flex-1 overflow-hidden">
-          <TabBar
-            opportunityCount={opportunities.length}
-            onPanelToggle={handlePanelToggle}
-            onSidebarToggle={toggleSidebar}
-          />
-          <ProjectHeader />
+          {!isFullPage && (
+            <>
+              <TabBar
+                opportunityCount={opportunities.length}
+                onPanelToggle={handlePanelToggle}
+                onSidebarToggle={toggleSidebar}
+              />
+              <ProjectHeader />
+            </>
+          )}
           <main className="main-content flex-1 overflow-auto">
-            <Outlet />
+            <Outlet context={{ sidebarToggle: toggleSidebar }} />
           </main>
         </div>
 

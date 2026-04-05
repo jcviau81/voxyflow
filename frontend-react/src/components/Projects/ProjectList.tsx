@@ -11,7 +11,8 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Star, Archive, Folder, LayoutGrid, CheckCircle2, BarChart2, Send, Pencil } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useOutletContext } from 'react-router-dom';
+import { PageHeader } from '../layout/PageHeader';
 import { cn } from '../../lib/utils';
 import { useProjects, useArchiveProject, useDeleteProject, useToggleFavorite, useExportProject } from '../../hooks/api/useProjects';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -398,8 +399,11 @@ export function ProjectList() {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+  const { sidebarToggle } = useOutletContext<{ sidebarToggle: () => void }>();
+
   return (
     <>
+      <PageHeader title="Projects" onSidebarToggle={sidebarToggle} />
       <div className="project-list p-6 space-y-5" data-testid="project-list">
 
         {/* ── Header ── */}

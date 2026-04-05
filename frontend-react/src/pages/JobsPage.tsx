@@ -1,24 +1,17 @@
 /**
  * JobsPage — Standalone Scheduler / Cron Jobs page.
- *
- * Accessible via /jobs route and the sidebar "Jobs" nav item.
- * Renders the full JobsPanel in a page layout matching other top-level pages.
  */
 
+import { useOutletContext } from 'react-router-dom';
 import { JobsPanel } from '../components/Settings/JobsPanel';
+import { PageHeader } from '../components/layout/PageHeader';
 
 export function JobsPage() {
+  const { sidebarToggle } = useOutletContext<{ sidebarToggle: () => void }>();
+
   return (
     <div className="jobs-page flex flex-col h-full overflow-hidden" data-testid="jobs-page">
-      {/* Page header */}
-      <div className="jobs-page-header flex items-center gap-3 px-6 py-4 border-b border-border shrink-0">
-        <div>
-          <h1 className="text-lg font-semibold">Scheduler</h1>
-          <p className="text-sm text-muted-foreground">Manage scheduled jobs and automated tasks</p>
-        </div>
-      </div>
-
-      {/* Panel content */}
+      <PageHeader title="Scheduler" onSidebarToggle={sidebarToggle} />
       <div className="flex-1 overflow-y-auto">
         <JobsPanel />
       </div>
