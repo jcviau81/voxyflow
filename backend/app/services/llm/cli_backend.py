@@ -263,6 +263,7 @@ class ClaudeCliBackend:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
         )
 
         _cancel = cancel_event or asyncio.Event()
@@ -380,6 +381,7 @@ class ClaudeCliBackend:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
         )
 
         _cancel = cancel_event or asyncio.Event()
@@ -583,6 +585,7 @@ class ClaudeCliBackend:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
         )
 
         _cancel = cancel_event or asyncio.Event()
@@ -803,6 +806,7 @@ class ClaudeCliBackend:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
         )
 
         _reg_id = new_cli_session_id()
