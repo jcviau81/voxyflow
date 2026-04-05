@@ -1250,9 +1250,12 @@ class ChatOrchestrator(LayerRunnersMixin):
                     result = await db.execute(select(Project).where(Project.id == project_id))
                     proj = result.scalar_one_or_none()
                     if proj:
-                        # Fetch cards for this project (for dynamic state counts)
+                        # Fetch non-archived cards for this project (for dynamic state counts)
                         cards_result = await db.execute(
-                            select(Card).where(Card.project_id == project_id)
+                            select(Card).where(
+                                Card.project_id == project_id,
+                                Card.archived_at.is_(None),
+                            )
                         )
                         proj_cards = cards_result.scalars().all()
                         cards_list = [

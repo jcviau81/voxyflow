@@ -231,7 +231,8 @@ class PersonalityService:
             description = project.get("description") or "No description"
             tech_stack = project.get("tech_stack") or "Not specified"
             github_url = project.get("github_url") or "Not linked"
-            cards = project.get("cards", [])
+            all_cards = project.get("cards", [])
+            cards = [c for c in all_cards if c.get("status") != "archived"]
             total = len(cards)
             done = sum(1 for c in cards if c.get("status") == "done")
             in_progress_cards = [c for c in cards if c.get("status") == "in_progress"]
@@ -268,7 +269,7 @@ class PersonalityService:
                 ideas_block = "Ideas: (none)"
 
             parts.append(
-                f"## Project Context: {name}\n"
+                f"## Project Context: {name} (LIVE — this overrides any earlier data in the conversation)\n"
                 f"Description: {description}\n"
                 f"Tech Stack: {tech_stack}\n"
                 f"GitHub: {github_url}\n\n"
