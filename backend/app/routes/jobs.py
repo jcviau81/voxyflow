@@ -2,17 +2,20 @@
 
 GET    /api/jobs          → list configured jobs
 POST   /api/jobs          → create new job
-PUT    /api/jobs/{id}     → update job
+PUT    /api/jobs/{id}     → update job (full)
+PATCH  /api/jobs/{id}     → update job (partial — same as PUT, for frontend compat)
 DELETE /api/jobs/{id}     → delete job
 POST   /api/jobs/{id}/run → trigger job immediately
 
 Jobs are persisted to ~/.voxyflow/jobs.json.
+APScheduler is kept in sync on every CRUD operation.
 """
 
 import json
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -45,6 +48,8 @@ class JobModel(BaseModel):
     schedule: str  # cron expression OR "every_Xmin" / "every_Xh"
     enabled: bool = True
     payload: dict[str, Any] = Field(default_factory=dict)
+    last_run: Optional[str] = None
+    next_run: Optional[str] = None
 
 
 class JobCreateRequest(BaseModel):
@@ -107,14 +112,28 @@ def _find_job(jobs: list[dict], job_id: str) -> tuple[int, dict] | tuple[None, N
 
 @router.get("")
 async def list_jobs():
-    """List all configured jobs."""
+    """List all configured jobs (enriched with live next_run from APScheduler)."""
     jobs = _load_jobs()
+
+    # Enrich with live next_run from APScheduler (best-effort)
+    try:
+        from app.services.scheduler_service import get_scheduler_service
+        svc = get_scheduler_service()
+        for job in jobs:
+            job_id = job.get("id", "")
+            if job_id:
+                next_run = svc.get_next_run(job_id)
+                if next_run:
+                    job["next_run"] = next_run
+    except Exception as _e:
+        logger.debug(f"[Jobs] Could not fetch next_run from scheduler: {_e}")
+
     return {"jobs": jobs, "total": len(jobs)}
 
 
 @router.post("", status_code=201)
 async def create_job(req: JobCreateRequest):
-    """Create a new job."""
+    """Create a new job and register it with APScheduler."""
     jobs = _load_jobs()
     new_job = JobModel(
         name=req.name,
@@ -123,15 +142,23 @@ async def create_job(req: JobCreateRequest):
         enabled=req.enabled,
         payload=req.payload,
     )
-    jobs.append(new_job.dict())
+    job_dict = new_job.dict()
+    jobs.append(job_dict)
     _save_jobs(jobs)
     logger.info(f"[Jobs] Created job '{new_job.name}' (id={new_job.id}, schedule={new_job.schedule})")
-    return new_job.dict()
+
+    # Register with live APScheduler
+    try:
+        from app.services.scheduler_service import get_scheduler_service
+        get_scheduler_service().register_user_job(job_dict)
+    except Exception as e:
+        logger.warning(f"[Jobs] Could not register job with APScheduler: {e}")
+
+    return job_dict
 
 
-@router.put("/{job_id}")
-async def update_job(job_id: str, req: JobUpdateRequest):
-    """Update an existing job."""
+async def _do_update_job(job_id: str, req: JobUpdateRequest):
+    """Shared logic for PUT and PATCH update."""
     jobs = _load_jobs()
     idx, job = _find_job(jobs, job_id)
     if job is None:
@@ -151,12 +178,32 @@ async def update_job(job_id: str, req: JobUpdateRequest):
     jobs[idx] = job
     _save_jobs(jobs)
     logger.info(f"[Jobs] Updated job '{job['name']}' (id={job_id})")
+
+    # Sync with live APScheduler (re-register to pick up schedule/enabled changes)
+    try:
+        from app.services.scheduler_service import get_scheduler_service
+        get_scheduler_service().register_user_job(job)
+    except Exception as e:
+        logger.warning(f"[Jobs] Could not sync job with APScheduler: {e}")
+
     return job
+
+
+@router.put("/{job_id}")
+async def update_job(job_id: str, req: JobUpdateRequest):
+    """Update an existing job (full update)."""
+    return await _do_update_job(job_id, req)
+
+
+@router.patch("/{job_id}")
+async def patch_job(job_id: str, req: JobUpdateRequest):
+    """Update an existing job (partial update — alias for PUT, for frontend compat)."""
+    return await _do_update_job(job_id, req)
 
 
 @router.delete("/{job_id}", status_code=204)
 async def delete_job(job_id: str):
-    """Delete a job."""
+    """Delete a job and unregister it from APScheduler."""
     jobs = _load_jobs()
     idx, job = _find_job(jobs, job_id)
     if job is None:
@@ -165,6 +212,14 @@ async def delete_job(job_id: str):
     jobs.pop(idx)
     _save_jobs(jobs)
     logger.info(f"[Jobs] Deleted job '{job['name']}' (id={job_id})")
+
+    # Unregister from APScheduler
+    try:
+        from app.services.scheduler_service import get_scheduler_service
+        get_scheduler_service().unregister_user_job(job_id)
+    except Exception as e:
+        logger.warning(f"[Jobs] Could not unregister job from APScheduler: {e}")
+
     return None
 
 

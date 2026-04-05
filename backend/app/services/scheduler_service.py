@@ -9,7 +9,9 @@ Provides:
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -131,11 +133,177 @@ class SchedulerService:
             f"session cleanup daily at 03:00 UTC)"
         )
 
+        # Load user-defined jobs from ~/.voxyflow/jobs.json
+        import os as _os
+        _jobs_file = Path(_os.environ.get("VOXYFLOW_DATA_DIR", _os.path.expanduser("~/.voxyflow"))) / "jobs.json"
+        self.load_user_jobs(_jobs_file)
+
     def stop(self) -> None:
         """Clean shutdown. Waits for running jobs to finish (wait=True)."""
         if self._scheduler and self._scheduler.running:
             self._scheduler.shutdown(wait=True)
             logger.info("SchedulerService stopped")
+
+    # ------------------------------------------------------------------
+    # User job management
+    # ------------------------------------------------------------------
+
+    def _parse_schedule(self, schedule: str):
+        """Parse a schedule string into (trigger_type, kwargs).
+
+        Supports:
+          - Cron expressions: "0 9 * * 1-5"
+          - Shorthand: "every_30min", "every_2h", "every_hour", "every_day"
+        Returns ("cron", {"crontab": expr}) or ("interval", {minutes/hours/days: n}).
+        """
+        s = schedule.strip()
+
+        # every_Xmin / every_Xm
+        m = re.match(r"^every[_\s]?(\d+)\s*min", s, re.IGNORECASE)
+        if m:
+            return ("interval", {"minutes": int(m.group(1))})
+
+        # every_Xhr / every_Xh
+        m = re.match(r"^every[_\s]?(\d+)\s*h", s, re.IGNORECASE)
+        if m:
+            return ("interval", {"hours": int(m.group(1))})
+
+        # every_hour (no number)
+        if re.match(r"^every[_\s]?hour$", s, re.IGNORECASE):
+            return ("interval", {"hours": 1})
+
+        # every_day
+        if re.match(r"^every[_\s]?day$", s, re.IGNORECASE):
+            return ("interval", {"days": 1})
+
+        # Default: treat as cron expression
+        return ("cron", {"crontab": s})
+
+    def register_user_job(self, job: dict) -> None:
+        """Register (or re-register) a user job with APScheduler.
+
+        No-op if the scheduler is not running. Silently skips jobs with
+        no schedule string or disabled jobs (removes any existing APS job).
+        """
+        if not (self._scheduler and self._scheduler.running):
+            return
+
+        job_id = job.get("id", "")
+        aps_id = f"user_{job_id}"
+        name = job.get("name", aps_id)
+        enabled = job.get("enabled", True)
+
+        # Always remove any existing registration first
+        try:
+            if self._scheduler.get_job(aps_id):
+                self._scheduler.remove_job(aps_id)
+        except Exception:
+            pass
+
+        if not enabled:
+            logger.debug(f"[Jobs] Job '{name}' is disabled — not registering with APScheduler")
+            return
+
+        schedule = (job.get("schedule") or "").strip()
+        if not schedule:
+            logger.warning(f"[Jobs] Job '{name}' has no schedule — skipping APScheduler registration")
+            return
+
+        try:
+            trigger_type, trigger_kwargs = self._parse_schedule(schedule)
+
+            if trigger_type == "cron":
+                from apscheduler.triggers.cron import CronTrigger
+                trigger = CronTrigger.from_crontab(trigger_kwargs["crontab"])
+            else:
+                from apscheduler.triggers.interval import IntervalTrigger
+                trigger = IntervalTrigger(**trigger_kwargs)
+
+            self._scheduler.add_job(
+                self._run_user_job,
+                trigger=trigger,
+                id=aps_id,
+                name=name,
+                args=[job],
+                replace_existing=True,
+                misfire_grace_time=300,
+            )
+            logger.info(f"[Jobs] Registered job '{name}' with APScheduler (id={job_id}, schedule={schedule})")
+        except Exception as e:
+            logger.error(f"[Jobs] Failed to register job '{name}': {e}", exc_info=True)
+
+    def unregister_user_job(self, job_id: str) -> None:
+        """Remove a user job from APScheduler."""
+        if not (self._scheduler and self._scheduler.running):
+            return
+        aps_id = f"user_{job_id}"
+        try:
+            if self._scheduler.get_job(aps_id):
+                self._scheduler.remove_job(aps_id)
+                logger.info(f"[Jobs] Unregistered job from APScheduler (id={job_id})")
+        except Exception as e:
+            logger.error(f"[Jobs] Failed to unregister job {job_id}: {e}")
+
+    def get_next_run(self, job_id: str) -> Optional[str]:
+        """Return the ISO-formatted next_run_time for a user job, or None."""
+        if not (self._scheduler and self._scheduler.running):
+            return None
+        aps_id = f"user_{job_id}"
+        try:
+            aps_job = self._scheduler.get_job(aps_id)
+            if aps_job and aps_job.next_run_time:
+                return aps_job.next_run_time.isoformat()
+        except Exception:
+            pass
+        return None
+
+    def load_user_jobs(self, jobs_file: Path) -> None:
+        """Load all user jobs from jobs.json and register enabled ones with APScheduler."""
+        if not (self._scheduler and self._scheduler.running):
+            return
+        if not jobs_file.exists():
+            logger.debug(f"[Jobs] No user jobs file at {jobs_file} — nothing to load")
+            return
+        try:
+            import json as _json
+            with open(jobs_file, "r", encoding="utf-8") as f:
+                jobs = _json.load(f)
+            if not isinstance(jobs, list):
+                return
+            count = 0
+            for job in jobs:
+                self.register_user_job(job)
+                if job.get("enabled", True):
+                    count += 1
+            logger.info(f"[Jobs] Loaded {len(jobs)} user job(s) from disk ({count} enabled)")
+        except Exception as e:
+            logger.error(f"[Jobs] Failed to load user jobs from {jobs_file}: {e}", exc_info=True)
+
+    async def _run_user_job(self, job: dict) -> None:
+        """APScheduler callback: execute a user job and update last_run in jobs.json."""
+        job_id = job.get("id", "")
+        name = job.get("name", "")
+        logger.info(f"[Jobs] Executing scheduled job '{name}' (id={job_id})")
+
+        # Lazy import to avoid circular dependency at module load time
+        from app.routes.jobs import _execute_job, _load_jobs, _save_jobs, _find_job
+
+        try:
+            result = await _execute_job(job)
+            logger.info(f"[Jobs] Scheduled job '{name}' completed: {result.get('status', 'ok')}")
+        except Exception as e:
+            logger.error(f"[Jobs] Scheduled job '{name}' failed: {e}", exc_info=True)
+
+        # Update last_run in jobs.json (best-effort)
+        try:
+            jobs = _load_jobs()
+            idx, existing = _find_job(jobs, job_id)
+            if existing is not None:
+                existing["last_run"] = _now_iso()
+                jobs[idx] = existing
+                _save_jobs(jobs)
+        except Exception as e:
+            logger.warning(f"[Jobs] Could not update last_run for '{name}': {e}")
 
     # ------------------------------------------------------------------
     # Job error listener
