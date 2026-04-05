@@ -94,7 +94,7 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
               )}
             >
-              {tab.icon} {tab.label}
+              {tab.icon} <span className="hidden md:inline">{tab.label}</span>
             </button>
           );
         })}
