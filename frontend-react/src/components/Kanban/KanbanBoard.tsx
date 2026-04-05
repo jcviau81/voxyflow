@@ -32,6 +32,7 @@ import { useToastStore } from '../../stores/useToastStore';
 import { useCards, useArchivedCards, useRestoreCard, useDeleteCard, usePatchCard, useReorderCards, useCreateCard } from '../../hooks/api/useCards';
 import { useExportProject, useImportProject, useExecuteBoardPlan } from '../../hooks/api/useProjects';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 import { KanbanCard } from './KanbanCard';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
@@ -109,6 +110,7 @@ interface SortableCardProps {
   onTagClick: (tag: string) => void;
   onCardClick: (cardId: string) => void;
   isExecuting: boolean;
+  isWorkerActive: boolean;
 }
 
 function SortableCard({
@@ -123,6 +125,7 @@ function SortableCard({
   onTagClick,
   onCardClick,
   isExecuting,
+  isWorkerActive,
 }: SortableCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -150,6 +153,7 @@ function SortableCard({
           tagFilter={tagFilter}
           onTagClick={onTagClick}
           onCardClick={onCardClick}
+          isWorkerActive={isWorkerActive}
         />
       </div>
     </div>
@@ -172,6 +176,7 @@ interface KanbanColumnProps {
   onTagClick: (tag: string) => void;
   onCardClick: (cardId: string) => void;
   executingCardId: string | null;
+  isCardActive: (cardId: string) => boolean;
 }
 
 function KanbanColumn({
@@ -188,6 +193,7 @@ function KanbanColumn({
   onTagClick,
   onCardClick,
   executingCardId,
+  isCardActive,
 }: KanbanColumnProps) {
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const { setNodeRef } = useDroppable({ id: status });
@@ -224,6 +230,7 @@ function KanbanColumn({
               onTagClick={onTagClick}
               onCardClick={onCardClick}
               isExecuting={executingCardId === card.id}
+              isWorkerActive={isCardActive(card.id)}
             />
           ))}
         </div>
@@ -491,6 +498,9 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const executeBoardPlan = useExecuteBoardPlan();
   const deleteCardMut = useDeleteCard();
   const { send: wsSend } = useWebSocket();
+
+  // Worker execution status — poll every 3s to show per-card activity badges
+  const { isCardActive } = useWorkerStatus(projectId ?? '');
 
   // Sync fetched cards into Zustand store
   useEffect(() => {
@@ -1032,6 +1042,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
               onTagClick={handleTagClick}
               onCardClick={handleCardClickInternal}
               executingCardId={executingCardId}
+              isCardActive={isCardActive}
             />
           ))}
         </div>

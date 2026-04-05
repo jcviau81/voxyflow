@@ -49,6 +49,7 @@ import { HistorySection } from './History';
 import { ChatWindow } from '../Chat/ChatWindow';
 import { DescriptionEditor } from './DescriptionEditor';
 import { Archive, Play, Loader2 } from 'lucide-react';
+import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 
 // ── Color class map ─────────────────────────────────────────────────────────
 
@@ -92,14 +93,17 @@ export function CardDetailModal() {
   const executeCard = useExecuteCard();
   const { executeCard: executeCardWS } = useChatService();
 
+  // Resolve current card from store (must be before useWorkerStatus which references card)
+  const card: Card | undefined = selectedCardId ? cardsById[selectedCardId] : undefined;
+
+  // Worker status — poll to detect active workers on the current card's project
+  const { isCardActive } = useWorkerStatus(card?.projectId ?? '');
+
   // Local state
   const [mobileTab, setMobileTab] = useState<MobileTab>('description');
   const [description, setDescription] = useState('');
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Resolve current card from store
-  const card: Card | undefined = selectedCardId ? cardsById[selectedCardId] : undefined;
   const isOpen = !!card;
 
   // Determine if on main board
@@ -331,16 +335,23 @@ export function CardDetailModal() {
           >
             <div className="space-y-5 p-4">
               {/* Execute */}
-              <button
-                type="button"
-                onClick={handleExecute}
-                disabled={executeCard.isPending}
-                className="flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25"
-              >
-                {executeCard.isPending
-                  ? <><Loader2 size={14} className="animate-spin" /> Executing…</>
-                  : <><Play size={14} /> Execute</>}
-              </button>
+              {(() => {
+                const workerRunning = card ? isCardActive(card.id) : false;
+                const isDisabled = executeCard.isPending || workerRunning;
+                return (
+                  <button
+                    type="button"
+                    onClick={handleExecute}
+                    disabled={isDisabled}
+                    title={workerRunning ? 'A worker is already executing this card' : undefined}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 cursor-pointer"
+                  >
+                    {(executeCard.isPending || workerRunning)
+                      ? <><Loader2 size={14} className="animate-spin" /> Executing…</>
+                      : <><Play size={14} /> Execute</>}
+                  </button>
+                );
+              })()}
 
               {/* Group 1: Status & Agent */}
               <section className="space-y-3">

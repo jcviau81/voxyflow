@@ -129,6 +129,8 @@ export interface KanbanCardProps {
   onCardClick?: (cardId: string) => void;
   /** Called when Focus Mode is triggered */
   onFocusMode?: (cardId: string) => void;
+  /** True when a worker is actively executing this card */
+  isWorkerActive?: boolean;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -145,6 +147,7 @@ export function KanbanCard({
   onTagClick,
   onCardClick,
   onFocusMode,
+  isWorkerActive = false,
 }: KanbanCardProps) {
   const [isDragging, setIsDragging] = useState(false);
 
@@ -348,7 +351,15 @@ export function KanbanCard({
       onDragStart={handleDragStart}
       onDragEnd={() => setIsDragging(false)}
     >
-      
+      {/* Worker execution indicator badge */}
+      {isWorkerActive && (
+        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 z-20">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+        </div>
+      )}
 
       {/* Header: title + actions button */}
       <div className={cn('flex items-start gap-2', selectMode && 'checked')}>
