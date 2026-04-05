@@ -874,6 +874,7 @@ class ClaudeService(ApiCallerMixin):
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
         session_id: str = "",
+        task_id: str = "",
     ) -> str:
         """Execute a delegated task with the specified worker model (haiku/sonnet/opus)."""
         # Select client/model based on model param
@@ -954,6 +955,7 @@ class ClaudeService(ApiCallerMixin):
             message_queue=message_queue,
             session_id=session_id, project_id=project_id or "",
             session_type="worker",
+            task_id=task_id,
         )
         return (_strip_think_tags(result) if _is_thinking_model(model_name) else result) if result else result
 

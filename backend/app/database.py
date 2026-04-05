@@ -150,6 +150,11 @@ async def init_db():
                 created_at DATETIME NOT NULL
             )
         """))
+        # Migrate: add card_id column to worker_tasks if missing
+        wt_result = await conn.execute(text("PRAGMA table_info(worker_tasks)"))
+        wt_columns = {row[1] for row in wt_result.fetchall()}
+        if "card_id" not in wt_columns:
+            await conn.execute(text("ALTER TABLE worker_tasks ADD COLUMN card_id TEXT"))
         # On startup: mark stuck running/pending tasks as cancelled (orphaned by restart)
         await conn.execute(text(
             "UPDATE worker_tasks SET status='cancelled', error='Process restarted — task cancelled', "
@@ -429,6 +434,7 @@ class WorkerTask(Base):
     id = Column(String, primary_key=True, default=new_uuid)
     session_id = Column(String, nullable=False)
     project_id = Column(String, nullable=True)
+    card_id = Column(String, nullable=True)          # optional card this task operates on
     action = Column(String, nullable=False)          # e.g. "fix_bug", "implement_feature"
     description = Column(Text, nullable=False)       # human-readable task description
     model = Column(String, nullable=False)           # haiku/sonnet/opus

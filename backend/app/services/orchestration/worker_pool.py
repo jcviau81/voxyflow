@@ -98,6 +98,7 @@ class DeepWorkerPool:
         self._callback_lock = asyncio.Lock()  # Serialize worker→dispatcher callbacks
         self._task_tool_events: dict[str, list[dict]] = {}  # task_id → bounded tool event buffer
         self._MAX_TOOL_EVENTS = 50
+        self._task_message_queues: dict[str, asyncio.Queue] = {}  # task_id → steer queue
         self._stopped = False
 
     def start(self) -> None:
@@ -211,6 +212,22 @@ class DeepWorkerPool:
         })
 
         logger.info(f"[DeepWorkerPool] Task {task_id} cancelled successfully")
+        return True
+
+    async def steer_task(self, task_id: str, message: str) -> bool:
+        """Inject a steering message into a running worker task.
+
+        Puts the message into the task's message_queue.  If the worker is
+        using the steerable CLI path, the message will be forwarded to the
+        subprocess stdin in real time.  If the task is not found or already
+        complete, returns False.
+        """
+        queue = self._task_message_queues.get(task_id)
+        if not queue:
+            logger.warning(f"[DeepWorkerPool] steer_task: no queue for task {task_id}")
+            return False
+        await queue.put(message)
+        logger.info(f"[DeepWorkerPool] Steered task {task_id}: {message[:100]!r}")
         return True
 
     def peek(self, task_id: str) -> dict | None:
@@ -346,6 +363,7 @@ class DeepWorkerPool:
         """Cleanup when a task completes. Idempotent."""
         if self._stopped:
             return
+        self._task_message_queues.pop(task_id, None)
         removed = self._active_tasks.pop(task_id, None)
         if removed is not None:
             self._semaphore.release()
@@ -383,10 +401,12 @@ class DeepWorkerPool:
         """Execute a single ActionIntent via model-routed worker (haiku/sonnet/opus)."""
         try:
             _wss = get_worker_session_store()
+            _task_card_id = event.data.get("card_id")
             _wss.register(
                 task_id=event.task_id,
                 session_id=event.session_id or self._bus.session_id,
                 project_id=event.data.get("project_id"),
+                card_id=_task_card_id,
                 model=event.model or get_default_worker_model(),
                 intent=event.intent or "unknown",
                 summary=event.summary or "",
@@ -396,6 +416,7 @@ class DeepWorkerPool:
                 task_id=event.task_id,
                 session_id=event.session_id or self._bus.session_id,
                 project_id=event.data.get("project_id"),
+                card_id=_task_card_id,
                 action=event.intent or "unknown",
                 description=(event.summary or "")[:500],
                 model=event.model or get_default_worker_model(),
@@ -407,6 +428,7 @@ class DeepWorkerPool:
                 "complexity": event.complexity,
                 "model": event.model,
                 "sessionId": event.session_id,
+                "cardId": _task_card_id,
             })
 
             logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent} (model={event.model})")
@@ -488,6 +510,7 @@ class DeepWorkerPool:
             supervisor.register_task(event.task_id)
             cancel_event = asyncio.Event()
             message_queue: asyncio.Queue[str] = asyncio.Queue()
+            self._task_message_queues[event.task_id] = message_queue
 
             async def _tool_callback(tool_name: str, arguments: dict, result: dict):
                 supervisor.record_tool_call(event.task_id, tool_name, arguments)
@@ -557,6 +580,7 @@ class DeepWorkerPool:
                     cancel_event=cancel_event,
                     message_queue=message_queue,
                     session_id=event.session_id or "",
+                    task_id=event.task_id,
                 )
             except asyncio.CancelledError:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")
@@ -850,6 +874,7 @@ class DeepWorkerPool:
         action: str,
         description: str,
         model: str,
+        card_id: str | None = None,
     ) -> None:
         """Insert a new row into worker_tasks with status='running'."""
         try:
@@ -859,6 +884,7 @@ class DeepWorkerPool:
                     id=task_id,
                     session_id=session_id,
                     project_id=project_id,
+                    card_id=card_id,
                     action=action,
                     description=description[:500],
                     model=model,

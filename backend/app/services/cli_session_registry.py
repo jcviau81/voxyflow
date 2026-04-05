@@ -28,6 +28,8 @@ class CliSession:
     started_at: float
     cancel_event: asyncio.Event
     _process: asyncio.subprocess.Process = field(repr=False)
+    task_id: str = ""           # Voxyflow task_id (for steering lookup)
+    steer_queue: Optional[asyncio.Queue] = field(default=None, repr=False)  # Steering message queue
 
 
 class CliSessionRegistry:
@@ -58,6 +60,13 @@ class CliSessionRegistry:
 
     def get(self, session_id: str) -> Optional[CliSession]:
         return self._sessions.get(session_id)
+
+    def get_by_task_id(self, task_id: str) -> Optional[CliSession]:
+        """Find an active CLI session by Voxyflow task_id."""
+        for session in self._sessions.values():
+            if session.task_id == task_id:
+                return session
+        return None
 
     def count(self) -> int:
         return len(self._sessions)
@@ -90,6 +99,29 @@ class CliSessionRegistry:
             if await self.kill(sid):
                 count += 1
         return count
+
+    async def steer(self, session_id: str, message: str) -> bool:
+        """Inject a steering message into an active CLI subprocess via its steer_queue.
+
+        Returns True if the session exists and the message was queued.
+        The steer_queue is consumed by the subprocess watcher in ClaudeCliBackend.
+        """
+        session = self._sessions.get(session_id)
+        if not session:
+            return False
+        if session.steer_queue is None:
+            logger.warning(f"[CliRegistry] steer: session {session_id} has no steer_queue (not a steerable worker)")
+            return False
+        await session.steer_queue.put(message)
+        logger.info(f"[CliRegistry] Steering message queued for session {session_id} (pid={session.pid}): {message[:80]}")
+        return True
+
+    def find_by_task_session(self, task_chat_id: str) -> Optional[CliSession]:
+        """Find an active session by its chat_id (e.g. 'task-<task_id>')."""
+        for s in self._sessions.values():
+            if s.chat_id == task_chat_id:
+                return s
+        return None
 
 
 def new_cli_session_id() -> str:

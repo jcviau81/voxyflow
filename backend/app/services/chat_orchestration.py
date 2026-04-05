@@ -421,6 +421,31 @@ class ChatOrchestrator(LayerRunnersMixin):
             return False
         return await pool.cancel_task(task_id)
 
+    async def steer_worker_task(self, session_id: str, task_id: str, message: str) -> bool:
+        """Inject a steering message into a running worker task.
+
+        Finds the worker pool for the session and forwards the message to the
+        target task's message queue.  If the task is using the steerable CLI
+        path, the message is forwarded to the subprocess stdin in real time.
+
+        Returns True if the message was queued, False if the session or task
+        was not found.
+        """
+        pool = self._worker_pools.get(session_id)
+        if not pool:
+            # Try to find task across all pools (dispatcher may not know exact session)
+            for sid, p in self._worker_pools.items():
+                if task_id in p._active_tasks:
+                    result = await p.steer_task(task_id, message)
+                    logger.info(
+                        f"[ChatOrchestrator] steer_worker_task: found task {task_id} "
+                        f"in pool {sid}, queued={result}"
+                    )
+                    return result
+            logger.warning(f"[ChatOrchestrator] steer_worker_task: no pool for session {session_id}")
+            return False
+        return await pool.steer_task(task_id, message)
+
     # ------------------------------------------------------------------
     # Background-safe wrappers (fire-and-forget with error handling)
     # ------------------------------------------------------------------

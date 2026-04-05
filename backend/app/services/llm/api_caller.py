@@ -1202,21 +1202,53 @@ class ApiCallerMixin:
         session_id: str = "",
         project_id: str = "",
         session_type: str = "worker",
+        task_id: str = "",
     ) -> str:
-        """Non-streaming call via Claude CLI subprocess."""
-        text, usage = await self._cli_backend.call(
-            model=model,
-            system=system,
-            messages=messages,
-            use_tools=use_tools,
-            mcp_role=mcp_role,
-            cancel_event=cancel_event,
-            tool_callback=tool_callback,
-            session_id=session_id,
-            chat_id=chat_id,
-            project_id=project_id,
-            session_type=session_type,
-        )
+        """Non-streaming call via Claude CLI subprocess.
+
+        When *task_id* is provided (worker context) and *message_queue* is
+        set, uses the steerable path (--input-format stream-json) so mid-
+        execution steering messages can be injected via the queue.
+        """
+        if task_id and tool_callback and use_tools:
+            # Steerable worker path: keeps stdin open for mid-execution steering
+            text, usage = await self._cli_backend.call_steerable(
+                model=model,
+                system=system,
+                messages=messages,
+                use_tools=use_tools,
+                mcp_role=mcp_role,
+                cancel_event=cancel_event,
+                tool_callback=tool_callback,
+                session_id=session_id,
+                chat_id=chat_id,
+                project_id=project_id,
+                session_type=session_type,
+                task_id=task_id,
+                steer_queue=message_queue,
+            )
+        else:
+            text, usage = await self._cli_backend.call(
+                model=model,
+                system=system,
+                messages=messages,
+                use_tools=use_tools,
+                mcp_role=mcp_role,
+                cancel_event=cancel_event,
+                tool_callback=tool_callback,
+                session_id=session_id,
+                chat_id=chat_id,
+                project_id=project_id,
+                session_type=session_type,
+            )
+            # Drain message_queue if anything was queued (non-steerable path)
+            if message_queue:
+                while not message_queue.empty():
+                    try:
+                        msg = message_queue.get_nowait()
+                        logger.warning(f"[CLI] Drained queued message (not injectable): {str(msg)[:100]}")
+                    except asyncio.QueueEmpty:
+                        break
         # Log token usage
         _log_token_usage(
             layer=layer,
@@ -1227,14 +1259,6 @@ class ApiCallerMixin:
             cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
             cache_read_tokens=usage.get("cache_read_input_tokens", 0),
         )
-        # Drain message_queue if anything was queued (can't inject mid-CLI)
-        if message_queue:
-            while not message_queue.empty():
-                try:
-                    msg = message_queue.get_nowait()
-                    logger.warning(f"[CLI] Drained queued message (not injectable): {str(msg)[:100]}")
-                except asyncio.QueueEmpty:
-                    break
         return text
 
     async def _call_api_stream_cli(
@@ -1314,6 +1338,7 @@ class ApiCallerMixin:
         session_id: str = "",
         project_id: str = "",
         session_type: str = "worker",
+        task_id: str = "",
     ) -> str:
         """Dispatch to native Anthropic SDK, CLI subprocess, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
@@ -1326,6 +1351,7 @@ class ApiCallerMixin:
                 cancel_event=cancel_event, message_queue=message_queue,
                 tool_callback=tool_callback,
                 session_id=session_id, project_id=project_id, session_type=session_type,
+                task_id=task_id,
             )
         if ct == "anthropic":
             return await self._call_api_anthropic(

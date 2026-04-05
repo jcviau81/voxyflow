@@ -26,7 +26,7 @@ class WorkerSession:
     """Single worker session entry."""
 
     __slots__ = (
-        "task_id", "session_id", "project_id", "status", "model", "intent",
+        "task_id", "session_id", "project_id", "card_id", "status", "model", "intent",
         "summary", "start_time", "end_time", "result_summary",
     )
 
@@ -35,6 +35,7 @@ class WorkerSession:
         task_id: str,
         session_id: str,
         project_id: Optional[str] = None,
+        card_id: Optional[str] = None,
         status: str = "running",
         model: str = "sonnet",
         intent: str = "unknown",
@@ -46,6 +47,7 @@ class WorkerSession:
         self.task_id = task_id
         self.session_id = session_id
         self.project_id = project_id
+        self.card_id = card_id
         self.status = status
         self.model = model
         self.intent = intent
@@ -59,6 +61,7 @@ class WorkerSession:
             "task_id": self.task_id,
             "session_id": self.session_id,
             "project_id": self.project_id,
+            "card_id": self.card_id,
             "status": self.status,
             "model": self.model,
             "intent": self.intent,
@@ -74,6 +77,7 @@ class WorkerSession:
             task_id=data["task_id"],
             session_id=data["session_id"],
             project_id=data.get("project_id"),
+            card_id=data.get("card_id"),
             status=data.get("status", "running"),
             model=data.get("model", "sonnet"),
             intent=data.get("intent", "unknown"),
@@ -142,6 +146,7 @@ class WorkerSessionStore:
         task_id: str,
         session_id: str,
         project_id: Optional[str] = None,
+        card_id: Optional[str] = None,
         model: str = "sonnet",
         intent: str = "unknown",
         summary: str = "",
@@ -151,6 +156,7 @@ class WorkerSessionStore:
             task_id=task_id,
             session_id=session_id,
             project_id=project_id,
+            card_id=card_id,
             status="running",
             model=model,
             intent=intent,

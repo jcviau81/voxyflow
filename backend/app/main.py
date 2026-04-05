@@ -552,6 +552,30 @@ async def general_websocket(websocket: WebSocket):
                     else:
                         logger.warning(f"[WS] task:cancel missing taskId or sessionId")
 
+                elif msg_type == "task:steer":
+                    task_id = payload.get("taskId")
+                    session_id = payload.get("sessionId")
+                    steer_message = payload.get("message", "")
+                    if task_id and steer_message:
+                        steered = await _orchestrator.steer_worker_task(
+                            session_id or "", task_id, steer_message
+                        )
+                        logger.info(
+                            f"[WS] task:steer → task_id={task_id}, session={session_id}, "
+                            f"queued={steered}, msg={steer_message[:60]!r}"
+                        )
+                        await websocket.send_json({
+                            "type": "task:steer:ack",
+                            "payload": {
+                                "taskId": task_id,
+                                "queued": steered,
+                                "message": steer_message,
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        })
+                    else:
+                        logger.warning("[WS] task:steer missing taskId or message")
+
                 elif msg_type == "action:confirm":
                     task_id = payload.get("taskId")
                     confirmed = payload.get("confirmed", False)

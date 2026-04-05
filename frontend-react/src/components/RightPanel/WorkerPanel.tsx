@@ -6,7 +6,8 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader2 } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
+import { Loader2, MessageSquare, Send, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useWorkerTasksQuery } from '../../hooks/api/useWorkerTasks';
@@ -25,6 +26,7 @@ interface WorkerTask {
   error?: string;
   model?: 'haiku' | 'sonnet' | 'opus';
   sessionId?: string;
+  cardId?: string;
   expanded: boolean;
 }
 
@@ -114,12 +116,34 @@ interface TaskRowProps {
   onCancel: (taskId: string, sessionId?: string) => void;
   onDismiss: (taskId: string) => void;
   onToggleExpand: (taskId: string) => void;
+  onSteer: (taskId: string, sessionId: string | undefined, message: string) => void;
   /** Incremented every second to force elapsed-time re-renders */
   tick: number;
 }
 
-function TaskRow({ task, onCancel, onDismiss, onToggleExpand }: TaskRowProps) {
+function TaskRow({ task, onCancel, onDismiss, onToggleExpand, onSteer }: TaskRowProps) {
+  const [steerOpen, setSteerOpen] = useState(false);
+  const [steerInput, setSteerInput] = useState('');
+  const steerRef = useRef<HTMLInputElement>(null);
   const elapsed = getElapsed(task);
+  const selectCard = useProjectStore((s) => s.selectCard);
+
+  const handleSteerSubmit = () => {
+    const msg = steerInput.trim();
+    if (!msg) return;
+    onSteer(task.taskId, task.sessionId, msg);
+    setSteerInput('');
+    setSteerOpen(false);
+  };
+
+  const handleSteerKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') handleSteerSubmit();
+    if (e.key === 'Escape') { setSteerOpen(false); setSteerInput(''); }
+  };
+
+  useEffect(() => {
+    if (steerOpen) steerRef.current?.focus();
+  }, [steerOpen]);
 
   const statusClasses =
     task.status === 'running' ? 'border-accent border-l-[3px]'
@@ -136,7 +160,7 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand }: TaskRowProps) {
   return (
     <div
       className={cn(
-        'flex items-start gap-2 p-2 bg-muted/50 rounded-lg border border-border transition-all duration-200',
+        'relative flex items-start gap-2 p-2 bg-muted/50 rounded-lg border border-border transition-all duration-200',
         statusClasses,
       )}
       data-task-id={task.taskId}
@@ -155,6 +179,18 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand }: TaskRowProps) {
       <div className="flex-1 min-w-0">
         <div className="text-xs font-semibold text-foreground truncate">{formatAction(task.action)}</div>
         <div className="text-xs text-muted-foreground truncate">{task.description.substring(0, 60)}</div>
+
+        {/* Card link */}
+        {task.cardId && (
+          <button
+            className="inline-flex items-center gap-1 mt-0.5 text-[10px] text-accent hover:text-accent/80 transition-colors"
+            title="Open linked card"
+            onClick={(e) => { e.stopPropagation(); selectCard(task.cardId!); }}
+          >
+            <ExternalLink size={9} />
+            <span>card</span>
+          </button>
+        )}
 
         {/* Error message */}
         {task.status === 'failed' && task.error && (
@@ -189,15 +225,24 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand }: TaskRowProps) {
         {task.completedAt ? elapsed : `${elapsed}…`}
       </div>
 
-      {/* Cancel button for active tasks */}
+      {/* Steer + Cancel buttons for active tasks */}
       {!task.completedAt && (
-        <button
-          className="shrink-0 text-xs text-muted-foreground hover:text-red-400 transition-colors"
-          title="Cancel task"
-          onClick={(e) => { e.stopPropagation(); onCancel(task.taskId, task.sessionId); }}
-        >
-          &times;
-        </button>
+        <div className="shrink-0 flex items-center gap-1">
+          <button
+            className="text-xs text-muted-foreground hover:text-accent transition-colors"
+            title="Steer this worker"
+            onClick={(e) => { e.stopPropagation(); setSteerOpen((o) => !o); }}
+          >
+            <MessageSquare size={11} />
+          </button>
+          <button
+            className="text-xs text-muted-foreground hover:text-red-400 transition-colors"
+            title="Cancel task"
+            onClick={(e) => { e.stopPropagation(); onCancel(task.taskId, task.sessionId); }}
+          >
+            &times;
+          </button>
+        </div>
       )}
 
       {/* Dismiss button for failed/cancelled tasks */}
@@ -209,6 +254,31 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand }: TaskRowProps) {
         >
           ✕
         </button>
+      )}
+
+      {/* Steering mini-chat (shown when steer button clicked) */}
+      {steerOpen && !task.completedAt && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-10 flex items-center gap-1 bg-card border border-border rounded-md px-2 py-1 shadow-md"
+          style={{ position: 'absolute' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            ref={steerRef}
+            type="text"
+            value={steerInput}
+            onChange={(e) => setSteerInput(e.target.value)}
+            onKeyDown={handleSteerKey}
+            placeholder="Steer worker…"
+            className="flex-1 text-xs bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
+          />
+          <button
+            className="text-accent hover:text-accent/80 transition-colors disabled:opacity-40"
+            disabled={!steerInput.trim()}
+            onClick={handleSteerSubmit}
+          >
+            <Send size={12} />
+          </button>
+        </div>
       )}
     </div>
   );
@@ -263,6 +333,7 @@ export function WorkerPanel() {
           error: t.error ?? undefined,
           model: (t.model as WorkerTask['model']) ?? 'sonnet',
           sessionId: t.session_id,
+          cardId: t.card_id ?? undefined,
           expanded: existing?.expanded ?? false,
         };
         changed = true;
@@ -297,6 +368,7 @@ export function WorkerPanel() {
               startedAt: Date.now(),
               model: (payload.model as WorkerTask['model']) ?? 'sonnet',
               sessionId: payload.sessionId as string | undefined,
+              cardId: (payload.cardId as string | undefined) ?? undefined,
               expanded: false,
             },
           };
@@ -410,6 +482,14 @@ export function WorkerPanel() {
     [send],
   );
 
+  const steerTask = useCallback(
+    (taskId: string, sessionId: string | undefined, message: string) => {
+      if (!message.trim()) return;
+      send('task:steer', { taskId, sessionId, message: message.trim() });
+    },
+    [send],
+  );
+
   const dismissTask = useCallback((taskId: string) => {
     dismissedIds.current.add(taskId);
     setTasks((prev) => {
@@ -505,6 +585,7 @@ export function WorkerPanel() {
                 onCancel={cancelTask}
                 onDismiss={dismissTask}
                 onToggleExpand={toggleExpand}
+                onSteer={steerTask}
                 tick={tick}
               />
             ))
