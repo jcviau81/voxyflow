@@ -286,6 +286,8 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
     <aside
       className={cn(
         'sidebar flex flex-col bg-sidebar border-r border-border transition-all duration-200 shrink-0',
+        // Mobile: fixed overlay; Desktop: inline flex
+        'fixed inset-y-0 left-0 z-30 md:relative md:z-auto',
         isOpen ? 'w-56' : 'w-0 overflow-hidden',
       )}
       data-testid="sidebar"
@@ -297,7 +299,15 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
       </div>
 
       {/* ── Scrollable content ── */}
-      <nav className="sidebar-content flex-1 overflow-y-auto py-2 min-w-0">
+      <nav
+        className="sidebar-content flex-1 overflow-y-auto py-2 min-w-0"
+        onClick={(e) => {
+          // Auto-close sidebar on mobile when clicking a nav link
+          if (window.innerWidth < 768 && (e.target as HTMLElement).closest('a, [data-tab]')) {
+            onToggle();
+          }
+        }}
+      >
 
         {/* Main / General */}
         <div className="sidebar-nav px-2">

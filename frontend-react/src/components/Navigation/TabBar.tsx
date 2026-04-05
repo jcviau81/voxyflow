@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { Lightbulb, Bell, X, Home, Folder } from 'lucide-react';
+import { Lightbulb, Bell, X, Home, Folder, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
@@ -12,9 +12,10 @@ import type { Tab } from '../../types';
 interface TabBarProps {
   opportunityCount?: number;
   onPanelToggle?: (tab: 'opportunities' | 'notifications') => void;
+  onSidebarToggle?: () => void;
 }
 
-export function TabBar({ opportunityCount = 0, onPanelToggle }: TabBarProps) {
+export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }: TabBarProps) {
   const navigate = useNavigate();
   const openTabs = useTabStore((s) => s.openTabs);
   const activeTab = useTabStore((s) => s.activeTab);
@@ -94,6 +95,16 @@ export function TabBar({ opportunityCount = 0, onPanelToggle }: TabBarProps) {
 
   return (
     <div className="tab-bar flex items-center gap-2 px-2 py-1.5 overflow-x-auto border-b border-border" data-testid="tab-bar">
+      {/* Hamburger — mobile only */}
+      <button
+        className="md:hidden flex-shrink-0 flex items-center justify-center w-8 h-8 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+        onClick={onSidebarToggle}
+        title="Menu"
+        data-testid="hamburger"
+      >
+        <Menu size={18} />
+      </button>
+
       {openTabs.map((tab) => (
         <TabItem
           key={tab.id}

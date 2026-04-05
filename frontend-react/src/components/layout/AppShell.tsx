@@ -31,7 +31,7 @@ import type { CardSuggestion } from '../../contexts/ChatProvider';
 type OpenPanel = 'opportunities' | 'notifications' | null;
 
 export function AppShell() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [opportunities, setOpportunities] = useState<CardSuggestion[]>([]);
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
   const theme = useThemeStore((s) => s.theme);
@@ -116,6 +116,7 @@ export function AppShell() {
           <TabBar
             opportunityCount={opportunities.length}
             onPanelToggle={handlePanelToggle}
+            onSidebarToggle={toggleSidebar}
           />
           <ProjectHeader />
           <main className="main-content flex-1 overflow-auto">
@@ -123,8 +124,8 @@ export function AppShell() {
           </main>
         </div>
 
-        {/* ── Worker panel (active Deep workers) ── */}
-        <aside className="worker-panel-container">
+        {/* ── Worker panel (active Deep workers) — hidden on mobile ── */}
+        <aside className="worker-panel-container hidden md:block">
           <WorkerPanel />
         </aside>
       </div>
