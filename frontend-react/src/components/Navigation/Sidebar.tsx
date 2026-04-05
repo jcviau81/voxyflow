@@ -31,7 +31,6 @@ import {
   Star,
   MessageCircle,
   Folder,
-  Archive,
   X,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -184,7 +183,6 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
   // Derived data
   const activeProjects = projects.filter((p) => !p.archived && p.id !== SYSTEM_PROJECT_ID);
   const favoriteProjects = activeProjects.filter((p) => p.isFavorite);
-  const archivedProjects = projects.filter((p) => p.archived && p.id !== SYSTEM_PROJECT_ID);
 
   // ── Active session entries ─────────────────────────────────────────────────
 
@@ -419,19 +417,6 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             <span>New Project</span>
           </button>
 
-          {/* Archived link */}
-          {archivedProjects.length > 0 && (
-            <button
-              className="sidebar-archived-link flex items-center gap-2 w-full px-3 py-1.5 mx-2 rounded-md text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap cursor-pointer"
-              style={{ width: 'calc(100% - 1rem)' }}
-              data-testid="sidebar-archived"
-              title={`${archivedProjects.length} archived project${archivedProjects.length > 1 ? 's' : ''}`}
-              onClick={() => navigate('/projects?filter=archived')}
-            >
-              <Archive size={14} className="shrink-0" />
-              <span className="truncate">Archived ({archivedProjects.length})</span>
-            </button>
-          )}
         </div>
       </nav>
 

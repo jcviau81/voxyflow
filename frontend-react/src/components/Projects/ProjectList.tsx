@@ -9,9 +9,9 @@
  *     progress bar, stats, activity, quick actions
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Star, Archive, Folder, LayoutGrid, CheckCircle2, BarChart2, Send, Pencil } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useProjects, useArchiveProject, useDeleteProject, useToggleFavorite, useExportProject } from '../../hooks/api/useProjects';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -291,7 +291,16 @@ export function ProjectList() {
   }>({ open: false, mode: 'create' });
 
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: allProjectsRaw = [], isLoading } = useProjects();
+
+  // Auto-open form when navigating with ?new=1
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setFormState({ open: true, mode: 'create' });
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const { currentProjectId, selectProject } = useProjectStore();
   const archiveMutation = useArchiveProject();
