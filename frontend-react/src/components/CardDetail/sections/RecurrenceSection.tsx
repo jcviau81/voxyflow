@@ -69,21 +69,42 @@ export function RecurrenceSection({ current, nextDate, onChange }: RecurrenceSec
 
       {/* Custom cron input */}
       {showCron && (
-        <div className="mt-2 flex gap-1.5">
-          <input
-            type="text"
-            value={cronInput}
-            onChange={(e) => setCronInput(e.target.value)}
-            placeholder="0 9 * * 1-5"
-            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
-          />
-          <button
-            type="button"
-            onClick={() => { if (cronInput.trim()) onChange(`cron:${cronInput.trim()}`); }}
-            className="rounded-md border border-primary/40 bg-primary/20 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/30 cursor-pointer"
-          >
-            Set
-          </button>
+        <div className="mt-2 space-y-2">
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={cronInput}
+              onChange={(e) => setCronInput(e.target.value)}
+              placeholder="0 9 * * 1-5"
+              className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+            <button
+              type="button"
+              onClick={() => { if (cronInput.trim()) onChange(`cron:${cronInput.trim()}`); }}
+              className="rounded-md border border-primary/40 bg-primary/20 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/30 cursor-pointer"
+            >
+              Set
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {[
+              { cron: '0 9 * * 1-5', label: '9am weekdays' },
+              { cron: '0 8,17 * * *', label: '8am & 5pm' },
+              { cron: '0 0 * * 0', label: 'Sunday midnight' },
+              { cron: '0 12 1 * *', label: '1st of month noon' },
+              { cron: '*/10 * * * *', label: 'Every 10min' },
+            ].map(({ cron, label }) => (
+              <button
+                key={cron}
+                type="button"
+                onClick={() => { setCronInput(cron); onChange(`cron:${cron}`); }}
+                className="rounded border border-border/60 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors cursor-pointer"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground/50">min hour day month weekday</p>
         </div>
       )}
 
