@@ -73,7 +73,7 @@ class DeepWorkerPool:
     """
 
     MAX_WORKERS = 3
-    # No hard task timeout — stall detector handles idle workers (120s idle = cancel)
+    # No hard task timeout — stall detector handles idle workers (30min idle = cancel)
 
     COMPLETED_TASK_TTL = 300  # seconds to keep completed tasks visible (5 min)
 
@@ -545,8 +545,8 @@ class DeepWorkerPool:
             tool_callback = _tool_callback
 
             async def _stall_monitor():
-                STALL_THRESHOLD = 120
-                WARNING_THRESHOLD = 90
+                STALL_THRESHOLD = 1800   # 30 minutes idle before cancel
+                WARNING_THRESHOLD = 1500  # 25 minutes idle before warning
                 warned = False
                 while not cancel_event.is_set():
                     await asyncio.sleep(15)

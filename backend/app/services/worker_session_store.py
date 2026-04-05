@@ -17,7 +17,7 @@ from typing import Optional
 logger = logging.getLogger("voxyflow.worker_sessions")
 
 # Timeout: mark workers as timed_out if running > 10 minutes
-RUNNING_TIMEOUT_SECONDS = 600
+RUNNING_TIMEOUT_SECONDS = 1800  # 30 minutes
 # Only return sessions from the last hour
 RECENT_WINDOW_SECONDS = 3600
 
