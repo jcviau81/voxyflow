@@ -73,8 +73,16 @@ class ChatOrchestrator(LayerRunnersMixin):
         self._worker_pools: dict[str, DeepWorkerPool] = {}
         # Pending confirmations for destructive direct actions (taskId → delegate data)
         self._pending_confirms: dict[str, dict] = {}
+        # Per-chat lock to serialize user messages and worker callbacks
+        self._chat_locks: dict[str, asyncio.Lock] = {}
 
     MAX_CALLBACK_DEPTH = 2  # Prevent infinite dispatcher↔worker re-trigger loops
+
+    def _get_chat_lock(self, chat_id: str) -> asyncio.Lock:
+        """Get or create a per-chat asyncio.Lock to serialize responses."""
+        if chat_id not in self._chat_locks:
+            self._chat_locks[chat_id] = asyncio.Lock()
+        return self._chat_locks[chat_id]
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -98,7 +106,33 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         Returns a list of background asyncio.Task objects created during this
         invocation so the caller can cancel them on disconnect (Fix 3).
+
+        Uses a per-chat lock to prevent race conditions between user messages
+        and worker callbacks generating simultaneous responses.
         """
+        async with self._get_chat_lock(chat_id):
+            return await self._handle_message_inner(
+                websocket=websocket, content=content, message_id=message_id,
+                chat_id=chat_id, project_id=project_id, layers=layers,
+                chat_level=chat_level, is_callback=is_callback,
+                callback_depth=callback_depth, card_id=card_id, session_id=session_id,
+            )
+
+    async def _handle_message_inner(
+        self,
+        websocket: WebSocket,
+        content: str,
+        message_id: str,
+        chat_id: str,
+        project_id: str | None,
+        layers: dict[str, bool] | None = None,
+        chat_level: str = "general",
+        is_callback: bool = False,
+        callback_depth: int = 0,
+        card_id: str | None = None,
+        session_id: str | None = None,
+    ) -> list[asyncio.Task]:
+        """Inner implementation of handle_message (called under per-chat lock)."""
         _bg_tasks: list[asyncio.Task] = []
 
         # Resolve project/card context from the database
@@ -893,7 +927,8 @@ class ChatOrchestrator(LayerRunnersMixin):
                 callback_message_id = f"direct-cb-{uuid4().hex[:8]}"
                 logger.info(f"[DirectExecutor] Re-triggering dispatcher after {action}")
 
-                await self.handle_message(
+                # Call inner directly — we're already under the chat lock
+                await self._handle_message_inner(
                     websocket=websocket,
                     content=callback_msg,
                     message_id=callback_message_id,
