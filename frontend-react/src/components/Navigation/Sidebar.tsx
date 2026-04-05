@@ -178,6 +178,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const { connectionState, send } = useWS();
   const toggleFavoriteMutation = useToggleFavorite();
+  const cardsById = useCardStore((s) => s.cardsById);
 
   // Derived data
   const activeProjects = projects.filter((p) => !p.archived && p.id !== SYSTEM_PROJECT_ID);
@@ -205,6 +206,20 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
     }
   }
 
+  // Include card chat sessions (tabId = "card-{cardId}", not in openTabs)
+  for (const [key, tabSessions] of Object.entries(sessions)) {
+    if (!key.startsWith('card-') || tabSessions.length === 0) continue;
+    const cardId = key.replace('card-', '');
+    const card = cardsById[cardId];
+    for (const session of tabSessions) {
+      sessionEntries.push({
+        tabId: key,
+        session,
+        label: `${card?.title?.slice(0, 25) || 'Card'} › ${session.title || 'Chat'}`,
+      });
+    }
+  }
+
   // ── Close session handler ──────────────────────────────────────────────────
 
   const handleCloseSession = useCallback(
@@ -224,8 +239,20 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
   // ── Switch to session handler ──────────────────────────────────────────────
 
+  const selectCard = useProjectStore((s) => s.selectCard);
+
   const handleSwitchSession = useCallback(
     (tabId: string, session: SessionInfo) => {
+      if (tabId.startsWith('card-')) {
+        // Open the card modal
+        const cardId = tabId.replace('card-', '');
+        const card = cardsById[cardId];
+        if (card?.projectId) {
+          navigate(`/project/${card.projectId}`);
+        }
+        selectCard(cardId);
+        return;
+      }
       const sessionTabId = tabId === 'main' ? 'system-main' : tabId;
       switchTab(tabId);
       setActiveSession(sessionTabId, session.id);
@@ -235,7 +262,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         navigate(`/project/${tabId}`);
       }
     },
-    [switchTab, setActiveSession, navigate],
+    [switchTab, setActiveSession, navigate, cardsById, selectCard],
   );
 
   // ── Keyboard shortcut Ctrl+B ───────────────────────────────────────────────
