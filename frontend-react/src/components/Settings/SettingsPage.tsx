@@ -9,9 +9,10 @@
  */
 
 import { useState } from 'react';
-import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Clock } from 'lucide-react';
+import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Clock, User } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { AppearancePanel } from './AppearancePanel';
+import { PersonalityPanel } from './PersonalityPanel';
 import { ModelPanel } from './ModelPanel';
 import { VoicePanel } from './VoicePanel';
 import { GitHubPanel } from './GitHubPanel';
@@ -24,6 +25,7 @@ import { JobsPanel } from './JobsPanel';
 
 type PanelId =
   | 'appearance'
+  | 'personality'
   | 'models'
   | 'voice'
   | 'github'
@@ -40,6 +42,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'personality', label: 'Personality', icon: User },
   { id: 'models',     label: 'Models',     icon: Cpu },
   { id: 'voice',      label: 'Voice & STT', icon: Mic },
   { id: 'github',     label: 'GitHub',     icon: GitBranch },
@@ -53,8 +56,9 @@ const NAV_ITEMS: NavItem[] = [
 
 function renderPanel(id: PanelId) {
   switch (id) {
-    case 'appearance': return <AppearancePanel />;
-    case 'models':     return <ModelPanel />;
+    case 'appearance':  return <AppearancePanel />;
+    case 'personality': return <PersonalityPanel />;
+    case 'models':      return <ModelPanel />;
     case 'voice':      return <VoicePanel />;
     case 'github':     return <GitHubPanel />;
     case 'workspace':  return <WorkspacePanel />;

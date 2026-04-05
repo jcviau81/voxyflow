@@ -44,6 +44,12 @@ WARMTH_MODIFIERS = {
     "hot": "Be very warm, affectionate, and expressive. Full personality, maximum charm.",
 }
 
+LANGUAGE_INSTRUCTIONS = {
+    "en": "Always respond in English, regardless of the user's language.",
+    "fr": "Réponds toujours en français, peu importe la langue de l'utilisateur.",
+    "both": "Respond in the same language the user speaks (French or English).",
+}
+
 
 class PersonalityService:
     """Loads and caches personality files to build system prompts for Claude API calls."""
@@ -428,11 +434,15 @@ class PersonalityService:
         tone = ps.get("tone", "casual")
         warmth = ps.get("warmth", "warm")
 
+        preferred_language = ps.get("preferred_language", "both")
+
         style_parts = []
         if tone in TONE_MODIFIERS:
             style_parts.append(TONE_MODIFIERS[tone])
         if warmth in WARMTH_MODIFIERS:
             style_parts.append(WARMTH_MODIFIERS[warmth])
+        if preferred_language in LANGUAGE_INSTRUCTIONS:
+            style_parts.append(LANGUAGE_INSTRUCTIONS[preferred_language])
         if style_parts:
             sections.append("## Communication Style\n")
             sections.append("\n".join(style_parts) + "\n")
