@@ -54,6 +54,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN votes INTEGER NOT NULL DEFAULT 0"))
         if "sprint_id" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN sprint_id TEXT REFERENCES sprints(id)"))
+        if "preferred_model" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN preferred_model TEXT"))
         if "recurrence" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN recurrence TEXT"))
         if "recurrence_next" not in existing_columns:
@@ -311,6 +313,7 @@ class Card(Base):
     sprint_id = Column(String, ForeignKey("sprints.id"), nullable=True)  # sprint assignment
     recurrence = Column(String, nullable=True)  # "daily" | "weekly" | "monthly" | None
     recurrence_next = Column(DateTime, nullable=True)  # next occurrence datetime
+    preferred_model = Column(String, nullable=True)  # haiku | sonnet | opus — override worker model for this card
     files = Column(Text, nullable=False, default="[]")  # JSON array of relative file paths
     archived_at = Column(DateTime, nullable=True)  # set when archived, NULL = active
     created_at = Column(DateTime, default=utcnow)

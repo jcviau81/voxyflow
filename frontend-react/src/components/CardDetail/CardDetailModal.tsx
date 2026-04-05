@@ -385,6 +385,26 @@ export function CardDetailModal() {
                   <label className="mb-1 block text-xs font-medium text-muted-foreground cursor-pointer">Agent</label>
                   <AgentSelector current={card.agentType ?? 'general'} onChange={handleAgentChange} />
                 </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground cursor-pointer">Worker Model</label>
+                  <div className="flex gap-1.5">
+                    {([null, 'haiku', 'sonnet', 'opus'] as const).map((m) => (
+                      <button
+                        key={m ?? 'auto'}
+                        type="button"
+                        onClick={() => save({ preferred_model: m })}
+                        className={cn(
+                          'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer',
+                          (card.preferredModel ?? null) === m
+                            ? 'bg-primary/20 text-primary border-primary/40'
+                            : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted/60',
+                        )}
+                      >
+                        {m === null ? 'Auto' : m === 'haiku' ? 'Haiku' : m === 'sonnet' ? 'Sonnet' : 'Opus'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </section>
 
               <hr className="border-border" />

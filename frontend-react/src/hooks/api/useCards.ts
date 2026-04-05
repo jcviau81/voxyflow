@@ -22,6 +22,7 @@ export function mapRawCard(c: Record<string, unknown>): Card {
     watchers: (c.watchers as string) ?? '',
     votes: (c.votes as number) ?? 0,
     sprintId: (c.sprint_id as string) ?? null,
+    preferredModel: (c.preferred_model as Card['preferredModel']) ?? null,
     files: (c.files as string[]) ?? [],
   };
 }

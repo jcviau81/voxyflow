@@ -612,6 +612,12 @@ class ChatOrchestrator(LayerRunnersMixin):
             if model not in ("haiku", "sonnet", "opus"):
                 model = "sonnet"
 
+            # Card-level model override (preferred_model set in card modal)
+            card_preferred = card_context.get("preferred_model") if card_context else None
+            if card_preferred and card_preferred in ("haiku", "sonnet", "opus"):
+                logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
+                model = card_preferred
+
             # Auto-upgrade model for coding tasks
             _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
             description_lower = (data.get("description") or "").lower()
@@ -743,6 +749,12 @@ class ChatOrchestrator(LayerRunnersMixin):
                 model = data.get("model") or "sonnet"
                 if model not in ("haiku", "sonnet", "opus"):
                     model = "sonnet"
+
+                # Card-level model override
+                card_preferred = card_context.get("preferred_model") if card_context else None
+                if card_preferred and card_preferred in ("haiku", "sonnet", "opus"):
+                    logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
+                    model = card_preferred
 
                 # Auto-upgrade model for coding tasks (XML path)
                 _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
@@ -1353,6 +1365,7 @@ class ChatOrchestrator(LayerRunnersMixin):
                                 "priority": str(c.priority) if c.priority is not None else "medium",
                                 "agent_type": getattr(c, "agent_type", None) or "general",
                                 "assignee": getattr(c, "assignee", None),
+                                "preferred_model": getattr(c, "preferred_model", None),
                                 "checklist_items": [
                                     {"done": getattr(item, "done", False) or getattr(item, "completed", False)}
                                     for item in checklist_items

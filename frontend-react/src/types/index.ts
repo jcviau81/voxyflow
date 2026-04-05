@@ -181,6 +181,7 @@ export interface Card {
   watchers?: string;
   votes?: number;
   sprintId?: string | null;
+  preferredModel?: 'haiku' | 'sonnet' | 'opus' | null;
   recurrence?: 'daily' | 'weekly' | 'monthly' | null;
   recurrenceNext?: string | null;
   files?: string[];
