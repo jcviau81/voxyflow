@@ -252,6 +252,7 @@ export function useDeleteCard() {
     onSuccess: (_data, { projectId }) => {
       if (projectId) {
         qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
+        qc.invalidateQueries({ queryKey: cardKeys.archived(projectId) });
       } else {
         qc.invalidateQueries({ queryKey: cardKeys.all });
       }
