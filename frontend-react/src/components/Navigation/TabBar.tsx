@@ -115,20 +115,6 @@ export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }:
         />
       ))}
 
-      <button
-        className={cn(
-          'tab-add flex-shrink-0 flex items-center justify-center cursor-pointer' ,
-          'w-7 h-7 rounded text-sm font-medium',
-          'text-muted-foreground hover:text-foreground hover:bg-accent',
-          'transition-colors'
-        )}
-        title="New project"
-        data-testid="tab-add"
-        onClick={handleNewProject}
-      >
-        +
-      </button>
-
       {/* Right-side panel triggers */}
       <div className="ml-auto flex items-center gap-0.5 pl-2 flex-shrink-0">
         <PanelTrigger
