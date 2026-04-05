@@ -99,11 +99,11 @@ class SchedulerService:
             misfire_grace_time=300,
         )
 
-        # Recurrence job — runs every hour
+        # Recurrence job — runs every 5 minutes (supports 15min card intervals)
         self._scheduler.add_job(
             self._recurrence_job,
             trigger="interval",
-            hours=1,
+            minutes=5,
             id="recurrence",
             name="Recurring Card Generator",
             replace_existing=True,
@@ -432,15 +432,33 @@ class SchedulerService:
 
                         # Compute next recurrence_next for the new card
                         base = card.recurrence_next or now
-                        if card.recurrence == "daily":
-                            new_next = base + timedelta(days=1)
-                        elif card.recurrence == "weekly":
-                            new_next = base + timedelta(weeks=1)
-                        elif card.recurrence == "monthly":
-                            # Add ~30 days (simple approach)
-                            new_next = base + timedelta(days=30)
+                        RECURRENCE_DELTAS = {
+                            "15min": timedelta(minutes=15),
+                            "30min": timedelta(minutes=30),
+                            "hourly": timedelta(hours=1),
+                            "6hours": timedelta(hours=6),
+                            "daily": timedelta(days=1),
+                            "weekdays": timedelta(days=1),
+                            "weekly": timedelta(weeks=1),
+                            "biweekly": timedelta(weeks=2),
+                            "monthly": timedelta(days=30),
+                        }
+                        if card.recurrence and card.recurrence.startswith("cron:"):
+                            # Custom cron — compute next from APScheduler CronTrigger
+                            try:
+                                from apscheduler.triggers.cron import CronTrigger
+                                cron_expr = card.recurrence.replace("cron:", "").strip()
+                                trigger = CronTrigger.from_crontab(cron_expr)
+                                new_next = trigger.get_next_fire_time(None, base)
+                            except Exception:
+                                new_next = base + timedelta(days=1)
                         else:
-                            new_next = None
+                            new_next = base + RECURRENCE_DELTAS.get(card.recurrence, timedelta(days=1))
+
+                        # Weekdays: skip weekends
+                        if card.recurrence == "weekdays":
+                            while new_next.weekday() >= 5:  # Sat=5, Sun=6
+                                new_next += timedelta(days=1)
 
                         new_card.recurrence_next = new_next
 

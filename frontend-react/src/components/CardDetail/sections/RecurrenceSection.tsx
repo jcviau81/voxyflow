@@ -1,14 +1,21 @@
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Repeat } from 'lucide-react';
 
-type RecurrenceValue = 'daily' | 'weekly' | 'monthly';
-
-const OPTIONS: { value: RecurrenceValue | null; label: string }[] = [
+const PRESETS: { value: string | null; label: string }[] = [
   { value: null, label: 'None' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
+  { value: '15min', label: '15m' },
+  { value: '30min', label: '30m' },
+  { value: 'hourly', label: '1h' },
+  { value: '6hours', label: '6h' },
+  { value: 'daily', label: 'Day' },
+  { value: 'weekdays', label: 'M-F' },
+  { value: 'weekly', label: 'Week' },
+  { value: 'biweekly', label: '2wk' },
+  { value: 'monthly', label: 'Month' },
 ];
+
+const PRESET_VALUES = new Set(PRESETS.map((p) => p.value));
 
 interface RecurrenceSectionProps {
   current: string | null | undefined;
@@ -17,7 +24,10 @@ interface RecurrenceSectionProps {
 }
 
 export function RecurrenceSection({ current, nextDate, onChange }: RecurrenceSectionProps) {
-  const selected = (current as RecurrenceValue | null) ?? null;
+  const selected = current ?? null;
+  const isCustom = selected !== null && !PRESET_VALUES.has(selected);
+  const [showCron, setShowCron] = useState(isCustom);
+  const [cronInput, setCronInput] = useState(isCustom ? selected : '');
 
   return (
     <div>
@@ -25,12 +35,14 @@ export function RecurrenceSection({ current, nextDate, onChange }: RecurrenceSec
         <Repeat size={12} />
         Recurrence
       </label>
+
+      {/* Preset pills */}
       <div className="flex flex-wrap gap-1.5">
-        {OPTIONS.map(({ value, label }) => (
+        {PRESETS.map(({ value, label }) => (
           <button
             key={label}
             type="button"
-            onClick={() => onChange(value)}
+            onClick={() => { onChange(value); setShowCron(false); }}
             className={cn(
               'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer',
               selected === value
@@ -41,7 +53,41 @@ export function RecurrenceSection({ current, nextDate, onChange }: RecurrenceSec
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => setShowCron((v) => !v)}
+          className={cn(
+            'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer',
+            isCustom
+              ? 'bg-primary/20 text-primary border-primary/40'
+              : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted/60',
+          )}
+        >
+          Cron
+        </button>
       </div>
+
+      {/* Custom cron input */}
+      {showCron && (
+        <div className="mt-2 flex gap-1.5">
+          <input
+            type="text"
+            value={cronInput}
+            onChange={(e) => setCronInput(e.target.value)}
+            placeholder="0 9 * * 1-5"
+            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+          <button
+            type="button"
+            onClick={() => { if (cronInput.trim()) onChange(`cron:${cronInput.trim()}`); }}
+            className="rounded-md border border-primary/40 bg-primary/20 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/30 cursor-pointer"
+          >
+            Set
+          </button>
+        </div>
+      )}
+
+      {/* Next occurrence */}
       {selected && nextDate && (
         <p className="mt-1.5 text-[10px] text-muted-foreground/70">
           Next: {new Date(nextDate).toLocaleDateString(undefined, {
@@ -51,6 +97,11 @@ export function RecurrenceSection({ current, nextDate, onChange }: RecurrenceSec
             hour: '2-digit',
             minute: '2-digit',
           })}
+        </p>
+      )}
+      {isCustom && selected && (
+        <p className="mt-1 text-[10px] text-muted-foreground/70">
+          Cron: {selected.replace('cron:', '')}
         </p>
       )}
     </div>

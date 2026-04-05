@@ -72,9 +72,14 @@ type MobileTab = 'description' | 'chat' | 'details';
 function computeRecurrenceNext(value: string | null): string | null {
   if (!value) return null;
   const now = new Date();
-  const days = value === 'daily' ? 1 : value === 'weekly' ? 7 : 30;
-  now.setDate(now.getDate() + days);
-  return now.toISOString();
+  // Custom cron — approximate next as +1 day (backend computes exact)
+  if (value.startsWith('cron:')) return new Date(now.getTime() + 86400_000).toISOString();
+  const MS: Record<string, number> = {
+    '15min': 15 * 60_000, '30min': 30 * 60_000, 'hourly': 60 * 60_000,
+    '6hours': 6 * 3600_000, 'daily': 86400_000, 'weekdays': 86400_000,
+    'weekly': 7 * 86400_000, 'biweekly': 14 * 86400_000, 'monthly': 30 * 86400_000,
+  };
+  return new Date(now.getTime() + (MS[value] ?? 86400_000)).toISOString();
 }
 
 function formatTime(ts: number): string {
