@@ -32,6 +32,7 @@ import {
   MessageCircle,
   Folder,
   X,
+  Clock,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -315,6 +316,21 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           >
             <Home size={15} className="shrink-0" />
             <span>Main</span>
+          </NavLink>
+
+          <NavLink
+            to="/jobs"
+            className={({ isActive }) =>
+              cn(
+                'sidebar-item flex items-center gap-2 px-3 py-2 rounded-md text-sm cursor-pointer whitespace-nowrap',
+                'hover:bg-accent hover:text-accent-foreground transition-colors',
+                isActive && 'bg-accent text-accent-foreground font-medium',
+              )
+            }
+            data-testid="sidebar-jobs"
+          >
+            <Clock size={15} className="shrink-0" />
+            <span>Jobs</span>
           </NavLink>
         </div>
 
