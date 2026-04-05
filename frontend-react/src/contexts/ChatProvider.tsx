@@ -677,6 +677,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }),
     );
 
+    // --- reminder:fired — show toast when a reminder job fires ---
+    unsubs.push(
+      subscribe('reminder:fired', (payload) => {
+        const { jobName, message } = payload as { jobName?: string; message?: string };
+        showToast(`${jobName || 'Reminder'}: ${message || ''}`, 'info', 5000);
+      }),
+    );
+
     return () => {
       unsubs.forEach((unsub) => unsub());
     };

@@ -42,6 +42,7 @@ import { DependenciesSection } from './DependenciesSection';
 import { ChecklistSection } from './sections/Checklist';
 import { AttachmentsSection } from './sections/Attachments';
 import { LinkedFiles } from './sections/LinkedFiles';
+import { RecurrenceSection } from './sections/RecurrenceSection';
 
 // 11c sections
 import { RelationsSection } from './Relations';
@@ -67,6 +68,14 @@ const COLOR_RING: Record<string, string> = {
 type MobileTab = 'description' | 'chat' | 'details';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+function computeRecurrenceNext(value: string | null): string | null {
+  if (!value) return null;
+  const now = new Date();
+  const days = value === 'daily' ? 1 : value === 'weekly' ? 7 : 30;
+  now.setDate(now.getDate() + days);
+  return now.toISOString();
+}
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
@@ -179,6 +188,13 @@ export function CardDetailModal() {
 
   const handleColorChange = useCallback(
     (color: string | null) => save({ color }),
+    [save],
+  );
+
+  const handleRecurrenceChange = useCallback(
+    (value: string | null) => {
+      save({ recurrence: value, recurrence_next: computeRecurrenceNext(value) });
+    },
     [save],
   );
 
@@ -384,6 +400,11 @@ export function CardDetailModal() {
                   />
                 </div>
                 {isMainBoard && <ProjectPicker cardId={card.id} onMoved={close} />}
+                <RecurrenceSection
+                  current={card.recurrence}
+                  nextDate={card.recurrenceNext}
+                  onChange={handleRecurrenceChange}
+                />
               </section>
 
               <hr className="border-border" />

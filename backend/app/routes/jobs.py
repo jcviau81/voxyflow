@@ -273,10 +273,18 @@ async def _run_rag_index(job: dict, payload: dict) -> dict:
 
 
 async def _run_reminder(job: dict, payload: dict) -> dict:
-    """Log a reminder (extensible — could push to Mattermost/webhook)."""
+    """Log a reminder and broadcast via WebSocket."""
     message = payload.get("message", job.get("name", "Reminder"))
     logger.info(f"[Jobs][Reminder] {message}")
-    return {"status": "ok", "message": f"Reminder logged: {message}"}
+
+    from app.services.ws_broadcast import ws_broadcast
+    ws_broadcast.emit_sync("reminder:fired", {
+        "jobId": job.get("id"),
+        "jobName": job.get("name", "Reminder"),
+        "message": message,
+    })
+
+    return {"status": "ok", "message": f"Reminder delivered: {message}"}
 
 
 async def _run_github_sync(job: dict, payload: dict) -> dict:

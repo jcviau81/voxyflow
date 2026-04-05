@@ -16,6 +16,7 @@ import { useState, useCallback } from 'react';
 import { Clock, Play, Trash2, Plus, Loader2, X } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToastStore } from '../../stores/useToastStore';
+import { cn } from '../../lib/utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,28 @@ interface NewJobForm {
   type: JobType;
   schedule: string;
   enabled: boolean;
+}
+
+// ── Cron validator ────────────────────────────────────────────────────────
+
+function validateCronOrShorthand(expr: string): { valid: boolean; description: string } {
+  const shorthands: Record<string, string> = {
+    'every_30min': 'Every 30 minutes',
+    'every_hour': 'Every hour',
+    'every_2h': 'Every 2 hours',
+    'every_day': 'Every day at midnight',
+  };
+  if (shorthands[expr]) return { valid: true, description: shorthands[expr] };
+
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return { valid: false, description: 'Expected 5 fields: min hour dom month dow' };
+
+  const cronFieldPattern = /^[\d,\-\*\/]+$/;
+  for (const part of parts) {
+    if (!cronFieldPattern.test(part)) return { valid: false, description: `Invalid field: "${part}"` };
+  }
+
+  return { valid: true, description: `Cron: ${expr}` };
 }
 
 // ── API helpers ─────────────────────────────────────────────────────────────
@@ -90,6 +113,10 @@ function JobItem({ job, onToggle, onRun, onDelete }: {
     ? `Last: ${new Date(job.last_run).toLocaleString()}`
     : 'Never run';
 
+  const nextRunText = job.next_run && job.enabled
+    ? `Next: ${new Date(job.next_run).toLocaleString()}`
+    : null;
+
   return (
     <div className="job-item flex items-center gap-3 py-2.5 px-3 rounded-md hover:bg-muted/40 border border-transparent hover:border-border transition-colors">
       <input
@@ -108,6 +135,9 @@ function JobItem({ job, onToggle, onRun, onDelete }: {
           <span className="text-xs font-mono text-muted-foreground">{job.schedule}</span>
           <span className="text-xs text-muted-foreground">{lastRunText}</span>
         </div>
+        {nextRunText && (
+          <div className="text-xs text-muted-foreground mt-0.5">{nextRunText}</div>
+        )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
         <button
@@ -144,10 +174,35 @@ function AddJobForm({ onCancel, onSubmit }: {
     enabled: true,
   });
   const [error, setError] = useState('');
+  const [scheduleError, setScheduleError] = useState('');
+  const [scheduleDesc, setScheduleDesc] = useState('');
+
+  const validateSchedule = (value: string) => {
+    if (!value.trim()) {
+      setScheduleError('');
+      setScheduleDesc('');
+      return;
+    }
+    const result = validateCronOrShorthand(value);
+    if (result.valid) {
+      setScheduleError('');
+      setScheduleDesc(result.description);
+    } else {
+      setScheduleError(result.description);
+      setScheduleDesc('');
+    }
+  };
+
+  const handleScheduleChange = (value: string) => {
+    setForm((f) => ({ ...f, schedule: value }));
+    validateSchedule(value);
+  };
 
   const handleSubmit = () => {
     if (!form.name.trim()) { setError('Name is required'); return; }
     if (!form.schedule.trim()) { setError('Schedule is required'); return; }
+    const result = validateCronOrShorthand(form.schedule);
+    if (!result.valid) { setError(result.description); return; }
     setError('');
     onSubmit(form);
   };
@@ -188,13 +243,25 @@ function AddJobForm({ onCancel, onSubmit }: {
           <input
             type="text"
             value={form.schedule}
-            onChange={(e) => setForm((f) => ({ ...f, schedule: e.target.value }))}
+            onChange={(e) => handleScheduleChange(e.target.value)}
+            onBlur={() => validateSchedule(form.schedule)}
             placeholder="0 9 * * 1-5"
-            className="h-7 w-full px-2.5 text-sm rounded-md border border-input bg-background"
+            className={cn(
+              "h-7 w-full px-2.5 text-sm rounded-md border bg-background",
+              scheduleError ? "border-red-400" : scheduleDesc ? "border-emerald-400" : "border-input"
+            )}
           />
-          <div className="text-xs text-muted-foreground">
-            Cron or: every_30min, every_hour, every_day
-          </div>
+          {scheduleDesc && (
+            <div className="text-emerald-400 text-[11px]">{scheduleDesc}</div>
+          )}
+          {scheduleError && (
+            <div className="text-red-400 text-[11px]">{scheduleError}</div>
+          )}
+          {!scheduleDesc && !scheduleError && (
+            <div className="text-xs text-muted-foreground">
+              Cron or: every_30min, every_hour, every_day
+            </div>
+          )}
         </div>
 
         <label className="text-muted-foreground text-right">Enabled</label>
