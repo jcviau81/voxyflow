@@ -187,20 +187,26 @@ Grouping logic:
 2. Within project: group by `cardId` (card context) or `chatId` (chat context) or "Direct"
 3. Within group: running first, then by startedAt descending
 
-### 3.2 CLI Sessions Badge
+### 3.2 Remove CLI Sessions Panel from Sidebar
 
-**File:** `frontend-react/src/components/Navigation/CliSessionsBadge.tsx`
+**Files:**
+- `frontend-react/src/components/Navigation/CliSessionsBadge.tsx` — **Delete entirely**
+- `frontend-react/src/components/Navigation/Sidebar.tsx` — Remove `<CliSessionsBadge />` import (line 46) and usage (line 417)
 
-Reads from `useWorkerStore` instead of polling. CLI sessions shown as sub-items under corresponding worker tasks (matched by `taskId`).
+The CLI sessions mini-panel in the sidebar is redundant once the WorkerPanel shows the full hierarchy with CLI process info. All CLI session data (pid, model, duration, linked taskId) moves into the WorkerPanel hierarchy as sub-items under their corresponding worker tasks.
+
+Replace with a simple active worker count badge in the sidebar if needed (reading `useWorkerStore.getActiveCount()`).
 
 ---
 
 ## Phase 4: Cleanup
 
 1. Delete `frontend-react/src/hooks/useCliSessions.ts`
-2. Gut `frontend-react/src/hooks/api/useWorkerTasks.ts` (keep types only)
-3. Add deprecation headers to old polling endpoints
-4. Monitor logs for remaining polling calls
+2. Delete `frontend-react/src/components/Navigation/CliSessionsBadge.tsx`
+3. Remove `<CliSessionsBadge />` from `Sidebar.tsx`
+4. Gut `frontend-react/src/hooks/api/useWorkerTasks.ts` (keep types only)
+5. Add deprecation headers to old polling endpoints
+6. Monitor logs for remaining polling calls
 
 ---
 
@@ -245,3 +251,7 @@ Reads from `useWorkerStore` instead of polling. CLI sessions shown as sub-items 
 **Frontend (delete):**
 - `frontend-react/src/hooks/useCliSessions.ts` — polling hook
 - `frontend-react/src/hooks/api/useWorkerTasks.ts` — polling hook (keep types)
+- `frontend-react/src/components/Navigation/CliSessionsBadge.tsx` — sidebar mini-panel (replaced by WorkerPanel hierarchy)
+
+**Frontend (modify):**
+- `frontend-react/src/components/Navigation/Sidebar.tsx` — remove `<CliSessionsBadge />` (lines 46, 417)
