@@ -27,7 +27,6 @@ import {
   Sun,
   FolderPlus,
   ChevronRight,
-  Flame,
   Star,
   MessageCircle,
   Folder,
@@ -294,7 +293,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
     >
       {/* ── Brand ── */}
       <div className="sidebar-brand flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
-        <Flame size={18} className="text-orange-500 shrink-0" />
+        <img src="/favicon.svg" alt="Voxyflow" width={28} height={28} className="shrink-0" />
         <span className="font-semibold text-sm text-foreground whitespace-nowrap">Voxyflow</span>
       </div>
 
