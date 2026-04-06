@@ -7,6 +7,7 @@
 class TtsService {
   private _isSpeaking = false;
   private _onEndCallbacks: Array<() => void> = [];
+  private _onStartCallbacks: Array<() => void> = [];
   private _currentAudio: HTMLAudioElement | null = null;
   private _queue: string[] = [];
   private _processing = false;
@@ -117,6 +118,7 @@ class TtsService {
     const lang = this.detectLanguage();
     const langShort = lang.split('-')[0];
     this._isSpeaking = true;
+    this._notifyStart();
     try {
       const sentences = this.splitSentences(text);
 
@@ -179,6 +181,7 @@ class TtsService {
       utterance.volume = 1.0;
       utterance.pitch = 1.0;
       this._isSpeaking = true;
+      this._notifyStart();
 
       const done = (e?: SpeechSynthesisErrorEvent) => {
         if (e && (e.error === 'interrupted' || e.error === 'canceled')) {
@@ -217,6 +220,12 @@ class TtsService {
     return () => { this._onEndCallbacks = this._onEndCallbacks.filter((x) => x !== cb); };
   }
 
+  /** Subscribe to TTS start events. Returns an unsubscribe function. */
+  onStart(cb: () => void): () => void {
+    this._onStartCallbacks.push(cb);
+    return () => { this._onStartCallbacks = this._onStartCallbacks.filter((x) => x !== cb); };
+  }
+
   async speakIfAutoPlay(text: string): Promise<void> {
     try {
       const { tts_auto_play } = this.getVoiceSettings();
@@ -240,6 +249,12 @@ class TtsService {
     } catch { /* ignore */ }
     const b = navigator.language || 'en-US';
     return b.startsWith('fr') ? 'fr-CA' : 'en-US';
+  }
+
+  private _notifyStart(): void {
+    for (const cb of this._onStartCallbacks) {
+      try { cb(); } catch { /* ignore */ }
+    }
   }
 
   private _notifyEnd(): void {

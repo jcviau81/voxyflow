@@ -109,14 +109,42 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
     };
 
     if (ttsService.isSpeaking) {
+      // TTS is already playing — wait for it to finish
       const unsub = ttsService.onEnd(() => {
         unsub();
         setTimeout(doRestart, 500);
       });
-      // Safety timeout
-      setTimeout(doRestart, 30000);
+      // Safety: restart after 30s regardless
+      setTimeout(() => { unsub(); void doRestart(); }, 30000);
     } else {
-      setTimeout(doRestart, 1000);
+      // TTS not yet playing — AI response may be on its way.
+      // Subscribe to TTS start, then wait for TTS end before restarting.
+      // Fallback: if TTS never starts (auto-play off), restart after 8s.
+      let settled = false;
+      let unsubStart: (() => void) | null = null;
+      let unsubEnd: (() => void) | null = null;
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        unsubStart?.();
+        unsubEnd?.();
+        unsubStart = null;
+        unsubEnd = null;
+        setTimeout(doRestart, 500);
+      };
+
+      unsubStart = ttsService.onStart(() => {
+        // TTS started — unsub from start, now wait for end
+        unsubStart?.();
+        unsubStart = null;
+        unsubEnd = ttsService.onEnd(() => finish());
+        // Safety: if TTS runs for too long, restart anyway
+        setTimeout(finish, 30000);
+      });
+
+      // Fallback: if TTS never starts within 8s (auto-play disabled or no response)
+      setTimeout(() => { if (!settled) finish(); }, 8000);
     }
   }, [wakeWordEnabled]);
 

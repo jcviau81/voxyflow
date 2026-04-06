@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from 'react';
 import { useWS } from '../providers/WebSocketProvider';
+import { eventBus } from '../utils/eventBus';
+import { VOICE_EVENTS } from '../utils/voiceEvents';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useCardStore } from '../stores/useCardStore';
@@ -369,6 +371,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const buffer = voiceAutoSendBufferRef.current;
     if (buffer) {
       voiceAutoSendBufferRef.current = '';
+
+      // Stop mic immediately before sending to prevent TTS audio loop
+      eventBus.emit(VOICE_EVENTS.VOICE_RECORDING_STOP);
 
       if (sendMessageRef.current) {
         sendMessageRef.current(buffer, undefined, undefined, activeSessionIdRef.current);
