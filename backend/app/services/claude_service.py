@@ -681,6 +681,7 @@ class ClaudeService(ApiCallerMixin):
                 use_tools=True,
                 mcp_role="dispatcher",
                 chat_level=chat_level,
+                chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "",
                 session_type="chat",
             ):
@@ -702,6 +703,7 @@ class ClaudeService(ApiCallerMixin):
                 client_type=self.fast_client_type,
                 use_tools=False,
                 chat_level=chat_level,
+                chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "",
                 session_type="chat",
             ):
@@ -865,6 +867,7 @@ class ClaudeService(ApiCallerMixin):
                 use_tools=True,
                 mcp_role="dispatcher",
                 chat_level=chat_level,
+                chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "",
                 session_type="chat",
             ):
@@ -881,6 +884,7 @@ class ClaudeService(ApiCallerMixin):
                 client_type=self.deep_client_type,
                 use_tools=False,
                 chat_level=chat_level,
+                chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "",
                 session_type="chat",
             ):
