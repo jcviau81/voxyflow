@@ -271,9 +271,9 @@ export function useArchiveCard() {
       if (projectId) {
         qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
         qc.invalidateQueries({ queryKey: cardKeys.archived(projectId) });
-      } else {
-        qc.invalidateQueries({ queryKey: cardKeys.all });
       }
+      // Always invalidate all to ensure UI reflects the change immediately
+      qc.invalidateQueries({ queryKey: cardKeys.all });
     },
   });
 }
@@ -337,6 +337,8 @@ export function useMoveCard() {
       if (sourceProjectId) {
         qc.invalidateQueries({ queryKey: cardKeys.byProject(sourceProjectId) });
       }
+      // Always invalidate all to catch Main Board and edge cases
+      qc.invalidateQueries({ queryKey: cardKeys.all });
     },
   });
 }
