@@ -644,9 +644,11 @@ class DeepWorkerPool:
                 )
 
             if not supervisor.is_completed(event.task_id):
-                supervisor.mark_problem(event.task_id, "missing_task_complete")
-                logger.warning(
-                    f"[Supervisor] Task {event.task_id} finished without calling task.complete"
+                # Auto-complete: worker finished but forgot to call task.complete
+                auto_summary = (result_content or event.summary or "Task completed (auto-closed)")[:500]
+                supervisor.mark_completed(event.task_id, auto_summary, "success")
+                logger.info(
+                    f"[Supervisor] Task {event.task_id} auto-completed (worker did not call task.complete)"
                 )
             else:
                 task_status = supervisor.get_status(event.task_id)

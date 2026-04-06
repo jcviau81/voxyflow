@@ -99,7 +99,7 @@ class DirectExecutor:
         """
         action = delegate_data.get("action", "")
         if action not in DIRECT_ACTION_MAP:
-            logger.warning(f"[DirectExecutor] Action '{action}' not in whitelist, falling back to worker")
+            logger.debug(f"[DirectExecutor] Action '{action}' not in whitelist, falling back to worker")
             return False
 
         # No-param actions (health, list_projects, etc.) don't need params
