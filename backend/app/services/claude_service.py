@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
 
-from app.config import get_settings
+from app.config import get_settings, VOXYFLOW_WORKSPACE_DIR
 from app.services.llm.client_factory import (
     _make_anthropic_client,
     _make_async_anthropic_client,
@@ -691,6 +691,7 @@ class ClaudeService(ApiCallerMixin):
                 chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "",
                 session_type="chat",
+                cwd=str(VOXYFLOW_WORKSPACE_DIR),
             ):
                 full_response += token
                 yield token
@@ -713,6 +714,7 @@ class ClaudeService(ApiCallerMixin):
                 chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "",
                 session_type="chat",
+                cwd=str(VOXYFLOW_WORKSPACE_DIR),
             ):
                 full_response += token
                 yield token
@@ -882,6 +884,7 @@ class ClaudeService(ApiCallerMixin):
                 chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "",
                 session_type="chat",
+                cwd=str(VOXYFLOW_WORKSPACE_DIR),
             ):
                 full_response += token
                 yield token
@@ -899,6 +902,7 @@ class ClaudeService(ApiCallerMixin):
                 chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "",
                 session_type="chat",
+                cwd=str(VOXYFLOW_WORKSPACE_DIR),
             ):
                 full_response += token
                 yield token
@@ -990,6 +994,13 @@ class ClaudeService(ApiCallerMixin):
         )
         system_prompt = _inject_no_think(system_prompt, model_name)
 
+        # Resolve workspace cwd for the worker subprocess
+        worker_cwd = ""
+        if project_context and project_context.get("local_path"):
+            worker_cwd = project_context["local_path"]
+        elif not worker_cwd:
+            worker_cwd = str(VOXYFLOW_WORKSPACE_DIR)
+
         result = await self._call_api(
             model=model_name,
             system=system_prompt,
@@ -1005,6 +1016,7 @@ class ClaudeService(ApiCallerMixin):
             session_id=session_id, project_id=project_id or "",
             session_type="worker",
             task_id=task_id,
+            cwd=worker_cwd,
         )
         return (_strip_think_tags(result) if _is_thinking_model(model_name) else result) if result else result
 
@@ -1066,6 +1078,7 @@ class ClaudeService(ApiCallerMixin):
             session_id=session_id, project_id=project_id or "",
             session_type="worker",
             task_id=task_id,
+            cwd=str(VOXYFLOW_WORKSPACE_DIR),
         )
         return result or ""
 
@@ -1101,54 +1114,6 @@ class ClaudeService(ApiCallerMixin):
         except Exception as e:
             logger.warning(f"[SafetyNet] Haiku delegate generation failed: {e}")
             return None
-
-    async def chat_deep(
-        self,
-        chat_id: str,
-        user_message: str,
-        project_name: Optional[str] = None,
-        project_id: Optional[str] = None,
-    ) -> Optional[str]:
-        """Layer 2: Deep analysis, personality-infused. Returns None or enrichment text."""
-
-        recent = await self._get_windowed_history(chat_id)
-
-        memory_context = self.memory.build_memory_context(
-            project_name=project_name,
-            include_long_term=True,
-            include_daily=True,
-            query=user_message,
-        )
-        # Static base prompt (cacheable)
-        base_prompt = self.personality.build_deep_prompt()
-
-        # Dynamic context (per-call, not cached)
-        dynamic_parts: list[str] = []
-        if memory_context:
-            dynamic_parts.append(f"## Relevant Memory\n{memory_context}")
-
-        if project_id:
-            try:
-                pass  # RAG disabled — use knowledge.search tool instead
-            except Exception as e:
-                logger.warning(f"RAG context injection failed (chat_deep): {e}")
-
-        system_prompt = _make_cached_system(
-            base_prompt, dynamic_parts, is_anthropic=(self.deep_client_type == "anthropic")
-        )
-
-        response_text = await self._call_api(
-            model=self.deep_model,
-            system=system_prompt,
-            messages=recent,
-            client=self.deep_client,
-            client_type=self.deep_client_type,
-            layer="deep",
-        )
-
-        if not response_text or response_text.strip().upper() == "EMPTY":
-            return None
-        return response_text
 
     async def generate_brief(self, prompt: str) -> str:
         """One-shot project brief generation using the deep model. No history, no persistence."""

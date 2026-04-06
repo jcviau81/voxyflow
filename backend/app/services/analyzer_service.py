@@ -108,7 +108,7 @@ class AnalyzerService:
     """
 
     def __init__(self):
-        self._min_confidence = 0.5
+        self._min_confidence = 0.6
         self._router = get_agent_router()
 
     # Casual/throwaway messages that should never generate cards
@@ -245,7 +245,7 @@ class AnalyzerService:
         if hits == 0:
             return 0.0
 
-        return min(0.3 + (hits * 0.2), 1.0)
+        return min(0.2 + (hits * 0.2), 1.0)
 
     def _extract_card(
         self,

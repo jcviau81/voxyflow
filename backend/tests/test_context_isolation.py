@@ -6,7 +6,7 @@ Comprehensive test suite verifying:
 3. Context isolation — no data leaks between levels
 4. Tool call fallback parsing (regex extraction)
 5. Analyzer output format expectations
-6. Deep layer supervisor rules
+6. Deep layer prompt (chat responder mode)
 7. Integration tests against the running backend API
 
 Unit tests run standalone (no server needed).
@@ -519,40 +519,23 @@ class TestAnalyzerPrompt:
         assert "✅" in prompt, "Analyzer prompt should have good examples"
 
 
-class TestDeepSupervisorPrompt:
-    """Test 7: Verify the deep layer supervisor rules."""
+class TestDeepPrompt:
+    """Test 7: Verify the deep layer prompt (chat responder mode)."""
 
     def _ps(self):
         from app.services.personality_service import PersonalityService
         return PersonalityService()
 
-    def test_deep_has_supervisor_role(self):
+    def test_deep_chat_responder_has_dispatcher_rule(self):
         ps = self._ps()
-        prompt = ps.build_deep_prompt(chat_level="general")
-        assert "SUPERVISOR" in prompt
-
-    def test_deep_has_must_intervene_rules(self):
-        ps = self._ps()
-        prompt = ps.build_deep_prompt(chat_level="general")
-        assert "MUST intervene" in prompt
-
-    def test_deep_has_assumption_check(self):
-        ps = self._ps()
-        prompt = ps.build_deep_prompt(chat_level="general")
-        assert "ASSUMPTION" in prompt or "Assumes" in prompt or "assumption" in prompt.lower()
-
-    def test_deep_has_empty_response_option(self):
-        ps = self._ps()
-        prompt = ps.build_deep_prompt(chat_level="general")
-        assert "action='none'" in prompt or '"none"' in prompt or "action=\\\"none\\\"" in prompt
+        prompt = ps.build_deep_prompt(chat_level="general", is_chat_responder=True)
+        assert "Dispatcher" in prompt or "DISPATCHER" in prompt or "dispatcher" in prompt
 
     def test_deep_prompt_changes_with_chat_level(self):
         ps = self._ps()
-        general_prompt = ps.build_deep_prompt(chat_level="general")
+        general_prompt = ps.build_deep_prompt(chat_level="general", is_chat_responder=True)
         project = {"title": "TestProject"}
-        project_prompt = ps.build_deep_prompt(chat_level="project", project=project)
-        assert "SUPERVISOR" in general_prompt
-        assert "SUPERVISOR" in project_prompt
+        project_prompt = ps.build_deep_prompt(chat_level="project", project=project, is_chat_responder=True)
         assert "Main" in general_prompt
         assert "TestProject" in project_prompt
 

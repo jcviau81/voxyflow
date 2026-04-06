@@ -22,6 +22,10 @@ Tier 2 — App settings (routes/settings.py, DB app_settings table):
   VOXYFLOW_DATA_DIR — data directory (SQLite DB, worker sessions, jobs)
                        Override: VOXYFLOW_DATA_DIR env var
                        Default: ~/.voxyflow
+
+  VOXYFLOW_WORKSPACE_DIR — workspace for projects and file operations
+                            Override: VOXYFLOW_WORKSPACE_DIR env var
+                            Default: ~/.voxyflow/workspace
 """
 
 import logging
@@ -35,6 +39,7 @@ logger = logging.getLogger(__name__)
 # Canonical path constants — import these instead of recomputing in each module
 VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", str(Path.home() / "voxyflow")))
 VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
+VOXYFLOW_WORKSPACE_DIR = Path(os.environ.get("VOXYFLOW_WORKSPACE_DIR", str(VOXYFLOW_DATA_DIR / "workspace")))
 SETTINGS_FILE = VOXYFLOW_DIR / "settings.json"
 
 # Resolve .env relative to the backend/ directory (works regardless of cwd)
@@ -110,9 +115,10 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Ensure both directories exist
+        # Ensure all directories exist
         VOXYFLOW_DIR.mkdir(parents=True, exist_ok=True)
         VOXYFLOW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        VOXYFLOW_WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
         # Load claude_api_key from keyring → env if not already set
         if not self.claude_api_key or self.claude_api_key in ("placeholder", "not-needed"):
             keyring_key = _get_secret(

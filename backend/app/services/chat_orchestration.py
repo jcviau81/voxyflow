@@ -150,7 +150,9 @@ class ChatOrchestrator(LayerRunnersMixin):
         if layers is None:
             layers = {}
         deep_enabled = layers.get("deep", layers.get("opus", False))
-        analyzer_enabled = layers.get("analyzer", False)
+        # Global gate: settings-level enable must be true, then per-message layers control it
+        from app.routes.settings import get_analyzer_enabled
+        analyzer_enabled = get_analyzer_enabled() and layers.get("analyzer", True)
 
         # Helper to send model status updates
         async def send_model_status(model: str, state: str) -> None:

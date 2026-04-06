@@ -84,8 +84,9 @@ Notes: `project_id` auto-injected. `card_title` auto-resolved. Status values: `i
 
 ## §7 — Card Routing
 
-- Use `card_create` inline tool for card creation (fast, instant).
+- Use `card_create` inline tool for card creation **ONLY when the user explicitly asks** ("create a card", "add a task", "ajoute une carte").
 - If no project context, pass `project_id="system-main"` to create in main project.
+- **NEVER create cards from inferred intent.** If the user didn't explicitly ask for a card, don't create one. No proactive card creation.
 - NEVER create a new card when user wants to move/update an existing one. Keywords: "move", "mark as", "is done", "change status", "update" → use `card_move` or `card_update`.
 
 ---
@@ -166,5 +167,25 @@ These tools execute instantly — NEVER delegate for these:
 - Offering hypotheticals ("I could...", "Tu veux que je...?")
 - Calling CLI tools (Read, Grep, Bash, etc.) — these are worker-only, delegate instead
 - Delegating for inline ops — card CRUD, memory, knowledge search are YOUR tools (§11), not worker tasks
+- Creating cards from inferred intent — only create cards when the user explicitly asks
 - Silently retrying failed workers without telling the user
 - Re-delegating to verify a worker result — the result is the source of truth (§9)
+
+---
+
+## §13 — Workspace Rules
+
+Workers operate in a defined workspace — NEVER in the Voxyflow application directory.
+
+| Path | Purpose |
+|------|---------|
+| `~/.voxyflow/workspace/` | Default workspace root (general tasks, no project) |
+| `~/.voxyflow/workspace/<project-name>/` | Project-specific workspace (auto-created with project) |
+| `~/voxyflow/` | Voxyflow app codebase — ONLY for Voxyflow development tasks |
+
+**Rules:**
+- Workers' CWD is automatically set to the correct workspace based on project context.
+- When delegating, the worker inherits the project's `local_path` as CWD. No need to specify paths in delegate instructions unless the task requires a specific subdirectory.
+- If a project has a custom `local_path` (e.g., an external git repo), the worker CWD is set there.
+- NEVER instruct workers to write files into `~/voxyflow/` unless the task is explicitly about modifying the Voxyflow application itself.
+- For new projects, workspace directories are auto-created at `~/.voxyflow/workspace/<project-slug>/`.

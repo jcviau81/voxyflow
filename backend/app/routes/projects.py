@@ -21,6 +21,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db, Project, Card, WikiPage, Sprint, new_uuid, utcnow
 from app.models.project import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithCards
 from app.services.agent_personas import AgentType, get_persona
+from app.services.workspace_service import get_workspace_service
 
 # ---------------------------------------------------------------------------
 # Standup helpers
@@ -263,6 +264,18 @@ async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)
             detail=f"A project named '{body.title.strip()}' already exists."
         )
 
+    # Auto-create workspace directory for the project
+    ws = get_workspace_service()
+    if body.local_path:
+        # User specified a custom path — use it and ensure it exists
+        project_workspace = Path(body.local_path).expanduser()
+        project_workspace.mkdir(parents=True, exist_ok=True)
+        local_path = str(project_workspace)
+    else:
+        # Default: ~/.voxyflow/workspace/<project-slug>/
+        project_workspace = ws.ensure_project_workspace(body.title.strip())
+        local_path = str(project_workspace)
+
     project = Project(
         id=new_uuid(),
         title=body.title.strip(),
@@ -272,7 +285,7 @@ async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)
         github_url=body.github_url,
         github_branch=body.github_branch,
         github_language=body.github_language,
-        local_path=body.local_path,
+        local_path=local_path,
     )
     db.add(project)
     await db.commit()

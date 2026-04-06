@@ -24,11 +24,17 @@ PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
 
 _cached_default_worker_model: str = "sonnet"
+_cached_analyzer_enabled: bool = True
 
 
 def get_default_worker_model() -> str:
     """Return the cached default worker model (haiku/sonnet/opus). Updated on settings save."""
     return _cached_default_worker_model
+
+
+def get_analyzer_enabled() -> bool:
+    """Return the cached analyzer enabled state. Updated on settings load/save."""
+    return _cached_analyzer_enabled
 
 
 async def _load_settings_from_db() -> dict | None:
@@ -131,7 +137,7 @@ class AppSettings(BaseModel):
     onboarding_complete: bool = False
     user_name: str = ""
     assistant_name: str = "Voxy"
-    workspace_path: str = "workspace"  # relative to VOXYFLOW_DIR, or absolute
+    workspace_path: str = str(Path.home() / ".voxyflow" / "workspace")  # absolute path to workspace root
 
 
 def _resolve_personality_path(rel_path: str) -> Path:
@@ -151,14 +157,19 @@ async def get_settings():
 
     If DB is empty but settings.json exists, migrate into DB automatically.
     """
-    global _cached_default_worker_model
+    global _cached_default_worker_model, _cached_analyzer_enabled
+
+    def _update_caches(merged: dict) -> None:
+        global _cached_default_worker_model, _cached_analyzer_enabled
+        _cached_default_worker_model = merged.get("models", {}).get("default_worker_model", "sonnet")
+        _cached_analyzer_enabled = merged.get("models", {}).get("analyzer", {}).get("enabled", True)
 
     # 1. Try DB (source of truth)
     db_data = await _load_settings_from_db()
     if db_data is not None:
         # Merge with Pydantic defaults so new fields are always present
         merged = AppSettings(**db_data).dict()
-        _cached_default_worker_model = merged.get("models", {}).get("default_worker_model", "sonnet")
+        _update_caches(merged)
         return merged
 
     # 2. Fallback to settings.json — and migrate into DB
@@ -167,7 +178,7 @@ async def get_settings():
             file_data = json.load(f)
         merged = AppSettings(**file_data).dict()
         await _save_settings_to_db(merged)
-        _cached_default_worker_model = merged.get("models", {}).get("default_worker_model", "sonnet")
+        _update_caches(merged)
         logger.info("Migrated settings from settings.json into SQLite")
         return merged
 
@@ -178,8 +189,9 @@ async def get_settings():
 @router.put("")
 async def save_settings(settings: AppSettings):
     """Save settings to DB (source of truth) and settings.json (backup)."""
-    global _cached_default_worker_model
+    global _cached_default_worker_model, _cached_analyzer_enabled
     _cached_default_worker_model = settings.models.default_worker_model
+    _cached_analyzer_enabled = settings.models.analyzer.enabled
     data = settings.dict()
 
     # Write to DB

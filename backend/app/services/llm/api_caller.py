@@ -1203,6 +1203,7 @@ class ApiCallerMixin:
         project_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
+        cwd: str = "",
     ) -> str:
         """Non-streaming call via Claude CLI subprocess.
 
@@ -1226,6 +1227,7 @@ class ApiCallerMixin:
                 session_type=session_type,
                 task_id=task_id,
                 steer_queue=message_queue,
+                cwd=cwd,
             )
         else:
             text, usage = await self._cli_backend.call(
@@ -1240,6 +1242,7 @@ class ApiCallerMixin:
                 chat_id=chat_id,
                 project_id=project_id,
                 session_type=session_type,
+                cwd=cwd,
             )
             # Drain message_queue if anything was queued (non-steerable path)
             if message_queue:
@@ -1273,6 +1276,7 @@ class ApiCallerMixin:
         session_id: str = "",
         project_id: str = "",
         session_type: str = "chat",
+        cwd: str = "",
     ) -> AsyncIterator[str]:
         """Streaming call via Claude CLI subprocess.
 
@@ -1284,7 +1288,7 @@ class ApiCallerMixin:
                 model=model, system=system, messages=messages,
                 chat_id=chat_id, use_tools=use_tools, mcp_role=mcp_role,
                 session_id=session_id, project_id=project_id,
-                session_type=session_type,
+                session_type=session_type, cwd=cwd,
             ):
                 yield token
         else:
@@ -1293,6 +1297,7 @@ class ApiCallerMixin:
                 use_tools=use_tools, mcp_role=mcp_role,
                 session_id=session_id, chat_id=chat_id,
                 project_id=project_id, session_type=session_type,
+                cwd=cwd,
             ):
                 yield token
         # Log token usage from the completed stream
@@ -1347,6 +1352,7 @@ class ApiCallerMixin:
         project_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
+        cwd: str = "",
     ) -> str:
         """Dispatch to native Anthropic SDK, CLI subprocess, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
@@ -1359,7 +1365,7 @@ class ApiCallerMixin:
                 cancel_event=cancel_event, message_queue=message_queue,
                 tool_callback=tool_callback,
                 session_id=session_id, project_id=project_id, session_type=session_type,
-                task_id=task_id,
+                task_id=task_id, cwd=cwd,
             )
         if ct == "anthropic":
             return await self._call_api_anthropic(
@@ -1399,6 +1405,7 @@ class ApiCallerMixin:
         session_id: str = "",
         project_id: str = "",
         session_type: str = "chat",
+        cwd: str = "",
     ) -> AsyncIterator[str]:
         """Dispatch streaming to CLI subprocess, native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
@@ -1409,6 +1416,7 @@ class ApiCallerMixin:
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
                 session_id=session_id, project_id=project_id, session_type=session_type,
+                cwd=cwd,
             ):
                 yield token
             return

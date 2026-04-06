@@ -239,6 +239,7 @@ class ClaudeCliBackend:
         chat_id: str = "",
         project_id: str = "",
         session_type: str = "worker",
+        cwd: str = "",
     ) -> tuple[str, dict]:
         """Non-streaming CLI call. Returns (response_text, usage_dict).
 
@@ -260,6 +261,7 @@ class ClaudeCliBackend:
                 message_queue=message_queue,
                 session_id=session_id, chat_id=chat_id,
                 project_id=project_id, session_type=session_type,
+                cwd=cwd,
             )
 
         system_prompt = _flatten_system(system)
@@ -281,6 +283,7 @@ class ClaudeCliBackend:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
+            cwd=cwd or None,
         )
 
         _cancel = cancel_event or asyncio.Event()
@@ -371,6 +374,7 @@ class ClaudeCliBackend:
         chat_id: str = "",
         project_id: str = "",
         session_type: str = "worker",
+        cwd: str = "",
     ) -> tuple[str, dict]:
         """CLI call using stream-json to capture MCP tool events.
 
@@ -400,6 +404,7 @@ class ClaudeCliBackend:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
+            cwd=cwd or None,
         )
 
         _cancel = cancel_event or asyncio.Event()
@@ -580,6 +585,7 @@ class ClaudeCliBackend:
         mcp_role: str = "dispatcher",
         session_id: str = "",
         project_id: str = "",
+        cwd: str = "",
     ) -> PersistentChatProcess:
         """Spawn a persistent claude -p process for multi-turn chat."""
         system_prompt = _flatten_system(system)
@@ -601,6 +607,7 @@ class ClaudeCliBackend:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             limit=16 * 1024 * 1024,
+            cwd=cwd or None,
         )
 
         # Register in session registry
@@ -652,6 +659,7 @@ class ClaudeCliBackend:
         session_id: str = "",
         project_id: str = "",
         session_type: str = "chat",
+        cwd: str = "",
     ) -> AsyncIterator[str]:
         """Persistent streaming — reuses subprocess across turns.
 
@@ -672,7 +680,7 @@ class ClaudeCliBackend:
                 pcp = await self._spawn_persistent_chat(
                     chat_id=chat_id, model=model, system=system, messages=messages,
                     use_tools=use_tools, mcp_role=mcp_role,
-                    session_id=session_id, project_id=project_id,
+                    session_id=session_id, project_id=project_id, cwd=cwd,
                 )
                 # Yield tokens from the first turn
                 async with pcp.turn_lock:
@@ -793,6 +801,7 @@ class ClaudeCliBackend:
         session_type: str = "worker",
         task_id: str = "",
         steer_queue: Optional[asyncio.Queue] = None,
+        cwd: str = "",
     ) -> tuple[str, dict]:
         """Steerable CLI call — keeps stdin open so steering messages can be injected.
 
@@ -821,6 +830,7 @@ class ClaudeCliBackend:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
+            cwd=cwd or None,
         )
 
         _cancel = cancel_event or asyncio.Event()
@@ -1018,6 +1028,7 @@ class ClaudeCliBackend:
         chat_id: str = "",
         project_id: str = "",
         session_type: str = "chat",
+        cwd: str = "",
     ) -> AsyncIterator[str]:
         """Streaming CLI call via --output-format stream-json.
 
@@ -1042,6 +1053,7 @@ class ClaudeCliBackend:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
+            cwd=cwd or None,
         )
 
         _reg_id = new_cli_session_id()

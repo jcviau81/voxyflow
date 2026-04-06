@@ -1,6 +1,7 @@
 """Workspace service — managed file storage for Voxy.
 
-All paths stored/returned are RELATIVE to VOXYFLOW_DIR.
+Workspace root: ~/.voxyflow/workspace/ (VOXYFLOW_WORKSPACE_DIR)
+Projects: ~/.voxyflow/workspace/<project-name>/
 Security: rejects any path with '..' components to prevent traversal.
 """
 
@@ -11,51 +12,51 @@ from pathlib import Path
 
 from sqlalchemy import text
 from app.database import async_session
+from app.config import VOXYFLOW_WORKSPACE_DIR
 
 logger = logging.getLogger(__name__)
-
-VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow")))
 
 
 class WorkspaceService:
     """Manages file operations within the workspace directory."""
 
     def __init__(self):
-        self._workspace_rel = "workspace"  # default
+        self._workspace_root = VOXYFLOW_WORKSPACE_DIR
 
-    async def _load_workspace_path(self) -> str:
-        """Load workspace_path from settings DB."""
-        try:
-            async with async_session() as session:
-                result = await session.execute(
-                    text("SELECT value FROM app_settings WHERE key = 'app_settings'")
-                )
-                row = result.fetchone()
-                if row:
-                    data = json.loads(row[0])
-                    return data.get("workspace_path", "workspace")
-        except Exception as e:
-            logger.warning("Failed to load workspace_path from DB: %s", e)
-        return "workspace"
-
-    def _resolve_workspace(self, workspace_path: str) -> Path:
-        """Resolve workspace_path to an absolute path."""
-        p = Path(workspace_path)
-        if p.is_absolute():
-            return p
-        return VOXYFLOW_DIR / workspace_path
+    @property
+    def workspace_root(self) -> Path:
+        return self._workspace_root
 
     async def get_workspace_path(self) -> Path:
-        """Returns the resolved absolute path of the workspace."""
-        rel = await self._load_workspace_path()
-        return self._resolve_workspace(rel)
+        """Returns the resolved absolute path of the workspace root."""
+        return self._workspace_root
 
     async def ensure_workspace(self) -> Path:
         """Creates the workspace dir if it doesn't exist. Returns the path."""
-        ws = await self.get_workspace_path()
+        self._workspace_root.mkdir(parents=True, exist_ok=True)
+        logger.info("Workspace directory ensured: %s", self._workspace_root)
+        return self._workspace_root
+
+    def get_project_workspace(self, project_name: str) -> Path:
+        """Get the workspace directory for a specific project."""
+        safe_name = self._slugify(project_name)
+        return self._workspace_root / safe_name
+
+    def ensure_project_workspace(self, project_name: str) -> Path:
+        """Create and return the workspace directory for a project."""
+        ws = self.get_project_workspace(project_name)
         ws.mkdir(parents=True, exist_ok=True)
-        logger.info("Workspace directory ensured: %s", ws)
+        logger.info("Project workspace ensured: %s", ws)
         return ws
+
+    def _slugify(self, name: str) -> str:
+        """Convert project name to a safe directory name."""
+        import re
+        slug = name.strip().lower()
+        slug = re.sub(r'[^\w\s-]', '', slug)
+        slug = re.sub(r'[\s_]+', '-', slug)
+        slug = slug.strip('-')
+        return slug or 'unnamed'
 
     def _validate_path(self, relative_path: str) -> None:
         """Reject paths with '..' components."""
@@ -66,9 +67,9 @@ class WorkspaceService:
             raise ValueError(f"Absolute paths not allowed: {relative_path}")
 
     def resolve_path(self, relative_path: str) -> Path:
-        """Resolve a relative path against VOXYFLOW_DIR."""
+        """Resolve a relative path against the workspace root."""
         self._validate_path(relative_path)
-        return VOXYFLOW_DIR / relative_path
+        return self._workspace_root / relative_path
 
     async def list_files(self, subdir: str = "") -> list[dict]:
         """List files and directories in workspace (or subdirectory)."""
@@ -83,7 +84,7 @@ class WorkspaceService:
 
         entries = []
         for entry in sorted(target.iterdir()):
-            rel = entry.relative_to(VOXYFLOW_DIR)
+            rel = entry.relative_to(ws)
             entries.append({
                 "name": entry.name,
                 "path": str(rel),
@@ -93,10 +94,9 @@ class WorkspaceService:
         return entries
 
     async def read_file(self, relative_path: str) -> str:
-        """Read a file from workspace. Path is relative to VOXYFLOW_DIR."""
+        """Read a file from workspace. Path is relative to workspace root."""
         path = self.resolve_path(relative_path)
         ws = await self.get_workspace_path()
-        # Ensure the resolved path is within workspace
         try:
             path.resolve().relative_to(ws.resolve())
         except ValueError:
@@ -109,7 +109,6 @@ class WorkspaceService:
         """Write a file to workspace. Returns the relative path."""
         path = self.resolve_path(relative_path)
         ws = await self.get_workspace_path()
-        # Ensure the resolved path is within workspace
         try:
             path.resolve(strict=False).relative_to(ws.resolve())
         except ValueError:
@@ -148,7 +147,7 @@ class WorkspaceService:
         def _walk(directory: Path) -> list[dict]:
             entries = []
             for entry in sorted(directory.iterdir()):
-                rel = str(entry.relative_to(VOXYFLOW_DIR))
+                rel = str(entry.relative_to(ws))
                 node: dict = {
                     "name": entry.name,
                     "path": rel,

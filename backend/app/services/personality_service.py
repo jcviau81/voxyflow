@@ -25,6 +25,8 @@ USER_FILE = PERSONALITY_DIR / "USER.md"
 IDENTITY_FILE = PERSONALITY_DIR / "IDENTITY.md"
 AGENTS_FILE = PERSONALITY_DIR / "AGENTS.md"
 DISPATCHER_FILE = PERSONALITY_DIR / "DISPATCHER.md"
+WORKER_FILE = PERSONALITY_DIR / "WORKER.md"
+ANALYZER_FILE = PERSONALITY_DIR / "ANALYZER.md"
 ARCHITECTURE_FILE = PERSONALITY_DIR / "ARCHITECTURE.md"
 
 # Settings file (written by the Settings UI)
@@ -132,6 +134,12 @@ class PersonalityService:
 
     def load_dispatcher(self) -> str:
         return self._read_if_changed(DISPATCHER_FILE)
+
+    def load_worker(self) -> str:
+        return self._read_if_changed(WORKER_FILE)
+
+    def load_analyzer(self) -> str:
+        return self._read_if_changed(ANALYZER_FILE)
 
     def load_architecture(self) -> str:
         return self._read_if_changed(ARCHITECTURE_FILE)
@@ -693,63 +701,10 @@ class PersonalityService:
             logger.info(f"[PersonalityService] Deep chat prompt built: {len(full_prompt)} chars, chat_level={chat_level}, native_tools={native_tools}")
             return full_prompt
 
-        # --- Background executor / supervisor mode (original behavior) ---
-        deep_instructions = (
-            f"\n\n## Layer Init — Deep (Supervisor + Executor)\n"
-            f"Role: SUPERVISOR / FACT-CHECKER / QUALITY GATE / TOOL EXECUTOR\n"
-            f"Context: {mode_label}\n"
-            f"You run AFTER the Fast layer responds. You see the Fast layer's response.\n\n"
-            "## Role 1: Enrichment / Correction\n"
-            "Evaluate the Fast layer's response:\n"
-            "1. Fast response is CORRECT and COMPLETE → no enrichment needed\n"
-            "2. Fast response has an ERROR or ASSUMPTION → provide a correction\n"
-            "3. Fast response misses something IMPORTANT → add the missing point\n\n"
-            "You MUST intervene when the Fast layer:\n"
-            "- Makes factual claims it cannot verify\n"
-            "- Assumes things about the user not in confirmed facts\n"
-            "- Recommends actions that don't match the current context\n"
-            "- Gives advice that contradicts the project's tech stack or constraints\n\n"
-        )
-
-        # Role 2: Tool execution (active when delegation is detected)
-        deep_instructions += (
-            "## Role 2: Tool Execution\n"
-            "When the Fast layer delegates a complex action to you (via a <delegate> block),\n"
-            "you are responsible for executing it using your tools.\n"
-            "Complex actions include: shell execution, file writes, deletions, multi-step operations.\n\n"
-            "To execute a tool, include <tool_call> blocks in your response:\n"
-            '<tool_call>\n{"name": "system.exec", "arguments": {"command": "ls -la"}}\n</tool_call>\n\n'
-        )
-
-        # Inject full tool set
-        from app.tools.registry import TOOLS_FULL
-        tool_list_text = self._build_tool_section(TOOLS_FULL, chat_level)
-        if tool_list_text:
-            deep_instructions += (
-                "AVAILABLE TOOLS (FULL ACCESS):\n"
-                + tool_list_text + "\n\n"
-            )
-
-        # Output format
-        deep_instructions += (
-            "## Output Format\n"
-            "You MUST respond with valid JSON (no markdown, no code blocks):\n"
-            '{"action": "enrich"|"correct"|"execute"|"none", "content": "...", "tool_calls": [...]}\n\n'
-            "- action='enrich': You have valuable context to add. content = spoken follow-up.\n"
-            "- action='correct': Fast layer made an error. content = correction text.\n"
-            "- action='execute': You executed tools for a delegated action. content = summary of what was done.\n"
-            "  tool_calls should be an array of <tool_call> blocks embedded in content if needed.\n"
-            "- action='none': Fast layer was fine, no delegation pending. content can be empty.\n\n"
-            "BIAS STRONGLY TOWARD 'none' for enrichment.\n"
-            "- Casual conversation → 'none'\n"
-            "- Simple questions answered correctly → 'none'\n"
-            "- Only speak up if you have genuinely valuable insight\n\n"
-            "If enriching/correcting: max 2-4 sentences. Same personality and language as user.\n"
-            "If executing: summarize what you did naturally, like 'Done! I created the card...'\n"
-            "Respond in the same language the user used."
-        )
-
-        return base + deep_instructions
+        # Legacy supervisor/background-executor mode removed — fast/deep are the
+        # same dispatcher layer at different model tiers.  If we reach here it
+        # means is_chat_responder=False was passed; return the base prompt as-is.
+        return base
 
     # ------------------------------------------------------------------
     # Worker prompts — model-routed (haiku/sonnet/opus)
@@ -775,6 +730,8 @@ class PersonalityService:
         parts = []
         if chat_level == "card" and card and project:
             parts.append(f"Project: {project.get('title', '?')} (project_id: {project.get('id', '?')})")
+            if project.get("local_path"):
+                parts.append(f"Project workspace: {project['local_path']} (CWD is set here)")
             parts.append(f"Card: {card.get('title', '?')} (card_id: {card.get('id', '?')})")
             parts.append(f"Card status: {card.get('status', '?')} | Priority: {card.get('priority', '?')}")
             if card.get("description"):
@@ -788,6 +745,8 @@ class PersonalityService:
             return "\n".join(parts)
         elif project:
             parts.append(f"Project: {project.get('title', '?')} (project_id: {project.get('id', '?')})")
+            if project.get("local_path"):
+                parts.append(f"Project workspace: {project['local_path']} (CWD is set here)")
             if project.get("description"):
                 parts.append(f"Description: {project['description'][:200]}")
             parts.append(
@@ -796,26 +755,25 @@ class PersonalityService:
                 f"Do NOT ask the user which project — you already know."
             )
             return "\n".join(parts)
-        voxy_dir = str(__import__("pathlib").Path(__import__("os").environ.get("VOXYFLOW_DIR", __import__("os").path.expanduser("~/voxyflow"))).resolve())
-        return ("Context: Main project (default workspace, project_id=system-main)\n" + f"Voxyflow root: {voxy_dir}\nIMPORTANT: Use ABSOLUTE paths. Backend CWD={voxy_dir}/backend/ (WRONG for personality files). personality/ = {voxy_dir}/personality/ ")
+        from app.config import VOXYFLOW_WORKSPACE_DIR
+        ws_dir = str(VOXYFLOW_WORKSPACE_DIR)
+        return (
+            "Context: Main project (default workspace, project_id=system-main)\n"
+            f"Workspace: {ws_dir}\n"
+            f"CWD is set to {ws_dir} — use relative paths for workspace files.\n"
+            "Voxyflow app codebase: ~/voxyflow/ (do NOT write project files here)."
+        )
 
     def _build_haiku_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Haiku: Simple CRUD only. Fast, cheap, no ambiguity."""
         from app.tools.registry import TOOLS_VOXYFLOW_CRUD
         tool_list = self._build_tool_section(TOOLS_VOXYFLOW_CRUD, chat_level)
         context = self._build_worker_context_section(chat_level, project, card)
+        worker_rules = self.load_worker()
 
         return (
-            "## Worker: Haiku (CRUD Executor)\n"
-            "You execute simple, single-step CRUD operations in Voxyflow.\n\n"
-            "## Rules\n"
-            "- Execute the requested action immediately using the appropriate tool\n"
-            "- Do NOT ask for confirmation — the user already confirmed via the chat layer\n"
-            "- After executing, respond with a brief (1 sentence) summary\n"
-            "- If the action fails, explain why briefly\n"
-            "- Respond in the same language the user used\n"
-            "- File organization: Write to ~/voxyflow/ ONLY for Voxyflow codebase changes. All other work (experiments, external projects, tests) goes to ~/projects/ or ~/<project-name>/\n"
-            '- When your task is complete, you MUST call task.complete(task_id="<your task_id>", summary="...", status="success|partial|failed"). This is mandatory.\n\n'
+            f"{worker_rules}\n\n"
+            f"## Active Role: Haiku (CRUD Executor)\n\n"
             f"## Available Tools\n{tool_list}\n\n"
             f"## Context\n{context}"
         )
@@ -825,26 +783,11 @@ class PersonalityService:
         from app.tools.registry import TOOLS_FULL
         tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
         context = self._build_worker_context_section(chat_level, project, card)
+        worker_rules = self.load_worker()
 
         return (
-            "## Worker: Sonnet (Research & Analysis)\n"
-            "You execute research tasks, web searches, and file analysis for Voxyflow.\n\n"
-            "## Voxyflow Build Workflow (IMPORTANT)\n"
-            "- Frontend source: ~/voxyflow/frontend-react/src/ -- edit here, NEVER in dist/\n"
-            "- To apply frontend changes: cd ~/voxyflow/frontend-react && source ~/.nvm/nvm.sh && npm run build\n"
-            "- Backend: edit ~/voxyflow/backend/app/ then kill -HUP $(pgrep -f uvicorn)\n"
-            "- Be efficient: avoid repeating greps, read then act.\n\n"
-            "## Rules\n"
-            "- Execute the requested research/analysis task thoroughly\n"
-            "- ALWAYS include source URLs for every fact, price, or recommendation\n"
-            "- ALWAYS include exact values (not ranges) when found\n"
-            "- Format: 'Item — $X.XX at StoreName (url)'\n"
-            "- If you cannot find a real source URL, say 'Source not verified'\n"
-            "- Never fabricate URLs or data — if uncertain, state it clearly\n"
-            "- Include timestamp of research so the user knows how fresh the info is\n"
-            "- Respond in the same language the user used\n"
-            "- File organization: Write to ~/voxyflow/ ONLY for Voxyflow codebase changes. All other work (experiments, external projects, tests) goes to ~/projects/ or ~/<project-name>/\n"
-            '- When your task is complete, you MUST call task.complete(task_id="<your task_id>", summary="...", status="success|partial|failed"). This is mandatory.\n\n'
+            f"{worker_rules}\n\n"
+            f"## Active Role: Sonnet (Research & Analysis)\n\n"
             f"## Available Tools\n{tool_list}\n\n"
             f"## Context\n{context}"
         )
@@ -854,26 +797,18 @@ class PersonalityService:
         from app.tools.registry import TOOLS_FULL
         tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
         context = self._build_worker_context_section(chat_level, project, card)
+        worker_rules = self.load_worker()
 
         return (
-            "## Worker: Opus (Complex Execution)\n"
-            "You execute complex, multi-step operations that require deep reasoning.\n\n"            "## Rules\n"
-            "- Think through the problem before acting\n"
-            "- Break complex tasks into logical steps\n"
-            "- Execute carefully — you have full tool access including destructive operations\n"
-            "- For code changes: read before writing, validate syntax (python -m py_compile / tsc --noEmit) before committing\n"
-            "- For file edits use file.patch (not heredocs). For new files use file.write. For reading use file.read with offset/limit.\n"
-            "- Never commit broken code. Never leave unterminated strings or unclosed brackets.\n"
-            "- File organization: Write to ~/voxyflow/ ONLY for Voxyflow codebase changes. All other work (experiments, external projects, tests) goes to ~/projects/ or ~/<project-name>/\n"
-            "- After executing, provide a thorough summary of what you did\n"
-            "- If any step fails, explain why and what recovery was attempted\n"
-            "- Respond in the same language the user used\n"
-            '- When your task is complete, you MUST call task.complete(task_id="<your task_id>", summary="...", status="success|partial|failed"). This is mandatory.\n\n'
+            f"{worker_rules}\n\n"
+            f"## Active Role: Opus (Complex Execution)\n\n"
             f"## Available Tools\n{tool_list}\n\n"
             f"## Context\n{context}"
         )
 
     def build_analyzer_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project_names: Optional[list] = None, delegation: Optional[dict] = None) -> str:
+        analyzer_rules = self.load_analyzer()
+
         context_note = ""
         if chat_level == "general":
             projs = ", ".join(project_names or []) or "none"
@@ -887,81 +822,32 @@ class PersonalityService:
         elif chat_level == "project":
             context_note = "\n\nCurrent context: PROJECT CHAT. Suggest CARDS for this project.\n"
 
-        mode_label = f"Main Project" if chat_level == "general" else "Project Chat"
+        mode_label = "Main Project" if chat_level == "general" else "Project Chat"
 
         # Delegation mode: Analyzer received a simple CRUD action to suggest-then-execute
         if delegation:
             base = (
-                f"## Layer Init — Analyzer (Delegated Action)\n"
-                f"Role: CRUD EXECUTOR with SUGGEST-FIRST pattern\n"
+                f"{analyzer_rules}\n\n"
+                f"## Active Mode: Delegated Action\n"
                 f"Context: {mode_label}\n"
                 "The Fast layer delegated a simple action to you.\n\n"
                 f"## Delegated Intent\n"
                 f"Intent: {delegation.get('intent', 'unknown')}\n"
-                f"Summary: {delegation.get('summary', '')}\n\n"
-                "## CRITICAL: Suggest-First Pattern\n"
-                "You MUST suggest the action FIRST. The user confirms, THEN you execute.\n"
-                "1. Analyze the delegation intent\n"
-                "2. Propose the exact action you would take (tool name + arguments)\n"
-                "3. Return a suggestion for the user to confirm\n\n"
-                "## Output Format — JSON ONLY\n"
-                '{"action": "suggest", "suggestions": [\n'
-                '  {"tool": "voxyflow.card.create_unassigned", "arguments": {"content": "..."}, '
-                '"display": "Add card: ...", "description": "..."}\n'
-                "]}\n\n"
-                "Each suggestion:\n"
-                "- tool: the MCP tool name to call\n"
-                "- arguments: the exact arguments to pass when confirmed\n"
-                "- display: human-readable one-line summary of the action\n"
-                "- description: optional extra detail\n\n"
-                "If the delegation doesn't map to any tool you have, respond with:\n"
-                '{"action": "none", "reason": "..."}\n'
+                f"Summary: {delegation.get('summary', '')}\n"
             )
             # Add available CRUD tools
             from app.tools.registry import TOOLS_VOXYFLOW_CRUD
             tool_list_text = self._build_tool_section(TOOLS_VOXYFLOW_CRUD, chat_level)
             if tool_list_text:
-                base += (
-                    "\n## Available CRUD Tools\n"
-                    + tool_list_text + "\n"
-                )
+                base += f"\n## Available CRUD Tools\n{tool_list_text}\n"
             base += context_note
             return self.build_system_prompt(base_prompt=base, include_user=True, include_memory_context=memory_context)
 
         # Standard mode: Analyzer runs in parallel to detect actionable items
         base = (
-            f"## Layer Init — Analyzer\n"
-            f"Role: PRECISE ACTION ITEM EXTRACTOR\n"
+            f"{analyzer_rules}\n\n"
+            f"## Active Mode: Action Item Extraction\n"
             f"Context: {mode_label}\n"
-            "You run IN PARALLEL with Fast and Deep. You analyze the conversation silently.\n\n"
-            "## RULES — READ CAREFULLY\n"
-            "1. Extract SPECIFIC, ACTIONABLE, SMALL tasks. NOT vague high-level goals.\n"
-            "2. Each suggestion must be completable in 1-4 hours of work.\n"
-            "3. Title must start with a VERB: 'Fix...', 'Add...', 'Create...', 'Update...', 'Research...'\n"
-            "4. Description must explain WHAT to do, not WHY.\n"
-            "5. If the user says 'I need X', create a card for X. Don't suggest 'Explore X options'.\n"
-            "6. If the user mentions a bug, the card is 'Fix [specific bug]', not 'Investigate issues'.\n"
-            "7. Break big items into 2-4 smaller cards. Never suggest a single mega-card.\n"
-            "8. Match the user's language — if they speak French, titles in French.\n\n"
-            "## BAD Examples (too vague):\n"
-            "- 'Improve the UI' -> too broad\n"
-            "- 'Work on the project' -> meaningless\n"
-            "- 'Set up infrastructure' -> too big\n\n"
-            "## GOOD Examples (specific, actionable):\n"
-            "- 'Fix session tab X button not closing in Main Chat'\n"
-            "- 'Add connection status indicator to chat header'\n"
-            "- 'Create unit tests for the Analyzer prompt builder'\n"
-            "- 'Update SOUL.md with FreeBoard nomenclature'\n\n"
-            "## Suggestion Types\n"
-            "- **CARD (Main Board)**: Quick reminder/thought -> Main Board card (no project)\n"
-            "- **CARD (Project)**: Specific task -> Project kanban (MUST have a clear deliverable)\n"
-            "- **PROJECT**: Only if user explicitly discusses a NEW initiative\n\n"
-            "## Output Format — JSON ONLY, no text\n"
-            "[{\"type\": \"card-mainboard|card|project\", \"title\": \"Verb + specific action...\", "
-            "\"description\": \"What exactly to do in 1-2 sentences\", "
-            "\"project\": \"project_name or null\", \"priority\": \"low|medium|high\", "
-            "\"agentType\": \"coder|architect|designer|researcher|writer|qa|ember\"}]\n"
-            "If nothing actionable -> respond with: []\n"
             + context_note
         )
         return self.build_system_prompt(base_prompt=base, include_user=True, include_memory_context=memory_context)

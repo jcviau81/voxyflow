@@ -2,10 +2,13 @@
  * ModePill — Fast (Sonnet) / Deep (Opus) / Analyzer mode toggles.
  *
  * Layer state is persisted to localStorage under 'voxyflow_layer_toggles'.
+ * Analyzer toggle is also synced to backend settings (models.analyzer.enabled)
+ * so the state survives page reloads and reflects the true backend state.
+ *
  * Designed to sit in the chat bottom bar alongside the input.
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Zap, Brain, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -28,8 +31,45 @@ function saveLayerState(state: LayerState): void {
   localStorage.setItem(LAYER_STORAGE_KEY, JSON.stringify(state));
 }
 
+/** Persist analyzer enabled state to backend settings (fire-and-forget). */
+async function persistAnalyzerToBackend(enabled: boolean): Promise<void> {
+  try {
+    const res = await fetch('/api/settings');
+    if (!res.ok) return;
+    const settings = await res.json();
+    settings.models = settings.models || {};
+    settings.models.analyzer = settings.models.analyzer || {};
+    settings.models.analyzer.enabled = enabled;
+    await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+  } catch { /* fire-and-forget */ }
+}
+
 export function ModePill({ className }: { className?: string }) {
   const [layerState, setLayerStateLocal] = useState<LayerState>(getLayerState);
+  const initDone = useRef(false);
+
+  // On mount: read analyzer enabled from backend settings → sync to localStorage
+  useEffect(() => {
+    if (initDone.current) return;
+    initDone.current = true;
+    fetch('/api/settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((settings) => {
+        if (!settings) return;
+        const backendEnabled = settings?.models?.analyzer?.enabled ?? false;
+        const prev = getLayerState();
+        if (prev.analyzer !== backendEnabled) {
+          const next = { ...prev, analyzer: backendEnabled };
+          saveLayerState(next);
+          setLayerStateLocal(next);
+        }
+      })
+      .catch(() => { /* ignore */ });
+  }, []);
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
@@ -56,6 +96,7 @@ export function ModePill({ className }: { className?: string }) {
     const next = { ...prev, analyzer: !prev.analyzer };
     saveLayerState(next);
     setLayerStateLocal(next);
+    persistAnalyzerToBackend(next.analyzer);
   }, []);
 
   return (
