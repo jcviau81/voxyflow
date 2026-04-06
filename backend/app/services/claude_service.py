@@ -581,6 +581,9 @@ class ClaudeService(ApiCallerMixin):
         if dynamic_context:
             dynamic_parts.append(dynamic_context)
 
+        # Tell the model what it actually is
+        dynamic_parts.append(f"You are currently running as: {self.fast_model}")
+
         if project_id:
             try:
                 pass  # RAG disabled — use knowledge.search tool instead
@@ -772,6 +775,8 @@ class ClaudeService(ApiCallerMixin):
         )
         if dynamic_context:
             dynamic_parts.append(dynamic_context)
+
+        dynamic_parts.append(f"You are currently running as: {self.deep_model}")
 
         if project_id:
             try:
