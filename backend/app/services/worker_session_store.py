@@ -1,7 +1,7 @@
 """Worker Session Store — Tracks worker sessions for persistence across page refresh.
 
 Maintains an in-memory registry of worker sessions with periodic disk persistence.
-Sessions are stored as individual JSON files under ~/voxyflow/data/worker_sessions/.
+Sessions are stored as individual JSON files under ~/.voxyflow/worker_sessions/.
 
 Frontend can query active/recent sessions via the REST endpoint to rehydrate
 the WorkerPanel after a page refresh.
@@ -93,8 +93,8 @@ class WorkerSessionStore:
 
     def __init__(self, data_dir: Optional[str] = None):
         if data_dir is None:
-            voxyflow_dir = os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow"))
-            data_dir = os.path.join(voxyflow_dir, "data", "worker_sessions")
+            voxyflow_data = os.environ.get("VOXYFLOW_DATA", os.path.expanduser("~/.voxyflow"))
+            data_dir = os.path.join(voxyflow_data, "worker_sessions")
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._sessions: dict[str, WorkerSession] = {}

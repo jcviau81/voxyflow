@@ -17,7 +17,7 @@ from typing import List
 
 DATA_DIR = Path(os.environ.get(
     "VOXYFLOW_DATA",
-    os.path.expanduser("~/voxyflow/data"),
+    os.path.expanduser("~/.voxyflow"),
 ))
 
 
