@@ -1008,6 +1008,67 @@ class ClaudeService(ApiCallerMixin):
         )
         return (_strip_think_tags(result) if _is_thinking_model(model_name) else result) if result else result
 
+    async def execute_lightweight_task(
+        self,
+        chat_id: str,
+        prompt: str,
+        model: str = "haiku",
+        project_id: Optional[str] = None,
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
+        cancel_event: Optional[asyncio.Event] = None,
+        message_queue: Optional[asyncio.Queue] = None,
+        session_id: str = "",
+        task_id: str = "",
+    ) -> str:
+        """Lightweight worker — minimal prompt, no personality, no project context.
+
+        For tasks that need LLM judgment but not full context (enrich, summarize,
+        research). Saves ~80% tokens vs execute_worker_task.
+        """
+        if model == "haiku":
+            client, client_type, model_name = (
+                self.haiku_client, self.haiku_client_type, self.haiku_model
+            )
+        elif model == "opus":
+            client, client_type, model_name = (
+                self.deep_client, self.deep_client_type, self.deep_model
+            )
+        else:
+            client, client_type, model_name = (
+                self.fast_client, self.fast_client_type, self.fast_model
+            )
+
+        system_prompt = (
+            "You are a task worker. Execute the task below using the available MCP tools. "
+            "Be precise and concise. When done, call task.complete with a summary "
+            "containing the ACTUAL RESULTS (not just 'Done'). "
+            "Include concrete output: data values, file contents, command results."
+        )
+
+        if client_type in ("anthropic", "cli"):
+            system_prompt_final: str | list[dict] = [{"type": "text", "text": system_prompt}]
+        else:
+            system_prompt_final = system_prompt
+
+        logger.info(f"[LightWorker] Executing lightweight task: model={model_name} prompt_len={len(prompt)}")
+
+        result = await self._call_api(
+            model=model_name,
+            system=system_prompt_final,
+            messages=[{"role": "user", "content": prompt}],
+            client=client,
+            client_type=client_type,
+            use_tools=True,
+            tool_callback=tool_callback,
+            layer="analyzer",
+            cancel_event=cancel_event,
+            message_queue=message_queue,
+            session_id=session_id, project_id=project_id or "",
+            session_type="worker",
+            task_id=task_id,
+        )
+        return result or ""
+
     async def safety_net_generate_delegate(self, assistant_message: str) -> Optional[str]:
         """Quick Haiku call to extract a missing delegate from an action-promising message.
 

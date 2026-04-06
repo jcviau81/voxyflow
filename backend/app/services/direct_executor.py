@@ -91,13 +91,12 @@ class DirectExecutor:
         """Check if a delegate should take the fast path.
 
         Returns True if:
-          - model == "direct"
-          - action is in the whitelist
+          - action is in the CRUD whitelist (regardless of model)
           - params dict is present (structured parameters required)
-        """
-        if delegate_data.get("model") != "direct":
-            return False
 
+        Auto-routes CRUD intents to direct execution even if the LLM
+        requested model=haiku/sonnet — saves tokens by skipping the LLM.
+        """
         action = delegate_data.get("action", "")
         if action not in DIRECT_ACTION_MAP:
             logger.warning(f"[DirectExecutor] Action '{action}' not in whitelist, falling back to worker")

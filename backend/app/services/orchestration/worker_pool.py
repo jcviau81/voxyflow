@@ -24,6 +24,14 @@ from app.routes.settings import get_default_worker_model
 if TYPE_CHECKING:
     from app.services.chat_orchestration import ChatOrchestrator
 
+# Intents that use lightweight worker (minimal prompt, no personality/context)
+LIGHTWEIGHT_INTENTS = {
+    "enrich", "enrich_card", "card.enrich",
+    "summarize", "summarize_card",
+    "research", "web_search", "search",
+    "code_review", "review",
+}
+
 logger = logging.getLogger("voxyflow.orchestration")
 
 
@@ -568,20 +576,36 @@ class DeepWorkerPool:
             stall_task = asyncio.create_task(_stall_monitor())
 
             try:
-                result_content = await self._claude.execute_worker_task(
-                    chat_id=task_chat_id,
-                    prompt=execution_prompt,
-                    model=event.model,
-                    chat_level=chat_level,
-                    project_context=event.data.get("project_context"),
-                    card_context=event.data.get("card_context"),
-                    project_id=event.data.get("project_id"),
-                    tool_callback=tool_callback,
-                    cancel_event=cancel_event,
-                    message_queue=message_queue,
-                    session_id=event.session_id or "",
-                    task_id=event.task_id,
-                )
+                # Route to lightweight or full worker based on intent
+                is_lightweight = (event.intent or "").lower() in LIGHTWEIGHT_INTENTS
+                if is_lightweight:
+                    logger.info(f"[LightWorker] Routing {event.task_id} to lightweight worker ({event.intent})")
+                    result_content = await self._claude.execute_lightweight_task(
+                        chat_id=task_chat_id,
+                        prompt=execution_prompt,
+                        model=event.model,
+                        project_id=event.data.get("project_id"),
+                        tool_callback=tool_callback,
+                        cancel_event=cancel_event,
+                        message_queue=message_queue,
+                        session_id=event.session_id or "",
+                        task_id=event.task_id,
+                    )
+                else:
+                    result_content = await self._claude.execute_worker_task(
+                        chat_id=task_chat_id,
+                        prompt=execution_prompt,
+                        model=event.model,
+                        chat_level=chat_level,
+                        project_context=event.data.get("project_context"),
+                        card_context=event.data.get("card_context"),
+                        project_id=event.data.get("project_id"),
+                        tool_callback=tool_callback,
+                        cancel_event=cancel_event,
+                        message_queue=message_queue,
+                        session_id=event.session_id or "",
+                        task_id=event.task_id,
+                    )
             except asyncio.CancelledError:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")
                 _wss.update_status(event.task_id, "cancelled")
