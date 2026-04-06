@@ -34,10 +34,12 @@ function HealthBar() {
       const data: { services?: Record<string, { status: string }> } = await response.json();
       const svcDict = data.services ?? {};
       setServices(
-        Object.entries(svcDict).map(([name, info]) => ({
-          name: name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-          status: (info.status === 'ok' ? 'ok' : 'down') as 'ok' | 'down',
-        }))
+        Object.entries(svcDict)
+          .filter(([, info]) => info.status !== 'not_configured')
+          .map(([name, info]) => ({
+            name: name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+            status: (info.status === 'ok' || info.status === 'not_applicable' ? 'ok' : 'down') as 'ok' | 'down',
+          }))
       );
     } catch {
       setServices([

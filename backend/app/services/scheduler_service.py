@@ -355,8 +355,25 @@ class SchedulerService:
                     if prev not in (None, "unknown") and prev != status:
                         logger.warning(f"[Heartbeat] Claude proxy status changed: {prev} → {status}")
 
-                # XTTS server — removed (TTS is now client-side)
-                self._health["xtts"] = {"status": "removed", "checked_at": _now_iso()}
+                # XTTS server — check configured TTS URL
+                try:
+                    from app.routes.settings import _load_settings_from_db
+                    settings_data = await _load_settings_from_db()
+                    tts_url = ""
+                    if settings_data:
+                        tts_url = settings_data.get("voice", {}).get("tts_url", "")
+                    if tts_url:
+                        r = await client.get(tts_url.rstrip("/") + "/health")
+                        status = "ok" if r.status_code < 500 else "down"
+                    else:
+                        status = "not_configured"
+                except Exception as e:
+                    status = "down"
+                    logger.warning(f"[Heartbeat] XTTS server down: {e}")
+                prev = self._health.get("xtts", {}).get("status")
+                self._health["xtts"] = {"status": status, "checked_at": _now_iso()}
+                if prev not in (None, "unknown") and prev != status:
+                    logger.warning(f"[Heartbeat] XTTS status changed: {prev} → {status}")
 
             # ChromaDB — check via local import
             try:
