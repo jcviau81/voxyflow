@@ -17,6 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.pool import StaticPool
 
 from app.config import get_settings
 
@@ -27,9 +28,10 @@ from app.config import get_settings
 engine = create_async_engine(
     get_settings().database_url,
     echo=get_settings().debug,
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=60,
+    # SQLite: use StaticPool (single shared connection) to avoid pool exhaustion
+    # under heavy concurrent access. SQLite handles its own locking.
+    poolclass=StaticPool,
+    connect_args={"check_same_thread": False},
 )
 
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
