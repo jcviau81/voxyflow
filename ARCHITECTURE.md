@@ -9,7 +9,7 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 ```
 ┌─────────────────────────────────────────────────┐
 │                   Frontend (PWA)                 │
-│  TypeScript • Vanilla DOM • Service Worker       │
+│  React 19 • TypeScript • Vite • Service Worker   │
 │                                                   │
 │  ┌──────────┐ ┌──────────┐ ┌──────────────────┐ │
 │  │ Voice    │ │ Chat     │ │ Kanban Board     │ │
@@ -17,8 +17,8 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 │  └────┬─────┘ └────┬─────┘ └────────┬─────────┘ │
 │       │             │                │            │
 │  ┌────┴─────────────┴────────────────┴─────────┐ │
-│  │            State Management (AppState)       │ │
-│  │            EventBus • StorageService         │ │
+│  │     Zustand Stores • TanStack Query          │ │
+│  │     WebSocket Provider • EventBus            │ │
 │  └──────────────────┬──────────────────────────┘ │
 └─────────────────────┼───────────────────────────┘
                       │ REST + WebSocket
@@ -28,8 +28,8 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 │                                                   │
 │  ┌──────────────────┴──────────────────────────┐ │
 │  │         Chat Agent (Dispatcher)              │ │
-│  │  Zero tools • Converses • Dispatches work    │ │
-│  │  Fast mode (Sonnet) / Deep mode (Opus)       │ │
+│  │  Inline tools (card CRUD, memory, knowledge) │ │
+│  │  Fast mode (Haiku) / Deep mode (Opus)        │ │
 │  └──┬───────────────────────────────┬──────────┘ │
 │     │ <delegate> blocks             │ observes   │
 │  ┌──▼──────────────────────┐  ┌────▼─────────┐  │
@@ -39,14 +39,14 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 │  │  │ CRUD  │ │Research │ │  │  Card detect  │  │
 │  │  └───────┘ └─────────┘ │  │  Patterns     │  │
 │  │  ┌───────┐             │  │  Suggestions  │  │
-│  │  │ Opus  │ ALL tools   │  └──────────────┘  │
-│  │  │Complex│ here        │                     │
+│  │  │ Opus  │ ALL MCP     │  └──────────────┘  │
+│  │  │Complex│ tools here  │                     │
 │  │  └───────┘             │                     │
 │  └─────────────────────────┘                     │
 │                                                   │
 │  ┌─────────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │ Claude API  │ │ Memory   │ │ Personality  │  │
-│  │ Service     │ │ Service  │ │ Service      │  │
+│  │ CLI Backend │ │ Memory   │ │ Personality  │  │
+│  │ (claude -p) │ │ Service  │ │ Service      │  │
 │  └─────────────┘ └──────────┘ └──────────────┘  │
 └─────────────────────────────────────────────────┘
 ```
@@ -55,8 +55,8 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 
 **The conversation is never blocked by running tasks.**
 
-- The **Chat Agent (Dispatcher)** has zero tools. It reads, speaks, and dispatches.
-- **Workers** run in the background, execute tasks with full tool access, and report results via WebSocket.
+- The **Chat Agent (Dispatcher)** has inline tools (card CRUD, memory, knowledge search) for fast operations, and emits `<delegate>` blocks for complex tasks.
+- **Workers** run in the background via `claude -p` subprocesses with full MCP tool access (53 tools), and report results via WebSocket.
 - The **Analyzer** passively observes conversations and surfaces opportunities (card suggestions, patterns) without interrupting.
 
 ## Key Design Decisions
@@ -64,13 +64,20 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 ### Voice-First, Not Voice-Only
 - Primary input is voice (STT via Whisper WASM on desktop, Web Speech API on mobile)
 - Text fallback always available
-- TTS responses for conversational flow
+- TTS via XTTS v2 server (high-quality, GPU-accelerated) with browser speechSynthesis fallback
 - Visual kanban cards auto-generated from conversation
 
+### LLM Backend — CLI Subprocess (Active)
+- Spawns `claude -p` subprocesses using Claude Max subscription
+- Chat layers: streaming via `--output-format stream-json`
+- Workers: non-streaming with `--mcp-config` for full MCP tool access (53 tools)
+- Permissions: `--permission-mode bypassPermissions` (MCP tools are our own REST API)
+- Alternative paths available: Native Anthropic SDK, OpenAI-compatible proxy (deprecated)
+
 ### React Frontend
-- React 19 + TypeScript + Vite
-- Zustand for state management, TanStack Query for data fetching
-- Custom component system with lifecycle management
+- React 19 + TypeScript + Vite (PWA via vite-plugin-pwa)
+- Zustand + Immer for state management, TanStack Query for server state
+- WebSocket provider for real-time sync
 - EventBus pattern for decoupled communication
 
 ### Agent Personas (7 Specialists)
@@ -113,53 +120,63 @@ Every card is auto-routed to a specialized agent type via two-pass keyword scori
 
 ## Deployment
 
-- **Frontend:** Static PWA hosted on any CDN/server
-- **Backend:** FastAPI on VPS (thething) or container
-- **Database:** SQLite (single-file, no external DB needed)
-- **API:** Claude API direct (no OpenClaw overhead for voice latency)
+- **Frontend:** Static PWA built with Vite, served via Caddy reverse proxy
+- **Backend:** FastAPI (uvicorn on port 8000) via systemd user unit
+- **Database:** SQLite at `~/.voxyflow/voxyflow.db` (single-file, no external DB needed)
+- **TTS:** XTTS v2 server (systemd user unit, GPU, port 5500)
+- **LLM:** CLI subprocess (`claude -p`) using Claude Max subscription — no API key needed
 
 ## Directory Structure
 
 ```
 voxyflow/
-├── README.md
-├── LICENSE
 ├── ARCHITECTURE.md
-├── .gitignore
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── VOICE_FLOW.md
-│   ├── DEPLOYMENT.md
-│   ├── PERSONALITY.md
-│   ├── AGENTS.md
-│   └── FRONTEND_ARCHITECTURE.md
+├── CLAUDE.md                    # Project context for Claude Code
+├── personality/                 # System prompt files (loaded by personality_service)
+│   ├── SOUL.md                  # Core personality
+│   ├── IDENTITY.md              # Identity priming
+│   ├── USER.md                  # User context
+│   ├── DISPATCHER.md            # Dispatch protocol (inline tools, delegate rules)
+│   ├── WORKER.md                # Worker instructions
+│   ├── ANALYZER.md              # Analyzer behavior
+│   ├── AGENTS.md                # 7 agent personas
+│   └── MEMORY.md                # Memory service instructions
+├── docs/                        # Reference documentation
 ├── backend/
 │   ├── requirements.txt
-│   ├── .env.example
-│   ├── README.md
+│   ├── .env                     # Active config (CLI mode, model selection)
+│   ├── mcp_stdio.py             # MCP stdio transport entry point
 │   └── app/
-│       ├── main.py
-│       ├── config.py
-│       ├── database.py
-│       ├── models/
-│       ├── routes/
+│       ├── main.py              # FastAPI app + WebSocket handlers
+│       ├── config.py            # Settings (env vars + keyring)
+│       ├── database.py          # SQLAlchemy models
+│       ├── mcp_server.py        # MCP tool definitions (53 tools)
+│       ├── models/              # Pydantic schemas
+│       ├── routes/              # REST API endpoints
 │       └── services/
+│           ├── claude_service.py       # ClaudeService singleton (4 layers)
+│           ├── chat_orchestration.py   # Orchestrator, delegate parsing
+│           ├── personality_service.py  # System prompt builder
+│           ├── board_executor.py       # Sequential board execution
+│           └── llm/
+│               ├── cli_backend.py      # CLI subprocess management
+│               ├── api_caller.py       # API dispatch hub
+│               └── client_factory.py   # SDK client creation
 └── frontend-react/
     ├── package.json
-    ├── tsconfig.json
     ├── vite.config.ts
-    ├── index.html
     └── src/
-        ├── main.tsx
         ├── App.tsx
-        ├── router.tsx
-        ├── types/
-        ├── stores/
-        ├── hooks/
-        ├── services/
-        ├── contexts/
-        ├── providers/
+        ├── types/               # Card, Project, Message types
+        ├── stores/              # Zustand stores (cards, messages, projects)
+        ├── hooks/api/           # TanStack Query hooks (useCards, useProjects)
+        ├── services/            # TTS, WebSocket, utilities
+        ├── contexts/            # ChatProvider
+        ├── providers/           # WebSocketProvider
         ├── components/
-        ├── pages/
-        └── utils/
+        │   ├── Chat/            # MessageBubble, ChatInput, MessageList
+        │   ├── Kanban/          # KanbanBoard, KanbanCard
+        │   ├── Board/           # FreeBoard (Main Board grid view)
+        │   └── Settings/        # VoicePanel, AboutPanel
+        └── pages/               # MainPage, ProjectPage, JobsPage
 ```
