@@ -175,6 +175,7 @@ class ClaudeCliBackend:
         use_tools: bool = False,
         mcp_role: str = "worker",
         interactive: bool = False,
+        native_tools: bool = False,
     ) -> list[str]:
         """Build the CLI argument list.
 
@@ -182,16 +183,16 @@ class ClaudeCliBackend:
             mcp_role: "dispatcher" for chat layers (limited tools),
                       "worker" for worker tasks (all tools).
             interactive: When True, uses --input-format stream-json to keep stdin
-                         open for mid-execution steering message injection. Only
-                         meaningful with streaming=True.
+                         open for mid-execution steering message injection.
+            native_tools: When True, keep Claude's built-in tools (Bash, Read, Edit,
+                         Grep, Glob, etc.). Workers use these for filesystem/code tasks.
+                         Chat layers disable them for clean streaming.
         """
         args = [
             "-p",
             "--model", _model_flag(model),
             "--system-prompt", system_prompt,
             "--no-session-persistence",
-            # bypassPermissions: Voxyflow MCP tools are our own REST API — safe to auto-approve.
-            # "auto" does not cover MCP tool calls, which would stall the subprocess.
             "--permission-mode", "bypassPermissions",
         ]
 
@@ -202,13 +203,14 @@ class ClaudeCliBackend:
                 "--include-partial-messages",
             ])
             if interactive:
-                # Keep stdin open for real-time steering message injection
                 args.extend(["--input-format", "stream-json"])
         else:
             args.extend(["--output-format", "json"])
 
-        # Always disable built-in CLI tools (Bash, Edit, Read, etc.)
-        args.extend(["--tools", ""])
+        # Chat layers: disable built-in tools for clean streaming
+        # Workers: keep native tools (Bash, Read, Edit, etc.) + add MCP for Voxyflow ops
+        if not native_tools:
+            args.extend(["--tools", ""])
 
         if use_tools:
             args.extend(["--mcp-config", self._build_mcp_config(role=mcp_role)])
@@ -265,6 +267,7 @@ class ClaudeCliBackend:
         args = self._build_args(
             model, system_prompt,
             streaming=False, use_tools=use_tools, mcp_role=mcp_role,
+            native_tools=use_tools,  # Workers get native Claude tools
         )
 
         logger.info(
@@ -383,6 +386,7 @@ class ClaudeCliBackend:
         args = self._build_args(
             model, system_prompt,
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
+            native_tools=use_tools,  # Workers get native Claude tools (Read, Edit, Bash)
         )
 
         logger.info(
