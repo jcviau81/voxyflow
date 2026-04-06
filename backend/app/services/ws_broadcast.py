@@ -31,7 +31,7 @@ class WSBroadcast:
             "timestamp": int(time.time() * 1000),
         }
         dead: list[WebSocket] = []
-        for ws in self._connections:
+        for ws in list(self._connections):
             try:
                 await ws.send_json(message)
             except Exception:
@@ -52,7 +52,7 @@ class WSBroadcast:
         }
         dead: list[WebSocket] = []
         sent_count = 0
-        for ws in self._connections:
+        for ws in list(self._connections):
             if ws is exclude:
                 continue
             try:
