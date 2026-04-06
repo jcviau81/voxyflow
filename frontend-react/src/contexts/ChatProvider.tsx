@@ -284,7 +284,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // ---------------------------------------------------------------------------
 
   const handleStreamingChunk = useCallback(
-    (streamId: string, chunk: string, sessionId?: string) => {
+    (streamId: string, chunk: string, sessionId?: string, model?: string) => {
       let stream = streamingMessagesRef.current.get(streamId);
 
       if (!stream) {
@@ -293,6 +293,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           content: '',
           streaming: true,
           sessionId,
+          model,
           projectId: getProjectIdFromSession(sessionId),
         });
         stream = { content: '', messageId: message.id };
@@ -388,12 +389,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // --- chat:response ---
     unsubs.push(
       subscribe('chat:response', (payload) => {
-        const { messageId, content, streaming, done, sessionId } = payload as {
+        const { messageId, content, streaming, done, sessionId, model } = payload as {
           messageId: string;
           content: string;
           streaming: boolean;
           done: boolean;
           sessionId?: string;
+          model?: string;
         };
         if (!sessionId) {
           console.warn('[ChatProvider] chat:response without sessionId — dropping', { messageId });
@@ -401,7 +403,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
 
         if (streaming && !done) {
-          handleStreamingChunk(messageId, content, sessionId);
+          handleStreamingChunk(messageId, content, sessionId, model);
         } else if (done && streamingMessagesRef.current.has(messageId)) {
           handleStreamComplete(messageId, content);
         } else {
