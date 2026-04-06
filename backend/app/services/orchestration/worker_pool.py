@@ -437,6 +437,7 @@ class DeepWorkerPool:
                 "model": event.model,
                 "sessionId": event.session_id,
                 "cardId": _task_card_id,
+                "projectId": event.data.get("project_id"),
             })
 
             logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent} (model={event.model})")
@@ -497,9 +498,11 @@ class DeepWorkerPool:
 
             task_chat_id = f"task-{event.task_id}"
 
+            tool_events = self._task_tool_events.get(event.task_id)
             await self._send_task_event("task:progress", event.task_id, {
                 "status": "executing",
                 "sessionId": event.session_id,
+                "toolCount": len(tool_events) if tool_events else 0,
             })
 
             chat_level = event.data.get("chat_level", "general")
@@ -534,21 +537,14 @@ class DeepWorkerPool:
                     supervisor.mark_problem(event.task_id, "repetitive_loop")
                     cancel_event.set()
 
-                try:
-                    await self._ws.send_json({
-                        "type": "tool:executed",
-                        "payload": {
-                            "tool": tool_name,
-                            "args": arguments,
-                            "result": result,
-                            "sessionId": event.session_id,
-                            "taskId": event.task_id,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    })
-                    logger.info(f"[DeepWorker] Sent tool:executed for {tool_name}")
-                except Exception as e:
-                    logger.warning(f"[DeepWorker] Failed to send tool:executed event: {e}")
+                tool_count = len(self._task_tool_events.get(event.task_id, []))
+                await self._send_task_event("tool:executed", event.task_id, {
+                    "tool": tool_name,
+                    "args": arguments,
+                    "result": result,
+                    "sessionId": event.session_id,
+                    "toolCount": tool_count,
+                })
 
             tool_callback = _tool_callback
 
@@ -730,6 +726,21 @@ class DeepWorkerPool:
                 "projectId": event.data.get("project_id"),
                 "cardId": event.data.get("card_id"),
             })
+
+            # --- Persist worker result to session store (survives page refresh) ---
+            if result_content and event.session_id:
+                try:
+                    from app.services.session_store import session_store as _ss
+                    _ss.save_message(event.session_id, {
+                        "role": "assistant",
+                        "content": result_content,
+                        "model": "worker",
+                        "type": "worker_result",
+                        "task_id": event.task_id,
+                        "intent": event.intent,
+                    })
+                except Exception as _persist_err:
+                    logger.warning(f"[DeepWorker] Failed to persist worker result: {_persist_err}")
 
             # --- Notify dispatcher: embed result in a single user message ---
             # Previously injected result as role="assistant" which caused consecutive
