@@ -33,7 +33,7 @@ function contextLabel(chatId: string): string {
 
 export function CliSessionsBadge() {
   const { sessions, count, kill } = useCliSessions();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   if (count === 0) return null;
 
