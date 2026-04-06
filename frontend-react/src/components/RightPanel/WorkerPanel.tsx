@@ -95,14 +95,11 @@ function buildTree(
   projectNames: Record<string, string>,
   cardTitles: Record<string, string>,
 ): ProjectNode[] {
-  // Index workers by chatId
+  // Index workers by chatId (skip workers with no chatId)
   const workersByChatId: Record<string, WorkerInfo[]> = {};
-  const workersNoChat: WorkerInfo[] = [];
   for (const w of allWorkers) {
     if (w.chatId) {
       (workersByChatId[w.chatId] ??= []).push(w);
-    } else {
-      workersNoChat.push(w);
     }
   }
 
@@ -120,20 +117,10 @@ function buildTree(
   // Group chatIds by project
   const chatIdsByProject: Record<string, Set<string>> = {};
   for (const chatId of allChatIds) {
-    // Determine projectId from CLI session or workers
     const cli = cliByChatId[chatId];
     const ws = workersByChatId[chatId];
     const pid = cli?.projectId || ws?.[0]?.projectId || '_general';
     (chatIdsByProject[pid] ??= new Set()).add(chatId);
-  }
-
-  // Also add workers with no chatId to their project
-  for (const w of workersNoChat) {
-    const pid = w.projectId || '_general';
-    // Create a synthetic chatId
-    const syntheticId = `_orphan:${pid}`;
-    (chatIdsByProject[pid] ??= new Set()).add(syntheticId);
-    (workersByChatId[syntheticId] ??= []).push(w);
   }
 
   // Build project nodes
@@ -143,9 +130,7 @@ function buildTree(
     for (const chatId of chatIds) {
       const cli = cliByChatId[chatId];
       const ws = workersByChatId[chatId] || [];
-      const label = chatId.startsWith('_orphan:')
-        ? 'Workers'
-        : parseSessionLabel(chatId, cardTitles);
+      const label = parseSessionLabel(chatId, cardTitles);
       const sessionLabel = cli
         ? `${label} - ${modelEmoji(cli.model)} ${modelLabel(cli.model)}`
         : label;
