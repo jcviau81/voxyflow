@@ -630,3 +630,10 @@ h1, h2, h3, h4, h5, h6 {
 .wiki-preview tr:nth-child(even) td { background: var(--color-bg-secondary); }
 
 .wiki-preview img { max-width: 100%; border-radius: 6px; margin: 0.5em 0; }
+
+/* ── Sidebar logo ── */
+.sidebar-logo-text {
+  font-family: 'Geist Pixel Square', monospace;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
