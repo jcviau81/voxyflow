@@ -15,6 +15,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { KeyboardEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MessageSquare, Send, ExternalLink, ChevronRight, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
@@ -202,12 +203,23 @@ function WorkerRow({ worker, onCancel, onSteer }: {
   const isActive = !TERMINAL_STATUSES.has(worker.status);
   const e = elapsed(worker.startedAt, worker.completedAt);
 
+  const handleRowClick = () => {
+    if (isActive) {
+      setSteerOpen((o) => !o);
+    } else if (worker.resultSummary) {
+      setExpanded((v) => !v);
+    }
+  };
+
   return (
     <div className="relative ml-4 pl-3 border-l border-border/50">
-      <div className={cn(
-        'flex items-center gap-1.5 py-1 text-[11px]',
-        !isActive && 'opacity-50',
-      )}>
+      <div
+        className={cn(
+          'flex items-center gap-1.5 py-1 text-[11px] cursor-pointer rounded hover:bg-accent/10 transition-colors',
+          !isActive && 'opacity-50',
+        )}
+        onClick={handleRowClick}
+      >
         {/* Spinner or status */}
         {isActive ? (
           <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin [animation-duration:0.6s] shrink-0" />
@@ -290,14 +302,16 @@ function WorkerRow({ worker, onCancel, onSteer }: {
 
 // ── Session row (a CLI session with its child workers) ──────────────────────
 
-function SessionRow({ session, onCancel, onSteer }: {
+function SessionRow({ session, projectId, onCancel, onSteer }: {
   session: SessionNode;
+  projectId: string;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
 }) {
   const hasChildren = session.workers.length > 0;
   const [open, setOpen] = useState(true);
   const selectCard = useProjectStore((s) => s.selectCard);
+  const navigate = useNavigate();
 
   const isActive = !!session.cliSession || session.workers.some((w) => !TERMINAL_STATUSES.has(w.status));
 
@@ -305,14 +319,27 @@ function SessionRow({ session, onCancel, onSteer }: {
   const cardMatch = session.chatId.match(/^project:card-(.+)$/);
   const cardId = cardMatch?.[1];
 
+  const handleSessionClick = () => {
+    if (cardId && projectId !== '_general') {
+      // Card session: navigate to project and open card modal
+      navigate(`/project/${projectId}`);
+      selectCard(cardId);
+    } else if (projectId !== '_general') {
+      // Project Chat session: navigate to project
+      navigate(`/project/${projectId}`);
+    }
+    // Toggle children open/closed regardless
+    if (hasChildren) setOpen((o) => !o);
+  };
+
   return (
     <div className="ml-3">
       <button
         className={cn(
-          'flex items-center gap-1 w-full text-left py-0.5 text-[11px] transition-colors',
+          'flex items-center gap-1 w-full text-left py-0.5 text-[11px] transition-colors cursor-pointer rounded hover:bg-accent/10',
           isActive ? 'text-foreground' : 'text-muted-foreground',
         )}
-        onClick={() => hasChildren && setOpen((o) => !o)}
+        onClick={handleSessionClick}
       >
         {hasChildren ? (
           open ? <ChevronDown size={10} className="shrink-0" /> : <ChevronRight size={10} className="shrink-0" />
@@ -336,7 +363,7 @@ function SessionRow({ session, onCancel, onSteer }: {
           <button
             className="text-accent hover:text-accent/80 shrink-0 ml-1"
             title="Open card"
-            onClick={(e) => { e.stopPropagation(); selectCard(cardId); }}
+            onClick={(e) => { e.stopPropagation(); navigate(`/project/${projectId}`); selectCard(cardId); }}
           >
             <ExternalLink size={9} />
           </button>
@@ -472,11 +499,21 @@ function ProjectGroup({ project, onCancel, onSteer }: {
   onSteer: (id: string, msg: string) => void;
 }) {
   const [open, setOpen] = useState(true);
+  const navigate = useNavigate();
+
+  const handleProjectClick = () => {
+    // Navigate to project on click (but not for _general)
+    if (project.projectId !== '_general') {
+      navigate(`/project/${project.projectId}`);
+    }
+    setOpen((o) => !o);
+  };
+
   return (
     <div>
       <button
-        className="flex items-center gap-1 w-full px-1 py-0.5 text-[11px] font-bold text-foreground hover:text-accent transition-colors"
-        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 w-full px-1 py-0.5 text-[11px] font-bold text-foreground hover:text-accent cursor-pointer rounded hover:bg-accent/10 transition-colors"
+        onClick={handleProjectClick}
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         {project.projectName}
@@ -484,7 +521,7 @@ function ProjectGroup({ project, onCancel, onSteer }: {
       {open && (
         <div className="flex flex-col gap-0.5">
           {project.sessions.map((s) => (
-            <SessionRow key={s.chatId} session={s} onCancel={onCancel} onSteer={onSteer} />
+            <SessionRow key={s.chatId} session={s} projectId={project.projectId} onCancel={onCancel} onSteer={onSteer} />
           ))}
         </div>
       )}
