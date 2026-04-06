@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { Lightbulb, Bot, X } from 'lucide-react';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useCardStore } from '../../stores/useCardStore';
+import { useCreateCard } from '../../hooks/api/useCards';
 import type { CardSuggestion } from '../../contexts/ChatProvider';
 
 interface OpportunityCardProps {
@@ -53,27 +54,32 @@ export function OpportunitiesPanel({
 }: OpportunitiesPanelProps) {
   const currentProjectId = useProjectStore((s) => s.currentProjectId);
   const selectCard = useProjectStore((s) => s.selectCard);
-  const addCard = useCardStore((s) => s.addCard);
+  const upsertCard = useCardStore((s) => s.upsertCard);
+  const createCard = useCreateCard();
 
   const handleAccept = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const opp = opportunities.find((o) => o.id === id);
       if (opp && currentProjectId) {
-        const card = addCard({
-          projectId: currentProjectId,
-          title: opp.title,
-          description: opp.description,
-          status: 'idea',
-          agentType: opp.agentType,
-          priority: 0,
-          dependencies: [],
-          tags: [],
-        });
-        selectCard(card.id);
+        try {
+          // Call backend API — returns the persisted card with server-assigned id
+          const card = await createCard.mutateAsync({
+            projectId: currentProjectId,
+            title: opp.title,
+            description: opp.description,
+            status: 'idea',
+            priority: 0,
+          });
+          // Sync into Zustand so the board reflects the new card immediately
+          upsertCard(card);
+          selectCard(card.id);
+        } catch (err) {
+          console.error('[OpportunitiesPanel] card creation failed:', err);
+        }
       }
       onAccepted(id);
     },
-    [opportunities, currentProjectId, addCard, selectCard, onAccepted],
+    [opportunities, currentProjectId, createCard, upsertCard, selectCard, onAccepted],
   );
 
   return (

@@ -150,11 +150,12 @@ class ChatOrchestrator(LayerRunnersMixin):
         if layers is None:
             layers = {}
         deep_enabled = layers.get("deep", layers.get("opus", False))
-        # Global gate: settings-level enable must be true, then per-message layers control it.
-        # Default is False (safe) so that if the frontend omits the analyzer key
-        # (e.g. old localStorage format without the key), the analyzer stays OFF.
+        # Global gate: backend setting is the single source of truth.
+        # The frontend layers['analyzer'] key is intentionally ignored — it can be
+        # absent or stale from old localStorage, which would silently disable the
+        # analyzer even when the backend setting is ON.
         from app.routes.settings import get_analyzer_enabled
-        analyzer_enabled = get_analyzer_enabled() and layers.get("analyzer", False)
+        analyzer_enabled = get_analyzer_enabled()
 
         # Helper to send model status updates
         async def send_model_status(model: str, state: str) -> None:

@@ -11,6 +11,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Zap, Brain, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { eventBus } from '../../utils/eventBus';
 
 const LAYER_STORAGE_KEY = 'voxyflow_layer_toggles';
 
@@ -50,6 +51,7 @@ async function persistAnalyzerToBackend(enabled: boolean): Promise<void> {
 
 export function ModePill({ className }: { className?: string }) {
   const [layerState, setLayerStateLocal] = useState<LayerState>(getLayerState);
+  const [analyzerRunning, setAnalyzerRunning] = useState(false);
   const initDone = useRef(false);
 
   // On mount: read analyzer enabled from backend settings → sync to localStorage
@@ -79,6 +81,17 @@ export function ModePill({ className }: { className?: string }) {
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // Listen to model:status events from the WebSocket (forwarded by ChatProvider via eventBus)
+  // so the analyzer button shows a live running indicator when the backend is scanning.
+  useEffect(() => {
+    return eventBus.on('model:status', (data) => {
+      const { model, state } = data as { model: string; state: string };
+      if (model === 'analyzer') {
+        setAnalyzerRunning(state === 'thinking' || state === 'active');
+      }
+    });
   }, []);
 
   const setDeepMode = useCallback((deep: boolean) => {
@@ -127,15 +140,18 @@ export function ModePill({ className }: { className?: string }) {
       </button>
       <button
         className={cn(
-          'px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors',
+          'px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors relative',
           layerState.analyzer
             ? 'bg-background text-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground'
         )}
-        title="Analyzer (card suggestions)"
+        title={analyzerRunning ? 'Analyzer running…' : 'Analyzer (card suggestions)'}
         onClick={toggleAnalyzer}
       >
-        <Search size={13} />
+        <Search size={13} className={analyzerRunning ? 'animate-pulse' : undefined} />
+        {analyzerRunning && (
+          <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green-500 animate-ping" />
+        )}
       </button>
     </div>
   );

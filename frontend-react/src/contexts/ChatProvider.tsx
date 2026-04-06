@@ -451,6 +451,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       subscribe('model:status', (payload) => {
         const { model, state } = payload as { model: string; state: string };
         emitCallbacks('onModelStatus', { model, state });
+        // Forward to eventBus so any component (e.g. ModePill) can react without
+        // needing to register callbacks through the ChatProvider context.
+        eventBus.emit('model:status', { model, state });
       }),
     );
 
