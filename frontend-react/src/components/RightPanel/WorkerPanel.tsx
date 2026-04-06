@@ -1,58 +1,27 @@
 /**
- * WorkerPanel — Live view of Deep Worker tasks.
+ * WorkerPanel — Hierarchical live view of worker tasks.
  *
- * Polling via TanStack Query (GET /api/worker-tasks, 3-second interval) with
- * real-time updates from WebSocket task events.
+ * Pure view over useWorkerStore — no local state, no polling.
+ * Groups workers by project, then by card/chat context.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Loader2, MessageSquare, Send, ExternalLink } from 'lucide-react';
+import { Loader2, MessageSquare, Send, ExternalLink, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
-import { useWorkerTasksQuery } from '../../hooks/api/useWorkerTasks';
 import { useProjectStore } from '../../stores/useProjectStore';
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface WorkerTask {
-  taskId: string;
-  action: string;
-  description: string;
-  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
-  startedAt: number;
-  completedAt?: number;
-  resultSummary?: string;
-  error?: string;
-  model?: 'haiku' | 'sonnet' | 'opus';
-  sessionId?: string;
-  cardId?: string;
-  expanded: boolean;
-}
+import { useWorkerStore, type WorkerInfo, type CliSessionInfo } from '../../stores/useWorkerStore';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_MAP: Record<string, WorkerTask['status']> = {
-  pending: 'pending',
-  running: 'running',
-  done: 'done',
-  completed: 'done',
-  failed: 'failed',
-  cancelled: 'cancelled',
-  timed_out: 'failed',
-  timeout: 'failed',
-};
-
-const TERMINAL_STATUSES = new Set<WorkerTask['status']>(['done', 'failed', 'cancelled']);
-
-const TTL_DONE_MS = 90_000;      // 90 seconds
-const TTL_ERROR_MS = 5 * 60_000; // 5 minutes
+const TERMINAL_STATUSES = new Set<WorkerInfo['status']>(['done', 'failed', 'cancelled']);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function getElapsed(task: WorkerTask): string {
-  const end = task.completedAt ?? Date.now();
-  const ms = end - task.startedAt;
+function getElapsed(startedAt: number, completedAt?: number): string {
+  const end = completedAt ?? Date.now();
+  const ms = end - startedAt;
   if (ms < 1000) return '<1s';
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -66,72 +35,51 @@ function formatAction(action: string): string {
 
 function getModelEmoji(model?: string): string {
   switch (model) {
-    case 'haiku': return '🟡';
-    case 'sonnet': return '🔵';
-    case 'opus': return '🟣';
-    default: return '🔵';
+    case 'haiku': return '\u{1F7E1}';   // yellow circle
+    case 'sonnet': return '\u{1F535}';   // blue circle
+    case 'opus': return '\u{1F7E3}';     // purple circle
+    default: return '\u{1F535}';
   }
 }
 
-function purgeExpired(tasks: Record<string, WorkerTask>): Record<string, WorkerTask> {
-  const now = Date.now();
-  let changed = false;
-  const next = { ...tasks };
-  for (const [id, task] of Object.entries(next)) {
-    if (!task.completedAt) continue;
-    const ttl = task.status === 'done' ? TTL_DONE_MS : TTL_ERROR_MS;
-    if (now - task.completedAt > ttl) {
-      delete next[id];
-      changed = true;
-    }
-  }
-  return changed ? next : tasks;
-}
+// ── Sub-components ───────────────────────────────────────────────────────────
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-interface StatusIndicatorProps {
-  status: WorkerTask['status'];
-}
-
-function StatusIndicator({ status }: StatusIndicatorProps) {
+function StatusIndicator({ status }: { status: WorkerInfo['status'] }) {
   switch (status) {
     case 'pending':
       return <Loader2 size={14} className="text-muted-foreground animate-spin" />;
     case 'running':
       return <div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin [animation-duration:0.5s]" />;
     case 'done':
-      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-green-500">✓</span>;
+      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-green-500">{'\u2713'}</span>;
     case 'failed':
-      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-red-500">✕</span>;
+      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-red-500">{'\u2715'}</span>;
     case 'cancelled':
-      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-muted-foreground">⊘</span>;
+      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-muted-foreground">{'\u2298'}</span>;
     default:
       return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold" />;
   }
 }
 
 interface TaskRowProps {
-  task: WorkerTask;
-  onCancel: (taskId: string, sessionId?: string) => void;
+  worker: WorkerInfo;
+  cliSession?: CliSessionInfo;
+  onCancel: (taskId: string) => void;
   onDismiss: (taskId: string) => void;
-  onToggleExpand: (taskId: string) => void;
-  onSteer: (taskId: string, sessionId: string | undefined, message: string) => void;
-  /** Incremented every second to force elapsed-time re-renders */
-  tick: number;
+  onSteer: (taskId: string, message: string) => void;
 }
 
-function TaskRow({ task, onCancel, onDismiss, onToggleExpand, onSteer }: TaskRowProps) {
+function TaskRow({ worker, cliSession, onCancel, onDismiss, onSteer }: TaskRowProps) {
   const [steerOpen, setSteerOpen] = useState(false);
   const [steerInput, setSteerInput] = useState('');
+  const [expanded, setExpanded] = useState(false);
   const steerRef = useRef<HTMLInputElement>(null);
-  const elapsed = getElapsed(task);
   const selectCard = useProjectStore((s) => s.selectCard);
 
   const handleSteerSubmit = () => {
     const msg = steerInput.trim();
     if (!msg) return;
-    onSteer(task.taskId, task.sessionId, msg);
+    onSteer(worker.taskId, msg);
     setSteerInput('');
     setSteerOpen(false);
   };
@@ -145,16 +93,18 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand, onSteer }: TaskRow
     if (steerOpen) steerRef.current?.focus();
   }, [steerOpen]);
 
+  const elapsed = getElapsed(worker.startedAt, worker.completedAt);
+
   const statusClasses =
-    task.status === 'running' ? 'border-accent border-l-[3px]'
-    : task.status === 'done' ? 'opacity-65 border-green-500 border-l-[3px]'
-    : task.status === 'failed' ? 'opacity-75 border-red-500 border-l-[3px]'
-    : task.status === 'cancelled' ? 'opacity-65 border-muted-foreground border-l-[3px]'
+    worker.status === 'running' ? 'border-accent border-l-[3px]'
+    : worker.status === 'done' ? 'opacity-65 border-green-500 border-l-[3px]'
+    : worker.status === 'failed' ? 'opacity-75 border-red-500 border-l-[3px]'
+    : worker.status === 'cancelled' ? 'opacity-65 border-muted-foreground border-l-[3px]'
     : '';
 
   const modelBgClass =
-    task.model === 'haiku' ? 'bg-yellow-500/20'
-    : task.model === 'opus' ? 'bg-purple-500/20'
+    worker.model === 'haiku' ? 'bg-yellow-500/20'
+    : worker.model === 'opus' ? 'bg-purple-500/20'
     : 'bg-blue-500/20';
 
   return (
@@ -163,70 +113,77 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand, onSteer }: TaskRow
         'relative flex items-start gap-2 p-2 bg-muted/50 rounded-lg border border-border transition-all duration-200',
         statusClasses,
       )}
-      data-task-id={task.taskId}
+      data-task-id={worker.taskId}
     >
-      {/* Status indicator */}
-      <div className="shrink-0">
-        <StatusIndicator status={task.status} />
-      </div>
+      <div className="shrink-0"><StatusIndicator status={worker.status} /></div>
 
-      {/* Model badge */}
       <span className={cn('inline-flex items-center justify-center w-5 h-5 rounded text-xs shrink-0 mt-px', modelBgClass)}>
-        {getModelEmoji(task.model)}
+        {getModelEmoji(worker.model)}
       </span>
 
-      {/* Content */}
       <div className="flex-1 min-w-0">
-        <div className="text-xs font-semibold text-foreground truncate">{formatAction(task.action)}</div>
-        <div className="text-xs text-muted-foreground truncate">{task.description.substring(0, 60)}</div>
+        <div className="text-xs font-semibold text-foreground truncate">{formatAction(worker.action)}</div>
+        <div className="text-xs text-muted-foreground truncate">{worker.description.substring(0, 60)}</div>
+
+        {/* Tool count */}
+        {worker.toolCount > 0 && (
+          <div className="text-[10px] text-muted-foreground mt-0.5">
+            {worker.toolCount} tool{worker.toolCount !== 1 ? 's' : ''}
+            {worker.lastTool ? ` — ${worker.lastTool}` : ''}
+          </div>
+        )}
+
+        {/* CLI session info */}
+        {cliSession && (
+          <div className="text-[10px] text-muted-foreground mt-0.5">
+            pid {cliSession.pid} | {cliSession.model}
+          </div>
+        )}
 
         {/* Card link */}
-        {task.cardId && (
+        {worker.cardId && (
           <button
             className="inline-flex items-center gap-1 mt-0.5 text-[10px] text-accent hover:text-accent/80 transition-colors"
             title="Open linked card"
-            onClick={(e) => { e.stopPropagation(); selectCard(task.cardId!); }}
+            onClick={(e) => { e.stopPropagation(); selectCard(worker.cardId!); }}
           >
             <ExternalLink size={9} />
             <span>card</span>
           </button>
         )}
 
-        {/* Error message */}
-        {task.status === 'failed' && task.error && (
-          <div className="text-xs mt-1 text-red-400">
-            {task.error.substring(0, 200)}
-          </div>
+        {/* Error */}
+        {worker.status === 'failed' && worker.error && (
+          <div className="text-xs mt-1 text-red-400">{worker.error.substring(0, 200)}</div>
         )}
 
-        {/* Expandable result summary */}
-        {task.completedAt && task.resultSummary && task.status !== 'failed' && (
+        {/* Result summary */}
+        {worker.completedAt && worker.resultSummary && worker.status !== 'failed' && (
           <div
             className={cn(
               'text-xs mt-1 text-muted-foreground',
-              task.resultSummary.length > 60 && 'cursor-pointer hover:text-foreground',
+              worker.resultSummary.length > 60 && 'cursor-pointer hover:text-foreground',
             )}
             onClick={
-              task.resultSummary.length > 60
-                ? (e) => { e.stopPropagation(); onToggleExpand(task.taskId); }
+              worker.resultSummary.length > 60
+                ? (e) => { e.stopPropagation(); setExpanded((v) => !v); }
                 : undefined
             }
           >
-            {task.expanded
-              ? task.resultSummary.substring(0, 200)
-              : task.resultSummary.substring(0, 60) +
-                (task.resultSummary.length > 60 ? '…' : '')}
+            {expanded
+              ? worker.resultSummary.substring(0, 200)
+              : worker.resultSummary.substring(0, 60) + (worker.resultSummary.length > 60 ? '\u2026' : '')}
           </div>
         )}
       </div>
 
-      {/* Elapsed time */}
+      {/* Elapsed */}
       <div className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-        {task.completedAt ? elapsed : `${elapsed}…`}
+        {worker.completedAt ? elapsed : `${elapsed}\u2026`}
       </div>
 
-      {/* Steer + Cancel buttons for active tasks */}
-      {!task.completedAt && (
+      {/* Steer + Cancel for active */}
+      {!worker.completedAt && (
         <div className="shrink-0 flex items-center gap-1">
           <button
             className="text-xs text-muted-foreground hover:text-accent transition-colors"
@@ -238,28 +195,28 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand, onSteer }: TaskRow
           <button
             className="text-xs text-muted-foreground hover:text-red-400 transition-colors"
             title="Cancel task"
-            onClick={(e) => { e.stopPropagation(); onCancel(task.taskId, task.sessionId); }}
+            onClick={(e) => { e.stopPropagation(); onCancel(worker.taskId); }}
           >
             &times;
           </button>
         </div>
       )}
 
-      {/* Dismiss button for failed/cancelled tasks */}
-      {(task.status === 'failed' || task.status === 'cancelled') && (
+      {/* Dismiss for terminal */}
+      {(worker.status === 'failed' || worker.status === 'cancelled') && (
         <button
           className="shrink-0 text-xs text-muted-foreground hover:text-red-400 transition-colors"
           title="Dismiss"
-          onClick={(e) => { e.stopPropagation(); onDismiss(task.taskId); }}
+          onClick={(e) => { e.stopPropagation(); onDismiss(worker.taskId); }}
         >
-          ✕
+          {'\u2715'}
         </button>
       )}
 
-      {/* Steering mini-chat (shown when steer button clicked) */}
-      {steerOpen && !task.completedAt && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-10 flex items-center gap-1 bg-card border border-border rounded-md px-2 py-1 shadow-md"
-          style={{ position: 'absolute' }}
+      {/* Steering mini-chat */}
+      {steerOpen && !worker.completedAt && (
+        <div
+          className="absolute left-0 right-0 top-full mt-1 z-10 flex items-center gap-1 bg-card border border-border rounded-md px-2 py-1 shadow-md"
           onClick={(e) => e.stopPropagation()}
         >
           <input
@@ -268,7 +225,7 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand, onSteer }: TaskRow
             value={steerInput}
             onChange={(e) => setSteerInput(e.target.value)}
             onKeyDown={handleSteerKey}
-            placeholder="Steer worker…"
+            placeholder="Steer worker\u2026"
             className="flex-1 text-xs bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
           />
           <button
@@ -284,258 +241,144 @@ function TaskRow({ task, onCancel, onDismiss, onToggleExpand, onSteer }: TaskRow
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Group header ─────────────────────────────────────────────────────────────
 
-export function WorkerPanel() {
-  const [tasks, setTasks] = useState<Record<string, WorkerTask>>({});
-  const [collapsed, setCollapsed] = useState(false);
-  const [tick, setTick] = useState(0);
+interface GroupProps {
+  label: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}
 
-  const dismissedIds = useRef<Set<string>>(new Set());
-
-  const { send, subscribe } = useWS();
-  const currentProjectId = useProjectStore((s) => s.currentProjectId) ?? undefined;
-
-  // ── Polling ────────────────────────────────────────────────────────────────
-
-  const { data: polledTasks, refetch } = useWorkerTasksQuery(currentProjectId);
-
-  // Merge polled tasks into local state
-  useEffect(() => {
-    if (!polledTasks) return;
-    setTasks((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const t of polledTasks) {
-        if (dismissedIds.current.has(t.id)) continue;
-        const existing = next[t.id];
-        // Don't overwrite a locally-terminal task with a stale poll result
-        if (existing && TERMINAL_STATUSES.has(existing.status)) continue;
-
-        const apiStatus: WorkerTask['status'] = STATUS_MAP[t.status] ?? 'running';
-        const startedAt = t.started_at
-          ? new Date(t.started_at).getTime()
-          : new Date(t.created_at).getTime();
-        const completedAt = t.completed_at
-          ? new Date(t.completed_at).getTime()
-          : TERMINAL_STATUSES.has(apiStatus)
-          ? Date.now()
-          : undefined;
-
-        next[t.id] = {
-          taskId: t.id,
-          action: t.action || 'unknown',
-          description: t.description || '',
-          status: apiStatus,
-          startedAt,
-          completedAt,
-          resultSummary: t.result_summary ?? undefined,
-          error: t.error ?? undefined,
-          model: (t.model as WorkerTask['model']) ?? 'sonnet',
-          sessionId: t.session_id,
-          cardId: t.card_id ?? undefined,
-          expanded: existing?.expanded ?? false,
-        };
-        changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, [polledTasks]);
-
-  // ── WebSocket events ───────────────────────────────────────────────────────
-
-  const handleWsEvent = useCallback(
-    (
-      eventType: 'started' | 'progress' | 'completed' | 'cancelled' | 'timeout',
-      payload: Record<string, unknown>,
-    ) => {
-      const taskId = payload.taskId as string;
-      if (!taskId) return;
-
-      setTasks((prev) => {
-        if (dismissedIds.current.has(taskId)) return prev;
-        const existing = prev[taskId];
-
-        if (eventType === 'started') {
-          if (existing) return prev; // already tracked
-          return {
-            ...prev,
-            [taskId]: {
-              taskId,
-              action: (payload.intent as string) || 'unknown',
-              description: (payload.summary as string) || '',
-              status: 'running',
-              startedAt: Date.now(),
-              model: (payload.model as WorkerTask['model']) ?? 'sonnet',
-              sessionId: payload.sessionId as string | undefined,
-              cardId: (payload.cardId as string | undefined) ?? undefined,
-              expanded: false,
-            },
-          };
-        }
-
-        if (!existing) return prev; // unknown task — ignore
-
-        if (eventType === 'progress') {
-          if (TERMINAL_STATUSES.has(existing.status)) return prev;
-          return { ...prev, [taskId]: { ...existing, status: 'running' } };
-        }
-
-        if (eventType === 'completed') {
-          return {
-            ...prev,
-            [taskId]: {
-              ...existing,
-              status: (payload.success as boolean) ? 'done' : 'failed',
-              completedAt: Date.now(),
-              resultSummary: (payload.result as string) ?? undefined,
-              error: (payload.success as boolean)
-                ? undefined
-                : ((payload.result as string) || 'Task failed'),
-            },
-          };
-        }
-
-        if (eventType === 'cancelled') {
-          return {
-            ...prev,
-            [taskId]: { ...existing, status: 'cancelled', completedAt: Date.now() },
-          };
-        }
-
-        if (eventType === 'timeout') {
-          return {
-            ...prev,
-            [taskId]: {
-              ...existing,
-              status: 'failed',
-              completedAt: Date.now(),
-              error: `Timed out after ${(payload.timeout_seconds as number) ?? '?'}s`,
-            },
-          };
-        }
-
-        return prev;
-      });
-    },
-    [],
+function Group({ label, children, defaultOpen = true }: GroupProps) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="mb-1">
+      <button
+        className="flex items-center gap-1 w-full px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <ChevronRight size={10} className={cn('transition-transform', open && 'rotate-90')} />
+        {label}
+      </button>
+      {open && <div className="flex flex-col gap-1.5 mt-1">{children}</div>}
+    </div>
   );
+}
 
-  useEffect(() => {
-    const unsubs = [
-      subscribe('task:started', (p) => handleWsEvent('started', p)),
-      subscribe('task:progress', (p) => handleWsEvent('progress', p)),
-      subscribe('task:completed', (p) => handleWsEvent('completed', p)),
-      subscribe('task:cancelled', (p) => handleWsEvent('cancelled', p)),
-      subscribe('task:timeout', (p) => handleWsEvent('timeout', p)),
-      // Re-fetch on WS reconnect for immediate consistency
-      subscribe('ws:connected', () => { void refetch(); }),
-    ];
-    return () => unsubs.forEach((u) => u());
-  }, [subscribe, handleWsEvent, refetch]);
+// ── Grouping logic ───────────────────────────────────────────────────────────
 
-  // ── Elapsed time ticker ───────────────────────────────────────────────────
+interface WorkerGroup {
+  label: string;
+  workers: WorkerInfo[];
+}
 
-  useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(timer);
-  }, []);
+function groupWorkers(workers: WorkerInfo[], projects: Record<string, string>): WorkerGroup[] {
+  // Group by projectId
+  const byProject: Record<string, WorkerInfo[]> = {};
+  const general: WorkerInfo[] = [];
 
-  // ── Periodic TTL cleanup ──────────────────────────────────────────────────
+  for (const w of workers) {
+    if (w.projectId) {
+      (byProject[w.projectId] ??= []).push(w);
+    } else {
+      general.push(w);
+    }
+  }
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTasks((prev) => {
-        const next = purgeExpired(prev);
-        if (next !== prev) {
-          // Add purged IDs to dismissed set
-          for (const id of Object.keys(prev)) {
-            if (!(id in next)) dismissedIds.current.add(id);
-          }
-        }
-        return next;
-      });
-    }, 30_000);
-    return () => clearInterval(timer);
-  }, []);
+  const groups: WorkerGroup[] = [];
 
-  // ── Visibility re-sync ────────────────────────────────────────────────────
-
-  useEffect(() => {
-    const handler = () => {
-      if (document.visibilityState === 'visible') {
-        void refetch();
-        setTasks((prev) => purgeExpired(prev));
-      }
-    };
-    document.addEventListener('visibilitychange', handler);
-    return () => document.removeEventListener('visibilitychange', handler);
-  }, [refetch]);
-
-  // ── Actions ───────────────────────────────────────────────────────────────
-
-  const cancelTask = useCallback(
-    (taskId: string, sessionId?: string) => {
-      if (!sessionId) return;
-      send('task:cancel', { taskId, sessionId });
-    },
-    [send],
-  );
-
-  const steerTask = useCallback(
-    (taskId: string, sessionId: string | undefined, message: string) => {
-      if (!message.trim()) return;
-      send('task:steer', { taskId, sessionId, message: message.trim() });
-    },
-    [send],
-  );
-
-  const dismissTask = useCallback((taskId: string) => {
-    dismissedIds.current.add(taskId);
-    setTasks((prev) => {
-      const next = { ...prev };
-      delete next[taskId];
-      return next;
+  // Project groups
+  for (const [pid, projectWorkers] of Object.entries(byProject)) {
+    const projectName = projects[pid] || pid.slice(0, 12);
+    groups.push({
+      label: `Project: ${projectName}`,
+      workers: sortWorkers(projectWorkers),
     });
-  }, []);
+  }
 
-  const clearTerminalTasks = useCallback(() => {
-    setTasks((prev) => {
-      const next = { ...prev };
-      for (const [id, task] of Object.entries(next)) {
-        if (TERMINAL_STATUSES.has(task.status)) {
-          dismissedIds.current.add(id);
-          delete next[id];
-        }
-      }
-      return next;
+  // General group
+  if (general.length > 0) {
+    groups.push({
+      label: 'General',
+      workers: sortWorkers(general),
     });
-  }, []);
+  }
 
-  const toggleExpand = useCallback((taskId: string) => {
-    setTasks((prev) => {
-      const task = prev[taskId];
-      if (!task) return prev;
-      return { ...prev, [taskId]: { ...task, expanded: !task.expanded } };
-    });
-  }, []);
+  return groups;
+}
 
-  // ── Derived values ────────────────────────────────────────────────────────
-
-  // Apply TTL purge before computing display
-  const displayTasks = purgeExpired(tasks);
-  const sorted = Object.values(displayTasks).sort((a, b) => {
+function sortWorkers(workers: WorkerInfo[]): WorkerInfo[] {
+  return [...workers].sort((a, b) => {
     const aActive = !a.completedAt ? 0 : 1;
     const bActive = !b.completedAt ? 0 : 1;
     if (aActive !== bActive) return aActive - bActive;
     return b.startedAt - a.startedAt;
   });
+}
 
-  const activeCount = sorted.filter((t) => !t.completedAt).length;
-  const terminalCount = sorted.filter((t) => TERMINAL_STATUSES.has(t.status)).length;
+// ── Main component ───────────────────────────────────────────────────────────
 
-  // ── Render ────────────────────────────────────────────────────────────────
+export function WorkerPanel() {
+  const [collapsed, setCollapsed] = useState(false);
+  const [, setTick] = useState(0);
 
+  const { send } = useWS();
+  const workers = useWorkerStore((s) => s.workers);
+  const cliSessions = useWorkerStore((s) => s.cliSessions);
+  const dismissTask = useWorkerStore((s) => s.dismissTask);
+  const clearTerminal = useWorkerStore((s) => s.clearTerminal);
+  const projects = useProjectStore((s) => s.projects);
+
+  // Map project IDs to names for grouping labels
+  const projectNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const p of projects) {
+      names[p.id] = p.name || p.id.slice(0, 12);
+    }
+    return names;
+  }, [projects]);
+
+  // Build CLI session lookup by taskId
+  const cliByTask = useMemo(() => {
+    const map: Record<string, CliSessionInfo> = {};
+    for (const cs of Object.values(cliSessions)) {
+      if (cs.taskId) map[cs.taskId] = cs;
+    }
+    return map;
+  }, [cliSessions]);
+
+  // ── Elapsed time ticker ───────────────────────────────────────────────
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // ── Actions ───────────────────────────────────────────────────────────
+  const cancelTask = useCallback(
+    (taskId: string) => {
+      // Find the CLI session for this task to get sessionId
+      const cs = cliByTask[taskId];
+      send('task:cancel', { taskId, sessionId: cs?.id });
+    },
+    [send, cliByTask],
+  );
+
+  const steerTask = useCallback(
+    (taskId: string, message: string) => {
+      if (!message.trim()) return;
+      const cs = cliByTask[taskId];
+      send('task:steer', { taskId, sessionId: cs?.id, message: message.trim() });
+    },
+    [send, cliByTask],
+  );
+
+  // ── Derived ───────────────────────────────────────────────────────────
+  const allWorkers = useMemo(() => Object.values(workers), [workers]);
+  const groups = useMemo(() => groupWorkers(allWorkers, projectNames), [allWorkers, projectNames]);
+  const activeCount = allWorkers.filter((w) => !TERMINAL_STATUSES.has(w.status)).length;
+  const terminalCount = allWorkers.filter((w) => TERMINAL_STATUSES.has(w.status)).length;
+
+  // ── Render ────────────────────────────────────────────────────────────
   return (
     <div
       className={cn(
@@ -553,11 +396,11 @@ export function WorkerPanel() {
           )}
         </div>
 
-        {terminalCount > 0 && (
+        {terminalCount > 0 && !collapsed && (
           <button
             className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             title="Clear finished tasks"
-            onClick={clearTerminalTasks}
+            onClick={clearTerminal}
           >
             Clear ({terminalCount})
           </button>
@@ -568,26 +411,29 @@ export function WorkerPanel() {
           title={collapsed ? 'Expand' : 'Collapse'}
           onClick={() => setCollapsed((c) => !c)}
         >
-          {collapsed ? '◀' : '▶'}
+          {collapsed ? '\u25C0' : '\u25B6'}
         </button>
       </div>
 
       {/* Body */}
       {!collapsed && (
         <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
-          {sorted.length === 0 ? (
+          {groups.length === 0 ? (
             <div className="text-xs text-muted-foreground text-center py-8">No active workers</div>
           ) : (
-            sorted.map((task) => (
-              <TaskRow
-                key={task.taskId}
-                task={task}
-                onCancel={cancelTask}
-                onDismiss={dismissTask}
-                onToggleExpand={toggleExpand}
-                onSteer={steerTask}
-                tick={tick}
-              />
+            groups.map((group) => (
+              <Group key={group.label} label={group.label}>
+                {group.workers.map((w) => (
+                  <TaskRow
+                    key={w.taskId}
+                    worker={w}
+                    cliSession={cliByTask[w.taskId]}
+                    onCancel={cancelTask}
+                    onDismiss={dismissTask}
+                    onSteer={steerTask}
+                  />
+                ))}
+              </Group>
             ))
           )}
         </div>

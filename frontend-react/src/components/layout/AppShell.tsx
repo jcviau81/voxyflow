@@ -26,6 +26,7 @@ import { OpportunitiesPanel } from '../RightPanel/OpportunitiesPanel';
 import { NotificationsPanel } from '../RightPanel/NotificationsPanel';
 import { useChatService } from '../../contexts/useChatService';
 import { useProjects } from '../../hooks/api/useProjects';
+import { useWorkerSync } from '../../hooks/useWorkerSync';
 import type { CardSuggestion } from '../../contexts/ChatProvider';
 
 type OpenPanel = 'opportunities' | 'notifications' | null;
@@ -38,6 +39,9 @@ export function AppShell() {
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
   const theme = useThemeStore((s) => s.theme);
   const { registerCallbacks } = useChatService();
+
+  // Wire WS → worker store (must be inside WebSocketProvider)
+  useWorkerSync();
 
   // Sync TanStack Query projects → Zustand store so Sidebar/Nav can read from store
   const { data: projects } = useProjects();

@@ -50,11 +50,32 @@ class CliSessionRegistry:
             f"[CliRegistry] Registered {session.session_type} session {session.id} "
             f"(pid={session.pid}, model={session.model}, chat={session.chat_id})"
         )
+        # Broadcast to all WS clients
+        from app.services.ws_broadcast import ws_broadcast
+        ws_broadcast.emit_sync("cli:session:started", {
+            "id": session.id,
+            "pid": session.pid,
+            "chatId": session.chat_id,
+            "projectId": session.project_id,
+            "model": session.model,
+            "type": session.session_type,
+            "startedAt": session.started_at,
+            "taskId": session.task_id,
+        })
 
     def deregister(self, session_id: str) -> None:
         removed = self._sessions.pop(session_id, None)
         if removed:
             logger.info(f"[CliRegistry] Deregistered session {session_id} (pid={removed.pid})")
+            # Broadcast to all WS clients
+            from app.services.ws_broadcast import ws_broadcast
+            ws_broadcast.emit_sync("cli:session:ended", {
+                "id": removed.id,
+                "pid": removed.pid,
+                "chatId": removed.chat_id,
+                "projectId": removed.project_id,
+                "taskId": removed.task_id,
+            })
 
     def list_active(self) -> list[CliSession]:
         return list(self._sessions.values())
