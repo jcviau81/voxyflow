@@ -9,10 +9,6 @@ export type ViewMode =
   | 'projects'
   | 'settings'
   | 'stats'
-  | 'roadmap'
-  | 'wiki'
-  | 'sprint'
-  | 'docs'
   | 'knowledge';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'coder' | 'architect' | 'designer' | 'devops' | 'analyst' | 'tester' | 'writer';
@@ -292,14 +288,4 @@ export interface Sprint {
   status: SprintStatus;
   createdAt: string;
   cardCount: number;
-}
-
-/** @deprecated Kept for migration only. Use Card with projectId=null and status='card'. */
-export interface Idea {
-  id: string;
-  content: string;
-  createdAt: number;
-  source: 'manual' | 'analyzer';
-  color?: 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange';
-  body?: string;
 }

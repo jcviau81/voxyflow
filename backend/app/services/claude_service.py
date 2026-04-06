@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import os
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
