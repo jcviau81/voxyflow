@@ -100,6 +100,10 @@ async def lifespan(app: FastAPI):
         if _db_settings:
             import app.routes.settings as _settings_mod
             _settings_mod._cached_default_worker_model = _db_settings.get("models", {}).get("default_worker_model", "sonnet")
+            # Also restore analyzer_enabled from DB so the gate is correct before
+            # any GET /api/settings call is made (prevents analyzer running on first
+            # message after a server restart when it was disabled in settings).
+            _settings_mod._cached_analyzer_enabled = _db_settings.get("models", {}).get("analyzer", {}).get("enabled", True)
             # Write DB settings to settings.json so _load_model_overrides() finds them
             _merged = AppSettings(**_db_settings).dict()
             os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)

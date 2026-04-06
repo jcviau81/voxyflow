@@ -150,9 +150,11 @@ class ChatOrchestrator(LayerRunnersMixin):
         if layers is None:
             layers = {}
         deep_enabled = layers.get("deep", layers.get("opus", False))
-        # Global gate: settings-level enable must be true, then per-message layers control it
+        # Global gate: settings-level enable must be true, then per-message layers control it.
+        # Default is False (safe) so that if the frontend omits the analyzer key
+        # (e.g. old localStorage format without the key), the analyzer stays OFF.
         from app.routes.settings import get_analyzer_enabled
-        analyzer_enabled = get_analyzer_enabled() and layers.get("analyzer", True)
+        analyzer_enabled = get_analyzer_enabled() and layers.get("analyzer", False)
 
         # Helper to send model status updates
         async def send_model_status(model: str, state: str) -> None:
@@ -546,11 +548,16 @@ class ChatOrchestrator(LayerRunnersMixin):
         session_id: str | None,
         send_model_status,
     ) -> None:
-        """Wrapper for analyzer that catches errors in background."""
+        """Wrapper for analyzer that catches errors in background.
+
+        Note: this method is only called when analyzer_enabled=True has already
+        been verified by the caller (see _handle_message_inner). The
+        analyzer_enabled=True passed here is therefore always correct.
+        """
         try:
             await self._run_analyzer_layer(
                 websocket=websocket,
-                analyzer_enabled=True,
+                analyzer_enabled=True,  # Verified by caller before scheduling this task
                 analyzer_task=analyzer_task,
                 project_id=project_id,
                 session_id=session_id,
