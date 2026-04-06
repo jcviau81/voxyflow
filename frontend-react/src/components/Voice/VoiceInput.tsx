@@ -28,6 +28,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isModelLoading, setIsModelLoading] = useState(false);
+  const [isTtsSpeaking, setIsTtsSpeaking] = useState(() => ttsService.isSpeaking);
   const [modelLoadMessage, setModelLoadMessage] = useState('Loading model…');
   const [modelProgress, setModelProgress] = useState<number | null>(null);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
@@ -320,6 +321,14 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
     return () => unsubs.forEach((unsub) => unsub());
   }, [wakeWordEnabled, chat, showError, playAckSound, showToast, autoSendMessage, scheduleWakeWordRestart, stopRecording]);
 
+  // ── TTS speaking indicator ─────────────────────────────────────────────────
+
+  useEffect(() => {
+    const unsubStart = ttsService.onStart(() => setIsTtsSpeaking(true));
+    const unsubEnd = ttsService.onEnd(() => setIsTtsSpeaking(false));
+    return () => { unsubStart(); unsubEnd(); };
+  }, []);
+
   // ── Keyboard shortcut Alt+V ────────────────────────────────────────────────
 
   useEffect(() => {
@@ -397,9 +406,11 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
       : modelLoadMessage
     : isTranscribing
     ? 'Transcribing…'
+    : isTtsSpeaking
+    ? 'Speaking…'
     : 'Recording...';
 
-  const showIndicator = isRecording || isTranscribing || isModelLoading;
+  const showIndicator = isRecording || isTranscribing || isModelLoading || isTtsSpeaking;
 
   // ── PTT button tooltip ────────────────────────────────────────────────────
 
@@ -443,11 +454,21 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
       {/* Buttons row */}
       {buttons}
 
-      {/* Recording / transcribing indicator */}
+      {/* Recording / transcribing / TTS speaking indicator */}
       {showIndicator && (
         <div className={`voice-indicator flex items-center gap-1.5 text-xs text-muted-foreground${isModelLoading ? ' model-loading' : ''}`}>
-          <span className="recording-dot w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+          <span className={`recording-dot w-2 h-2 rounded-full animate-pulse ${isTtsSpeaking && !isRecording && !isTranscribing ? 'bg-primary' : 'bg-red-500'}`} />
           <span className="voice-indicator-label">{indicatorLabel}</span>
+          {isTtsSpeaking && !isRecording && (
+            <button
+              type="button"
+              className="ml-1 text-xs underline hover:no-underline text-muted-foreground hover:text-foreground"
+              onClick={() => ttsService.stop()}
+              title="Stop TTS"
+            >
+              stop
+            </button>
+          )}
         </div>
       )}
 

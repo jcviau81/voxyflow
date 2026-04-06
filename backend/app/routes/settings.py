@@ -425,3 +425,103 @@ async def tts_speak(request: Request):
             status_code=502,
             media_type="application/json",
         )
+
+
+@router.post("/tts/speak_stream")
+async def tts_speak_stream(request: Request):
+    """Streaming TTS endpoint — synthesizes text sentence-by-sentence and streams
+    audio chunks back as SSE events so the frontend can start playing the first
+    sentence while subsequent sentences are still being synthesized.
+
+    SSE event format:
+        data: {"index": 0, "b64": "<base64 WAV>", "last": false}
+        data: {"index": 1, "b64": "<base64 WAV>", "last": true}
+        data: {"done": true}
+
+    Error events:
+        data: {"index": 0, "error": "<message>", "last": false}
+    """
+    import httpx
+    import base64
+    import re
+    from fastapi.responses import StreamingResponse
+
+    body = await request.json()
+    text = body.get("text", "")
+    language = body.get("language", "en")
+
+    if not text.strip():
+        return Response(content=b"", status_code=204)
+
+    settings_data = await _load_settings_from_db()
+    tts_url = ""
+    if settings_data:
+        tts_url = settings_data.get("voice", {}).get("tts_url", "")
+
+    if not tts_url:
+        return Response(
+            content=json.dumps({"error": "No TTS server configured"}).encode(),
+            status_code=400,
+            media_type="application/json",
+        )
+
+    def split_sentences(raw: str) -> list:
+        """Split text into speakable sentences."""
+        parts = re.split(r'(?<=[.!?])\s+', raw.strip())
+        return [s.strip() for s in parts if s.strip()]
+
+    sentences = split_sentences(text)
+    if not sentences:
+        return Response(content=b"", status_code=204)
+
+    base_url = tts_url.rstrip("/")
+
+    async def generate_sse():
+        """Synthesize sentences sequentially and yield SSE events."""
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            for i, sentence in enumerate(sentences):
+                is_last = i == len(sentences) - 1
+                audio_data = None
+
+                # Try XTTS native streaming endpoint first (returns audio/wav chunks)
+                try:
+                    stream_resp = await client.post(
+                        f"{base_url}/tts_stream",
+                        json={"text": sentence, "language": language},
+                    )
+                    if stream_resp.status_code == 200 and stream_resp.content:
+                        audio_data = stream_resp.content
+                except Exception:
+                    pass  # Fall through to /speak
+
+                # Fallback: standard /speak endpoint
+                if audio_data is None:
+                    try:
+                        speak_resp = await client.post(
+                            f"{base_url}/speak",
+                            json={"text": sentence, "language": language},
+                        )
+                        if speak_resp.status_code == 200:
+                            audio_data = speak_resp.content
+                        else:
+                            raise Exception(f"/speak returned {speak_resp.status_code}")
+                    except Exception as e:
+                        logger.warning("TTS speak_stream sentence %d error: %s", i, e)
+                        payload = json.dumps({"index": i, "error": str(e), "last": is_last})
+                        yield f"data: {payload}\n\n"
+                        continue
+
+                b64 = base64.b64encode(audio_data).decode()
+                payload = json.dumps({"index": i, "b64": b64, "last": is_last})
+                yield f"data: {payload}\n\n"
+
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(
+        generate_sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

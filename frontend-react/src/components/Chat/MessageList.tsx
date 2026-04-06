@@ -102,8 +102,23 @@ export function MessageList({
   }, []);
 
   // ---------------------------------------------------------------------------
-  // TTS — trigger on new messages
+  // TTS — progressive streaming: speak sentences as they arrive from LLM stream
   // ---------------------------------------------------------------------------
+
+  // Track how many characters of each streaming message have already been queued for TTS
+  const streamingTtsBufferRef = useRef<Map<string, number>>(new Map());
+
+  /** Return true if TTS auto-play is on and enabled */
+  const isTtsAutoPlay = useCallback((): boolean => {
+    try {
+      const stored = localStorage.getItem('voxyflow_settings');
+      if (stored) {
+        const s = JSON.parse(stored);
+        return (s?.voice?.tts_enabled ?? true) && (s?.voice?.tts_auto_play ?? false);
+      }
+    } catch { /* ignore */ }
+    return false;
+  }, []);
 
   const speakAssistantMessage = useCallback((msg: Message) => {
     if (msg.role !== 'assistant') return;
@@ -122,18 +137,57 @@ export function MessageList({
         }
         if (autoScrollRef.current) scrollToBottom('smooth');
       },
-      onMessageStreaming() {
+      onMessageStreaming({ messageId, content }) {
         if (autoScrollRef.current) scrollToBottom('instant');
+
+        // Progressive TTS: detect complete sentences and speak them as they arrive
+        if (!isTtsAutoPlay()) return;
+
+        const spokenLen = streamingTtsBufferRef.current.get(messageId) ?? 0;
+        const newContent = content.slice(spokenLen);
+
+        // Find the last sentence-ending boundary in the new content
+        // We speak everything up to the last complete sentence
+        const sentenceEndMatch = newContent.match(/^([\s\S]*[.!?])(\s|$)/);
+        if (!sentenceEndMatch) return;
+
+        const toSpeak = sentenceEndMatch[1].trim();
+        if (!toSpeak) return;
+
+        const cleaned = cleanTextForSpeech(toSpeak);
+        if (cleaned) {
+          ttsService.speak(cleaned);
+        }
+        // Advance the spoken pointer past what we just queued
+        streamingTtsBufferRef.current.set(messageId, spokenLen + sentenceEndMatch[0].length);
       },
-      onMessageStreamEnd({ messageId }) {
-        // Find the message in the store to speak its final content
+      onMessageStreamEnd({ messageId, content }) {
+        const spokenLen = streamingTtsBufferRef.current.get(messageId);
+        streamingTtsBufferRef.current.delete(messageId);
+
+        // Check message metadata (enrichment/worker result should not be spoken)
         const msg = useMessageStore.getState().messages.find((m) => m.id === messageId);
-        if (msg) speakAssistantMessage(msg);
+        const isSpecialMessage = msg && (msg.enrichment || msg.isWorkerResult);
+
+        if (isSpecialMessage) {
+          // Never speak enrichment or worker result messages
+        } else if (spokenLen !== undefined) {
+          // Progressive mode was active — speak any trailing text not yet queued
+          const remaining = content.slice(spokenLen).trim();
+          if (remaining && isTtsAutoPlay()) {
+            const cleaned = cleanTextForSpeech(remaining);
+            if (cleaned) ttsService.speak(cleaned);
+          }
+        } else {
+          // No progressive TTS happened (stream was too short or auto-play was off)
+          // Fall back to speaking the full final message
+          if (msg) speakAssistantMessage(msg);
+        }
         if (autoScrollRef.current) scrollToBottom('smooth');
       },
     });
     return unsub;
-  }, [registerCallbacks, speakAssistantMessage, scrollToBottom]);
+  }, [registerCallbacks, speakAssistantMessage, scrollToBottom, isTtsAutoPlay]);
 
   // ---------------------------------------------------------------------------
   // Render

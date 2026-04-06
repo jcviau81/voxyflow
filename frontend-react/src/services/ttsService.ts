@@ -1,7 +1,12 @@
 /**
  * TtsService — Text-to-speech with two backends:
  *   1. Browser speechSynthesis (default, no setup needed)
- *   2. Remote XTTS server (higher quality, configurable URL)
+ *   2. Remote XTTS server with streaming (sentence-by-sentence SSE streaming)
+ *
+ * Streaming flow:
+ *   Frontend → POST /api/settings/tts/speak_stream → SSE events per sentence
+ *   Each event carries a base64 WAV blob → decoded and queued for playback.
+ *   Sentence 1 starts playing while sentence 2+ are still being synthesized.
  */
 
 class TtsService {
@@ -12,6 +17,8 @@ class TtsService {
   private _queue: string[] = [];
   private _processing = false;
   private _forceNative = false;
+  /** AbortController for the active streaming fetch (if any). */
+  private _streamAbort: AbortController | null = null;
 
   set forceNative(val: boolean) {
     this._forceNative = val;
@@ -74,7 +81,8 @@ class TtsService {
       const text = this._queue.shift()!;
       const { tts_url, tts_speed } = this.getVoiceSettings();
       if (tts_url && !this._forceNative) {
-        await this.speakServer(text, tts_url, tts_speed);
+        // Use streaming path — sentences synthesized server-side, audio piped as SSE
+        await this.speakServerStream(text, tts_url, tts_speed);
       } else {
         await this.speakBrowser(text, tts_speed);
       }
@@ -150,6 +158,139 @@ class TtsService {
     void serverUrl;
   }
 
+  /**
+   * Streaming XTTS playback — sentence-by-sentence SSE pipeline.
+   *
+   * 1. POST full text to /api/settings/tts/speak_stream
+   * 2. Backend splits into sentences, synthesizes each, sends SSE events
+   * 3. Frontend decodes base64 WAV per event and queues for immediate playback
+   * 4. Audio queue drains in order — sentence N plays while sentence N+1 is synthesized
+   *
+   * Falls back to speakServer() on any error.
+   */
+  private async speakServerStream(text: string, serverUrl: string, speed: number): Promise<void> {
+    const lang = this.detectLanguage();
+    const langShort = lang.split('-')[0];
+    this._isSpeaking = true;
+    this._notifyStart();
+
+    // Playback queue — populated by SSE handler, drained by playNext()
+    const audioQueue: Blob[] = [];
+    let streamDone = false;
+    let playbackActive = false;
+    let resolveAll!: () => void;
+    const allDone = new Promise<void>((res) => { resolveAll = res; });
+
+    const playNext = () => {
+      if (playbackActive) return; // already playing
+      if (audioQueue.length === 0) {
+        if (streamDone) resolveAll();
+        return;
+      }
+      playbackActive = true;
+      const blob = audioQueue.shift()!;
+      this.playBlob(blob, speed).then(() => {
+        playbackActive = false;
+        playNext();
+      }).catch(() => {
+        playbackActive = false;
+        playNext();
+      });
+    };
+
+    this._streamAbort = new AbortController();
+
+    try {
+      const response = await fetch('/api/settings/tts/speak_stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, language: langShort }),
+        signal: this._streamAbort.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`speak_stream returned ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      // Parse SSE stream line-by-line
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
+          try {
+            const evt = JSON.parse(raw) as {
+              done?: boolean;
+              index?: number;
+              b64?: string;
+              error?: string;
+              last?: boolean;
+            };
+
+            if (evt.done) {
+              streamDone = true;
+              playNext();
+              break outer;
+            }
+
+            if (evt.error) {
+              console.warn('[TtsService] Streaming chunk error (sentence', evt.index, '):', evt.error);
+              if (evt.last) { streamDone = true; playNext(); }
+              continue;
+            }
+
+            if (evt.b64) {
+              // Decode base64 WAV → Blob
+              const binary = atob(evt.b64);
+              const bytes = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              const blob = new Blob([bytes], { type: 'audio/wav' });
+              audioQueue.push(blob);
+              playNext(); // start playing immediately if not already
+            }
+
+            if (evt.last) { streamDone = true; playNext(); }
+          } catch (e) {
+            console.warn('[TtsService] Failed to parse SSE event:', e);
+          }
+        }
+      }
+
+      streamDone = true;
+      playNext();
+      await allDone;
+
+      this._isSpeaking = false;
+      this._notifyEnd();
+    } catch (err: unknown) {
+      const isAbort = err instanceof Error && err.name === 'AbortError';
+      if (!isAbort) {
+        console.warn('[TtsService] Streaming TTS failed, falling back to sentence-prefetch:', err);
+        this._isSpeaking = false;
+        // Fallback: legacy sentence-prefetch approach
+        await this.speakServer(text, serverUrl, speed);
+        return;
+      }
+      // Aborted by stop() — clean up gracefully
+      this._isSpeaking = false;
+      this._notifyEnd();
+    } finally {
+      this._streamAbort = null;
+    }
+
+    void serverUrl;
+  }
+
   private async speakBrowser(text: string, speed: number): Promise<void> {
     if (!('speechSynthesis' in window)) return;
     return new Promise<void>((resolve) => {
@@ -203,6 +344,11 @@ class TtsService {
   stop(): void {
     this._queue = [];
     this._processing = false;
+    // Abort any in-progress SSE stream fetch
+    if (this._streamAbort) {
+      this._streamAbort.abort();
+      this._streamAbort = null;
+    }
     if (this._currentAudio) {
       this._currentAudio.pause();
       this._currentAudio.src = '';
