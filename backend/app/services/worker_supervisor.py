@@ -43,22 +43,30 @@ class WorkerSupervisor:
             "timestamp": time.time(),
         })
 
-    def check_repetition(self, task_id: str, window: int = 6) -> bool:
-        """Check if the same tool+params has been called 3+ times in the last N calls.
+    # Tools that legitimately repeat with the same params (polling, status checks)
+    _POLL_TOOLS = frozenset({"tmux.capture", "tmux.read", "workers_list", "workers_get_result"})
+
+    def check_repetition(self, task_id: str, window: int = 8) -> bool:
+        """Check if the same tool+params has been called 4+ times in the last N calls.
 
         Returns True if a repetitive loop is detected.
+        Polling tools (tmux.capture, etc.) are excluded — they legitimately
+        repeat with the same params while waiting for command output.
         """
         task = self._tasks.get(task_id)
         if not task:
             return False
         calls = task["tool_calls"]
-        if len(calls) < 3:
+        if len(calls) < 4:
             return False
 
         recent = calls[-window:]
         # Build signature for each call (tool + sorted params)
         signatures: list[str] = []
         for c in recent:
+            # Skip polling tools — repeated calls are expected
+            if c["tool"] in self._POLL_TOOLS:
+                continue
             # Normalize params to a stable string for comparison
             try:
                 sig = f"{c['tool']}:{sorted(c['params'].items())}"
@@ -66,11 +74,11 @@ class WorkerSupervisor:
                 sig = f"{c['tool']}:{c['params']}"
             signatures.append(sig)
 
-        # Check if any signature appears 3+ times
+        # Check if any signature appears 4+ times
         from collections import Counter
         counts = Counter(signatures)
         for sig, count in counts.items():
-            if count >= 3:
+            if count >= 4:
                 logger.warning(
                     f"[Supervisor] Repetition detected for task {task_id}: "
                     f"{sig} called {count} times in last {window} calls"
