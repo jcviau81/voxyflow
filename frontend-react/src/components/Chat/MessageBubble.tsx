@@ -18,13 +18,16 @@ function formatTime(ts: number): string {
 
 /** Returns [label, badgeColorClass] for each known model. */
 function getModelBadge(model: string): [string, string] {
-  switch (model) {
-    case 'fast': return ['⚡ fast', 'bg-sky-500/10'];
-    case 'deep': return ['🧠 deep', 'bg-purple-500/10'];
-    case 'sonnet': return ['✨ sonnet', 'bg-blue-500/10'];
-    case 'analyzer': return ['🔍 analyzer', 'bg-amber-500/10'];
-    case 'worker': return ['⚙️ worker', 'bg-green-500/10'];
-    default: return [model, ''];
+  const m = model.toLowerCase();
+  if (m.includes('opus'))   return ['opus', 'bg-purple-500/15 text-purple-400'];
+  if (m.includes('sonnet')) return ['sonnet', 'bg-blue-500/15 text-blue-400'];
+  if (m.includes('haiku'))  return ['haiku', 'bg-green-500/15 text-green-400'];
+  switch (m) {
+    case 'fast':     return ['sonnet', 'bg-blue-500/15 text-blue-400'];
+    case 'deep':     return ['opus', 'bg-purple-500/15 text-purple-400'];
+    case 'analyzer': return ['haiku', 'bg-green-500/15 text-green-400'];
+    case 'worker':   return ['worker', 'bg-amber-500/15 text-amber-400'];
+    default:         return [model, 'bg-muted'];
   }
 }
 
