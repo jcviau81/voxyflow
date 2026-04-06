@@ -106,6 +106,8 @@ async def lifespan(app: FastAPI):
             with open(SETTINGS_FILE, "w") as _f:
                 json.dump(_merged, _f, indent=2)
             logger.info("✅ Settings synced from DB → settings.json")
+        # Reload ClaudeService models after DB sync (it was initialized before sync)
+        _claude_service.reload_models()
         logger.info("✅ Default worker model: %s", get_default_worker_model())
     except Exception as _e:
         logger.warning("Failed to load settings from DB: %s — using defaults", _e)
