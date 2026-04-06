@@ -1,27 +1,33 @@
 /**
- * WorkerPanel — Hierarchical live view of worker tasks.
+ * WorkerPanel — Hierarchical session/worker view.
  *
- * Pure view over useWorkerStore — no local state, no polling.
- * Groups workers by project, then by card/chat context.
+ * Structure:
+ *   SESSIONS
+ *   └── Project Name
+ *       ├── Project Chat - 🔵 Fast Session
+ *       │   ├── 🔵 sonnet — action — 45s… [steer][cancel]
+ *       │   └── 🟡 Analyzer
+ *       ├── Project Chat - 🟣 Deep Session
+ *       │   └── 🟣 opus — action — 2m… [steer][cancel]
+ *       └── Card: Title
+ *           └── 🔵 sonnet — action — 1m… [steer][cancel]
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Loader2, MessageSquare, Send, ExternalLink, ChevronRight } from 'lucide-react';
+import { MessageSquare, Send, ExternalLink, ChevronRight, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useProjectStore } from '../../stores/useProjectStore';
+import { useCardStore } from '../../stores/useCardStore';
 import { useWorkerStore, type WorkerInfo, type CliSessionInfo } from '../../stores/useWorkerStore';
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// ── Constants & Helpers ─────────────────────────────────────────────────────
 
 const TERMINAL_STATUSES = new Set<WorkerInfo['status']>(['done', 'failed', 'cancelled']);
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function getElapsed(startedAt: number, completedAt?: number): string {
-  const end = completedAt ?? Date.now();
-  const ms = end - startedAt;
+function elapsed(startMs: number, endMs?: number): string {
+  const ms = (endMs ?? Date.now()) - startMs;
   if (ms < 1000) return '<1s';
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -29,54 +35,171 @@ function getElapsed(startedAt: number, completedAt?: number): string {
   return `${m}m ${s % 60}s`;
 }
 
+function modelEmoji(model?: string): string {
+  switch (model) {
+    case 'haiku': return '\u{1F7E1}';
+    case 'sonnet': return '\u{1F535}';
+    case 'opus': return '\u{1F7E3}';
+    default: return '\u26AA';
+  }
+}
+
+function modelLabel(model?: string): string {
+  switch (model) {
+    case 'haiku': return 'Fast';
+    case 'opus': return 'Deep';
+    default: return model ?? 'unknown';
+  }
+}
+
 function formatAction(action: string): string {
   return action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function getModelEmoji(model?: string): string {
-  switch (model) {
-    case 'haiku': return '\u{1F7E1}';   // yellow circle
-    case 'sonnet': return '\u{1F535}';   // blue circle
-    case 'opus': return '\u{1F7E3}';     // purple circle
-    default: return '\u{1F535}';
+/** Parse a chatId like "project:uuid" or "project:card-uuid" into a session label. */
+function parseSessionLabel(chatId: string | null, cardTitles: Record<string, string>): string {
+  if (!chatId) return 'Direct';
+  // Card session: "project:card-<uuid>"
+  const cardMatch = chatId.match(/^project:card-(.+)$/);
+  if (cardMatch) {
+    const cardId = cardMatch[1];
+    const title = cardTitles[cardId];
+    return title ? `Card: ${title}` : `Card: ${cardId.slice(0, 8)}`;
   }
+  // Project chat session: "project:<uuid>" or "general:system-main"
+  if (chatId.startsWith('general:')) return 'General Chat';
+  return 'Project Chat';
 }
 
-// ── Sub-components ───────────────────────────────────────────────────────────
+// ── Session tree types ──────────────────────────────────────────────────────
 
-function StatusIndicator({ status }: { status: WorkerInfo['status'] }) {
-  switch (status) {
-    case 'pending':
-      return <Loader2 size={14} className="text-muted-foreground animate-spin" />;
-    case 'running':
-      return <div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin [animation-duration:0.5s]" />;
-    case 'done':
-      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-green-500">{'\u2713'}</span>;
-    case 'failed':
-      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-red-500">{'\u2715'}</span>;
-    case 'cancelled':
-      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold text-muted-foreground">{'\u2298'}</span>;
-    default:
-      return <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] font-bold" />;
-  }
-}
-
-interface TaskRowProps {
-  worker: WorkerInfo;
+interface SessionNode {
+  chatId: string;
+  label: string;
   cliSession?: CliSessionInfo;
-  onCancel: (taskId: string) => void;
-  onDismiss: (taskId: string) => void;
-  onSteer: (taskId: string, message: string) => void;
+  workers: WorkerInfo[];
+  isAnalyzer?: boolean;
 }
 
-function TaskRow({ worker, cliSession, onCancel, onDismiss, onSteer }: TaskRowProps) {
+interface ProjectNode {
+  projectId: string;
+  projectName: string;
+  sessions: SessionNode[];
+}
+
+// ── Build hierarchy ─────────────────────────────────────────────────────────
+
+function buildTree(
+  allCli: CliSessionInfo[],
+  allWorkers: WorkerInfo[],
+  projectNames: Record<string, string>,
+  cardTitles: Record<string, string>,
+): ProjectNode[] {
+  // Index workers by chatId
+  const workersByChatId: Record<string, WorkerInfo[]> = {};
+  const workersNoChat: WorkerInfo[] = [];
+  for (const w of allWorkers) {
+    if (w.chatId) {
+      (workersByChatId[w.chatId] ??= []).push(w);
+    } else {
+      workersNoChat.push(w);
+    }
+  }
+
+  // Index CLI sessions by chatId
+  const cliByChatId: Record<string, CliSessionInfo> = {};
+  for (const cs of allCli) {
+    if (cs.chatId) cliByChatId[cs.chatId] = cs;
+  }
+
+  // Collect all unique chatIds (from both CLI sessions and workers)
+  const allChatIds = new Set<string>();
+  for (const cs of allCli) if (cs.chatId) allChatIds.add(cs.chatId);
+  for (const w of allWorkers) if (w.chatId) allChatIds.add(w.chatId);
+
+  // Group chatIds by project
+  const chatIdsByProject: Record<string, Set<string>> = {};
+  for (const chatId of allChatIds) {
+    // Determine projectId from CLI session or workers
+    const cli = cliByChatId[chatId];
+    const ws = workersByChatId[chatId];
+    const pid = cli?.projectId || ws?.[0]?.projectId || '_general';
+    (chatIdsByProject[pid] ??= new Set()).add(chatId);
+  }
+
+  // Also add workers with no chatId to their project
+  for (const w of workersNoChat) {
+    const pid = w.projectId || '_general';
+    // Create a synthetic chatId
+    const syntheticId = `_orphan:${pid}`;
+    (chatIdsByProject[pid] ??= new Set()).add(syntheticId);
+    (workersByChatId[syntheticId] ??= []).push(w);
+  }
+
+  // Build project nodes
+  const projects: ProjectNode[] = [];
+  for (const [pid, chatIds] of Object.entries(chatIdsByProject)) {
+    const sessions: SessionNode[] = [];
+    for (const chatId of chatIds) {
+      const cli = cliByChatId[chatId];
+      const ws = workersByChatId[chatId] || [];
+      const label = chatId.startsWith('_orphan:')
+        ? 'Workers'
+        : parseSessionLabel(chatId, cardTitles);
+      const sessionLabel = cli
+        ? `${label} - ${modelEmoji(cli.model)} ${modelLabel(cli.model)}`
+        : label;
+
+      sessions.push({
+        chatId,
+        label: sessionLabel,
+        cliSession: cli,
+        workers: ws.sort((a, b) => {
+          const aActive = TERMINAL_STATUSES.has(a.status) ? 1 : 0;
+          const bActive = TERMINAL_STATUSES.has(b.status) ? 1 : 0;
+          if (aActive !== bActive) return aActive - bActive;
+          return b.startedAt - a.startedAt;
+        }),
+      });
+    }
+
+    // Sort sessions: active first
+    sessions.sort((a, b) => {
+      const aActive = a.cliSession || a.workers.some((w) => !TERMINAL_STATUSES.has(w.status)) ? 0 : 1;
+      const bActive = b.cliSession || b.workers.some((w) => !TERMINAL_STATUSES.has(w.status)) ? 0 : 1;
+      return aActive - bActive;
+    });
+
+    projects.push({
+      projectId: pid,
+      projectName: pid === '_general' ? 'General' : (projectNames[pid] || pid.slice(0, 12)),
+      sessions,
+    });
+  }
+
+  // Sort: projects with active sessions first
+  projects.sort((a, b) => {
+    const aActive = a.sessions.some((s) => s.cliSession || s.workers.some((w) => !TERMINAL_STATUSES.has(w.status))) ? 0 : 1;
+    const bActive = b.sessions.some((s) => s.cliSession || s.workers.some((w) => !TERMINAL_STATUSES.has(w.status))) ? 0 : 1;
+    return aActive - bActive;
+  });
+
+  return projects;
+}
+
+// ── Worker row ──────────────────────────────────────────────────────────────
+
+function WorkerRow({ worker, onCancel, onSteer }: {
+  worker: WorkerInfo;
+  onCancel: (id: string) => void;
+  onSteer: (id: string, msg: string) => void;
+}) {
   const [steerOpen, setSteerOpen] = useState(false);
   const [steerInput, setSteerInput] = useState('');
   const [expanded, setExpanded] = useState(false);
   const steerRef = useRef<HTMLInputElement>(null);
-  const selectCard = useProjectStore((s) => s.selectCard);
 
-  const handleSteerSubmit = () => {
+  const submit = () => {
     const msg = steerInput.trim();
     if (!msg) return;
     onSteer(worker.taskId, msg);
@@ -84,156 +207,95 @@ function TaskRow({ worker, cliSession, onCancel, onDismiss, onSteer }: TaskRowPr
     setSteerOpen(false);
   };
 
-  const handleSteerKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') handleSteerSubmit();
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') submit();
     if (e.key === 'Escape') { setSteerOpen(false); setSteerInput(''); }
   };
 
-  useEffect(() => {
-    if (steerOpen) steerRef.current?.focus();
-  }, [steerOpen]);
+  useEffect(() => { if (steerOpen) steerRef.current?.focus(); }, [steerOpen]);
 
-  const elapsed = getElapsed(worker.startedAt, worker.completedAt);
-
-  const statusClasses =
-    worker.status === 'running' ? 'border-accent border-l-[3px]'
-    : worker.status === 'done' ? 'opacity-65 border-green-500 border-l-[3px]'
-    : worker.status === 'failed' ? 'opacity-75 border-red-500 border-l-[3px]'
-    : worker.status === 'cancelled' ? 'opacity-65 border-muted-foreground border-l-[3px]'
-    : '';
-
-  const modelBgClass =
-    worker.model === 'haiku' ? 'bg-yellow-500/20'
-    : worker.model === 'opus' ? 'bg-purple-500/20'
-    : 'bg-blue-500/20';
+  const isActive = !TERMINAL_STATUSES.has(worker.status);
+  const e = elapsed(worker.startedAt, worker.completedAt);
 
   return (
-    <div
-      className={cn(
-        'relative flex items-start gap-2 p-2 bg-muted/50 rounded-lg border border-border transition-all duration-200',
-        statusClasses,
-      )}
-      data-task-id={worker.taskId}
-    >
-      <div className="shrink-0"><StatusIndicator status={worker.status} /></div>
-
-      <span className={cn('inline-flex items-center justify-center w-5 h-5 rounded text-xs shrink-0 mt-px', modelBgClass)}>
-        {getModelEmoji(worker.model)}
-      </span>
-
-      <div className="flex-1 min-w-0">
-        <div className="text-xs font-semibold text-foreground truncate">{formatAction(worker.action)}</div>
-        <div className="text-xs text-muted-foreground truncate">{worker.description.substring(0, 60)}</div>
-
-        {/* Tool count */}
-        {worker.toolCount > 0 && (
-          <div className="text-[10px] text-muted-foreground mt-0.5">
-            {worker.toolCount} tool{worker.toolCount !== 1 ? 's' : ''}
-            {worker.lastTool ? ` — ${worker.lastTool}` : ''}
-          </div>
+    <div className="relative ml-4 pl-3 border-l border-border/50">
+      <div className={cn(
+        'flex items-center gap-1.5 py-1 text-[11px]',
+        !isActive && 'opacity-50',
+      )}>
+        {/* Spinner or status */}
+        {isActive ? (
+          <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin [animation-duration:0.6s] shrink-0" />
+        ) : (
+          <span className={cn(
+            'w-3 h-3 flex items-center justify-center text-[9px] font-bold shrink-0',
+            worker.status === 'done' ? 'text-green-500' : worker.status === 'failed' ? 'text-red-500' : 'text-muted-foreground',
+          )}>
+            {worker.status === 'done' ? '\u2713' : worker.status === 'failed' ? '\u2715' : '\u2298'}
+          </span>
         )}
 
-        {/* CLI session info */}
-        {cliSession && (
-          <div className="text-[10px] text-muted-foreground mt-0.5">
-            pid {cliSession.pid} | {cliSession.model}
-          </div>
-        )}
+        <span className="shrink-0">{modelEmoji(worker.model)}</span>
+        <span className="font-medium truncate">{worker.model}</span>
+        <span className="text-muted-foreground truncate flex-1">{formatAction(worker.action)}</span>
+        <span className="text-muted-foreground tabular-nums shrink-0">{isActive ? `${e}\u2026` : e}</span>
 
-        {/* Card link */}
-        {worker.cardId && (
-          <button
-            className="inline-flex items-center gap-1 mt-0.5 text-[10px] text-accent hover:text-accent/80 transition-colors"
-            title="Open linked card"
-            onClick={(e) => { e.stopPropagation(); selectCard(worker.cardId!); }}
-          >
-            <ExternalLink size={9} />
-            <span>card</span>
-          </button>
-        )}
-
-        {/* Error */}
-        {worker.status === 'failed' && worker.error && (
-          <div className="text-xs mt-1 text-red-400">{worker.error.substring(0, 200)}</div>
-        )}
-
-        {/* Result summary */}
-        {worker.completedAt && worker.resultSummary && worker.status !== 'failed' && (
-          <div
-            className={cn(
-              'text-xs mt-1 text-muted-foreground',
-              worker.resultSummary.length > 60 && 'cursor-pointer hover:text-foreground',
-            )}
-            onClick={
-              worker.resultSummary.length > 60
-                ? (e) => { e.stopPropagation(); setExpanded((v) => !v); }
-                : undefined
-            }
-          >
-            {expanded
-              ? worker.resultSummary.substring(0, 200)
-              : worker.resultSummary.substring(0, 60) + (worker.resultSummary.length > 60 ? '\u2026' : '')}
+        {/* Steer + Cancel */}
+        {isActive && (
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              className="text-muted-foreground hover:text-accent transition-colors"
+              title="Steer"
+              onClick={() => setSteerOpen((o) => !o)}
+            >
+              <MessageSquare size={10} />
+            </button>
+            <button
+              className="text-muted-foreground hover:text-red-400 transition-colors"
+              title="Cancel"
+              onClick={() => onCancel(worker.taskId)}
+            >
+              &times;
+            </button>
           </div>
         )}
       </div>
 
-      {/* Elapsed */}
-      <div className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-        {worker.completedAt ? elapsed : `${elapsed}\u2026`}
-      </div>
-
-      {/* Steer + Cancel for active */}
-      {!worker.completedAt && (
-        <div className="shrink-0 flex items-center gap-1">
-          <button
-            className="text-xs text-muted-foreground hover:text-accent transition-colors"
-            title="Steer this worker"
-            onClick={(e) => { e.stopPropagation(); setSteerOpen((o) => !o); }}
-          >
-            <MessageSquare size={11} />
-          </button>
-          <button
-            className="text-xs text-muted-foreground hover:text-red-400 transition-colors"
-            title="Cancel task"
-            onClick={(e) => { e.stopPropagation(); onCancel(worker.taskId); }}
-          >
-            &times;
-          </button>
+      {/* Tool count */}
+      {worker.toolCount > 0 && (
+        <div className="text-[10px] text-muted-foreground ml-[18px]">
+          {worker.toolCount} tool{worker.toolCount !== 1 ? 's' : ''}
+          {worker.lastTool ? ` \u2014 ${worker.lastTool}` : ''}
         </div>
       )}
 
-      {/* Dismiss for terminal */}
-      {(worker.status === 'failed' || worker.status === 'cancelled') && (
-        <button
-          className="shrink-0 text-xs text-muted-foreground hover:text-red-400 transition-colors"
-          title="Dismiss"
-          onClick={(e) => { e.stopPropagation(); onDismiss(worker.taskId); }}
+      {/* Result summary (click to expand) */}
+      {worker.resultSummary && TERMINAL_STATUSES.has(worker.status) && (
+        <div
+          className={cn(
+            'text-[10px] text-muted-foreground ml-[18px] mt-0.5',
+            worker.resultSummary.length > 80 && 'cursor-pointer hover:text-foreground',
+          )}
+          onClick={worker.resultSummary.length > 80 ? () => setExpanded((v) => !v) : undefined}
         >
-          {'\u2715'}
-        </button>
+          {expanded ? worker.resultSummary.substring(0, 300) : worker.resultSummary.substring(0, 80) + (worker.resultSummary.length > 80 ? '\u2026' : '')}
+        </div>
       )}
 
-      {/* Steering mini-chat */}
-      {steerOpen && !worker.completedAt && (
-        <div
-          className="absolute left-0 right-0 top-full mt-1 z-10 flex items-center gap-1 bg-card border border-border rounded-md px-2 py-1 shadow-md"
-          onClick={(e) => e.stopPropagation()}
-        >
+      {/* Steering mini-input */}
+      {steerOpen && isActive && (
+        <div className="flex items-center gap-1 ml-[18px] mt-1 bg-card border border-border rounded px-2 py-1">
           <input
             ref={steerRef}
             type="text"
             value={steerInput}
             onChange={(e) => setSteerInput(e.target.value)}
-            onKeyDown={handleSteerKey}
-            placeholder="Steer worker\u2026"
-            className="flex-1 text-xs bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
+            onKeyDown={onKey}
+            placeholder="Steer\u2026"
+            className="flex-1 text-[11px] bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
           />
-          <button
-            className="text-accent hover:text-accent/80 transition-colors disabled:opacity-40"
-            disabled={!steerInput.trim()}
-            onClick={handleSteerSubmit}
-          >
-            <Send size={12} />
+          <button className="text-accent hover:text-accent/80 disabled:opacity-40" disabled={!steerInput.trim()} onClick={submit}>
+            <Send size={10} />
           </button>
         </div>
       )}
@@ -241,104 +303,73 @@ function TaskRow({ worker, cliSession, onCancel, onDismiss, onSteer }: TaskRowPr
   );
 }
 
-// ── Group header ─────────────────────────────────────────────────────────────
+// ── Session row (a CLI session with its child workers) ──────────────────────
 
-interface GroupProps {
-  label: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-}
+function SessionRow({ session, onCancel, onSteer }: {
+  session: SessionNode;
+  onCancel: (id: string) => void;
+  onSteer: (id: string, msg: string) => void;
+}) {
+  const hasChildren = session.workers.length > 0;
+  const [open, setOpen] = useState(true);
+  const selectCard = useProjectStore((s) => s.selectCard);
 
-function Group({ label, children, defaultOpen = true }: GroupProps) {
-  const [open, setOpen] = useState(defaultOpen);
+  const isActive = !!session.cliSession || session.workers.some((w) => !TERMINAL_STATUSES.has(w.status));
+
+  // Extract cardId from chatId for link
+  const cardMatch = session.chatId.match(/^project:card-(.+)$/);
+  const cardId = cardMatch?.[1];
+
   return (
-    <div className="mb-1">
+    <div className="ml-3">
       <button
-        className="flex items-center gap-1 w-full px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'flex items-center gap-1 w-full text-left py-0.5 text-[11px] transition-colors',
+          isActive ? 'text-foreground' : 'text-muted-foreground',
+        )}
+        onClick={() => hasChildren && setOpen((o) => !o)}
       >
-        <ChevronRight size={10} className={cn('transition-transform', open && 'rotate-90')} />
-        {label}
+        {hasChildren ? (
+          open ? <ChevronDown size={10} className="shrink-0" /> : <ChevronRight size={10} className="shrink-0" />
+        ) : (
+          <span className="w-[10px] shrink-0" />
+        )}
+
+        {isActive && (
+          <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+        )}
+
+        <span className="truncate font-medium">{session.label}</span>
+
+        {session.cliSession && (
+          <span className="text-[9px] text-muted-foreground shrink-0 ml-auto">
+            pid:{session.cliSession.pid}
+          </span>
+        )}
+
+        {cardId && (
+          <button
+            className="text-accent hover:text-accent/80 shrink-0 ml-1"
+            title="Open card"
+            onClick={(e) => { e.stopPropagation(); selectCard(cardId); }}
+          >
+            <ExternalLink size={9} />
+          </button>
+        )}
       </button>
-      {open && <div className="flex flex-col gap-1.5 mt-1">{children}</div>}
+
+      {open && hasChildren && (
+        <div className="flex flex-col">
+          {session.workers.map((w) => (
+            <WorkerRow key={w.taskId} worker={w} onCancel={onCancel} onSteer={onSteer} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Grouping logic ───────────────────────────────────────────────────────────
-
-interface WorkerGroup {
-  label: string;
-  workers: WorkerInfo[];
-}
-
-function groupWorkers(workers: WorkerInfo[], projects: Record<string, string>): WorkerGroup[] {
-  // Group by projectId
-  const byProject: Record<string, WorkerInfo[]> = {};
-  const general: WorkerInfo[] = [];
-
-  for (const w of workers) {
-    if (w.projectId) {
-      (byProject[w.projectId] ??= []).push(w);
-    } else {
-      general.push(w);
-    }
-  }
-
-  const groups: WorkerGroup[] = [];
-
-  // Project groups
-  for (const [pid, projectWorkers] of Object.entries(byProject)) {
-    const projectName = projects[pid] || pid.slice(0, 12);
-    groups.push({
-      label: `Project: ${projectName}`,
-      workers: sortWorkers(projectWorkers),
-    });
-  }
-
-  // General group
-  if (general.length > 0) {
-    groups.push({
-      label: 'General',
-      workers: sortWorkers(general),
-    });
-  }
-
-  return groups;
-}
-
-function sortWorkers(workers: WorkerInfo[]): WorkerInfo[] {
-  return [...workers].sort((a, b) => {
-    const aActive = !a.completedAt ? 0 : 1;
-    const bActive = !b.completedAt ? 0 : 1;
-    if (aActive !== bActive) return aActive - bActive;
-    return b.startedAt - a.startedAt;
-  });
-}
-
-// ── CLI Session Row ─────────────────────────────────────────────────────────
-
-function CliSessionRow({ session }: { session: CliSessionInfo }) {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick((v) => v + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const elapsed = getElapsed(session.startedAt * 1000);
-  const typeLabel = session.type === 'chat' ? 'Chat' : 'Worker';
-  return (
-    <div className="flex items-center gap-1.5 px-1.5 py-1 rounded bg-muted/40 text-[11px]">
-      <div className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin [animation-duration:1.5s]" />
-      <span className="font-medium truncate flex-1">
-        {getModelEmoji(session.model)} {session.model} — {typeLabel}
-      </span>
-      <span className="text-muted-foreground tabular-nums shrink-0">{elapsed}</span>
-      <span className="text-muted-foreground text-[9px] shrink-0">pid:{session.pid}</span>
-    </div>
-  );
-}
-
-// ── Main component ───────────────────────────────────────────────────────────
+// ── Main component ──────────────────────────────────────────────────────────
 
 export function WorkerPanel() {
   const [collapsed, setCollapsed] = useState(false);
@@ -347,161 +378,129 @@ export function WorkerPanel() {
   const { send } = useWS();
   const workers = useWorkerStore((s) => s.workers);
   const cliSessions = useWorkerStore((s) => s.cliSessions);
-  const dismissTask = useWorkerStore((s) => s.dismissTask);
   const clearTerminal = useWorkerStore((s) => s.clearTerminal);
   const projects = useProjectStore((s) => s.projects);
+  const cards = useCardStore((s) => s.cardsById);
 
-  // Map project IDs to names for grouping labels
   const projectNames = useMemo(() => {
-    const names: Record<string, string> = {};
-    for (const p of projects) {
-      names[p.id] = p.name || p.id.slice(0, 12);
-    }
-    return names;
+    const m: Record<string, string> = {};
+    for (const p of projects) m[p.id] = p.name || p.id.slice(0, 12);
+    return m;
   }, [projects]);
 
-  // Build CLI session lookup by taskId
+  const cardTitles = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const [id, c] of Object.entries(cards)) m[id] = c.title;
+    return m;
+  }, [cards]);
+
   const cliByTask = useMemo(() => {
-    const map: Record<string, CliSessionInfo> = {};
-    for (const cs of Object.values(cliSessions)) {
-      if (cs.taskId) map[cs.taskId] = cs;
-    }
-    return map;
+    const m: Record<string, CliSessionInfo> = {};
+    for (const cs of Object.values(cliSessions)) if (cs.taskId) m[cs.taskId] = cs;
+    return m;
   }, [cliSessions]);
 
-  // ── Elapsed time ticker ───────────────────────────────────────────────
+  // Tick for elapsed time
   useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(timer);
+    const t = setInterval(() => setTick((v) => v + 1), 1000);
+    return () => clearInterval(t);
   }, []);
 
-  // ── Actions ───────────────────────────────────────────────────────────
-  const cancelTask = useCallback(
-    (taskId: string) => {
-      // Find the CLI session for this task to get sessionId
-      const cs = cliByTask[taskId];
-      send('task:cancel', { taskId, sessionId: cs?.id });
-    },
-    [send, cliByTask],
-  );
+  // Actions
+  const cancelTask = useCallback((taskId: string) => {
+    const cs = cliByTask[taskId];
+    send('task:cancel', { taskId, sessionId: cs?.id });
+  }, [send, cliByTask]);
 
-  const steerTask = useCallback(
-    (taskId: string, message: string) => {
-      if (!message.trim()) return;
-      const cs = cliByTask[taskId];
-      send('task:steer', { taskId, sessionId: cs?.id, message: message.trim() });
-    },
-    [send, cliByTask],
-  );
+  const steerTask = useCallback((taskId: string, message: string) => {
+    if (!message.trim()) return;
+    const cs = cliByTask[taskId];
+    send('task:steer', { taskId, sessionId: cs?.id, message: message.trim() });
+  }, [send, cliByTask]);
 
-  // ── Derived ───────────────────────────────────────────────────────────
+  // Build tree
+  const allCli = useMemo(() => Object.values(cliSessions), [cliSessions]);
   const allWorkers = useMemo(() => Object.values(workers), [workers]);
-  const groups = useMemo(() => groupWorkers(allWorkers, projectNames), [allWorkers, projectNames]);
-  const activeCount = allWorkers.filter((w) => !TERMINAL_STATUSES.has(w.status)).length;
+  const tree = useMemo(() => buildTree(allCli, allWorkers, projectNames, cardTitles), [allCli, allWorkers, projectNames, cardTitles]);
+
+  const activeCount = allCli.length + allWorkers.filter((w) => !TERMINAL_STATUSES.has(w.status)).length;
   const terminalCount = allWorkers.filter((w) => TERMINAL_STATUSES.has(w.status)).length;
 
-  // CLI sessions not linked to any worker task (persistent chats, etc.)
-  const orphanCliSessions = useMemo(() => {
-    const taskLinked = new Set(Object.values(cliSessions).filter((cs) => cs.taskId).map((cs) => cs.id));
-    return Object.values(cliSessions).filter((cs) => !taskLinked.has(cs.id) || !cs.taskId);
-  }, [cliSessions]);
-
-  // Group orphan CLI sessions by project
-  const cliGroups = useMemo(() => {
-    const byProject: Record<string, CliSessionInfo[]> = {};
-    const general: CliSessionInfo[] = [];
-    for (const cs of orphanCliSessions) {
-      if (cs.projectId) {
-        (byProject[cs.projectId] ??= []).push(cs);
-      } else {
-        general.push(cs);
-      }
-    }
-    const result: { label: string; sessions: CliSessionInfo[] }[] = [];
-    for (const [pid, sessions] of Object.entries(byProject)) {
-      result.push({ label: projectNames[pid] || pid.slice(0, 12), sessions });
-    }
-    if (general.length > 0) {
-      result.push({ label: 'General', sessions: general });
-    }
-    return result;
-  }, [orphanCliSessions, projectNames]);
-
-  const totalActive = activeCount + orphanCliSessions.length;
-
-  // ── Render ────────────────────────────────────────────────────────────
   return (
     <div
       className={cn(
         'flex flex-col h-full bg-secondary border-l border-r border-border shrink-0 overflow-hidden transition-all duration-200',
-        collapsed ? 'w-[42px]' : 'w-60',
+        collapsed ? 'w-[42px]' : 'w-64',
       )}
       data-testid="worker-panel"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Workers</span>
-          {totalActive > 0 && (
-            <span className="bg-primary text-primary-foreground text-xs font-bold px-1.5 rounded-full min-w-[18px] text-center">{totalActive}</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sessions</span>
+          {activeCount > 0 && (
+            <span className="bg-primary text-primary-foreground text-xs font-bold px-1.5 rounded-full min-w-[18px] text-center">{activeCount}</span>
           )}
         </div>
 
-        {terminalCount > 0 && !collapsed && (
+        <div className="flex items-center gap-2">
+          {terminalCount > 0 && !collapsed && (
+            <button
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title="Clear finished"
+              onClick={clearTerminal}
+            >
+              Clear
+            </button>
+          )}
           <button
             className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Clear finished tasks"
-            onClick={clearTerminal}
+            title={collapsed ? 'Expand' : 'Collapse'}
+            onClick={() => setCollapsed((c) => !c)}
           >
-            Clear ({terminalCount})
+            {collapsed ? '\u25C0' : '\u25B6'}
           </button>
-        )}
-
-        <button
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          title={collapsed ? 'Expand' : 'Collapse'}
-          onClick={() => setCollapsed((c) => !c)}
-        >
-          {collapsed ? '\u25C0' : '\u25B6'}
-        </button>
+        </div>
       </div>
 
       {/* Body */}
       {!collapsed && (
-        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
-          {/* CLI Sessions */}
-          {cliGroups.length > 0 && (
-            <Group label="CLI Sessions" defaultOpen>
-              {cliGroups.map((cg) => (
-                <div key={cg.label}>
-                  <div className="text-[9px] uppercase tracking-wider text-muted-foreground px-1 mb-0.5">{cg.label}</div>
-                  {cg.sessions.map((cs) => (
-                    <CliSessionRow key={cs.id} session={cs} />
-                  ))}
-                </div>
-              ))}
-            </Group>
-          )}
-
-          {/* Worker Tasks */}
-          {groups.length > 0 ? (
-            groups.map((group) => (
-              <Group key={group.label} label={group.label}>
-                {group.workers.map((w) => (
-                  <TaskRow
-                    key={w.taskId}
-                    worker={w}
-                    cliSession={cliByTask[w.taskId]}
-                    onCancel={cancelTask}
-                    onDismiss={dismissTask}
-                    onSteer={steerTask}
-                  />
-                ))}
-              </Group>
+        <div className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-1">
+          {tree.length === 0 ? (
+            <div className="text-xs text-muted-foreground text-center py-8">No active sessions</div>
+          ) : (
+            tree.map((proj) => (
+              <ProjectGroup key={proj.projectId} project={proj} onCancel={cancelTask} onSteer={steerTask} />
             ))
-          ) : orphanCliSessions.length === 0 ? (
-            <div className="text-xs text-muted-foreground text-center py-8">No active workers</div>
-          ) : null}
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Project group (collapsible) ─────────────────────────────────────────────
+
+function ProjectGroup({ project, onCancel, onSteer }: {
+  project: ProjectNode;
+  onCancel: (id: string) => void;
+  onSteer: (id: string, msg: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <button
+        className="flex items-center gap-1 w-full px-1 py-0.5 text-[11px] font-bold text-foreground hover:text-accent transition-colors"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        {project.projectName}
+      </button>
+      {open && (
+        <div className="flex flex-col gap-0.5">
+          {project.sessions.map((s) => (
+            <SessionRow key={s.chatId} session={s} onCancel={onCancel} onSteer={onSteer} />
+          ))}
         </div>
       )}
     </div>

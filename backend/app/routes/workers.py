@@ -69,7 +69,7 @@ async def worker_snapshot(
             "taskId": s["task_id"],
             "projectId": s.get("project_id"),
             "cardId": s.get("card_id"),
-            "chatId": None,  # WorkerSessionStore doesn't track chatId
+            "chatId": s.get("session_id"),
             "action": s.get("intent", "unknown"),
             "description": s.get("summary", ""),
             "model": s.get("model", "sonnet"),
