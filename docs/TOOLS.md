@@ -17,7 +17,7 @@ Voxyflow tools are organized into 6 categories:
 | git | `git.*` | 5 | Git operations |
 | tmux | `tmux.*` | 6 | Terminal multiplexer control |
 
-**Total: 39 tools**
+**Total: ~60 tools** (defined as MCP tools in `backend/app/mcp_server.py`)
 
 ---
 
@@ -514,7 +514,7 @@ These are parsed by `ChatOrchestrator`, converted to `ActionIntent` objects, and
 
 ## MCP Tools
 
-The same 39 tools are exposed via MCP (Model Context Protocol) for external AI clients:
+The same tools are exposed via MCP (Model Context Protocol) for external AI clients:
 
 - **SSE transport** — `/mcp/sse` for web clients
 - **Stdio transport** — `backend/mcp_stdio.py` for Claude Code, Cursor, etc.
@@ -523,4 +523,4 @@ MCP tools are thin HTTP wrappers over the REST API. System tools (`system.exec`,
 
 ---
 
-_39 tools. Fully documented. No gaps._
+_~60 MCP tools. See `backend/app/mcp_server.py` for the authoritative list._

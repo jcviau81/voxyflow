@@ -27,9 +27,9 @@ Every chat message flows through the Dispatcher + Workers architecture:
 
 | Component | Role | Model | Behavior |
 |-----------|------|-------|----------|
-| **Chat Agent (Dispatcher)** | Conversational interface, zero tools | Fast mode: Sonnet / Deep mode: Opus | Streams response, dispatches work via `<delegate>` blocks |
+| **Chat Agent (Dispatcher)** | Conversational interface, zero tools | Fast mode: Haiku / Deep mode: Opus | Streams response, dispatches work via `<delegate>` blocks |
 | **Workers** | Background task execution with full tool access | Haiku (CRUD), Sonnet (research), Opus (complex) | Launched by Dispatcher, never blocks conversation |
-| **Analyzer** | Passive background observer | Configurable (default: claude-sonnet) | Detects card opportunities, patterns, suggestions |
+| **Analyzer** | Passive background observer | Configurable (default: Haiku) | Detects card opportunities, patterns, suggestions |
 
 **Flow:**
 1. User sends message
@@ -124,7 +124,7 @@ The Model Status Bar (below the input area) shows live status for each component
 - Toggle state is persisted in `localStorage` (`voxyflow_layer_toggles`)
 - Each message includes the current `layers` object: `{ deep: bool, analyzer: bool }`
 - Backend respects the toggle — skips the component entirely if disabled
-- Fast mode = Chat Agent uses Sonnet; Deep mode = Chat Agent uses Opus
+- Fast mode = Chat Agent uses Haiku; Deep mode = Chat Agent uses Opus
 - Workers are independent of mode toggles — they select their own model based on task complexity
 
 ---
@@ -793,9 +793,9 @@ Configure each model role independently:
 
 | Role | Default Provider URL | Default Model | Purpose |
 |------|---------------------|---------------|---------|
-| Fast | `http://localhost:3456/v1` | `claude-sonnet-4` | Chat Agent (Dispatcher) — Fast mode |
-| Deep | `http://localhost:3456/v1` | `claude-opus-4` | Chat Agent (Dispatcher) — Deep mode |
-| Analyzer | `http://localhost:3456/v1` | `claude-haiku-4` | Background Analyzer (passive observer) |
+| Fast | CLI backend (recommended) | `claude-haiku-4-5` | Chat Agent (Dispatcher) — Fast mode |
+| Deep | CLI backend (recommended) | `claude-opus-4` | Chat Agent (Dispatcher) — Deep mode |
+| Analyzer | CLI backend (recommended) | `claude-haiku-4-5` | Background Analyzer (passive observer) |
 
 Each role has: `provider_url`, `api_key`, `model`, `enabled`
 
@@ -1027,13 +1027,13 @@ Per-project isolated vector collections:
 
 Parsers split documents into text chunks for embedding. Missing deps log a warning and skip the parser.
 
-### MCP Architecture (Planned)
+### MCP Server (~60 tools)
 
-Model Context Protocol (MCP) integration is planned for a future phase:
+Voxyflow exposes a built-in MCP server with ~60 tools defined in `backend/app/mcp_server.py`:
 
-- Voxyflow will expose an MCP server so external AI agents can interact with projects/cards
-- Planned MCP tools: `create_card`, `update_card`, `list_cards`, `get_project_context`, `search_docs`
-- Will allow Claude Desktop and other MCP clients to manage Voxyflow projects directly
+- **SSE transport** — `/mcp/sse` for web clients
+- **Stdio transport** — `backend/mcp_stdio.py` for Claude Code, Cursor, and other MCP clients
+- Tools cover cards, projects, wiki, documents, AI operations, system, file, git, and more
 
 ### Focus Sessions (DB)
 

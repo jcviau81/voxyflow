@@ -8,7 +8,7 @@
 |-------------|---------|-------|
 | Node.js | 18+ | Frontend build & dev server |
 | Python | 3.12+ | Backend (uses `asyncio`, type hints, `match` statements) |
-| claude-max-api-proxy | any | Or any OpenAI-compatible API proxy |
+| Claude CLI (`claude`) | any | For CLI backend (`CLAUDE_USE_CLI=true`, recommended) |
 | Git | any | |
 | `gh` CLI | any | Optional — for GitHub repo integration |
 
@@ -87,8 +87,14 @@ Key `.env` variables:
 HOST=0.0.0.0
 PORT=8000
 
-# Claude proxy
-CLAUDE_PROXY_URL=http://localhost:3457/v1
+# LLM Backend — CLI subprocess (recommended, uses Claude Max subscription)
+CLAUDE_USE_CLI=true
+CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
+CLAUDE_SONNET_MODEL=claude-sonnet-4-6
+CLAUDE_DEEP_MODEL=claude-opus-4-6
+
+# Legacy fallback: OpenAI-compatible proxy (deprecated)
+# CLAUDE_PROXY_URL=http://localhost:3457/v1
 ```
 
 ### Store API keys securely (recommended)
@@ -129,7 +135,7 @@ Chat still works; RAG context injection is simply skipped.
 ## 3. Frontend Setup
 
 ```bash
-cd ../frontend
+cd ../frontend-react
 npm install
 ```
 
@@ -145,7 +151,7 @@ cp .env.example .env
 # VOXYFLOW_WS_URL=ws://192.168.1.100:8000/ws
 ```
 
-By default, the frontend proxies API and WebSocket requests to `localhost:8000` via Webpack DevServer config.
+By default, the frontend proxies API and WebSocket requests to `localhost:8000` via Vite dev server config.
 
 ### Run the dev server
 
@@ -165,40 +171,39 @@ Output in `dist/` — static files ready to serve via any web server (Nginx, Cad
 
 ---
 
-## 4. Claude Proxy Setup
+## 4. LLM Backend Setup
 
-Voxyflow uses an OpenAI-compatible API endpoint to call Claude. The default setup expects `claude-max-api-proxy` running at `http://localhost:3456`.
+Voxyflow supports three LLM backend paths. The CLI subprocess backend is recommended.
 
-### Using claude-max-api-proxy
+### CLI Subprocess (Recommended — `CLAUDE_USE_CLI=true`)
 
-```bash
-# Install
-npm install -g claude-max-api-proxy  # or your preferred install method
+Uses your Claude Max subscription directly by spawning `claude -p` subprocesses. No proxy or API key needed.
 
-# Start
-claude-max-api-proxy
-# Runs at http://localhost:3456
-```
+1. Install the Claude CLI: https://docs.anthropic.com/en/docs/claude-cli
+2. Set in `backend/.env`:
+   ```env
+   CLAUDE_USE_CLI=true
+   CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
+   CLAUDE_SONNET_MODEL=claude-sonnet-4-6
+   CLAUDE_DEEP_MODEL=claude-opus-4-6
+   ```
 
-### Using the Anthropic API directly
+### Native Anthropic SDK (`CLAUDE_USE_NATIVE=true`)
 
-If you have a direct Anthropic API key, configure the backend to use `https://api.anthropic.com/v1` instead:
+Direct API calls via the `anthropic` Python SDK. Requires an API key.
 
-1. Open Voxyflow → Settings → Models
-2. Set **Provider URL** to `https://api.anthropic.com/v1`
-3. Set **API Key** to your `sk-ant-...` key
-4. Set appropriate model names (`claude-3-5-sonnet-20241022`, etc.)
+1. Set in `backend/.env`:
+   ```env
+   CLAUDE_USE_NATIVE=true
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
 
-### Using Ollama (local models)
+### OpenAI-Compatible Proxy (deprecated fallback)
 
-```bash
-# Start Ollama
-ollama serve
+Legacy path using a proxy at `localhost:3457`. Being deprecated.
 
-# Configure in Settings → Models
-# Provider URL: http://localhost:11434/v1
-# API Key: (leave empty)
-# Model: qwen2.5:7b (or any installed model)
+```env
+CLAUDE_PROXY_URL=http://localhost:3457/v1
 ```
 
 ---
@@ -242,15 +247,14 @@ Without `gh`, GitHub-related features (repo validation, project GitHub linking) 
 
 The voice WebSocket pipeline optionally generates audio responses via a TTS service.
 
-**Default:** `TTS_ENGINE=sherpa-onnx` — expects a local sherpa-onnx HTTP server.
+**Default:** `TTS_ENGINE=remote` — XTTS v2 server on GPU (port 5500). Browser speechSynthesis is the fallback.
 
-**XTTS v2 (recommended for high quality):**
 ```env
 TTS_ENGINE=remote
-TTS_SERVICE_URL=http://localhost:5500
+TTS_SERVICE_URL=http://192.168.1.59:5500
 ```
 
-**Disable TTS:** Set `TTS_ENGINE=none` or leave the service URL unreachable. TTS failures are non-fatal — text responses are still sent.
+**Disable TTS:** Set `TTS_ENGINE=none` or leave the service URL unreachable. TTS failures are non-fatal — text responses are still sent; the browser speechSynthesis fallback will be used if available.
 
 ---
 
@@ -260,7 +264,7 @@ TTS_SERVICE_URL=http://localhost:5500
 - [ ] `GET http://localhost:8000/health` returns `{"status": "ok"}`
 - [ ] Frontend running at `http://localhost:3000`
 - [ ] WebSocket connects (check browser console — `[ApiClient] WebSocket connected`)
-- [ ] API proxy running (Fast model responds to a test message)
+- [ ] LLM backend working (CLI subprocess or proxy responds to a test message)
 - [ ] Settings → Models configured with correct provider URL and model names
 - [ ] (Optional) Upload a `.md` file to test RAG
 
@@ -298,7 +302,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 # Note: Use workers=1 for WebSocket sessions (no shared in-memory state with multiple workers)
 
 # Frontend — build and serve static files
-cd frontend && npm run build
+cd frontend-react && npm run build
 # Serve dist/ via Caddy/Nginx
 ```
 
@@ -349,7 +353,7 @@ VOXYFLOW_WS_URL=wss://voxyflow.example.com/ws
 | `chromadb not found` | `pip install chromadb sentence-transformers` |
 | `RAGService init failed` | Check `~/.voxyflow/chroma/` permissions |
 | `GitHub: gh not installed` | Install `gh` CLI or configure PAT in Settings |
-| No API response | Check proxy is running at `provider_url` in Settings → Models |
+| No API response | Check LLM backend: `claude` CLI installed (for CLI mode) or proxy running at `provider_url` |
 | STT not working | Chrome/Edge required for Web Speech API; check microphone permissions |
 | TTS silent | Check `TTS_SERVICE_URL` is reachable; TTS failures are non-fatal |
 | PDF/DOCX upload fails | `pip install pypdf python-docx openpyxl` for Phase 2 document support |

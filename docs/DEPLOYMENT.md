@@ -206,8 +206,9 @@ See `backend/.env.example` for the full list. Key variables:
 | `DATABASE_URL` | `~/.voxyflow/voxyflow.db` | SQLite database path |
 | `HOST` | `0.0.0.0` | Bind address |
 | `PORT` | `8000` | Bind port |
-| `CLAUDE_PROXY_URL` | `http://localhost:3457/v1` | Claude API proxy endpoint |
-| `CLAUDE_API_KEY` | (keyring) | API key (prefer keyring via `setup_keys.py`) |
+| `CLAUDE_USE_CLI` | `true` | Use CLI subprocess backend (recommended, no proxy needed) |
+| `CLAUDE_PROXY_URL` | `http://localhost:3457/v1` | Legacy proxy endpoint (deprecated) |
+| `CLAUDE_API_KEY` | (keyring) | API key for native SDK path (prefer keyring via `setup_keys.py`) |
 | `DEBUG` | `false` | Enable debug logging |
 
 ## SSL/TLS

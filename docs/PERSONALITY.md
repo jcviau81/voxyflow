@@ -2,14 +2,14 @@
 
 ## Overview
 
-Voxyflow doesn't just use Claude — it uses Claude *as Ember*. Every API call carries the personality defined in the OpenClaw workspace files. The result: a voice assistant that sounds like the same person whether she's answering a quick question (Haiku) or doing deep analysis (Opus).
+Voxyflow doesn't just use Claude — it uses Claude *as Ember*. Every API call carries the personality defined in the Voxyflow workspace files. The result: a voice assistant that sounds like the same person whether she's answering a quick question (Haiku) or doing deep analysis (Opus).
 
 ## How It Works
 
-### Source Files (Shared with OpenClaw)
+### Source Files (Shared with Voxyflow)
 
 ```
-~/.openclaw/workspace/
+~/.voxyflow/workspace/
 ├── SOUL.md       → Core personality, values, communication style
 ├── USER.md       → Who the human is, preferences, context
 ├── IDENTITY.md   → Name, creature type, emoji, vibe
@@ -91,15 +91,15 @@ Conversation happens in Voxyflow
 Next session reads those files → continuity
     │
     ▼
-Heartbeat cron (OpenClaw) curates → MEMORY.md
+Heartbeat cron (Voxyflow) curates → MEMORY.md
 ```
 
-Voxyflow writes to daily logs. OpenClaw's heartbeat system periodically curates daily logs into MEMORY.md. This is how short-term memory becomes long-term memory.
+Voxyflow writes to daily logs. Voxyflow's heartbeat system periodically curates daily logs into MEMORY.md. This is how short-term memory becomes long-term memory.
 
 ## Design Decisions
 
 ### Why not store personality in the database?
-The OpenClaw workspace files ARE the database. They're version-controlled (git), human-editable, and shared across all surfaces. Duplicating them in SQLite would create sync headaches.
+The Voxyflow workspace files ARE the database. They're version-controlled (git), human-editable, and shared across all surfaces. Duplicating them in SQLite would create sync headaches.
 
 ### Why different memory depth per layer?
 Speed vs. context tradeoff. Haiku needs to respond in <1s — loading 30KB of MEMORY.md kills that. Opus runs async, so it can afford the fuller picture. This mirrors how humans think: quick responses use recent memory, deep analysis draws on everything.

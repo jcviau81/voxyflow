@@ -2,6 +2,8 @@
 
 All REST endpoints are prefixed with `/api`. WebSocket is at `/ws`.
 
+> **Note:** The API works with all LLM backends (CLI subprocess, native SDK, or deprecated proxy). The CLI subprocess backend (`CLAUDE_USE_CLI=true`) is the recommended and active configuration.
+
 ---
 
 ## Table of Contents

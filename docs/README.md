@@ -110,7 +110,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 
 # Frontend
-cd frontend && npm install && npm run dev
+cd frontend-react && npm install && npm run dev
 ```
 
 See [SETUP.md](SETUP.md) for the full installation guide.

@@ -77,7 +77,7 @@ This is what it means to have a **truly non-blocking** AI assistant.
 ```
 ┌─────────────────────────────────┐
 │  Browser (PWA)                  │
-│  Vanilla TypeScript + Webpack   │
+│  React 19 + Vite + Tailwind    │
 │  HTTPS :3000                    │
 └────────────┬────────────────────┘
              │ REST + WebSocket
@@ -92,10 +92,11 @@ This is what it means to have a **truly non-blocking** AI assistant.
 │  ├─ APScheduler                │
 │  └─ SQLite (aiosqlite)         │
 └────────────┬────────────────────┘
-             │ OpenAI-compatible API
+             │ CLI subprocess (claude -p)
+             │ or deprecated proxy :3457
 ┌────────────▼────────────────────┐
-│  claude-max-api proxy :3457     │
-│  → Claude Sonnet / Opus         │
+│  Claude Max (CLI backend)       │
+│  → Haiku / Sonnet / Opus        │
 └─────────────────────────────────┘
              │
 ┌────────────▼────────────────────┐
@@ -166,7 +167,7 @@ Cards are the core unit of everything:
 Voice is a differentiator — not the core, but genuinely useful:
 
 - **STT:** Web Speech API (browser-native) + server-side Whisper fallback
-- **TTS:** XTTS v2 on GPU (remote endpoint) or Sherpa-ONNX (CPU local)
+- **TTS:** XTTS v2 on GPU (primary, port 5500) with browser speechSynthesis fallback
 - Push-to-talk voice input component
 - Say "execute this card" hands-free while reading code
 
@@ -198,7 +199,7 @@ Customizable personality files in `personality/`:
 | `IDENTITY.md` | Bot name, creature type, vibe, emoji |
 | `MEMORY.md` | Persistent memory across sessions |
 
-### 🔧 MCP Server (29 tools)
+### 🔧 MCP Server (~60 tools)
 
 Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server with two transport modes:
 
@@ -259,19 +260,14 @@ Upload and parse documents for RAG context:
 
 Follow these steps when installing Voxyflow from scratch.
 
-### 1. Clone Voxyflow and the proxy fork
+### 1. Clone Voxyflow
 
 ```bash
-# Main app
 git clone https://github.com/jcviau81/voxyflow.git
 cd voxyflow
-
-# Proxy (required for Claude Max — must be cloned separately)
-git clone https://github.com/jcviau81/voxyflow-proxy-fork.git ~/voxyflow-proxy-fork
-cd ~/voxyflow-proxy-fork && npm install && npm run build
 ```
 
-> **Why a separate repo?** Voxyflow uses a patched fork of `claude-max-api` that sets the proxy `cwd` to `~/voxyflow/` automatically. Without this, personality and settings files won't resolve correctly.
+> **LLM Backend:** Voxyflow primarily uses the CLI subprocess backend (`CLAUDE_USE_CLI=true`), which spawns `claude -p` processes and uses your Claude Max subscription directly. No proxy needed. The OpenAI-compatible proxy at `:3457` is a deprecated legacy fallback.
 
 ### 2. Backend Setup
 
@@ -292,31 +288,24 @@ cp backend/.env.example backend/.env     # then fill in your values
 Key settings in `backend/.env`:
 
 ```bash
-CLAUDE_USE_NATIVE=false
-CLAUDE_PROXY_URL=http://localhost:3457/v1
-CLAUDE_FAST_MODEL=claude-haiku-4-20250514
-CLAUDE_DEEP_MODEL=claude-opus-4-20250514
-TTS_SERVICE_URL=http://192.168.1.59:5500   # or set TTS_ENGINE=sherpa-onnx for local CPU
+CLAUDE_USE_CLI=true                          # Primary backend: CLI subprocess (Claude Max)
+CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
+CLAUDE_SONNET_MODEL=claude-sonnet-4-6
+CLAUDE_DEEP_MODEL=claude-opus-4-6
+TTS_SERVICE_URL=http://192.168.1.59:5500     # XTTS v2 GPU server
 ```
 
 ### 4. Frontend Setup
 
 ```bash
-cd ~/voxyflow/frontend
+cd ~/voxyflow/frontend-react
 npm install
 npm run build        # production build
 # or
 npm run dev          # watch mode (development)
 ```
 
-### 5. Start the Proxy
-
-```bash
-cd ~/voxyflow-proxy-fork
-npm start            # starts on :3457
-```
-
-### 6. Start the Backend
+### 5. Start the Backend
 
 ```bash
 cd ~/voxyflow/backend
@@ -344,7 +333,7 @@ Open `https://localhost:3000` in your browser.
   "models": {
     "fast": "claude-haiku-4-20250514",
     "deep": "claude-opus-4-20250514",
-    "analyzer": "claude-sonnet-4-20250514"
+    "analyzer": "claude-haiku-4-5-20251001"
   },
   "scheduler": {
     "enabled": true,
@@ -368,7 +357,7 @@ Open `https://localhost:3000` in your browser.
 | `CLAUDE_FAST_MODEL` | `claude-haiku-4-20250514` | Chat Agent (Dispatcher) — Fast mode |
 | `CLAUDE_SONNET_MODEL` | `claude-sonnet-4-20250514` | Worker model (research tasks) |
 | `CLAUDE_DEEP_MODEL` | `claude-opus-4-20250514` | Chat Agent (Dispatcher) — Deep mode / Worker model (complex tasks) |
-| `CLAUDE_ANALYZER_MODEL` | `claude-sonnet-4-20250514` | Background Analyzer model |
+| `CLAUDE_ANALYZER_MODEL` | `claude-haiku-4-5-20251001` | Background Analyzer model |
 | `CLAUDE_MAX_TOKENS` | `1024` | Max response tokens |
 | `TTS_SERVICE_URL` | `http://192.168.1.59:5500` | TTS server endpoint |
 | `TTS_ENGINE` | `remote` | TTS engine: `remote` or `sherpa-onnx` |
@@ -400,7 +389,7 @@ voxyflow/
 │   │   ├── main.py                 # FastAPI app, startup, CORS
 │   │   ├── config.py               # Pydantic settings (env + keyring)
 │   │   ├── database.py             # SQLAlchemy async models + DB init
-│   │   ├── mcp_server.py           # MCP server (29 tools, SSE + stdio)
+│   │   ├── mcp_server.py           # MCP server (~60 tools, SSE + stdio)
 │   │   ├── models/                 # Pydantic schemas
 │   │   │   ├── card.py
 │   │   │   ├── chat.py
@@ -447,35 +436,18 @@ voxyflow/
 │   ├── requirements.txt
 │   ├── setup_keys.py               # Keyring setup helper
 │   └── tests/
-├── frontend/
-│   ├── public/
-│   │   ├── index.html
-│   │   ├── manifest.json           # PWA manifest
-│   │   ├── sw.ts                   # Service worker (Workbox)
-│   │   └── icons/                  # PWA icons (16–512px)
+├── frontend-react/
+│   ├── public/                     # Static assets, PWA icons
 │   ├── src/
-│   │   ├── main.ts                 # Entry point
-│   │   ├── App.ts                  # Root component
-│   │   ├── state/AppState.ts       # Global state management
-│   │   ├── components/
-│   │   │   ├── Chat/               # Chat window, voice, search, sessions
-│   │   │   ├── FreeBoard/          # Main board (unassigned cards)
-│   │   │   ├── FocusMode/          # Pomodoro focus sessions
-│   │   │   ├── Ideas/              # Idea board
-│   │   │   ├── Kanban/             # Kanban board, cards, drag-and-drop
-│   │   │   ├── Navigation/         # Sidebar, tabs, top bar, model status
-│   │   │   ├── Notifications/      # Notification center
-│   │   │   ├── Opportunities/      # Opportunities panel
-│   │   │   ├── Projects/           # Projects, roadmap, stats, wiki, docs
-│   │   │   ├── RightPanel/         # Collapsible right panel
-│   │   │   ├── Settings/           # Settings page
-│   │   │   └── Shared/             # Command palette, shortcuts, toast
+│   │   ├── main.tsx                # Entry point
+│   │   ├── App.tsx                 # Root component
+│   │   ├── stores/                 # Zustand state stores
+│   │   ├── components/             # React components
+│   │   ├── hooks/                  # Custom React hooks
 │   │   ├── services/               # API client, audio, TTS, STT, etc.
-│   │   ├── styles/                 # CSS modules (16 stylesheets)
 │   │   ├── types/                  # TypeScript type definitions
-│   │   └── utils/                  # EventBus, markdown, helpers
-│   ├── tests/                      # Unit + E2E tests (Playwright)
-│   ├── webpack.config.js
+│   │   └── utils/                  # Helpers
+│   ├── vite.config.ts
 │   ├── tsconfig.json
 │   └── package.json
 ├── personality/                     # AI personality files
@@ -487,12 +459,13 @@ voxyflow/
 ├── docs/                           # Documentation
 │   ├── ARCHITECTURE.md
 │   ├── FEATURES.md
-│   ├── FRONTEND_ARCHITECTURE.md
 │   ├── API.md
 │   ├── SETUP.md
 │   ├── DEPLOYMENT.md
 │   ├── VOICE_FLOW.md
 │   ├── PERSONALITY.md
+│   ├── TOOLS.md
+│   ├── FEATURES.md
 │   └── AGENTS.md
 ├── settings.json                   # Runtime config (models, personality, scheduler)
 ├── mcp.json                        # MCP client config example
@@ -508,16 +481,16 @@ voxyflow/
 cd backend && python -m pytest
 
 # Frontend unit tests
-cd frontend && npm test
+cd frontend-react && npm test
 
 # E2E tests (Playwright)
-cd frontend && npm run test:e2e
+cd frontend-react && npm run test:e2e
 
 # Type checking
-cd frontend && npm run type-check
+cd frontend-react && npm run type-check
 
 # Linting
-cd frontend && npm run lint
+cd frontend-react && npm run lint
 ```
 
 ---
@@ -526,16 +499,16 @@ cd frontend && npm run lint
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | Vanilla TypeScript, Webpack 5, CSS modules, Workbox (PWA) |
+| **Frontend** | React 19, TypeScript, Vite, Zustand, TanStack Query, Tailwind CSS (PWA) |
 | **Backend** | Python 3.11+, FastAPI, SQLAlchemy (async), Pydantic |
 | **Database** | SQLite (aiosqlite) |
-| **AI** | Claude Sonnet + Opus via OpenAI-compatible proxy (Dispatcher + Workers) |
+| **AI** | Claude Haiku + Sonnet + Opus via CLI subprocess (`claude -p`, Claude Max) |
 | **RAG** | ChromaDB + sentence-transformers |
-| **TTS** | XTTS v2 (GPU, remote) / Sherpa-ONNX (CPU, local) |
+| **TTS** | XTTS v2 (GPU, port 5500) with browser speechSynthesis fallback |
 | **STT** | Web Speech API (browser) / Whisper (server fallback) |
 | **MCP** | Model Context Protocol (SSE + stdio) |
 | **Scheduler** | APScheduler |
-| **Testing** | pytest, Jest, Playwright |
+| **Testing** | pytest, Vitest, Playwright |
 
 ---
 
