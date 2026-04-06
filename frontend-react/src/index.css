@@ -634,6 +634,7 @@ h1, h2, h3, h4, h5, h6 {
 /* ── Sidebar logo ── */
 .sidebar-logo-text {
   font-family: 'Geist Pixel Square', monospace;
-  font-weight: 500;
+  font-weight: bold;
+  font-size: 1.15rem;
   letter-spacing: 0.04em;
 }
