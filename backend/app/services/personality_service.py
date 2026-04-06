@@ -814,6 +814,7 @@ class PersonalityService:
             "- After executing, respond with a brief (1 sentence) summary\n"
             "- If the action fails, explain why briefly\n"
             "- Respond in the same language the user used\n"
+            "- File organization: Write to ~/voxyflow/ ONLY for Voxyflow codebase changes. All other work (experiments, external projects, tests) goes to ~/projects/ or ~/<project-name>/\n"
             '- When your task is complete, you MUST call task.complete(task_id="<your task_id>", summary="...", status="success|partial|failed"). This is mandatory.\n\n'
             f"## Available Tools\n{tool_list}\n\n"
             f"## Context\n{context}"
@@ -842,6 +843,7 @@ class PersonalityService:
             "- Never fabricate URLs or data — if uncertain, state it clearly\n"
             "- Include timestamp of research so the user knows how fresh the info is\n"
             "- Respond in the same language the user used\n"
+            "- File organization: Write to ~/voxyflow/ ONLY for Voxyflow codebase changes. All other work (experiments, external projects, tests) goes to ~/projects/ or ~/<project-name>/\n"
             '- When your task is complete, you MUST call task.complete(task_id="<your task_id>", summary="...", status="success|partial|failed"). This is mandatory.\n\n'
             f"## Available Tools\n{tool_list}\n\n"
             f"## Context\n{context}"
@@ -862,6 +864,7 @@ class PersonalityService:
             "- For code changes: read before writing, validate syntax (python -m py_compile / tsc --noEmit) before committing\n"
             "- For file edits use file.patch (not heredocs). For new files use file.write. For reading use file.read with offset/limit.\n"
             "- Never commit broken code. Never leave unterminated strings or unclosed brackets.\n"
+            "- File organization: Write to ~/voxyflow/ ONLY for Voxyflow codebase changes. All other work (experiments, external projects, tests) goes to ~/projects/ or ~/<project-name>/\n"
             "- After executing, provide a thorough summary of what you did\n"
             "- If any step fails, explain why and what recovery was attempted\n"
             "- Respond in the same language the user used\n"
