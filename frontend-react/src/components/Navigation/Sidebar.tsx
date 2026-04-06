@@ -15,7 +15,7 @@
  *   onToggle — called to flip the open/close state in the parent
  */
 
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Home,
@@ -28,21 +28,18 @@ import {
   FolderPlus,
   ChevronRight,
   Star,
-  MessageCircle,
   Folder,
-  X,
   Clock,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useProjectStore } from '../../stores/useProjectStore';
-import { useSessionStore } from '../../stores/useSessionStore';
 import { useTabStore } from '../../stores/useTabStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useToggleFavorite } from '../../hooks/api/useProjects';
-import type { Project, SessionInfo } from '../../types';
+import type { Project } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,11 +48,7 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
-interface SessionEntry {
-  tabId: string;
-  session: SessionInfo;
-  label: string;
-}
+
 
 // ─── Progress dot helpers ─────────────────────────────────────────────────────
 
@@ -164,106 +157,15 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
   // Stores
   const projects = useProjectStore((s) => s.projects);
   const activeTab = useTabStore((s) => s.activeTab);
-  const openTabs = useTabStore((s) => s.openTabs);
-  const sessions = useSessionStore((s) => s.sessions);
-  const activeSession = useSessionStore((s) => s.activeSession);
-  const closeSessionInStore = useSessionStore((s) => s.closeSession);
-  const createSession = useSessionStore((s) => s.createSession);
-  const setActiveSession = useSessionStore((s) => s.setActiveSession);
-  const switchTab = useTabStore((s) => s.switchTab);
   const notificationUnreadCount = useNotificationStore((s) => s.notificationUnreadCount);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
-  const { connectionState, send } = useWS();
+  const { connectionState } = useWS();
   const toggleFavoriteMutation = useToggleFavorite();
-  const cardsById = useCardStore((s) => s.cardsById);
-  const selectedCardId = useProjectStore((s) => s.selectedCardId);
 
   // Derived data
   const activeProjects = projects.filter((p) => !p.archived && p.id !== SYSTEM_PROJECT_ID);
   const favoriteProjects = activeProjects.filter((p) => p.isFavorite);
-
-  // ── Active session entries ─────────────────────────────────────────────────
-
-  const sessionEntries: SessionEntry[] = [];
-  for (const tab of openTabs) {
-    const sessionKey = tab.id === 'main' ? 'system-main' : tab.id;
-    const tabSessions = sessions[sessionKey] || [];
-    if (tabSessions.length === 0) continue;
-
-    for (const session of tabSessions) {
-      let label: string;
-      if (tab.id === 'main') {
-        label = `Main › ${session.title || 'Chat'}`;
-      } else {
-        const project = projects.find((p) => p.id === tab.id);
-        const projectName = project?.name || tab.label || 'Project';
-        label = `${projectName} › ${session.title || 'Session'}`;
-      }
-      sessionEntries.push({ tabId: tab.id, session, label });
-    }
-  }
-
-  // Include the currently open card's chat session (only when modal is open)
-  if (selectedCardId) {
-    const cardSessionKey = `card-${selectedCardId}`;
-    const cardSessions = sessions[cardSessionKey] || [];
-    if (cardSessions.length > 0) {
-      const card = cardsById[selectedCardId];
-      for (const session of cardSessions) {
-        sessionEntries.push({
-          tabId: cardSessionKey,
-          session,
-          label: `${card?.title?.slice(0, 25) || 'Card'} › ${session.title || 'Chat'}`,
-        });
-      }
-    }
-  }
-
-  // ── Close session handler ──────────────────────────────────────────────────
-
-  const handleCloseSession = useCallback(
-    (tabId: string, session: SessionInfo) => {
-      const sessionTabId = tabId === 'main' ? 'system-main' : tabId;
-      send('session:reset', { sessionId: session.chatId, tabId: sessionTabId });
-
-      const tabSessions = sessions[sessionTabId] || [];
-      if (tabSessions.length <= 1) {
-        createSession(sessionTabId);
-      } else {
-        closeSessionInStore(sessionTabId, session.id);
-      }
-    },
-    [send, sessions, closeSessionInStore, createSession],
-  );
-
-  // ── Switch to session handler ──────────────────────────────────────────────
-
-  const selectCard = useProjectStore((s) => s.selectCard);
-
-  const handleSwitchSession = useCallback(
-    (tabId: string, session: SessionInfo) => {
-      if (tabId.startsWith('card-')) {
-        // Open the card modal
-        const cardId = tabId.replace('card-', '');
-        const card = cardsById[cardId];
-        if (card?.projectId) {
-          navigate(`/project/${card.projectId}`);
-        }
-        selectCard(cardId);
-        return;
-      }
-      const sessionTabId = tabId === 'main' ? 'system-main' : tabId;
-      switchTab(tabId);
-      setActiveSession(sessionTabId, session.id);
-      if (tabId === 'main') {
-        navigate('/');
-      } else {
-        navigate(`/project/${tabId}`);
-      }
-    },
-    [switchTab, setActiveSession, navigate, cardsById, selectCard],
-  );
 
   // ── Keyboard shortcut Ctrl+B ───────────────────────────────────────────────
 
@@ -360,59 +262,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           </div>
         )}
 
-        {/* ── Active Sessions ── */}
-        {sessionEntries.length > 0 && (
-          <div className="sidebar-sessions mt-3 pt-2 border-t border-border">
-            <p className="sidebar-section-header px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
-              <MessageCircle size={10} className="shrink-0" />
-              Active Sessions
-            </p>
-            {sessionEntries.map(({ tabId, session, label }) => {
-              const sessionTabId = tabId === 'main' ? 'system-main' : tabId;
-              const isCurrent =
-                tabId === activeTab &&
-                activeSession[sessionTabId] === session.id;
-
-              return (
-                <div
-                  key={`${tabId}-${session.id}`}
-                  className={cn(
-                    'sidebar-session-item flex items-center gap-1.5 px-3 py-1.5 mx-2 rounded-md text-sm cursor-pointer group',
-                    'hover:bg-accent hover:text-accent-foreground transition-colors',
-                    isCurrent && 'bg-accent text-accent-foreground font-medium',
-                  )}
-                  title={label}
-                  onClick={() => handleSwitchSession(tabId, session)}
-                >
-                  {/* Status dot */}
-                  <span
-                    className={cn(
-                      'shrink-0 w-2 h-2 rounded-full',
-                      isCurrent ? 'bg-green-500' : 'bg-muted-foreground/30',
-                    )}
-                  />
-
-                  {/* Breadcrumb label */}
-                  <span className="sidebar-session-label flex-1 truncate text-xs">{label}</span>
-
-                  {/* Close button — visible on hover */}
-                  <button
-                    className="sidebar-session-close shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                    title="Close session"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCloseSession(tabId, session);
-                    }}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* CLI Processes section removed — integrated into WorkerPanel */}
+        {/* Active Sessions + CLI Processes removed — integrated into SessionPanel (right panel) */}
 
         {/* ── All Projects ── */}
         <div className="sidebar-projects mt-3 pt-2 border-t border-border">

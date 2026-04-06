@@ -417,7 +417,7 @@ export function WorkerPanel() {
         'flex flex-col h-full bg-secondary border-l border-r border-border shrink-0 overflow-hidden transition-all duration-200',
         collapsed ? 'w-[42px]' : 'w-64',
       )}
-      data-testid="worker-panel"
+      data-testid="session-panel"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
