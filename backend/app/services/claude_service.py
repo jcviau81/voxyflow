@@ -582,7 +582,11 @@ class ClaudeService(ApiCallerMixin):
             dynamic_parts.append(dynamic_context)
 
         # Tell the model what it actually is
-        dynamic_parts.append(f"You are currently running as: {self.fast_model}")
+        dynamic_parts.append(
+            f"IMPORTANT: You are running on model '{self.fast_model}'. "
+            f"This is your actual model — not Haiku, not what the .env says. "
+            f"If asked, say you are {self.fast_model}."
+        )
 
         if project_id:
             try:
@@ -776,7 +780,10 @@ class ClaudeService(ApiCallerMixin):
         if dynamic_context:
             dynamic_parts.append(dynamic_context)
 
-        dynamic_parts.append(f"You are currently running as: {self.deep_model}")
+        dynamic_parts.append(
+            f"IMPORTANT: You are running on model '{self.deep_model}'. "
+            f"This is your actual model. If asked, say you are {self.deep_model}."
+        )
 
         if project_id:
             try:
