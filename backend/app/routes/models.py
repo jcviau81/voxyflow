@@ -76,8 +76,8 @@ async def get_available_models():
     import os
     from pathlib import Path
 
-    voxyflow_dir = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow")))
-    settings_path = voxyflow_dir / "settings.json"
+    voxyflow_data_dir = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
+    settings_path = voxyflow_data_dir / "settings.json"
 
     models_cfg: dict = {}
     ollama_url = "http://192.168.1.59:11434"

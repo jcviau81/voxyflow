@@ -29,8 +29,8 @@ WORKER_FILE = PERSONALITY_DIR / "WORKER.md"
 ANALYZER_FILE = PERSONALITY_DIR / "ANALYZER.md"
 ARCHITECTURE_FILE = PERSONALITY_DIR / "ARCHITECTURE.md"
 
-# Settings file (written by the Settings UI)
-SETTINGS_FILE = VOXYFLOW_DIR / "settings.json"
+# Settings file lives in the data dir (outside repo)
+from app.config import SETTINGS_FILE  # ~/.voxyflow/settings.json
 
 _CACHE_TTL = 300  # 5 minutes
 

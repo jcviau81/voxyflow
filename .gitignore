@@ -57,6 +57,10 @@ certs/
 # User settings (may contain API keys)
 settings.json
 
+# User-specific personality data (personal info, runtime memory)
+personality/USER.md
+personality/MEMORY.md
+
 # Backup files
 *.backup
 *.bak

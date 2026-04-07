@@ -2,6 +2,7 @@
   "tools": {
     "brave_api_key": "",
     "allowed_paths": ["~", "/tmp", "/home/jcviau"],
+    "denied_write_paths": ["/home/jcviau/voxyflow"],
     "exec_blocklist": [
       "rm -rf /",
       "rm -rf /*",

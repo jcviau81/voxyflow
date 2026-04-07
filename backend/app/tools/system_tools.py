@@ -80,6 +80,52 @@ def _is_path_allowed(path_str: str) -> bool:
     return False
 
 
+def _is_write_allowed(path_str: str) -> bool:
+    """Check if a path is allowed for write operations.
+
+    Applies stricter validation than _is_path_allowed():
+    - Must pass the standard allowed_paths check first.
+    - Must NOT be under any path listed in denied_write_paths, UNLESS the
+      env var VOXYFLOW_DEV_TASK=1 is set (Voxyflow codebase dev tasks).
+
+    This protects ~/voxyflow/ (the app codebase) from accidental writes by
+    workers. Workers should write to ~/.voxyflow/workspace/ instead.
+    Note: ~/.voxyflow (dot-voxyflow) is NOT affected by this restriction.
+    """
+    # Standard allowed_paths check
+    if not _is_path_allowed(path_str):
+        return False
+
+    # Check denied_write_paths (defaults to protecting ~/voxyflow/ app dir)
+    denied = _get_config("denied_write_paths", [])
+    if not denied:
+        return True
+
+    resolved = Path(path_str).expanduser().resolve()
+
+    for denied_path in denied:
+        denied_resolved = Path(denied_path).expanduser().resolve()
+        try:
+            resolved.relative_to(denied_resolved)
+            # Path is under a denied directory — check for explicit override
+            if os.environ.get("VOXYFLOW_DEV_TASK", "").lower() in ("1", "true", "yes"):
+                logger.info(
+                    "[path.write] VOXYFLOW_DEV_TASK override: allowing write to "
+                    f"protected path: {resolved}"
+                )
+                return True
+            logger.warning(
+                f"[path.write] BLOCKED write to protected path: {resolved} "
+                "(Workers must write to ~/.voxyflow/workspace/ — "
+                "set VOXYFLOW_DEV_TASK=1 only for Voxyflow codebase tasks)"
+            )
+            return False
+        except ValueError:
+            continue
+
+    return True
+
+
 # ---------------------------------------------------------------------------
 # 1. system.exec
 # ---------------------------------------------------------------------------
@@ -427,8 +473,8 @@ async def file_write(params: dict) -> dict:
 
     resolved = Path(path_str).expanduser().resolve()
 
-    if not _is_path_allowed(str(resolved)):
-        return {"success": False, "error": f"Path not in allowed directories: {path_str}"}
+    if not _is_write_allowed(str(resolved)):
+        return {"success": False, "error": f"Path not allowed for writes: {path_str} — workers must write to ~/.voxyflow/workspace/ (set VOXYFLOW_DEV_TASK=1 for Voxyflow codebase tasks)"}
 
     logger.info(f"[file.write] Writing: {resolved} (mode={mode}, {len(content)} chars)")
 
@@ -470,8 +516,8 @@ async def file_patch(params: dict) -> dict:
 
     resolved = Path(path_str).expanduser().resolve()
 
-    if not _is_path_allowed(str(resolved)):
-        return {"success": False, "error": f"Path not in allowed directories: {path_str}"}
+    if not _is_write_allowed(str(resolved)):
+        return {"success": False, "error": f"Path not allowed for writes: {path_str} — workers must write to ~/.voxyflow/workspace/ (set VOXYFLOW_DEV_TASK=1 for Voxyflow codebase tasks)"}
 
     if not resolved.exists():
         return {"success": False, "error": f"File not found: {path_str}"}
@@ -714,8 +760,8 @@ async def file_patch(params: dict) -> dict:
 
     resolved = Path(path_str).expanduser().resolve()
 
-    if not _is_path_allowed(str(resolved)):
-        return {"success": False, "error": f"Path not in allowed directories: {path_str}"}
+    if not _is_write_allowed(str(resolved)):
+        return {"success": False, "error": f"Path not allowed for writes: {path_str} — workers must write to ~/.voxyflow/workspace/ (set VOXYFLOW_DEV_TASK=1 for Voxyflow codebase tasks)"}
 
     if not resolved.exists():
         return {"success": False, "error": f"File not found: {path_str}"}

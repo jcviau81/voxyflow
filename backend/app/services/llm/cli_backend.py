@@ -34,6 +34,23 @@ _MCP_STDIO_PATH = _BACKEND_DIR / "mcp_stdio.py"                     # backend/mc
 _VOXYFLOW_ROOT = _BACKEND_DIR.parent                                 # repo root
 
 
+def _is_voxyflow_app_cwd(cwd: str) -> bool:
+    """Return True if cwd is inside ~/voxyflow/ (the Voxyflow app codebase).
+
+    Used to auto-detect Voxyflow dev tasks and grant workers write access to
+    the app codebase (VOXYFLOW_DEV_TASK override in MCP server env).
+    Note: ~/.voxyflow/ (dot-voxyflow, the workspace) is NOT matched here.
+    """
+    if not cwd:
+        return False
+    try:
+        resolved_cwd = Path(cwd).expanduser().resolve()
+        resolved_cwd.relative_to(_VOXYFLOW_ROOT)
+        return True
+    except ValueError:
+        return False
+
+
 def _model_flag(model_name: str) -> str:
     """Map full Anthropic model names to CLI --model aliases.
 
@@ -135,12 +152,15 @@ class ClaudeCliBackend:
         """Token usage from the most recent call (for logging)."""
         return self._last_usage
 
-    def _build_mcp_config(self, role: str = "worker") -> str:
+    def _build_mcp_config(self, role: str = "worker", voxyflow_dev_task: bool = False) -> str:
         """Build MCP config JSON string pointing to Voxyflow's stdio server.
 
         Args:
             role: "dispatcher" limits tools to lightweight CRUD + knowledge;
                   "worker" (default) exposes all tools including system, file, git, tmux.
+            voxyflow_dev_task: When True, sets VOXYFLOW_DEV_TASK=1 in the MCP server env,
+                  which allows workers to write to ~/voxyflow/ (the app codebase).
+                  Only set this for tasks that explicitly modify the Voxyflow codebase.
         """
         # Find the Python interpreter — prefer the backend venv, then current interpreter
         venv_python = str(_BACKEND_DIR / "venv" / "bin" / "python3")
@@ -149,18 +169,22 @@ class ClaudeCliBackend:
         else:
             python_path = os.sys.executable
 
+        mcp_env = {
+            "VOXYFLOW_API_BASE": os.environ.get(
+                "VOXYFLOW_API_BASE", "http://localhost:8000"
+            ),
+            "VOXYFLOW_MCP_ROLE": role,
+        }
+        if voxyflow_dev_task:
+            mcp_env["VOXYFLOW_DEV_TASK"] = "1"
+
         config = {
             "mcpServers": {
                 "voxyflow": {
                     "command": python_path,
                     "args": [str(_MCP_STDIO_PATH)],
                     "cwd": str(_VOXYFLOW_ROOT),
-                    "env": {
-                        "VOXYFLOW_API_BASE": os.environ.get(
-                            "VOXYFLOW_API_BASE", "http://localhost:8000"
-                        ),
-                        "VOXYFLOW_MCP_ROLE": role,
-                    },
+                    "env": mcp_env,
                 }
             }
         }
@@ -176,6 +200,7 @@ class ClaudeCliBackend:
         mcp_role: str = "worker",
         interactive: bool = False,
         native_tools: bool = False,
+        voxyflow_dev_task: bool = False,
     ) -> list[str]:
         """Build the CLI argument list.
 
@@ -187,6 +212,8 @@ class ClaudeCliBackend:
             native_tools: When True, keep Claude's built-in tools (Bash, Read, Edit,
                          Grep, Glob, etc.). Workers use these for filesystem/code tasks.
                          Chat layers disable them for clean streaming.
+            voxyflow_dev_task: When True, allows writes to ~/voxyflow/ app codebase.
+                         Auto-detected from CWD; set when working on Voxyflow itself.
         """
         args = [
             "-p",
@@ -213,7 +240,7 @@ class ClaudeCliBackend:
             args.extend(["--tools", ""])
 
         if use_tools:
-            args.extend(["--mcp-config", self._build_mcp_config(role=mcp_role)])
+            args.extend(["--mcp-config", self._build_mcp_config(role=mcp_role, voxyflow_dev_task=voxyflow_dev_task)])
 
         # Prevent Claude Code from loading its own MCP servers (openfeeder, Gmail, etc.)
         # which add ~1700 tokens of system prompt noise. For workers, --strict-mcp-config
@@ -270,6 +297,7 @@ class ClaudeCliBackend:
             model, system_prompt,
             streaming=False, use_tools=use_tools, mcp_role=mcp_role,
             native_tools=use_tools,  # Workers get native Claude tools
+            voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
         )
 
         logger.info(
@@ -391,6 +419,7 @@ class ClaudeCliBackend:
             model, system_prompt,
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
             native_tools=use_tools,  # Workers get native Claude tools (Read, Edit, Bash)
+            voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
         )
 
         logger.info(
@@ -755,6 +784,7 @@ class ClaudeCliBackend:
         *,
         use_tools: bool = True,
         mcp_role: str = "worker",
+        voxyflow_dev_task: bool = False,
     ) -> list[str]:
         """Build CLI args for a steerable worker using --input-format stream-json.
 
@@ -777,7 +807,7 @@ class ClaudeCliBackend:
         args.extend(["--tools", ""])
 
         if use_tools:
-            args.extend(["--mcp-config", self._build_mcp_config(role=mcp_role)])
+            args.extend(["--mcp-config", self._build_mcp_config(role=mcp_role, voxyflow_dev_task=voxyflow_dev_task)])
 
         args.extend(["--strict-mcp-config"])
         if not use_tools:
@@ -817,6 +847,7 @@ class ClaudeCliBackend:
         prompt = _format_messages(messages)
         args = self._build_args_steerable(
             model, system_prompt, use_tools=use_tools, mcp_role=mcp_role,
+            voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
         )
 
         logger.info(

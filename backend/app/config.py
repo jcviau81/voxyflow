@@ -15,13 +15,13 @@ Tier 2 — App settings (routes/settings.py, DB app_settings table):
 
 == CANONICAL PATHS (import from here, don't redefine) ==
 
-  VOXYFLOW_DIR  — app directory (settings.json, personality/, workspace/)
+  VOXYFLOW_DIR  — app directory (source code, personality/ system prompts)
                   Override: VOXYFLOW_DIR env var
                   Default: ~/voxyflow
 
-  VOXYFLOW_DATA_DIR — data directory (SQLite DB, worker sessions, jobs)
+  VOXYFLOW_DATA_DIR — data directory (SQLite DB, settings.json, worker sessions, jobs)
                        Override: VOXYFLOW_DATA_DIR env var
-                       Default: ~/.voxyflow
+                       Default: ~/.voxyflow  ← settings.json, voxyflow.db live here (never in the repo)
 
   VOXYFLOW_WORKSPACE_DIR — workspace for projects and file operations
                             Override: VOXYFLOW_WORKSPACE_DIR env var
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", str(Path.home() / "voxyflow")))
 VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
 VOXYFLOW_WORKSPACE_DIR = Path(os.environ.get("VOXYFLOW_WORKSPACE_DIR", str(VOXYFLOW_DATA_DIR / "workspace")))
-SETTINGS_FILE = VOXYFLOW_DIR / "settings.json"
+SETTINGS_FILE = VOXYFLOW_DATA_DIR / "settings.json"  # lives in data dir (outside repo)
 
 # Resolve .env relative to the backend/ directory (works regardless of cwd)
 _BACKEND_DIR = Path(__file__).resolve().parent.parent

@@ -155,8 +155,8 @@ async def lifespan(app: FastAPI):
     _rag_interval = 15
     try:
         from pathlib import Path
-        _voxyflow_dir = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow")))
-        _settings_file = _voxyflow_dir / "settings.json"
+        _voxyflow_data_dir = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
+        _settings_file = _voxyflow_data_dir / "settings.json"
         if _settings_file.exists():
             with open(_settings_file) as _f:
                 _stored = json.load(_f)

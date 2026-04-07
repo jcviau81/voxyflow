@@ -858,7 +858,7 @@ class ApiCallerMixin:
         """Load tool settings from settings.json."""
         import os
         from pathlib import Path
-        settings_path = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow"))) / "settings.json"
+        settings_path = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow"))) / "settings.json"
         if not settings_path.exists():
             return {}
         try:
