@@ -175,7 +175,7 @@ export const useWorkerStore = create<WorkerState>()(
           taskId,
           projectId: (payload.projectId as string) ?? null,
           cardId: (payload.cardId as string) ?? null,
-          chatId: null,
+          chatId: (payload.chatId as string) ?? null,
           action: (payload.intent as string) || 'unknown',
           description: (payload.summary as string) || '',
           model: normalizeModel(payload.model as string),

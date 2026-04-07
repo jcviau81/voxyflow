@@ -413,6 +413,7 @@ class DeepWorkerPool:
             _wss.register(
                 task_id=event.task_id,
                 session_id=event.session_id or self._bus.session_id,
+                chat_id=event.data.get("dispatcher_chat_id"),
                 project_id=event.data.get("project_id"),
                 card_id=_task_card_id,
                 model=event.model or get_default_worker_model(),
@@ -436,6 +437,7 @@ class DeepWorkerPool:
                 "complexity": event.complexity,
                 "model": event.model,
                 "sessionId": event.session_id,
+                "chatId": event.data.get("dispatcher_chat_id"),
                 "cardId": _task_card_id,
                 "projectId": event.data.get("project_id"),
             })

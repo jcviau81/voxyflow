@@ -5,14 +5,17 @@
  * card rendering as KanbanBoard for consistent UX (checkbox, dropdown, etc).
  */
 
-import { useMemo, useCallback, useState } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import { Archive, RotateCcw, ChevronRight, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
 import { useCards, useArchivedCards, useCreateCard, useRestoreCard, useDeleteCard } from '../../hooks/api/useCards';
+import { useExportProject, useImportProject } from '../../hooks/api/useProjects';
 import { KanbanCard } from '../Kanban/KanbanCard';
+import { DepGraphOverlay } from '../Kanban/KanbanBoard';
+import { BoardHeader, useDebounce } from './BoardHeader';
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -25,6 +28,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   const currentProjectId = projectIdProp ?? storeProjectId ?? SYSTEM_PROJECT_ID;
   const selectCard = useProjectStore((s) => s.selectCard);
   const showToast = useToastStore((s) => s.showToast);
+  const cardsById = useCardStore((s) => s.cardsById);
 
   const { data: cards = [], isLoading } = useCards(currentProjectId);
 
@@ -37,8 +41,51 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   );
 
   const createCard = useCreateCard();
+  const exportProject = useExportProject();
+  const importProject = useImportProject();
 
-  // Multi-select state (same pattern as KanbanBoard)
+  // ── Filter state ─────────────────────────────────────────────────────────
+
+  const [searchInput, setSearchInput] = useState('');
+  const query = useDebounce(searchInput, 200);
+  const [priorityFilter, setPriorityFilter] = useState<number | null>(null);
+  const [agentFilter, setAgentFilter] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+
+  // Reset filters on project change
+  useEffect(() => {
+    setSearchInput('');
+    setPriorityFilter(null);
+    setAgentFilter(null);
+    setTagFilter(null);
+  }, [currentProjectId]);
+
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    boardCards.forEach((c) => c.tags.forEach((t) => { if (t) tags.add(t); }));
+    return Array.from(tags).sort();
+  }, [boardCards]);
+
+  const filterMatchInfo = useMemo(() => {
+    const isFiltered = query || priorityFilter !== null || agentFilter !== null || tagFilter !== null;
+    if (!isFiltered) return null;
+    const total = boardCards.length;
+    const visible = boardCards.filter((card) => {
+      if (query && !card.title.toLowerCase().includes(query.toLowerCase())) return false;
+      if (priorityFilter !== null && card.priority !== priorityFilter) return false;
+      if (agentFilter && (card.agentType || 'general') !== agentFilter) return false;
+      if (tagFilter && !card.tags.some((t) => t.toLowerCase() === tagFilter.toLowerCase())) return false;
+      return true;
+    }).length;
+    return { visible, total };
+  }, [query, priorityFilter, agentFilter, tagFilter, boardCards]);
+
+  // ── Dep graph overlay ─────────────────────────────────────────────────────
+
+  const [depGraphOpen, setDepGraphOpen] = useState(false);
+
+  // ── Multi-select state ────────────────────────────────────────────────────
+
   const [selectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -50,6 +97,8 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
       return next;
     });
   }, []);
+
+  // ── Action handlers ───────────────────────────────────────────────────────
 
   const handleAddCard = useCallback(async () => {
     if (!currentProjectId) return;
@@ -68,28 +117,62 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
     }
   }, [currentProjectId, createCard, selectCard, showToast]);
 
+  const handleExport = useCallback(async () => {
+    try {
+      const data = await exportProject.mutateAsync(currentProjectId);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `project-${currentProjectId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('✅ Project exported', 'success');
+    } catch {
+      showToast('Export failed', 'error');
+    }
+  }, [currentProjectId, exportProject, showToast]);
+
+  const handleImport = useCallback(async (file: File) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as unknown;
+      const result = await importProject.mutateAsync(data);
+      showToast(`✅ Project imported: ${result.project_title}`, 'success');
+    } catch {
+      showToast('Import failed — check file format', 'error');
+    }
+  }, [importProject, showToast]);
+
   const handleCardClick = useCallback(
     (cardId: string) => selectCard(cardId),
     [selectCard],
   );
 
+  const handleTagClick = useCallback(
+    (tag: string) => setTagFilter((prev) => (prev === tag ? null : tag)),
+    [],
+  );
+
   return (
     <div className="flex flex-col h-full" data-testid="freeboard">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border/40">
-        <button
-          onClick={handleAddCard}
-          disabled={createCard.isPending}
-          data-testid="freeboard-add-btn"
-          className={cn(
-            'px-3 py-1.5 text-[13px] rounded border border-border/60',
-            'text-muted-foreground hover:text-foreground hover:border-border',
-            'hover:bg-accent transition-all disabled:opacity-50',
-          )}
-        >
-          + Add Card
-        </button>
-      </div>
+      {/* Board header — same as KanbanBoard minus Execute */}
+      <BoardHeader
+        searchInput={searchInput}
+        onSearchChange={setSearchInput}
+        priorityFilter={priorityFilter}
+        onPriorityChange={setPriorityFilter}
+        agentFilter={agentFilter}
+        onAgentChange={setAgentFilter}
+        tagFilter={tagFilter}
+        onTagChange={setTagFilter}
+        allTags={allTags}
+        filterMatchInfo={filterMatchInfo}
+        onNewCard={handleAddCard}
+        onDepGraph={() => setDepGraphOpen(true)}
+        onExport={handleExport}
+        onImport={handleImport}
+      />
 
       {/* Grid — uses KanbanCard for consistent rendering */}
       <div className="flex-1 overflow-y-auto p-4">
@@ -110,6 +193,11 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
                 selectMode={selectMode}
                 isSelected={selectedIds.has(card.id)}
                 onSelectChange={handleSelectChange}
+                query={query}
+                priorityFilter={priorityFilter}
+                agentFilter={agentFilter}
+                tagFilter={tagFilter}
+                onTagClick={handleTagClick}
                 onCardClick={handleCardClick}
               />
             ))
@@ -119,6 +207,15 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
         {/* Archived cards */}
         <FreeBoardArchived projectId={currentProjectId} />
       </div>
+
+      {/* Dependency graph overlay */}
+      {depGraphOpen && (
+        <DepGraphOverlay
+          cards={boardCards}
+          cardsById={cardsById}
+          onClose={() => setDepGraphOpen(false)}
+        />
+      )}
     </div>
   );
 }

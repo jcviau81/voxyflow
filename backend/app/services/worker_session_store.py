@@ -26,7 +26,7 @@ class WorkerSession:
     """Single worker session entry."""
 
     __slots__ = (
-        "task_id", "session_id", "project_id", "card_id", "status", "model", "intent",
+        "task_id", "session_id", "chat_id", "project_id", "card_id", "status", "model", "intent",
         "summary", "start_time", "end_time", "result_summary",
     )
 
@@ -34,6 +34,7 @@ class WorkerSession:
         self,
         task_id: str,
         session_id: str,
+        chat_id: Optional[str] = None,
         project_id: Optional[str] = None,
         card_id: Optional[str] = None,
         status: str = "running",
@@ -46,6 +47,7 @@ class WorkerSession:
     ):
         self.task_id = task_id
         self.session_id = session_id
+        self.chat_id = chat_id
         self.project_id = project_id
         self.card_id = card_id
         self.status = status
@@ -60,6 +62,7 @@ class WorkerSession:
         return {
             "task_id": self.task_id,
             "session_id": self.session_id,
+            "chat_id": self.chat_id,
             "project_id": self.project_id,
             "card_id": self.card_id,
             "status": self.status,
@@ -76,6 +79,7 @@ class WorkerSession:
         return cls(
             task_id=data["task_id"],
             session_id=data["session_id"],
+            chat_id=data.get("chat_id"),
             project_id=data.get("project_id"),
             card_id=data.get("card_id"),
             status=data.get("status", "running"),
@@ -145,6 +149,7 @@ class WorkerSessionStore:
         self,
         task_id: str,
         session_id: str,
+        chat_id: Optional[str] = None,
         project_id: Optional[str] = None,
         card_id: Optional[str] = None,
         model: str = "sonnet",
@@ -155,6 +160,7 @@ class WorkerSessionStore:
         session = WorkerSession(
             task_id=task_id,
             session_id=session_id,
+            chat_id=chat_id,
             project_id=project_id,
             card_id=card_id,
             status="running",

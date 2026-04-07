@@ -69,7 +69,7 @@ async def worker_snapshot(
             "taskId": s["task_id"],
             "projectId": s.get("project_id"),
             "cardId": s.get("card_id"),
-            "chatId": s.get("session_id"),
+            "chatId": s.get("chat_id"),
             "action": s.get("intent", "unknown"),
             "description": s.get("summary", ""),
             "model": s.get("model", "sonnet"),
