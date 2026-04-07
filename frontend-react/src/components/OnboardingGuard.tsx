@@ -18,16 +18,32 @@ export function OnboardingGuard({ children }: OnboardingGuardProps) {
   const [status, setStatus] = useState<'loading' | 'complete' | 'needs_onboarding'>('loading');
 
   useEffect(() => {
-    // Fast path: if localStorage says complete, trust it
+    const syncNames = (data: Record<string, unknown>) => {
+      try {
+        const stored = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+        if (data.user_name) stored.user_name = data.user_name;
+        if (data.assistant_name) stored.assistant_name = data.assistant_name;
+        const personality = data.personality as Record<string, unknown> | undefined;
+        if (personality?.bot_name) {
+          if (!stored.personality) stored.personality = {};
+          (stored.personality as Record<string, unknown>).bot_name = personality.bot_name;
+        }
+        localStorage.setItem('voxyflow_settings', JSON.stringify(stored));
+      } catch { /* ignore */ }
+    };
+
+    // Fast path: if localStorage says complete, still sync names from backend
     if (localStorage.getItem('onboarding_complete') === 'true') {
       setStatus('complete');
+      fetch('/api/settings').then((r) => r.json()).then(syncNames).catch(() => {});
       return;
     }
 
     // Otherwise check the backend
     fetch('/api/settings')
       .then((r) => r.json())
-      .then((data) => {
+      .then((data: Record<string, unknown>) => {
+        syncNames(data);
         if (data.onboarding_complete) {
           localStorage.setItem('onboarding_complete', 'true');
           setStatus('complete');
