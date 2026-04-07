@@ -154,6 +154,7 @@ export function useWebSocket(): UseWebSocketReturn {
         reconnectAttemptsRef.current = 0;
         setConnectionState('connected');
         startHeartbeat();
+        dispatchMessage({ type: 'ws:connected', payload: {} });
 
         // Flush any messages queued while offline
         flush((msg: QueuedMessage) => {
