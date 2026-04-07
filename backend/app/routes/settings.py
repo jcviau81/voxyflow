@@ -213,6 +213,20 @@ async def save_settings(settings: AppSettings):
     except Exception as e:
         logger.warning("Failed to reload ClaudeService models: %s", e)
 
+    # Sync IDENTITY.md with configured assistant name
+    bot_name = (settings.personality.bot_name or settings.assistant_name or "Voxy").strip()
+    if bot_name:
+        identity_path = PERSONALITY_DIR / "IDENTITY.md"
+        try:
+            existing = identity_path.read_text(encoding="utf-8") if identity_path.exists() else ""
+            import re as _re
+            updated = _re.sub(r"(?m)^(- \*\*Name:\*\*\s*).*$", rf"\g<1>{bot_name}", existing)
+            if updated != existing:
+                identity_path.write_text(updated, encoding="utf-8")
+                logger.info("IDENTITY.md updated with bot_name=%s", bot_name)
+        except Exception as e:
+            logger.warning("Failed to update IDENTITY.md: %s", e)
+
     return {"status": "saved"}
 
 

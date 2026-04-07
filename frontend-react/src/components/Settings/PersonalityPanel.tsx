@@ -1,5 +1,5 @@
 /**
- * PersonalityPanel — Language, tone, warmth, and custom instructions.
+ * PersonalityPanel — Names, language, tone, warmth, and custom instructions.
  *
  * Reads/writes personality settings via GET/PUT /api/settings (personality key).
  */
@@ -21,6 +21,8 @@ interface PersonalitySettings {
 
 interface AppSettings {
   personality?: Partial<PersonalitySettings>;
+  user_name?: string;
+  assistant_name?: string;
   [key: string]: unknown;
 }
 
@@ -78,6 +80,8 @@ export function PersonalityPanel() {
   });
 
   const ps = { ...DEFAULTS, ...settings?.personality };
+  const [userName, setUserName] = useState('');
+  const [botName, setBotName] = useState(ps.bot_name);
   const [language, setLanguage] = useState(ps.preferred_language);
   const [tone, setTone] = useState(ps.tone);
   const [warmth, setWarmth] = useState(ps.warmth);
@@ -86,8 +90,10 @@ export function PersonalityPanel() {
 
   // Sync from server
   useEffect(() => {
-    if (settings?.personality) {
+    if (settings) {
       const p = { ...DEFAULTS, ...settings.personality };
+      setUserName(settings.user_name ?? '');
+      setBotName(p.bot_name);
       setLanguage(p.preferred_language);
       setTone(p.tone);
       setWarmth(p.warmth);
@@ -96,31 +102,48 @@ export function PersonalityPanel() {
   }, [settings]);
 
   const saveMutation = useMutation({
-    mutationFn: async (updates: Partial<PersonalitySettings>) => {
+    mutationFn: async (updates: { personality: Partial<PersonalitySettings>; user_name: string; assistant_name: string }) => {
       const current = await (await fetch('/api/settings')).json();
       const merged = {
         ...current,
-        personality: { ...current.personality, ...updates },
+        user_name: updates.user_name,
+        assistant_name: updates.assistant_name,
+        personality: { ...current.personality, ...updates.personality },
       };
       await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(merged),
       });
+      return merged;
     },
-    onSuccess: () => {
+    onSuccess: (merged) => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      // Sync to localStorage so MessageBubble picks up the new names immediately
+      try {
+        const stored = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+        stored.user_name = merged.user_name;
+        stored.assistant_name = merged.assistant_name;
+        if (!stored.personality) stored.personality = {};
+        stored.personality.bot_name = merged.personality?.bot_name;
+        localStorage.setItem('voxyflow_settings', JSON.stringify(stored));
+      } catch { /* ignore */ }
     },
   });
 
   const handleSave = () => {
     saveMutation.mutate({
-      preferred_language: language,
-      tone,
-      warmth,
-      custom_instructions: customInstructions,
+      personality: {
+        bot_name: botName,
+        preferred_language: language,
+        tone,
+        warmth,
+        custom_instructions: customInstructions,
+      },
+      user_name: userName,
+      assistant_name: botName,
     });
   };
 
@@ -129,8 +152,32 @@ export function PersonalityPanel() {
       <div>
         <h3 className="text-sm font-semibold text-foreground">Personality</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          Configure how Voxy communicates with you.
+          Configure names and how your assistant communicates with you.
         </p>
+      </div>
+
+      {/* Names */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Your name</label>
+          <input
+            type="text"
+            value={userName}
+            onChange={(e) => setUserName(e.target.value)}
+            placeholder="What should I call you?"
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Assistant name</label>
+          <input
+            type="text"
+            value={botName}
+            onChange={(e) => setBotName(e.target.value)}
+            placeholder="Voxy"
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+        </div>
       </div>
 
       {/* Language */}
@@ -181,7 +228,7 @@ export function PersonalityPanel() {
         <textarea
           value={customInstructions}
           onChange={(e) => setCustomInstructions(e.target.value)}
-          placeholder="Add any custom instructions for Voxy..."
+          placeholder="Add any custom instructions for your assistant..."
           rows={4}
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50 resize-y"
         />

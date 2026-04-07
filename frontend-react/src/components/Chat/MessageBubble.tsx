@@ -266,8 +266,12 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
   const isUser = message.role === 'user';
   const isEnrichment = message.enrichment;
 
+  const settings = (() => { try { return JSON.parse(localStorage.getItem('voxyflow_settings') || '{}'); } catch { return {}; } })();
+  const configuredUserName = settings?.user_name || 'User';
+  const configuredBotName = settings?.personality?.bot_name || settings?.assistant_name || 'Voxy';
+
   const avatar = isUser ? '👤' : isEnrichment ? '💭' : '🛡️';
-  const senderName = isUser ? 'JC' : isEnrichment ? 'Deep' : 'Voxy';
+  const senderName = isUser ? configuredUserName : isEnrichment ? 'Deep' : configuredBotName;
 
   // Plain text for TTS (extracted lazily via ref)
   const contentRef = useRef<HTMLDivElement>(null);

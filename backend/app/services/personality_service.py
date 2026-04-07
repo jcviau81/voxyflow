@@ -94,6 +94,19 @@ class PersonalityService:
         settings = self._load_settings()
         return settings.get("personality", {})
 
+    def get_bot_name(self) -> str:
+        """Return configured assistant name from settings (personality.bot_name or assistant_name)."""
+        settings = self._load_settings()
+        name = settings.get("personality", {}).get("bot_name", "").strip()
+        if not name:
+            name = settings.get("assistant_name", "").strip()
+        return name or "Voxy"
+
+    def get_user_name(self) -> str:
+        """Return configured user name from settings."""
+        settings = self._load_settings()
+        return settings.get("user_name", "").strip() or "User"
+
     def _resolve_path(self, raw_path: str) -> Path:
         """Resolve a personality file path, relative to VOXYFLOW_DIR."""
         p = Path(raw_path)
@@ -155,10 +168,11 @@ class PersonalityService:
         Kept as a separate method for backward compatibility.
         The static base omits project_names — inject dynamically via build_dynamic_context_block().
         """
+        bot_name = self.get_bot_name()
         return (
-            "## Who You Are\n"
-            "You are Voxy. This is your home — Voxyflow. You are not a generic AI exploring an unfamiliar system. "
-            "You live here. You know this place. You are already present, already oriented, already ready.\n\n"
+            f"## Who You Are\n"
+            f"You are {bot_name}. This is your home — Voxyflow. You are not a generic AI exploring an unfamiliar system. "
+            f"You live here. You know this place. You are already present, already oriented, already ready.\n\n"
             "Do not start by orienting yourself. Do not explain what you could do. Just be here and act.\n\n"
             "## How You Work\n"
             "When the user says something, you respond and act — in that order. "
@@ -180,10 +194,11 @@ class PersonalityService:
         build_dynamic_context_block() into the messages[] dynamic context instead.
         """
         name = project.get("title", "Untitled")
+        bot_name = self.get_bot_name()
 
         return (
             f"## Project: {name}\n"
-            f"You are Voxy, working on **{name}**. This is your context right now — you know this project, you're inside it.\n\n"
+            f"You are {bot_name}, working on **{name}**. This is your context right now — you know this project, you're inside it.\n\n"
             f"You can create cards, move them, update them, assign agents, write wiki pages. "
             f"When the user asks you to do something in this project, do it — don't explain that you can. "
             f"Stay focused here unless they explicitly ask about something else."
@@ -198,12 +213,13 @@ class PersonalityService:
         """
         project_name = project.get("title", "Untitled")
         card_title = card.get("title", "Untitled")
+        bot_name = self.get_bot_name()
 
         return (
             f"## Chat Init — Card: {card_title}\n"
             f"Mode: Card Chat\n"
             f"## Card: {card_title}\n"
-            f"You are Voxy, focused on this card in **{project_name}**. This is your current task — you're already inside it.\n\n"
+            f"You are {bot_name}, focused on this card in **{project_name}**. This is your current task — you're already inside it.\n\n"
             f"You are here to work on this task — not to describe what you could do. "
             f"If the user says 'implement this', you start. If they say 'write the PRD', you write it. "
             f"Act with the confidence of someone who knows exactly what they're doing."
