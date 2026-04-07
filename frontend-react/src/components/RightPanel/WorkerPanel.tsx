@@ -383,8 +383,7 @@ function SessionRow({ session, projectId, onCancel, onSteer }: {
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export function WorkerPanel() {
-  const [collapsed, setCollapsed] = useState(false);
+export function WorkerPanel({ onClose }: { onClose?: () => void }) {
   const [, setTick] = useState(0);
 
   const { send } = useWS();
@@ -439,13 +438,7 @@ export function WorkerPanel() {
   const terminalCount = allWorkers.filter((w) => TERMINAL_STATUSES.has(w.status)).length;
 
   return (
-    <div
-      className={cn(
-        'flex flex-col h-full bg-secondary border-l border-r border-border shrink-0 overflow-hidden transition-all duration-200',
-        collapsed ? 'w-[42px]' : 'w-64',
-      )}
-      data-testid="session-panel"
-    >
+    <div className="flex flex-col h-full" data-testid="session-panel">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -456,7 +449,7 @@ export function WorkerPanel() {
         </div>
 
         <div className="flex items-center gap-2">
-          {terminalCount > 0 && !collapsed && (
+          {terminalCount > 0 && (
             <button
               className="text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               title="Clear finished"
@@ -465,28 +458,28 @@ export function WorkerPanel() {
               Clear
             </button>
           )}
-          <button
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title={collapsed ? 'Expand' : 'Collapse'}
-            onClick={() => setCollapsed((c) => !c)}
-          >
-            {collapsed ? '\u25C0' : '\u25B6'}
-          </button>
+          {onClose && (
+            <button
+              className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title="Close"
+              onClick={onClose}
+            >
+              &times;
+            </button>
+          )}
         </div>
       </div>
 
       {/* Body */}
-      {!collapsed && (
-        <div className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-1">
-          {tree.length === 0 ? (
-            <div className="text-xs text-muted-foreground text-center py-8">No active sessions</div>
-          ) : (
-            tree.map((proj) => (
-              <ProjectGroup key={proj.projectId} project={proj} onCancel={cancelTask} onSteer={steerTask} />
-            ))
-          )}
-        </div>
-      )}
+      <div className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-1">
+        {tree.length === 0 ? (
+          <div className="text-xs text-muted-foreground text-center py-8">No active sessions</div>
+        ) : (
+          tree.map((proj) => (
+            <ProjectGroup key={proj.projectId} project={proj} onCancel={cancelTask} onSteer={steerTask} />
+          ))
+        )}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { Lightbulb, Bell, X, Home, Folder, Menu } from 'lucide-react';
+import { Lightbulb, Bell, X, Home, Folder, Menu, Monitor } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
@@ -7,16 +7,20 @@ import { useProjectStore } from '../../stores/useProjectStore';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useWS } from '../../providers/WebSocketProvider';
+import { useWorkerStore } from '../../stores/useWorkerStore';
 import type { Tab } from '../../types';
 
 interface TabBarProps {
   opportunityCount?: number;
-  onPanelToggle?: (tab: 'opportunities' | 'notifications') => void;
+  onPanelToggle?: (tab: 'sessions' | 'opportunities' | 'notifications') => void;
   onSidebarToggle?: () => void;
 }
 
 export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }: TabBarProps) {
   const navigate = useNavigate();
+  const cliSessions = useWorkerStore((s) => s.cliSessions);
+  const workers = useWorkerStore((s) => s.workers);
+  const sessionCount = Object.keys(cliSessions).length + Object.values(workers).filter((w) => w.status === 'running' || w.status === 'pending').length;
   const openTabs = useTabStore((s) => s.openTabs);
   const activeTab = useTabStore((s) => s.activeTab);
   const switchTab = useTabStore((s) => s.switchTab);
@@ -114,6 +118,12 @@ export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }:
 
       {/* Right-side panel triggers */}
       <div className="ml-auto flex items-center gap-0.5 pl-2 flex-shrink-0">
+        <PanelTrigger
+          icon={<Monitor size={15} />}
+          count={sessionCount}
+          title="Sessions"
+          onClick={() => onPanelToggle?.('sessions')}
+        />
         <PanelTrigger
           icon={<Lightbulb size={15} />}
           count={opportunityCount}
