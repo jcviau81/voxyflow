@@ -196,7 +196,7 @@ export function PersonalityPanel() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="settings-panel-content p-6 space-y-6">
       <div>
         <h3 className="text-sm font-semibold text-foreground">Personality</h3>
         <p className="text-xs text-muted-foreground mt-1">
