@@ -383,7 +383,7 @@ function SessionRow({ session, projectId, onCancel, onSteer }: {
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export function WorkerPanel({ onClose }: { onClose?: () => void }) {
+export function WorkerPanel() {
   const [, setTick] = useState(0);
 
   const { send } = useWS();
@@ -456,15 +456,6 @@ export function WorkerPanel({ onClose }: { onClose?: () => void }) {
               onClick={clearTerminal}
             >
               Clear
-            </button>
-          )}
-          {onClose && (
-            <button
-              className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-              title="Close"
-              onClick={onClose}
-            >
-              &times;
             </button>
           )}
         </div>

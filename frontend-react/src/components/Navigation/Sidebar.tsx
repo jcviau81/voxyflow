@@ -32,6 +32,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { WorkerPanel } from '../RightPanel/WorkerPanel';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useTabStore } from '../../stores/useTabStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
@@ -262,7 +263,10 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           </div>
         )}
 
-        {/* Active Sessions + CLI Processes removed — integrated into SessionPanel (right panel) */}
+        {/* ── Sessions ── */}
+        <div className="sidebar-sessions mt-3 pt-2 border-t border-border flex-1 min-h-0 overflow-y-auto">
+          <WorkerPanel />
+        </div>
 
         {/* ── All Projects ── */}
         <div className="sidebar-projects mt-3 pt-2 border-t border-border">

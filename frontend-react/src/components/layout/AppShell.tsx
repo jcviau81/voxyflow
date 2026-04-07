@@ -21,7 +21,6 @@ import { CardDetailModal } from '../CardDetail';
 import { Sidebar } from '../Navigation/Sidebar';
 import { TabBar } from '../Navigation/TabBar';
 import { ProjectHeader } from '../Projects';
-import { WorkerPanel } from '../RightPanel/WorkerPanel';
 import { OpportunitiesPanel } from '../RightPanel/OpportunitiesPanel';
 import { NotificationsPanel } from '../RightPanel/NotificationsPanel';
 import { useChatService } from '../../contexts/useChatService';
@@ -29,7 +28,7 @@ import { useProjects } from '../../hooks/api/useProjects';
 import { useWorkerSync } from '../../hooks/useWorkerSync';
 import type { CardSuggestion } from '../../contexts/ChatProvider';
 
-type OpenPanel = 'sessions' | 'opportunities' | 'notifications' | null;
+type OpenPanel = 'opportunities' | 'notifications' | null;
 
 export function AppShell() {
   const location = useLocation();
@@ -67,7 +66,7 @@ export function AppShell() {
 
   const toggleSidebar = useCallback(() => setSidebarOpen((o) => !o), []);
 
-  const handlePanelToggle = useCallback((panel: 'sessions' | 'opportunities' | 'notifications') => {
+  const handlePanelToggle = useCallback((panel: 'opportunities' | 'notifications') => {
     setOpenPanel((prev) => (prev === panel ? null : panel));
   }, []);
 
@@ -140,18 +139,6 @@ export function AppShell() {
       {openPanel && (
         <div className="fixed inset-0 z-40" onClick={closePanel} />
       )}
-
-      {/* ── Sessions drawer ── */}
-      <aside
-        className={cn(
-          'fixed top-0 right-0 bottom-0 z-50 w-72 flex flex-col',
-          'bg-secondary border-l border-border shadow-2xl',
-          'transition-transform duration-200',
-          openPanel === 'sessions' ? 'translate-x-0' : 'translate-x-full',
-        )}
-      >
-        <WorkerPanel onClose={closePanel} />
-      </aside>
 
       {/* ── Opportunities drawer ── */}
       <aside
