@@ -366,7 +366,7 @@ _Customize this to give your assistant a unique identity._
 
 def _render_template(template: str, bot_name: str = "Voxy", user_name: str = "") -> str:
     """Substitute placeholders in a personality file template."""
-    return template.replace("{bot_name}", bot_name or "Voxy").replace("{user_name}", user_name or "")
+    return template.replace("{bot_name}", bot_name or "Voxy").replace("{user_name}", user_name or "User")
 
 
 @router.get("/personality/files/{filename}")
