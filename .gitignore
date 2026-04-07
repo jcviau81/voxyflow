@@ -63,6 +63,10 @@ personality/USER.md
 personality/IDENTITY.md
 personality/MEMORY.md
 
+# Dispatcher test scripts and results (dev tooling, not part of the app)
+scripts/test-dispatcher.sh
+scripts/test-results/
+
 # Backup files
 *.backup
 *.bak
