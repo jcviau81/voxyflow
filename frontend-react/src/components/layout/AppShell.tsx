@@ -8,7 +8,6 @@
  *         .tab-bar-container         ← TabBar (session tabs + panel triggers)
  *         .project-header-container  ← ProjectHeader (view tabs: kanban/chat/stats…)
  *         main.main-content          ← <Outlet /> (routed page)
- *       aside.worker-panel-container ← WorkerPanel (active Deep workers)
  *     OpportunitiesPanel / NotificationsPanel drawers (fixed, toggled from TabBar)
  */
 import { Outlet, useLocation } from 'react-router-dom';

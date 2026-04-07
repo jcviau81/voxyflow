@@ -1,17 +1,17 @@
 /**
- * Sidebar — React port of frontend/src/components/Navigation/Sidebar.ts
+ * Sidebar
  *
  * Sections (top → bottom):
  *   1. Brand (Voxyflow)
- *   2. Main item — always at top
- *   3. Favorites section — starred projects with progress dots
- *   4. Active Sessions section — sessions across open tabs with close button
- *   5. All Projects link + New Project + Archived count
+ *   2. Main / Jobs / Projects nav links
+ *   3. Favorites — starred projects with progress dots
+ *   4. New Project button
+ *   5. Sessions — WorkerPanel (CLI sessions + workers)
  *   6. Connection status
  *   7. Footer: notification bell, theme toggle, Settings, Docs, Help
  *
  * Props:
- *   isOpen  — controlled by AppShell (Ctrl+B shortcut handled here, emits onToggle)
+ *   isOpen   — controlled by AppShell (Ctrl+B shortcut handled here, emits onToggle)
  *   onToggle — called to flip the open/close state in the parent
  */
 
@@ -26,20 +26,18 @@ import {
   Moon,
   Sun,
   FolderPlus,
-  ChevronRight,
-  Star,
   Folder,
   Clock,
+  Star,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { WorkerPanel } from '../RightPanel/WorkerPanel';
+import { WorkerPanel } from './WorkerPanel';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useTabStore } from '../../stores/useTabStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { useWS } from '../../providers/WebSocketProvider';
-import { useToggleFavorite } from '../../hooks/api/useProjects';
 import type { Project } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -50,6 +48,11 @@ interface SidebarProps {
 }
 
 
+
+// ─── Shared nav item class ────────────────────────────────────────────────────
+
+const NAV_ITEM =
+  'sidebar-item flex items-center gap-2 px-3 py-2 rounded-md text-sm cursor-pointer whitespace-nowrap w-full hover:bg-accent hover:text-accent-foreground transition-colors';
 
 // ─── Progress dot helpers ─────────────────────────────────────────────────────
 
@@ -76,11 +79,9 @@ const CONNECTION_DOT_CLASS = {
 function ProjectItem({
   project,
   isActive,
-  onToggleFavorite,
 }: {
   project: Project;
   isActive: boolean;
-  onToggleFavorite: (id: string) => void;
 }) {
   const navigate = useNavigate();
   const cardsById = useCardStore((s) => s.cardsById);
@@ -112,41 +113,32 @@ function ProjectItem({
   };
 
   return (
-    <div
+    <button
       className={cn(
-        'sidebar-project-item flex items-center gap-1.5 px-3 py-1.5 mx-2 rounded-md text-sm cursor-pointer',
-        'hover:bg-accent hover:text-accent-foreground transition-colors',
+        NAV_ITEM,
         isActive && 'bg-accent text-accent-foreground font-medium',
         isTabOpen && !isActive && 'text-foreground',
       )}
+      
       title={tooltip}
       data-testid={`sidebar-project-${project.id}`}
       onClick={handleClick}
     >
-      {/* Favorite star */}
-      <button
-        className="shrink-0 leading-none hover:scale-110 transition-transform"
-        title={project.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleFavorite(project.id);
-        }}
-      >
-        <Star
-          size={12}
-          className={project.isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}
-        />
-      </button>
-
+      
+      <span>
+        {project.emoji || <Star size={14} className="shrink-0" /> }
+      </span>
+      
       {/* Project name */}
-      <span className="flex-1 truncate">{project.name}</span>
+      <span>{project.name}</span>
 
       {/* Progress dot */}
       <span
         className={cn('shrink-0 w-2 h-2 rounded-full', DOT_CLASS[dotColor])}
         title={tooltip}
       />
-    </div>
+
+    </button>
   );
 }
 
@@ -162,7 +154,6 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const { connectionState } = useWS();
-  const toggleFavoriteMutation = useToggleFavorite();
 
   // Derived data
   const activeProjects = projects.filter((p) => !p.archived && p.id !== SYSTEM_PROJECT_ID);
@@ -211,82 +202,54 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
       >
 
         {/* Main / General */}
-        <div className="sidebar-nav px-2">
+        <div className="sidebar-nav flex-row px-2 gap-y-1 space-y-1">
           <NavLink
             to="/"
             end
             className={({ isActive }) =>
-              cn(
-                'sidebar-item flex items-center gap-2 px-3 py-2 rounded-md text-sm cursor-pointer whitespace-nowrap',
-                'hover:bg-accent hover:text-accent-foreground transition-colors',
-                (isActive || activeTab === 'main') && 'bg-accent text-accent-foreground font-medium',
-              )
+              cn(NAV_ITEM, (isActive || activeTab === 'main') && 'bg-accent text-accent-foreground font-medium')
             }
             data-testid="sidebar-general"
             data-tab="main"
           >
-            <Home size={15} className="shrink-0" />
+            <Home size={14} className="shrink-0" />
             <span>Main</span>
           </NavLink>
 
           <NavLink
             to="/jobs"
             className={({ isActive }) =>
-              cn(
-                'sidebar-item flex items-center gap-2 px-3 py-2 rounded-md text-sm cursor-pointer whitespace-nowrap',
-                'hover:bg-accent hover:text-accent-foreground transition-colors',
-                isActive && 'bg-accent text-accent-foreground font-medium',
-              )
+              cn(NAV_ITEM, isActive && 'bg-accent text-accent-foreground font-medium')
             }
             data-testid="sidebar-jobs"
           >
-            <Clock size={15} className="shrink-0" />
+            <Clock size={14} className="shrink-0" />
             <span>Jobs</span>
           </NavLink>
-        </div>
 
-        {/* ── Favorites ── */}
-        {favoriteProjects.length > 0 && (
-          <div className="sidebar-favorites mt-3 pt-2 border-t border-border">
-            <p className="sidebar-section-header px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
-              <Star size={10} className="shrink-0" />
-              Favorites
-            </p>
-            {favoriteProjects.map((proj) => (
-              <ProjectItem
-                key={proj.id}
-                project={proj}
-                isActive={activeTab === proj.id}
-                onToggleFavorite={(id) => toggleFavoriteMutation.mutate(id)}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* ── Sessions ── */}
-        <div className="sidebar-sessions mt-3 pt-2 border-t border-border flex-1 min-h-0 overflow-y-auto">
-          <WorkerPanel />
-        </div>
-
-        {/* ── All Projects ── */}
-        <div className="sidebar-projects mt-3 pt-2 border-t border-border">
-          {/* Header with "All Projects" link */}
-          <button
-            className="sidebar-section-header w-full flex items-center justify-between px-5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap cursor-pointer"
-            title="All projects"
-            onClick={() => navigate('/projects')}
+          <NavLink
+            to="/projects"
+            className={({ isActive }) =>
+              cn(NAV_ITEM, isActive && 'bg-accent text-accent-foreground font-medium')
+            }
+            data-testid="sidebar-projects"
           >
-            <span className="flex items-center gap-1.5">
-              <Folder size={10} className="shrink-0" />
-              All Projects
-            </span>
-            <ChevronRight size={12} />
-          </button>
+            <Folder size={14} className="shrink-0" />
+            <span>Projects</span>
+          </NavLink>
+
+          {/* ── Favorites ── */}
+          {favoriteProjects.length > 0 && favoriteProjects.map((proj) => (
+            <ProjectItem
+              key={proj.id}
+              project={proj}
+              isActive={activeTab === proj.id}
+            />
+          ))}
 
           {/* New project */}
           <button
-            className="sidebar-new-project flex items-center gap-2 w-full px-3 py-1.5 mx-2 rounded-md text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap cursor-pointer"
-            style={{ width: 'calc(100% - 1rem)' }}
+            className={NAV_ITEM}
             data-testid="sidebar-new-project"
             onClick={() => navigate('/projects?new=1')}
           >
@@ -294,7 +257,14 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             <span>New Project</span>
           </button>
 
+
         </div>
+
+        {/* ── Sessions ── */}
+        <div className="sidebar-sessions mt-3 pt-2 border-t border-border flex-1 min-h-0 overflow-y-auto">
+          <WorkerPanel />
+        </div>
+
       </nav>
 
       {/* ── Connection status ── */}

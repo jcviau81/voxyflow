@@ -1,1 +1,0 @@
-export { WorkerPanel } from './WorkerPanel';
