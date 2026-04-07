@@ -917,6 +917,31 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_handler": "memory_search",
     },
 
+    # ---- Memory Save (write to long-term memory) ----------------------------
+    {
+        "name": "memory.save",
+        "description": "Save an important fact, decision, preference, or lesson to Voxy's long-term memory. Use when the user shares something worth remembering across sessions.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+                "text": {"type": "string", "description": "The information to remember"},
+                "type": {
+                    "type": "string",
+                    "enum": ["decision", "preference", "lesson", "fact", "context"],
+                    "description": "Memory type (default: fact)",
+                },
+                "importance": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Importance level (default: medium)",
+                },
+                "project_id": {"type": "string", "description": "Project to scope memory to (optional, defaults to global)"},
+            },
+        },
+        "_handler": "memory_save",
+    },
+
     # ---- Knowledge Base (on-demand RAG) ------------------------------------
     {
         "name": "knowledge.search",
@@ -987,6 +1012,36 @@ def _get_system_handler(name: str):
             except Exception as e:
                 return {"error": str(e)}
 
+        async def memory_save(params: dict) -> dict:
+            """Store a memory entry in Voxy's long-term memory (ChromaDB or file fallback)."""
+            from app.services.memory_service import get_memory_service, GLOBAL_COLLECTION, _project_collection
+            text = params.get("text", "").strip()
+            if not text:
+                return {"error": "text is required"}
+            mem_type = params.get("type", "fact")
+            importance = params.get("importance", "medium")
+            project_id = params.get("project_id")
+            from datetime import datetime, timezone
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try:
+                ms = get_memory_service()
+                collection = _project_collection(project_id) if project_id else GLOBAL_COLLECTION
+                doc_id = ms.store_memory(
+                    text=text,
+                    collection=collection,
+                    metadata={
+                        "type": mem_type,
+                        "date": date_str,
+                        "source": "chat",
+                        "importance": importance,
+                    },
+                )
+                if doc_id:
+                    return {"success": True, "id": doc_id, "message": f"Memory saved ({mem_type}, {importance})"}
+                return {"success": False, "error": "store_memory returned None"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
         _SYSTEM_HANDLERS.update({
             "system_exec": system_exec,
             "web_search": web_search,
@@ -1008,6 +1063,7 @@ def _get_system_handler(name: str):
             "tmux_kill": tmux_kill,
             "task_complete": handle_task_complete,
             "memory_search": memory_search,
+            "memory_save": memory_save,
             "knowledge_search": knowledge_search,
         })
     return _SYSTEM_HANDLERS.get(name)

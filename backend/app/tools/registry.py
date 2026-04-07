@@ -29,6 +29,7 @@ TOOLS_READ_ONLY = {
 
 # CRUD tools: Analyzer (Haiku) can do trivial dashboard actions
 TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
+    "memory.save",
     "voxyflow.card.create_unassigned",
     "voxyflow.project.create",
     "voxyflow.card.create", "voxyflow.card.update", "voxyflow.card.move",
