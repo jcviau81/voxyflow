@@ -40,7 +40,7 @@ class WorkspaceService:
     def get_project_workspace(self, project_name: str) -> Path:
         """Get the workspace directory for a specific project."""
         safe_name = self._slugify(project_name)
-        return self._workspace_root / safe_name
+        return self._workspace_root / "projects" / safe_name
 
     def ensure_project_workspace(self, project_name: str) -> Path:
         """Create and return the workspace directory for a project."""

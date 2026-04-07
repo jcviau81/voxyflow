@@ -121,6 +121,11 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
   const [localPath, setLocalPath] = useState(project?.localPath ?? '');
   const [techStack, setTechStack] = useState<TechDetectResult | null>(project?.techStack ?? null);
   const [detecting, setDetecting] = useState(false);
+  const [pathExists, setPathExists] = useState<boolean | null>(null);
+  const [pathExpanded, setPathExpanded] = useState('');
+  const [pathChecking, setPathChecking] = useState(false);
+  const [cloneStatus, setCloneStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [cloneMessage, setCloneMessage] = useState('');
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const createProject = useCreateProject();
@@ -143,6 +148,15 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
       .then((d: { gh_authenticated: boolean }) => setGithubSetupOk(d.gh_authenticated))
       .catch(() => { /* silent */ });
   }, []);
+
+  // ── Check path existence when localPath changes ───────────────────────────
+  useEffect(() => {
+    setCloneStatus('idle');
+    setCloneMessage('');
+    const timer = setTimeout(() => { void checkPath(localPath); }, 400);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localPath]);
 
   // ── Template selection ─────────────────────────────────────────────────────
   function selectTemplate(tpl: ProjectTemplate | null) {
@@ -196,6 +210,9 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
       }
       const info = await res.json() as GitHubRepoInfo;
       setGithubStatus({ type: 'connected', info });
+      // Suggest local path from repo name if not set
+      if (!localPath) void suggestPath(info.full_name.split('/')[1]);
+      setCloneStatus('idle');
     } catch {
       setGithubStatus({ type: 'error', message: 'Failed to connect to GitHub API. Check Settings → GitHub.' });
     }
@@ -219,6 +236,90 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
       setGithubStatus({ type: 'connected', info });
     } catch {
       setGithubStatus({ type: 'error', message: 'Failed to create repository. Check Settings → GitHub.' });
+    }
+  }
+
+  // ── Path helpers ───────────────────────────────────────────────────────────
+  async function checkPath(p: string) {
+    const trimmed = p.trim();
+    if (!trimmed) { setPathExists(null); setPathExpanded(''); return; }
+    setPathChecking(true);
+    try {
+      const res = await fetch(`/api/projects/path-info?path=${encodeURIComponent(trimmed)}`);
+      if (res.ok) {
+        const data = await res.json() as { exists: boolean; is_dir: boolean; path: string };
+        setPathExists(data.exists);
+        setPathExpanded(data.path);
+      }
+    } catch { /* silent */ } finally { setPathChecking(false); }
+  }
+
+  async function suggestPath(name: string) {
+    if (localPath || !name.trim()) return;
+    try {
+      const res = await fetch(`/api/projects/suggest-path?name=${encodeURIComponent(name)}`);
+      if (res.ok) {
+        const data = await res.json() as { path: string };
+        setLocalPath(data.path);
+        void checkPath(data.path);
+      }
+    } catch { /* silent */ }
+  }
+
+  async function handleClone() {
+    const github = githubStatus.type === 'connected' ? githubStatus.info : null;
+    if (!github || !localPath.trim()) return;
+    const [owner, repo] = github.full_name.split('/');
+    setCloneStatus('loading');
+    setCloneMessage('Cloning…');
+    try {
+      const res = await fetch('/api/github/clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner, repo, target_dir: localPath.trim() }),
+      });
+      const data = await res.json() as { status: string; path?: string; detail?: string };
+      if (!res.ok) {
+        setCloneStatus('error');
+        setCloneMessage(data.detail ?? 'Clone failed');
+      } else if (data.status === 'already_exists') {
+        setCloneStatus('done');
+        setCloneMessage('Directory already exists — skipped clone');
+        setPathExists(true);
+      } else {
+        setCloneStatus('done');
+        setCloneMessage(`Cloned to ${data.path ?? localPath}`);
+        setPathExists(true);
+        void handleTechDetect();
+      }
+    } catch {
+      setCloneStatus('error');
+      setCloneMessage('Clone failed — check GitHub settings');
+    }
+  }
+
+  async function handleMkdir() {
+    if (!localPath.trim()) return;
+    setCloneStatus('loading');
+    setCloneMessage('Creating directory…');
+    try {
+      const res = await fetch('/api/github/mkdir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: localPath.trim() }),
+      });
+      const data = await res.json() as { path?: string; detail?: string };
+      if (!res.ok) {
+        setCloneStatus('error');
+        setCloneMessage(data.detail ?? 'Failed to create directory');
+      } else {
+        setCloneStatus('done');
+        setCloneMessage(`Created ${data.path ?? localPath}`);
+        setPathExists(true);
+      }
+    } catch {
+      setCloneStatus('error');
+      setCloneMessage('Failed to create directory');
     }
   }
 
@@ -377,6 +478,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
               placeholder="My Awesome Project"
               maxLength={100}
               data-testid="project-name-input"
+              onBlur={(e) => { if (mode === 'create') void suggestPath(e.target.value); }}
               className={cn(
                 'form-input w-full px-3 py-2 rounded-md border bg-background text-foreground text-sm',
                 'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50',
@@ -562,7 +664,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                 type="text"
                 value={localPath}
                 onChange={(e) => setLocalPath(e.target.value)}
-                placeholder="~/projects/my-app"
+                placeholder="~/.voxyflow/workspace/my-app"
                 data-testid="project-localpath-input"
                 className="form-input flex-1 px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
@@ -570,12 +672,66 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                 type="button"
                 data-testid="tech-detect-btn"
                 onClick={() => void handleTechDetect()}
-                disabled={detecting || !localPath.trim()}
+                disabled={detecting || !localPath.trim() || pathExists !== true}
                 className="btn-secondary px-3 py-2 rounded-md border border-border text-sm hover:bg-accent transition-colors disabled:opacity-50"
+                title="Detect tech stack"
               >
                 {detecting ? '⏳' : 'Detect'}
               </button>
             </div>
+
+            {/* Path status + actions */}
+            {localPath.trim() && (
+              <div className="space-y-1.5">
+                {/* Existence indicator */}
+                <div className="flex items-center gap-1.5 text-xs">
+                  {pathChecking && <span className="text-muted-foreground">⏳ Checking…</span>}
+                  {!pathChecking && pathExists === true && (
+                    <span className="text-green-500">✓ Directory exists</span>
+                  )}
+                  {!pathChecking && pathExists === false && (
+                    <span className="text-yellow-500">⚠ Directory does not exist</span>
+                  )}
+                  {!pathChecking && pathExpanded && pathExpanded !== localPath.trim() && (
+                    <span className="text-muted-foreground">→ {pathExpanded}</span>
+                  )}
+                </div>
+
+                {/* Action buttons — only when path doesn't exist */}
+                {pathExists === false && cloneStatus === 'idle' && (
+                  <div className="flex gap-2">
+                    {githubStatus.type === 'connected' ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleClone()}
+                        className="btn-secondary px-3 py-1.5 rounded-md border border-border text-xs hover:bg-accent transition-colors flex items-center gap-1"
+                      >
+                        ⬇ Clone repository here
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleMkdir()}
+                        className="btn-secondary px-3 py-1.5 rounded-md border border-border text-xs hover:bg-accent transition-colors"
+                      >
+                        + Create directory
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Clone/mkdir feedback */}
+                {cloneStatus === 'loading' && (
+                  <span className="text-xs text-muted-foreground">⏳ {cloneMessage}</span>
+                )}
+                {cloneStatus === 'done' && (
+                  <span className="text-xs text-green-500">✓ {cloneMessage}</span>
+                )}
+                {cloneStatus === 'error' && (
+                  <span className="text-xs text-destructive">❌ {cloneMessage}</span>
+                )}
+              </div>
+            )}
 
             {/* Tech stack display */}
             {techStack && techStack.technologies.length > 0 && (

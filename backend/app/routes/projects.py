@@ -1640,3 +1640,27 @@ async def complete_sprint(
     )
     card_count = count_result.scalar() or 0
     return _sprint_to_response(sprint, card_count)
+
+
+# ---------------------------------------------------------------------------
+# Filesystem / path helpers
+# ---------------------------------------------------------------------------
+
+@router.get("/suggest-path")
+async def suggest_project_path(name: str):
+    """Return the default workspace path for a project name (not created yet)."""
+    ws = get_workspace_service()
+    path = ws.get_project_workspace(name.strip() or "unnamed")
+    return {"path": str(path)}
+
+
+@router.get("/path-info")
+async def path_info(path: str):
+    """Check if a local path exists."""
+    expanded = Path(path).expanduser().resolve()
+    exists = expanded.exists()
+    return {
+        "path": str(expanded),
+        "exists": exists,
+        "is_dir": expanded.is_dir() if exists else False,
+    }

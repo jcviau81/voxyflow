@@ -42,7 +42,24 @@ def _load_pat() -> str | None:
         logger.warning("Failed to read GitHub token from settings.json: %s", e)
 
     # 3) Environment variable
-    return os.environ.get("GITHUB_TOKEN") or None
+    env_token = os.environ.get("GITHUB_TOKEN")
+    if env_token:
+        return env_token
+
+    # 4) gh CLI stored token (fallback — works when user is authenticated via gh)
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            token = result.stdout.strip()
+            if token:
+                return token
+    except Exception as e:
+        logger.debug("gh auth token fallback failed: %s", e)
+
+    return None
 
 
 def _github_headers() -> dict[str, str]:
@@ -385,11 +402,19 @@ async def validate_repo(owner: str, repo: str):
     }
 
 
+class ClonePayload(BaseModel):
+    owner: str
+    repo: str
+    target_dir: str | None = None
+
+
 @router.post("/clone")
-async def clone_repo(owner: str, repo: str, target_dir: str | None = None):
-    """Clone a repo locally."""
-    if not target_dir:
-        target_dir = os.path.expanduser(f"~/projects/{repo}")
+async def clone_repo(payload: ClonePayload):
+    """Clone a repo locally via gh CLI."""
+    owner = payload.owner
+    repo = payload.repo
+    target_dir = payload.target_dir or os.path.expanduser(f"~/projects/{repo}")
+    target_dir = os.path.expanduser(target_dir)
 
     if os.path.exists(target_dir):
         return {"status": "already_exists", "path": target_dir}
@@ -408,3 +433,18 @@ async def clone_repo(owner: str, repo: str, target_dir: str | None = None):
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+class MkdirPayload(BaseModel):
+    path: str
+
+
+@router.post("/mkdir")
+async def mkdir(payload: MkdirPayload):
+    """Create a local directory (and parents) for a project workspace."""
+    expanded = os.path.expanduser(payload.path)
+    try:
+        os.makedirs(expanded, exist_ok=True)
+        return {"status": "created", "path": expanded}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to create directory: {e}")

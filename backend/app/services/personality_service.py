@@ -599,7 +599,7 @@ class PersonalityService:
             "You have TWO ways to act:\n\n"
             "### 1. Inline MCP Tools (use directly for fast operations)\n"
             "You can call these tools directly — they execute immediately:\n"
-            "- `memory.search` / `knowledge.search` — search memory and knowledge base\n"
+            "- `memory.search` / `memory.save` / `knowledge.search` — search/save memory and knowledge base\n"
             "- `voxyflow.card.list` / `voxyflow.card.get` / `voxyflow.card.create` / "
             "`voxyflow.card.update` / `voxyflow.card.move` / `voxyflow.card.archive` — card operations\n"
             "- `voxyflow.workers.list` / `voxyflow.workers.get_result` — check worker status\n"
