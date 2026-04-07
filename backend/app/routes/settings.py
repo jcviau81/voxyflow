@@ -213,19 +213,25 @@ async def save_settings(settings: AppSettings):
     except Exception as e:
         logger.warning("Failed to reload ClaudeService models: %s", e)
 
-    # Sync IDENTITY.md with configured assistant name
+    # Sync IDENTITY.md and USER.md Name fields with configured values
+    import re as _re
     bot_name = (settings.personality.bot_name or settings.assistant_name or "Voxy").strip()
-    if bot_name:
-        identity_path = PERSONALITY_DIR / "IDENTITY.md"
+    user_name = (settings.user_name or "").strip()
+
+    for _path, _key, _value in [
+        (PERSONALITY_DIR / "IDENTITY.md", "Name", bot_name),
+        (PERSONALITY_DIR / "USER.md", "Name", user_name),
+    ]:
+        if not _value:
+            continue
         try:
-            existing = identity_path.read_text(encoding="utf-8") if identity_path.exists() else ""
-            import re as _re
-            updated = _re.sub(r"(?m)^(- \*\*Name:\*\*\s*).*$", rf"\g<1>{bot_name}", existing)
+            existing = _path.read_text(encoding="utf-8") if _path.exists() else ""
+            updated = _re.sub(r"(?m)^(- \*\*Name:\*\*\s*).*$", rf"\g<1>{_value}", existing)
             if updated != existing:
-                identity_path.write_text(updated, encoding="utf-8")
-                logger.info("IDENTITY.md updated with bot_name=%s", bot_name)
+                _path.write_text(updated, encoding="utf-8")
+                logger.info("%s updated with %s=%s", _path.name, _key, _value)
         except Exception as e:
-            logger.warning("Failed to update IDENTITY.md: %s", e)
+            logger.warning("Failed to update %s: %s", _path.name, e)
 
     return {"status": "saved"}
 
@@ -264,7 +270,10 @@ async def preview_personality():
 
 # ── Personality file CRUD endpoints ──────────────────────────────────────────
 
+# All files readable via API
 ALLOWED_FILES = {"SOUL.md", "USER.md", "AGENTS.md", "IDENTITY.md", "MEMORY.md"}
+# Only user-facing files editable via the settings UI
+EDITABLE_FILES = {"USER.md", "IDENTITY.md"}
 
 DEFAULT_TEMPLATES = {
     "SOUL.md": """# SOUL.md — Who I Am
@@ -301,7 +310,7 @@ _Customize this file to define your assistant's personality._
 
 _Your assistant learns about you over time. Fill this in or let it grow naturally._
 
-- **Name:**
+- **Name:** {user_name}
 - **Preferred Language:**
 - **Timezone:**
 - **Notes:**
@@ -345,7 +354,7 @@ _The more your assistant knows, the better it can help._
 """,
     "IDENTITY.md": """# IDENTITY.md — Assistant Identity
 
-- **Name:** Voxy
+- **Name:** {bot_name}
 - **Emoji:** 🤖
 - **Vibe:** Helpful, clear, professional
 
@@ -353,6 +362,11 @@ _The more your assistant knows, the better it can help._
 _Customize this to give your assistant a unique identity._
 """,
 }
+
+
+def _render_template(template: str, bot_name: str = "Voxy", user_name: str = "") -> str:
+    """Substitute placeholders in a personality file template."""
+    return template.replace("{bot_name}", bot_name or "Voxy").replace("{user_name}", user_name or "")
 
 
 @router.get("/personality/files/{filename}")
@@ -371,9 +385,9 @@ async def read_personality_file(filename: str):
 
 @router.put("/personality/files/{filename}")
 async def write_personality_file(filename: str, body: dict):
-    """Write a personality file."""
-    if filename not in ALLOWED_FILES:
-        raise HTTPException(400, f"File not allowed: {filename}")
+    """Write a user-editable personality file (USER.md, IDENTITY.md only)."""
+    if filename not in EDITABLE_FILES:
+        raise HTTPException(400, f"File '{filename}' is not user-editable.")
 
     path = PERSONALITY_DIR / filename
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -384,18 +398,41 @@ async def write_personality_file(filename: str, body: dict):
 
 @router.post("/personality/files/{filename}/reset")
 async def reset_personality_file(filename: str):
-    """Reset a personality file to default template."""
-    if filename not in ALLOWED_FILES:
-        raise HTTPException(400, f"File not allowed: {filename}")
+    """Reset USER.md or IDENTITY.md to default template (with current settings values)."""
+    if filename not in EDITABLE_FILES:
+        raise HTTPException(400, f"File '{filename}' cannot be reset via the UI.")
 
     template = DEFAULT_TEMPLATES.get(filename)
     if not template:
         raise HTTPException(400, f"No default template for: {filename}")
 
+    # Substitute current settings values into the template
+    data = await _load_settings_from_db() or {}
+    bot_name = (data.get("personality", {}) or {}).get("bot_name") or data.get("assistant_name") or "Voxy"
+    user_name = data.get("user_name") or ""
+    content = _render_template(template, bot_name=bot_name, user_name=user_name)
+
     path = PERSONALITY_DIR / filename
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(template, encoding="utf-8")
-    return {"status": "reset", "filename": filename, "size": len(template)}
+    path.write_text(content, encoding="utf-8")
+    return {"status": "reset", "filename": filename, "size": len(content)}
+
+
+async def init_personality_files() -> None:
+    """Generate USER.md and IDENTITY.md from templates on first run if missing or empty."""
+    data = await _load_settings_from_db() or {}
+    bot_name = (data.get("personality", {}) or {}).get("bot_name") or data.get("assistant_name") or "Voxy"
+    user_name = data.get("user_name") or ""
+
+    for filename, template in DEFAULT_TEMPLATES.items():
+        if filename not in EDITABLE_FILES:
+            continue
+        path = PERSONALITY_DIR / filename
+        if not path.exists() or path.stat().st_size == 0:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            content = _render_template(template, bot_name=bot_name, user_name=user_name)
+            path.write_text(content, encoding="utf-8")
+            logger.info("Generated %s from template (bot_name=%s, user_name=%s)", filename, bot_name, user_name)
 
 
 @router.post("/tts/speak")

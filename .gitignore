@@ -58,7 +58,9 @@ certs/
 settings.json
 
 # User-specific personality data (personal info, runtime memory)
+# Generated from templates on first run — do not commit
 personality/USER.md
+personality/IDENTITY.md
 personality/MEMORY.md
 
 # Backup files

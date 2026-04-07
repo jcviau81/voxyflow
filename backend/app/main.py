@@ -116,6 +116,14 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         logger.warning("Failed to load settings from DB: %s — using defaults", _e)
 
+    # Generate USER.md and IDENTITY.md from templates if missing
+    try:
+        from app.routes.settings import init_personality_files
+        await init_personality_files()
+        logger.info("✅ Personality files initialized")
+    except Exception as _e:
+        logger.warning("Failed to initialize personality files: %s", _e)
+
     # Cleanup stale worker tasks (done/failed/cancelled older than 24h)
     await _cleanup_stale_worker_tasks()
 

@@ -68,6 +68,25 @@ function PillGroup({ options, value, onChange }: PillGroupProps) {
 
 // ── Panel ──────────────────────────────────────────────────────────────────
 
+async function fetchFile(filename: string): Promise<string> {
+  const res = await fetch(`/api/settings/personality/files/${filename}`);
+  const data = await res.json() as { content: string };
+  return data.content ?? '';
+}
+
+async function saveFile(filename: string, content: string): Promise<void> {
+  await fetch(`/api/settings/personality/files/${filename}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+}
+
+async function resetFile(filename: string): Promise<string> {
+  await fetch(`/api/settings/personality/files/${filename}/reset`, { method: 'POST' });
+  return fetchFile(filename);
+}
+
 export function PersonalityPanel() {
   const queryClient = useQueryClient();
 
@@ -88,6 +107,12 @@ export function PersonalityPanel() {
   const [customInstructions, setCustomInstructions] = useState(ps.custom_instructions);
   const [saved, setSaved] = useState(false);
 
+  // File editors
+  const [userMd, setUserMd] = useState('');
+  const [identityMd, setIdentityMd] = useState('');
+  const [fileSaved, setFileSaved] = useState<string | null>(null);
+  const [fileSection, setFileSection] = useState<'user' | 'identity' | null>(null);
+
   // Sync from server
   useEffect(() => {
     if (settings) {
@@ -100,6 +125,29 @@ export function PersonalityPanel() {
       setCustomInstructions(p.custom_instructions);
     }
   }, [settings]);
+
+  // Load file contents when section opens
+  useEffect(() => {
+    if (fileSection === 'user' && !userMd) {
+      void fetchFile('USER.md').then(setUserMd);
+    } else if (fileSection === 'identity' && !identityMd) {
+      void fetchFile('IDENTITY.md').then(setIdentityMd);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileSection]);
+
+  async function handleFileSave(filename: string, content: string) {
+    await saveFile(filename, content);
+    setFileSaved(filename);
+    setTimeout(() => setFileSaved(null), 2000);
+  }
+
+  async function handleFileReset(filename: string, setter: (c: string) => void) {
+    const content = await resetFile(filename);
+    setter(content);
+    setFileSaved(filename + '_reset');
+    setTimeout(() => setFileSaved(null), 2000);
+  }
 
   const saveMutation = useMutation({
     mutationFn: async (updates: { personality: Partial<PersonalitySettings>; user_name: string; assistant_name: string }) => {
@@ -249,6 +297,99 @@ export function PersonalityPanel() {
       >
         {saved ? 'Saved!' : saveMutation.isPending ? 'Saving...' : 'Save'}
       </button>
+
+      {/* ── File editors ──────────────────────────────────────────────── */}
+      <div className="border-t border-border pt-5 space-y-3">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Profile Files</p>
+
+        {/* USER.md */}
+        <div className="rounded-md border border-border overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setFileSection(fileSection === 'user' ? null : 'user')}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors"
+          >
+            <span>📋 USER.md — Your profile</span>
+            <span className="text-muted-foreground text-xs">{fileSection === 'user' ? '▲' : '▼'}</span>
+          </button>
+          {fileSection === 'user' && (
+            <div className="p-3 space-y-2 border-t border-border bg-muted/20">
+              <p className="text-xs text-muted-foreground">Describes you to the assistant. Editable — the assistant may also update this over time.</p>
+              <textarea
+                value={userMd}
+                onChange={(e) => setUserMd(e.target.value)}
+                rows={10}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-y"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleFileSave('USER.md', userMd)}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-medium rounded-md border transition-colors',
+                    fileSaved === 'USER.md'
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                      : 'bg-primary/20 text-primary border-primary/40 hover:bg-primary/30'
+                  )}
+                >
+                  {fileSaved === 'USER.md' ? 'Saved!' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleFileReset('USER.md', setUserMd)}
+                  className="px-3 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                >
+                  {fileSaved === 'USER.md_reset' ? 'Reset!' : 'Reset to default'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* IDENTITY.md */}
+        <div className="rounded-md border border-border overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setFileSection(fileSection === 'identity' ? null : 'identity')}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors"
+          >
+            <span>🤖 IDENTITY.md — Assistant identity</span>
+            <span className="text-muted-foreground text-xs">{fileSection === 'identity' ? '▲' : '▼'}</span>
+          </button>
+          {fileSection === 'identity' && (
+            <div className="p-3 space-y-2 border-t border-border bg-muted/20">
+              <p className="text-xs text-muted-foreground">Defines your assistant's name, emoji, and vibe. Name field is synced with the assistant name above.</p>
+              <textarea
+                value={identityMd}
+                onChange={(e) => setIdentityMd(e.target.value)}
+                rows={8}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-y"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleFileSave('IDENTITY.md', identityMd)}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-medium rounded-md border transition-colors',
+                    fileSaved === 'IDENTITY.md'
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                      : 'bg-primary/20 text-primary border-primary/40 hover:bg-primary/30'
+                  )}
+                >
+                  {fileSaved === 'IDENTITY.md' ? 'Saved!' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleFileReset('IDENTITY.md', setIdentityMd)}
+                  className="px-3 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                >
+                  {fileSaved === 'IDENTITY.md_reset' ? 'Reset!' : 'Reset to default'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
