@@ -579,7 +579,7 @@ class DeepWorkerPool:
                 if is_lightweight:
                     logger.info(f"[LightWorker] Routing {event.task_id} to lightweight worker ({event.intent})")
                     result_content = await self._claude.execute_lightweight_task(
-                        chat_id=task_chat_id,
+                        chat_id=event.data.get("dispatcher_chat_id") or task_chat_id,
                         prompt=execution_prompt,
                         model=event.model,
                         project_id=event.data.get("project_id"),
@@ -591,7 +591,7 @@ class DeepWorkerPool:
                     )
                 else:
                     result_content = await self._claude.execute_worker_task(
-                        chat_id=task_chat_id,
+                        chat_id=event.data.get("dispatcher_chat_id") or task_chat_id,
                         prompt=execution_prompt,
                         model=event.model,
                         chat_level=chat_level,
