@@ -68,7 +68,7 @@ function parseSessionLabel(chatId: string | null, cardTitles: Record<string, str
     return title ? `Card: ${title}` : `Card: ${cardId.slice(0, 8)}`;
   }
   // Project chat session: "project:<uuid>" or "general:system-main"
-  if (chatId.startsWith('general:')) return 'General Chat';
+  if (chatId.startsWith('general:')) return 'Chat';
   return 'Project Chat';
 }
 
@@ -333,7 +333,7 @@ function SessionRow({ session, projectId, onCancel, onSteer }: {
   };
 
   return (
-    <div className="ml-3">
+    <div>
       <button
         className={cn(
           'flex items-center gap-1 w-full text-left py-0.5 text-[11px] transition-colors cursor-pointer rounded hover:bg-accent/10',
@@ -496,7 +496,7 @@ function ProjectGroup({ project, onCancel, onSteer }: {
   return (
     <div>
       <button
-        className="flex items-center gap-1 w-full px-1 py-0.5 text-[11px] font-bold text-foreground hover:text-accent cursor-pointer rounded hover:bg-accent/10 transition-colors"
+        className="flex items-center gap-1 w-full px-1 text-[11px] font-bold text-foreground hover:text-accent cursor-pointer rounded hover:bg-accent/10 transition-colors"
         onClick={handleProjectClick}
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
