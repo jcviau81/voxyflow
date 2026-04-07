@@ -127,6 +127,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
   const updateProject = useUpdateProject();
   const archiveProject = useArchiveProject();
   const createFromTemplate = useCreateProjectFromTemplate();
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const nameRef = useRef<HTMLInputElement | null>(null);
 
@@ -244,8 +245,9 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   async function onSubmit(values: FormValues) {
+    setSubmitError(null);
     const githubConnected = githubStatus.type === 'connected' ? githubStatus.info : null;
-
+    try {
     if (mode === 'create') {
       if (selectedTemplateId) {
         await createFromTemplate.mutateAsync({
@@ -295,6 +297,9 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
       }
     }
     onClose();
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'An error occurred');
+    }
   }
 
   async function handleArchiveToggle() {
@@ -631,6 +636,13 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                 <option value="archived">Archived</option>
               </select>
             </div>
+          )}
+
+          {/* ── Submit error ── */}
+          {submitError && (
+            <p className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
+              {submitError}
+            </p>
           )}
 
           {/* ── Actions ── */}

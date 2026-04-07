@@ -113,11 +113,28 @@ export function useSprints(projectId: string) {
 export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { name: string; description?: string }) => {
+    mutationFn: async (data: {
+      name: string;
+      description?: string;
+      localPath?: string;
+      githubRepo?: string;
+      githubUrl?: string;
+      githubBranch?: string;
+      githubLanguage?: string;
+    }) => {
+      const body: Record<string, unknown> = {
+        title: data.name,
+        description: data.description ?? '',
+      };
+      if (data.localPath) body.local_path = data.localPath;
+      if (data.githubRepo) body.github_repo = data.githubRepo;
+      if (data.githubUrl) body.github_url = data.githubUrl;
+      if (data.githubBranch) body.github_branch = data.githubBranch;
+      if (data.githubLanguage) body.github_language = data.githubLanguage;
       const raw = await apiFetch<Record<string, unknown>>('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: data.name, description: data.description ?? '' }),
+        body: JSON.stringify(body),
       });
       return mapRawProject(raw);
     },
