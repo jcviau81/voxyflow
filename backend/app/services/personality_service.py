@@ -16,7 +16,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Voxyflow's own personality directory (NOT OpenClaw workspace)
-VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow")))
+VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.voxyflow")))
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
 # Personality files — isolated to Voxyflow
