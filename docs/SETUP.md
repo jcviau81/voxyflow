@@ -101,6 +101,10 @@ CLAUDE_USE_CLI=true
 CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
 CLAUDE_SONNET_MODEL=claude-sonnet-4-6
 CLAUDE_DEEP_MODEL=claude-opus-4-6
+
+# CLI rate limiter (prevents 529 rate limit errors on Max subscription)
+CLI_MAX_CONCURRENT=2    # Max simultaneous CLI API calls (default: 2)
+CLI_MIN_SPACING_MS=500  # Min delay between calls in ms (default: 500)
 ```
 
 > **Config ownership rules:**
@@ -191,6 +195,15 @@ Uses your Claude Max subscription by spawning `claude -p` subprocesses. No API k
    CLAUDE_SONNET_MODEL=claude-sonnet-4-6
    CLAUDE_DEEP_MODEL=claude-opus-4-6
    ```
+
+**Rate limiting:** The CLI backend includes a built-in rate gate (`CliRateGate`) that prevents 529 "overloaded" errors from the Max subscription. It limits concurrent API calls and enforces minimum spacing between requests. Configure via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLI_MAX_CONCURRENT` | `2` | Maximum simultaneous CLI API calls across all layers and workers |
+| `CLI_MIN_SPACING_MS` | `500` | Minimum delay (ms) between consecutive API calls to prevent bursts |
+
+Increase `CLI_MAX_CONCURRENT` if you have headroom on your subscription and want faster parallel worker execution. Decrease it if you share your Max subscription across multiple machines or sessions.
 
 ### Native Anthropic SDK (`CLAUDE_USE_NATIVE=true`)
 
@@ -464,6 +477,7 @@ journalctl --user -u voxyflow-backend -f
 | `RAGService init failed` | Check `~/.voxyflow/chroma/` permissions |
 | `GitHub: gh not installed` | Install `gh` CLI or configure PAT in Settings |
 | No LLM response | Check `CLAUDE_USE_CLI=true` in `.env` and `claude` CLI is installed and authenticated |
+| `529 rate_limit` / chat hangs | Too many concurrent CLI calls — lower `CLI_MAX_CONCURRENT` or close other Claude sessions |
 | STT not working | Chrome/Edge required for Web Speech API; check microphone permissions; HTTPS required in production |
 | TTS silent | Check TTS Server URL in Settings → Voice is reachable; check backend logs for proxy errors |
 | Whisper WASM won't load | Set a valid HuggingFace model ID in Settings → Voice (e.g. `onnx-community/whisper-small`) |
