@@ -56,21 +56,21 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 **The conversation is never blocked by running tasks.**
 
 - The **Chat Agent (Dispatcher)** has inline tools (card CRUD, memory, knowledge search) for fast operations, and emits `<delegate>` blocks for complex tasks.
-- **Workers** run in the background via `claude -p` subprocesses with full MCP tool access (53 tools), and report results via WebSocket.
+- **Workers** run in the background via `claude -p` subprocesses with full MCP tool access (~60 tools), and report results via WebSocket.
 - The **Analyzer** passively observes conversations and surfaces opportunities (card suggestions, patterns) without interrupting.
 
 ## Key Design Decisions
 
 ### Voice-First, Not Voice-Only
-- Primary input is voice (STT via Whisper WASM on desktop, Web Speech API on mobile)
-- Text fallback always available
-- TTS via XTTS v2 server (high-quality, GPU-accelerated) with browser speechSynthesis fallback
-- Visual kanban cards auto-generated from conversation
+- **STT:** Web Speech API (browser-native, default on all platforms) or Whisper WASM (opt-in, runs locally in a WebWorker — no server needed)
+- Text input always available
+- **TTS:** XTTS v2 server (optional, GPU-accelerated, sentence-by-sentence SSE streaming) with browser speechSynthesis fallback
+- **Wake word:** "Voxy" triggers continuous recording mode without touching the keyboard
 
 ### LLM Backend — CLI Subprocess (Active)
 - Spawns `claude -p` subprocesses using Claude Max subscription
 - Chat layers: streaming via `--output-format stream-json`
-- Workers: non-streaming with `--mcp-config` for full MCP tool access (53 tools)
+- Workers: non-streaming with `--mcp-config` for full MCP tool access (~60 tools)
 - Permissions: `--permission-mode bypassPermissions` (MCP tools are our own REST API)
 - Alternative paths available: Native Anthropic SDK, OpenAI-compatible proxy (deprecated)
 
@@ -88,6 +88,8 @@ Cards and conversations can be routed to specialized agents:
 4. **Architect** 🏗️ — System design, planning, PRD writing
 5. **Writer** ✍️ — Content, marketing, storytelling
 6. **QA** 🧪 — Testing strategies, edge cases, validation
+
+Auto-routing detects the best agent from card title/description via two-pass keyword scoring (no LLM call).
 
 ### ReactiveCardStore (Single Source of Truth)
 All card data on the frontend flows through `useCardStore` (`frontend-react/src/stores/useCardStore.ts`), a centralized Map-based singleton. Components subscribe to global or per-card changes and re-render automatically. This replaces ad-hoc fetching patterns and eliminates stale data.
@@ -149,7 +151,7 @@ voxyflow/
 │       ├── main.py              # FastAPI app + WebSocket handlers
 │       ├── config.py            # Settings (env vars + keyring)
 │       ├── database.py          # SQLAlchemy models
-│       ├── mcp_server.py        # MCP tool definitions (53 tools)
+│       ├── mcp_server.py        # MCP tool definitions (~60 tools)
 │       ├── models/              # Pydantic schemas
 │       ├── routes/              # REST API endpoints
 │       └── services/

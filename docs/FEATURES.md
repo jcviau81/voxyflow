@@ -705,7 +705,7 @@ The scheduler automatically re-indexes project documents on a periodic basis (se
 
 | Type | Name | Emoji | Specialty |
 |------|------|-------|-----------|
-| `ember` | Ember | 🔥 | Default — general tasks, fallback |
+| _(default)_ | — | — | No specialization — general conversation, coordination, fallback |
 | `researcher` | Recherchiste | 🔍 | Deep analysis, fact-checking, reports |
 | `coder` | Codeuse | 💻 | Code generation, debugging, optimization |
 | `designer` | Designer | 🎨 | UI/UX, wireframes, design systems |

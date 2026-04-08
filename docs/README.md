@@ -12,7 +12,7 @@ Voxyflow is a voice-first project management assistant that lives locally. You s
 - **Dispatcher + Workers** — Chat Agent (Dispatcher) responds instantly, Workers execute in background, Analyzer detects opportunities passively
 - **Project management** — Create projects with GitHub integration, tech stack auto-detection, and Kanban boards
 - **Kanban boards** — Per-project boards with drag & drop, 4 columns, agent assignment
-- **7 specialized agents** — Ember, Codeuse, Architecte, Recherchiste, Designer, Rédactrice, QA
+- **6 specialized agents** — Researcher, Coder, Designer, Architect, Writer, QA (+ default general mode)
 - **RAG knowledge base** — Per-project ChromaDB collections; upload `.txt`/`.md` docs to inject into context
 - **Free Board** — Sticky-note scratchpad for the general chat with 6 pastel colors
 - **Opportunities panel** — AI-suggested cards from conversation analysis

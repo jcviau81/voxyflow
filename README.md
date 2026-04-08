@@ -134,7 +134,6 @@ Unassigned sticky-note cards outside any project. Color-coded (6 colors). Same c
 
 | Agent | Role |
 |-------|------|
-| 🔥 Ember | General assistant — default for conversations |
 | 🔍 Researcher | Deep analysis, fact-checking, long-form |
 | 💻 Coder | Code generation, debugging, optimization |
 | 🎨 Designer | UI/UX thinking, visual design guidance |
@@ -283,7 +282,7 @@ voxyflow/
 | [UI_GUIDE.md](docs/UI_GUIDE.md) | Interface guide — every view explained |
 | [FEATURES.md](docs/FEATURES.md) | Complete feature reference |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture deep-dive |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture deep-dive |
 | [API.md](docs/API.md) | REST & WebSocket API reference |
 
 ---
