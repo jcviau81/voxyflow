@@ -72,7 +72,7 @@ async def _save_settings_to_db(data: dict):
 
 class PersonalitySettings(BaseModel):
     bot_name: str = "Assistant"
-    preferred_language: str = "both"  # "en", "fr", "both"
+    preferred_language: str = "auto"  # "auto" | "en" | "fr" | "es" | "de" | "it" | "pt" | "nl" | "ja" | "zh" | "ko" | "ar"
     soul_file: str = "./personality/SOUL.md"
     user_file: str = "./personality/USER.md"
     agents_file: str = "./personality/AGENTS.md"

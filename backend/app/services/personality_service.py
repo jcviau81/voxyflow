@@ -47,9 +47,19 @@ WARMTH_MODIFIERS = {
 }
 
 LANGUAGE_INSTRUCTIONS = {
-    "en": "Always respond in English, regardless of the user's language.",
-    "fr": "Réponds toujours en français, peu importe la langue de l'utilisateur.",
-    "both": "Respond in the same language the user speaks (French or English).",
+    "auto":  "Respond in the same language the user writes in. Detect it from their message.",
+    "both":  "Respond in the same language the user writes in. Detect it from their message.",  # legacy alias
+    "en":    "Always respond in English, regardless of the user's language.",
+    "fr":    "Réponds toujours en français, peu importe la langue de l'utilisateur.",
+    "es":    "Responde siempre en español, independientemente del idioma del usuario.",
+    "de":    "Antworte immer auf Deutsch, unabhängig von der Sprache des Benutzers.",
+    "it":    "Rispondi sempre in italiano, indipendentemente dalla lingua dell'utente.",
+    "pt":    "Responde sempre em português, independentemente da língua do utilizador.",
+    "nl":    "Antwoord altijd in het Nederlands, ongeacht de taal van de gebruiker.",
+    "ja":    "ユーザーの言語に関わらず、常に日本語で応答してください。",
+    "zh":    "无论用户使用何种语言，请始终用中文回复。",
+    "ko":    "사용자의 언어에 관계없이 항상 한국어로 응답하세요.",
+    "ar":    "أجب دائماً باللغة العربية، بغض النظر عن لغة المستخدم.",
 }
 
 
@@ -461,7 +471,7 @@ class PersonalityService:
         tone = ps.get("tone", "casual")
         warmth = ps.get("warmth", "warm")
 
-        preferred_language = ps.get("preferred_language", "both")
+        preferred_language = ps.get("preferred_language", "auto")
 
         style_parts = []
         if tone in TONE_MODIFIERS:

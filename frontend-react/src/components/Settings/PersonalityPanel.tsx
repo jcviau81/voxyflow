@@ -28,7 +28,7 @@ interface AppSettings {
 
 const DEFAULTS: PersonalitySettings = {
   bot_name: 'Voxy',
-  preferred_language: 'both',
+  preferred_language: 'auto',
   tone: 'casual',
   warmth: 'warm',
   custom_instructions: '',
@@ -230,16 +230,25 @@ export function PersonalityPanel() {
 
       {/* Language */}
       <div className="space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">Response Language</label>
-        <PillGroup
-          options={[
-            { value: 'en', label: 'English' },
-            { value: 'fr', label: 'Francais' },
-            { value: 'both', label: 'Auto (match user)' },
-          ]}
+        <label className="text-xs font-medium text-muted-foreground">Preferred Response Language</label>
+        <select
           value={language}
-          onChange={setLanguage}
-        />
+          onChange={(e) => setLanguage(e.target.value)}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+        >
+          <option value="auto">Auto — match the user's language</option>
+          <option value="en">English</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="it">Italiano</option>
+          <option value="pt">Português</option>
+          <option value="nl">Nederlands</option>
+          <option value="ja">日本語</option>
+          <option value="zh">中文</option>
+          <option value="ko">한국어</option>
+          <option value="ar">العربية</option>
+        </select>
       </div>
 
       {/* Tone */}
