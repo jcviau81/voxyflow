@@ -32,13 +32,10 @@ from app.routes.settings import get_default_worker_model
 # Logging
 # ---------------------------------------------------------------------------
 
-logging.basicConfig(
-    level=logging.DEBUG if get_settings().debug else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("voxyflow")
+_log_level = logging.DEBUG if get_settings().debug else logging.INFO
+_log_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
-# --- File-based logging ---
+# --- File-based logging (primary) ---
 _log_dir = os.path.expanduser("~/.voxyflow/logs")
 os.makedirs(_log_dir, exist_ok=True)
 _log_file = os.path.join(_log_dir, "backend.log")
@@ -48,11 +45,17 @@ _file_handler = RotatingFileHandler(
     backupCount=3,
     encoding="utf-8",
 )
-_file_handler.setLevel(logging.DEBUG if get_settings().debug else logging.INFO)
-_file_handler.setFormatter(
-    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-)
-logging.getLogger().addHandler(_file_handler)
+_file_handler.setLevel(_log_level)
+_file_handler.setFormatter(logging.Formatter(_log_fmt))
+
+# Configure root logger with file handler only — stderr is already
+# redirected to backend.log by systemd, so basicConfig's StreamHandler
+# would duplicate every line.
+_root = logging.getLogger()
+_root.setLevel(_log_level)
+_root.addHandler(_file_handler)
+
+logger = logging.getLogger("voxyflow")
 logger.info("File logging enabled: %s (max 10MB, 3 backups)", _log_file)
 
 
@@ -227,6 +230,11 @@ app = FastAPI(
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception):
     """Log unhandled exceptions so 500s leave a traceback in backend.log."""
+    from fastapi.exceptions import HTTPException as FastAPIHTTPException
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+    # Let FastAPI handle its own HTTP exceptions (404, 409, etc.) normally
+    if isinstance(exc, (FastAPIHTTPException, StarletteHTTPException)):
+        raise exc
     logger.error("Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path, exc_info=exc)
     return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
