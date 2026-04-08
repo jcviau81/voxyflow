@@ -364,21 +364,6 @@ export function useReorderCards() {
   });
 }
 
-export function useEnrichCard() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ cardId }: { cardId: string; projectId?: string }) => {
-      return apiFetch<{ description: string; checklist_items: string[]; effort: string; tags: string[] }>(
-        `/api/cards/${cardId}/enrich`,
-        { method: 'POST' }
-      );
-    },
-    onSuccess: (_data, { cardId, projectId }) => {
-      qc.invalidateQueries({ queryKey: cardKeys.detail(cardId) });
-      if (projectId) qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
-    },
-  });
-}
 
 export function useExecuteCard() {
   return useMutation({
