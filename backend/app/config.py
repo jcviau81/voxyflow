@@ -37,7 +37,7 @@ from functools import lru_cache
 logger = logging.getLogger(__name__)
 
 # Canonical path constants — import these instead of recomputing in each module
-VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", str(Path.home() / "voxyflow")))
+VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", str(Path.home() / ".voxyflow")))
 VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
 VOXYFLOW_WORKSPACE_DIR = Path(os.environ.get("VOXYFLOW_WORKSPACE_DIR", str(VOXYFLOW_DATA_DIR / "workspace")))
 SETTINGS_FILE = VOXYFLOW_DATA_DIR / "settings.json"  # lives in data dir (outside repo)

@@ -44,7 +44,7 @@ except ImportError:
 # Constants
 # ---------------------------------------------------------------------------
 
-WORKSPACE_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/voxyflow"))) / "personality"
+WORKSPACE_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.voxyflow"))) / "personality"
 MEMORY_FILE = WORKSPACE_DIR / "MEMORY.md"
 MEMORY_DIR = WORKSPACE_DIR / "memory"
 
