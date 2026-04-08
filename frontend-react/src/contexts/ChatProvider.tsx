@@ -184,13 +184,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const projectId = sessionId.split(':')[1];
       if (projectId) return projectId;
     }
-    return projectStoreRef.current.currentProjectId || SYSTEM_PROJECT_ID;
+    return SYSTEM_PROJECT_ID;
   }, []);
 
   const getProjectIdFromSession = useCallback((sessionId?: string): string => {
-    if (!sessionId) return projectStoreRef.current.currentProjectId || SYSTEM_PROJECT_ID;
+    if (!sessionId) return SYSTEM_PROJECT_ID;
     if (sessionId.startsWith('project:')) return sessionId.slice('project:'.length);
-    if (sessionId.startsWith('card:')) return projectStoreRef.current.currentProjectId || SYSTEM_PROJECT_ID;
     return SYSTEM_PROJECT_ID;
   }, []);
 
@@ -742,14 +741,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const message = store.addMessage({
         role: 'user',
         content,
-        projectId: projectId || pStore.currentProjectId || undefined,
+        projectId: projectId || undefined,
         cardId,
         sessionId,
       });
 
       const layers = getLayerState();
-      const currentProjectId =
-        message.projectId || pStore.currentProjectId || SYSTEM_PROJECT_ID;
+      const currentProjectId = message.projectId || SYSTEM_PROJECT_ID;
       const currentCardId = message.cardId || pStore.selectedCardId;
       let chatLevel: 'general' | 'project' | 'card' = 'general';
       if (currentCardId) {
@@ -784,10 +782,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       cardId?: string,
       sessionId?: string,
     ) => {
-      const pStore = projectStoreRef.current;
       const layers = getLayerState();
-      const currentProjectId = projectId || pStore.currentProjectId || SYSTEM_PROJECT_ID;
-      const currentCardId = cardId || pStore.selectedCardId || undefined;
+      const currentProjectId = projectId || SYSTEM_PROJECT_ID;
+      const currentCardId = cardId || undefined;
       let chatLevel: 'general' | 'project' | 'card' = 'general';
       if (currentCardId) chatLevel = 'card';
       else if (currentProjectId && currentProjectId !== SYSTEM_PROJECT_ID) chatLevel = 'project';

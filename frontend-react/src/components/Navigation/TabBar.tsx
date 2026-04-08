@@ -3,7 +3,6 @@ import { Lightbulb, Bell, X, Home, Folder, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
-import { useProjectStore } from '../../stores/useProjectStore';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useWS } from '../../providers/WebSocketProvider';
@@ -19,9 +18,7 @@ export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }:
   const navigate = useNavigate();
   const openTabs = useTabStore((s) => s.openTabs);
   const activeTab = useTabStore((s) => s.activeTab);
-  const switchTab = useTabStore((s) => s.switchTab);
   const closeTab = useTabStore((s) => s.closeTab);
-  const selectProject = useProjectStore((s) => s.selectProject);
   const sessions = useSessionStore((s) => s.sessions);
   const closeSession = useSessionStore((s) => s.closeSession);
   const notificationUnreadCount = useNotificationStore((s) => s.notificationUnreadCount);
@@ -29,16 +26,14 @@ export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }:
 
   const handleSwitchTab = useCallback(
     (tabId: string) => {
-      switchTab(tabId);
+      // Navigate only — AppShell syncs stores from URL
       if (tabId === 'main') {
-        selectProject(null);
         navigate('/');
       } else {
-        selectProject(tabId);
         navigate(`/project/${tabId}`);
       }
     },
-    [switchTab, selectProject, navigate],
+    [navigate],
   );
 
   const handleCloseTab = useCallback(
@@ -58,8 +53,16 @@ export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }:
       }
 
       closeTab(tab.id);
+
+      // Navigate to wherever closeTab landed
+      const newActive = useTabStore.getState().activeTab;
+      if (newActive === 'main') {
+        navigate('/');
+      } else {
+        navigate(`/project/${newActive}`);
+      }
     },
-    [sessions, send, closeSession, closeTab]
+    [sessions, send, closeSession, closeTab, navigate]
   );
 
 

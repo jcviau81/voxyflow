@@ -16,6 +16,7 @@ import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { useViewStore } from '../../stores/useViewStore';
 import { useProjectStore } from '../../stores/useProjectStore';
+import { useTabStore } from '../../stores/useTabStore';
 import { CardDetailModal } from '../CardDetail';
 import { Sidebar } from '../Navigation/Sidebar';
 import { TabBar } from '../Navigation/TabBar';
@@ -51,6 +52,38 @@ export function AppShell() {
       useProjectStore.getState().setProjects(projects);
     }
   }, [projects]);
+
+  // ── URL → store sync (single source of truth) ──
+  useEffect(() => {
+    const match = location.pathname.match(/^\/project\/(.+)$/);
+    const projectId = match?.[1] ?? null;
+
+    const pStore = useProjectStore.getState();
+    const tStore = useTabStore.getState();
+
+    if (projectId) {
+      // Sync project store from URL
+      if (pStore.currentProjectId !== projectId) {
+        pStore.selectProject(projectId);
+      }
+      // Ensure tab exists and is active
+      const tabExists = tStore.openTabs.some((t) => t.id === projectId);
+      if (!tabExists) {
+        const project = pStore.getProject(projectId);
+        tStore.openProjectTab(projectId, project?.name ?? 'Project', project?.emoji);
+      } else if (tStore.activeTab !== projectId) {
+        tStore.switchTab(projectId);
+      }
+    } else {
+      // Main page or non-project route
+      if (pStore.currentProjectId !== null) {
+        pStore.selectProject(null);
+      }
+      if (tStore.activeTab !== 'main') {
+        tStore.switchTab('main');
+      }
+    }
+  }, [location.pathname]);
 
   // Subscribe to card suggestion events from ChatProvider
   useEffect(() => {

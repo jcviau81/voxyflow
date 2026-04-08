@@ -90,7 +90,6 @@ function ProjectItem({
     [cardsById, project.id],
   );
   const openTabs = useTabStore((s) => s.openTabs);
-  const openProjectTab = useTabStore((s) => s.openProjectTab);
 
   const isTabOpen = openTabs.some((t) => t.id === project.id);
 
@@ -108,7 +107,7 @@ function ProjectItem({
       : 'No cards yet';
 
   const handleClick = () => {
-    openProjectTab(project.id, project.name, project.emoji);
+    // Navigate only — AppShell syncs tab + project stores from URL
     navigate(`/project/${project.id}`);
   };
 

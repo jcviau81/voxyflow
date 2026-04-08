@@ -303,7 +303,7 @@ export function ProjectList() {
     }
   }, [searchParams, setSearchParams]);
 
-  const { currentProjectId, selectProject } = useProjectStore();
+  const { currentProjectId } = useProjectStore();
   const archiveMutation = useArchiveProject();
   const deleteMutation = useDeleteProject();
   const favoriteMutation = useToggleFavorite();
@@ -358,7 +358,6 @@ export function ProjectList() {
 
   // ── Actions ───────────────────────────────────────────────────────────────
   function handleOpen(project: Project) {
-    selectProject(project.id);
     void navigate(`/project/${project.id}`);
   }
 

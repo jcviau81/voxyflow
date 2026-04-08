@@ -108,7 +108,7 @@ export const useTabStore = create<TabState>()(
       name: 'voxyflow_open_tabs',
       partialize: (state) => ({
         openTabs: state.openTabs,
-        activeTab: state.activeTab,
+        // activeTab is derived from URL (synced by AppShell) — not persisted
       }),
       // Migration: ensure main tab always exists and has correct defaults
       onRehydrateStorage: () => (state) => {

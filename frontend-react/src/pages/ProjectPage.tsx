@@ -27,21 +27,12 @@ const PROJECT_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'knowledge', 'stat
 
 export function ProjectPage() {
   const { id } = useParams<{ id: string }>();
-  const selectProject = useProjectStore((s) => s.selectProject);
   const selectCard = useProjectStore((s) => s.selectCard);
   const getProject = useProjectStore((s) => s.getProject);
   const currentView = useViewStore((s) => s.currentView);
   const setView = useViewStore((s) => s.setView);
 
-  // Sync project ID into the store whenever the URL param changes
-  useEffect(() => {
-    if (id) {
-      selectProject(id);
-    }
-    return () => {
-      // Do NOT clear on unmount — AppShell handles tab switching
-    };
-  }, [id, selectProject]);
+  // Project ID sync is handled by AppShell's URL → store effect
 
   // Reset to chat if current view is not valid for a project tab
   useEffect(() => {

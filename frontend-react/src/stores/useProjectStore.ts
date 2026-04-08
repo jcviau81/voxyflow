@@ -113,7 +113,7 @@ export const useProjectStore = create<ProjectState>()(
       name: 'voxyflow_projects',
       partialize: (state) => ({
         projects: state.projects,
-        currentProjectId: state.currentProjectId,
+        // currentProjectId is derived from URL (synced by AppShell) — not persisted
         selectedCardId: state.selectedCardId,
       }),
     }
