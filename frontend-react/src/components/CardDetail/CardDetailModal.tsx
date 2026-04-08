@@ -431,6 +431,17 @@ export function CardDetailModal() {
                   nextDate={card.recurrenceNext}
                   onChange={handleRecurrenceChange}
                 />
+                <div>
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={card.recurring ?? false}
+                      onChange={(e) => save({ recurring: e.target.checked })}
+                      className="rounded border-border accent-primary cursor-pointer"
+                    />
+                    Recurring (reset to todo after board run)
+                  </label>
+                </div>
               </section>
 
               <hr className="border-border" />

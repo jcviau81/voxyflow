@@ -96,6 +96,7 @@ async def create_card(
         agent_type=agent_type,
         agent_assigned=agent_display,
         agent_context=body.agent_context,
+        recurring=body.recurring,
         recurrence=body.recurrence,
         recurrence_next=body.recurrence_next,
     )
@@ -403,6 +404,7 @@ async def duplicate_card(card_id: str, db: AsyncSession = Depends(get_db)):
         assignee=card.assignee,
         watchers=card.watchers,
         votes=0,
+        recurring=card.recurring or False,
         recurrence=card.recurrence,
         recurrence_next=card.recurrence_next,
     )
@@ -625,6 +627,7 @@ async def clone_card_to_project(
         assignee=card.assignee,
         watchers=card.watchers,
         votes=0,
+        recurring=card.recurring or False,
         recurrence=card.recurrence,
         recurrence_next=card.recurrence_next,
     )
@@ -803,6 +806,7 @@ def _card_to_response(card: Card) -> CardResponse:
         assignee=card.assignee,
         watchers=card.watchers or "",
         votes=card.votes or 0,
+        recurring=card.recurring or False,
         recurrence=card.recurrence,
         recurrence_next=card.recurrence_next,
         files=json.loads(card.files) if card.files else [],

@@ -38,7 +38,7 @@ JOBS_FILE = VOXYFLOW_DIR / "jobs.json"
 # Schema
 # ---------------------------------------------------------------------------
 
-JobType = Literal["reminder", "github_sync", "rag_index", "custom"]
+JobType = Literal["reminder", "github_sync", "rag_index", "custom", "board_run"]
 
 
 class JobModel(BaseModel):
@@ -252,6 +252,8 @@ async def _execute_job(job: dict) -> dict:
             return await _run_reminder(job, payload)
         elif job_type == "github_sync":
             return await _run_github_sync(job, payload)
+        elif job_type == "board_run":
+            return await _run_board_run(job, payload)
         elif job_type == "custom":
             return await _run_custom(job, payload)
         else:
@@ -292,6 +294,45 @@ async def _run_github_sync(job: dict, payload: dict) -> dict:
     repo = payload.get("repo", "")
     logger.info(f"[Jobs][GithubSync] Would sync repo: {repo}")
     return {"status": "ok", "message": f"GitHub sync placeholder (repo={repo})"}
+
+
+async def _run_board_run(job: dict, payload: dict) -> dict:
+    """Execute a board run for a project (scheduled via cron)."""
+    project_id = payload.get("project_id")
+    if not project_id:
+        return {"status": "error", "message": "Missing project_id in payload"}
+
+    statuses = payload.get("statuses", ["todo"])
+    logger.info(f"[Jobs][BoardRun] Starting board run for project={project_id}, statuses={statuses}")
+
+    from app.services.board_executor import build_execution_plan, execute_board
+    from app.services.ws_broadcast import ws_broadcast
+    from uuid import uuid4
+
+    plan = await build_execution_plan(project_id, statuses)
+    if not plan.cards:
+        return {"status": "ok", "message": "No cards to execute"}
+
+    # Broadcast WebSocket adapter — sends events to all connected clients
+    class _BroadcastWS:
+        async def send_json(self, data):
+            ws_broadcast.emit_sync(data.get("type", "job:event"), data.get("payload", data))
+
+    # Get the orchestrator singleton from main
+    from app.main import _orchestrator
+
+    session_id = f"job-{job.get('id', str(uuid4()))}"
+
+    await execute_board(
+        execution_id=plan.execution_id,
+        project_id=project_id,
+        cards=plan.cards,
+        websocket=_BroadcastWS(),
+        orchestrator=_orchestrator,
+        session_id=session_id,
+    )
+
+    return {"status": "ok", "message": f"Board run completed: {plan.total} cards executed"}
 
 
 async def _run_custom(job: dict, payload: dict) -> dict:

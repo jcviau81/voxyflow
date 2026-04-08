@@ -26,6 +26,7 @@ class CardCreate(BaseModel):
         None,
         description="Relevant docs/requirements context for the assigned agent",
     )
+    recurring: bool = False
     recurrence: RecurrenceType = None
     recurrence_next: Optional[datetime] = None
 
@@ -46,6 +47,7 @@ class CardUpdate(BaseModel):
     assignee: Optional[str] = None
     watchers: Optional[str] = None
     sprint_id: Optional[str] = None
+    recurring: Optional[bool] = None
     recurrence: RecurrenceType = None
     recurrence_next: Optional[datetime] = None
 
@@ -88,6 +90,7 @@ class CardResponse(BaseModel):
     watchers: str = ""
     votes: int = 0
     sprint_id: Optional[str] = None
+    recurring: bool = False
     recurrence: RecurrenceType = None
     recurrence_next: Optional[datetime] = None
     files: list[str] = []

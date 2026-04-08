@@ -157,6 +157,19 @@ async def _move_card_to_done(card_id: str) -> None:
             await db.commit()
 
 
+async def _reset_recurring_cards(card_ids: list[str]) -> None:
+    """Reset recurring cards back to todo status after a board run."""
+    if not card_ids:
+        return
+    async with async_session() as db:
+        for card_id in card_ids:
+            card = await db.get(Card, card_id)
+            if card and card.recurring:
+                card.status = CardStatus.TODO
+                logger.info(f"[BoardExecutor] Recurring card '{card.title}' ({card_id}) reset to todo")
+        await db.commit()
+
+
 async def execute_board(
     execution_id: str,
     project_id: str,
@@ -176,6 +189,7 @@ async def execute_board(
     )
     _active_executions[execution_id] = execution
     chat_id = f"project:{project_id}"
+    done_card_ids: list[str] = []
 
     try:
         for i, card_plan in enumerate(cards):
@@ -242,6 +256,7 @@ async def execute_board(
 
             # Move card to done
             await _move_card_to_done(card_plan.id)
+            done_card_ids.append(card_plan.id)
 
             # Emit card done
             await websocket.send_json({
@@ -283,6 +298,11 @@ async def execute_board(
         except Exception as e:
             logger.debug("Failed to send error notification via websocket: %s", e)
     finally:
+        # Reset recurring cards back to todo (runs even on cancel/error)
+        try:
+            await _reset_recurring_cards(done_card_ids)
+        except Exception as e:
+            logger.error(f"[BoardExecutor] Failed to reset recurring cards: {e}")
         _active_executions.pop(execution_id, None)
 
 

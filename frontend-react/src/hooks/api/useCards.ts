@@ -23,6 +23,7 @@ export function mapRawCard(c: Record<string, unknown>): Card {
     votes: (c.votes as number) ?? 0,
     sprintId: (c.sprint_id as string) ?? null,
     preferredModel: (c.preferred_model as Card['preferredModel']) ?? null,
+    recurring: (c.recurring as boolean) ?? false,
     files: (c.files as string[]) ?? [],
   };
 }

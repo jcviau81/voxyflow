@@ -71,6 +71,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN files TEXT NOT NULL DEFAULT '[]'"))
         if "archived_at" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN archived_at DATETIME"))
+        if "recurring" not in existing_columns:
+            await conn.execute(text("ALTER TABLE cards ADD COLUMN recurring INTEGER NOT NULL DEFAULT 0"))
         # Migrate: rename status='note' to status='card' (nomenclature cleanup)
         await conn.execute(text("UPDATE cards SET status='card' WHERE status='note'"))
         # Ensure card_relations table exists (created via create_all above, but explicit for safety)
@@ -316,6 +318,7 @@ class Card(Base):
     watchers = Column(String, nullable=False, default="")  # comma-separated watcher names
     votes = Column(Integer, nullable=False, default=0)  # upvote count
     sprint_id = Column(String, ForeignKey("sprints.id"), nullable=True)  # sprint assignment
+    recurring = Column(Boolean, default=False, nullable=False)  # reset to todo after board run
     recurrence = Column(String, nullable=True)  # "daily" | "weekly" | "monthly" | None
     recurrence_next = Column(DateTime, nullable=True)  # next occurrence datetime
     preferred_model = Column(String, nullable=True)  # haiku | sonnet | opus — override worker model for this card
