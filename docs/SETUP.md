@@ -1,5 +1,14 @@
 # Voxyflow — Setup Guide
 
+> ⚠️ **AVERTISSEMENT DE SÉCURITÉ**
+> Voxyflow n'a **pas de système d'authentification** (pas de login/password). Il doit être utilisé derrière des portes closes.
+> **Configurations recommandées :**
+> - 🔒 **Tunnel Tailscale** (recommandé) — accès sécurisé via réseau privé
+> - 🏠 **Réseau local uniquement** — non exposé sur internet
+> - 💻 **Machine personnelle uniquement** — usage solo local
+>
+> **Ne PAS exposer Voxyflow directement sur internet sans protection supplémentaire.**
+
 ---
 
 ## Path Conventions

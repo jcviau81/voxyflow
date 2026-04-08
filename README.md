@@ -1,5 +1,14 @@
 # ⚡ Voxyflow
 
+> ⚠️ **SECURITY WARNING**
+> Voxyflow has **no authentication system** (no login/password). It must be run behind closed doors.
+> **Recommended setups:**
+> - 🔒 **Tailscale tunnel** (recommended) — secure private network access
+> - 🏠 **Local network only** — not exposed to the internet
+> - 💻 **Personal machine only** — single-user local use
+>
+> **Do NOT expose Voxyflow directly to the internet without additional protection.**
+
 > ⚠️ **Alpha** — Early software. It works (I use it daily), but expect rough edges. Moving fast. **Contributors welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).**
 
 **Your personal AI assistant for getting projects done.**
