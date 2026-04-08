@@ -1,7 +1,9 @@
 """Worker Tasks routes — query the Worker Ledger for task history and results.
 
-GET /api/worker-tasks              → list recent worker tasks (filterable)
-GET /api/worker-tasks/{task_id}    → get full details of a specific task
+GET  /api/worker-tasks              → list recent worker tasks (filterable)
+GET  /api/worker-tasks/{task_id}    → get full details of a specific task
+GET  /api/worker-tasks/{task_id}/peek   → live peek (running) or DB fallback (finished)
+POST /api/worker-tasks/{task_id}/cancel → cancel a running worker task
 """
 
 from typing import Optional
@@ -62,6 +64,48 @@ async def list_worker_tasks(
         ],
         "count": len(tasks),
     }
+
+
+@router.get("/{task_id}/peek")
+async def peek_worker_task(
+    task_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Live peek into a running worker task, with DB fallback for finished tasks."""
+    from app.main import _orchestrator
+
+    live = _orchestrator.peek_worker_task(task_id)
+    if live is not None:
+        return {**live, "source": "live"}
+
+    # Fallback: task may have completed — check DB
+    result = await db.execute(
+        select(WorkerTask).where(WorkerTask.id == task_id)
+    )
+    task = result.scalar_one_or_none()
+    if task is None:
+        raise HTTPException(status_code=404, detail="Worker task not found.")
+
+    return {
+        "task_id": task.id,
+        "action": task.action,
+        "model": task.model,
+        "status": task.status,
+        "result_summary": task.result_summary,
+        "error": task.error,
+        "started_at": task.started_at.isoformat() if task.started_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "source": "db",
+    }
+
+
+@router.post("/{task_id}/cancel")
+async def cancel_worker_task(task_id: str):
+    """Cancel a running worker task across all active pools."""
+    from app.main import _orchestrator
+
+    cancelled = await _orchestrator.cancel_worker_task_global(task_id)
+    return {"cancelled": cancelled, "task_id": task_id}
 
 
 @router.get("/{task_id}")

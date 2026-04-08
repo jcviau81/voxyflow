@@ -16,12 +16,26 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, Send, ExternalLink, ChevronRight, ChevronDown } from 'lucide-react';
+import { MessageSquare, Send, ExternalLink, ChevronRight, ChevronDown, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useCardStore } from '../../stores/useCardStore';
 import { useWorkerStore, type WorkerInfo, type CliSessionInfo } from '../../stores/useWorkerStore';
+
+// ── Peek types ─────────────────────────────────────────────────────────────
+
+interface PeekResult {
+  task_id: string;
+  action: string;
+  model: string;
+  status: string;
+  tool_count: number;
+  last_tool: string | null;
+  recent_tools: string[];
+  running_seconds: number;
+  source: 'live' | 'db';
+}
 
 // ── Constants & Helpers ─────────────────────────────────────────────────────
 
@@ -175,10 +189,14 @@ function buildTree(
 
 // ── Worker row ──────────────────────────────────────────────────────────────
 
-function WorkerRow({ worker, onCancel, onSteer }: {
+function WorkerRow({ worker, onCancel, onSteer, isLast, peekData, peekExpanded, onTogglePeek }: {
   worker: WorkerInfo;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
+  isLast?: boolean;
+  peekData: PeekResult | null;
+  peekExpanded: boolean;
+  onTogglePeek: (taskId: string) => void;
 }) {
   const [steerOpen, setSteerOpen] = useState(false);
   const [steerInput, setSteerInput] = useState('');
@@ -212,7 +230,14 @@ function WorkerRow({ worker, onCancel, onSteer }: {
   };
 
   return (
-    <div className="relative ml-4 pl-3 border-l border-border/50">
+    <div className="relative ml-5 pl-3">
+      {/* Tree connector lines */}
+      <div className={cn(
+        'absolute left-0 top-0 w-px bg-border/40',
+        isLast ? 'h-[14px]' : 'h-full',
+      )} />
+      <div className="absolute left-0 top-[14px] w-3 h-px bg-border/40" />
+
       <div
         className={cn(
           'flex items-center gap-1.5 py-1 text-[11px] cursor-pointer rounded hover:bg-accent/10 transition-colors',
@@ -237,20 +262,27 @@ function WorkerRow({ worker, onCancel, onSteer }: {
         <span className="text-muted-foreground truncate flex-1">{formatAction(worker.action)}</span>
         <span className="text-muted-foreground tabular-nums shrink-0">{isActive ? `${e}\u2026` : e}</span>
 
-        {/* Steer + Cancel */}
+        {/* Peek + Steer + Cancel */}
         {isActive && (
           <div className="flex items-center gap-1 shrink-0">
             <button
               className="text-muted-foreground hover:text-accent transition-colors"
+              title="Peek at tools"
+              onClick={(ev) => { ev.stopPropagation(); onTogglePeek(worker.taskId); }}
+            >
+              <Eye size={10} />
+            </button>
+            <button
+              className="text-muted-foreground hover:text-accent transition-colors"
               title="Steer"
-              onClick={() => setSteerOpen((o) => !o)}
+              onClick={(ev) => { ev.stopPropagation(); setSteerOpen((o) => !o); }}
             >
               <MessageSquare size={10} />
             </button>
             <button
               className="text-muted-foreground hover:text-red-400 transition-colors"
               title="Cancel"
-              onClick={() => onCancel(worker.taskId)}
+              onClick={(ev) => { ev.stopPropagation(); onCancel(worker.taskId); }}
             >
               &times;
             </button>
@@ -264,6 +296,28 @@ function WorkerRow({ worker, onCancel, onSteer }: {
           {worker.toolCount} tool{worker.toolCount !== 1 ? 's' : ''}
           {worker.lastTool ? ` \u2014 ${worker.lastTool}` : ''}
         </div>
+      )}
+
+      {/* Peek details (expandable) */}
+      {peekExpanded && peekData && (
+        <div className="ml-[18px] mt-1 mb-1 p-2 rounded bg-muted/50 border border-border/30 text-[10px] text-muted-foreground space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-foreground">{peekData.action}</span>
+            <span>{peekData.model}</span>
+            <span className="tabular-nums">{Math.round(peekData.running_seconds)}s</span>
+          </div>
+          <div>{peekData.tool_count} tool{peekData.tool_count !== 1 ? 's' : ''} called{peekData.last_tool ? ` \u2014 last: ${peekData.last_tool}` : ''}</div>
+          {peekData.recent_tools.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-0.5">
+              {peekData.recent_tools.map((t, i) => (
+                <span key={i} className="px-1 py-0.5 rounded bg-background border border-border/40 text-[9px]">{t}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {peekExpanded && !peekData && (
+        <div className="ml-[18px] mt-1 mb-1 text-[10px] text-muted-foreground">Loading...</div>
       )}
 
       {/* Result summary (click to expand) */}
@@ -302,11 +356,14 @@ function WorkerRow({ worker, onCancel, onSteer }: {
 
 // ── Session row (a CLI session with its child workers) ──────────────────────
 
-function SessionRow({ session, projectId, onCancel, onSteer }: {
+function SessionRow({ session, projectId, onCancel, onSteer, peekData, expandedPeek, onTogglePeek }: {
   session: SessionNode;
   projectId: string;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
+  peekData: Record<string, PeekResult | null>;
+  expandedPeek: Set<string>;
+  onTogglePeek: (taskId: string) => void;
 }) {
   const hasChildren = session.workers.length > 0;
   const [open, setOpen] = useState(true);
@@ -315,20 +372,24 @@ function SessionRow({ session, projectId, onCancel, onSteer }: {
 
   const isActive = !!session.cliSession || session.workers.some((w) => !TERMINAL_STATUSES.has(w.status));
 
+  // Detect dispatcher: CLI session of type "chat" or chatId starts with "project:" / "card:"
+  const isDispatcher = !!(
+    session.cliSession?.type === 'chat' ||
+    session.chatId.startsWith('project:') ||
+    session.chatId.startsWith('general:')
+  );
+
   // Extract cardId from chatId for link
   const cardMatch = session.chatId.match(/^project:card-(.+)$/);
   const cardId = cardMatch?.[1];
 
   const handleSessionClick = () => {
     if (cardId && projectId !== '_general') {
-      // Card session: navigate to project and open card modal
       navigate(`/project/${projectId}`);
       selectCard(cardId);
     } else if (projectId !== '_general') {
-      // Project Chat session: navigate to project
       navigate(`/project/${projectId}`);
     }
-    // Toggle children open/closed regardless
     if (hasChildren) setOpen((o) => !o);
   };
 
@@ -351,6 +412,12 @@ function SessionRow({ session, projectId, onCancel, onSteer }: {
           <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
         )}
 
+        {isDispatcher && hasChildren && (
+          <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent shrink-0">
+            Voxy
+          </span>
+        )}
+
         <span className="truncate font-medium">{session.label}</span>
 
         {session.cliSession && (
@@ -371,9 +438,18 @@ function SessionRow({ session, projectId, onCancel, onSteer }: {
       </button>
 
       {open && hasChildren && (
-        <div className="flex flex-col">
-          {session.workers.map((w) => (
-            <WorkerRow key={w.taskId} worker={w} onCancel={onCancel} onSteer={onSteer} />
+        <div className="flex flex-col ml-2 border-l-2 border-border/30 pl-1">
+          {session.workers.map((w, idx) => (
+            <WorkerRow
+              key={w.taskId}
+              worker={w}
+              onCancel={onCancel}
+              onSteer={onSteer}
+              isLast={idx === session.workers.length - 1}
+              peekData={peekData[w.taskId] ?? null}
+              peekExpanded={expandedPeek.has(w.taskId)}
+              onTogglePeek={onTogglePeek}
+            />
           ))}
         </div>
       )}
@@ -385,6 +461,8 @@ function SessionRow({ session, projectId, onCancel, onSteer }: {
 
 export function WorkerPanel() {
   const [, setTick] = useState(0);
+  const [peekData, setPeekData] = useState<Record<string, PeekResult | null>>({});
+  const [expandedPeek, setExpandedPeek] = useState<Set<string>>(new Set());
 
   const { send } = useWS();
   const workers = useWorkerStore((s) => s.workers);
@@ -429,6 +507,28 @@ export function WorkerPanel() {
     send('task:steer', { taskId, sessionId: cs?.id, message: message.trim() });
   }, [send, cliByTask]);
 
+  const togglePeek = useCallback((taskId: string) => {
+    setExpandedPeek((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+        // Fetch peek data if not already loaded
+        if (!peekData[taskId]) {
+          setPeekData((pd) => ({ ...pd, [taskId]: null }));
+          fetch(`/api/worker-tasks/${taskId}/peek`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((data) => {
+              if (data) setPeekData((pd) => ({ ...pd, [taskId]: data }));
+            })
+            .catch(() => {/* ignore */});
+        }
+      }
+      return next;
+    });
+  }, [peekData]);
+
   // Build tree
   const allCli = useMemo(() => Object.values(cliSessions), [cliSessions]);
   const allWorkers = useMemo(() => Object.values(workers), [workers]);
@@ -467,7 +567,7 @@ export function WorkerPanel() {
           <div className="text-xs text-muted-foreground text-center py-8">No active sessions</div>
         ) : (
           tree.map((proj) => (
-            <ProjectGroup key={proj.projectId} project={proj} onCancel={cancelTask} onSteer={steerTask} />
+            <ProjectGroup key={proj.projectId} project={proj} onCancel={cancelTask} onSteer={steerTask} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={togglePeek} />
           ))
         )}
       </div>
@@ -477,10 +577,13 @@ export function WorkerPanel() {
 
 // ── Project group (collapsible) ─────────────────────────────────────────────
 
-function ProjectGroup({ project, onCancel, onSteer }: {
+function ProjectGroup({ project, onCancel, onSteer, peekData, expandedPeek, onTogglePeek }: {
   project: ProjectNode;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
+  peekData: Record<string, PeekResult | null>;
+  expandedPeek: Set<string>;
+  onTogglePeek: (taskId: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   const navigate = useNavigate();
@@ -505,7 +608,7 @@ function ProjectGroup({ project, onCancel, onSteer }: {
       {open && (
         <div className="flex flex-col gap-0.5">
           {project.sessions.map((s) => (
-            <SessionRow key={s.chatId} session={s} projectId={project.projectId} onCancel={onCancel} onSteer={onSteer} />
+            <SessionRow key={s.chatId} session={s} projectId={project.projectId} onCancel={onCancel} onSteer={onSteer} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={onTogglePeek} />
           ))}
         </div>
       )}

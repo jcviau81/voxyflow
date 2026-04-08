@@ -580,6 +580,30 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_http": ("GET", "/api/worker-tasks/{task_id}", None),
     },
+    {
+        "name": "voxyflow.task.peek",
+        "description": "Monitor a running worker task in real time. Returns the recent tools called, tool count, running duration, and current status. Use this when a worker seems stuck or to check its progress before deciding to cancel it. Returns source='live' if the worker is still running, or source='db' for completed tasks.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["task_id"],
+            "properties": {
+                "task_id": {"type": "string", "description": "Worker task ID (full or partial)"},
+            },
+        },
+        "_http": ("GET", "/api/worker-tasks/{task_id}/peek", None),
+    },
+    {
+        "name": "voxyflow.task.cancel",
+        "description": "Cancel a running worker task immediately. Use when a worker is stuck, has been running too long, or is no longer needed. The worker subprocess will be terminated and the task marked as cancelled. Returns cancelled=true if the task was found and cancelled.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["task_id"],
+            "properties": {
+                "task_id": {"type": "string", "description": "Worker task ID to cancel"},
+            },
+        },
+        "_http": ("POST", "/api/worker-tasks/{task_id}/cancel", None),
+    },
 
     # ---- System ------------------------------------------------------------
     {

@@ -463,6 +463,27 @@ class ChatOrchestrator(LayerRunnersMixin):
             return False
         return await pool.cancel_task(task_id)
 
+    async def cancel_worker_task_global(self, task_id: str) -> bool:
+        """Cancel a worker task searching across all active pools."""
+        for sid, pool in self._worker_pools.items():
+            if task_id in pool._active_tasks:
+                result = await pool.cancel_task(task_id)
+                logger.info(
+                    f"[ChatOrchestrator] cancel_worker_task_global: found task {task_id} "
+                    f"in pool {sid}, cancelled={result}"
+                )
+                return result
+        logger.warning(f"[ChatOrchestrator] cancel_worker_task_global: task {task_id} not found in any pool")
+        return False
+
+    def peek_worker_task(self, task_id: str) -> dict | None:
+        """Return peek data for a worker task, searching across all active pools."""
+        for pool in self._worker_pools.values():
+            result = pool.peek(task_id)
+            if result is not None:
+                return result
+        return None
+
     async def steer_worker_task(self, session_id: str, task_id: str, message: str) -> bool:
         """Inject a steering message into a running worker task.
 

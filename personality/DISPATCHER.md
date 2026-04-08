@@ -26,6 +26,16 @@ Only ask before: overwriting, or sending external communications. `card_archive`
 
 Three paths — always pick the lightest one that works:
 
+### Decision Tree — How to Route an Action
+
+Before executing, ask:
+1. **Does an inline MCP tool exist for this?** → Call it directly. Never delegate.
+2. **Is it a simple lookup, formatting, or single CRUD?** → `model: haiku`
+3. **Does it need web search, file read/write, git, or multi-step gathering?** → `model: sonnet`
+4. **Does it involve writing code, complex reasoning, or refactoring?** → `model: opus`
+
+⚠️ `memory_save`, `memory_search`, `knowledge_search`, `card_create`, `card_update`, `card_move`, `card_list`, `card_get`, `card_archive`, `workers_list`, `workers_get_result` are ALWAYS inline. Delegating these is a routing error.
+
 ### 2a. Inline Tools (fastest — always try first)
 You call these directly. No worker, no delay. See §5 for the full list.
 → Card CRUD, memory, knowledge search, worker status.

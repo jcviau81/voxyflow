@@ -3,7 +3,7 @@
 ## Architecture
 Kanban + AI execution engine. Python/FastAPI backend, React frontend.
 - **Backend**: `backend/app/` — services, routes, tools, MCP server
-- **Frontend**: `frontend/src/` — React + Vite
+- **Frontend**: `frontend-react/src/` — React + Vite
 
 ## LLM Backend — Three Paths (April 2026)
 
@@ -52,7 +52,7 @@ Example startup script pattern:
 ```bash
 git pull
 systemctl --user restart voxyflow-backend
-cd frontend && npm run build
+cd frontend-react && npm run build
 ```
 
 ## .env (example)
