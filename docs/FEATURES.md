@@ -2,6 +2,8 @@
 
 Complete documentation of all shipped features, organized by area.
 
+> **Path conventions:** File paths shown (e.g. `~/voxyflow/`, `~/.voxyflow/`) use default install locations. Override with `VOXYFLOW_DIR` and `VOXYFLOW_DATA_DIR` env vars — see [SETUP.md](SETUP.md#path-conventions).
+
 ---
 
 ## Table of Contents
@@ -252,23 +254,11 @@ Project analytics and progress tracking:
 - **Charts** — cards by status, priority distribution, velocity (cards completed over time)
 - **Focus session analytics** — total Pomodoro time logged per project/card
 
-#### 📅 Roadmap (Gantt)
-Timeline view showing cards with due dates laid out on a Gantt chart. Useful for planning and visualizing project schedule.
-
 #### 📖 Wiki
 Per-project wiki with markdown pages:
 - Create/edit/delete pages with full markdown rendering
 - Page list with title and last-updated timestamp
 - Suitable for project documentation, decisions, architecture notes
-
-#### 🏃 Sprints
-Agile sprint management:
-- **Sprint list** — view all sprints (planned / active / completed)
-- **Create sprint** — name, goal, start/end dates
-- **Start sprint** — activates sprint; only one sprint can be active at a time
-- **Complete sprint** — marks sprint done
-- **Backlog** — cards not yet in a sprint
-- Cards can be assigned to sprints (via card form or bulk actions)
 
 #### 📚 Docs (RAG)
 Document upload and knowledge base management (see [RAG / Knowledge Base](#6-rag--knowledge-base)):
@@ -340,7 +330,7 @@ Cards are created via the Card Form (click `+` in any column, or "Create from su
 | Dependencies | Other cards this card depends on |
 | Assignee | Person responsible for the card |
 | Watchers | Comma-separated list of watchers |
-| Recurrence | Daily / Weekly / Monthly — auto-recreates card on completion |
+| Recurrence | `hourly` / `6hours` / `daily` / `weekdays` / `weekly` / `biweekly` / `monthly` — scheduler creates a fresh copy when due |
 
 **Auto-routing:** If no agent is manually selected, the backend's `AgentRouter` detects the best agent from the card's title, description, and context (keyword matching).
 
@@ -499,11 +489,13 @@ Select Mode for batch operations:
 Two distinct recurrence mechanisms:
 
 **Recurrence (card regeneration):**
-- Set recurrence on a card: **Daily**, **Weekly**, or **Monthly**
-- When the card is moved to `done`, a new copy is auto-created with the next scheduled date
-- `recurrence_next` tracks the next due date
+- Set recurrence on a card via the Recurrence field in Card Detail Modal
+- Supported intervals: `hourly`, `6hours`, `daily`, `weekdays`, `weekly`, `biweekly`, `monthly`
+- The scheduler checks every 5 minutes and creates a fresh copy (status `idea`) when `recurrence_next` is reached
+- `recurrence_next` is automatically advanced to the next occurrence after each copy is created
+- Configurable via Settings → Personality (or directly via card detail)
 
-**Recurring (board run reset):**
+**Recurring flag (board run reset):**
 - Checkbox on a card: **Recurring**
 - When checked, the card automatically resets to `todo` after a board run completes (whether the run succeeded, was cancelled, or errored)
 - Designed for autonomous boards — cards that should re-execute every time the board runs on a cron schedule
@@ -767,14 +759,18 @@ Accessible via the gear icon or `EVENTS.SETTINGS_OPEN`.
 
 ### Personality File Editor
 
-The Settings page includes an inline editor for 4 personality files stored in `voxyflow/personality/`:
+The Settings page includes an inline editor for personality files stored in `voxyflow/personality/`:
 
-| File | Purpose |
-|------|---------|
-| `SOUL.md` | Core personality — how the bot behaves |
-| `USER.md` | Info about the user — preferences, context |
-| `AGENTS.md` | Agent operating rules |
-| `IDENTITY.md` | Bot identity — name, emoji, avatar |
+| File | Purpose | Origin |
+|------|---------|--------|
+| `SOUL.md` | Core personality — how the bot behaves | Checked into repo |
+| `AGENTS.md` | Agent operating rules | Checked into repo |
+| `USER.md` | Info about the user — preferences, context | Auto-generated at first startup from template |
+| `IDENTITY.md` | Bot identity — name, emoji, avatar | Auto-generated at first startup from template |
+
+**Editability via UI:** `USER.md` and `IDENTITY.md` are editable via Settings → Personality. `SOUL.md` and `AGENTS.md` are best edited directly (they are checked in and not reset-able via UI).
+
+**Name sync:** The Bot Name (Settings → General) and User Name fields are automatically synchronized into `IDENTITY.md` and `USER.md` respectively when changed.
 
 **API:**
 - `GET /api/settings/personality/files/{filename}` — Read file content
@@ -798,17 +794,15 @@ The Settings page includes an inline editor for 4 personality files stored in `v
 
 Configure each model role independently:
 
-| Role | Default Provider URL | Default Model | Purpose |
-|------|---------------------|---------------|---------|
-| Fast | CLI backend (recommended) | `claude-haiku-4-5` | Chat Agent (Dispatcher) — Fast mode |
-| Deep | CLI backend (recommended) | `claude-opus-4` | Chat Agent (Dispatcher) — Deep mode |
-| Analyzer | CLI backend (recommended) | `claude-haiku-4-5` | Background Analyzer (passive observer) |
+| Role | Default Backend | Default Model | Purpose |
+|------|----------------|---------------|---------|
+| Fast | CLI subprocess (`claude -p`) | `claude-haiku-4-5` | Chat Agent (Dispatcher) — Fast mode |
+| Deep | CLI subprocess (`claude -p`) | `claude-opus-4` | Chat Agent (Dispatcher) — Deep mode |
+| Analyzer | CLI subprocess (`claude -p`) | `claude-haiku-4-5` | Background Analyzer (passive observer) |
 
-Each role has: `provider_url`, `api_key`, `model`, `enabled`
+**Recommended backend:** `CLAUDE_USE_CLI=true` in `backend/.env` — spawns `claude -p` subprocesses using your Claude Max subscription. No API key required, no proxy. The OpenAI-compatible proxy at `:3457` is deprecated.
 
 Workers select their own model (Haiku/Sonnet/Opus) based on task complexity — they are dispatched by the Chat Agent and do not use these model slots directly.
-
-This allows mixing providers (e.g. Ollama for Fast, Anthropic API for Deep).
 
 ### Jobs / Cron Management
 
@@ -980,6 +974,24 @@ Context-appropriate onboarding when a chat is empty:
 | `general` | Main tab, no project | App intro, prompt suggestions |
 | `project` | Project tab opened | Project name, in-progress cards, todo count |
 | `card` | Card detail opened | Card title, description, status, agent info |
+
+### Worker Panel (Session Monitoring)
+
+The Worker Panel in the sidebar (`Navigation/WorkerPanel.tsx`) shows a live hierarchical view of all active AI work:
+
+- **Tree structure:** Projects → Sessions → Active Workers
+- Each worker entry shows:
+  - Model emoji (e.g. ⚡ Haiku, 🧠 Sonnet, 🔮 Opus)
+  - Action type (e.g. `card_execute`, `research`, `crud`)
+  - Elapsed time (live counter)
+  - Status badge (`running`, `done`, `error`, `cancelled`)
+- **Actions per worker:**
+  - **Steer** — send a mid-execution guidance message to redirect the worker
+  - **Cancel** — terminate the worker immediately
+
+Updates arrive via WebSocket (`task:started`, `task:completed`, `task:progress` events).
+
+---
 
 ### Model Status Bar
 

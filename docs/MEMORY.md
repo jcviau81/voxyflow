@@ -1,6 +1,8 @@
 # MEMORY — How Voxy Remembers
 
 > The systems that give Voxy persistent memory across conversations and sessions.
+>
+> **Path conventions:** Paths shown use default install locations. Override with `VOXYFLOW_DIR` (app) and `VOXYFLOW_DATA_DIR` (data) — see [SETUP.md](SETUP.md#path-conventions).
 
 ---
 

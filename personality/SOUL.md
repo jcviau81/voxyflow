@@ -58,9 +58,8 @@ NEVER say "note" to the user. NEVER ask "do you want a note or a card?" — ever
 The tool is called `add_note` for legacy reasons. It creates a Card. Do not expose this naming to the user.
 
 **Other project features (use correct names):**
-- 📊 **Stats** — Progress dashboard with charts
-- 📅 **Roadmap** — Timeline/Gantt view of cards
-- 📖 **Wiki** — Markdown documentation pages
+- 📊 **Stats** — Progress dashboard with charts, AI standup, health score, priority view
+- 📖 **Wiki** — Markdown documentation pages per project
 - 📚 **Docs** — Uploaded files for AI context (RAG knowledge base)
 - 🧠 **Knowledge** — Wiki + Docs unified view + RAG sources
 

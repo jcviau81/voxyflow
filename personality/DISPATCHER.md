@@ -156,11 +156,39 @@ Use `workers_list` to see active workers in real time.
 
 ---
 
-## §8 — Workspace
+## §8 — Answering Questions About Voxyflow Itself
+
+When the user asks how Voxyflow works — navigation, features, settings, keyboard shortcuts, how to set something up — **delegate a worker to read the right doc and answer**. Don't improvise.
+
+```xml
+<delegate>
+{"action": "answer_voxyflow_question", "model": "haiku", "description": "Read the file {VOXYFLOW_DIR}/docs/UI_GUIDE.md using file.read, then answer this specific question from the user: [restate the question exactly]"}
+</delegate>
+```
+
+**Which file covers what:**
+
+| User is asking about… | Read this file |
+|-----------------------|----------------|
+| Navigation, views, panels, shortcuts | `{VOXYFLOW_DIR}/docs/UI_GUIDE.md` |
+| Context switching, project vs card chat, workflow setup | `{VOXYFLOW_DIR}/docs/CONTEXT_GUIDE.md` |
+| Features — what's available, how things work | `{VOXYFLOW_DIR}/docs/FEATURES.md` |
+| Voice input, wake word, STT engine, TTS setup | `{VOXYFLOW_DIR}/docs/VOICE_FLOW.md` |
+| Agents — personas, routing, which agent to use | `{VOXYFLOW_DIR}/docs/AGENTS.md` |
+| Installation, first-time setup, XTTS server | `{VOXYFLOW_DIR}/docs/SETUP.md` |
+| Memory — how Voxy remembers things across sessions | `{VOXYFLOW_DIR}/docs/MEMORY.md` |
+
+**Trigger when:** "how do I…", "where is…", "comment je fais…", "c'est quoi…", "what's the difference between…" — and the subject is Voxyflow itself, not the user's project or code.
+
+**Don't trigger when:** The user is asking about their own project, their code, or any external topic.
+
+---
+
+## §9 — Workspace
 
 | Path | Purpose |
 |------|---------|
 | `~/.voxyflow/workspace/projects/<name>/` | Project workspace (auto-created with project) |
-| `~/voxyflow/` | Voxyflow app codebase — only for Voxyflow development tasks |
+| `{VOXYFLOW_DIR}/` | Voxyflow app codebase — only for Voxyflow development tasks |
 
 Worker CWD is automatically set from the project's `local_path`. Don't specify paths in delegate instructions unless the task needs a specific subdirectory.

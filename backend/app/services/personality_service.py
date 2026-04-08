@@ -146,7 +146,10 @@ class PersonalityService:
         return self._read_if_changed(AGENTS_FILE)
 
     def load_dispatcher(self) -> str:
-        return self._read_if_changed(DISPATCHER_FILE)
+        content = self._read_if_changed(DISPATCHER_FILE)
+        if content:
+            content = content.replace("{VOXYFLOW_DIR}", str(VOXYFLOW_DIR))
+        return content
 
     def load_worker(self) -> str:
         return self._read_if_changed(WORKER_FILE)

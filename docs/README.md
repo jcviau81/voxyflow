@@ -121,7 +121,14 @@ See [SETUP.md](SETUP.md) for the full installation guide.
 
 | Doc | Contents |
 |-----|---------|
+| [SETUP.md](SETUP.md) | Installation & configuration (LLM backend, XTTS, onboarding) |
+| [CONTEXT_GUIDE.md](CONTEXT_GUIDE.md) | Context management, workflow examples, DailyOps setup |
 | [FEATURES.md](FEATURES.md) | Complete feature reference |
-| [SETUP.md](SETUP.md) | Installation & configuration |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture deep-dive |
 | [API.md](API.md) | REST & WebSocket API reference |
+| [CHAT_SCOPES.md](CHAT_SCOPES.md) | Chat levels technical reference (tools, routing, session model) |
+| [AGENTS.md](AGENTS.md) | 7 specialist agents — personas, routing, tool access |
+| [MEMORY.md](MEMORY.md) | Memory service — persistent cross-session recall |
+| [VOICE_FLOW.md](VOICE_FLOW.md) | Voice pipeline — STT engines, wake word, TTS streaming |
+| [TOOLS.md](TOOLS.md) | MCP tool registry — categories, layer access control |
+| [DATA_MODEL.md](DATA_MODEL.md) | SQLAlchemy models and schema |

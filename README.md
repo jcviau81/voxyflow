@@ -129,8 +129,6 @@ This is what it means to have a **truly non-blocking** AI assistant.
 ### 📋 Project Management
 
 - **Kanban Board** — Drag-and-drop columns: Idea → Todo → In Progress → Done → Archived
-- **Roadmap** — Gantt-style timeline view of cards
-- **Sprint Planner** — Group cards into time-boxed sprints
 - **Stats Dashboard** — Progress charts and velocity metrics
 - **Wiki** — Markdown documentation pages per project
 - **Docs / RAG** — Upload documents (txt, md, pdf, docx, xlsx) for AI context
@@ -457,15 +455,15 @@ voxyflow/
 │   ├── IDENTITY.md
 │   └── MEMORY.md
 ├── docs/                           # Documentation
-│   ├── ARCHITECTURE.md
 │   ├── FEATURES.md
 │   ├── API.md
 │   ├── SETUP.md
 │   ├── DEPLOYMENT.md
-│   ├── VOICE_FLOW.md
+│   ├── CONTEXT_GUIDE.md
+│   ├── UI_GUIDE.md
 │   ├── PERSONALITY.md
 │   ├── TOOLS.md
-│   ├── FEATURES.md
+│   ├── VOICE_FLOW.md
 │   └── AGENTS.md
 ├── settings.json                   # Runtime config (models, personality, scheduler)
 ├── mcp.json                        # MCP client config example

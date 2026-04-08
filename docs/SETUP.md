@@ -2,19 +2,44 @@
 
 ---
 
+## Path Conventions
+
+All paths in this documentation and in Voxyflow docs use the **default install locations**. Both can be overridden via environment variables:
+
+| Variable | Default | What it controls |
+|----------|---------|-----------------|
+| `VOXYFLOW_DIR` | `~/voxyflow` | App directory (code, personality files, docs) |
+| `VOXYFLOW_DATA_DIR` | `~/.voxyflow` | Data directory (database, ChromaDB, sessions, jobs) |
+
+Set these before starting the backend if your install is in a different location:
+
+```bash
+export VOXYFLOW_DIR=/opt/voxyflow
+export VOXYFLOW_DATA_DIR=/var/lib/voxyflow
+uvicorn app.main:app ...
+```
+
+> Paths like `~/voxyflow/personality/` and `~/.voxyflow/voxyflow.db` shown throughout this documentation are examples based on the defaults.
+
+---
+
 ## Prerequisites
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
 | Node.js | 18+ | Frontend build & dev server |
-| Python | 3.12+ | Backend (uses `asyncio`, type hints, `match` statements) |
+| Python | 3.12+ | Backend (`asyncio`, type hints, `match` statements) |
 | Claude CLI (`claude`) | any | For CLI backend (`CLAUDE_USE_CLI=true`, recommended) |
 | Git | any | |
 | `gh` CLI | any | Optional — for GitHub repo integration |
 
 **Optional (for RAG/knowledge base):**
-- ChromaDB-compatible system (runs on any modern Linux/macOS/Windows)
-- `sentence-transformers` downloads ~2.2GB model on first run (intfloat/multilingual-e5-large)
+- `chromadb` + `sentence-transformers` — installed by default via `requirements.txt`
+- Downloads ~2.2GB model on first run (`intfloat/multilingual-e5-large`), cached in `~/.cache/huggingface/`
+
+**Optional (for high-quality TTS):**
+- XTTS v2 server — separate GPU machine or container (see [§7 TTS Setup](#7-optional-tts-setup))
+- Without it, TTS falls back to browser `speechSynthesis` (works out of the box)
 
 ---
 
@@ -47,15 +72,11 @@ pip install -r requirements.txt
 **Core dependencies installed:**
 - `fastapi` + `uvicorn` — web framework
 - `sqlalchemy[asyncio]` + `aiosqlite` — async SQLite
-- `httpx` — HTTP client for Claude API calls
+- `httpx` — HTTP client
 - `keyring` + `keyrings.alt` — secure key storage
-- `openai` — OpenAI-compatible client (used for Claude proxy)
-- `python-multipart` — file upload support
-- `apscheduler` — background task scheduler (heartbeat + RAG indexing + user-defined jobs)
+- `apscheduler` — background task scheduler (heartbeat, RAG indexing, recurring cards)
 - `chromadb` + `sentence-transformers` — RAG (optional but installed by default)
-- `pypdf` — PDF document parsing for RAG (Phase 2, optional)
-- `python-docx` — DOCX document parsing for RAG (Phase 2, optional)
-- `openpyxl` — XLSX/Excel document parsing for RAG (Phase 2, optional)
+- `pypdf` + `python-docx` + `openpyxl` — document parsing (PDF, DOCX, XLSX)
 
 ### Configure environment
 
@@ -63,51 +84,26 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` as needed. See `.env.example` for all available variables.
-
-> **Config ownership rules:**
->
-> | What | Where | Examples |
-> |------|-------|---------|
-> | Infrastructure | `.env` (or env vars) | `DATABASE_URL`, `HOST`, `PORT`, `CLAUDE_PROXY_URL`, API keys |
-> | App preferences | Settings UI → DB (`app_settings` table) | Model names, TTS config, personality, UI prefs |
-> | Defaults | `config.py` | Sensible XDG-compliant fallbacks (never instance-specific) |
->
-> **Database location:** `~/.voxyflow/voxyflow.db` (created automatically on first run).
-> The directory `~/.voxyflow/` follows the XDG user data pattern and also stores ChromaDB data at `~/.voxyflow/chroma/`.
-> Do **not** use a relative path like `./voxyflow.db` — this causes the DB to land in different locations depending on the working directory.
-
-Key `.env` variables:
+Edit `.env` as needed. Minimal recommended config:
 
 ```env
-# Database (default: ~/.voxyflow/voxyflow.db — usually no override needed)
-# DATABASE_URL=sqlite+aiosqlite:////home/youruser/.voxyflow/voxyflow.db
-
-# Network
-HOST=0.0.0.0
-PORT=8000
-
 # LLM Backend — CLI subprocess (recommended, uses Claude Max subscription)
 CLAUDE_USE_CLI=true
 CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
 CLAUDE_SONNET_MODEL=claude-sonnet-4-6
 CLAUDE_DEEP_MODEL=claude-opus-4-6
-
-# Legacy fallback: OpenAI-compatible proxy (deprecated)
-# CLAUDE_PROXY_URL=http://localhost:3457/v1
 ```
 
-### Store API keys securely (recommended)
-
-Voxyflow uses the system keyring to store API keys rather than plain `.env` files.
-
-```bash
-python setup_keys.py
-```
-
-This will prompt for your Anthropic API key (or proxy key) and store it in the system keyring (`service=voxyflow`).
-
-**Alternative (headless/CI):** Set `ANTHROPIC_API_KEY` as an environment variable.
+> **Config ownership rules:**
+>
+> | What | Where | Examples |
+> |------|-------|---------|
+> | Infrastructure | `.env` (or env vars) | `DATABASE_URL`, `HOST`, `PORT`, API keys |
+> | App preferences | Settings UI → DB (`app_settings` table) | Models, TTS config, personality, UI prefs |
+> | Defaults | `config.py` | Sensible XDG-compliant fallbacks (never instance-specific) |
+>
+> **Database location:** `~/.voxyflow/voxyflow.db` (created automatically on first run).
+> ChromaDB data is stored at `~/.voxyflow/chroma/`.
 
 ### Run the backend
 
@@ -126,9 +122,9 @@ INFO  Uvicorn running on http://0.0.0.0:8000
 
 If ChromaDB is not installed:
 ```
-WARNING ⚠️  RAGService disabled (chromadb not installed — install chromadb + sentence-transformers to enable)
+WARNING ⚠️  RAGService disabled (chromadb not installed)
 ```
-Chat still works; RAG context injection is simply skipped.
+Chat still works — RAG context injection is simply skipped.
 
 ---
 
@@ -159,7 +155,7 @@ By default, the frontend proxies API and WebSocket requests to `localhost:8000` 
 npm run dev
 ```
 
-Opens at `http://localhost:3000` (or next available port). Hot module replacement enabled.
+Opens at `http://localhost:3000`. Hot module replacement enabled.
 
 ### Production build
 
@@ -173,14 +169,13 @@ Output in `dist/` — static files ready to serve via any web server (Nginx, Cad
 
 ## 4. LLM Backend Setup
 
-Voxyflow supports three LLM backend paths. The CLI subprocess backend is recommended.
+### CLI Subprocess — Recommended (`CLAUDE_USE_CLI=true`)
 
-### CLI Subprocess (Recommended — `CLAUDE_USE_CLI=true`)
-
-Uses your Claude Max subscription directly by spawning `claude -p` subprocesses. No proxy or API key needed.
+Uses your Claude Max subscription by spawning `claude -p` subprocesses. No API key needed.
 
 1. Install the Claude CLI: https://docs.anthropic.com/en/docs/claude-cli
-2. Set in `backend/.env`:
+2. Sign in: `claude login`
+3. Set in `backend/.env`:
    ```env
    CLAUDE_USE_CLI=true
    CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
@@ -195,12 +190,18 @@ Direct API calls via the `anthropic` Python SDK. Requires an API key.
 1. Set in `backend/.env`:
    ```env
    CLAUDE_USE_NATIVE=true
-   ANTHROPIC_API_KEY=sk-ant-...
+   CLAUDE_API_KEY=sk-ant-...
    ```
+
+Or store the key in the system keyring:
+
+```bash
+python setup_keys.py
+```
 
 ### OpenAI-Compatible Proxy (deprecated fallback)
 
-Legacy path using a proxy at `localhost:3457`. Being deprecated.
+Legacy path using a proxy at `localhost:3457`. Being deprecated — avoid for new installs.
 
 ```env
 CLAUDE_PROXY_URL=http://localhost:3457/v1
@@ -210,13 +211,11 @@ CLAUDE_PROXY_URL=http://localhost:3457/v1
 
 ## 5. Optional: ChromaDB & RAG
 
-RAG is automatically enabled if `chromadb` and `sentence-transformers` are installed (they are in `requirements.txt`).
+RAG is automatically enabled when `chromadb` and `sentence-transformers` are installed (they are in `requirements.txt` by default).
 
-**First-run note:** `sentence-transformers` downloads the `intfloat/multilingual-e5-large` model (~2.2GB) on first use. This happens once and is cached in `~/.cache/huggingface/`.
+**First-run note:** `sentence-transformers` downloads the `intfloat/multilingual-e5-large` model (~2.2GB) on first use. This is a one-time download, cached at `~/.cache/huggingface/`.
 
-**ChromaDB storage:** Data persists to `~/.voxyflow/chroma/`. This directory is created automatically.
-
-**To disable RAG:** Simply uninstall chromadb:
+**To disable RAG:**
 ```bash
 pip uninstall chromadb sentence-transformers
 ```
@@ -235,101 +234,175 @@ sudo apt install gh
 
 # Authenticate
 gh auth login
-
-# Or: configure a PAT in Voxyflow Settings → GitHub
 ```
 
 Without `gh`, GitHub-related features (repo validation, project GitHub linking) will return 503 errors.
 
 ---
 
-## 7. Optional: TTS (Text-to-Speech)
+## 7. Optional: TTS Setup
 
-The voice WebSocket pipeline optionally generates audio responses via a TTS service.
+Voxyflow supports two TTS backends. No configuration is required for basic voice output — the browser handles it by default.
 
-**Default:** `TTS_ENGINE=remote` — XTTS v2 server on GPU (port 5500). Browser speechSynthesis is the fallback.
+### Backend 1: Browser speechSynthesis (default, no setup)
 
-```env
-TTS_ENGINE=remote
-TTS_SERVICE_URL=http://192.168.1.59:5500
+Works out of the box in Chrome, Edge, Firefox, and Safari. Uses the operating system's built-in voice engine. Quality varies by platform.
+
+No configuration needed — TTS is enabled by default in Settings → Voice.
+
+### Backend 2: XTTS v2 Server (high-quality, GPU recommended)
+
+XTTS v2 (Coqui TTS) produces significantly more natural speech and supports voice cloning. It runs as a separate HTTP server, typically on a machine with a GPU.
+
+#### Install the XTTS server
+
+The server is not included in this repo. Install Coqui TTS with the XTTS v2 model:
+
+```bash
+pip install TTS
 ```
 
-**Disable TTS:** Set `TTS_ENGINE=none` or leave the service URL unreachable. TTS failures are non-fatal — text responses are still sent; the browser speechSynthesis fallback will be used if available.
+#### Create a server script
+
+Save as `tts_server.py` on your TTS machine:
+
+```python
+from TTS.api import TTS
+from flask import Flask, request, send_file
+import io, torch
+
+app = Flask(__name__)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+
+@app.route("/speak", methods=["POST"])
+def speak():
+    data = request.json
+    text = data.get("text", "")
+    language = data.get("language", "en")
+    buf = io.BytesIO()
+    tts.tts_to_file(
+        text=text,
+        language=language,
+        speaker="Claribel Dervla",  # or any XTTS speaker
+        file_path=buf,
+    )
+    buf.seek(0)
+    return send_file(buf, mimetype="audio/wav")
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5500)
+```
+
+```bash
+python tts_server.py
+```
+
+On first run, XTTS v2 downloads its model (~2GB), cached in `~/.local/share/tts/`.
+
+#### Connect Voxyflow to the server
+
+In Voxyflow, go to **Settings → Voice** and set the **TTS Server URL** to the address of your XTTS server:
+
+```
+http://192.168.1.59:5500
+```
+
+The backend proxies TTS requests to avoid CORS and mixed-content issues — the frontend calls `/api/settings/tts/speak`, and the backend forwards to your XTTS server.
+
+**Streaming:** Voxyflow uses sentence-by-sentence SSE streaming (`/api/settings/tts/speak_stream`). Sentences are synthesized sequentially and audio starts playing before the full response is ready. It first tries the XTTS native `/tts_stream` endpoint, then falls back to `/speak`.
+
+**Fallback behavior:** If the XTTS server is unreachable, TTS automatically falls back to browser `speechSynthesis`. TTS failures are non-fatal — text responses are always delivered.
+
+### STT (Speech-to-Text)
+
+STT is also configured via **Settings → Voice**:
+
+| Engine | Setup | Privacy | Quality |
+|--------|-------|---------|---------|
+| Web Speech API (default) | None — works in Chrome/Edge | Audio sent to Google | Good, real-time |
+| Whisper WASM | Select model in Settings → Voice | 100% local, no server | Excellent, slight delay |
+
+**Whisper WASM:** Runs in a browser WebWorker. Select a HuggingFace model ID in Settings → Voice (e.g. `onnx-community/whisper-small`). The model downloads to browser cache (~150MB–750MB depending on size). No server or GPU needed.
 
 ---
 
-## 8. First Run Checklist
+## 8. First Run & Onboarding
 
-- [ ] Backend running at `http://localhost:8000`
-- [ ] `GET http://localhost:8000/health` returns `{"status": "ok"}`
-- [ ] Frontend running at `http://localhost:3000`
-- [ ] WebSocket connects (check browser console — `[ApiClient] WebSocket connected`)
-- [ ] LLM backend working (CLI subprocess or proxy responds to a test message)
-- [ ] Settings → Models configured with correct provider URL and model names
-- [ ] (Optional) Upload a `.md` file to test RAG
+### Start both servers
+
+```bash
+# Terminal 1 — Backend
+cd voxyflow/backend && source venv/bin/activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Terminal 2 — Frontend
+cd voxyflow/frontend-react
+npm run dev
+```
+
+Open `http://localhost:3000`.
 
 ### Verify backend health
 
 ```bash
 curl http://localhost:8000/health
 # → {"status":"ok","service":"voxyflow"}
-
-curl http://localhost:8000/api/tech/detect?project_path=.
-# → {"path":"...","technologies":[...],"file_counts":{...}}
 ```
 
----
+### Onboarding checklist
 
-## Personality Setup
+- [ ] Backend running at `http://localhost:8000`
+- [ ] `GET /health` returns `{"status": "ok"}`
+- [ ] Frontend running at `http://localhost:3000`
+- [ ] WebSocket connects (browser console shows `[ApiClient] WebSocket connected`)
+- [ ] LLM backend responds to a test message in chat
+- [ ] **Settings → General** — set your name and the assistant's name
+- [ ] **Settings → Personality** — review or edit `IDENTITY.md` and `USER.md`
+- [ ] **Settings → Voice** — choose STT engine, configure TTS server URL if using XTTS
 
-On first run, the personality directory (`voxyflow/personality/`) may be empty. Go to **Settings → Personality** and click **Reset to Default** for each file to generate the default templates.
+### Personality files
 
-Or create files manually at `voxyflow/personality/`:
-- `SOUL.md` — personality and behavior
-- `USER.md` — info about you
-- `AGENTS.md` — agent operating rules
-- `IDENTITY.md` — bot name, emoji, avatar
+On first run, `IDENTITY.md` and `USER.md` are generated automatically in `voxyflow/personality/` using your name and the assistant name from Settings. `SOUL.md` and `AGENTS.md` must exist in the repo (they are checked in).
+
+To regenerate `USER.md` or `IDENTITY.md` from the default template:
+**Settings → Personality → Reset to Default**
+
+Files you can edit via the Settings UI:
+- `USER.md` — information about you (language, preferences, timezone)
+- `IDENTITY.md` — assistant name, emoji, vibe
+
+Files edited directly (not via UI):
+- `SOUL.md` — core behavior and traits
+- `AGENTS.md` — agent operating rules and safety constraints
 
 ---
 
 ## Running in Production
 
-For a production deployment:
-
 ```bash
 # Backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
-# Note: Use workers=1 for WebSocket sessions (no shared in-memory state with multiple workers)
+# Note: workers=1 required — WebSocket sessions use in-memory state
 
 # Frontend — build and serve static files
 cd frontend-react && npm run build
-# Serve dist/ via Caddy/Nginx
+# Serve dist/ via Caddy or Nginx
 ```
 
-### HTTPS Setup
+### Caddy config (recommended)
 
-For HTTPS (strongly recommended in production), use a reverse proxy. Example Caddy config (`/etc/caddy/Caddyfile`):
-
-```
+```caddyfile
 voxyflow.example.com {
-  # API + WebSocket → backend
-  handle /api/* {
-    reverse_proxy localhost:8000
-  }
-  handle /ws {
-    reverse_proxy localhost:8000
-  }
-  # Static frontend
-  handle {
-    root * /path/to/frontend-react/dist
-    file_server
-  }
+  handle /api/* { reverse_proxy localhost:8000 }
+  handle /ws    { reverse_proxy localhost:8000 }
+  handle        { root * /path/to/frontend-react/dist; file_server }
 }
 ```
 
-Caddy handles TLS certificate provisioning automatically (Let's Encrypt). For self-signed certs on LAN:
+Caddy handles TLS automatically via Let's Encrypt. For LAN with self-signed cert:
 
-```
+```caddyfile
 voxyflow.local {
   tls internal
   handle /api/* { reverse_proxy localhost:8000 }
@@ -338,9 +411,37 @@ voxyflow.local {
 }
 ```
 
-**WebSocket note:** When running behind HTTPS, update the frontend `.env`:
+**WebSocket behind HTTPS:** Update the frontend `.env` before building:
 ```env
 VOXYFLOW_WS_URL=wss://voxyflow.example.com/ws
+```
+
+**HTTPS requirements:** Web Speech API, microphone access, and service worker all require HTTPS in production.
+
+### systemd service (backend)
+
+```ini
+# ~/.config/systemd/user/voxyflow-backend.service
+[Unit]
+Description=Voxyflow Backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/youruser/voxyflow/backend
+EnvironmentFile=/home/youruser/voxyflow/backend/.env
+ExecStart=/home/youruser/voxyflow/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now voxyflow-backend
+journalctl --user -u voxyflow-backend -f
 ```
 
 ---
@@ -349,13 +450,14 @@ VOXYFLOW_WS_URL=wss://voxyflow.example.com/ws
 
 | Problem | Fix |
 |---------|-----|
-| `WebSocket connection failed` | Check backend is running and `WS_URL` in constants.ts points to correct host |
+| `WebSocket connection failed` | Check backend is running; verify `VOXYFLOW_WS_URL` in frontend `.env` |
 | `chromadb not found` | `pip install chromadb sentence-transformers` |
 | `RAGService init failed` | Check `~/.voxyflow/chroma/` permissions |
 | `GitHub: gh not installed` | Install `gh` CLI or configure PAT in Settings |
-| No API response | Check LLM backend: `claude` CLI installed (for CLI mode) or proxy running at `provider_url` |
-| STT not working | Chrome/Edge required for Web Speech API; check microphone permissions |
-| TTS silent | Check `TTS_SERVICE_URL` is reachable; TTS failures are non-fatal |
-| PDF/DOCX upload fails | `pip install pypdf python-docx openpyxl` for Phase 2 document support |
-| Scheduler not running | Check `apscheduler` is installed; `GET /api/health` should show `scheduler_running: true` |
+| No LLM response | Check `CLAUDE_USE_CLI=true` in `.env` and `claude` CLI is installed and authenticated |
+| STT not working | Chrome/Edge required for Web Speech API; check microphone permissions; HTTPS required in production |
+| TTS silent | Check TTS Server URL in Settings → Voice is reachable; check backend logs for proxy errors |
+| Whisper WASM won't load | Set a valid HuggingFace model ID in Settings → Voice (e.g. `onnx-community/whisper-small`) |
+| Personality files missing | Auto-generated on startup — check `voxyflow/personality/`; or use Settings → Personality → Reset |
+| Scheduler not running | `GET /api/health` should show `scheduler_running: true`; check `apscheduler` is installed |
 | Jobs not executing | Check `~/.voxyflow/jobs.json` is writable; trigger manually via `POST /api/jobs/{id}/run` |
