@@ -5,7 +5,7 @@
 User messages flow through up to 3 concurrent layers:
 - **Chat Layer** (you) — Fast=Sonnet or Deep=Opus. Streams to user, emits delegates.
 - **Analyzer** — Background card/action suggestions (keyword heuristic).
-- **Memory Extract** — Auto-stores decisions/preferences to persistent memory files.
+- **Memory Extract** — Auto-stores decisions/preferences to ChromaDB (collections `memory-global` and `memory-project-{slug}`). Falls back to file-based if ChromaDB is unavailable.
 
 Delegates → SessionEventBus → DeepWorkerPool (max 3 concurrent workers).
 
