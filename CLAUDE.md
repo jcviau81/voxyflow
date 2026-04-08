@@ -18,6 +18,7 @@ Spawns `claude -p` subprocesses. Uses Claude Max subscription directly.
 - Personality mode: `native_tools="cli_mcp"` in personality_service.py
 - Permissions: `--permission-mode bypassPermissions` (MCP tools are our own REST API)
 - `--strict-mcp-config` prevents Claude Code's own MCP servers from polluting context
+- **Rate gate**: `CliRateGate` in cli_backend.py — global semaphore (max concurrent) + min spacing between calls. Prevents 529 rate limit errors on Max subscription. Configured via `CLI_MAX_CONCURRENT` (default 2) and `CLI_MIN_SPACING_MS` (default 500). Applied to all 5 CLI entry points: `call()`, `_call_with_tool_events()`, `stream_persistent()`, `call_steerable()`, `stream()`
 
 ### 2. Native Anthropic SDK (`CLAUDE_USE_NATIVE=true`)
 Direct API calls via `anthropic` Python SDK. Requires API key.
@@ -55,10 +56,18 @@ systemctl --user restart voxyflow-backend
 cd frontend-react && npm run build
 ```
 
+## Infrastructure
+- **Backend**: systemd user service `voxyflow-backend.service` (uvicorn on port 8000)
+- **Frontend**: Vite build served by Caddy reverse proxy
+- **Caddy**: system service (`/etc/caddy/Caddyfile`), proxies `/api/*`, `/ws`, `/ws/*` to backend, serves static frontend
+- **Linger**: enabled for `jcviau` so user services start at boot without login
+
 ## .env (example)
 ```
 CLAUDE_USE_CLI=true
 CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
 CLAUDE_SONNET_MODEL=claude-sonnet-4-6
 CLAUDE_DEEP_MODEL=claude-opus-4-6
+CLI_MAX_CONCURRENT=2
+CLI_MIN_SPACING_MS=500
 ```
