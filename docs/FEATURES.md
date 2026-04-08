@@ -496,11 +496,18 @@ Select Mode for batch operations:
 
 ### Card Recurring 🔁
 
-Automatic card regeneration:
+Two distinct recurrence mechanisms:
 
+**Recurrence (card regeneration):**
 - Set recurrence on a card: **Daily**, **Weekly**, or **Monthly**
 - When the card is moved to `done`, a new copy is auto-created with the next scheduled date
 - `recurrence_next` tracks the next due date
+
+**Recurring (board run reset):**
+- Checkbox on a card: **Recurring**
+- When checked, the card automatically resets to `todo` after a board run completes (whether the run succeeded, was cancelled, or errored)
+- Designed for autonomous boards — cards that should re-execute every time the board runs on a cron schedule
+- Only cards that were actually executed (moved to `done`) during the run are reset
 
 ---
 
@@ -807,13 +814,33 @@ This allows mixing providers (e.g. Ollama for Fast, Anthropic API for Deep).
 
 Schedule recurring background tasks via the Settings → Jobs panel:
 
-- **Types:** `reminder`, `github_sync`, `rag_index`, `custom`
-- **Schedule:** Cron expression or shorthand (`every_5min`, `every_1h`)
+- **Types:**
+  - `reminder` — broadcast a notification message via WebSocket
+  - `rag_index` — re-index project documents in ChromaDB
+  - `github_sync` — GitHub sync (placeholder)
+  - `board_run` — execute a project's kanban board on a schedule (see below)
+  - `custom` — extensible placeholder
+- **Schedule:** Cron expression (`0 9 * * 1-5`) or shorthand (`every_5min`, `every_1h`, `every_day`)
 - **Enable/disable** individual jobs without deleting them
 - **Manual trigger:** Run any job immediately via the "▶ Run" button
 - Jobs persisted to `~/.voxyflow/jobs.json`
 
 **API:** `GET/POST /api/jobs` · `PUT/DELETE /api/jobs/{id}` · `POST /api/jobs/{id}/run`
+
+#### Autonomous Board Runs (`board_run`)
+
+The `board_run` job type enables fully autonomous, scheduled execution of a project's kanban board:
+
+- **`project_id`** (required) — which project's board to execute
+- **`statuses`** (optional, default `["todo"]`) — which card statuses to pick up
+
+**Typical setup:**
+1. Create a dedicated project (e.g. "Daily Ops", "Autonomous")
+2. Add cards describing tasks to run — mark them **Recurring** if they should re-execute every run
+3. Create a `board_run` job with the project ID and a cron schedule
+4. Each run picks up all `todo` cards, executes them sequentially, and resets recurring cards back to `todo` when done
+
+Board run events (`kanban:execute:card:start`, `kanban:execute:complete`, etc.) are broadcast via WebSocket to all connected clients, so the UI reflects progress in real time even for scheduled runs.
 
 ### Health Status Bar
 
