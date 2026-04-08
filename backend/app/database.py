@@ -15,6 +15,7 @@ from sqlalchemy import (
     Table,
     Enum as SAEnum,
 )
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.pool import StaticPool
@@ -31,10 +32,23 @@ engine = create_async_engine(
     # SQLite: use StaticPool (single shared connection) to avoid pool exhaustion
     # under heavy concurrent access. SQLite handles its own locking.
     poolclass=StaticPool,
-    connect_args={"check_same_thread": False},
+    connect_args={
+        "check_same_thread": False,
+        "timeout": 30,  # wait up to 30s for lock instead of failing immediately
+    },
 )
 
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+# Enable WAL journal mode for every new SQLite connection — allows concurrent
+# readers while a write is in progress and eliminates most "database is locked" errors.
+@event.listens_for(engine.sync_engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, connection_record):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
 
 
 async def get_db() -> AsyncSession:

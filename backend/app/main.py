@@ -9,9 +9,9 @@ from logging.handlers import RotatingFileHandler
 from uuid import uuid4
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -222,6 +222,14 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """Log unhandled exceptions so 500s leave a traceback in backend.log."""
+    logger.error("Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path, exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+
 
 # CORS — restricted to allowed origins (configure via VOXYFLOW_CORS_ORIGINS env var)
 # Default: localhost only. For Tailscale: set VOXYFLOW_CORS_ORIGINS to your Tailscale IP/hostname.
