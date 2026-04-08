@@ -140,25 +140,25 @@ export function MessageList({
       onMessageStreaming({ messageId, content }) {
         if (autoScrollRef.current) scrollToBottom('instant');
 
-        // Progressive TTS: detect complete sentences and speak them as they arrive
+        // Progressive TTS: detect complete sentences and speak them as they arrive.
+        // IMPORTANT: clean the full accumulated content first, then track position in
+        // cleaned space. This prevents text inside <delegate>/<tool_call> blocks from
+        // leaking into TTS when spokenLen lands mid-block in the raw content.
         if (!isTtsAutoPlay()) return;
 
+        const cleanedFull = cleanTextForSpeech(content);
         const spokenLen = streamingTtsBufferRef.current.get(messageId) ?? 0;
-        const newContent = content.slice(spokenLen);
+        const newCleanContent = cleanedFull.slice(spokenLen);
 
-        // Find the last sentence-ending boundary in the new content
-        // We speak everything up to the last complete sentence
-        const sentenceEndMatch = newContent.match(/^([\s\S]*[.!?])(\s|$)/);
+        // Find the last sentence-ending boundary in the new cleaned content
+        const sentenceEndMatch = newCleanContent.match(/^([\s\S]*[.!?])(\s|$)/);
         if (!sentenceEndMatch) return;
 
         const toSpeak = sentenceEndMatch[1].trim();
         if (!toSpeak) return;
 
-        const cleaned = cleanTextForSpeech(toSpeak);
-        if (cleaned) {
-          ttsService.speak(cleaned);
-        }
-        // Advance the spoken pointer past what we just queued
+        ttsService.speak(toSpeak);
+        // Advance the spoken pointer in cleaned content space
         streamingTtsBufferRef.current.set(messageId, spokenLen + sentenceEndMatch[0].length);
       },
       onMessageStreamEnd({ messageId, content }) {
@@ -172,11 +172,12 @@ export function MessageList({
         if (isSpecialMessage) {
           // Never speak enrichment or worker result messages
         } else if (spokenLen !== undefined) {
-          // Progressive mode was active — speak any trailing text not yet queued
-          const remaining = content.slice(spokenLen).trim();
+          // Progressive mode was active — speak any trailing text not yet queued.
+          // spokenLen is in cleaned content space (same as onMessageStreaming above).
+          const cleanedFull = cleanTextForSpeech(content);
+          const remaining = cleanedFull.slice(spokenLen).trim();
           if (remaining && isTtsAutoPlay()) {
-            const cleaned = cleanTextForSpeech(remaining);
-            if (cleaned) ttsService.speak(cleaned);
+            ttsService.speak(remaining);
           }
         } else {
           // No progressive TTS happened (stream was too short or auto-play was off)
