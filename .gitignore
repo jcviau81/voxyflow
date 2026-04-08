@@ -19,9 +19,10 @@ build/
 .env.production
 restart.sh
 
-# IDE
+# IDE & tools
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
