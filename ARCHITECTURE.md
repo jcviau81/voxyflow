@@ -80,15 +80,14 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 - WebSocket provider for real-time sync
 - EventBus pattern for decoupled communication
 
-### Agent Personas (7 Specialists)
+### Agent Personas (6 Specialists)
 Cards and conversations can be routed to specialized agents:
-1. **Ember** 🔥 — Default, general conversation, coordination
-2. **Researcher** 🔍 — Deep analysis, fact-checking, long-form research
-3. **Coder** 💻 — Code generation, debugging, optimization
-4. **Designer** 🎨 — UI/UX thinking, visual design guidance
-5. **Architect** 🏗️ — System design, planning, PRD writing
-6. **Writer** ✍️ — Content, marketing, storytelling
-7. **QA** 🧪 — Testing strategies, edge cases, validation
+1. **Researcher** 🔍 — Deep analysis, fact-checking, long-form research
+2. **Coder** 💻 — Code generation, debugging, optimization
+3. **Designer** 🎨 — UI/UX thinking, visual design guidance
+4. **Architect** 🏗️ — System design, planning, PRD writing
+5. **Writer** ✍️ — Content, marketing, storytelling
+6. **QA** 🧪 — Testing strategies, edge cases, validation
 
 ### ReactiveCardStore (Single Source of Truth)
 All card data on the frontend flows through `useCardStore` (`frontend-react/src/stores/useCardStore.ts`), a centralized Map-based singleton. Components subscribe to global or per-card changes and re-render automatically. This replaces ad-hoc fetching patterns and eliminates stale data.
