@@ -4,7 +4,6 @@
 Kanban + AI execution engine. Python/FastAPI backend, React frontend.
 - **Backend**: `backend/app/` — services, routes, tools, MCP server
 - **Frontend**: `frontend/src/` — React + Vite
-- **Dev setup**: Two machines (dev + ROG), user tests on ROG via git push
 
 ## LLM Backend — Three Paths (April 2026)
 
@@ -46,19 +45,17 @@ Proxy at `localhost:3457`. Being deprecated (Anthropic cutting third-party harne
 4. Model responds conversationally + calls MCP tools inline + emits `<delegate>` for complex tasks
 5. Orchestrator parses `<delegate>` blocks → spawns workers
 
-## Dev Restart (ROG)
-Script: `~/voxy-dev.sh` — pulls, restarts backend (systemd), rebuilds frontend.
-```bash
-~/voxy-dev.sh                    # full: pull + backend + frontend build
-~/voxy-dev.sh --backend-only     # restart backend only
-~/voxy-dev.sh --frontend-only    # rebuild frontend only
-~/voxy-dev.sh --no-pull          # skip git pull
-~/voxy-dev.sh --backend-only --no-pull  # restart backend, no pull (most common during dev)
-```
-Backend: `systemctl --user restart voxyflow-backend` (uvicorn on port 8000)
-Frontend: built with Vite, served via Caddy → backend
+## Dev Restart
+Backend runs via systemd (uvicorn on port 8000), frontend built with Vite and served via a reverse proxy.
 
-## Current .env (ROG)
+Example startup script pattern:
+```bash
+git pull
+systemctl --user restart voxyflow-backend
+cd frontend && npm run build
+```
+
+## .env (example)
 ```
 CLAUDE_USE_CLI=true
 CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001

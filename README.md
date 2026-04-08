@@ -175,7 +175,6 @@ Cards and conversations can be routed to specialized agents:
 
 | Agent | Role |
 |-------|------|
-| 🔥 Ember | Default — general conversation, coordination |
 | 🔍 Researcher | Deep analysis, fact-checking, long-form |
 | 💻 Coder | Code generation, debugging, optimization |
 | 🎨 Designer | UI/UX thinking, visual design guidance |
