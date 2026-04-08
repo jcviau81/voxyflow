@@ -666,10 +666,10 @@ class ChatOrchestrator(LayerRunnersMixin):
 
             task_id = f"task-{uuid4().hex[:8]}"
 
-            # Classify intent type (same logic as XML path)
+            # Classify intent type based on the task, not the model
             if complexity == "complex" or model == "opus":
                 intent_type = "complex"
-            elif intent in ("create_card", "move_card", "update_card") or model == "haiku":
+            elif intent in ("create_card", "move_card", "update_card"):
                 intent_type = "crud_simple"
             else:
                 intent_type = "complex"
@@ -804,10 +804,10 @@ class ChatOrchestrator(LayerRunnersMixin):
 
                 task_id = f"task-{uuid4().hex[:8]}"
 
-                # Classify intent type
+                # Classify intent type based on the task, not the model
                 if complexity == "complex" or model == "opus":
                     intent_type = "complex"
-                elif intent in ("create_card", "move_card", "update_card") or model == "haiku":
+                elif intent in ("create_card", "move_card", "update_card"):
                     intent_type = "crud_simple"
                 else:
                     intent_type = "complex"
@@ -1286,7 +1286,7 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         if complexity == "complex" or model == "opus":
             intent_type = "complex"
-        elif intent in ("create_card", "move_card", "update_card") or model == "haiku":
+        elif intent in ("create_card", "move_card", "update_card"):
             intent_type = "crud_simple"
         else:
             intent_type = "complex"

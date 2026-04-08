@@ -736,7 +736,7 @@ class PersonalityService:
         return base
 
     # ------------------------------------------------------------------
-    # Worker prompts — model-routed (haiku/sonnet/opus)
+    # Worker prompts — function-based (same tools regardless of model)
     # ------------------------------------------------------------------
 
     def build_worker_prompt(
@@ -746,13 +746,22 @@ class PersonalityService:
         project: Optional[dict] = None,
         card: Optional[dict] = None,
     ) -> str:
-        """Build system prompt for background worker execution."""
-        if model == "haiku":
-            return self._build_haiku_worker_prompt(chat_level, project, card)
-        elif model == "opus":
-            return self._build_opus_worker_prompt(chat_level, project, card)
-        else:
-            return self._build_sonnet_worker_prompt(chat_level, project, card)
+        """Build system prompt for background worker execution.
+
+        All workers get the same tools and prompt structure regardless of model.
+        The model only affects speed/capability, not the role or tool access.
+        """
+        from app.tools.registry import TOOLS_FULL
+        tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
+        context = self._build_worker_context_section(chat_level, project, card)
+        worker_rules = self.load_worker()
+
+        return (
+            f"{worker_rules}\n\n"
+            f"## Active Role: Worker (Task Executor)\n\n"
+            f"## Available Tools\n{tool_list}\n\n"
+            f"## Context\n{context}"
+        )
 
     def _build_worker_context_section(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Build context section for worker prompts with full IDs and details."""
@@ -791,48 +800,6 @@ class PersonalityService:
             f"Workspace: {ws_dir}\n"
             f"CWD is set to {ws_dir} — use relative paths for workspace files.\n"
             "Voxyflow app codebase: ~/voxyflow/ (do NOT write project files here)."
-        )
-
-    def _build_haiku_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
-        """Haiku: Simple CRUD only. Fast, cheap, no ambiguity."""
-        from app.tools.registry import TOOLS_VOXYFLOW_CRUD
-        tool_list = self._build_tool_section(TOOLS_VOXYFLOW_CRUD, chat_level)
-        context = self._build_worker_context_section(chat_level, project, card)
-        worker_rules = self.load_worker()
-
-        return (
-            f"{worker_rules}\n\n"
-            f"## Active Role: Haiku (CRUD Executor)\n\n"
-            f"## Available Tools\n{tool_list}\n\n"
-            f"## Context\n{context}"
-        )
-
-    def _build_sonnet_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
-        """Sonnet: Research, web, file analysis. Balanced speed/capability."""
-        from app.tools.registry import TOOLS_FULL
-        tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
-        context = self._build_worker_context_section(chat_level, project, card)
-        worker_rules = self.load_worker()
-
-        return (
-            f"{worker_rules}\n\n"
-            f"## Active Role: Sonnet (Research & Analysis)\n\n"
-            f"## Available Tools\n{tool_list}\n\n"
-            f"## Context\n{context}"
-        )
-
-    def _build_opus_worker_prompt(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
-        """Opus: Complex multi-step, architecture, code analysis."""
-        from app.tools.registry import TOOLS_FULL
-        tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
-        context = self._build_worker_context_section(chat_level, project, card)
-        worker_rules = self.load_worker()
-
-        return (
-            f"{worker_rules}\n\n"
-            f"## Active Role: Opus (Complex Execution)\n\n"
-            f"## Available Tools\n{tool_list}\n\n"
-            f"## Context\n{context}"
         )
 
     def build_analyzer_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project_names: Optional[list] = None, delegation: Optional[dict] = None) -> str:

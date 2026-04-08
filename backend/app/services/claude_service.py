@@ -929,22 +929,20 @@ class ClaudeService(ApiCallerMixin):
         task_id: str = "",
     ) -> str:
         """Execute a delegated task with the specified worker model (haiku/sonnet/opus)."""
-        # Select client/model based on model param
+        # Select client/model based on model param — all workers get full tools
         if model == "haiku":
             client, client_type, model_name = (
                 self.haiku_client, self.haiku_client_type, self.haiku_model
             )
-            layer = "analyzer"  # Uses TOOLS_VOXYFLOW_CRUD
         elif model == "opus":
             client, client_type, model_name = (
                 self.deep_client, self.deep_client_type, self.deep_model
             )
-            layer = "deep"  # Uses TOOLS_FULL
         else:  # sonnet (default)
             client, client_type, model_name = (
                 self.fast_client, self.fast_client_type, self.fast_model
             )
-            layer = "deep"  # Sonnet worker gets full tools for research
+        layer = "deep"  # All workers get TOOLS_FULL regardless of model
 
         # Workers always use the native Anthropic async SDK (tool_use blocks) to avoid
         # XML <tool_call> truncation issues with the OpenAI-compat proxy path.
