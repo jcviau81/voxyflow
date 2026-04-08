@@ -35,6 +35,7 @@ function getContextSuggestions(level: ChatLevel, projectName?: string): string[]
       ];
     case 'card':
       return [
+        'Enrich this card',
         'Help me implement this',
         'Write tests for this',
         'What are the next steps?',
