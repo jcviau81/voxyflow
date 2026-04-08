@@ -6,6 +6,7 @@ The Fast layer emits ActionIntent events; Deep workers consume them.
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import AsyncIterator
 
@@ -36,6 +37,7 @@ class SessionEventBus:
         self.session_id = session_id
         self.queue: asyncio.Queue = asyncio.Queue()
         self._closed = False
+        self.last_activity: float = time.monotonic()
         logger.debug(f"[EventBus] Created bus for session {session_id}")
 
     async def emit(self, event: ActionIntent) -> None:
@@ -43,6 +45,7 @@ class SessionEventBus:
         if self._closed:
             logger.warning(f"[EventBus] Attempted emit on closed bus {self.session_id}")
             return
+        self.last_activity = time.monotonic()
         logger.info(f"[EventBus] Emit: task_id={event.task_id} intent={event.intent} complexity={event.complexity}")
         await self.queue.put(event)
 
@@ -93,6 +96,22 @@ class EventBusRegistry:
     def active_sessions(self) -> list[str]:
         """List all sessions with active buses."""
         return list(self._buses.keys())
+
+    def cleanup_idle(self, max_idle_seconds: float = 3600) -> int:
+        """Remove buses that have been idle (no emits) for longer than max_idle_seconds.
+
+        Returns the number of buses cleaned up.
+        """
+        now = time.monotonic()
+        stale = [
+            sid for sid, bus in self._buses.items()
+            if (now - bus.last_activity) > max_idle_seconds and bus.pending_count == 0
+        ]
+        for sid in stale:
+            self.remove(sid)
+        if stale:
+            logger.info(f"[EventBus] Cleaned up {len(stale)} idle bus(es): {stale}")
+        return len(stale)
 
 
 # Global singleton

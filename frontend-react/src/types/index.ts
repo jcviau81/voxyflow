@@ -34,6 +34,7 @@ export interface Message {
   enrichmentAction?: 'enrich' | 'correct';
   model?: string;
   isWorkerResult?: boolean;
+  truncated?: boolean;
 }
 
 export interface TechInfo {

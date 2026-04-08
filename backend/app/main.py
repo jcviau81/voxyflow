@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db, SYSTEM_MAIN_PROJECT_ID
-from app.routes import chats, projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers, models, worker_tasks, cli_sessions
+from app.routes import projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers, models, worker_tasks, cli_sessions
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.chat_orchestration import ChatOrchestrator
@@ -186,9 +186,11 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("⏸️  Scheduler disabled via settings")
 
-    # Background task: cleanup idle persistent chat sessions every 5 minutes
+    # Background task: cleanup idle persistent chat sessions, event buses, and pending results every 5 minutes
     async def _cleanup_idle_sessions():
         from app.services.cli_session_registry import get_cli_session_registry
+        from app.services.event_bus import event_bus_registry
+        from app.services.pending_results import pending_store
         while True:
             await asyncio.sleep(300)  # 5 minutes
             try:
@@ -197,6 +199,18 @@ async def lifespan(app: FastAPI):
                     logger.info(f"[Cleanup] Killed {killed} idle persistent chat sessions")
             except Exception as e:
                 logger.debug(f"[Cleanup] idle session cleanup error: {e}")
+            try:
+                cleaned = event_bus_registry.cleanup_idle(3600)  # 1 hour idle
+                if cleaned:
+                    logger.info(f"[Cleanup] Removed {cleaned} idle EventBus instance(s)")
+            except Exception as e:
+                logger.debug(f"[Cleanup] EventBus cleanup error: {e}")
+            try:
+                removed = await pending_store.cleanup_stale(86400)  # 24 hour TTL
+                if removed:
+                    logger.info(f"[Cleanup] Removed {removed} stale pending result(s)")
+            except Exception as e:
+                logger.debug(f"[Cleanup] pending results cleanup error: {e}")
 
     _idle_cleanup_task = asyncio.create_task(_cleanup_idle_sessions())
 
@@ -256,7 +270,6 @@ app.add_middleware(
 )
 
 # Routes
-app.include_router(chats.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(cards.router, prefix="/api")
 app.include_router(techdetect.router)
@@ -489,7 +502,7 @@ async def general_websocket(websocket: WebSocket):
                         except Exception as _e:
                             logger.warning(f"[WS] session:reset worker pool stop failed: {_e}")
 
-                    _orchestrator.reset_session(chat_id)
+                    _orchestrator.reset_session(chat_id, session_id=session_id)
                     logger.info(f"[WS] session:reset → cleared history for {chat_id}")
 
                     await websocket.send_json({

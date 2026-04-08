@@ -327,14 +327,17 @@ class ChatOrchestrator(LayerRunnersMixin):
     # Session management
     # ------------------------------------------------------------------
 
-    def reset_session(self, chat_id: str) -> None:
-        """Clear conversation history and kill persistent CLI process."""
+    def reset_session(self, chat_id: str, session_id: str | None = None) -> None:
+        """Clear conversation history, kill persistent CLI process, and clean up EventBus."""
         if chat_id in self._claude._histories:
             self._claude._histories[chat_id] = []
         session_store.clear_session(chat_id)
         # Kill persistent chat subprocess if alive
         if self._claude._cli_backend:
             asyncio.create_task(self._claude._cli_backend.kill_persistent_chat(chat_id))
+        # Clean up per-session EventBus to prevent accumulation
+        cleanup_id = session_id or chat_id
+        event_bus_registry.remove(cleanup_id)
 
     # ------------------------------------------------------------------
     # Active Workers Context (for dispatcher system prompt injection)

@@ -22,6 +22,7 @@ import { useWS } from '../../providers/WebSocketProvider';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useCardStore } from '../../stores/useCardStore';
 import { useWorkerStore, type WorkerInfo, type CliSessionInfo } from '../../stores/useWorkerStore';
+import { SYSTEM_PROJECT_ID } from '../../lib/constants';
 
 // ── Peek types ─────────────────────────────────────────────────────────────
 
@@ -172,7 +173,7 @@ function buildTree(
 
     projects.push({
       projectId: pid,
-      projectName: pid === '_general' ? 'General' : (projectNames[pid] || pid.slice(0, 12)),
+      projectName: pid === '_general' ? 'General' : pid === SYSTEM_PROJECT_ID ? 'Main' : (projectNames[pid] || pid.slice(0, 12)),
       sessions,
     });
   }
@@ -385,10 +386,10 @@ function SessionRow({ session, projectId, onCancel, onSteer, peekData, expandedP
 
   const handleSessionClick = () => {
     if (cardId && projectId !== '_general') {
-      navigate(`/project/${projectId}`);
+      navigate(projectId === SYSTEM_PROJECT_ID ? '/' : `/project/${projectId}`);
       selectCard(cardId);
     } else if (projectId !== '_general') {
-      navigate(`/project/${projectId}`);
+      navigate(projectId === SYSTEM_PROJECT_ID ? '/' : `/project/${projectId}`);
     }
     if (hasChildren) setOpen((o) => !o);
   };
@@ -591,7 +592,7 @@ function ProjectGroup({ project, onCancel, onSteer, peekData, expandedPeek, onTo
   const handleProjectClick = () => {
     // Navigate to project on click (but not for _general)
     if (project.projectId !== '_general') {
-      navigate(`/project/${project.projectId}`);
+      navigate(project.projectId === SYSTEM_PROJECT_ID ? '/' : `/project/${project.projectId}`);
     }
     setOpen((o) => !o);
   };

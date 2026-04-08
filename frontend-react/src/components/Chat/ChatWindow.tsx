@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatService } from '../../contexts/useChatService';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useSessionStore } from '../../stores/useSessionStore';
@@ -11,6 +11,7 @@ import { ChatSearch } from './ChatSearch';
 import { ModePill } from './ModePill';
 import type { ChatLevel } from './SmartSuggestions';
 import { cn } from '../../lib/utils';
+import type { ServerSession } from '../../hooks/api/useSessions';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -63,6 +64,66 @@ export function ChatWindow({
   useEffect(() => {
     setActiveSessionId(sessionId);
   }, [sessionId, setActiveSessionId]);
+
+  // ---------------------------------------------------------------------------
+  // Cross-device session sync — fetch server sessions on WS connect
+  // ---------------------------------------------------------------------------
+
+  const prevConnState = useRef(connectionState);
+  const injectServerSession = useSessionStore((s) => s.injectServerSession);
+  const setActiveSession = useSessionStore((s) => s.setActiveSession);
+
+  useEffect(() => {
+    const justConnected =
+      prevConnState.current !== 'connected' && connectionState === 'connected';
+    prevConnState.current = connectionState;
+    if (!justConnected) return;
+
+    // Fetch active sessions from server and merge into local store
+    // For Main (no projectId), filter to system-main sessions only
+    const prefix = projectId ? `project:${projectId}` : `project:${tabId}`;
+    fetch(`/api/sessions?active=true&max_age_hours=720`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((serverSessions: ServerSession[]) => {
+        // Filter to sessions matching this tab's project
+        const relevant = serverSessions.filter((s) => s.chatId.startsWith(prefix));
+        if (relevant.length === 0) return;
+
+        const localSessions = useSessionStore.getState().sessions[tabId] || [];
+        const localChatIds = new Set(localSessions.map((s) => s.chatId));
+
+        // Find the most recent server session (first in list, sorted by updatedAt desc)
+        const mostRecent = relevant[0];
+
+        // Inject any server sessions not already in local store (without changing active session)
+        for (const ss of relevant) {
+          if (!localChatIds.has(ss.chatId)) {
+            injectServerSession(tabId, {
+              chatId: ss.chatId,
+              title: ss.title || ss.chatId,
+              messageCount: ss.messageCount,
+            });
+          }
+        }
+
+        // If local store had no sessions or only an empty session, switch to the most recent server session
+        const hasLocalMessages = localSessions.some((s) => {
+          const msgs = useMessageStore.getState().getMessages(undefined, s.chatId);
+          return msgs.length > 0;
+        });
+
+        if (!hasLocalMessages && mostRecent.messageCount > 0) {
+          // Resume the most recent server session
+          const updated = useSessionStore.getState().sessions[tabId] || [];
+          const match = updated.find((s) => s.chatId === mostRecent.chatId);
+          if (match) {
+            setActiveSession(tabId, match.id);
+            loadHistory(match.chatId, projectId, cardId, match.chatId, true).catch(() => {});
+          }
+        }
+      })
+      .catch((e) => console.warn('[ChatWindow] Session sync failed:', e));
+  }, [connectionState, tabId, projectId, cardId, injectServerSession, setActiveSession, loadHistory]);
 
   // ---------------------------------------------------------------------------
   // Load history when session changes

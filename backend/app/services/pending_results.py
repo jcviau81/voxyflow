@@ -98,6 +98,38 @@ class PendingResultStore:
             except Exception as e:
                 logger.debug("Failed to remove session dir %s: %s", session_dir, e)
 
+    async def cleanup_stale(self, max_age_seconds: float = 86400) -> int:
+        """Remove pending result files older than max_age_seconds (default 24h).
+
+        Also removes empty session directories. Returns the number of files removed.
+        """
+        removed = 0
+        now = time.time()
+        if not self._data_dir.exists():
+            return 0
+
+        for session_dir in self._data_dir.iterdir():
+            if not session_dir.is_dir():
+                continue
+            for filepath in session_dir.glob("*.json"):
+                try:
+                    age = now - filepath.stat().st_mtime
+                    if age > max_age_seconds:
+                        filepath.unlink()
+                        removed += 1
+                except Exception as e:
+                    logger.debug("Failed to check/delete stale pending result %s: %s", filepath, e)
+            # Remove empty session directories
+            try:
+                if session_dir.exists() and not any(session_dir.iterdir()):
+                    session_dir.rmdir()
+            except Exception as e:
+                logger.debug("Failed to remove empty session dir %s: %s", session_dir, e)
+
+        if removed:
+            logger.info(f"[PendingResults] Cleaned up {removed} stale pending result(s)")
+        return removed
+
 
 # Global singleton
 pending_store = PendingResultStore()

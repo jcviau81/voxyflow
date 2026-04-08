@@ -270,10 +270,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     );
 
     for (const [streamId, stream] of streamingMessagesRef.current) {
-      messageStoreRef.current.updateMessage(stream.messageId, { streaming: false });
+      const truncatedContent = stream.content
+        ? stream.content + '\n\n---\n*Connection lost — response may be incomplete. Reconnecting…*'
+        : '';
+      messageStoreRef.current.updateMessage(stream.messageId, {
+        streaming: false,
+        content: truncatedContent,
+        truncated: true,
+      });
       emitCallbacks('onMessageStreamEnd', {
         messageId: stream.messageId,
-        content: stream.content,
+        content: truncatedContent,
       });
       clearStreamingTimer(streamId);
     }
@@ -691,6 +698,58 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       subscribe('reminder:fired', (payload) => {
         const { jobName, message } = payload as { jobName?: string; message?: string };
         showToast(`${jobName || 'Reminder'}: ${message || ''}`, 'info', 5000);
+      }),
+    );
+
+    // --- ws:connected — sync session on connect/reconnect ---
+    // 1. Sends session:sync so the backend delivers any pending worker results
+    //    that accumulated while the client was disconnected.
+    // 2. If any messages were truncated mid-stream, reloads history from
+    //    the backend to replace them with the complete server-side version.
+    unsubs.push(
+      subscribe('ws:connected', () => {
+        const sessionId = activeSessionIdRef.current;
+        if (sessionId) {
+          send('session:sync', { sessionId });
+
+          // Check if any messages in this session were truncated
+          const msgs = messageStoreRef.current.getMessages(undefined, sessionId);
+          const hasTruncated = msgs.some((m) => m.truncated);
+          if (hasTruncated) {
+            // Reload full history from backend to replace truncated messages
+            void fetch(`/api/sessions/${sessionId}?limit=50`)
+              .then((r) => (r.ok ? r.json() : null))
+              .then((data) => {
+                if (!data?.messages) return;
+                const backendMessages: Array<{
+                  role: string;
+                  content: string;
+                  timestamp?: string;
+                  model?: string;
+                  type?: string;
+                }> = data.messages;
+
+                const converted: Message[] = backendMessages
+                  .filter((m) => m.role === 'user' || m.role === 'assistant')
+                  .filter((m) => m.type !== 'enrichment')
+                  .map((m) => ({
+                    id: generateId(),
+                    role: m.role as 'user' | 'assistant',
+                    content: m.content || '',
+                    timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+                    sessionId,
+                    streaming: false,
+                    model: m.model,
+                    isWorkerResult: m.type === 'worker_result' ? true : undefined,
+                  }));
+
+                if (converted.length > 0) {
+                  messageStoreRef.current.replaceSessionMessages(converted, sessionId);
+                }
+              })
+              .catch((e) => console.warn('[ChatProvider] Failed to recover truncated messages:', e));
+          }
+        }
       }),
     );
 

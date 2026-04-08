@@ -2,23 +2,19 @@
  * useWorkerSync — wires WebSocket subscriptions to the useWorkerStore.
  *
  * Mount once in AppShell. Handles:
- *   - Initial snapshot load on mount
+ *   - Initial snapshot load on mount (all projects — no filter)
  *   - WS event subscriptions for real-time updates
  *   - Re-sync on WS reconnect
  *   - Re-sync on tab visibility resume
  *   - Periodic TTL purge of expired tasks
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useWS } from '../providers/WebSocketProvider';
-import { useProjectStore } from '../stores/useProjectStore';
 import { useWorkerStore } from '../stores/useWorkerStore';
 
 export function useWorkerSync(): void {
   const { subscribe } = useWS();
-  const currentProjectId = useProjectStore((s) => s.currentProjectId);
-  const projectIdRef = useRef(currentProjectId);
-  projectIdRef.current = currentProjectId;
 
   const {
     loadSnapshot,
@@ -32,10 +28,10 @@ export function useWorkerSync(): void {
     purgeExpired,
   } = useWorkerStore();
 
-  // ── Load snapshot on mount and project change ──────────────────────────
+  // ── Load snapshot on mount (all projects) ─────────────────────────────
   useEffect(() => {
-    void loadSnapshot(currentProjectId);
-  }, [currentProjectId, loadSnapshot]);
+    void loadSnapshot(null);
+  }, [loadSnapshot]);
 
   // ── WS event subscriptions ─────────────────────────────────────────────
   useEffect(() => {
@@ -59,7 +55,7 @@ export function useWorkerSync(): void {
       subscribe('cli:session:ended', handleCliSessionEnded),
       // Re-fetch snapshot on WS reconnect
       subscribe('ws:connected', () => {
-        void loadSnapshot(projectIdRef.current);
+        void loadSnapshot(null);
       }),
     ];
     return () => unsubs.forEach((u) => u());
@@ -79,7 +75,7 @@ export function useWorkerSync(): void {
   useEffect(() => {
     const handler = () => {
       if (document.visibilityState === 'visible') {
-        void loadSnapshot(projectIdRef.current);
+        void loadSnapshot(null);
         purgeExpired();
       }
     };
