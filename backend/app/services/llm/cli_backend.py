@@ -28,6 +28,70 @@ from app.services.cli_session_registry import (
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Rate gate — prevents hitting Claude Max subscription rate limits (529)
+# ---------------------------------------------------------------------------
+
+_CLI_MAX_CONCURRENT = int(os.environ.get("CLI_MAX_CONCURRENT", "2"))
+_CLI_MIN_SPACING_MS = int(os.environ.get("CLI_MIN_SPACING_MS", "500"))
+
+
+class CliRateGate:
+    """Global concurrency + spacing limiter for CLI API calls.
+
+    - Semaphore caps concurrent in-flight API calls.
+    - Minimum spacing prevents burst-spawning multiple calls at once.
+    """
+
+    def __init__(
+        self,
+        max_concurrent: int = _CLI_MAX_CONCURRENT,
+        min_spacing_ms: int = _CLI_MIN_SPACING_MS,
+    ):
+        self._sem = asyncio.Semaphore(max_concurrent)
+        self._min_spacing = min_spacing_ms / 1000.0
+        self._last_call: float = 0.0
+        self._spacing_lock = asyncio.Lock()
+        self.max_concurrent = max_concurrent
+        self.min_spacing_ms = min_spacing_ms
+        logger.info(
+            f"[RateGate] Initialized: max_concurrent={max_concurrent}, "
+            f"min_spacing={min_spacing_ms}ms"
+        )
+
+    async def acquire(self) -> None:
+        """Acquire a slot — blocks if at capacity or too soon after last call."""
+        await self._sem.acquire()
+        # Enforce minimum spacing
+        async with self._spacing_lock:
+            now = time.monotonic()
+            wait = self._min_spacing - (now - self._last_call)
+            if wait > 0:
+                logger.debug(f"[RateGate] Spacing wait: {wait:.3f}s")
+                await asyncio.sleep(wait)
+            self._last_call = time.monotonic()
+
+    def release(self) -> None:
+        """Release a slot after the API call completes."""
+        self._sem.release()
+
+    @property
+    def active(self) -> int:
+        """Number of currently in-flight calls."""
+        return self.max_concurrent - self._sem._value
+
+
+# Module-level singleton — shared across all ClaudeCliBackend instances
+_rate_gate: CliRateGate | None = None
+
+
+def get_rate_gate() -> CliRateGate:
+    global _rate_gate
+    if _rate_gate is None:
+        _rate_gate = CliRateGate()
+    return _rate_gate
+
+
 # Voxyflow paths — cli_backend.py lives at backend/app/services/llm/
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent.parent  # backend/
 _MCP_STDIO_PATH = _BACKEND_DIR / "mcp_stdio.py"                     # backend/mcp_stdio.py
@@ -300,56 +364,62 @@ class ClaudeCliBackend:
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
         )
 
+        gate = get_rate_gate()
         logger.info(
             f"[CLI] Spawning: {self.cli_path} -p --model {_model_flag(model)} "
-            f"tools={use_tools} prompt_len={len(prompt)}"
+            f"tools={use_tools} prompt_len={len(prompt)} "
+            f"(gate: {gate.active}/{gate.max_concurrent} active)"
         )
 
-        proc = await asyncio.create_subprocess_exec(
-            self.cli_path, *args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
-            cwd=cwd or None,
-        )
-
-        _cancel = cancel_event or asyncio.Event()
-        _reg_id = new_cli_session_id()
-        get_cli_session_registry().register(CliSession(
-            id=_reg_id, pid=proc.pid, session_id=session_id,
-            chat_id=chat_id, project_id=project_id or None,
-            model=_model_flag(model), session_type=session_type,
-            started_at=time.time(), cancel_event=_cancel, _process=proc,
-        ))
-
-        # Monitor cancel_event in parallel
-        cancel_task = None
-        if cancel_event:
-            async def _watch_cancel():
-                while not cancel_event.is_set():
-                    await asyncio.sleep(0.5)
-                logger.info("[CLI] cancel_event set — terminating subprocess")
-                try:
-                    proc.terminate()
-                    await asyncio.sleep(2)
-                    if proc.returncode is None:
-                        proc.kill()
-                except ProcessLookupError:
-                    pass
-
-            cancel_task = asyncio.create_task(_watch_cancel())
-
+        await gate.acquire()
         try:
-            stdout, stderr = await proc.communicate(input=prompt.encode("utf-8"))
+            proc = await asyncio.create_subprocess_exec(
+                self.cli_path, *args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
+                cwd=cwd or None,
+            )
+
+            _cancel = cancel_event or asyncio.Event()
+            _reg_id = new_cli_session_id()
+            get_cli_session_registry().register(CliSession(
+                id=_reg_id, pid=proc.pid, session_id=session_id,
+                chat_id=chat_id, project_id=project_id or None,
+                model=_model_flag(model), session_type=session_type,
+                started_at=time.time(), cancel_event=_cancel, _process=proc,
+            ))
+
+            # Monitor cancel_event in parallel
+            cancel_task = None
+            if cancel_event:
+                async def _watch_cancel():
+                    while not cancel_event.is_set():
+                        await asyncio.sleep(0.5)
+                    logger.info("[CLI] cancel_event set — terminating subprocess")
+                    try:
+                        proc.terminate()
+                        await asyncio.sleep(2)
+                        if proc.returncode is None:
+                            proc.kill()
+                    except ProcessLookupError:
+                        pass
+
+                cancel_task = asyncio.create_task(_watch_cancel())
+
+            try:
+                stdout, stderr = await proc.communicate(input=prompt.encode("utf-8"))
+            finally:
+                get_cli_session_registry().deregister(_reg_id)
+                if cancel_task:
+                    cancel_task.cancel()
+                    try:
+                        await cancel_task
+                    except asyncio.CancelledError:
+                        pass
         finally:
-            get_cli_session_registry().deregister(_reg_id)
-            if cancel_task:
-                cancel_task.cancel()
-                try:
-                    await cancel_task
-                except asyncio.CancelledError:
-                    pass
+            gate.release()
 
         if cancel_event and cancel_event.is_set():
             return "[Task cancelled by supervisor]", {}
@@ -422,11 +492,16 @@ class ClaudeCliBackend:
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
         )
 
+        gate = get_rate_gate()
         logger.info(
             f"[CLI-events] Spawning: {self.cli_path} -p --model {_model_flag(model)} "
-            f"tools={use_tools} prompt_len={len(prompt)}"
+            f"tools={use_tools} prompt_len={len(prompt)} "
+            f"(gate: {gate.active}/{gate.max_concurrent} active)"
         )
 
+        await gate.acquire()
+        # NOTE: gate.release() is called in the finally block at the end of
+        # _call_with_tool_events — the slot is held for the full API call duration.
         proc = await asyncio.create_subprocess_exec(
             self.cli_path, *args,
             stdin=asyncio.subprocess.PIPE,
@@ -527,6 +602,7 @@ class ClaudeCliBackend:
                     self._last_usage = usage
 
         finally:
+            gate.release()
             get_cli_session_registry().deregister(_reg_id)
             if cancel_task:
                 cancel_task.cancel()
@@ -703,6 +779,8 @@ class ClaudeCliBackend:
             await self.kill_persistent_chat(chat_id)
             pcp = None
 
+        gate = get_rate_gate()
+        await gate.acquire()
         try:
             if not pcp:
                 # First message — spawn with full history + system prompt
@@ -743,7 +821,9 @@ class ClaudeCliBackend:
         except Exception as e:
             logger.warning(f"[CLI-persistent] Error for {chat_id}, falling back to one-shot: {e}")
             await self.kill_persistent_chat(chat_id)
-            # Fallback to one-shot stream
+            # Fallback to one-shot stream (stream() has its own gate.acquire)
+            gate.release()
+            gate = None  # prevent double-release in finally
             async for token in self.stream(
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role,
@@ -751,6 +831,9 @@ class ClaudeCliBackend:
                 project_id=project_id, session_type=session_type,
             ):
                 yield token
+        finally:
+            if gate is not None:
+                gate.release()
 
     async def kill_persistent_chat(self, chat_id: str) -> None:
         """Kill a persistent chat process and clean up."""
@@ -850,11 +933,15 @@ class ClaudeCliBackend:
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
         )
 
+        gate = get_rate_gate()
         logger.info(
             f"[CLI-steer] Spawning: {self.cli_path} -p --model {_model_flag(model)} "
-            f"tools={use_tools} task_id={task_id!r} prompt_len={len(prompt)}"
+            f"tools={use_tools} task_id={task_id!r} prompt_len={len(prompt)} "
+            f"(gate: {gate.active}/{gate.max_concurrent} active)"
         )
 
+        await gate.acquire()
+        # gate.release() in the finally block below
         proc = await asyncio.create_subprocess_exec(
             self.cli_path, *args,
             stdin=asyncio.subprocess.PIPE,
@@ -994,6 +1081,7 @@ class ClaudeCliBackend:
                         pass
 
         finally:
+            gate.release()
             get_cli_session_registry().deregister(_reg_id)
             if steer_task:
                 steer_task.cancel()
@@ -1073,19 +1161,26 @@ class ClaudeCliBackend:
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
         )
 
+        gate = get_rate_gate()
         logger.info(
             f"[CLI-stream] Spawning: {self.cli_path} -p --model {_model_flag(model)} "
-            f"tools={use_tools} prompt_len={len(prompt)}"
+            f"tools={use_tools} prompt_len={len(prompt)} "
+            f"(gate: {gate.active}/{gate.max_concurrent} active)"
         )
 
-        proc = await asyncio.create_subprocess_exec(
-            self.cli_path, *args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
-            cwd=cwd or None,
-        )
+        await gate.acquire()
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.cli_path, *args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
+                cwd=cwd or None,
+            )
+        except Exception:
+            gate.release()
+            raise
 
         _reg_id = new_cli_session_id()
         get_cli_session_registry().register(CliSession(
@@ -1105,36 +1200,39 @@ class ClaudeCliBackend:
         yielded_length = 0
 
         # Read stdout line by line — events are newline-delimited JSON
-        async for raw_line in proc.stdout:
-            line = raw_line.decode("utf-8", errors="replace").strip()
-            if not line:
-                continue
+        try:
+            async for raw_line in proc.stdout:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
 
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
 
-            event_type = event.get("type")
+                event_type = event.get("type")
 
-            if event_type == "stream_event":
-                # Real-time streaming deltas from the API
-                inner = event.get("event", {})
-                if inner.get("type") == "content_block_delta":
-                    delta = inner.get("delta", {})
-                    if delta.get("type") == "text_delta":
-                        text = delta.get("text", "")
-                        if text:
-                            yielded_length += len(text)
-                            yield text
+                if event_type == "stream_event":
+                    # Real-time streaming deltas from the API
+                    inner = event.get("event", {})
+                    if inner.get("type") == "content_block_delta":
+                        delta = inner.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            text = delta.get("text", "")
+                            if text:
+                                yielded_length += len(text)
+                                yield text
 
-            elif event_type == "result":
-                # Final result — extract usage for token logging
-                self._last_usage = event.get("usage", {})
-                # Yield any text not yet streamed (safety net)
-                result_text = event.get("result", "")
-                if result_text and len(result_text) > yielded_length:
-                    yield result_text[yielded_length:]
+                elif event_type == "result":
+                    # Final result — extract usage for token logging
+                    self._last_usage = event.get("usage", {})
+                    # Yield any text not yet streamed (safety net)
+                    result_text = event.get("result", "")
+                    if result_text and len(result_text) > yielded_length:
+                        yield result_text[yielded_length:]
+        finally:
+            gate.release()
 
         await proc.wait()
         get_cli_session_registry().deregister(_reg_id)

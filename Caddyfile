@@ -1,0 +1,27 @@
+thething.tail6531d.ts.net {
+    tls /home/jcviau/thething.tail6531d.ts.net.crt /home/jcviau/thething.tail6531d.ts.net.key
+
+    # Service worker et manifest — no cache
+    @nocache path /sw.js /manifest.webmanifest
+    header @nocache Cache-Control "no-cache, no-store, must-revalidate"
+
+    # API backend
+    handle /api/* {
+        reverse_proxy localhost:8000
+    }
+
+    # WebSocket
+    handle /ws {
+        reverse_proxy localhost:8000
+    }
+    handle /ws/* {
+        reverse_proxy localhost:8000
+    }
+
+    # Frontend static
+    handle {
+        root * /home/jcviau/apps/voxyflow/frontend-react/dist
+        try_files {path} /index.html
+        file_server
+    }
+}
