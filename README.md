@@ -21,6 +21,7 @@ Most tools solve half the problem:
 | **ChatGPT / Claude** | Answers questions | Generic — zero project context, freezes while working |
 
 **Voxyflow is the bridge.** It's your kanban board *and* your execution engine — with the full context of your project always available to the AI.
+Voxiflow infrastructure proposes a **Non-blocking chat layer**, which is always available for your conversations, brainstorming, manage and execute tasks using its workers to move forward with your projects.
 
 > Think: **Linear + Cursor in one app**, on your own machine, with no subscription or cloud lock-in.
 
@@ -128,7 +129,7 @@ Cards are the core unit of everything:
 
 ### 📝 Main Board (FreeBoard)
 
-Unassigned sticky-note cards outside any project. Color-coded (6 colors). Same card model — unified data.
+Untracked sticky-note cards outside any project. Color-coded (6 colors). Same card model — unified data.
 
 ### 🤖 Agent Personas (7)
 
@@ -176,8 +177,8 @@ Tools span: card CRUD, project management, wiki, AI operations, web search, file
 
 - **Heartbeat** — Periodic health checks
 - **RAG Indexing** — Auto-index uploaded documents
-- **Recurring Cards** — Auto-create cards on schedule (checks every 5 minutes)
-- **Board Run** — Scheduled execution of all cards in a project (cron-based)
+- **Recurring Cards** — Scheduled execution of cards on schedule (checks every 5 minutes)
+- **Board Run** — Scheduled execution of a Kanban board in a project (cron-based)
 - **Custom Jobs** — Create via Settings → Jobs or API
 
 ---
@@ -299,4 +300,4 @@ MIT — see [LICENSE](LICENSE)
 
 ---
 
-**Built by** JC Viau · **Started** March 2025 · **Status** Active development
+**Built by** JC Viau · **Started** Feb 2026 · **Status** Active development
