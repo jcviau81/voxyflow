@@ -212,7 +212,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             data-tab="main"
           >
             <Home size={14} className="shrink-0" />
-            <span>Main</span>
+            <span>Home</span>
           </NavLink>
 
           <NavLink

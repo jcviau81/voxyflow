@@ -173,7 +173,7 @@ function buildTree(
 
     projects.push({
       projectId: pid,
-      projectName: pid === '_general' ? 'General' : pid === SYSTEM_PROJECT_ID ? 'Main' : (projectNames[pid] || pid.slice(0, 12)),
+      projectName: pid === '_general' ? 'General' : pid === SYSTEM_PROJECT_ID ? 'Home' : (projectNames[pid] || pid.slice(0, 12)),
       sessions,
     });
   }

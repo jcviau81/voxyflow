@@ -61,7 +61,7 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
       {isMainTab ? (
         <div className="project-header__title flex items-center gap-1.5">
           <Home size={15} className="text-muted-foreground" />
-          <span className="project-header__name text-sm font-medium text-foreground">Main</span>
+          <span className="project-header__name text-sm font-medium text-foreground">Home</span>
         </div>
       ) : (
         <div className="project-header__title flex items-center gap-1.5">

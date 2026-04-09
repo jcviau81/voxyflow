@@ -411,398 +411,468 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
 
   const isPending = createProject.isPending || updateProject.isPending || createFromTemplate.isPending;
 
+  // ── Tabs ──────────────────────────────────────────────────────────────────
+  type TabKey = 'general' | 'github' | 'path' | 'advanced';
+  const [activeTab, setActiveTab] = useState<TabKey>('general');
+
+  const tabs: { key: TabKey; label: string; icon: string; badge?: 'error' | 'ok' }[] = [
+    { key: 'general',  label: 'General',  icon: '📝', badge: errors.name || errors.description ? 'error' : undefined },
+    { key: 'github',   label: 'GitHub',   icon: '🔗', badge: githubStatus.type === 'connected' ? 'ok' : githubStatus.type === 'error' ? 'error' : undefined },
+    { key: 'path',     label: 'Path',     icon: '📂', badge: pathExists === true ? 'ok' : pathExists === false ? 'error' : undefined },
+    { key: 'advanced', label: 'Advanced', icon: '⚙️' },
+  ];
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="project-form-wrapper fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div
-        className="project-form relative bg-background border border-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6"
+        className="project-form relative bg-background border border-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
         data-testid="project-form"
       >
-        <h2 className="text-xl font-semibold text-foreground mb-5">
-          {mode === 'create' ? 'Create Project' : 'Edit Project'}
-        </h2>
+        {/* ── Header ── */}
+        <div className="px-6 pt-5 pb-3 border-b border-border">
+          <h2 className="text-xl font-semibold text-foreground">
+            {mode === 'create' ? 'Create Project' : 'Edit Project'}
+          </h2>
+        </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-
-          {/* ── Template picker (create only) ── */}
-          {mode === 'create' && (
-            <div className="template-section">
-              <div className="text-sm font-medium text-muted-foreground mb-2">✨ Start from a template</div>
-              <div className="template-track flex gap-2 overflow-x-auto pb-2">
-                <button
-                  type="button"
-                  onClick={() => selectTemplate(null)}
-                  className={cn(
-                    'template-card flex-shrink-0 flex flex-col items-center gap-1 p-3 rounded-lg border text-center w-24 transition-colors',
-                    selectedTemplateId === null
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border hover:border-primary/50 text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  <span className="text-xl">🚫</span>
-                  <span className="text-xs font-medium">Blank</span>
-                  <span className="text-[10px] opacity-70">Start from scratch</span>
-                </button>
-                {templates.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => selectTemplate(tpl as ProjectTemplate)}
-                    style={{ '--tpl-color': tpl.color } as React.CSSProperties}
-                    className={cn(
-                      'template-card flex-shrink-0 flex flex-col items-center gap-1 p-3 rounded-lg border text-center w-24 transition-colors',
-                      selectedTemplateId === tpl.id
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border hover:border-primary/50 text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    <span className="text-xl">{tpl.emoji}</span>
-                    <span className="text-xs font-medium truncate w-full">{tpl.name}</span>
-                    <span className="text-[10px] opacity-70 line-clamp-2">{tpl.description}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Name ── */}
-          <div className="form-group space-y-1">
-            <label className="text-sm font-medium text-foreground">Project Name *</label>
-            <input
-              {...register('name')}
-              ref={(el) => {
-                (register('name') as { ref: (el: HTMLInputElement | null) => void }).ref(el);
-                nameRef.current = el;
-              }}
-              type="text"
-              placeholder="My Awesome Project"
-              maxLength={100}
-              data-testid="project-name-input"
-              onBlur={(e) => { if (mode === 'create') void suggestPath(e.target.value); }}
-              className={cn(
-                'form-input w-full px-3 py-2 rounded-md border bg-background text-foreground text-sm',
-                'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50',
-                errors.name ? 'border-destructive' : 'border-border'
-              )}
-            />
-            {errors.name && (
-              <p className="form-error text-xs text-destructive" data-testid="project-name-error">
-                {errors.name.message}
-              </p>
-            )}
-          </div>
-
-          {/* ── Description ── */}
-          <div className="form-group space-y-1">
-            <label className="text-sm font-medium text-foreground">Description</label>
-            <textarea
-              {...register('description')}
-              placeholder="What's this project about?"
-              maxLength={500}
-              rows={3}
-              data-testid="project-description-input"
-              className={cn(
-                'form-textarea w-full px-3 py-2 rounded-md border bg-background text-foreground text-sm resize-none',
-                'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50',
-                errors.description ? 'border-destructive' : 'border-border'
-              )}
-            />
-            {errors.description && (
-              <p className="form-error text-xs text-destructive">{errors.description.message}</p>
-            )}
-          </div>
-
-          {/* ── Emoji selector ── */}
-          <div className="form-group space-y-1">
-            <label className="text-sm font-medium text-foreground">Emoji</label>
-            <div className="emoji-selector flex flex-wrap gap-1">
-              {PROJECT_EMOJIS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  data-testid={`emoji-option-${emoji}`}
-                  onClick={() => setSelectedEmoji(emoji)}
-                  className={cn(
-                    'emoji-option w-9 h-9 rounded-md text-lg flex items-center justify-center border transition-colors',
-                    selectedEmoji === emoji
-                      ? 'border-primary bg-primary/10'
-                      : 'border-transparent hover:border-border hover:bg-accent'
-                  )}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Color palette ── */}
-          <div className="form-group space-y-1">
-            <label className="text-sm font-medium text-foreground">Color</label>
-            <div className="color-palette flex gap-2 flex-wrap">
-              {COLOR_PALETTE.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  data-testid={`color-option-${color.replace('#', '')}`}
-                  data-color={color}
-                  onClick={() => setSelectedColor(color)}
-                  style={{ background: color }}
-                  className={cn(
-                    'color-option w-8 h-8 rounded-full border-2 transition-transform',
-                    selectedColor === color
-                      ? 'border-foreground scale-110'
-                      : 'border-transparent hover:scale-105'
-                  )}
-                />
-              ))}
-              {selectedColor && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedColor('')}
-                  className="w-8 h-8 rounded-full border-2 border-border flex items-center justify-center text-muted-foreground hover:text-foreground text-xs"
-                  title="Clear color"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* ── GitHub repo ── */}
-          <div className="form-group space-y-1">
-            <label className="text-sm font-medium text-foreground">🔗 GitHub Repository</label>
-            {!githubSetupOk && (
-              <div className="text-xs text-yellow-500">
-                ⚠️ GitHub not configured.{' '}
-                <button
-                  type="button"
-                  className="underline text-primary"
-                  onClick={() => { onClose(); window.location.href = '/settings'; }}
-                >
-                  Go to Settings → GitHub
-                </button>{' '}
-                to connect.
-              </div>
-            )}
-            <div className="github-input-row flex gap-2">
-              <input
-                type="text"
-                value={githubInput}
-                onChange={(e) => setGithubInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleGitHubConnect(); } }}
-                placeholder="owner/repo or https://github.com/owner/repo"
-                data-testid="project-github-input"
-                className="form-input flex-1 px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
+        {/* ── Tab bar ── */}
+        <div className="project-form-tabs flex gap-1 px-4 pt-3 border-b border-border bg-muted/30" role="tablist">
+          {tabs.map((t) => {
+            const isActive = activeTab === t.key;
+            return (
               <button
+                key={t.key}
                 type="button"
-                data-testid="github-connect-btn"
-                onClick={() => void handleGitHubConnect()}
-                className="btn-secondary px-3 py-2 rounded-md border border-border text-sm hover:bg-accent transition-colors"
+                role="tab"
+                aria-selected={isActive}
+                data-testid={`project-form-tab-${t.key}`}
+                onClick={() => setActiveTab(t.key)}
+                className={cn(
+                  'project-form-tab relative flex items-center gap-1.5 px-3 py-2 text-sm rounded-t-md border-b-2 transition-colors',
+                  isActive
+                    ? 'border-primary text-foreground bg-background font-medium'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                )}
               >
-                Connect
+                <span>{t.icon}</span>
+                <span>{t.label}</span>
+                {t.badge === 'error' && (
+                  <span className="ml-0.5 inline-block w-1.5 h-1.5 rounded-full bg-destructive" />
+                )}
+                {t.badge === 'ok' && (
+                  <span className="ml-0.5 inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
+                )}
               </button>
-            </div>
+            );
+          })}
+        </div>
 
-            {/* GitHub status */}
-            <div className="github-status mt-1" data-testid="github-status">
-              {githubStatus.type === 'loading' && (
-                <span className="text-xs text-muted-foreground">⏳ Validating...</span>
-              )}
-              {githubStatus.type === 'error' && (
-                <span className="text-xs text-destructive">❌ {githubStatus.message}</span>
-              )}
-              {githubStatus.type === 'create-offer' && (
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="text-muted-foreground">Repository not found.</span>
-                  <button
-                    type="button"
-                    data-testid="github-create-btn"
-                    onClick={() => void handleGitHubCreate(githubStatus.repoName)}
-                    className="btn-secondary px-2 py-1 rounded border border-border hover:bg-accent"
-                  >
-                    Create on GitHub (private)
-                  </button>
-                </div>
-              )}
-              {githubStatus.type === 'connected' && (() => {
-                const { info } = githubStatus;
-                const meta = [
-                  info.language,
-                  info.default_branch,
-                  `⭐ ${info.stars}`,
-                  info.updated_at ? `Updated ${formatTimeAgo(info.updated_at)}` : '',
-                ].filter(Boolean).join(' · ');
-                return (
-                  <div className="github-status-connected flex items-start gap-2 p-2 rounded-md bg-green-500/10 border border-green-500/30">
-                    <span>✅</span>
-                    <div className="text-xs">
-                      <div className="font-medium text-foreground">{info.full_name}</div>
-                      {meta && <div className="text-muted-foreground">{meta}</div>}
-                      {info.html_url && (
-                        <a
-                          href={info.html_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+          {/* ── Tab content (scrollable) ── */}
+          <div className="project-form-body flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+            {/* ──────────────── GENERAL TAB ──────────────── */}
+            {activeTab === 'general' && (
+              <>
+                {/* Template picker (create only) */}
+                {mode === 'create' && (
+                  <div className="template-section">
+                    <div className="text-sm font-medium text-muted-foreground mb-2">✨ Start from a template</div>
+                    <div className="template-track flex gap-2 overflow-x-auto pb-2">
+                      <button
+                        type="button"
+                        onClick={() => selectTemplate(null)}
+                        className={cn(
+                          'template-card flex-shrink-0 flex flex-col items-center gap-1 p-3 rounded-lg border text-center w-24 transition-colors',
+                          selectedTemplateId === null
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border hover:border-primary/50 text-muted-foreground hover:text-foreground'
+                        )}
+                      >
+                        <span className="text-xl">🚫</span>
+                        <span className="text-xs font-medium">Blank</span>
+                        <span className="text-[10px] opacity-70">Start from scratch</span>
+                      </button>
+                      {templates.map((tpl) => (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          onClick={() => selectTemplate(tpl as ProjectTemplate)}
+                          style={{ '--tpl-color': tpl.color } as React.CSSProperties}
+                          className={cn(
+                            'template-card flex-shrink-0 flex flex-col items-center gap-1 p-3 rounded-lg border text-center w-24 transition-colors',
+                            selectedTemplateId === tpl.id
+                              ? 'border-primary bg-primary/10 text-primary'
+                              : 'border-border hover:border-primary/50 text-muted-foreground hover:text-foreground'
+                          )}
                         >
-                          Open on GitHub ↗
-                        </a>
+                          <span className="text-xl">{tpl.emoji}</span>
+                          <span className="text-xs font-medium truncate w-full">{tpl.name}</span>
+                          <span className="text-[10px] opacity-70 line-clamp-2">{tpl.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Emoji + Color row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="form-group space-y-1">
+                    <label className="text-sm font-medium text-foreground">Emoji</label>
+                    <div className="emoji-selector flex flex-wrap gap-1">
+                      {PROJECT_EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          data-testid={`emoji-option-${emoji}`}
+                          onClick={() => setSelectedEmoji(emoji)}
+                          className={cn(
+                            'emoji-option w-8 h-8 rounded-md text-base flex items-center justify-center border transition-colors',
+                            selectedEmoji === emoji
+                              ? 'border-primary bg-primary/10'
+                              : 'border-transparent hover:border-border hover:bg-accent'
+                          )}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="form-group space-y-1">
+                    <label className="text-sm font-medium text-foreground">Color</label>
+                    <div className="color-palette flex gap-2 flex-wrap">
+                      {COLOR_PALETTE.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          data-testid={`color-option-${color.replace('#', '')}`}
+                          data-color={color}
+                          onClick={() => setSelectedColor(color)}
+                          style={{ background: color }}
+                          className={cn(
+                            'color-option w-7 h-7 rounded-full border-2 transition-transform',
+                            selectedColor === color
+                              ? 'border-foreground scale-110'
+                              : 'border-transparent hover:scale-105'
+                          )}
+                        />
+                      ))}
+                      {selectedColor && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedColor('')}
+                          className="w-7 h-7 rounded-full border-2 border-border flex items-center justify-center text-muted-foreground hover:text-foreground text-xs"
+                          title="Clear color"
+                        >
+                          ✕
+                        </button>
                       )}
                     </div>
                   </div>
-                );
-              })()}
-            </div>
-          </div>
+                </div>
 
-          {/* ── Local path ── */}
-          <div className="form-group space-y-1">
-            <label className="text-sm font-medium text-foreground">📂 Local Path</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={localPath}
-                onChange={(e) => setLocalPath(e.target.value)}
-                placeholder="~/.voxyflow/workspace/my-app"
-                data-testid="project-localpath-input"
-                className="form-input flex-1 px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-              <button
-                type="button"
-                data-testid="tech-detect-btn"
-                onClick={() => void handleTechDetect()}
-                disabled={detecting || !localPath.trim() || pathExists !== true}
-                className="btn-secondary px-3 py-2 rounded-md border border-border text-sm hover:bg-accent transition-colors disabled:opacity-50"
-                title="Detect tech stack"
-              >
-                {detecting ? '⏳' : 'Detect'}
-              </button>
-            </div>
-
-            {/* Path status + actions */}
-            {localPath.trim() && (
-              <div className="space-y-1.5">
-                {/* Existence indicator */}
-                <div className="flex items-center gap-1.5 text-xs">
-                  {pathChecking && <span className="text-muted-foreground">⏳ Checking…</span>}
-                  {!pathChecking && pathExists === true && (
-                    <span className="text-green-500">✓ Directory exists</span>
-                  )}
-                  {!pathChecking && pathExists === false && (
-                    <span className="text-yellow-500">⚠ Directory does not exist</span>
-                  )}
-                  {!pathChecking && pathExpanded && pathExpanded !== localPath.trim() && (
-                    <span className="text-muted-foreground">→ {pathExpanded}</span>
+                {/* Name */}
+                <div className="form-group space-y-1">
+                  <label className="text-sm font-medium text-foreground">Project Name *</label>
+                  <input
+                    {...register('name')}
+                    ref={(el) => {
+                      (register('name') as { ref: (el: HTMLInputElement | null) => void }).ref(el);
+                      nameRef.current = el;
+                    }}
+                    type="text"
+                    placeholder="My Awesome Project"
+                    maxLength={100}
+                    data-testid="project-name-input"
+                    onBlur={(e) => { if (mode === 'create') void suggestPath(e.target.value); }}
+                    className={cn(
+                      'form-input w-full px-3 py-2 rounded-md border bg-background text-foreground text-sm',
+                      'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50',
+                      errors.name ? 'border-destructive' : 'border-border'
+                    )}
+                  />
+                  {errors.name && (
+                    <p className="form-error text-xs text-destructive" data-testid="project-name-error">
+                      {errors.name.message}
+                    </p>
                   )}
                 </div>
 
-                {/* Action buttons — only when path doesn't exist */}
-                {pathExists === false && cloneStatus === 'idle' && (
-                  <div className="flex gap-2">
-                    {githubStatus.type === 'connected' ? (
+                {/* Description */}
+                <div className="form-group space-y-1">
+                  <label className="text-sm font-medium text-foreground">Description</label>
+                  <textarea
+                    {...register('description')}
+                    placeholder="What's this project about?"
+                    maxLength={500}
+                    rows={3}
+                    data-testid="project-description-input"
+                    className={cn(
+                      'form-textarea w-full px-3 py-2 rounded-md border bg-background text-foreground text-sm resize-none',
+                      'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50',
+                      errors.description ? 'border-destructive' : 'border-border'
+                    )}
+                  />
+                  {errors.description && (
+                    <p className="form-error text-xs text-destructive">{errors.description.message}</p>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* ──────────────── GITHUB TAB ──────────────── */}
+            {activeTab === 'github' && (
+              <div className="form-group space-y-2">
+                <label className="text-sm font-medium text-foreground">🔗 GitHub Repository</label>
+                <p className="text-xs text-muted-foreground">
+                  Connect this project to a GitHub repository. Used for cloning and tech-stack detection.
+                </p>
+                {!githubSetupOk && (
+                  <div className="text-xs text-yellow-500">
+                    ⚠️ GitHub not configured.{' '}
+                    <button
+                      type="button"
+                      className="underline text-primary"
+                      onClick={() => { onClose(); window.location.href = '/settings'; }}
+                    >
+                      Go to Settings → GitHub
+                    </button>{' '}
+                    to connect.
+                  </div>
+                )}
+                <div className="github-input-row flex gap-2">
+                  <input
+                    type="text"
+                    value={githubInput}
+                    onChange={(e) => setGithubInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleGitHubConnect(); } }}
+                    placeholder="owner/repo or https://github.com/owner/repo"
+                    data-testid="project-github-input"
+                    className="form-input flex-1 px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                  <button
+                    type="button"
+                    data-testid="github-connect-btn"
+                    onClick={() => void handleGitHubConnect()}
+                    className="btn-secondary px-3 py-2 rounded-md border border-border text-sm hover:bg-accent transition-colors"
+                  >
+                    Connect
+                  </button>
+                </div>
+
+                <div className="github-status mt-1" data-testid="github-status">
+                  {githubStatus.type === 'loading' && (
+                    <span className="text-xs text-muted-foreground">⏳ Validating...</span>
+                  )}
+                  {githubStatus.type === 'error' && (
+                    <span className="text-xs text-destructive">❌ {githubStatus.message}</span>
+                  )}
+                  {githubStatus.type === 'create-offer' && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground">Repository not found.</span>
                       <button
                         type="button"
-                        onClick={() => void handleClone()}
-                        className="btn-secondary px-3 py-1.5 rounded-md border border-border text-xs hover:bg-accent transition-colors flex items-center gap-1"
+                        data-testid="github-create-btn"
+                        onClick={() => void handleGitHubCreate(githubStatus.repoName)}
+                        className="btn-secondary px-2 py-1 rounded border border-border hover:bg-accent"
                       >
-                        ⬇ Clone repository here
+                        Create on GitHub (private)
                       </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void handleMkdir()}
-                        className="btn-secondary px-3 py-1.5 rounded-md border border-border text-xs hover:bg-accent transition-colors"
-                      >
-                        + Create directory
-                      </button>
+                    </div>
+                  )}
+                  {githubStatus.type === 'connected' && (() => {
+                    const { info } = githubStatus;
+                    const meta = [
+                      info.language,
+                      info.default_branch,
+                      `⭐ ${info.stars}`,
+                      info.updated_at ? `Updated ${formatTimeAgo(info.updated_at)}` : '',
+                    ].filter(Boolean).join(' · ');
+                    return (
+                      <div className="github-status-connected flex items-start gap-2 p-2 rounded-md bg-green-500/10 border border-green-500/30">
+                        <span>✅</span>
+                        <div className="text-xs">
+                          <div className="font-medium text-foreground">{info.full_name}</div>
+                          {meta && <div className="text-muted-foreground">{meta}</div>}
+                          {info.html_url && (
+                            <a
+                              href={info.html_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline"
+                            >
+                              Open on GitHub ↗
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* ──────────────── PATH TAB ──────────────── */}
+            {activeTab === 'path' && (
+              <div className="form-group space-y-2">
+                <label className="text-sm font-medium text-foreground">📂 Local Path</label>
+                <p className="text-xs text-muted-foreground">
+                  Where this project lives on disk. Used by workers, file tools, and tech detection.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={localPath}
+                    onChange={(e) => setLocalPath(e.target.value)}
+                    placeholder="~/.voxyflow/workspace/my-app"
+                    data-testid="project-localpath-input"
+                    className="form-input flex-1 px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                  <button
+                    type="button"
+                    data-testid="tech-detect-btn"
+                    onClick={() => void handleTechDetect()}
+                    disabled={detecting || !localPath.trim() || pathExists !== true}
+                    className="btn-secondary px-3 py-2 rounded-md border border-border text-sm hover:bg-accent transition-colors disabled:opacity-50"
+                    title="Detect tech stack"
+                  >
+                    {detecting ? '⏳' : 'Detect'}
+                  </button>
+                </div>
+
+                {localPath.trim() && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs">
+                      {pathChecking && <span className="text-muted-foreground">⏳ Checking…</span>}
+                      {!pathChecking && pathExists === true && (
+                        <span className="text-green-500">✓ Directory exists</span>
+                      )}
+                      {!pathChecking && pathExists === false && (
+                        <span className="text-yellow-500">⚠ Directory does not exist</span>
+                      )}
+                      {!pathChecking && pathExpanded && pathExpanded !== localPath.trim() && (
+                        <span className="text-muted-foreground">→ {pathExpanded}</span>
+                      )}
+                    </div>
+
+                    {pathExists === false && cloneStatus === 'idle' && (
+                      <div className="flex gap-2">
+                        {githubStatus.type === 'connected' ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleClone()}
+                            className="btn-secondary px-3 py-1.5 rounded-md border border-border text-xs hover:bg-accent transition-colors flex items-center gap-1"
+                          >
+                            ⬇ Clone repository here
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void handleMkdir()}
+                            className="btn-secondary px-3 py-1.5 rounded-md border border-border text-xs hover:bg-accent transition-colors"
+                          >
+                            + Create directory
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {cloneStatus === 'loading' && (
+                      <span className="text-xs text-muted-foreground">⏳ {cloneMessage}</span>
+                    )}
+                    {cloneStatus === 'done' && (
+                      <span className="text-xs text-green-500">✓ {cloneMessage}</span>
+                    )}
+                    {cloneStatus === 'error' && (
+                      <span className="text-xs text-destructive">❌ {cloneMessage}</span>
                     )}
                   </div>
                 )}
 
-                {/* Clone/mkdir feedback */}
-                {cloneStatus === 'loading' && (
-                  <span className="text-xs text-muted-foreground">⏳ {cloneMessage}</span>
-                )}
-                {cloneStatus === 'done' && (
-                  <span className="text-xs text-green-500">✓ {cloneMessage}</span>
-                )}
-                {cloneStatus === 'error' && (
-                  <span className="text-xs text-destructive">❌ {cloneMessage}</span>
+                {techStack && techStack.technologies.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Detected stack</div>
+                    <div className="flex flex-wrap gap-1">
+                      {techStack.technologies.slice(0, 6).map((tech) => (
+                        <span
+                          key={tech.name}
+                          className="project-tech-badge px-2 py-0.5 rounded text-xs bg-accent text-accent-foreground border border-border"
+                        >
+                          {tech.icon ? `${tech.icon} ` : ''}{tech.name}
+                        </span>
+                      ))}
+                      {techStack.technologies.length > 6 && (
+                        <span className="project-tech-badge px-2 py-0.5 rounded text-xs bg-accent text-muted-foreground border border-border">
+                          +{techStack.technologies.length - 6}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             )}
 
-            {/* Tech stack display */}
-            {techStack && techStack.technologies.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">
-                {techStack.technologies.slice(0, 6).map((tech) => (
-                  <span
-                    key={tech.name}
-                    className="project-tech-badge px-2 py-0.5 rounded text-xs bg-accent text-accent-foreground border border-border"
-                  >
-                    {tech.icon ? `${tech.icon} ` : ''}{tech.name}
-                  </span>
-                ))}
-                {techStack.technologies.length > 6 && (
-                  <span className="project-tech-badge px-2 py-0.5 rounded text-xs bg-accent text-muted-foreground border border-border">
-                    +{techStack.technologies.length - 6}
-                  </span>
+            {/* ──────────────── ADVANCED TAB ──────────────── */}
+            {activeTab === 'advanced' && (
+              <div className="space-y-5">
+                {mode === 'edit' && !project?.isSystem && (
+                  <div className="form-group space-y-1">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="inherit-main-context"
+                        checked={inheritMainContext}
+                        onChange={(e) => setInheritMainContext(e.target.checked)}
+                        data-testid="inherit-main-context-toggle"
+                        className="setting-checkbox w-4 h-4 rounded border-border accent-primary"
+                      />
+                      <label
+                        htmlFor="inherit-main-context"
+                        className="text-sm text-foreground cursor-pointer"
+                      >
+                        Include Home context
+                      </label>
+                    </div>
+                    <p className="text-xs text-muted-foreground ml-6">
+                      When enabled, AI responses also use knowledge from the Home project.
+                    </p>
+                  </div>
+                )}
+
+                {mode === 'edit' && (
+                  <div className="form-group space-y-1">
+                    <label className="text-sm font-medium text-foreground">Status</label>
+                    <select
+                      value={selectedStatus}
+                      onChange={(e) => setSelectedStatus(e.target.value as 'active' | 'archived')}
+                      data-testid="project-status-select"
+                      className="form-input w-full px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    >
+                      <option value="active">Active</option>
+                      <option value="archived">Archived</option>
+                    </select>
+                  </div>
+                )}
+
+                {mode === 'create' && (
+                  <p className="text-xs text-muted-foreground">
+                    Additional settings become available after the project is created.
+                  </p>
                 )}
               </div>
+            )}
+
+            {/* ── Submit error ── */}
+            {submitError && (
+              <p className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
+                {submitError}
+              </p>
             )}
           </div>
 
-          {/* ── Inherit Main Context (edit, non-system) ── */}
-          {mode === 'edit' && !project?.isSystem && (
-            <div className="form-group space-y-1">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="inherit-main-context"
-                  checked={inheritMainContext}
-                  onChange={(e) => setInheritMainContext(e.target.checked)}
-                  data-testid="inherit-main-context-toggle"
-                  className="setting-checkbox w-4 h-4 rounded border-border accent-primary"
-                />
-                <label
-                  htmlFor="inherit-main-context"
-                  className="text-sm text-foreground cursor-pointer"
-                >
-                  Include Main Board context
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground ml-6">
-                When enabled, AI responses also use knowledge from the Main Board.
-              </p>
-            </div>
-          )}
-
-          {/* ── Status (edit only) ── */}
-          {mode === 'edit' && (
-            <div className="form-group space-y-1">
-              <label className="text-sm font-medium text-foreground">Status</label>
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value as 'active' | 'archived')}
-                data-testid="project-status-select"
-                className="form-input w-full px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                <option value="active">Active</option>
-                <option value="archived">Archived</option>
-              </select>
-            </div>
-          )}
-
-          {/* ── Submit error ── */}
-          {submitError && (
-            <p className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
-              {submitError}
-            </p>
-          )}
-
-          {/* ── Actions ── */}
-          <div className="form-actions flex items-center gap-2 pt-2">
+          {/* ── Footer actions (sticky) ── */}
+          <div className="form-actions flex items-center gap-2 px-6 py-3 border-t border-border bg-muted/30">
             <button
               type="submit"
               disabled={isPending}

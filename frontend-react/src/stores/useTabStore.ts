@@ -4,7 +4,7 @@ import type { Tab } from '../types';
 
 const DEFAULT_MAIN_TAB: Tab = {
   id: 'main',
-  label: 'Main',
+  label: 'Home',
   emoji: '🏠',
   closable: false,
   hasNotification: false,

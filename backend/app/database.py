@@ -142,14 +142,19 @@ async def init_db():
         if "inherit_main_context" not in proj_columns:
             await conn.execute(text("ALTER TABLE projects ADD COLUMN inherit_main_context BOOLEAN NOT NULL DEFAULT 1"))
 
-        # Ensure the system "Main" project exists
+        # Ensure the system "Home" project exists (formerly "Main", briefly "Global")
         SYSTEM_MAIN_ID = "system-main"
         existing = await conn.execute(text("SELECT id FROM projects WHERE id = :id"), {"id": SYSTEM_MAIN_ID})
         if existing.fetchone() is None:
             await conn.execute(text(
                 "INSERT INTO projects (id, title, description, status, context, is_system, deletable, is_favorite, inherit_main_context, created_at, updated_at) "
                 "VALUES (:id, :title, :desc, 'active', '', 1, 0, 0, 1, :now, :now)"
-            ), {"id": SYSTEM_MAIN_ID, "title": "Main", "desc": "Default workspace", "now": utcnow().isoformat()})
+            ), {"id": SYSTEM_MAIN_ID, "title": "Home", "desc": "Default workspace", "now": utcnow().isoformat()})
+        else:
+            # Rename system project to "Home" if it still has a previous default name.
+            await conn.execute(text(
+                "UPDATE projects SET title = 'Home' WHERE id = :id AND title IN ('Main', 'Global')"
+            ), {"id": SYSTEM_MAIN_ID})
 
         # Migrate all cards with project_id = NULL → system-main
         await conn.execute(text(

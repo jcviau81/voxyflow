@@ -17,6 +17,7 @@ import { cn } from '../../lib/utils';
 import { useProjects, useArchiveProject, useDeleteProject, useToggleFavorite, useExportProject } from '../../hooks/api/useProjects';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useCardStore } from '../../stores/useCardStore';
+import { SYSTEM_PROJECT_ID } from '../../lib/constants';
 import { ProjectForm } from './ProjectForm';
 import type { Project } from '../../types';
 
@@ -233,12 +234,14 @@ function ProjectCard({
             <ActionButton onClick={() => onExport(project)}>
               <Send size={11} className="inline mr-1" /> Export
             </ActionButton>
-            <ActionButton
-              data-testid={`project-edit-${project.id}`}
-              onClick={() => onEdit(project)}
-            >
-              <Pencil size={11} className="inline mr-1" /> Edit
-            </ActionButton>
+            {!project.isSystem && (
+              <ActionButton
+                data-testid={`project-edit-${project.id}`}
+                onClick={() => onEdit(project)}
+              >
+                <Pencil size={11} className="inline mr-1" /> Edit
+              </ActionButton>
+            )}
             {!project.isSystem && project.deletable !== false && (
               <ActionButton onClick={() => onArchive(project)}>
                 <Archive size={11} className="inline mr-1" /> Archive
@@ -358,7 +361,8 @@ export function ProjectList() {
 
   // ── Actions ───────────────────────────────────────────────────────────────
   function handleOpen(project: Project) {
-    void navigate(`/project/${project.id}`);
+    // System project lives on the home tab ('/'), not /project/system-main
+    void navigate(project.id === SYSTEM_PROJECT_ID ? '/' : `/project/${project.id}`);
   }
 
   function handleEdit(project: Project) {
