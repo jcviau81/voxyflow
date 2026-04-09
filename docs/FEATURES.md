@@ -229,7 +229,7 @@ Projects can be exported to a portable JSON file and re-imported:
 
 Projects open in browser-like tabs at the top of the interface:
 
-- **Main tab** — always open, non-closable (General chat + Notes board)
+- **Home tab** (🏠) — always open, non-closable. Surfaces the system project (`system-main`): general chat + Home cards.
 - **Project tabs** — open when a project is selected (closable with `×` or `Cmd+W`)
 - **`+` button** — opens the New Project form
 - **Tab switching** — click tab or `Ctrl+Tab` cycles through open tabs
@@ -971,7 +971,7 @@ Context-appropriate onboarding when a chat is empty:
 
 | Mode | When | Content |
 |------|------|---------|
-| `general` | Main tab, no project | App intro, prompt suggestions |
+| `general` | Home tab, no project selected | App intro, prompt suggestions |
 | `project` | Project tab opened | Project name, in-progress cards, todo count |
 | `card` | Card detail opened | Card title, description, status, agent info |
 

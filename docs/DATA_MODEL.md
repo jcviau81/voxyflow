@@ -31,7 +31,7 @@ FocusSession *───1 Project (optional)
 
 ## Card
 
-The central entity. Everything is a Card — whether on the Main Board or in a Project.
+The central entity. Everything is a Card — whether in the Home project (system) or in a regular Project.
 
 ### SQLAlchemy Model
 
@@ -40,7 +40,7 @@ class CardTask(Base):
     __tablename__ = "cards"
 
     id              = Column(String, primary_key=True, default=uuid4)
-    project_id      = Column(String, ForeignKey("projects.id"), nullable=True)  # null = Main Board
+    project_id      = Column(String, ForeignKey("projects.id"), nullable=True)  # legacy: null = Home (now migrated to "system-main")
     title           = Column(String, nullable=False)
     description     = Column(Text, default="")
     status          = Column(String, default="card")    # card|todo|in-progress|done|archived
@@ -129,7 +129,7 @@ class CardResponse(BaseModel):
 
 | Related Entity | Relationship | Description |
 |---------------|-------------|-------------|
-| Project | Many-to-One (optional) | `project_id` — null means Main Board |
+| Project | Many-to-One | `project_id` — defaults to `"system-main"` (Home) for unassigned cards |
 | Sprint | Many-to-One (optional) | `sprint_id` — time-boxed grouping |
 | CardComment | One-to-Many | Comments on the card |
 | TimeEntry | One-to-Many | Logged time entries |

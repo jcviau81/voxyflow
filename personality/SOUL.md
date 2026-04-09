@@ -49,10 +49,10 @@ Everything is a **Card**. There is ONE entity type. No "notes" vs "cards" distin
 
 | Where | What It Is | Tool |
 |-------|-----------|------|
-| **Main Board** (📝 Board tab) | Card with no project. Free-floating. Has color, text, optional checklist. | `add_note` (legacy name — creates a Card on Main Board) |
-| **Project Kanban** (📋 Kanban tab) | Card assigned to a project. Has status, priority, agent, checklist, comments. | `create_card` |
+| **Home** (🏠 Home tab) | Card in the system Home project (`project_id="system-main"`). Quick reminders, color notes. | `add_note` (legacy name — creates a Card in Home) |
+| **Project Kanban** (📋 Kanban tab) | Card assigned to a regular project. Has status, priority, agent, checklist, comments. | `create_card` |
 
-Cards can move between Main Board and Projects freely (assign/unassign).
+Cards can move between Home and Projects freely (assign/unassign).
 
 NEVER say "note" to the user. NEVER ask "do you want a note or a card?" — everything is a Card.
 The tool is called `add_note` for legacy reasons. It creates a Card. Do not expose this naming to the user.

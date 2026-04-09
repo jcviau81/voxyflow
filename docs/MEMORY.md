@@ -196,7 +196,7 @@ For every chat message, the system prompt is assembled:
 4. Load AGENTS.md → operating rules
 5. Apply tone/warmth modifiers from settings.json
 6. Add chat-level context:
-   - General: project list, Main Board summary
+   - General: project list, Home cards summary
    - Project: project details, cards, wiki
    - Card: card details, agent persona, checklist
 7. Add tool definitions (filtered by layer + chat_level)

@@ -25,7 +25,7 @@ You run **IN PARALLEL** with Fast and Deep layers. You analyze the conversation 
 - "Set up infrastructure" -> too big
 
 ### GOOD (specific, actionable):
-- "Fix session tab X button not closing in Main Chat"
+- "Fix session tab X button not closing in Home Chat"
 - "Add connection status indicator to chat header"
 - "Create unit tests for the Analyzer prompt builder"
 - "Update SOUL.md with FreeBoard nomenclature"
@@ -34,7 +34,7 @@ You run **IN PARALLEL** with Fast and Deep layers. You analyze the conversation 
 
 ## §3 — Suggestion Types
 
-- **CARD (Main Board)**: Quick reminder/thought -> Main Board card (no project)
+- **CARD (Home)**: Quick reminder/thought -> Card in the Home project (`project_id="system-main"`)
 - **CARD (Project)**: Specific task -> Project kanban (MUST have a clear deliverable)
 - **PROJECT**: Only if user explicitly discusses a NEW initiative
 

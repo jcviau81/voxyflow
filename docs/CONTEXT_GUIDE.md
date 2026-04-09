@@ -11,8 +11,8 @@ Quand tu parles à Voxy, elle n'est jamais dans le vide. Elle sait toujours où 
 Il y a trois niveaux de contexte. Le niveau actif se détermine automatiquement selon ce que tu as ouvert dans l'interface :
 
 ```
-Tu es sur le Main Board (onglet principal)
-→ CONTEXTE GÉNÉRAL — Voxy voit tous tes projets, le Main Board, rien de spécifique.
+Tu es sur l'onglet Home (🏠 onglet principal)
+→ CONTEXTE GÉNÉRAL — Voxy voit tous tes projets et les cartes Home, rien de spécifique.
 
 Tu as ouvert un projet
 → CONTEXTE PROJET — Voxy voit toutes les cartes du projet, le wiki, l'historique.
@@ -29,9 +29,9 @@ Tu as ouvert une carte
 
 ### Contexte général — vue d'ensemble
 
-Quand aucun projet n'est sélectionné (tu es sur le Main Board) :
+Quand aucun projet n'est sélectionné (tu es sur l'onglet **Home**) :
 
-- Voxy peut créer des projets, lister tes projets existants, gérer le Main Board
+- Voxy peut créer des projets, lister tes projets existants, gérer les cartes Home
 - Elle peut faire des recherches web, exécuter des commandes système
 - Elle planifie des tâches (jobs cron, rappels)
 - Elle ne "voit" pas l'intérieur d'un projet spécifique — si tu lui demandes des infos sur un projet, elle doit d'abord l'ouvrir
@@ -69,7 +69,7 @@ Chaque contexte a sa propre histoire de conversation :
 
 - La conversation dans le **projet A** n'est pas visible dans le **projet B**
 - La conversation sur la **carte "Refactor auth"** n'est pas mélangée avec celle du projet
-- Le **Main Board** a sa propre conversation séparée de tout projet
+- L'onglet **Home** a sa propre conversation séparée de tout autre projet
 
 Tu peux avoir 5 sessions parallèles par contexte (onglets dans le panneau chat). Les historiques persistent entre les sessions — tu peux fermer l'app et retrouver ta conversation là où tu l'avais laissée.
 
@@ -83,7 +83,7 @@ DailyOps est un cas d'usage typique : un projet pour gérer les tâches récurre
 
 ### Étape 1 — Créer le projet (contexte général)
 
-Depuis le **Main Board**, dis à Voxy :
+Depuis l'onglet **Home**, dis à Voxy :
 
 > "Crée un projet qui s'appelle DailyOps. C'est pour gérer mes tâches quotidiennes récurrentes — standup du matin, revue hebdomadaire, capture d'idées."
 
@@ -210,7 +210,7 @@ Tu es en train de travailler sur une carte (contexte carte). Une idée arrive.
 
 > "Note quelque chose pour moi en dehors de cette carte : explorer la migration vers PostgreSQL pour les performances."
 
-Voxy va créer une carte dans l'inbox du projet (ou sur le Main Board si précisé) sans te sortir de ton contexte actuel.
+Voxy va créer une carte dans l'inbox du projet (ou dans Home si précisé) sans te sortir de ton contexte actuel.
 
 ---
 
@@ -260,7 +260,7 @@ Les sessions s'affichent sous forme d'onglets dans le panneau chat. Tape `/new` 
 
 | Situation | Contexte à utiliser | Ce que tu peux demander |
 |-----------|---------------------|-------------------------|
-| Créer un nouveau projet | Général (Main Board) | "Crée un projet X" |
+| Créer un nouveau projet | Général (Home) | "Crée un projet X" |
 | Voir l'état de tous mes projets | Général | "Montre-moi mes projets" |
 | Créer une carte | Projet | "Crée une carte pour Y" |
 | Voir le standup | Projet | "Standup du projet" |

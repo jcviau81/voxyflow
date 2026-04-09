@@ -175,9 +175,9 @@ class PersonalityService:
     # ------------------------------------------------------------------
 
     def build_general_chat_init(self, project_names: Optional[list] = None) -> str:
-        """Build the Chat Init block for Main project chat (system-main).
+        """Build the Chat Init block for Home project chat (system-main).
 
-        This is now just a project chat for the system "Main" project.
+        This is now just a project chat for the system "Home" project.
         Kept as a separate method for backward compatibility.
         The static base omits project_names — inject dynamically via build_dynamic_context_block().
         """
@@ -193,9 +193,9 @@ class PersonalityService:
             "You don't ask for permission to do what you were clearly asked to do.\n"
             "You use your tools silently and naturally — like someone who knows their workspace.\n\n"
             "## Right Now\n"
-            "You are in the Main project — the default workspace for cards, tasks, and conversation. "
+            "You are in the Home project — the default workspace for cards, tasks, and conversation. "
             "If the user mentions a different project by name, pivot to it. "
-            "Cards created here belong to the Main project.\n\n"
+            "Cards created here belong to the Home project.\n\n"
             "Do NOT say 'welcome back' on a first conversation. Greet naturally based on what they said."
         )
 
@@ -683,7 +683,7 @@ class PersonalityService:
         else:
             base = self.build_general_prompt()
 
-        mode_label = f"Project Chat: {project.get('title', 'Main')}" if project else "Main Chat"
+        mode_label = f"Project Chat: {project.get('title', 'Home')}" if project else "Home Chat"
 
         # --- Chat responder mode: dispatcher pattern (same as Fast layer) ---
         if is_chat_responder:
@@ -796,7 +796,7 @@ class PersonalityService:
         from app.config import VOXYFLOW_WORKSPACE_DIR
         ws_dir = str(VOXYFLOW_WORKSPACE_DIR)
         return (
-            "Context: Main project (default workspace, project_id=system-main)\n"
+            "Context: Home project (default workspace, project_id=system-main)\n"
             f"Workspace: {ws_dir}\n"
             f"CWD is set to {ws_dir} — use relative paths for workspace files.\n"
             "Voxyflow app codebase: ~/voxyflow/ (do NOT write project files here)."
@@ -809,16 +809,16 @@ class PersonalityService:
         if chat_level == "general":
             projs = ", ".join(project_names or []) or "none"
             context_note = (
-                f"\n\nCurrent context: MAIN PROJECT (default workspace, project_id=system-main).\n"
+                f"\n\nCurrent context: HOME PROJECT (default workspace, project_id=system-main).\n"
                 f"User's projects: {projs}\n"
-                "In Main project, suggest CARDS for the Main Board (reminders/quick thoughts).\n"
+                "In the Home project, suggest CARDS for quick reminders and thoughts.\n"
                 "If the user mentions something that belongs in another project, suggest a CARD with the project name.\n"
                 "If the project doesn't exist yet, suggest creating it.\n"
             )
         elif chat_level == "project":
             context_note = "\n\nCurrent context: PROJECT CHAT. Suggest CARDS for this project.\n"
 
-        mode_label = "Main Project" if chat_level == "general" else "Project Chat"
+        mode_label = "Home Project" if chat_level == "general" else "Project Chat"
 
         # Delegation mode: Analyzer received a simple CRUD action to suggest-then-execute
         if delegation:

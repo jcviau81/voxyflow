@@ -11,8 +11,8 @@
 | Term | Definition | NEVER Say |
 |------|-----------|-----------|
 | **Card** | Any work item in Voxyflow | "note", "task" (as entity name), "item", "ticket" |
-| **Main Board Card** | Card with `project_id = null`. Free-floating. | "note", "sticky note" |
-| **Project Card** | Card assigned to a project. Has status, priority, agent. | "task" (use "card") |
+| **Home Card** | Card in the Home project (`project_id = "system-main"`). Quick reminder. | "note", "sticky note", "Main Board card" |
+| **Project Card** | Card assigned to a regular project. Has status, priority, agent. | "task" (use "card") |
 
 ### Card Statuses
 
@@ -34,7 +34,7 @@
 | `3` | High |
 | `4` | Critical |
 
-### Card Colors (Main Board)
+### Card Colors (Home cards)
 
 `yellow`, `blue`, `green`, `pink`, `purple`, `orange`
 
@@ -45,6 +45,7 @@
 | Term | Definition |
 |------|-----------|
 | **Project** | A container for cards, wiki pages, documents, and sprints |
+| **Home** | The system project (`id = "system-main"`, `is_system = true`). Default workspace, locked from edit. Surfaces as the 🏠 Home tab. |
 | **Active Project** | A project with `status = "active"` |
 | **Archived Project** | A project with `status = "archived"` |
 
@@ -54,7 +55,7 @@
 
 | Term | Definition | Context |
 |------|-----------|---------|
-| **Main Board** | The default board showing unassigned cards | 📝 Board tab in main chat |
+| **Home** | The default workspace (system project). Quick cards live here. | 🏠 Home tab |
 | **Kanban** | Column-based card view within a project | 📋 Kanban tab in project |
 | **Stats** | Progress dashboard with charts | 📊 Stats tab in project |
 | **Roadmap** | Timeline/Gantt view of cards | 📅 Roadmap tab in project |
@@ -70,7 +71,7 @@
 
 | Level | Trigger | Chat ID Format |
 |-------|---------|---------------|
-| **General** | No project selected, main tab active | `general:{sessionId}` |
+| **General / Home** | Home tab active (system project, `project_id = "system-main"`) | `project:system-main:{sessionId}` |
 | **Project** | Project tab active, no card selected | `project:{projectId}` |
 | **Card** | Card selected within a project | `card:{cardId}` |
 
@@ -125,7 +126,7 @@
 | Term | Definition |
 |------|-----------|
 | **Session** | A conversation thread within a context (general/project/card) |
-| **Tab** | A project tab at the top level (or "main" tab) |
+| **Tab** | A project tab at the top level (or the 🏠 Home tab) |
 | **Active Session** | The currently visible session within a tab |
 | **Chat ID** | Backend identifier for a session: `{level}:{id}` |
 | **Session ID** | Frontend identifier for message routing |
@@ -157,7 +158,8 @@
 | NEVER Say | ALWAYS Say |
 |-----------|-----------|
 | "note" | **Card** |
-| "sticky note" | **Main Board Card** |
+| "sticky note" | **Home Card** |
+| "Main Board" / "Main project" | **Home** |
 | "task" (as entity) | **Card** |
 | "ticket" | **Card** |
 | "notebook" | **Wiki** |

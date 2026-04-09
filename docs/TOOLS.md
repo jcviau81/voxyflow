@@ -60,7 +60,7 @@ task.complete
 ### Voxyflow — Card Operations
 
 #### voxyflow.card.create_unassigned
-Create a card on the Main Board (no project).
+Create a card in the Home project (`project_id="system-main"`). Legacy "unassigned" name kept for back-compat.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | content | string | yes | Title/text content |
@@ -68,7 +68,7 @@ Create a card on the Main Board (no project).
 | description | string | no | Longer description/body |
 
 #### voxyflow.card.list_unassigned
-List all cards on the Main Board. No parameters.
+List all cards in the Home project. No parameters.
 
 #### voxyflow.card.create
 Create a card in a project.

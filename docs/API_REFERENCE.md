@@ -35,12 +35,14 @@
 - Query params: `status` (filter), `agent_type` (filter)
 - Response: `CardResponse[]`
 
-### Main Board Cards (Unassigned)
+### Home Cards (legacy "unassigned" path)
+
+These endpoints proxy to the system Home project (`project_id="system-main"`).
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/cards/unassigned` | Create a card on Main Board |
-| `GET` | `/api/cards/unassigned` | List all Main Board cards |
+| `POST` | `/api/cards/unassigned` | Create a card in Home |
+| `GET` | `/api/cards/unassigned` | List all Home cards |
 
 **POST /api/cards/unassigned**
 ```json
@@ -61,7 +63,7 @@
 | `PATCH` | `/api/cards/{card_id}` | Update card fields |
 | `DELETE` | `/api/cards/{card_id}` | Delete card (irreversible) |
 | `PATCH` | `/api/cards/{card_id}/assign/{project_id}` | Move card to a project |
-| `PATCH` | `/api/cards/{card_id}/unassign` | Move card to Main Board |
+| `PATCH` | `/api/cards/{card_id}/unassign` | Move card back to Home (system project) |
 | `POST` | `/api/cards/{card_id}/duplicate` | Duplicate card in same project |
 | `POST` | `/api/cards/{card_id}/enrich` | AI-enrich card description |
 

@@ -10,9 +10,9 @@ Voxyflow has three chat levels. The level is determined automatically by what th
 
 ```
 ┌─────────────────────────────────────────────┐
-│  GENERAL CHAT                               │
-│  No project selected. Main tab active.      │
-│  Broad scope: all projects, Main Board.     │
+│  GENERAL CHAT (Home)                        │
+│  Home tab active. System project context.  │
+│  Broad scope: all projects + Home cards.    │
 ├─────────────────────────────────────────────┤
 │  PROJECT CHAT                               │
 │  Project tab selected. No card selected.    │
@@ -47,7 +47,7 @@ The `chatLevel` is sent with every WebSocket message to the backend.
 **Trigger:** No project selected. Active tab is `main`.
 
 ### What Voxy Can Do
-- Create/list/manage Main Board cards
+- Create/list/manage Home cards (cards in the system project)
 - Create/list/manage projects
 - Web search, file operations, system commands
 - General conversation
@@ -105,7 +105,7 @@ Everything from General, PLUS:
 
 ### Tools Available
 All tools EXCEPT: `voxyflow.card.create_unassigned`, `voxyflow.card.list_unassigned`
-(Main Board tools are excluded — you're in a project context)
+(Home / unassigned-card tools are excluded — you're in a project context)
 
 ### Context Injection
 - Project details (title, description, context) injected into system prompt
@@ -250,7 +250,7 @@ The dispatcher (Fast layer) routes intents differently based on chat level:
 
 | Intent | General | Project | Card |
 |--------|---------|---------|------|
-| "Create a card" | → Ask which project or Main Board | → Create in current project | → Create sub-task or ask |
+| "Create a card" | → Ask which project or default to Home | → Create in current project | → Create sub-task or ask |
 | "Show status" | → List all projects | → Show project kanban | → Show card details |
 | "Search for X" | → Web search or cross-project | → Search within project | → Search related to card |
 | "Help me build" | → Ask what to build | → Work on project tasks | → Implement card |
