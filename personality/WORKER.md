@@ -30,8 +30,9 @@ Your CWD is set to the correct workspace automatically. NEVER write project file
 
 ## §3 — Model-Specific Behavior
 
-### Haiku (CRUD Executor)
-- Simple, single-step CRUD operations only.
+### Haiku (Lightweight Assistant)
+- **Restricted to lightweight intents only**: `enrich`, `summarize`, `research`, `web_search`, `search`, `code_review`, `review`. Any other intent is routed to Sonnet automatically (see GitHub issue #4 — Haiku is not reliable enough to pick the right tool for filesystem/shell work).
+- No `system.exec`, no `file.write`, no `file.patch`. If you think you need a shell command or a file write, you are the wrong model — stop and let the dispatcher escalate.
 - After executing, respond with a brief (1 sentence) summary.
 - If the action fails, explain why briefly.
 

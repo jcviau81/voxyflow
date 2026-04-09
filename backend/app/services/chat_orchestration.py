@@ -41,7 +41,7 @@ from app.services.direct_executor import DirectExecutor, READ_ACTIONS
 from app.services.worker_supervisor import get_worker_supervisor
 from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
 from app.tools.executor import get_executor
-from app.services.orchestration.worker_pool import DeepWorkerPool, _format_result_for_card
+from app.services.orchestration.worker_pool import DeepWorkerPool, LIGHTWEIGHT_INTENTS, _format_result_for_card
 from app.services.orchestration.layer_runners import LayerRunnersMixin
 from app.services.orchestration.session_timeline import get_timeline
 
@@ -664,6 +664,15 @@ class ChatOrchestrator(LayerRunnersMixin):
                     model = "sonnet"
                     logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
 
+            # Haiku is restricted to the lightweight-intent bucket (enrich /
+            # summarize / research / review). For any other intent, upgrade to
+            # sonnet — Haiku is not reliable enough to pick the right MCP tool
+            # and would end up writing files named after shell commands
+            # (see GitHub issue #4).
+            if model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
+                logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (intent '{intent}' not in LIGHTWEIGHT_INTENTS)")
+                model = "sonnet"
+
             task_id = f"task-{uuid4().hex[:8]}"
 
             # Classify intent type based on the task, not the model
@@ -801,6 +810,12 @@ class ChatOrchestrator(LayerRunnersMixin):
                         original_model = model
                         model = "sonnet"
                         logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
+
+                # Haiku restricted to lightweight intents — see native path
+                # above for rationale (GitHub issue #4).
+                if model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
+                    logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (intent '{intent}' not in LIGHTWEIGHT_INTENTS)")
+                    model = "sonnet"
 
                 task_id = f"task-{uuid4().hex[:8]}"
 

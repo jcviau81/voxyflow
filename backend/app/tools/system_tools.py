@@ -19,7 +19,7 @@ import shlex
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -78,6 +78,68 @@ def _is_path_allowed(path_str: str) -> bool:
             continue
 
     return False
+
+
+# Common shell builtins / utilities that workers sometimes pass as a "path"
+# when they meant to run a command. Used by _looks_like_shell_command() to
+# reject obvious misuses of file.write / file.patch before they pollute the
+# workspace with files named after bash commands.
+_SHELL_COMMAND_PREFIXES = {
+    "mkdir", "rmdir", "rm", "cp", "mv", "touch", "ls", "ll", "cat",
+    "echo", "cd", "pwd", "chmod", "chown", "ln", "find", "grep",
+    "sed", "awk", "tar", "zip", "unzip", "curl", "wget", "git",
+    "python", "python3", "pip", "pip3", "node", "npm", "npx",
+    "yarn", "pnpm", "bash", "sh", "zsh", "export", "source",
+    "systemctl", "docker", "kubectl", "make", "cmake",
+}
+
+# Characters that should never appear in a filesystem path but routinely
+# show up when a model passes a shell command string as a `path` argument.
+_SHELL_METACHARS = (";", "|", "&", "$", "`", ">", "<", "\n", "\r")
+
+
+def _looks_like_shell_command(path_str: str) -> Optional[str]:
+    """Return a human-readable reason if *path_str* looks like a shell command
+    instead of a filesystem path, or None if it's acceptable.
+
+    This catches the class of bug where workers (especially smaller models)
+    hallucinate tool routing and pass things like ``"mkdir devices"`` or
+    ``"git status"`` as the `path` argument to file.write/file.patch, which
+    would otherwise silently create empty files with those literal names.
+    """
+    stripped = path_str.strip()
+    if not stripped:
+        return None  # caller already checks for empty
+
+    # Shell metacharacters never belong in a normal path.
+    for ch in _SHELL_METACHARS:
+        if ch in stripped:
+            return f"path contains shell metacharacter {ch!r} — use system.exec for shell commands, not file.write"
+
+    # First whitespace-separated token — if it matches a known shell command
+    # AND the rest of the string looks like arguments (has a space), it's
+    # almost certainly a misrouted command.
+    first, _, rest = stripped.partition(" ")
+    if rest and first.lower() in _SHELL_COMMAND_PREFIXES:
+        return (
+            f"path starts with shell command {first!r} — this looks like a "
+            f"shell command, not a file path. Use system.exec(command=...) "
+            f"to run shell commands."
+        )
+
+    # Natural-language prose: 3+ whitespace-separated words, no slash, no
+    # file extension. This catches cases like "Worker search restart
+    # triggered" where a model passed a summary or status message as a path.
+    if "/" not in stripped and "." not in stripped:
+        tokens = stripped.split()
+        if len(tokens) >= 3:
+            return (
+                "path looks like natural-language prose (multiple words, no "
+                "'/' or extension) — not a file path. If you want to write a "
+                "file, pass a real path like 'notes.md' or 'subdir/file.txt'."
+            )
+
+    return None
 
 
 def _is_write_allowed(path_str: str) -> bool:
@@ -471,6 +533,11 @@ async def file_write(params: dict) -> dict:
     content = params.get("content", "")
     mode = params.get("mode", "overwrite")
 
+    command_hint = _looks_like_shell_command(path_str)
+    if command_hint:
+        logger.warning(f"[file.write] Rejected command-like path {path_str!r}: {command_hint}")
+        return {"success": False, "error": f"Invalid path {path_str!r}: {command_hint}"}
+
     resolved = Path(path_str).expanduser().resolve()
 
     if not _is_write_allowed(str(resolved)):
@@ -513,6 +580,11 @@ async def file_patch(params: dict) -> dict:
 
     if not old_str:
         return {"success": False, "error": "No old string provided"}
+
+    command_hint = _looks_like_shell_command(path_str)
+    if command_hint:
+        logger.warning(f"[file.patch] Rejected command-like path {path_str!r}: {command_hint}")
+        return {"success": False, "error": f"Invalid path {path_str!r}: {command_hint}"}
 
     resolved = Path(path_str).expanduser().resolve()
 
@@ -757,6 +829,11 @@ async def file_patch(params: dict) -> dict:
 
     if not old_str:
         return {"success": False, "error": "No old string provided"}
+
+    command_hint = _looks_like_shell_command(path_str)
+    if command_hint:
+        logger.warning(f"[file.patch] Rejected command-like path {path_str!r}: {command_hint}")
+        return {"success": False, "error": f"Invalid path {path_str!r}: {command_hint}"}
 
     resolved = Path(path_str).expanduser().resolve()
 
