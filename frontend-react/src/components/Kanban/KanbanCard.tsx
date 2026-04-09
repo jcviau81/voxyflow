@@ -386,6 +386,7 @@ export function KanbanCard({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
               className={cn(
                 'flex-shrink-0 px-1.5 py-0.5 rounded text-muted-foreground text-sm',

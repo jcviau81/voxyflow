@@ -523,7 +523,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const projectCards = useMemo(() => {
     if (!projectId) return [];
     return Object.values(cardsById)
-      .filter((c) => c.projectId === projectId)
+      .filter((c) => c.projectId === projectId && !c.archivedAt)
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
   }, [cardsById, projectId]);
 

@@ -251,9 +251,14 @@ export function useDeleteCard() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ cardId }: { cardId: string; projectId?: string }) => {
-      await fetch(`${API}/api/cards/${cardId}`, { method: 'DELETE' });
+      const res = await fetch(`${API}/api/cards/${cardId}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 404) {
+        const detail = await res.json().catch(() => ({})) as { detail?: string };
+        throw new Error(detail.detail ?? `HTTP ${res.status}`);
+      }
     },
-    onSuccess: (_data, { projectId }) => {
+    onSuccess: (_data, { cardId, projectId }) => {
+      useCardStore.getState().deleteCard(cardId);
       if (projectId) {
         qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
         qc.invalidateQueries({ queryKey: cardKeys.archived(projectId) });
