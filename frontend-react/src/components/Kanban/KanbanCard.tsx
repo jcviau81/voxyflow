@@ -235,10 +235,19 @@ export function KanbanCard({
     }
   };
 
-  const handleMoveToBoard = async () => {
+  const handleMoveToBacklog = async () => {
     try {
       await patchCard.mutateAsync({ cardId: card.id, updates: { status: 'card' } });
-      showToast('Card moved to Board', 'success');
+      showToast('Card moved to Backlog', 'success');
+    } catch {
+      showToast('Move failed', 'error');
+    }
+  };
+
+  const handleMoveToKanban = async () => {
+    try {
+      await patchCard.mutateAsync({ cardId: card.id, updates: { status: 'todo' } });
+      showToast('Card moved to Kanban (Todo)', 'success');
     } catch {
       showToast('Move failed', 'error');
     }
@@ -402,9 +411,16 @@ export function KanbanCard({
             <DropdownMenuItem onSelect={handleExecute}>
               <Play size={13} className="text-emerald-400" /> Execute
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={handleMoveToBoard}>
-              <Pin size={13} className="text-blue-400" /> Move to Board
-            </DropdownMenuItem>
+            {card.status !== 'card' && (
+              <DropdownMenuItem onSelect={handleMoveToBacklog}>
+                <Pin size={13} className="text-blue-400" /> Move to Backlog
+              </DropdownMenuItem>
+            )}
+            {card.status === 'card' && (
+              <DropdownMenuItem onSelect={handleMoveToKanban}>
+                <Pin size={13} className="text-blue-400" /> Move to Kanban
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={handleDuplicate}>
               <Copy size={13} className="text-violet-400" /> Duplicate
             </DropdownMenuItem>

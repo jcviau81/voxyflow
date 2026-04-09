@@ -643,7 +643,14 @@ class ClaudeCliBackend:
 
         Runs for the lifetime of the persistent process. Each turn ends
         when a 'result' event is received (sends None sentinel).
+
+        When MCP tools are active, the CLI emits full assistant/user messages
+        (not stream_event deltas) for the tool loop. Text content from the
+        final assistant message is forwarded to the queue so it reaches the
+        WebSocket stream.
         """
+        # Track text already queued so we don't duplicate from the result event
+        queued_length = 0
         try:
             async for raw_line in proc.stdout:
                 line = raw_line.decode("utf-8", errors="replace").strip()
@@ -663,13 +670,33 @@ class ClaudeCliBackend:
                         if delta.get("type") == "text_delta":
                             text = delta.get("text", "")
                             if text:
+                                queued_length += len(text)
                                 await response_queue.put(text)
+
+                elif event_type == "assistant":
+                    # MCP tool-use path: CLI emits full assistant messages
+                    # instead of stream_event deltas. Extract text blocks.
+                    # Only forward if we haven't already streamed via deltas.
+                    if queued_length == 0:
+                        msg = event.get("message", {})
+                        for block in msg.get("content", []):
+                            if block.get("type") == "text":
+                                text = block.get("text", "")
+                                if text:
+                                    queued_length += len(text)
+                                    await response_queue.put(text)
 
                 elif event_type == "result":
                     usage = event.get("usage", {})
                     usage_holder.clear()
                     usage_holder.update(usage)
                     self._last_usage = usage
+                    # Yield any text not yet streamed (safety net)
+                    result_text = event.get("result", "")
+                    if result_text and len(result_text) > queued_length:
+                        await response_queue.put(result_text[queued_length:])
+                    # Reset for next turn
+                    queued_length = 0
                     # Signal turn complete
                     await response_queue.put(None)
 
@@ -1223,6 +1250,19 @@ class ClaudeCliBackend:
                             if text:
                                 yielded_length += len(text)
                                 yield text
+
+                elif event_type == "assistant":
+                    # MCP tool-use path: CLI emits full assistant messages
+                    # instead of stream_event deltas. Extract text blocks.
+                    # Only forward if we haven't already streamed via deltas.
+                    if yielded_length == 0:
+                        msg = event.get("message", {})
+                        for block in msg.get("content", []):
+                            if block.get("type") == "text":
+                                text = block.get("text", "")
+                                if text:
+                                    yielded_length += len(text)
+                                    yield text
 
                 elif event_type == "result":
                     # Final result — extract usage for token logging
