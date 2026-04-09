@@ -201,11 +201,9 @@ class MemoryService:
 
     def __init__(
         self,
-        max_memory_chars: int = 4000,
         daily_lookback_days: int = 3,
         persist_dir: str = CHROMA_PERSIST_DIR,
     ):
-        self.max_memory_chars = max_memory_chars
         self.daily_lookback_days = daily_lookback_days
         self._chromadb_enabled = False
         self._client = None
@@ -317,6 +315,7 @@ class MemoryService:
         collections: Optional[list[str]] = None,
         filters: Optional[dict] = None,
         limit: int = 10,
+        offset: int = 0,
     ) -> list[dict]:
         """Semantic search across specified collections.
 
@@ -341,9 +340,10 @@ class MemoryService:
                 if count == 0:
                     continue
 
+                fetch_n = min(limit + offset, count)
                 query_kwargs = {
                     "query_texts": [query],
-                    "n_results": min(limit, count),
+                    "n_results": fetch_n,
                 }
                 if filters:
                     query_kwargs["where"] = filters
@@ -369,6 +369,8 @@ class MemoryService:
                 continue
 
         all_results.sort(key=lambda r: r["score"], reverse=True)
+        if offset:
+            all_results = all_results[offset:]
         return all_results[:limit]
 
     def list_memories(
@@ -833,8 +835,6 @@ class MemoryService:
             return ""
         try:
             content = MEMORY_FILE.read_text(encoding="utf-8").strip()
-            if len(content) > self.max_memory_chars:
-                content = "...[earlier memories truncated]...\n" + content[-self.max_memory_chars:]
             return content
         except Exception as e:
             logger.warning(f"Failed to read MEMORY.md: {e}")
@@ -856,8 +856,6 @@ class MemoryService:
             if daily_file.exists():
                 try:
                     content = daily_file.read_text(encoding="utf-8").strip()
-                    if len(content) > 1500:
-                        content = content[-1500:]
                     entries.append(f"### {date_str}\n{content}")
                 except Exception as e:
                     logger.warning(f"Failed to read {daily_file}: {e}")
@@ -876,8 +874,6 @@ class MemoryService:
 
         try:
             content = project_file.read_text(encoding="utf-8").strip()
-            if len(content) > 2000:
-                content = content[-2000:]
             return content
         except Exception as e:
             logger.warning(f"Failed to read project memory {project_file}: {e}")

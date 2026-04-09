@@ -86,7 +86,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
     project?.archived ? 'archived' : 'active'
   );
   const [inheritMainContext, setInheritMainContext] = useState(
-    project?.inheritMainContext !== false
+    project?.inheritMainContext === true
   );
 
   // ── Templates ─────────────────────────────────────────────────────────────

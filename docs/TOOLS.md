@@ -342,10 +342,12 @@ Get the full details and result of a specific worker task.
 
 #### memory.search
 Semantic search across Voxy's long-term memory (global + project).
+Returns `id`, `text`, `score`, `collection` per result, plus pagination metadata (`offset`, `limit`, `count`, `has_more`).
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | query | string | yes | Natural language search query |
-| limit | integer | no | Max results (default 5) |
+| limit | integer | no | Max results per page (default 10) |
+| offset | integer | no | Skip first N results for pagination (default 0) |
 
 #### memory.save
 Save a fact, decision, preference, or lesson to long-term memory.

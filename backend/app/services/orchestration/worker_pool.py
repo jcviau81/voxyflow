@@ -643,7 +643,7 @@ class DeepWorkerPool:
 
             if not supervisor.is_completed(event.task_id):
                 # Auto-complete: worker finished but forgot to call task.complete
-                auto_summary = (result_content or event.summary or "Task completed (auto-closed)")[:500]
+                auto_summary = result_content or event.summary or "Task completed (auto-closed)"
                 supervisor.mark_completed(event.task_id, auto_summary, "success")
                 logger.info(
                     f"[Supervisor] Task {event.task_id} auto-completed (worker did not call task.complete)"
@@ -707,7 +707,7 @@ class DeepWorkerPool:
 
             await self._ledger_update(
                 event.task_id, "done",
-                result_summary=(result_content or "")[:500],
+                result_summary=result_content or "",
             )
 
             # Record completion in session timeline
@@ -956,9 +956,9 @@ class DeepWorkerPool:
                 if row:
                     row.status = status
                     if result_summary is not None:
-                        row.result_summary = result_summary[:500]
+                        row.result_summary = result_summary
                     if error is not None:
-                        row.error = error[:500]
+                        row.error = error
                     if status in ("done", "failed", "cancelled", "timed_out"):
                         row.completed_at = utcnow()
                     await db.commit()

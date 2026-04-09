@@ -935,7 +935,8 @@ _TOOL_DEFINITIONS: list[dict] = [
             "required": ["query"],
             "properties": {
                 "query": {"type": "string", "description": "Natural language search query — describe what you're trying to remember"},
-                "limit": {"type": "integer", "description": "Max results to return (default 5)"},
+                "limit": {"type": "integer", "description": "Max results per page (default 10)"},
+                "offset": {"type": "integer", "description": "Skip first N results for pagination (default 0)"},
             },
         },
         "_handler": "memory_search",
@@ -1049,20 +1050,28 @@ def _get_system_handler(name: str):
             query = params.get("query", "")
             if not query:
                 return {"error": "query is required"}
-            limit = params.get("limit", 5)
+            limit = params.get("limit", 10)
+            offset = params.get("offset", 0)
             try:
                 ms = get_memory_service()
-                results = ms.search_memory(query, limit=limit)
+                results = ms.search_memory(query, limit=limit, offset=offset)
                 if not results:
-                    return {"result": "No matching memories found."}
+                    return {"results": [], "offset": offset, "limit": limit, "count": 0}
                 formatted = []
                 for r in results:
                     formatted.append({
+                        "id": r.get("id", ""),
                         "text": r.get("text", ""),
                         "score": round(r.get("score", 0), 3),
                         "collection": r.get("collection", ""),
                     })
-                return {"results": formatted}
+                return {
+                    "results": formatted,
+                    "offset": offset,
+                    "limit": limit,
+                    "count": len(formatted),
+                    "has_more": len(formatted) == limit,
+                }
             except Exception as e:
                 return {"error": str(e)}
 

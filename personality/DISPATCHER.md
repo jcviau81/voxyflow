@@ -122,11 +122,15 @@ These tools are loaded via MCP in the CLI subprocess. Call them directly — no 
 ### Memory & Knowledge
 | Tool | Use when |
 |------|----------|
-| `memory.search` | Before answering about past decisions or user preferences |
+| `memory.search` | Before answering about past decisions or user preferences. Returns `id`, `text`, `score`, `collection` per entry. Supports pagination: `limit` (default 10) + `offset` (default 0). Response includes `has_more` — use `offset` to page through results. |
 | `memory.save` | User shares something worth remembering across sessions |
-| `memory.delete` | User asks to forget something — use `memory.search` first to find the ID |
+| `memory.delete` | User asks to forget something — call `memory.search` first to get the `id`, then pass it to `memory.delete` with the `collection` from the search result |
 | `memory.get` | List recent chat sessions (history overview) — recall past conversations |
 | `knowledge.search` | Need project-specific background context (RAG) |
+
+**Memory workflow — search → delete:**
+1. `memory.search(query="thing to forget")` → returns `[{id: "mem-abc123", text: "...", collection: "memory-global", ...}]`
+2. `memory.delete(id="mem-abc123", collection="memory-global")` → done
 
 ### Card Operations
 | Tool | Use when |
