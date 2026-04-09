@@ -26,6 +26,11 @@ import { cn } from '../../lib/utils';
 import { eventBus } from '../../utils/eventBus';
 import { STT_EVENTS } from '../../utils/voiceEvents';
 import { sttService } from '../../services/sttService';
+import {
+  wakeWordService,
+  WAKE_WORD_MODELS,
+  DEFAULT_WAKE_WORD_MODEL_ID,
+} from '../../services/wakeWordService';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -48,6 +53,7 @@ interface VoiceSettings {
   tts_speed: number;
   volume: number;
   wake_word_enabled: boolean;
+  wake_word_model: string;
 }
 
 interface AppSettings {
@@ -97,6 +103,7 @@ const DEFAULT_VOICE: VoiceSettings = {
   tts_speed:             1.0,
   volume:                80,
   wake_word_enabled:     false,
+  wake_word_model:       DEFAULT_WAKE_WORD_MODEL_ID,
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -686,13 +693,37 @@ export function VoicePanel() {
 
       <SettingRow
         label="Enable wake word mode by default"
-        description="Start with wake word detection active (say wake word to trigger — Alexa, Hey Jarvis, etc.)"
+        description="Start with wake word detection active (say the selected wake word to trigger recording)"
       >
         <Controller
           control={control}
           name="wake_word_enabled"
           render={({ field }) => (
             <Toggle checked={field.value} onChange={field.onChange} />
+          )}
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Wake word model"
+        description="Trained openWakeWord model to listen for. Files live in /public/models/."
+      >
+        <Controller
+          control={control}
+          name="wake_word_model"
+          render={({ field }) => (
+            <select
+              className="setting-select w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+              value={field.value}
+              onChange={(e) => {
+                field.onChange(e);
+                void wakeWordService.setModel(e.target.value);
+              }}
+            >
+              {WAKE_WORD_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
           )}
         />
       </SettingRow>

@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     fast_context_messages: int = 20
     deep_context_messages: int = 100
     chat_window_size: int = 6  # sliding window: keep N recent messages verbatim, summarize older
-    analyzer_enabled: bool = True
+    analyzer_enabled: bool = False
     delegate_safety_net_enabled: bool = True
 
     def __init__(self, **kwargs):

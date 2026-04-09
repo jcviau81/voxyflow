@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
             # Also restore analyzer_enabled from DB so the gate is correct before
             # any GET /api/settings call is made (prevents analyzer running on first
             # message after a server restart when it was disabled in settings).
-            _settings_mod._cached_analyzer_enabled = _db_settings.get("models", {}).get("analyzer", {}).get("enabled", True)
+            _settings_mod._cached_analyzer_enabled = _db_settings.get("models", {}).get("analyzer", {}).get("enabled", False)
             # Write DB settings to settings.json so _load_model_overrides() finds them
             _merged = AppSettings(**_db_settings).dict()
             os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
@@ -191,6 +191,14 @@ async def lifespan(app: FastAPI):
         from app.services.cli_session_registry import get_cli_session_registry
         from app.services.event_bus import event_bus_registry
         from app.services.pending_results import pending_store
+        from starlette.websockets import WebSocketState
+
+        # Track when each worker pool first became "idle" (no active tasks and
+        # no connected WS). A pool is stopped after IDLE_POOL_TIMEOUT seconds
+        # of continuous idleness. Reset to None as soon as activity resumes.
+        IDLE_POOL_TIMEOUT = 1800  # 30 minutes
+        _pool_idle_since: dict[str, float] = {}
+
         while True:
             await asyncio.sleep(300)  # 5 minutes
             try:
@@ -211,6 +219,46 @@ async def lifespan(app: FastAPI):
                     logger.info(f"[Cleanup] Removed {removed} stale pending result(s)")
             except Exception as e:
                 logger.debug(f"[Cleanup] pending results cleanup error: {e}")
+
+            # ---- Idle DeepWorkerPool cleanup (Phase 1) -------------------
+            # A pool is considered idle when it has no active tasks AND its
+            # WebSocket reference is missing or disconnected. We stop it only
+            # after IDLE_POOL_TIMEOUT of continuous idleness, so a legitimate
+            # browser refresh or device switch (which takes a few seconds)
+            # never loses its surviving pool.
+            try:
+                now = time.monotonic()
+                to_stop: list[str] = []
+                live_pool_ids: set[str] = set()
+                for sid, pool in list(_orchestrator._worker_pools.items()):
+                    live_pool_ids.add(sid)
+                    if pool._stopped:
+                        to_stop.append(sid)
+                        continue
+                    has_active = bool(pool._active_tasks)
+                    ws = pool._ws
+                    ws_alive = ws is not None and ws.client_state == WebSocketState.CONNECTED
+                    if has_active or ws_alive:
+                        _pool_idle_since.pop(sid, None)
+                        continue
+                    first_idle = _pool_idle_since.get(sid)
+                    if first_idle is None:
+                        _pool_idle_since[sid] = now
+                    elif now - first_idle >= IDLE_POOL_TIMEOUT:
+                        to_stop.append(sid)
+                # Drop tracking entries for pools that have been removed externally
+                for sid in list(_pool_idle_since.keys()):
+                    if sid not in live_pool_ids:
+                        _pool_idle_since.pop(sid, None)
+                for sid in to_stop:
+                    try:
+                        await _orchestrator.stop_worker_pool(sid)
+                        _pool_idle_since.pop(sid, None)
+                        logger.info(f"[Cleanup] Stopped idle worker pool: {sid}")
+                    except Exception as _stop_err:
+                        logger.warning(f"[Cleanup] Failed to stop idle pool {sid}: {_stop_err}")
+            except Exception as e:
+                logger.debug(f"[Cleanup] idle worker pool cleanup error: {e}")
 
     _idle_cleanup_task = asyncio.create_task(_cleanup_idle_sessions())
 
@@ -674,21 +722,20 @@ async def general_websocket(websocket: WebSocket):
     finally:
         # Unregister from broadcast
         ws_broadcast.unregister(websocket)
-        # Cancel background tasks that haven't completed
+        # Cancel WS-bound background tasks (analyzer streams, kanban exec, …).
+        # Delegate emission tasks are shielded internally so in-flight worker
+        # spawns complete even if the parent task is cancelled here.
+        # Worker pools are INTENTIONALLY left alive: a page refresh or device
+        # switch must not kill in-flight workers. The client re-attaches to
+        # surviving pools via session:sync → update_pool_websocket().
+        # Idle pools (no WS + no active tasks) are collected by
+        # _cleanup_idle_sessions after a grace period.
         if bg_tasks:
             running = sum(1 for t in bg_tasks if not t.done())
             for t in bg_tasks:
                 if not t.done():
                     t.cancel()
-            logger.info(f"[WS] Disconnected — cancelled {running} background task(s)")
-        # Stop worker pools and mark their pending/running tasks as cancelled.
-        # This prevents orphan workers from auto-recovering without context.
-        for sid in list(active_session_ids):
-            try:
-                await _orchestrator.stop_worker_pool(sid)
-                logger.info(f"[WS] Disconnect cleanup — stopped worker pool for {sid}")
-            except Exception as _e:
-                logger.warning(f"[WS] Disconnect cleanup failed for {sid}: {_e}")
+            logger.info(f"[WS] Disconnected — cancelled {running} WS-bound background task(s)")
 
 
 # ---------------------------------------------------------------------------

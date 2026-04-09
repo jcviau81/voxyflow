@@ -641,75 +641,81 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         bus = event_bus_registry.get_or_create(session_id)
 
-        for data in worker_delegates:
-            intent = data.get("action") or "unknown"
-            summary = data.get("summary") or data.get("description") or ""
-            complexity = data.get("complexity") or "simple"
-            model = data.get("model") or "sonnet"
-            if model not in ("haiku", "sonnet", "opus"):
-                model = "sonnet"
-
-            # Card-level model override (preferred_model set in card modal)
-            card_preferred = card_context.get("preferred_model") if card_context else None
-            if card_preferred and card_preferred in ("haiku", "sonnet", "opus"):
-                logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
-                model = card_preferred
-
-            # Auto-upgrade model for coding tasks
-            _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
-            description_lower = (data.get("description") or "").lower()
-            if any(kw in description_lower for kw in _CODING_KEYWORDS):
-                if model == "haiku":
-                    original_model = model
+        # Shield the emit loop so that a WebSocket-disconnect cancel on the
+        # parent background task does not interrupt mid-spawn. Without shield,
+        # a refresh during delegate emission could spawn half the workers.
+        async def _emit_all() -> None:
+            for data in worker_delegates:
+                intent = data.get("action") or "unknown"
+                summary = data.get("summary") or data.get("description") or ""
+                complexity = data.get("complexity") or "simple"
+                model = data.get("model") or "sonnet"
+                if model not in ("haiku", "sonnet", "opus"):
                     model = "sonnet"
-                    logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
 
-            # Haiku is restricted to the lightweight-intent bucket (enrich /
-            # summarize / research / review). For any other intent, upgrade to
-            # sonnet — Haiku is not reliable enough to pick the right MCP tool
-            # and would end up writing files named after shell commands
-            # (see GitHub issue #4).
-            if model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
-                logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (intent '{intent}' not in LIGHTWEIGHT_INTENTS)")
-                model = "sonnet"
+                # Card-level model override (preferred_model set in card modal)
+                card_preferred = card_context.get("preferred_model") if card_context else None
+                if card_preferred and card_preferred in ("haiku", "sonnet", "opus"):
+                    logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
+                    model = card_preferred
 
-            task_id = f"task-{uuid4().hex[:8]}"
+                # Auto-upgrade model for coding tasks
+                _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
+                description_lower = (data.get("description") or "").lower()
+                if any(kw in description_lower for kw in _CODING_KEYWORDS):
+                    if model == "haiku":
+                        original_model = model
+                        model = "sonnet"
+                        logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
 
-            # Classify intent type based on the task, not the model
-            if complexity == "complex" or model == "opus":
-                intent_type = "complex"
-            elif intent in ("create_card", "move_card", "update_card"):
-                intent_type = "crud_simple"
-            else:
-                intent_type = "complex"
+                # Haiku is restricted to the lightweight-intent bucket (enrich /
+                # summarize / research / review). For any other intent, upgrade to
+                # sonnet — Haiku is not reliable enough to pick the right MCP tool
+                # and would end up writing files named after shell commands
+                # (see GitHub issue #4).
+                if model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
+                    logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (intent '{intent}' not in LIGHTWEIGHT_INTENTS)")
+                    model = "sonnet"
 
-            card_id = card_context.get("id") if card_context else None
+                task_id = f"task-{uuid4().hex[:8]}"
 
-            event = ActionIntent(
-                task_id=task_id,
-                intent_type=intent_type,
-                intent=intent,
-                summary=summary,
-                data={
-                    "project_name": project_name,
-                    "chat_level": chat_level,
-                    "project_context": project_context,
-                    "card_context": card_context,
-                    "card_id": card_id,
-                    "dispatcher_chat_id": chat_id,
-                    **data,  # Include all fields from delegate_action
-                    # Fallback chain: delegate.data['project_id'] → session project_id → None
-                    "project_id": data.get("project_id") or project_id,
-                },
-                session_id=session_id,
-                complexity=complexity,
-                model=model,
-                callback_depth=callback_depth,
-            )
+                # Classify intent type based on the task, not the model
+                if complexity == "complex" or model == "opus":
+                    intent_type = "complex"
+                elif intent in ("create_card", "move_card", "update_card"):
+                    intent_type = "crud_simple"
+                else:
+                    intent_type = "complex"
 
-            await bus.emit(event)
-            get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
-            logger.info(f"[Orchestrator] Emitted native delegate: {intent} → task {task_id} (model={model}, cb_depth={callback_depth})")
+                card_id = card_context.get("id") if card_context else None
+
+                event = ActionIntent(
+                    task_id=task_id,
+                    intent_type=intent_type,
+                    intent=intent,
+                    summary=summary,
+                    data={
+                        "project_name": project_name,
+                        "chat_level": chat_level,
+                        "project_context": project_context,
+                        "card_context": card_context,
+                        "card_id": card_id,
+                        "dispatcher_chat_id": chat_id,
+                        **data,  # Include all fields from delegate_action
+                        # Fallback chain: delegate.data['project_id'] → session project_id → None
+                        "project_id": data.get("project_id") or project_id,
+                    },
+                    session_id=session_id,
+                    complexity=complexity,
+                    model=model,
+                    callback_depth=callback_depth,
+                )
+
+                await bus.emit(event)
+                get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
+                logger.info(f"[Orchestrator] Emitted native delegate: {intent} → task {task_id} (model={model}, cb_depth={callback_depth})")
+
+        await asyncio.shield(_emit_all())
 
     # ------------------------------------------------------------------
     # Event Bus: Delegate parsing (XML fallback)
@@ -785,79 +791,84 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         bus = event_bus_registry.get_or_create(session_id)
 
-        for data in worker_delegates:
-            try:
-                intent = data.get("intent") or data.get("action") or "unknown"
-                summary = data.get("summary") or data.get("description") or ""
-                complexity = data.get("complexity") or "simple"
+        # Shield the emit loop so that a WebSocket-disconnect cancel on the
+        # parent background task does not interrupt mid-spawn.
+        async def _emit_all() -> None:
+            for data in worker_delegates:
+                try:
+                    intent = data.get("intent") or data.get("action") or "unknown"
+                    summary = data.get("summary") or data.get("description") or ""
+                    complexity = data.get("complexity") or "simple"
 
-                # Extract model from delegate JSON (haiku/sonnet/opus)
-                model = data.get("model") or "sonnet"
-                if model not in ("haiku", "sonnet", "opus"):
-                    model = "sonnet"
-
-                # Card-level model override
-                card_preferred = card_context.get("preferred_model") if card_context else None
-                if card_preferred and card_preferred in ("haiku", "sonnet", "opus"):
-                    logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
-                    model = card_preferred
-
-                # Auto-upgrade model for coding tasks (XML path)
-                _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
-                description_lower = (data.get("description") or "").lower()
-                if any(kw in description_lower for kw in _CODING_KEYWORDS):
-                    if model == "haiku":
-                        original_model = model
+                    # Extract model from delegate JSON (haiku/sonnet/opus)
+                    model = data.get("model") or "sonnet"
+                    if model not in ("haiku", "sonnet", "opus"):
                         model = "sonnet"
-                        logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
 
-                # Haiku restricted to lightweight intents — see native path
-                # above for rationale (GitHub issue #4).
-                if model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
-                    logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (intent '{intent}' not in LIGHTWEIGHT_INTENTS)")
-                    model = "sonnet"
+                    # Card-level model override
+                    card_preferred = card_context.get("preferred_model") if card_context else None
+                    if card_preferred and card_preferred in ("haiku", "sonnet", "opus"):
+                        logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
+                        model = card_preferred
 
-                task_id = f"task-{uuid4().hex[:8]}"
+                    # Auto-upgrade model for coding tasks (XML path)
+                    _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
+                    description_lower = (data.get("description") or "").lower()
+                    if any(kw in description_lower for kw in _CODING_KEYWORDS):
+                        if model == "haiku":
+                            original_model = model
+                            model = "sonnet"
+                            logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
 
-                # Classify intent type based on the task, not the model
-                if complexity == "complex" or model == "opus":
-                    intent_type = "complex"
-                elif intent in ("create_card", "move_card", "update_card"):
-                    intent_type = "crud_simple"
-                else:
-                    intent_type = "complex"
+                    # Haiku restricted to lightweight intents — see native path
+                    # above for rationale (GitHub issue #4).
+                    if model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
+                        logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (intent '{intent}' not in LIGHTWEIGHT_INTENTS)")
+                        model = "sonnet"
 
-                # Extract card_id from card_context for direct access
-                card_id = card_context.get("id") if card_context else None
+                    task_id = f"task-{uuid4().hex[:8]}"
 
-                event = ActionIntent(
-                    task_id=task_id,
-                    intent_type=intent_type,
-                    intent=intent,
-                    summary=summary,
-                    data={
-                        "project_name": project_name,
-                        "chat_level": chat_level,
-                        "project_context": project_context,
-                        "card_context": card_context,
-                        "card_id": card_id,
-                        "dispatcher_chat_id": chat_id,
-                        **data,  # Include original delegate data
-                        # Fallback chain: delegate.data['project_id'] → session project_id → None
-                        "project_id": data.get("project_id") or project_id,
-                    },
-                    session_id=session_id,
-                    complexity=complexity,
-                    model=model,
-                    callback_depth=callback_depth,
-                )
+                    # Classify intent type based on the task, not the model
+                    if complexity == "complex" or model == "opus":
+                        intent_type = "complex"
+                    elif intent in ("create_card", "move_card", "update_card"):
+                        intent_type = "crud_simple"
+                    else:
+                        intent_type = "complex"
 
-                await bus.emit(event)
-                get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
-                logger.info(f"[Orchestrator] Emitted delegate: {intent} → task {task_id} (cb_depth={callback_depth})")
+                    # Extract card_id from card_context for direct access
+                    card_id = card_context.get("id") if card_context else None
 
-            except Exception as e:
-                logger.warning(f"[Orchestrator] Failed to emit delegate: {e}")
+                    event = ActionIntent(
+                        task_id=task_id,
+                        intent_type=intent_type,
+                        intent=intent,
+                        summary=summary,
+                        data={
+                            "project_name": project_name,
+                            "chat_level": chat_level,
+                            "project_context": project_context,
+                            "card_context": card_context,
+                            "card_id": card_id,
+                            "dispatcher_chat_id": chat_id,
+                            **data,  # Include original delegate data
+                            # Fallback chain: delegate.data['project_id'] → session project_id → None
+                            "project_id": data.get("project_id") or project_id,
+                        },
+                        session_id=session_id,
+                        complexity=complexity,
+                        model=model,
+                        callback_depth=callback_depth,
+                    )
+
+                    await bus.emit(event)
+                    get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
+                    logger.info(f"[Orchestrator] Emitted delegate: {intent} → task {task_id} (cb_depth={callback_depth})")
+
+                except Exception as e:
+                    logger.warning(f"[Orchestrator] Failed to emit delegate: {e}")
+
+        await asyncio.shield(_emit_all())
 
     # ------------------------------------------------------------------
     # Fast-Path: Direct execution for whitelisted CRUD actions

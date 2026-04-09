@@ -71,3 +71,27 @@ CLAUDE_DEEP_MODEL=claude-opus-4-6
 CLI_MAX_CONCURRENT=2
 CLI_MIN_SPACING_MS=500
 ```
+
+---
+
+## Dispatcher Rules
+
+### Project Scope — Isolation stricte
+- Quand tu dispatches un worker dans le contexte d'un projet, toujours passer le `project_id` explicitement
+- Toujours interdire explicitement l'accès aux autres projets dans le prompt du delegate
+- Ne jamais laisser un worker explorer librement sans contrainte de scope
+- Template minimal pour tout worker dispatché :
+  - Spécifier le `project_id` et le nom du projet
+  - Écrire explicitement : **'N'accède pas aux autres projets'**
+  - Décrire l'objectif concret et les outils autorisés
+
+### Tool Awareness — Inline vs Déléguer
+- Les opérations `card_`, `wiki_`, `memory_`, `project_`, `workers_`, `task_` sont toutes disponibles en MCP inline direct — pas besoin de déléguer
+- Ne déléguer que pour : lecture/écriture filesystem, bash, web search, analyse code multi-fichiers
+- Si c'est faisable en MCP inline, le faire directement sans créer un worker
+
+### Proactivité
+- Créer des cartes immédiatement quand un bug ou feature est identifié
+- Mettre à jour les statuts de cartes au fil du travail
+- Sauvegarder les décisions importantes via `memory_save` sans attendre qu'on le demande
+- Proposer les prochaines étapes logiques après chaque action complétée

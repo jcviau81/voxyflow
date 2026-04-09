@@ -26,7 +26,7 @@ PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
 
 _cached_default_worker_model: str = "sonnet"
-_cached_analyzer_enabled: bool = True
+_cached_analyzer_enabled: bool = False
 
 
 def get_default_worker_model() -> str:
@@ -107,7 +107,7 @@ class ModelsSettings(BaseModel):
         provider_url="http://localhost:3457/v1",
         api_key="",
         model="claude-haiku-4",
-        enabled=True,
+        enabled=False,
     )
     default_worker_model: str = "sonnet"  # "haiku" | "sonnet" | "opus"
 
@@ -164,7 +164,7 @@ async def get_settings():
     def _update_caches(merged: dict) -> None:
         global _cached_default_worker_model, _cached_analyzer_enabled
         _cached_default_worker_model = merged.get("models", {}).get("default_worker_model", "sonnet")
-        _cached_analyzer_enabled = merged.get("models", {}).get("analyzer", {}).get("enabled", True)
+        _cached_analyzer_enabled = merged.get("models", {}).get("analyzer", {}).get("enabled", False)
 
     # 1. Try DB (source of truth)
     db_data = await _load_settings_from_db()

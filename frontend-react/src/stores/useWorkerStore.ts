@@ -47,8 +47,8 @@ const TTL_ERROR_MS = 5 * 60_000;  // 5 minutes
 export interface WorkerState {
   workers: Record<string, WorkerInfo>;
   cliSessions: Record<string, CliSessionInfo>;
-  /** Set of task IDs the user has manually dismissed */
-  _dismissed: Set<string>;
+  /** Task IDs the user has manually dismissed (object-as-set to avoid immer's MapSet plugin requirement) */
+  _dismissed: Record<string, true>;
 
   // Snapshot
   loadSnapshot: (projectId: string | null) => Promise<void>;
@@ -103,7 +103,7 @@ export const useWorkerStore = create<WorkerState>()(
   immer((set, get) => ({
     workers: {},
     cliSessions: {},
-    _dismissed: new Set<string>(),
+    _dismissed: {},
 
     // ── Snapshot ──────────────────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ export const useWorkerStore = create<WorkerState>()(
           // Merge workers from snapshot (don't overwrite locally terminal tasks)
           const nextWorkers: Record<string, WorkerInfo> = {};
           for (const w of data.workers ?? []) {
-            if (state._dismissed.has(w.taskId)) continue;
+            if (state._dismissed[w.taskId]) continue;
             const existing = state.workers[w.taskId];
             if (existing && TERMINAL_STATUSES.has(existing.status)) {
               nextWorkers[w.taskId] = existing;
@@ -169,7 +169,7 @@ export const useWorkerStore = create<WorkerState>()(
       const taskId = payload.taskId as string;
       if (!taskId) return;
       set((state) => {
-        if (state._dismissed.has(taskId)) return;
+        if (state._dismissed[taskId]) return;
         if (state.workers[taskId]) return; // already tracked
         state.workers[taskId] = {
           taskId,
@@ -269,7 +269,7 @@ export const useWorkerStore = create<WorkerState>()(
 
     dismissTask(taskId: string) {
       set((state) => {
-        state._dismissed.add(taskId);
+        state._dismissed[taskId] = true;
         delete state.workers[taskId];
       });
     },
@@ -278,7 +278,7 @@ export const useWorkerStore = create<WorkerState>()(
       set((state) => {
         for (const [id, w] of Object.entries(state.workers)) {
           if (TERMINAL_STATUSES.has(w.status)) {
-            state._dismissed.add(id);
+            state._dismissed[id] = true;
             delete state.workers[id];
           }
         }
@@ -292,7 +292,7 @@ export const useWorkerStore = create<WorkerState>()(
           if (!w.completedAt) continue;
           const ttl = w.status === 'done' ? TTL_DONE_MS : TTL_ERROR_MS;
           if (now - w.completedAt > ttl) {
-            state._dismissed.add(id);
+            state._dismissed[id] = true;
             delete state.workers[id];
           }
         }

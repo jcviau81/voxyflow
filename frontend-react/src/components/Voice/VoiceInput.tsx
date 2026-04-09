@@ -5,7 +5,11 @@ import { eventBus } from '../../utils/eventBus';
 import { VOICE_EVENTS, STT_EVENTS, type SttResult } from '../../utils/voiceEvents';
 import { sttService } from '../../services/sttService';
 import { ttsService } from '../../services/ttsService';
-import { wakeWordService } from '../../services/wakeWordService';
+import {
+  wakeWordService,
+  WAKE_WORD_MODELS,
+  DEFAULT_WAKE_WORD_MODEL_ID,
+} from '../../services/wakeWordService';
 import { useChatService } from '../../contexts/useChatService';
 import { useTabStore } from '../../stores/useTabStore';
 import { useSessionStore } from '../../stores/useSessionStore';
@@ -33,6 +37,18 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
   const [modelProgress, setModelProgress] = useState<number | null>(null);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
   const [wakeWordPulsing, setWakeWordPulsing] = useState(false);
+  const [wakeWordLabel, setWakeWordLabel] = useState<string>(() => {
+    const fallback = WAKE_WORD_MODELS.find((m) => m.id === DEFAULT_WAKE_WORD_MODEL_ID)?.label
+      ?? WAKE_WORD_MODELS[0].label;
+    try {
+      const stored = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+      const id = stored?.voice?.wake_word_model as string | undefined;
+      const match = id ? WAKE_WORD_MODELS.find((m) => m.id === id) : null;
+      return match?.label ?? fallback;
+    } catch {
+      return fallback;
+    }
+  });
   const [transcript, setTranscript] = useState('');
   const [transcriptFinal, setTranscriptFinal] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +188,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
         } catch { /* ignore */ }
       }
 
-      showToast('🎙️ Wake word mode enabled - say "Alexa" to start', 'info', 4000);
+      showToast(`🎙️ Wake word mode enabled — say "${wakeWordLabel}" to start`, 'info', 4000);
     } else {
       ttsService.forceNative = false;
       await wakeWordService.stop();
@@ -193,7 +209,24 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
       parsed.voice.wake_word_enabled = next;
       localStorage.setItem('voxyflow_settings', JSON.stringify(parsed));
     } catch { /* ignore */ }
-  }, [wakeWordEnabled, showToast]);
+  }, [wakeWordEnabled, wakeWordLabel, showToast]);
+
+  // ── Sync selected wake word model from settings ────────────────────────────
+
+  useEffect(() => {
+    const applyFromStorage = () => {
+      try {
+        const stored = JSON.parse(localStorage.getItem('voxyflow_settings') || '{}');
+        const id = (stored?.voice?.wake_word_model as string | undefined) ?? DEFAULT_WAKE_WORD_MODEL_ID;
+        const match = WAKE_WORD_MODELS.find((m) => m.id === id) ?? WAKE_WORD_MODELS[0];
+        setWakeWordLabel(match.label);
+        void wakeWordService.setModel(match.id);
+      } catch { /* ignore */ }
+    };
+    applyFromStorage();
+    const unsub = eventBus.on('settings:changed', applyFromStorage);
+    return () => { unsub(); };
+  }, []);
 
   // ── Event bus subscriptions ────────────────────────────────────────────────
 
@@ -202,11 +235,12 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
 
     // Wake word detected
     unsubs.push(
-      eventBus.on(VOICE_EVENTS.WAKEWORD_DETECTED, async () => {
+      eventBus.on(VOICE_EVENTS.WAKEWORD_DETECTED, async (data: unknown) => {
         if (!wakeWordEnabled || sttService.recording) return;
+        const label = (data as { modelLabel?: string } | undefined)?.modelLabel ?? wakeWordLabel;
         await wakeWordService.stop();
         await playAckSound();
-        showToast('✨ Listening...', 'success', 3000);
+        showToast(`✨ Wake word detected — ${label}`, 'success', 3000);
         setWakeWordPulsing(true);
         await sttService.startRecording();
       }),
@@ -323,7 +357,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
     );
 
     return () => unsubs.forEach((unsub) => unsub());
-  }, [wakeWordEnabled, chat, showError, playAckSound, showToast, autoSendMessage, scheduleWakeWordRestart, stopRecording]);
+  }, [wakeWordEnabled, wakeWordLabel, chat, showError, playAckSound, showToast, autoSendMessage, scheduleWakeWordRestart, stopRecording]);
 
   // ── TTS speaking indicator ─────────────────────────────────────────────────
 
@@ -437,7 +471,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
           </Tooltip>
         )}
 
-        <Tooltip content={wakeWordEnabled ? 'Wake word ON — say "Alexa" to start' : 'Wake word mode — say "Alexa" to start recording'}>
+        <Tooltip content={wakeWordEnabled ? `Wake word ON — say "${wakeWordLabel}" to start` : `Wake word mode — say "${wakeWordLabel}" to start recording`}>
           <button
             type="button"
             className={`wake-word-btn p-2 rounded-lg transition-colors${wakeWordEnabled ? ' active bg-primary text-primary-foreground' : ' hover:bg-muted text-muted-foreground'}${wakeWordPulsing ? ' animate-pulse' : ''}`}

@@ -163,7 +163,7 @@ export function ChatWindow({
     // Send a silent init so Voxy greets the user in the new session
     setTimeout(() => {
       sendSystemInit(
-        '[New session started. Greet the user briefly and ask how you can help.]',
+        '[New session started. Run your startup routine: check memory for recent context, check worker status, scan project state. Then greet the user naturally with a brief status if anything notable was found. Keep it concise — 3-5 lines max.]',
         projectId,
         cardId,
         session.chatId,

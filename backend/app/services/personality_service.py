@@ -28,6 +28,7 @@ DISPATCHER_FILE = PERSONALITY_DIR / "DISPATCHER.md"
 WORKER_FILE = PERSONALITY_DIR / "WORKER.md"
 ANALYZER_FILE = PERSONALITY_DIR / "ANALYZER.md"
 ARCHITECTURE_FILE = PERSONALITY_DIR / "ARCHITECTURE.md"
+PROACTIVE_FILE = PERSONALITY_DIR / "PROACTIVE.md"
 
 # Settings file lives in the data dir (outside repo)
 from app.config import SETTINGS_FILE  # ~/.voxyflow/settings.json
@@ -169,6 +170,9 @@ class PersonalityService:
 
     def load_architecture(self) -> str:
         return self._read_if_changed(ARCHITECTURE_FILE)
+
+    def load_proactive(self) -> str:
+        return self._read_if_changed(PROACTIVE_FILE)
 
     # ------------------------------------------------------------------
     # Chat Init block builders (injected FIRST in all system prompts)
@@ -564,6 +568,11 @@ class PersonalityService:
         if dispatcher:
             voice_instructions += "\n\n" + dispatcher
 
+        # Proactive behavior rules — loaded from PROACTIVE.md
+        proactive = self.load_proactive()
+        if proactive:
+            voice_instructions += "\n\n" + proactive
+
         # Delegate instructions — different for native tool_use vs CLI+MCP vs XML fallback
         if native_tools == "cli_mcp":
             voice_instructions += self._build_cli_mcp_delegate_instructions()
@@ -718,6 +727,11 @@ class PersonalityService:
             architecture = self.load_architecture()
             if architecture:
                 voice_instructions += "\n\n" + architecture
+
+            # Proactive behavior rules — loaded from PROACTIVE.md
+            proactive = self.load_proactive()
+            if proactive:
+                voice_instructions += "\n\n" + proactive
 
             # Dispatcher constraint + delegate instructions
             voice_instructions += (

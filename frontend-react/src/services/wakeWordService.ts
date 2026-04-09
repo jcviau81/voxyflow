@@ -13,6 +13,22 @@ ort.env.wasm.numThreads = 1;
 
 const MEL_FEATURES = 32;
 
+// ── Wake word model catalog ────────────────────────────────────────────────
+// Each entry is a trained openWakeWord detector. The mel + embedding models
+// are shared; only the final `filename` varies per wake word.
+export interface WakeWordModel {
+  id: string;        // stable identifier used in settings
+  label: string;     // user-facing name shown in UI + toasts
+  filename: string;  // file under /public/models/
+}
+
+export const WAKE_WORD_MODELS: WakeWordModel[] = [
+  { id: 'hey_voxy', label: 'Hey Voxy', filename: 'hey_voxy.onnx' },
+  { id: 'alexa',    label: 'Alexa',    filename: 'alexa_v0.1.onnx' },
+];
+
+export const DEFAULT_WAKE_WORD_MODEL_ID = 'hey_voxy';
+
 class WakeWordService {
   private listening = false;
   private mediaStream: MediaStream | null = null;
@@ -22,7 +38,13 @@ class WakeWordService {
   private melSession: ort.InferenceSession | null = null;
   private embSession: ort.InferenceSession | null = null;
   private wwSession: ort.InferenceSession | null = null;
-  private modelsLoaded = false;
+  private wwSessionModelId: string | null = null;
+  // Input/output names are read from the loaded session so custom-trained
+  // models with different graph names still work.
+  private wwInputName = 'onnx::Flatten_0';
+  private wwOutputName = '13';
+
+  private currentModelId: string = DEFAULT_WAKE_WORD_MODEL_ID;
 
   private readonly CHUNK_SIZE = 1280;
   private audioAccum: Float32Array = new Float32Array(this.CHUNK_SIZE);
@@ -47,12 +69,42 @@ class WakeWordService {
   };
 
   async loadModels(): Promise<void> {
-    if (this.modelsLoaded) return;
     const opts: ort.InferenceSession.SessionOptions = { executionProviders: ['wasm'] };
-    this.melSession = await ort.InferenceSession.create('/models/melspectrogram.onnx', opts);
-    this.embSession = await ort.InferenceSession.create('/models/embedding_model.onnx', opts);
-    this.wwSession  = await ort.InferenceSession.create('/models/alexa_v0.1.onnx', opts);
-    this.modelsLoaded = true;
+    if (!this.melSession) {
+      this.melSession = await ort.InferenceSession.create('/models/melspectrogram.onnx', opts);
+    }
+    if (!this.embSession) {
+      this.embSession = await ort.InferenceSession.create('/models/embedding_model.onnx', opts);
+    }
+    if (this.wwSessionModelId !== this.currentModelId) {
+      const model = this.getCurrentModel();
+      this.wwSession = await ort.InferenceSession.create(`/models/${model.filename}`, opts);
+      // Read graph input/output names — openWakeWord custom models don't
+      // always share the same internal op names as the stock Alexa model.
+      this.wwInputName = this.wwSession.inputNames[0] ?? this.wwInputName;
+      this.wwOutputName = this.wwSession.outputNames[0] ?? this.wwOutputName;
+      this.wwSessionModelId = this.currentModelId;
+      console.log(`[WakeWord] Loaded model "${model.label}" (in=${this.wwInputName}, out=${this.wwOutputName})`);
+    }
+  }
+
+  getCurrentModel(): WakeWordModel {
+    return WAKE_WORD_MODELS.find((m) => m.id === this.currentModelId) ?? WAKE_WORD_MODELS[0];
+  }
+
+  async setModel(modelId: string): Promise<void> {
+    if (!WAKE_WORD_MODELS.find((m) => m.id === modelId)) {
+      console.warn(`[WakeWord] Unknown model id: ${modelId}`);
+      return;
+    }
+    if (modelId === this.currentModelId) return;
+    const wasListening = this.listening;
+    if (wasListening) await this.stop();
+    this.currentModelId = modelId;
+    // Force reload of the ww session on next loadModels() call.
+    this.wwSession = null;
+    this.wwSessionModelId = null;
+    if (wasListening) await this.start();
   }
 
   async start(): Promise<void> {
@@ -167,13 +219,14 @@ class WakeWordService {
           const flat = new Float32Array(this.EMB_WINDOW * 96);
           this.embBuffer.forEach((e, i) => flat.set(e, i * 96));
           const wwIn = new ort.Tensor('float32', flat, [1, this.EMB_WINDOW, 96]);
-          const wwOut = await this.wwSession.run({ 'onnx::Flatten_0': wwIn });
-          const score = (wwOut['13'].data as Float32Array)[0];
+          const wwOut = await this.wwSession.run({ [this.wwInputName]: wwIn });
+          const score = (wwOut[this.wwOutputName].data as Float32Array)[0];
           this.debugCounters.scores++;
 
           if (score > 0.3) {
-            console.log(`[WakeWord] 🎉 WAKE WORD DETECTED! score=${score.toFixed(3)}`);
-            eventBus.emit('wakeword:detected');
+            const model = this.getCurrentModel();
+            console.log(`[WakeWord] 🎉 WAKE WORD DETECTED! model=${model.label} score=${score.toFixed(3)}`);
+            eventBus.emit('wakeword:detected', { modelId: model.id, modelLabel: model.label });
             this.melBuffer = [];
             this.embBuffer = [];
             this.chunkQueue = [];
