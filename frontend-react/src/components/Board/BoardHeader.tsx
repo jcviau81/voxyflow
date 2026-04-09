@@ -8,7 +8,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  X, Link2, Upload, Download,
+  X, Link2, Upload, Download, Filter,
   AlertCircle, AlertTriangle, Minus, ArrowDown,
   Bot, Search, Code2, Paintbrush, Building2, PenLine, FlaskConical,
   type LucideIcon,
@@ -16,6 +16,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
+import { useIsDesktop } from '../../hooks/useIsDesktop';
 
 // ── Shared constants ───────────────────────────────────────────────────────────
 
@@ -87,9 +88,9 @@ export interface BoardHeaderProps {
   extraActions?: React.ReactNode;
 }
 
-export function BoardHeader({
-  searchInput,
-  onSearchChange,
+// ── Filter chips (shared between desktop inline and mobile dropdown) ──────────
+
+function FilterChips({
   priorityFilter,
   onPriorityChange,
   agentFilter,
@@ -97,38 +98,9 @@ export function BoardHeader({
   tagFilter,
   onTagChange,
   allTags,
-  filterMatchInfo,
-  onNewCard,
-  onDepGraph,
-  onExport,
-  onImport,
-  extraActions,
-}: BoardHeaderProps) {
-  const importInputRef = useRef<HTMLInputElement>(null);
-
+}: Pick<BoardHeaderProps, 'priorityFilter' | 'onPriorityChange' | 'agentFilter' | 'onAgentChange' | 'tagFilter' | 'onTagChange' | 'allTags'>) {
   return (
-    <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-background shrink-0 overflow-x-auto">
-      {/* Search */}
-      <div className="relative shrink-0 w-40">
-        <Input
-          type="text"
-          placeholder="Search..."
-          value={searchInput}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="h-7 text-xs pr-6"
-        />
-        {searchInput && (
-          <button
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            onClick={() => onSearchChange('')}
-          >
-            <X size={11} />
-          </button>
-        )}
-      </div>
-
-      <div className="w-px h-5 bg-border shrink-0" />
-
+    <>
       {/* Priority filter chips */}
       {PRIORITY_FILTERS.slice(1).map((pf) => {
         const PIcon = pf.icon;
@@ -191,11 +163,225 @@ export function BoardHeader({
           ))}
         </>
       )}
+    </>
+  );
+}
 
-      {filterMatchInfo && (
-        <span className="shrink-0 text-[10px] text-muted-foreground ml-1">
-          {filterMatchInfo.visible}/{filterMatchInfo.total}
-        </span>
+// ── BoardHeader component ──────────────────────────────────────────────────────
+
+export function BoardHeader({
+  searchInput,
+  onSearchChange,
+  priorityFilter,
+  onPriorityChange,
+  agentFilter,
+  onAgentChange,
+  tagFilter,
+  onTagChange,
+  allTags,
+  filterMatchInfo,
+  onNewCard,
+  onDepGraph,
+  onExport,
+  onImport,
+  extraActions,
+}: BoardHeaderProps) {
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const isDesktop = useIsDesktop();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setFiltersOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [filtersOpen]);
+
+  const activeFilterCount =
+    (priorityFilter !== null ? 1 : 0) +
+    (agentFilter !== null ? 1 : 0) +
+    (tagFilter !== null ? 1 : 0) +
+    (searchInput ? 1 : 0);
+
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-background shrink-0 overflow-x-auto">
+
+      {/* ── Desktop: inline filters ── */}
+      {isDesktop && (
+        <>
+          {/* Search */}
+          <div className="relative shrink-0 w-40">
+            <Input
+              type="text"
+              placeholder="Search..."
+              value={searchInput}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="h-7 text-xs pr-6"
+            />
+            {searchInput && (
+              <button
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => onSearchChange('')}
+              >
+                <X size={11} />
+              </button>
+            )}
+          </div>
+
+          <div className="w-px h-5 bg-border shrink-0" />
+
+          <FilterChips
+            priorityFilter={priorityFilter}
+            onPriorityChange={onPriorityChange}
+            agentFilter={agentFilter}
+            onAgentChange={onAgentChange}
+            tagFilter={tagFilter}
+            onTagChange={onTagChange}
+            allTags={allTags}
+          />
+
+          {filterMatchInfo && (
+            <span className="shrink-0 text-[10px] text-muted-foreground ml-1">
+              {filterMatchInfo.visible}/{filterMatchInfo.total}
+            </span>
+          )}
+        </>
+      )}
+
+      {/* ── Mobile: filter dropdown toggle ── */}
+      {!isDesktop && (
+        <div className="relative" ref={dropdownRef}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn('h-7 px-2 shrink-0 flex items-center gap-1', activeFilterCount > 0 && 'border-primary')}
+            onClick={() => setFiltersOpen((o) => !o)}
+          >
+            <Filter size={12} />
+            <span className="text-xs">Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[9px] font-bold">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+
+          {filtersOpen && (
+            <div className="absolute top-full left-0 mt-1 z-50 w-72 rounded-lg border border-border bg-popover shadow-xl p-3 space-y-3">
+              {/* Search */}
+              <div className="relative">
+                <Input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchInput}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  className="h-8 text-xs pr-6"
+                  autoFocus
+                />
+                {searchInput && (
+                  <button
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => onSearchChange('')}
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+
+              {/* Priority */}
+              <div>
+                <div className="text-[10px] font-medium text-muted-foreground mb-1">Priority</div>
+                <div className="flex flex-wrap gap-1">
+                  <FilterChips
+                    priorityFilter={priorityFilter}
+                    onPriorityChange={onPriorityChange}
+                    agentFilter={null}
+                    onAgentChange={() => {}}
+                    tagFilter={null}
+                    onTagChange={() => {}}
+                    allTags={[]}
+                  />
+                </div>
+              </div>
+
+              {/* Agent */}
+              <div>
+                <div className="text-[10px] font-medium text-muted-foreground mb-1">Agent</div>
+                <div className="flex flex-wrap gap-1">
+                  {AGENT_FILTERS.slice(1).map((af) => {
+                    const AIcon = af.value ? AGENT_ICONS[af.value] : undefined;
+                    const aColor = af.value ? AGENT_COLORS[af.value] : undefined;
+                    return (
+                      <button
+                        key={String(af.value)}
+                        className={cn(
+                          'shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+                          agentFilter === af.value
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'text-muted-foreground border-transparent hover:border-border',
+                        )}
+                        onClick={() => onAgentChange(agentFilter === af.value ? null : af.value)}
+                      >
+                        {AIcon && <AIcon size={10} className={agentFilter === af.value ? undefined : aColor} />}
+                        {af.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Tags */}
+              {allTags.length > 0 && (
+                <div>
+                  <div className="text-[10px] font-medium text-muted-foreground mb-1">Tags</div>
+                  <div className="flex flex-wrap gap-1">
+                    {allTags.slice(0, 8).map((tag) => (
+                      <button
+                        key={tag}
+                        className={cn(
+                          'shrink-0 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+                          tagFilter === tag
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'text-muted-foreground border-transparent hover:border-border',
+                        )}
+                        onClick={() => onTagChange(tagFilter === tag ? null : tag)}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {filterMatchInfo && (
+                <div className="text-[10px] text-muted-foreground">
+                  Showing {filterMatchInfo.visible}/{filterMatchInfo.total} cards
+                </div>
+              )}
+
+              {/* Clear all */}
+              {activeFilterCount > 0 && (
+                <button
+                  className="text-[10px] text-destructive hover:underline"
+                  onClick={() => {
+                    onSearchChange('');
+                    onPriorityChange(null);
+                    onAgentChange(null);
+                    onTagChange(null);
+                  }}
+                >
+                  Clear all filters
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Spacer */}

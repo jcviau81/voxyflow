@@ -3,6 +3,7 @@ import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useViewStore } from '../../stores/useViewStore';
+import { useIsDesktop } from '../../hooks/useIsDesktop';
 import type { ViewMode } from '../../types';
 
 interface ProjectTab {
@@ -32,6 +33,7 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
   const getProject = useProjectStore((s) => s.getProject);
   const currentView = useViewStore((s) => s.currentView);
   const setView = useViewStore((s) => s.setView);
+  const isDesktop = useIsDesktop();
 
   const isMainTab = activeTab === 'main';
   const project = currentProjectId ? getProject(currentProjectId) : undefined;
@@ -41,9 +43,14 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
     return null;
   }
 
-  const visibleTabs = isMainTab
+  let visibleTabs = isMainTab
     ? PROJECT_TABS.filter((t) => MAIN_VIEWS.includes(t.view))
     : PROJECT_TABS;
+
+  // On desktop, hide Chat tab (chat is always visible in the left panel)
+  if (isDesktop) {
+    visibleTabs = visibleTabs.filter((t) => t.view !== 'chat');
+  }
 
   return (
     <div

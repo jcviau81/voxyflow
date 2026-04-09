@@ -8,12 +8,6 @@ import { cn } from '../../lib/utils';
 // ---------------------------------------------------------------------------
 
 const MAX_SESSIONS = 5;
-const MAX_TITLE_LENGTH = 25;
-
-function truncateTitle(title: string): string {
-  if (title.length <= MAX_TITLE_LENGTH) return title;
-  return title.slice(0, MAX_TITLE_LENGTH - 1) + '\u2026';
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -90,8 +84,9 @@ export function SessionTabBar({
   return (
     <div className="session-tab-bar flex items-center gap-1 px-2 py-1 border-b border-border bg-muted/30" data-testid="session-tab-bar">
       <div className="session-tab-bar-tabs flex items-center gap-1 flex-1 overflow-x-auto">
-        {sessions.map((session) => {
+        {sessions.map((session, index) => {
           const isActive = session.id === activeSessionId;
+          const isFirst = index === 0;
           return (
             <div
               key={session.id}
@@ -101,23 +96,25 @@ export function SessionTabBar({
                   ? 'bg-background text-foreground shadow-sm font-medium'
                   : 'text-muted-foreground hover:bg-accent/50',
               )}
-              title={session.title}
+              title={`Session ${index + 1}`}
               onClick={() => !isActive && handleSwitch(session.id)}
             >
-              <span className="session-tab-label truncate max-w-[120px]">
-                {truncateTitle(session.title)}
+              <span className="session-tab-label">
+                Session {index + 1}
               </span>
-              <button
-                type="button"
-                className="session-tab-close ml-0.5 w-4 h-4 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-destructive/20 transition-colors text-[10px] leading-none"
-                title="Close session"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleClose(session.id);
-                }}
-              >
-                &times;
-              </button>
+              {!isFirst && (
+                <button
+                  type="button"
+                  className="session-tab-close ml-0.5 w-4 h-4 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-destructive/20 transition-colors text-[10px] leading-none"
+                  title="Close session"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClose(session.id);
+                  }}
+                >
+                  &times;
+                </button>
+              )}
             </div>
           );
         })}
@@ -126,10 +123,10 @@ export function SessionTabBar({
       <button
         type="button"
         className={cn(
-          'session-tab-new w-6 h-6 flex items-center justify-center rounded text-sm transition-colors',
+          'session-tab-new w-7 h-7 flex items-center justify-center rounded-md text-base font-medium transition-colors border',
           atMax
-            ? 'text-muted-foreground/40 cursor-not-allowed'
-            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            ? 'text-muted-foreground/40 border-transparent cursor-not-allowed'
+            : 'text-muted-foreground border-border hover:bg-accent hover:text-accent-foreground hover:border-accent',
         )}
         title={atMax ? `Max ${MAX_SESSIONS} sessions` : 'New session'}
         disabled={atMax}

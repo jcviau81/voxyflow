@@ -21,6 +21,7 @@ import { ProjectKnowledge } from '../components/Projects/ProjectKnowledge';
 import { ProjectStats } from '../components/Projects/ProjectStats';
 import { useViewStore } from '../stores/useViewStore';
 import { useProjectStore } from '../stores/useProjectStore';
+import { useIsDesktop } from '../hooks/useIsDesktop';
 import { cn } from '../lib/utils';
 
 const PROJECT_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'knowledge', 'stats']);
@@ -31,13 +32,12 @@ export function ProjectPage() {
   const getProject = useProjectStore((s) => s.getProject);
   const currentView = useViewStore((s) => s.currentView);
   const setView = useViewStore((s) => s.setView);
+  const isDesktop = useIsDesktop();
 
-  // Project ID sync is handled by AppShell's URL → store effect
-
-  // Reset to chat if current view is not valid for a project tab
+  // Reset to kanban if current view is not valid for a project tab
   useEffect(() => {
     if (!PROJECT_VIEWS.has(currentView)) {
-      setView('chat');
+      setView('kanban');
     }
   }, [currentView, setView]);
 
@@ -45,18 +45,60 @@ export function ProjectPage() {
     return <Navigate to="/" replace />;
   }
 
-  // Guard: if project doesn't exist in the store yet (loading), render nothing
   const project = getProject(id);
   if (!project) {
     return null;
   }
 
-  const view = PROJECT_VIEWS.has(currentView) ? currentView : 'chat';
+  // On desktop, 'chat' view falls back to 'kanban' (chat is always visible in left panel)
+  const rawView = PROJECT_VIEWS.has(currentView) ? currentView : 'kanban';
+  const view = (isDesktop && rawView === 'chat') ? 'kanban' : rawView;
 
   const handleCardClick = (cardId: string) => {
     selectCard(cardId);
   };
 
+  const contentPanel = (
+    <>
+      {view === 'kanban' && (
+        <KanbanBoard key={id} projectId={id} onCardClick={handleCardClick} />
+      )}
+      {view === 'freeboard' && (
+        <FreeBoard key={id} projectId={id} />
+      )}
+      {view === 'knowledge' && (
+        <ProjectKnowledge />
+      )}
+      {view === 'stats' && (
+        <ProjectStats />
+      )}
+    </>
+  );
+
+  // Desktop: split layout — chat left (30%) + content right (70%)
+  if (isDesktop) {
+    return (
+      <div className={cn('project-page flex flex-col h-full w-full overflow-hidden', `project-page--${view}`)}>
+        {/* BoardHeader portals here (rendered by KanbanBoard/FreeBoard) */}
+        <div id="board-header-slot" />
+        <div className="flex flex-row flex-1 overflow-hidden">
+          <div className="w-[30%] min-w-[280px] border-r border-border flex flex-col">
+            <ChatWindow
+              tabId={id}
+              chatLevel="project"
+              projectId={id}
+              className="flex-1"
+            />
+          </div>
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {contentPanel}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Mobile: single-view (current behavior)
   return (
     <div className={cn('project-page flex flex-col h-full w-full overflow-hidden', `project-page--${view}`)}>
       {view === 'chat' && (
@@ -69,22 +111,7 @@ export function ProjectPage() {
           />
         </div>
       )}
-
-      {view === 'kanban' && (
-        <KanbanBoard key={id} projectId={id} onCardClick={handleCardClick} />
-      )}
-
-      {view === 'freeboard' && (
-        <FreeBoard key={id} projectId={id} />
-      )}
-
-      {view === 'knowledge' && (
-        <ProjectKnowledge />
-      )}
-
-      {view === 'stats' && (
-        <ProjectStats />
-      )}
+      {contentPanel}
     </div>
   );
 }

@@ -20,7 +20,7 @@ import { useTabStore } from '../../stores/useTabStore';
 import { CardDetailModal } from '../CardDetail';
 import { Sidebar } from '../Navigation/Sidebar';
 import { TabBar } from '../Navigation/TabBar';
-import { ProjectHeader } from '../Projects';
+import { ProjectHeader, ProjectForm } from '../Projects';
 import { OpportunitiesPanel } from '../RightPanel/OpportunitiesPanel';
 import { NotificationsPanel } from '../RightPanel/NotificationsPanel';
 import { useChatService } from '../../contexts/useChatService';
@@ -36,6 +36,7 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [opportunities, setOpportunities] = useState<CardSuggestion[]>([]);
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
+  const [editProjectId, setEditProjectId] = useState<string | null>(null);
   const theme = useThemeStore((s) => s.theme);
   const { registerCallbacks } = useChatService();
 
@@ -107,10 +108,10 @@ export function AppShell() {
     const handleKeydown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === '1') {
         e.preventDefault();
-        useViewStore.getState().setView('chat');
+        useViewStore.getState().setView('kanban');
       } else if (e.ctrlKey && e.key === '2') {
         e.preventDefault();
-        useViewStore.getState().setView('kanban');
+        useViewStore.getState().setView('freeboard');
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
         e.preventDefault();
         toggleSidebar();
@@ -157,7 +158,7 @@ export function AppShell() {
                 onPanelToggle={handlePanelToggle}
                 onSidebarToggle={toggleSidebar}
               />
-              <ProjectHeader />
+              <ProjectHeader onOpenProjectProperties={setEditProjectId} />
             </>
           )}
           <main className="main-content flex-1 overflow-auto">
@@ -206,6 +207,15 @@ export function AppShell() {
 
       {/* Global card detail modal */}
       <CardDetailModal />
+
+      {/* Project properties modal */}
+      {editProjectId && (
+        <ProjectForm
+          mode="edit"
+          project={useProjectStore.getState().getProject(editProjectId)}
+          onClose={() => setEditProjectId(null)}
+        />
+      )}
     </div>
   );
 }

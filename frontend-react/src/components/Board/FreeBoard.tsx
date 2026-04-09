@@ -6,6 +6,7 @@
  */
 
 import { useMemo, useCallback, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Archive, RotateCcw, ChevronRight, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -154,25 +155,32 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
     [],
   );
 
+  // Portal: render BoardHeader into the page-level slot when available (desktop split layout)
+  const headerSlot = document.getElementById('board-header-slot');
+
+  const boardHeader = (
+    <BoardHeader
+      searchInput={searchInput}
+      onSearchChange={setSearchInput}
+      priorityFilter={priorityFilter}
+      onPriorityChange={setPriorityFilter}
+      agentFilter={agentFilter}
+      onAgentChange={setAgentFilter}
+      tagFilter={tagFilter}
+      onTagChange={setTagFilter}
+      allTags={allTags}
+      filterMatchInfo={filterMatchInfo}
+      onNewCard={handleAddCard}
+      onDepGraph={() => setDepGraphOpen(true)}
+      onExport={handleExport}
+      onImport={handleImport}
+    />
+  );
+
   return (
     <div className="flex flex-col h-full" data-testid="freeboard">
-      {/* Board header — same as KanbanBoard minus Execute */}
-      <BoardHeader
-        searchInput={searchInput}
-        onSearchChange={setSearchInput}
-        priorityFilter={priorityFilter}
-        onPriorityChange={setPriorityFilter}
-        agentFilter={agentFilter}
-        onAgentChange={setAgentFilter}
-        tagFilter={tagFilter}
-        onTagChange={setTagFilter}
-        allTags={allTags}
-        filterMatchInfo={filterMatchInfo}
-        onNewCard={handleAddCard}
-        onDepGraph={() => setDepGraphOpen(true)}
-        onExport={handleExport}
-        onImport={handleImport}
-      />
+      {/* BoardHeader: portaled above split on desktop, inline on mobile */}
+      {headerSlot ? createPortal(boardHeader, headerSlot) : boardHeader}
 
       {/* Grid — uses KanbanCard for consistent rendering */}
       <div className="flex-1 overflow-y-auto p-4">

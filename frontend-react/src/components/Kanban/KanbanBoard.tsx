@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Archive, Play, Square, Link2, Trash2, RotateCcw, X,
   AlertCircle, ChevronRight,
@@ -821,38 +822,45 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     );
   }
 
+  // Portal: render BoardHeader into the page-level slot when available (desktop split layout)
+  const headerSlot = document.getElementById('board-header-slot');
+
+  const boardHeader = (
+    <BoardHeader
+      searchInput={searchInput}
+      onSearchChange={setSearchInput}
+      priorityFilter={priorityFilter}
+      onPriorityChange={setPriorityFilter}
+      agentFilter={agentFilter}
+      onAgentChange={setAgentFilter}
+      tagFilter={tagFilter}
+      onTagChange={setTagFilter}
+      allTags={allTags}
+      filterMatchInfo={filterMatchInfo}
+      onNewCard={handleNewCard}
+      onDepGraph={() => setDepGraphOpen(true)}
+      onExport={handleExport}
+      onImport={handleImport}
+      extraActions={
+        <Button
+          variant={executionActive ? 'destructive' : 'outline'}
+          size="sm"
+          className="h-6 px-2 shrink-0"
+          title={executionActive ? 'Stop board execution' : 'Execute all todo/in-progress cards'}
+          onClick={handleExecuteBoard}
+        >
+          {executionActive
+            ? <Square size={12} />
+            : <Play size={12} className="text-emerald-400" />}
+        </Button>
+      }
+    />
+  );
+
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="kanban-board">
-      {/* Compact toolbar: search + filters + actions — single row */}
-      <BoardHeader
-        searchInput={searchInput}
-        onSearchChange={setSearchInput}
-        priorityFilter={priorityFilter}
-        onPriorityChange={setPriorityFilter}
-        agentFilter={agentFilter}
-        onAgentChange={setAgentFilter}
-        tagFilter={tagFilter}
-        onTagChange={setTagFilter}
-        allTags={allTags}
-        filterMatchInfo={filterMatchInfo}
-        onNewCard={handleNewCard}
-        onDepGraph={() => setDepGraphOpen(true)}
-        onExport={handleExport}
-        onImport={handleImport}
-        extraActions={
-          <Button
-            variant={executionActive ? 'destructive' : 'outline'}
-            size="sm"
-            className="h-6 px-2 shrink-0"
-            title={executionActive ? 'Stop board execution' : 'Execute all todo/in-progress cards'}
-            onClick={handleExecuteBoard}
-          >
-            {executionActive
-              ? <Square size={12} />
-              : <Play size={12} className="text-emerald-400" />}
-          </Button>
-        }
-      />
+      {/* BoardHeader: portaled above split on desktop, inline on mobile */}
+      {headerSlot ? createPortal(boardHeader, headerSlot) : boardHeader}
 
       {/* Execution progress */}
       {executionActive && executionProgress && (
@@ -874,7 +882,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1 overflow-auto p-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 flex-1 overflow-auto p-3">
           {COLUMN_STATUSES.map((status) => (
             <KanbanColumn
               key={status}

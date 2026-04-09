@@ -18,6 +18,7 @@ import { ProjectList } from '../components/Projects/ProjectList';
 import { ProjectKnowledge } from '../components/Projects/ProjectKnowledge';
 import { useViewStore } from '../stores/useViewStore';
 import { useProjectStore } from '../stores/useProjectStore';
+import { useIsDesktop } from '../hooks/useIsDesktop';
 import { SYSTEM_PROJECT_ID } from '../lib/constants';
 import { cn } from '../lib/utils';
 
@@ -27,11 +28,12 @@ export function MainPage() {
   const currentView = useViewStore((s) => s.currentView);
   const setView = useViewStore((s) => s.setView);
   const selectCard = useProjectStore((s) => s.selectCard);
+  const isDesktop = useIsDesktop();
 
-  // Reset to chat if a project-only view leaked into main tab
+  // Reset to kanban if a project-only view leaked into main tab
   useEffect(() => {
     if (!MAIN_TAB_VIEWS.has(currentView)) {
-      setView('chat');
+      setView('kanban');
     }
   }, [currentView, setView]);
 
@@ -39,8 +41,50 @@ export function MainPage() {
     selectCard(cardId);
   };
 
-  const view = MAIN_TAB_VIEWS.has(currentView) ? currentView : 'chat';
+  // On desktop, 'chat' view falls back to 'kanban' (chat is always visible in left panel)
+  const rawView = MAIN_TAB_VIEWS.has(currentView) ? currentView : 'kanban';
+  const view = (isDesktop && rawView === 'chat') ? 'kanban' : rawView;
 
+  const contentPanel = (
+    <>
+      {view === 'kanban' && (
+        <KanbanBoard projectId={SYSTEM_PROJECT_ID} onCardClick={handleCardClick} />
+      )}
+      {view === 'freeboard' && (
+        <FreeBoard />
+      )}
+      {view === 'projects' && (
+        <ProjectList />
+      )}
+      {view === 'knowledge' && (
+        <ProjectKnowledge projectId={SYSTEM_PROJECT_ID} />
+      )}
+    </>
+  );
+
+  // Desktop: split layout — chat left (30%) + content right (70%)
+  if (isDesktop) {
+    return (
+      <div className={cn('main-page flex flex-col h-full w-full overflow-hidden', `main-page--${view}`)}>
+        {/* BoardHeader portals here (rendered by KanbanBoard/FreeBoard) */}
+        <div id="board-header-slot" />
+        <div className="flex flex-row flex-1 overflow-hidden">
+          <div className="w-[30%] min-w-[280px] border-r border-border flex flex-col">
+            <ChatWindow
+              tabId={SYSTEM_PROJECT_ID}
+              chatLevel="general"
+              className="flex-1"
+            />
+          </div>
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {contentPanel}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Mobile: single-view (current behavior)
   return (
     <div className={cn('main-page flex flex-col h-full w-full overflow-hidden', `main-page--${view}`)}>
       {view === 'chat' && (
@@ -52,22 +96,7 @@ export function MainPage() {
           />
         </div>
       )}
-
-      {view === 'kanban' && (
-        <KanbanBoard projectId={SYSTEM_PROJECT_ID} onCardClick={handleCardClick} />
-      )}
-
-      {view === 'freeboard' && (
-        <FreeBoard />
-      )}
-
-      {view === 'projects' && (
-        <ProjectList />
-      )}
-
-      {view === 'knowledge' && (
-        <ProjectKnowledge projectId={SYSTEM_PROJECT_ID} />
-      )}
+      {contentPanel}
     </div>
   );
 }

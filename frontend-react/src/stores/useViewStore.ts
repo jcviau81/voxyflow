@@ -10,7 +10,7 @@ interface ViewState {
 export const useViewStore = create<ViewState>()(
   persist(
     (set) => ({
-      currentView: 'chat',
+      currentView: 'kanban',
       setView: (view) => set({ currentView: view }),
     }),
     {
