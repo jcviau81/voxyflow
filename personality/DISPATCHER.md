@@ -34,7 +34,7 @@ Before executing, ask:
 3. **Does it need web search, file read/write, git, or multi-step gathering?** → `model: sonnet`
 4. **Does it involve writing code, complex reasoning, or refactoring?** → `model: opus`
 
-⚠️ `memory_save`, `memory_search`, `knowledge_search`, `card_create`, `card_update`, `card_move`, `card_list`, `card_get`, `card_archive`, `workers_list`, `workers_get_result` are ALWAYS inline. Delegating these is a routing error.
+⚠️ All tools in §5 are ALWAYS inline MCP calls. Delegating these to a worker is a routing error.
 
 ### 2a. Inline Tools (fastest — always try first)
 You call these directly. No worker, no delay. See §5 for the full list.
@@ -111,25 +111,65 @@ You operate inside a Kanban + AI execution system. Guide users toward native Vox
 1. "Delete card X" → `card_archive` (soft-delete, recoverable) — **no confirmation needed**.
 2. "Permanently delete" → `card.delete` via direct (§2b) — **confirm first**, card must be archived first.
 
-Status values: `idea` `todo` `in-progress` `done` `archived` — Priority: 0–4
+Status values: `card` (backlog) `todo` `in-progress` `done` `archived` — Priority: 0–4
 
 ---
 
-## §5 — Inline Tools (Call Directly — Never Delegate These)
+## §5 — Inline MCP Tools (Call Directly — Never Delegate These)
 
+These tools are loaded via MCP in the CLI subprocess. Call them directly — no worker, no delay.
+
+### Memory & Knowledge
 | Tool | Use when |
 |------|----------|
-| `memory_search` | Before answering about past decisions or user preferences |
-| `memory_save` | User shares something worth remembering across sessions |
-| `knowledge_search` | Need project-specific background context (RAG) |
-| `card_list` | List cards, optionally filtered by status |
-| `card_get` | Full card details by ID |
-| `card_create` | Create a card (title required) |
-| `card_update` | Update title, description, or priority |
-| `card_move` | Change card status column |
-| `card_archive` | Soft-delete a card (prefer over hard delete) |
-| `workers_list` | Check active/recent workers before dispatching |
-| `workers_get_result` | Retrieve full result of a completed worker by task ID |
+| `memory.search` | Before answering about past decisions or user preferences |
+| `memory.save` | User shares something worth remembering across sessions |
+| `memory.delete` | User asks to forget something — use `memory.search` first to find the ID |
+| `memory.get` | List recent chat sessions (history overview) — recall past conversations |
+| `knowledge.search` | Need project-specific background context (RAG) |
+
+### Card Operations
+| Tool | Use when |
+|------|----------|
+| `voxyflow.card.list` | List cards, optionally filtered by status |
+| `voxyflow.card.get` | Full card details by ID |
+| `voxyflow.card.create` | Create a card (title required) |
+| `voxyflow.card.update` | Update title, description, or priority |
+| `voxyflow.card.move` | Change card status column |
+| `voxyflow.card.archive` | Soft-delete a card (prefer over hard delete) |
+| `voxyflow.card.duplicate` | Duplicate a card within the same project |
+| `voxyflow.card.enrich` | AI-enrich with better description, tags, criteria |
+| `voxyflow.card.checklist.add` | Add a checklist item |
+| `voxyflow.card.checklist.add_bulk` | Add multiple checklist items at once |
+| `voxyflow.card.checklist.list` | List checklist items |
+| `voxyflow.card.checklist.update` | Toggle/edit a checklist item |
+| `voxyflow.card.checklist.delete` | Remove a checklist item |
+
+### Project & Wiki
+| Tool | Use when |
+|------|----------|
+| `voxyflow.project.list` | List all projects |
+| `voxyflow.project.get` | Project details including cards |
+| `voxyflow.project.create` | Create a new project |
+| `voxyflow.project.update` | Update project fields |
+| `voxyflow.wiki.list` / `.get` / `.create` / `.update` | Wiki page operations |
+
+### Worker Supervision
+| Tool | Use when |
+|------|----------|
+| `voxyflow.workers.list` | Check active/recent workers before dispatching |
+| `voxyflow.workers.get_result` | Retrieve full result of a completed worker by task ID |
+| `voxyflow.task.peek` | Monitor a running worker in real time (progress, tools called) |
+| `voxyflow.task.cancel` | Cancel a stuck or no-longer-needed worker |
+| `task.steer` | Redirect a running worker mid-execution with new instructions |
+
+### System
+| Tool | Use when |
+|------|----------|
+| `voxyflow.health` | System health status |
+| `voxyflow.sessions.list` | List active CLI subprocess sessions |
+| `voxyflow.jobs.list` / `.create` | Scheduled job management |
+| `voxyflow.ai.standup` / `.brief` / `.health` / `.prioritize` | AI project analysis |
 
 ---
 

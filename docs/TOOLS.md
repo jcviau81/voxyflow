@@ -6,74 +6,51 @@
 
 ## Tool Categories
 
-Voxyflow tools are organized into 6 categories:
+Voxyflow tools are organized into 8 categories:
 
 | Category | Prefix | Count | Purpose |
 |----------|--------|-------|---------|
-| voxyflow | `voxyflow.*` | 22 | Card/project/wiki/doc/job/AI operations |
+| voxyflow | `voxyflow.*` | 38 | Card/project/wiki/doc/job/AI/worker/session operations |
+| memory | `memory.*` | 4 | Long-term memory search/save/delete + session history |
+| knowledge | `knowledge.*` | 1 | RAG knowledge base search |
+| task | `task.*` | 3 | Worker task supervision (peek/cancel/steer) |
 | system | `system.*` | 1 | Shell command execution |
 | web | `web.*` | 2 | Web search and page fetching |
-| file | `file.*` | 3 | Filesystem read/write/list |
+| file | `file.*` | 4 | Filesystem read/write/patch/list |
 | git | `git.*` | 5 | Git operations |
 | tmux | `tmux.*` | 6 | Terminal multiplexer control |
 
-**Total: ~60 tools** (defined as MCP tools in `backend/app/mcp_server.py`)
+**Total: 66 tools** (defined as MCP tools in `backend/app/mcp_server.py`)
 
 ---
 
-## Layer Access Control
+## Role-Based Access Control
 
-Not all layers can use all tools:
+Tools are split between **dispatcher** (chat layer) and **worker** roles via `_role` tag:
 
-| Layer | Tool Set | Description |
-|-------|----------|-------------|
-| **Fast** (Sonnet) | `TOOLS_READ_ONLY` (11 tools) | Read/list/get operations only |
-| **Analyzer** (Haiku) | `TOOLS_VOXYFLOW_CRUD` (19 tools) | Read + create/update/move |
-| **Deep** (Opus) | `TOOLS_FULL` (30 tools) | Everything including exec, delete, commit |
+| Role | Tool Count | Description |
+|------|------------|-------------|
+| **Dispatcher** (chat) | 47 | All voxyflow/memory/knowledge/task tools — inline MCP via CLI |
+| **Worker** | 66 (all) | Everything including system, file, git, tmux |
 
-### TOOLS_READ_ONLY (Fast layer)
+Tools tagged `_role="worker"` are hidden from the dispatcher. The dispatcher uses
+inline MCP tools for CRUD/read operations and `<delegate>` blocks for complex tasks
+that need worker-level tools.
 
-```
-voxyflow.health
-voxyflow.card.list_unassigned
-voxyflow.card.list, voxyflow.card.get
-voxyflow.project.list, voxyflow.project.get
-voxyflow.wiki.list, voxyflow.wiki.get
-voxyflow.doc.list
-voxyflow.jobs.list
-```
+### Dispatcher Tools (47)
 
-### TOOLS_VOXYFLOW_CRUD (Analyzer layer) = READ_ONLY +
+Cards (17), Projects (6), Wiki (4), AI ops (5), Memory (4), Knowledge (1),
+Worker supervision (3), System info (5), Documents (2).
 
-```
-voxyflow.card.create_unassigned
-voxyflow.card.create, voxyflow.card.update, voxyflow.card.move
-voxyflow.card.duplicate, voxyflow.card.enrich
-voxyflow.project.create
-voxyflow.wiki.create, voxyflow.wiki.update
-```
-
-### TOOLS_FULL (Deep layer) = CRUD +
+### Worker-Only Tools (19)
 
 ```
 system.exec
-file.write
-voxyflow.project.delete, voxyflow.project.export
-voxyflow.card.delete
-voxyflow.doc.delete
-voxyflow.ai.standup, voxyflow.ai.brief, voxyflow.ai.health
-voxyflow.ai.prioritize, voxyflow.ai.review_code
-voxyflow.jobs.create
-git.commit
-tmux.run, tmux.send, tmux.new, tmux.kill
-```
-
-### Dangerous Tools (require confirmation)
-
-```
-system.exec, file.write, git.commit
-voxyflow.project.delete, voxyflow.card.delete, voxyflow.doc.delete
-tmux.kill
+web.search, web.fetch
+file.read, file.write, file.patch, file.list
+git.status, git.log, git.diff, git.branches, git.commit
+tmux.list, tmux.run, tmux.send, tmux.capture, tmux.new, tmux.kill
+task.complete
 ```
 
 ---
@@ -145,11 +122,53 @@ Duplicate a card within the same project.
 |-----------|------|----------|-------------|
 | card_id | string | yes | Card ID |
 
+#### voxyflow.card.archive
+Archive a card (soft-delete). Card is hidden but recoverable.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| card_id | string | yes | Card ID |
+
 #### voxyflow.card.enrich
 AI-enrich a card with better description, tags, and acceptance criteria.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | card_id | string | yes | Card ID |
+
+#### voxyflow.card.checklist.add
+Add a single checklist item to a card.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| card_id | string | yes | Card ID |
+| text | string | yes | Checklist item text |
+
+#### voxyflow.card.checklist.add_bulk
+Add multiple checklist items to a card in one call.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| card_id | string | yes | Card ID |
+| items | array | yes | List of checklist item texts |
+
+#### voxyflow.card.checklist.list
+List all checklist items for a card.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| card_id | string | yes | Card ID |
+
+#### voxyflow.card.checklist.update
+Update a checklist item (toggle completed or edit text).
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| card_id | string | yes | Card ID |
+| item_id | string | yes | Checklist item ID |
+| text | string | no | New text |
+| completed | boolean | no | Toggle completion |
+
+#### voxyflow.card.checklist.delete
+Delete a checklist item.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| card_id | string | yes | Card ID |
+| item_id | string | yes | Checklist item ID |
 
 ---
 
@@ -180,6 +199,17 @@ Delete a project and all its cards (irreversible).
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | project_id | string | yes | Project ID |
+
+#### voxyflow.project.update
+Update a project's fields (title, description, status, context, github_url, etc).
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| project_id | string | yes | Project ID |
+| title | string | no | New title |
+| description | string | no | New description |
+| status | string | no | active, archived |
+| context | string | no | Project context for AI |
+| github_url | string | no | GitHub URL |
 
 #### voxyflow.project.export
 Export a project as JSON snapshot.
@@ -292,6 +322,83 @@ Create a new scheduled job.
 | enabled | boolean | no | Whether enabled (default: true) |
 | config | object | no | Job-specific configuration |
 
+#### voxyflow.sessions.list
+List active CLI subprocess sessions (chat and worker processes).
+No parameters.
+
+#### voxyflow.workers.list
+List recent worker tasks from the Worker Ledger.
+No parameters.
+
+#### voxyflow.workers.get_result
+Get the full details and result of a specific worker task.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_id | string | yes | Worker task ID |
+
+---
+
+### Memory & Knowledge Tools
+
+#### memory.search
+Semantic search across Voxy's long-term memory (global + project).
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| query | string | yes | Natural language search query |
+| limit | integer | no | Max results (default 5) |
+
+#### memory.save
+Save a fact, decision, preference, or lesson to long-term memory.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| text | string | yes | Information to remember |
+| type | string | no | decision, preference, lesson, fact, context (default: fact) |
+| importance | string | no | high, medium, low (default: medium) |
+| project_id | string | no | Scope memory to a project (default: global) |
+
+#### memory.delete
+Delete a specific memory entry by ID.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| id | string | yes | Memory document ID (use memory.search to find it) |
+| collection | string | no | Collection name (default: global) |
+
+#### memory.get
+List recent chat sessions with title, last message, and message count.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| limit | integer | no | Number of sessions to return (default 10, max 50) |
+
+#### knowledge.search
+Search the project knowledge base (RAG) for relevant context.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| project_id | string | yes | Project ID |
+| query | string | yes | Search query |
+
+---
+
+### Task Supervision Tools
+
+#### voxyflow.task.peek
+Monitor a running worker task in real time (tools called, duration, status).
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_id | string | yes | Worker task ID |
+
+#### voxyflow.task.cancel
+Cancel a running worker task immediately.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_id | string | yes | Worker task ID |
+
+#### task.steer
+Inject a steering message into a running worker task to redirect it mid-execution.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_id | string | yes | Worker task ID |
+| message | string | yes | Steering instruction to inject |
+
 ---
 
 ### System Tools
@@ -341,6 +448,14 @@ Write content to a file. Creates parent directories.
 | path | string | yes | File path |
 | content | string | yes | Content to write |
 | mode | string | no | overwrite or append (default: overwrite) |
+
+#### file.patch
+Replace exact text in a file (surgical edit).
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| path | string | yes | File path |
+| old_text | string | yes | Text to find |
+| new_text | string | yes | Replacement text |
 
 #### file.list
 List files and directories.
@@ -429,62 +544,27 @@ Kill a tmux session.
 
 ---
 
-## How Tools Are Injected Into Prompts
+## How Tools Work — CLI + MCP Architecture
 
-The `ToolPromptBuilder` generates a text block for the system prompt:
+The dispatcher (chat layer) runs as a `claude -p` CLI subprocess with MCP tools
+loaded via `--mcp-config`. The CLI handles the tool loop internally:
 
-```markdown
-## Available Tools
+1. **Model generates tool_use** — the CLI detects structured tool_use blocks
+2. **CLI calls MCP server** — Voxyflow's stdio MCP server (`backend/mcp_stdio.py`)
+   handles the call, routing to either HTTP REST API or async handler
+3. **MCP returns result** — the CLI injects the tool_result back into the conversation
+4. **Model continues** — generates text response or calls another tool
 
-You have access to the following tools. To use a tool, include a <tool_call> block.
+### Stream Parsing
 
-### Format
-<tool_call>
-{"name": "tool.name", "arguments": {"param1": "value1"}}
-</tool_call>
+The CLI emits newline-delimited JSON events. The stream parser in
+`cli_backend.py` captures:
+- `stream_event` → `content_block_delta` → `text_delta` (real-time streaming)
+- `assistant` messages with `text` blocks (MCP tool-use path, non-streamed)
+- `result` event (final text, usage stats)
 
-### Rules
-- You can call multiple tools in a single response
-- After each tool call, you will receive the result in a <tool_result> block
-- Use the result to continue your response or call another tool
-
-### Tools
-**voxyflow.card.create** — Create a new card/task in a project.
-Parameters:
-  - project_id (string, required): Project ID
-  - title (string, required): Card title
-  ...
-```
-
-Tools are filtered by both **layer** and **chat_level** before injection.
-
----
-
-## How Tool Calls Are Parsed and Executed
-
-### 1. LLM Generates Tool Call
-
-The LLM includes `<tool_call>` blocks in its response text.
-
-### 2. Parser Extracts
-
-`ToolResponseParser.parse(response_text)` uses regex:
-```python
-r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
-```
-Returns `(text_content, [ParsedToolCall])` — text without tool blocks, plus structured calls.
-
-### 3. Executor Dispatches
-
-`ToolExecutor.execute(parsed_tool_call)`:
-1. Looks up handler in `ToolRegistry`
-2. Validates required parameters against JSON Schema
-3. Calls handler with `asyncio.wait_for(timeout=30)`
-4. Returns result dict `{success, result/error}`
-
-### 4. Result Injected
-
-Tool results are injected back into the conversation as `<tool_result>` blocks, and the LLM continues with the results.
+Deduplication: `assistant` text blocks are only forwarded when no `stream_event`
+deltas have been received (prevents double text when the CLI streams normally).
 
 ---
 
@@ -523,4 +603,4 @@ MCP tools are thin HTTP wrappers over the REST API. System tools (`system.exec`,
 
 ---
 
-_~60 MCP tools. See `backend/app/mcp_server.py` for the authoritative list._
+_66 MCP tools (47 dispatcher + 19 worker-only). See `backend/app/mcp_server.py` for the authoritative list._
