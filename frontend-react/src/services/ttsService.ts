@@ -74,13 +74,26 @@ class TtsService {
     if (!this._processing) await this._processQueue();
   }
 
+  private static isMobileDevice(): boolean {
+    try {
+      return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    } catch {
+      return false;
+    }
+  }
+
   private async _processQueue(): Promise<void> {
     if (this._processing) return;
     this._processing = true;
+    const isMobile = TtsService.isMobileDevice();
     while (this._queue.length > 0) {
       const text = this._queue.shift()!;
       const { tts_url, tts_speed } = this.getVoiceSettings();
-      if (tts_url && !this._forceNative) {
+      // On mobile, always use the native speechSynthesis engine — the device
+      // already has a high-quality native voice, and custom XTTS servers are
+      // a desktop-oriented feature. This keeps mobile lightweight and avoids
+      // silent failures when the XTTS server is unreachable.
+      if (tts_url && !this._forceNative && !isMobile) {
         // Use streaming path — sentences synthesized server-side, audio piped as SSE
         await this.speakServerStream(text, tts_url, tts_speed);
       } else {
