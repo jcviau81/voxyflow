@@ -408,17 +408,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           sessionId?: string;
           model?: string;
         };
-        if (!sessionId) {
+        // Final streaming chunk may arrive without sessionId — allow it
+        // through when we already track the messageId in streamingMessagesRef.
+        if (!sessionId && !(done && streamingMessagesRef.current.has(messageId))) {
           console.warn('[ChatProvider] chat:response without sessionId — dropping', { messageId });
           return;
         }
 
         if (streaming && !done) {
-          handleStreamingChunk(messageId, content, sessionId, model);
+          handleStreamingChunk(messageId, content, sessionId!, model);
         } else if (done && streamingMessagesRef.current.has(messageId)) {
           handleStreamComplete(messageId, content);
         } else {
-          handleFullResponse(content, sessionId);
+          handleFullResponse(content, sessionId!);
         }
       }),
     );

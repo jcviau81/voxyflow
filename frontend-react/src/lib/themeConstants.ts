@@ -59,12 +59,31 @@ function darken(hex: string, amount: number): string {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
+/** Returns '#0a0a0f' or '#ffffff' depending on which has better contrast with hex. */
+function contrastForeground(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  const lum = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  return lum > 0.179 ? '#0a0a0f' : '#ffffff';
+}
+
 export function applyAccentColor(hex: string): void {
   const root = document.documentElement;
+  const fg = contrastForeground(hex);
+
+  // Our custom vars (used by legacy CSS)
   root.style.setProperty('--color-accent', hex);
   root.style.setProperty('--color-accent-hover', darken(hex, 10));
   root.style.setProperty('--color-accent-glow', hexToRgba(hex, 0.15));
   root.style.setProperty('--color-border-focus', hexToRgba(hex, 0.5));
+  root.style.setProperty('--color-primary', hex);
+
+  // Shadcn/Tailwind tokens — makes bg-primary, border-primary, text-primary follow the accent
+  root.style.setProperty('--primary', hex);
+  root.style.setProperty('--primary-foreground', fg);
+  root.style.setProperty('--ring', hex);
 }
 
 export function applyFontSize(size: FontSize): void {

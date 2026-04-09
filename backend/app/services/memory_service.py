@@ -467,11 +467,9 @@ class MemoryService:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         # Determine target collection
-        collection = (
-            _project_collection(project_slug)
-            if project_slug
-            else GLOBAL_COLLECTION
-        )
+        # Default to "main" so general/system-main chat memories land in
+        # memory-project-main instead of the empty memory-global collection.
+        collection = _project_collection(project_slug or "main")
 
         # Take the last 4 non-system messages
         relevant_messages = [
@@ -519,8 +517,7 @@ class MemoryService:
                     "importance": importance,
                     "confidence": round(confidence, 2),
                 }
-                if project_slug:
-                    metadata["project"] = project_slug
+                metadata["project"] = project_slug or "main"
 
                 # Dedup: check if very similar memory already exists
                 existing = self.search_memory(
@@ -569,8 +566,7 @@ class MemoryService:
                     "source": "auto-extract",
                     "importance": importance,
                 }
-                if project_slug:
-                    metadata["project"] = project_slug
+                metadata["project"] = project_slug or "main"
 
                 existing = self.search_memory(
                     query=sentence,
@@ -768,14 +764,16 @@ class MemoryService:
                     )
 
             else:
-                # General Chat mode
-                if include_long_term:
-                    global_results = self.search_memory(
-                        query=query, collections=[GLOBAL_COLLECTION], limit=10
-                    )
-                    if global_results:
-                        texts = [r["text"] for r in global_results]
-                        sections.append("**Relevant memory:**\n" + "\n".join(f"- {t}" for t in texts))
+                # General Chat mode — search memory-project-main (where
+                # system-main chat memories are stored) plus global.
+                main_col = _project_collection("main")
+                search_cols = [main_col, GLOBAL_COLLECTION] if include_long_term else [main_col]
+                main_results = self.search_memory(
+                    query=query, collections=search_cols, limit=10
+                )
+                if main_results:
+                    texts = [r["text"] for r in main_results]
+                    sections.append("**Relevant memory:**\n" + "\n".join(f"- {t}" for t in texts))
 
         except Exception as e:
             logger.error(f"_build_chromadb_context failed: {e}")

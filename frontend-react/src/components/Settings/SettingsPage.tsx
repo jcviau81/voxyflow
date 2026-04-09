@@ -79,10 +79,31 @@ export function SettingsPage() {
   return (
     <div className="settings-page flex flex-col h-full overflow-hidden" data-testid="settings-page">
       <PageHeader title="Settings" onSidebarToggle={sidebarToggle} />
+
+      {/* ── Mobile: horizontal scrollable tabs ── */}
+      <nav className="md:hidden flex overflow-x-auto border-b border-border bg-muted/20 shrink-0">
+        {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setActivePanel(id)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 text-xs whitespace-nowrap transition-colors shrink-0',
+              activePanel === id
+                ? 'border-b-2 border-primary text-foreground font-medium'
+                : 'text-muted-foreground',
+            )}
+          >
+            <Icon size={12} />
+            {label}
+          </button>
+        ))}
+      </nav>
+
       <div className="flex flex-1 overflow-hidden">
 
-      {/* ── Sidebar nav ── */}
-      <aside className="settings-nav w-48 shrink-0 border-r border-border bg-muted/20 overflow-y-auto">
+      {/* ── Desktop: sidebar nav ── */}
+      <aside className="settings-nav hidden md:block w-48 shrink-0 border-r border-border bg-muted/20 overflow-y-auto">
         <div className="px-4 pt-5 pb-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Settings

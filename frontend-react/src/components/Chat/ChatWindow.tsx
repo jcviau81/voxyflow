@@ -11,6 +11,7 @@ import { ChatSearch } from './ChatSearch';
 import { ModePill } from './ModePill';
 import type { ChatLevel } from './SmartSuggestions';
 import { cn } from '../../lib/utils';
+import { Search, Eraser, RotateCcw } from 'lucide-react';
 import type { ServerSession } from '../../hooks/api/useSessions';
 
 // ---------------------------------------------------------------------------
@@ -280,31 +281,31 @@ export function ChatWindow({
           {/* Search toggle button */}
           <button
             type="button"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted/50"
             title="Search chat history (Ctrl+Shift+F)"
             onClick={() => setSearchOpen((prev) => !prev)}
           >
-            Search
+            <Search size={14} />
           </button>
 
           {/* Clear button */}
           <button
             type="button"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted/50"
             title="Clear chat"
             onClick={handleClearChat}
           >
-            Clear
+            <Eraser size={14} />
           </button>
 
           {/* New session button */}
           <button
             type="button"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted/50"
             title="New session (Ctrl+Shift+N)"
             onClick={handleNewSession}
           >
-            Reset
+            <RotateCcw size={14} />
           </button>
         </div>
       )}

@@ -206,7 +206,7 @@ function TabItem({ tab, isActive, onSwitch, onClose }: TabItemProps) {
       <span className="tab-label truncate">{tab.label}</span>
 
       {tab.hasNotification && (
-        <span className="tab-notification flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-500" />
+        <span className="tab-notification flex-shrink-0 w-1.5 h-1.5 rounded-full bg-primary" />
       )}
 
       {tab.closable && (

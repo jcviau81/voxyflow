@@ -325,13 +325,13 @@ function WikiTab({ projectId }: WikiTabProps) {
   }, [activePage, deleteMutation]);
 
   return (
-    <div className="wiki-view">
-      {/* Sidebar */}
-      <div className="wiki-sidebar">
-        <div className="wiki-sidebar-header">
-          <span className="wiki-sidebar-title">Pages</span>
+    <div className="flex flex-col md:flex-row h-full overflow-hidden">
+      {/* Sidebar — horizontal tabs on mobile, vertical panel on desktop */}
+      <div className="w-full md:w-[220px] md:min-w-[180px] shrink-0 border-b md:border-b-0 md:border-r border-border bg-muted/20 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-2 md:px-3.5 md:py-3 border-b border-border gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pages</span>
           <button
-            className="wiki-new-page-btn"
+            className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground shrink-0 cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed"
             title="New page"
             onClick={() => createMutation.mutate()}
             disabled={createMutation.isPending}
@@ -340,20 +340,32 @@ function WikiTab({ projectId }: WikiTabProps) {
           </button>
         </div>
 
-        <div className="wiki-page-list">
+        <div className="flex md:flex-col overflow-x-auto md:overflow-x-hidden md:overflow-y-auto md:flex-1 px-1 md:px-0 py-1 md:py-1.5 gap-1 md:gap-0">
           {pages.length === 0 ? (
-            <div className="wiki-no-pages">No pages yet. Hit + to start.</div>
+            <div className="px-3.5 py-4 text-xs text-muted-foreground italic leading-relaxed whitespace-nowrap md:whitespace-normal">
+              No pages yet. Hit + to start.
+            </div>
           ) : (
             pages.map((page) => (
               <div
                 key={page.id}
-                className={cn('wiki-page-item', activePageId === page.id && 'active')}
+                className={cn(
+                  'flex shrink-0 md:shrink cursor-pointer transition-colors',
+                  // Mobile: horizontal pill style
+                  'flex-row items-center gap-1.5 px-2.5 py-1 md:py-2 md:px-3.5 rounded md:rounded-none whitespace-nowrap md:whitespace-normal text-xs md:text-sm',
+                  // Desktop: vertical list with left border
+                  'md:flex-col md:items-start md:gap-0.5 md:border-l-[3px] border-transparent',
+                  'hover:bg-accent/50',
+                  activePageId === page.id
+                    ? 'bg-accent md:border-l-primary text-primary font-medium'
+                    : 'text-foreground',
+                )}
                 onClick={() => {
                   if (activePageId !== page.id) setActivePageId(page.id);
                 }}
               >
-                <span className="wiki-page-item-title">{page.title || 'Untitled'}</span>
-                <span className="wiki-page-item-date">{formatDate(page.updated_at)}</span>
+                <span className="truncate font-medium">{page.title || 'Untitled'}</span>
+                <span className="hidden md:inline text-[0.75rem] text-muted-foreground">{formatDate(page.updated_at)}</span>
               </div>
             ))
           )}
@@ -361,58 +373,68 @@ function WikiTab({ projectId }: WikiTabProps) {
       </div>
 
       {/* Editor */}
-      <div className="wiki-editor">
+      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
         {!activePageId ? (
-          <div className="wiki-empty-state">
+          <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm italic p-10 text-center">
             <p>Select a page from the sidebar or create a new one.</p>
           </div>
         ) : (
           <>
-            <div className="wiki-toolbar">
+            <div className="flex items-center gap-2 px-3 md:px-4 py-2.5 border-b border-border bg-muted/20 shrink-0">
               <input
                 ref={titleInputRef}
-                className="wiki-title-input"
+                className="flex-1 bg-transparent border-none outline-none text-base font-semibold text-foreground py-1 min-w-0 placeholder:text-muted-foreground placeholder:font-normal"
                 type="text"
                 placeholder="Page title…"
                 value={editTitle}
                 onChange={(e) => { setEditTitle(e.target.value); setDirty(true); }}
               />
               <button
-                className="btn flex align-middle gap-1.5 wiki-save-btn items-center rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer"
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer',
+                  dirty && !saveMutation.isPending
+                    ? 'border-green-500/50 text-green-500 hover:bg-green-500/10'
+                    : 'text-muted-foreground disabled:opacity-40 disabled:cursor-not-allowed',
+                )}
                 title="Save (Ctrl+S)"
                 onClick={() => saveMutation.mutate()}
                 disabled={!dirty || saveMutation.isPending}
               >
                 {saveMutation.isPending
                 ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
-                : <><Save size={13} /> Save</>}
+                : <><Save size={13} /> <span className="hidden sm:inline">Save</span></>}
               </button>
               <button
-                className={cn('btn flex align-middle gap-1.5 wiki-preview-btn rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer', previewMode && 'active')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer',
+                  previewMode
+                    ? 'border-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
                 title="Toggle preview"
                 onClick={() => setPreviewMode(p => !p)}
               >
-                {previewMode ? <><Pencil size={13} /> Edit</> 
-                : <><Eye size={13} /> Preview</>}
+                {previewMode ? <><Pencil size={13} /> <span className="hidden sm:inline">Edit</span></>
+                : <><Eye size={13} /> <span className="hidden sm:inline">Preview</span></>}
               </button>
               <button
-                className="btn flex align-middle gap-1.5 wiki-delete-btn rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground transition-colors cursor-pointer hover:border-destructive hover:text-destructive hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="Delete page"
                 onClick={handleDeleteClick}
                 disabled={deleteMutation.isPending}
               >
-                <><Trash2 size={13} /> Trash</>
+                <Trash2 size={13} /> <span className="hidden sm:inline">Delete</span>
               </button>
             </div>
 
-            <div className="wiki-body">
+            <div className="flex-1 overflow-hidden flex flex-col">
               {previewMode ? (
-                <div className="wiki-preview prose prose-sm dark:prose-invert max-w-none">
+                <div className="flex-1 overflow-y-auto p-5 md:p-6 prose prose-sm dark:prose-invert max-w-none">
                   <ReactMarkdown>{editContent}</ReactMarkdown>
                 </div>
               ) : (
                 <textarea
-                  className="wiki-content-textarea"
+                  className="flex-1 w-full bg-background text-foreground border-none outline-none resize-none p-5 md:p-6 font-mono text-sm leading-relaxed placeholder:text-muted-foreground"
                   placeholder="Write your page in Markdown…"
                   value={editContent}
                   onChange={(e) => { setEditContent(e.target.value); setDirty(true); }}

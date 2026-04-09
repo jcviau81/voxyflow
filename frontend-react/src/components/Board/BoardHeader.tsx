@@ -210,7 +210,7 @@ export function BoardHeader({
     (searchInput ? 1 : 0);
 
   return (
-    <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-background shrink-0 overflow-x-auto">
+    <div className={cn('flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-background shrink-0', isDesktop && 'overflow-x-auto')}>
 
       {/* ── Desktop: inline filters ── */}
       {isDesktop && (
@@ -394,7 +394,7 @@ export function BoardHeader({
       <Button
         variant="default"
         size="sm"
-        className="h-6 text-[10px] px-2 shrink-0 bg-[#ff6b6b] hover:bg-[#ff5252] text-white border-0"
+        className="h-6 text-[10px] px-2 shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground border-0"
         title="Create a new card"
         onClick={onNewCard}
       >

@@ -9,7 +9,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Zap, Brain, Search } from 'lucide-react';
+import { Zap, Brain, Microscope } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { eventBus } from '../../utils/eventBus';
 
@@ -148,7 +148,7 @@ export function ModePill({ className }: { className?: string }) {
         title={analyzerRunning ? 'Analyzer running…' : 'Analyzer (card suggestions)'}
         onClick={toggleAnalyzer}
       >
-        <Search size={13} className={analyzerRunning ? 'animate-pulse' : undefined} />
+        <Microscope size={13} className={analyzerRunning ? 'animate-pulse' : undefined} />
         {analyzerRunning && (
           <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green-500 animate-ping" />
         )}

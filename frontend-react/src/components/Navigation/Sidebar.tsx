@@ -283,6 +283,12 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
       <div
         className="sidebar-footer flex items-center gap-1 px-2 py-2 border-t border-border shrink-0"
         data-testid="sidebar-footer"
+        onClick={(e) => {
+          // Auto-close sidebar on mobile when clicking a nav link in the footer
+          if (window.innerWidth < 768 && (e.target as HTMLElement).closest('a')) {
+            onToggle();
+          }
+        }}
       >
         {/* Notification bell */}
         <div className="notification-bell-wrapper relative">

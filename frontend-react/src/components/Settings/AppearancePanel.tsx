@@ -49,9 +49,9 @@ function PillGroup<T extends string>({ options, value, onChange }: PillGroupProp
           onClick={() => onChange(opt.value)}
           className={cn(
             'appearance-pill px-3 py-1 text-xs rounded-md border transition-colors',
-            'border-border hover:border-[var(--color-accent,#ff6b6b)] hover:text-foreground',
+            'border-border hover:border-primary hover:text-foreground',
             value === opt.value
-              ? 'bg-[var(--color-accent,#ff6b6b)] text-white border-[var(--color-accent,#ff6b6b)] font-medium'
+              ? 'bg-primary text-primary-foreground border-primary font-medium'
               : 'bg-transparent text-muted-foreground',
           )}
         >

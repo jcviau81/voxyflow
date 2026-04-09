@@ -436,7 +436,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
         <Tooltip content={wakeWordEnabled ? 'Wake word ON — say "Alexa" to start' : 'Wake word mode — say "Alexa" to start recording'}>
           <button
             type="button"
-            className={`wake-word-btn p-2 rounded-lg transition-colors${wakeWordEnabled ? ' active bg-purple-500 text-white' : ' hover:bg-muted text-muted-foreground'}${wakeWordPulsing ? ' animate-pulse' : ''}`}
+            className={`wake-word-btn p-2 rounded-lg transition-colors${wakeWordEnabled ? ' active bg-primary text-primary-foreground' : ' hover:bg-muted text-muted-foreground'}${wakeWordPulsing ? ' animate-pulse' : ''}`}
             onClick={toggleWakeWord}
             aria-label={wakeWordEnabled ? 'Disable wake word mode' : 'Enable wake word mode'}
           >

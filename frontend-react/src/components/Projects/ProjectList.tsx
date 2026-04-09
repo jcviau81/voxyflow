@@ -67,7 +67,7 @@ function ProjectCard({
   const progressColorClass =
     stats.pct === 100 ? 'bg-green-500' :
     stats.pct >= 50   ? 'bg-yellow-400' :
-    stats.pct > 0     ? 'bg-blue-400'   :
+    stats.pct > 0     ? 'bg-primary'    :
     'bg-muted-foreground/30';
 
   return (
@@ -192,7 +192,7 @@ function ProjectCard({
         <span className="project-card-stat-sep opacity-40">|</span>
         <span className="project-card-stat done text-green-500">{stats.done} done</span>
         <span className="project-card-stat-sep opacity-40">|</span>
-        <span className="project-card-stat in-progress text-blue-400">{stats.inProgress} in progress</span>
+        <span className="project-card-stat in-progress text-primary">{stats.inProgress} in progress</span>
       </div>
 
       {/* ── Last activity ── */}

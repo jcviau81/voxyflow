@@ -111,7 +111,7 @@ export function SmartSuggestions({ chatLevel, projectId, onSelect }: SmartSugges
             <button
               key={text}
               type="button"
-              className="quick-reply-chip px-3 py-1.5 text-sm rounded-full border border-border bg-card hover:bg-accent hover:text-accent-foreground transition-colors"
+              className="quick-reply-chip px-2 py-0.5 text-[11px] rounded-full border border-border bg-card hover:bg-accent hover:text-accent-foreground transition-colors"
               title={text}
               onClick={() => handleSelect(text)}
             >
