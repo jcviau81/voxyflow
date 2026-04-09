@@ -980,6 +980,49 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "knowledge_search",
     },
+
+    # ---- Memory Delete --------------------------------------------------------
+    {
+        "name": "memory.delete",
+        "description": "Delete a specific memory entry by ID. Use memory.search first to find the ID of the memory to delete.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+                "id": {"type": "string", "description": "Memory document ID to delete"},
+                "collection": {"type": "string", "description": "Collection name (optional, defaults to global)"},
+            },
+        },
+        "_handler": "memory_delete",
+    },
+
+    # ---- Memory Get (recent session history) ----------------------------------
+    {
+        "name": "memory.get",
+        "description": "List recent chat sessions with their title, last message, and message count. Use to recall what was discussed in previous conversations or find a specific past session.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Number of recent sessions to return (default 10, max 50)"},
+            },
+        },
+        "_handler": "memory_get",
+    },
+
+    # ---- Task Steer -----------------------------------------------------------
+    {
+        "name": "task.steer",
+        "description": "Inject a steering message into a running worker task. Use this to redirect a worker mid-execution — give it new instructions, corrections, or ask it to focus on something specific. The worker must be actively running (use task.peek to check status first).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["task_id", "message"],
+            "properties": {
+                "task_id": {"type": "string", "description": "Worker task ID to steer"},
+                "message": {"type": "string", "description": "Steering instruction to inject into the worker's conversation"},
+            },
+        },
+        "_handler": "task_steer",
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -1066,6 +1109,51 @@ def _get_system_handler(name: str):
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
+        async def memory_delete(params: dict) -> dict:
+            """Delete a memory entry by ID."""
+            from app.services.memory_service import get_memory_service, GLOBAL_COLLECTION
+            doc_id = params.get("id", "").strip()
+            if not doc_id:
+                return {"error": "id is required"}
+            collection = params.get("collection", GLOBAL_COLLECTION)
+            try:
+                ms = get_memory_service()
+                deleted = ms.delete_memory(doc_id, collection=collection)
+                if deleted:
+                    return {"success": True, "message": f"Memory {doc_id} deleted from {collection}"}
+                return {"success": False, "error": f"Failed to delete memory {doc_id}"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+        async def memory_get(params: dict) -> dict:
+            """List recent chat sessions (history overview)."""
+            from app.services.session_store import SessionStore
+            limit = min(params.get("limit", 10), 50)
+            try:
+                store = SessionStore()
+                sessions = store.list_active_sessions()[:limit]
+                return {"count": len(sessions), "sessions": sessions}
+            except Exception as e:
+                return {"error": str(e)}
+
+        async def task_steer(params: dict) -> dict:
+            """Inject a steering message into a running worker task."""
+            from app.services.llm.cli_backend import ClaudeCliBackend
+            task_id = params.get("task_id", "").strip()
+            message = params.get("message", "").strip()
+            if not task_id:
+                return {"error": "task_id is required"}
+            if not message:
+                return {"error": "message is required"}
+            try:
+                backend = ClaudeCliBackend()
+                steered = await backend.steer_worker(task_id, message)
+                if steered:
+                    return {"success": True, "message": f"Steering message sent to task {task_id}"}
+                return {"success": False, "error": f"No active worker found for task {task_id}. Task may have already completed."}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
         _SYSTEM_HANDLERS.update({
             "system_exec": system_exec,
             "web_search": web_search,
@@ -1088,7 +1176,10 @@ def _get_system_handler(name: str):
             "task_complete": handle_task_complete,
             "memory_search": memory_search,
             "memory_save": memory_save,
+            "memory_delete": memory_delete,
+            "memory_get": memory_get,
             "knowledge_search": knowledge_search,
+            "task_steer": task_steer,
         })
     return _SYSTEM_HANDLERS.get(name)
 
