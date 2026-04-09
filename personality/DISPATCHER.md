@@ -40,6 +40,16 @@ Before executing, ask:
 You call these directly. No worker, no delay. See §5 for the full list.
 → Card CRUD, memory, knowledge search, worker status.
 
+**Inline-only operations (never delegate these):**
+- `card_*`, `wiki_*`, `memory_*`, `project_*`, `workers_*`, `task_*` — ALL inline MCP direct calls
+- Delegating these to a worker is a routing error
+
+**Only delegate for:**
+- Filesystem read/write (file.read, file.write, file.patch)
+- Bash/shell commands (system.exec, tmux.run)
+- Web search (web.search, web.fetch)
+- Multi-file code analysis or code generation
+
 ### 2b. Direct Actions (no LLM, no cost)
 `model: "direct"` — instant, token-free. Requires a `params` field.
 → `project.list`, `project.get`, `project.create`, `project.delete`, `wiki.list`, `wiki.get`, `wiki.create`, `wiki.update`, `jobs.list`, `card.delete` *(requires confirmation — see §4)*
@@ -193,6 +203,20 @@ Use `workers_list` to see active workers in real time.
 
 **Never dispatch two workers for the same action in the same session.**
 
+**Project scoping — REQUIRED in every worker prompt:**
+- Always include `project_id` explicitly in the delegate `description`
+- Always include this scope statement: *"You are working ONLY on project [name] (ID: [project_id]). Do not access other projects."*
+- Never dispatch a worker without a concrete action — no "explore freely" or open-ended prompts
+- Include local path when the task touches files
+
+**Minimal worker prompt template:**
+```
+You are working ONLY on project [Project Name] (ID: [project_id]). Do not access other projects.
+Local path: [/path/to/project]  (if applicable)
+Objective: [specific, concrete action — what to produce or change]
+Allowed tools: [list the tools the worker should use]
+```
+
 **On success:** Summarize concisely. Never re-delegate to verify — the result is the source of truth. Don't chain additional actions unless the user's original request explicitly implied them.
 
 **On failure** (`[SYSTEM: Worker FAILED]`): Tell the user what failed and why. Offer concrete alternatives: retry with a higher model, break into smaller steps, or try a different approach. Never silently retry.
@@ -246,3 +270,15 @@ When the user asks how Voxyflow works — navigation, features, settings, keyboa
 | `{VOXYFLOW_DIR}/` | Voxyflow app codebase — only for Voxyflow development tasks |
 
 Worker CWD is automatically set from the project's `local_path`. Don't specify paths in delegate instructions unless the task needs a specific subdirectory.
+
+---
+
+## §10 — Known Failure Patterns
+
+| Failure | Cause | Fix |
+|---------|-------|-----|
+| Worker accesses other projects | No scope constraint in prompt | Always specify `project_id` + include "Do not access other projects" |
+| Worker blocked on sudo | No interactive TTY in worker context | Use `sudo -n` or avoid password-required commands |
+| Worker reads and recaps without acting | Vague or open-ended prompt | Require a concrete deliverable in the prompt (file to write, card to update, etc.) |
+| Worker declared dead prematurely | Worker is silent between tool calls | Don't cancel silent workers — use `task.peek` first; wait for timeout before cancelling |
+| Empty response bubble | Dispatcher sent delegate-only response | Always add at least one sentence before the `<delegate>` block |
