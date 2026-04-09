@@ -159,8 +159,12 @@ export function CardDetailModal() {
       if (!card) return;
       // Optimistic local update
       updateCardStore(card.id, updates as Partial<Card>);
-      // Persist to server
-      patchCard.mutate({ cardId: card.id, updates });
+      // Persist to server — scoped invalidation by projectId avoids refetching all boards.
+      patchCard.mutate({
+        cardId: card.id,
+        updates,
+        projectId: card.projectId ?? undefined,
+      });
     },
     [card, updateCardStore, patchCard],
   );
@@ -194,7 +198,11 @@ export function CardDetailModal() {
       if (!card) return;
       // Optimistic update uses camelCase (Card type); API expects snake_case
       updateCardStore(card.id, { agentType } as Partial<Card>);
-      patchCard.mutate({ cardId: card.id, updates: { agent_type: agentType } });
+      patchCard.mutate({
+        cardId: card.id,
+        updates: { agent_type: agentType },
+        projectId: card.projectId ?? undefined,
+      });
     },
     [card, updateCardStore, patchCard],
   );

@@ -610,7 +610,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   );
 
   const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
+    async (event: DragEndEvent) => {
       const originStatus = dragOriginStatusRef.current;
       setActiveCard(null);
       dragOriginStatusRef.current = null;
@@ -631,7 +631,18 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
 
       // If moved to a new status column — persist via API
       if (originStatus && originStatus !== targetStatus) {
-        patchCard.mutate({ cardId: activeCardData.id, updates: { status: targetStatus } });
+        try {
+          await patchCard.mutateAsync({
+            cardId: activeCardData.id,
+            updates: { status: targetStatus },
+            projectId,
+          });
+        } catch {
+          // Roll back the optimistic status change applied in handleDragOver.
+          useCardStore.getState().moveCard(activeCardData.id, originStatus);
+          showToast('Move failed', 'error');
+          return;
+        }
       }
 
       // Handle reorder within same column
@@ -644,12 +655,19 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
 
       if (oldIndex !== -1 && overIndex !== -1 && oldIndex !== overIndex) {
         const reordered = arrayMove(columnCards, oldIndex, overIndex);
+        const previousOrder = columnCards.map((c) => c.id);
         const orderedIds = reordered.map((c) => c.id);
         useCardStore.getState().reorderCards(orderedIds);
-        reorderCards.mutate(orderedIds);
+        try {
+          await reorderCards.mutateAsync(orderedIds);
+        } catch {
+          // Roll back the optimistic reorder.
+          useCardStore.getState().reorderCards(previousOrder);
+          showToast('Reorder failed', 'error');
+        }
       }
     },
-    [projectId, patchCard, reorderCards, cardsByColumn, resolveTargetStatus],
+    [projectId, patchCard, reorderCards, cardsByColumn, resolveTargetStatus, showToast],
   );
 
   // ── Action handlers ──────────────────────────────────────────────────────
@@ -778,22 +796,26 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     (status: CardStatus) => {
       selectedIds.forEach((id) => {
         updateCardStore(id, { status });
-        patchCard.mutate({ cardId: id, updates: { status } });
+        patchCard.mutate({ cardId: id, updates: { status }, projectId: projectId ?? undefined });
       });
       showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
       clearSelection();
     },
-    [selectedIds, patchCard, updateCardStore, showToast, clearSelection],
+    [selectedIds, patchCard, updateCardStore, showToast, clearSelection, projectId],
   );
 
   const handleBulkArchive = useCallback(() => {
     selectedIds.forEach((id) => {
       deleteCardStore(id);
-      patchCard.mutate({ cardId: id, updates: { status: 'archived' as CardStatus } });
+      patchCard.mutate({
+        cardId: id,
+        updates: { status: 'archived' as CardStatus },
+        projectId: projectId ?? undefined,
+      });
     });
     showToast(`Archived ${selectedIds.size} cards`, 'success');
     clearSelection();
-  }, [selectedIds, patchCard, deleteCardStore, showToast, clearSelection]);
+  }, [selectedIds, patchCard, deleteCardStore, showToast, clearSelection, projectId]);
 
   const handleBulkDelete = useCallback(() => {
     if (!confirm(`Delete ${selectedIds.size} cards permanently? This cannot be undone.`)) return;

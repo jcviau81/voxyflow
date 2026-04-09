@@ -231,17 +231,43 @@ export function useCreateCard() {
 export function usePatchCard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ cardId, updates }: { cardId: string; updates: Record<string, unknown> }) => {
+    mutationFn: async ({
+      cardId,
+      updates,
+    }: {
+      cardId: string;
+      updates: Record<string, unknown>;
+      /** Optional: scopes query invalidation to a single project instead of all cards. */
+      projectId?: string;
+    }) => {
       return apiFetch<Record<string, unknown>>(`/api/cards/${cardId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
     },
-    onSuccess: (_data, { cardId }) => {
-      // Invalidate the card's project — we don't always have projectId here,
-      // so we invalidate all card queries broadly.
-      qc.invalidateQueries({ queryKey: cardKeys.all });
+    onMutate: ({ cardId }) => {
+      // Snapshot the previous card from the Zustand store so we can roll back on error.
+      // Callers (KanbanBoard, FreeBoard, KanbanCard) apply their own optimistic update
+      // before calling mutateAsync — this rollback is a safety net for fire-and-forget
+      // .mutate() call sites that don't await / try-catch.
+      const previousCard = useCardStore.getState().cardsById[cardId];
+      return { previousCard };
+    },
+    onError: (_err, _vars, context) => {
+      // Roll back the optimistic store write if we have a previous snapshot.
+      // Callers that do their own try/catch rollback will simply overwrite this.
+      const previousCard = context?.previousCard;
+      if (previousCard) {
+        useCardStore.getState().upsertCard(previousCard);
+      }
+    },
+    onSettled: (_data, _err, { cardId, projectId }) => {
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
+      } else {
+        qc.invalidateQueries({ queryKey: cardKeys.all });
+      }
       qc.invalidateQueries({ queryKey: cardKeys.detail(cardId) });
     },
   });
@@ -364,15 +390,16 @@ export function useReorderCards() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (orderedCardIds: string[]) => {
-      await Promise.all(
-        orderedCardIds.map((id, index) =>
-          apiFetch(`/api/cards/${id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ position: index }),
-          })
-        )
-      );
+      const res = await fetch(`${API}/api/cards/bulk-reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ordered_ids: orderedCardIds }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({})) as { detail?: string };
+        throw new Error(detail.detail ?? `HTTP ${res.status}`);
+      }
+      // 204 No Content — do not parse JSON.
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: cardKeys.all });

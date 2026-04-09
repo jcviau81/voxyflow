@@ -5,18 +5,84 @@
  * card rendering as KanbanBoard for consistent UX (checkbox, dropdown, etc).
  */
 
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Archive, RotateCcw, ChevronRight, Trash2 } from 'lucide-react';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
+import type { Card, CardStatus } from '../../types';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
-import { useCards, useArchivedCards, useCreateCard, useRestoreCard, useDeleteCard } from '../../hooks/api/useCards';
+import { useCards, useArchivedCards, useCreateCard, useRestoreCard, useDeleteCard, usePatchCard } from '../../hooks/api/useCards';
 import { useExportProject, useImportProject } from '../../hooks/api/useProjects';
 import { KanbanCard } from '../Kanban/KanbanCard';
 import { DepGraphOverlay } from '../Kanban/KanbanBoard';
 import { BoardHeader, useDebounce } from './BoardHeader';
+
+// ── DnD helpers ───────────────────────────────────────────────────────────────
+
+const KANBAN_DROP_TARGETS: { status: CardStatus; label: string }[] = [
+  { status: 'todo', label: 'Todo' },
+  { status: 'in-progress', label: 'In Progress' },
+  { status: 'done', label: 'Done' },
+];
+
+interface DraggableBacklogCardProps {
+  card: Card;
+  children: React.ReactNode;
+}
+
+function DraggableBacklogCard({ card, children }: DraggableBacklogCardProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: card.id,
+    data: { type: 'card', card },
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.4 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
+interface KanbanDropZoneProps {
+  status: CardStatus;
+  label: string;
+}
+
+function KanbanDropZone({ status, label }: KanbanDropZoneProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: `freeboard-drop-${status}`, data: { status } });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'flex-1 rounded-lg border-2 border-dashed px-3 py-4 text-center text-sm font-medium transition-colors',
+        isOver
+          ? 'border-primary bg-primary/10 text-primary'
+          : 'border-border/60 bg-muted/30 text-muted-foreground',
+      )}
+    >
+      Move to {label}
+    </div>
+  );
+}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -42,6 +108,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   );
 
   const createCard = useCreateCard();
+  const patchCard = usePatchCard();
   const exportProject = useExportProject();
   const importProject = useImportProject();
 
@@ -155,6 +222,49 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
     [],
   );
 
+  // ── DnD: drag backlog card onto a Kanban drop zone ───────────────────────
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const [activeCard, setActiveCard] = useState<Card | null>(null);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const card = event.active.data.current?.card as Card | undefined;
+    if (card) setActiveCard(card);
+  }, []);
+
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      const draggedCard = active.data.current?.card as Card | undefined;
+      setActiveCard(null);
+
+      if (!draggedCard || !over) return;
+      const targetStatus = over.data.current?.status as CardStatus | undefined;
+      if (!targetStatus) return;
+      if (draggedCard.status === targetStatus) return;
+
+      // Optimistic update — mirrors KanbanBoard.handleDragOver pattern
+      useCardStore.getState().moveCard(draggedCard.id, targetStatus);
+
+      try {
+        await patchCard.mutateAsync({
+          cardId: draggedCard.id,
+          updates: { status: targetStatus },
+          projectId: draggedCard.projectId ?? currentProjectId,
+        } as { cardId: string; updates: Record<string, unknown>; projectId?: string });
+        showToast(`Moved to ${targetStatus}`, 'success');
+      } catch {
+        // Rollback
+        useCardStore.getState().moveCard(draggedCard.id, 'card');
+        showToast('Move failed', 'error');
+      }
+    },
+    [patchCard, showToast, currentProjectId],
+  );
+
   // Portal: render BoardHeader into the page-level slot when available (desktop split layout)
   const headerSlot = document.getElementById('board-header-slot');
 
@@ -182,39 +292,60 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
       {/* BoardHeader: portaled above split on desktop, inline on mobile */}
       {headerSlot ? createPortal(boardHeader, headerSlot) : boardHeader}
 
-      {/* Grid — uses KanbanCard for consistent rendering */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-          {isLoading ? (
-            <div className="col-span-full flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <div className="text-sm">Loading...</div>
-            </div>
-          ) : boardCards.length === 0 ? (
-            <div className="col-span-full flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <div className="text-sm">No cards yet. Add one!</div>
-            </div>
-          ) : (
-            boardCards.map((card) => (
-              <KanbanCard
-                key={card.id}
-                card={card}
-                selectMode={selectMode}
-                isSelected={selectedIds.has(card.id)}
-                onSelectChange={handleSelectChange}
-                query={query}
-                priorityFilter={priorityFilter}
-                agentFilter={agentFilter}
-                tagFilter={tagFilter}
-                onTagClick={handleTagClick}
-                onCardClick={handleCardClick}
-              />
-            ))
-          )}
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        {/* Kanban drop zones — only visible while dragging a backlog card */}
+        {activeCard && (
+          <div className="flex gap-2 px-4 pt-3">
+            {KANBAN_DROP_TARGETS.map((t) => (
+              <KanbanDropZone key={t.status} status={t.status} label={t.label} />
+            ))}
+          </div>
+        )}
+
+        {/* Grid — uses KanbanCard for consistent rendering */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+            {isLoading ? (
+              <div className="col-span-full flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <div className="text-sm">Loading...</div>
+              </div>
+            ) : boardCards.length === 0 ? (
+              <div className="col-span-full flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <div className="text-sm">No cards yet. Add one!</div>
+              </div>
+            ) : (
+              boardCards.map((card) => (
+                <DraggableBacklogCard key={card.id} card={card}>
+                  <KanbanCard
+                    card={card}
+                    selectMode={selectMode}
+                    isSelected={selectedIds.has(card.id)}
+                    onSelectChange={handleSelectChange}
+                    query={query}
+                    priorityFilter={priorityFilter}
+                    agentFilter={agentFilter}
+                    tagFilter={tagFilter}
+                    onTagClick={handleTagClick}
+                    onCardClick={handleCardClick}
+                  />
+                </DraggableBacklogCard>
+              ))
+            )}
+          </div>
+
+          {/* Archived cards */}
+          <FreeBoardArchived projectId={currentProjectId} />
         </div>
 
-        {/* Archived cards */}
-        <FreeBoardArchived projectId={currentProjectId} />
-      </div>
+        {/* Drag overlay — ghost of dragged card */}
+        <DragOverlay>
+          {activeCard ? (
+            <div className="opacity-80 rotate-2 scale-105">
+              <KanbanCard card={activeCard} query={query} />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {/* Dependency graph overlay */}
       {depGraphOpen && (

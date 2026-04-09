@@ -237,7 +237,11 @@ export function KanbanCard({
 
   const handleMoveToBacklog = async () => {
     try {
-      await patchCard.mutateAsync({ cardId: card.id, updates: { status: 'card' } });
+      await patchCard.mutateAsync({
+        cardId: card.id,
+        updates: { status: 'card' },
+        projectId: card.projectId ?? undefined,
+      });
       showToast('Card moved to Backlog', 'success');
     } catch {
       showToast('Move failed', 'error');
@@ -246,7 +250,11 @@ export function KanbanCard({
 
   const handleMoveToKanban = async () => {
     try {
-      await patchCard.mutateAsync({ cardId: card.id, updates: { status: 'todo' } });
+      await patchCard.mutateAsync({
+        cardId: card.id,
+        updates: { status: 'todo' },
+        projectId: card.projectId ?? undefined,
+      });
       showToast('Card moved to Kanban (Todo)', 'success');
     } catch {
       showToast('Move failed', 'error');

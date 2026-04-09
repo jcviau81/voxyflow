@@ -11,13 +11,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from app.services.ws_broadcast import ws_broadcast
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, Card, CardAttachment, CardRelation, CardHistory, Project, TimeEntry, CardComment, ChecklistItem, new_uuid, utcnow, SYSTEM_MAIN_PROJECT_ID
 from app.models.card import (
-    CardCreate, CardUpdate, CardResponse, AgentAssignment,
+    CardCreate, CardUpdate, CardResponse, AgentAssignment, BulkReorderRequest,
     TimeEntryCreate, TimeEntryResponse,
     CommentCreate, CommentResponse,
     ChecklistItemCreate, ChecklistItemUpdate, ChecklistItemResponse, ChecklistProgress,
@@ -110,12 +110,7 @@ async def create_card(
 
     db.add(card)
     await db.commit()
-    # Reload with relationships
-    stmt = select(Card).where(Card.id == card.id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    card = result.scalar_one()
+    await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
 
     _broadcast_card_change(card)
     return _card_to_response(card)
@@ -185,13 +180,35 @@ async def create_unassigned_card(
     )
     db.add(card)
     await db.commit()
-    stmt = select(Card).where(Card.id == card.id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    card = result.scalar_one()
+    await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
     return _card_to_response(card)
+
+
+@router.post("/cards/bulk-reorder", status_code=204)
+async def bulk_reorder_cards(
+    body: BulkReorderRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reorder cards in bulk. Sets each card's position to its index in ordered_ids.
+
+    Missing IDs are skipped silently. Emits one cards:changed broadcast per
+    affected project at the end.
+    """
+    affected_project_ids: set[str] = set()
+    for idx, cid in enumerate(body.ordered_ids):
+        existing = await db.get(Card, cid)
+        if not existing:
+            continue
+        await db.execute(
+            update(Card).where(Card.id == cid).values(position=idx, updated_at=utcnow())
+        )
+        affected_project_ids.add(existing.project_id or 'system-main')
+
+    await db.commit()
+
+    for project_id in affected_project_ids:
+        ws_broadcast.emit_sync("cards:changed", {"projectId": project_id, "cardId": None})
 
 
 @router.patch("/cards/{card_id}/assign/{project_id}", response_model=CardResponse)
@@ -215,11 +232,7 @@ async def assign_card_to_project(
                        old_value=None, new_value=project_id, changed_at=utcnow(), changed_by="User"))
 
     await db.commit()
-    stmt = select(Card).where(Card.id == card_id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    card = result.scalar_one()
+    await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
     return _card_to_response(card)
 
@@ -247,11 +260,7 @@ async def unassign_card_from_project(
                        old_value=old_project_id, new_value=SYSTEM_MAIN_PROJECT_ID, changed_at=utcnow(), changed_by="User"))
 
     await db.commit()
-    stmt = select(Card).where(Card.id == card_id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    card = result.scalar_one()
+    await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
     return _card_to_response(card)
 
@@ -268,7 +277,6 @@ async def get_card(card_id: str, db: AsyncSession = Depends(get_db)):
     card = result.scalar_one_or_none()
     if not card:
         raise HTTPException(404, "Card not found.")
-    _broadcast_card_change(card)
     return _card_to_response(card)
 
 
@@ -313,12 +321,7 @@ async def update_card(
     card.updated_at = utcnow()
 
     await db.commit()
-    # Reload with relationships
-    stmt = select(Card).where(Card.id == card_id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    card = result.scalar_one()
+    await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
     return _card_to_response(card)
 
@@ -344,12 +347,7 @@ async def assign_agent(
     card.updated_at = utcnow()
 
     await db.commit()
-    # Reload with relationships
-    stmt = select(Card).where(Card.id == card_id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    card = result.scalar_one()
+    await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
     return _card_to_response(card)
 
@@ -405,13 +403,7 @@ async def duplicate_card(card_id: str, db: AsyncSession = Depends(get_db)):
 
     db.add(new_card)
     await db.commit()
-
-    # Reload with relationships
-    stmt = select(Card).where(Card.id == new_card.id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    new_card = result.scalar_one()
+    await db.refresh(new_card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(new_card)
     return _card_to_response(new_card)
 
@@ -536,11 +528,7 @@ async def archive_card(card_id: str, db: AsyncSession = Depends(get_db)):
     ))
 
     await db.commit()
-    stmt = select(Card).where(Card.id == card_id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    card = result.scalar_one()
+    await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
     return _card_to_response(card)
 
@@ -565,11 +553,7 @@ async def restore_card(card_id: str, db: AsyncSession = Depends(get_db)):
     ))
 
     await db.commit()
-    stmt = select(Card).where(Card.id == card_id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    card = result.scalar_one()
+    await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
     return _card_to_response(card)
 
@@ -654,13 +638,7 @@ async def clone_card_to_project(
     db.add(relation)
 
     await db.commit()
-
-    # Reload with relationships
-    stmt = select(Card).where(Card.id == new_card.id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    new_card = result.scalar_one()
+    await db.refresh(new_card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(new_card)
     return _card_to_response(new_card)
 
@@ -687,13 +665,7 @@ async def move_card_to_project(
     card.updated_at = utcnow()
 
     await db.commit()
-
-    # Reload with relationships
-    stmt = select(Card).where(Card.id == card_id).options(
-        selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items)
-    )
-    result = await db.execute(stmt)
-    card = result.scalar_one()
+    await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
     return _card_to_response(card)
 

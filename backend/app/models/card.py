@@ -52,6 +52,11 @@ class CardUpdate(BaseModel):
     recurrence_next: Optional[datetime] = None
 
 
+class BulkReorderRequest(BaseModel):
+    """Bulk reorder cards: each ID's position is set to its index in the list."""
+    ordered_ids: list[str]
+
+
 class TimeEntryCreate(BaseModel):
     duration_minutes: int = Field(..., ge=1, description="Time logged in minutes")
     note: Optional[str] = None
