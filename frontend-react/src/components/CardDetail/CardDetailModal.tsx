@@ -98,6 +98,7 @@ export function CardDetailModal() {
   const selectedCardId = useProjectStore((s) => s.selectedCardId);
   const selectCard = useProjectStore((s) => s.selectCard);
   const updateCardStore = useCardStore((s) => s.updateCard);
+  const deleteCardStore = useCardStore((s) => s.deleteCard);
   const cardsById = useCardStore((s) => s.cardsById);
   const showToast = useToastStore((s) => s.showToast);
 
@@ -131,20 +132,27 @@ export function CardDetailModal() {
     [card?.projectId, cardsById],
   );
 
-  // Sync local state when card data changes (including real-time updates from workers)
+  // Sync local description only when opening a different card.
+  // While the modal is open, local state is the source of truth — server/WebSocket
+  // updates must not overwrite the user's in-progress edits.
   useEffect(() => {
     if (card) setDescription(card.description ?? '');
-  }, [card?.id, card?.description]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card?.id]);
 
   useEffect(() => {
-    if (card && titleRef.current && titleRef.current !== document.activeElement) {
+    if (card && titleRef.current) {
       titleRef.current.value = card.title;
     }
-  }, [card?.title]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card?.id]);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
-  const close = useCallback(() => selectCard(null), [selectCard]);
+  const close = useCallback(() => {
+    if (descriptionTimerRef.current) clearTimeout(descriptionTimerRef.current);
+    selectCard(null);
+  }, [selectCard]);
 
   const save = useCallback(
     (updates: Record<string, unknown>) => {
@@ -237,16 +245,18 @@ export function CardDetailModal() {
 
   const handleArchive = useCallback(() => {
     if (!card) return;
+    // Optimistic: remove from store immediately so the board updates
+    deleteCardStore(card.id);
+    close();
     archiveCard.mutate(
       { cardId: card.id, projectId: card.projectId ?? undefined },
       {
         onSuccess: () => {
           showToast(`"${card.title}" archived`, 'success');
-          close();
         },
       },
     );
-  }, [card, archiveCard, showToast, close]);
+  }, [card, archiveCard, deleteCardStore, showToast, close]);
 
   const handleExecute = useCallback(() => {
     if (!card) return;
@@ -344,6 +354,7 @@ export function CardDetailModal() {
               projectId={card.projectId ?? undefined}
               cardId={card.id}
               embedded
+              className="flex-1"
             />
           </div>
 

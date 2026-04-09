@@ -200,7 +200,7 @@ async def assign_card_to_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Move a card to a project (assign project_id). Changes internal status from 'card' to 'idea'."""
+    """Move a card to a project (assign project_id)."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found.")
@@ -208,15 +208,9 @@ async def assign_card_to_project(
     if not project:
         raise HTTPException(404, "Project not found.")
 
-    old_status = card.status
     card.project_id = project_id
-    if card.status == "card":
-        card.status = "idea"
     card.updated_at = utcnow()
 
-    if old_status != card.status:
-        db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="status",
-                           old_value=old_status, new_value=card.status, changed_at=utcnow(), changed_by="User"))
     db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="project_id",
                        old_value=None, new_value=project_id, changed_at=utcnow(), changed_by="User"))
 
@@ -450,7 +444,7 @@ async def execute_card(card_id: str, db: AsyncSession = Depends(get_db)):
         if project:
             project_name = project.title
         # Move card to in-progress for project cards
-        if card.status in ("idea", "todo"):
+        if card.status in ("card", "todo"):
             card.status = "in-progress"
             await db.commit()
 

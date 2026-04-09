@@ -100,7 +100,7 @@ Create a card in a project.
 | project_id | string | yes | Project ID |
 | title | string | yes | Card title |
 | description | string | no | Card description |
-| status | string | no | idea, todo, in-progress, done (default: idea) |
+| status | string | no | card, todo, in-progress, done (default: card) |
 | priority | integer | no | 0=none, 1=low, 2=medium, 3=high, 4=critical |
 | agent_type | string | no | ember, researcher, coder, designer, architect, writer, qa |
 
@@ -124,14 +124,14 @@ Update a card's fields.
 | title | string | no | New title |
 | description | string | no | New description |
 | priority | integer | no | 0-4 |
-| status | string | no | idea, todo, in-progress, done, archived |
+| status | string | no | card, todo, in-progress, done, archived |
 
 #### voxyflow.card.move
 Move a card to a different kanban column.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | card_id | string | yes | Card ID |
-| new_status | string | yes | idea, todo, in-progress, done, archived |
+| new_status | string | yes | card, todo, in-progress, done, archived |
 
 #### voxyflow.card.delete
 Delete a card (irreversible).

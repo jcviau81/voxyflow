@@ -4,8 +4,7 @@ from enum import StrEnum
 
 
 class CardStatus(StrEnum):
-    CARD = "card"          # inbox / unsorted
-    IDEA = "idea"
+    CARD = "card"          # backlog / unsorted
     TODO = "todo"
     IN_PROGRESS = "in-progress"
     DONE = "done"

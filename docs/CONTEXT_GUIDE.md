@@ -123,7 +123,7 @@ Ou crée la carte manuellement, puis configure la récurrence dans le détail de
 | `hourly` | Chaque heure |
 | `6hours` | Toutes les 6 heures |
 
-Quand la date de prochaine occurrence est atteinte, le scheduler crée automatiquement une copie fraîche de la carte (statut `idea`, titre et description préservés) et replanifie la prochaine occurrence.
+Quand la date de prochaine occurrence est atteinte, le scheduler crée automatiquement une copie fraîche de la carte (statut `todo`, titre et description préservés) et replanifie la prochaine occurrence.
 
 #### Carte 2 : Weekly Review
 

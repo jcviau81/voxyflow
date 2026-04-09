@@ -29,7 +29,7 @@ interface CardStats {
   done: number;
   inProgress: number;
   todo: number;
-  ideas: number;
+  backlog: number;
   pct: number;
 }
 
@@ -316,9 +316,9 @@ export function ProjectList() {
     const done = cards.filter((c) => c.status === 'done').length;
     const inProgress = cards.filter((c) => c.status === 'in-progress').length;
     const todo = cards.filter((c) => c.status === 'todo').length;
-    const ideas = cards.filter((c) => c.status === 'idea').length;
+    const backlog = cards.filter((c) => c.status === 'card').length;
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    return { total, done, inProgress, todo, ideas, pct };
+    return { total, done, inProgress, todo, backlog, pct };
   }, []);
 
   const isCompleted = useCallback((p: Project) => {

@@ -14,7 +14,7 @@ interface ProjectTab {
 const PROJECT_TABS: ProjectTab[] = [
   { view: 'chat',      icon: <MessageSquare size={13} />, label: 'Chat' },
   { view: 'kanban',    icon: <LayoutGrid size={13} />,    label: 'Kanban' },
-  { view: 'freeboard', icon: <Pin size={13} />,           label: 'Board' },
+  { view: 'freeboard', icon: <Pin size={13} />,           label: 'Backlog' },
   { view: 'knowledge', icon: <Brain size={13} />,         label: 'Knowledge' },
   { view: 'stats',     icon: <BarChart2 size={13} />,     label: 'Stats' },
 ];

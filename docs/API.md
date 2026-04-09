@@ -563,7 +563,7 @@ Create a card in a project.
 {
   "title": "Add auth middleware",
   "description": "JWT-based auth for API routes",
-  "status": "idea",
+  "status": "todo",
   "priority": 2,
   "agent_type": "coder",
   "agent_context": "FastAPI app, routes in app/routes/",
@@ -1213,7 +1213,7 @@ Execute a registered tool by name (for external/debugging use).
   "params": {
     "project_id": "uuid",
     "title": "New card",
-    "status": "idea"
+    "status": "todo"
   }
 }
 ```

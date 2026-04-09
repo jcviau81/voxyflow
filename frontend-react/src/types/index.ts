@@ -1,7 +1,7 @@
 // Voxyflow Type Definitions — ported from frontend/src/types/index.ts
 
 export type MessageRole = 'user' | 'assistant' | 'system';
-export type CardStatus = 'card' | 'idea' | 'todo' | 'in-progress' | 'done' | 'archived';
+export type CardStatus = 'card' | 'todo' | 'in-progress' | 'done' | 'archived';
 export type ViewMode =
   | 'chat'
   | 'kanban'

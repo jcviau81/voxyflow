@@ -164,7 +164,7 @@ INLINE_TOOLS = [
                 },
                 "status": {
                     "type": "string",
-                    "description": "Filter by status (idea, todo, in-progress, done, archived)",
+                    "description": "Filter by status (card, todo, in-progress, done, archived)",
                 },
             },
         },
@@ -270,7 +270,7 @@ INLINE_TOOLS = [
                 },
                 "status": {
                     "type": "string",
-                    "description": "Target status: idea, todo, in-progress, done, archived",
+                    "description": "Target status: card, todo, in-progress, done, archived",
                 },
                 "project_id": {
                     "type": "string",

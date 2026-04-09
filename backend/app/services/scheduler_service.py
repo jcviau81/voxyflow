@@ -410,7 +410,7 @@ class SchedulerService:
         Recurring card generator — runs every hour.
 
         Finds all cards with a recurrence schedule whose recurrence_next is in the past,
-        creates a fresh copy (status=idea, title/description/agent_type preserved),
+        creates a fresh copy (status=todo, title/description/agent_type preserved),
         and advances recurrence_next to the next occurrence.
         """
         try:
@@ -433,13 +433,13 @@ class SchedulerService:
 
                 for card in due_cards:
                     try:
-                        # Create a copy with status="idea"
+                        # Create a copy with status="todo"
                         new_card = Card(
                             id=new_uuid(),
                             project_id=card.project_id,
                             title=card.title,
                             description=card.description,
-                            status="idea",
+                            status="todo",
                             priority=card.priority,
                             auto_generated=True,
                             agent_type=card.agent_type,
@@ -575,7 +575,7 @@ class SchedulerService:
                                 "id": card.id,
                                 "title": card.title or "",
                                 "description": card.description or "",
-                                "status": card.status or "idea",
+                                "status": card.status or "card",
                                 "agent_type": getattr(card, "agent_type", "") or "",
                             }
                             for card in cards_orm

@@ -89,7 +89,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "From brainstorm to published content, end to end.",
         "color": "#ff9ff3",
         "cards": [
-            {"title": "Brainstorm topics", "status": "idea", "priority": 1, "agent_type": "general"},
+            {"title": "Brainstorm topics", "status": "todo", "priority": 1, "agent_type": "general"},
             {"title": "Outline", "status": "todo", "priority": 2, "agent_type": "writer"},
             {"title": "Draft", "status": "todo", "priority": 3, "agent_type": "writer"},
             {"title": "Review & edit", "status": "todo", "priority": 4, "agent_type": "qa"},
@@ -674,7 +674,7 @@ async def generate_brief(project_id: str, db: AsyncSession = Depends(get_db)):
             lines.append(f"  - {c.title}{agent} (priority: {prio}){desc}")
         return "\n".join(lines)
 
-    idea_cards    = [c for c in cards if c.status == "idea"]
+    backlog_cards = [c for c in cards if c.status == "card"]
     todo_cards    = [c for c in cards if c.status == "todo"]
     inprog_cards  = [c for c in cards if c.status == "in-progress"]
     done_cards    = [c for c in cards if c.status == "done"]
@@ -694,13 +694,13 @@ async def generate_brief(project_id: str, db: AsyncSession = Depends(get_db)):
         f"Description: {project.description or 'No description provided.'}\n\n"
         f"Tech stack: {tech_stack}\n\n"
         f"Cards/Features by status:\n\n"
-        f"💡 IDEAS:\n{card_lines(idea_cards)}\n\n"
+        f"📦 BACKLOG:\n{card_lines(backlog_cards)}\n\n"
         f"📋 TODO:\n{card_lines(todo_cards)}\n\n"
         f"🔨 IN PROGRESS:\n{card_lines(inprog_cards)}\n\n"
         f"✅ DONE:\n{card_lines(done_cards)}\n\n"
         f"Total cards: {len(cards)} | Done: {len(done_cards)} | "
         f"In Progress: {len(inprog_cards)} | Todo: {len(todo_cards)} | "
-        f"Ideas: {len(idea_cards)}\n\n"
+        f"Backlog: {len(backlog_cards)}\n\n"
         f"Generate a comprehensive project brief with the following sections:\n"
         f"1. Executive Summary (2-3 paragraphs)\n"
         f"2. Problem Statement\n"
@@ -749,7 +749,7 @@ def _compute_health(project: "Project", cards: list["Card"], sprints: list["Spri
     recommendations: list[str] = []
 
     total = len(cards)
-    idea_cards = [c for c in cards if c.status == "idea"]
+    backlog_cards = [c for c in cards if c.status == "card"]
     todo_cards = [c for c in cards if c.status == "todo"]
     inprog_cards = [c for c in cards if c.status == "in-progress"]
     done_cards = [c for c in cards if c.status == "done"]
@@ -779,15 +779,15 @@ def _compute_health(project: "Project", cards: list["Card"], sprints: list["Spri
         })
         recommendations.append("Review and prioritize stale todo cards or archive ones no longer relevant.")
 
-    # ── Issue: high ratio of idea cards (backlog bloat) ─────────────────────
+    # ── Issue: high ratio of backlog cards ───────────────────────────────────
     if total > 0:
-        idea_ratio = len(idea_cards) / total
-        if idea_ratio > 0.4:
+        backlog_ratio = len(backlog_cards) / total
+        if backlog_ratio > 0.4:
             issues.append({
                 "severity": "info",
-                "message": f"{len(idea_cards)} of {total} cards ({round(idea_ratio*100)}%) are in the idea/backlog stage.",
+                "message": f"{len(backlog_cards)} of {total} cards ({round(backlog_ratio*100)}%) are in the backlog.",
             })
-            recommendations.append("Groom your backlog: promote the best ideas to 'todo' or archive low-priority ones.")
+            recommendations.append("Groom your backlog: promote cards to 'todo' or archive low-priority ones.")
 
     # ── Issue: cards with no description ────────────────────────────────────
     no_desc = [c for c in cards if not (c.description or "").strip()]
@@ -890,7 +890,7 @@ def _compute_health(project: "Project", cards: list["Card"], sprints: list["Spri
             "todo": len(todo_cards),
             "inprog": len(inprog_cards),
             "done": len(done_cards),
-            "idea": len(idea_cards),
+            "backlog": len(backlog_cards),
             "sprints": len(sprints),
             "project_title": project.title,
         },
@@ -934,7 +934,7 @@ async def project_health_check(project_id: str, db: AsyncSession = Depends(get_d
         f"Project: {meta['project_title']}\n"
         f"Health score: {health['score']}/100 (Grade {health['grade']})\n"
         f"Cards: {meta['total']} total — {meta['inprog']} in-progress, {meta['todo']} todo, "
-        f"{meta['done']} done, {meta['idea']} ideas\n"
+        f"{meta['done']} done, {meta['backlog']} backlog\n"
         f"Sprints: {meta['sprints']}\n\n"
         f"Strengths:\n{strengths_text}\n\n"
         f"Issues:\n{issues_text}\n\n"
@@ -1502,8 +1502,8 @@ def _compute_priority_score(card: "Card", all_cards: list["Card"]) -> float:
         # fully done = 0 extra (already done is done)
     # No checklist = neutral (0 pts for this factor)
 
-    # 6. Status (in-progress > todo > idea; done cards get 0 = should not appear)
-    status_map = {"in-progress": 10.0, "todo": 6.0, "idea": 2.0, "done": 0.0}
+    # 6. Status (in-progress > todo > card/backlog; done cards get 0 = should not appear)
+    status_map = {"in-progress": 10.0, "todo": 6.0, "card": 2.0, "done": 0.0}
     score += status_map.get(card.status or "todo", 2.0)
 
     return round(min(score, 100.0), 2)
@@ -1549,7 +1549,7 @@ async def smart_prioritize(project_id: str, db: AsyncSession = Depends(get_db)):
     # Build top-3 AI reasoning prompt
     top3 = scored[:3]
     priority_label = {3: "critical", 2: "high", 1: "medium", 0: "low"}
-    status_label = {"in-progress": "in progress", "todo": "todo", "idea": "idea"}
+    status_label = {"in-progress": "in progress", "todo": "todo", "card": "backlog"}
 
     top3_lines = []
     for rank, (card, score) in enumerate(top3, 1):

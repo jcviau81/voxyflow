@@ -125,7 +125,7 @@ async def _build_card_prompt(card_id: str) -> tuple[str, str | None]:
             if project:
                 project_name = project.title
             # Move to in-progress
-            if card.status in (CardStatus.IDEA, CardStatus.TODO):
+            if card.status in (CardStatus.CARD, CardStatus.TODO):
                 card.status = CardStatus.IN_PROGRESS
                 await db.commit()
 

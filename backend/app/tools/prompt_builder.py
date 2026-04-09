@@ -112,7 +112,7 @@ class ToolPromptBuilder:
             "- Always explain what you're doing before/after tool calls\n",
             "### CRITICAL: Create vs Move/Update",
             "- **card.create** = make a NEW card that does NOT exist yet",
-            "- **card.move** = change the STATUS of an EXISTING card (idea→todo→in-progress→done→archived)",
+            "- **card.move** = change the STATUS of an EXISTING card (todo→in-progress→done→archived)",
             "- **card.update** = change the CONTENT of an EXISTING card (title, description, priority)",
             "- Before using card.move or card.update, ALWAYS call card.list first to get the real card_id",
             "- NEVER use card.create when the user asks to move, update, complete, start, or change an existing card",

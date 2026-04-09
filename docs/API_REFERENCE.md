@@ -19,7 +19,7 @@
 {
   "title": "string (required)",
   "description": "string",
-  "status": "idea|todo|in-progress|done (default: idea)",
+  "status": "card|todo|in-progress|done (default: card)",
   "priority": "0-4 (default: 0)",
   "color": "yellow|blue|green|pink|purple|orange",
   "agent_type": "ember|researcher|coder|designer|architect|writer|qa",
@@ -71,7 +71,7 @@
 {
   "title": "string",
   "description": "string",
-  "status": "idea|todo|in-progress|done|archived",
+  "status": "card|todo|in-progress|done|archived",
   "priority": "0-4",
   "color": "string",
   "agent_type": "string",

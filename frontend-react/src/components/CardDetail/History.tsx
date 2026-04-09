@@ -12,7 +12,7 @@ import { useCardHistory } from '../../hooks/api/useCards';
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<string, string> = {
-  idea: 'text-slate-400 border-slate-400',
+  card: 'text-slate-400 border-slate-400',
   todo: 'text-blue-400 border-blue-400',
   'in-progress': 'text-amber-400 border-amber-400',
   done: 'text-emerald-400 border-emerald-400',

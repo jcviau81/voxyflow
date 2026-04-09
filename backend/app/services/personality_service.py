@@ -193,7 +193,7 @@ class PersonalityService:
             "You don't ask for permission to do what you were clearly asked to do.\n"
             "You use your tools silently and naturally — like someone who knows their workspace.\n\n"
             "## Right Now\n"
-            "You are in the Main project — the default workspace for ideas, cards, and conversation. "
+            "You are in the Main project — the default workspace for cards, tasks, and conversation. "
             "If the user mentions a different project by name, pivot to it. "
             "Cards created here belong to the Main project.\n\n"
             "Do NOT say 'welcome back' on a first conversation. Greet naturally based on what they said."
@@ -280,11 +280,11 @@ class PersonalityService:
             done = sum(1 for c in cards if c.get("status") == "done")
             in_progress_cards = [c for c in cards if c.get("status") == "in_progress"]
             todo_cards = [c for c in cards if c.get("status") == "todo"]
-            idea_cards = [c for c in cards if c.get("status") == "idea"]
+            backlog_cards = [c for c in cards if c.get("status") == "card"]
 
             state_line = (
                 f"State: {total} cards — {done} done, {len(in_progress_cards)} in progress, "
-                f"{len(todo_cards)} todo, {len(idea_cards)} ideas"
+                f"{len(todo_cards)} todo, {len(backlog_cards)} backlog"
             )
 
             # In-progress titles
@@ -301,15 +301,15 @@ class PersonalityService:
             else:
                 todo_block = "Todo: (none)"
 
-            # Idea titles (top 5)
-            if idea_cards:
-                top_ideas = idea_cards[:5]
-                id_lines = "\n".join(f"  - {c.get('title', 'Untitled')}" for c in top_ideas)
-                ideas_block = f"Ideas (top {len(top_ideas)}):\n{id_lines}"
-                if len(idea_cards) > 5:
-                    ideas_block += f"\n  … and {len(idea_cards) - 5} more"
+            # Backlog titles (top 5)
+            if backlog_cards:
+                top_backlog = backlog_cards[:5]
+                bl_lines = "\n".join(f"  - {c.get('title', 'Untitled')}" for c in top_backlog)
+                backlog_block = f"Backlog (top {len(top_backlog)}):\n{bl_lines}"
+                if len(backlog_cards) > 5:
+                    backlog_block += f"\n  … and {len(backlog_cards) - 5} more"
             else:
-                ideas_block = "Ideas: (none)"
+                backlog_block = "Backlog: (none)"
 
             parts.append(
                 f"## Project Context: {name} (LIVE — this overrides any earlier data in the conversation)\n"
@@ -317,14 +317,14 @@ class PersonalityService:
                 f"Tech Stack: {tech_stack}\n"
                 f"GitHub: {github_url}\n\n"
                 f"{state_line}\n\n"
-                f"{in_progress_block}\n{todo_block}\n{ideas_block}"
+                f"{in_progress_block}\n{todo_block}\n{backlog_block}"
             )
 
         if chat_level == "card" and card:
             # Card chat: inject full card details
             card_title = card.get("title", "Untitled")
             card_id = card.get("id", "")
-            status = card.get("status", "idea")
+            status = card.get("status", "card")
             priority = card.get("priority", "medium")
             agent_type = card.get("agent_type") or "general"
             description = card.get("description") or "No description"
@@ -537,7 +537,7 @@ class PersonalityService:
             "\n\n## Voice Instructions\n"
             "You speak naturally and concisely -- this is a voice conversation, not a text chat.\n"
             "Keep responses short (1-3 sentences for voice). Be helpful, direct, and friendly.\n"
-            "You help manage projects, tasks, and ideas through conversation.\n"
+            "You help manage projects, tasks, and cards through conversation.\n"
             "Respond in the same language the user speaks (French or English).\n"
             "Your personality comes through in HOW you say things -- tone, word choice, energy.\n"
             "Be yourself. Not a corporate bot."

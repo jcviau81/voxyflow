@@ -2,7 +2,7 @@ import { Timer } from 'lucide-react';
 import type { Card, ActivityEntry } from '../../types';
 
 const STATUS_CONFIG = [
-  { key: 'idea' as const,        label: '💡 Idea',       color: '#a78bfa' },
+  { key: 'card' as const,        label: '📦 Backlog',    color: '#a78bfa' },
   { key: 'todo' as const,        label: '📋 Todo',        color: '#60a5fa' },
   { key: 'in-progress' as const, label: '🔨 In Progress', color: '#fbbf24' },
   { key: 'done' as const,        label: '✅ Done',         color: '#4ade80' },

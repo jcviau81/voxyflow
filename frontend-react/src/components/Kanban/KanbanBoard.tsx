@@ -38,10 +38,9 @@ import { BoardHeader, useDebounce } from '../Board/BoardHeader';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const COLUMN_STATUSES: CardStatus[] = ['idea', 'todo', 'in-progress', 'done'];
+const COLUMN_STATUSES: CardStatus[] = ['todo', 'in-progress', 'done'];
 
 const COLUMN_LABELS: Record<string, string> = {
-  idea: 'Idea',
   todo: 'Todo',
   'in-progress': 'In Progress',
   done: 'Done',
@@ -437,6 +436,8 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const projectId = projectIdProp ?? storeProjectId;
   const cardsById = useCardStore((s) => s.cardsById);
   const setCardsForProject = useCardStore((s) => s.setCardsForProject);
+  const updateCardStore = useCardStore((s) => s.updateCard);
+  const deleteCardStore = useCardStore((s) => s.deleteCard);
   const showToast = useToastStore((s) => s.showToast);
 
   // API hooks
@@ -775,30 +776,33 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const handleBulkMove = useCallback(
     (status: CardStatus) => {
       selectedIds.forEach((id) => {
+        updateCardStore(id, { status });
         patchCard.mutate({ cardId: id, updates: { status } });
       });
       showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
       clearSelection();
     },
-    [selectedIds, patchCard, showToast, clearSelection],
+    [selectedIds, patchCard, updateCardStore, showToast, clearSelection],
   );
 
   const handleBulkArchive = useCallback(() => {
     selectedIds.forEach((id) => {
+      deleteCardStore(id);
       patchCard.mutate({ cardId: id, updates: { status: 'archived' as CardStatus } });
     });
     showToast(`Archived ${selectedIds.size} cards`, 'success');
     clearSelection();
-  }, [selectedIds, patchCard, showToast, clearSelection]);
+  }, [selectedIds, patchCard, deleteCardStore, showToast, clearSelection]);
 
   const handleBulkDelete = useCallback(() => {
     if (!confirm(`Delete ${selectedIds.size} cards permanently? This cannot be undone.`)) return;
     selectedIds.forEach((id) => {
+      deleteCardStore(id);
       deleteCardMut.mutate({ cardId: id, projectId: projectId ?? undefined });
     });
     showToast(`Deleted ${selectedIds.size} cards`, 'success');
     clearSelection();
-  }, [selectedIds, deleteCardMut, projectId, showToast, clearSelection]);
+  }, [selectedIds, deleteCardMut, deleteCardStore, projectId, showToast, clearSelection]);
 
   const handleCardClickInternal = useCallback(
     (cardId: string) => {

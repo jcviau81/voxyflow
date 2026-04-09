@@ -152,6 +152,7 @@ export function KanbanCard({
   const projects = useProjectStore((s) => s.projects);
   const { selectCard } = useProjectStore();
   const cardsById = useCardStore((s) => s.cardsById);
+  const deleteCardStore = useCardStore((s) => s.deleteCard);
 
   const patchCard = usePatchCard();
   const duplicateCard = useDuplicateCard();
@@ -263,6 +264,7 @@ export function KanbanCard({
 
   const handleArchive = async () => {
     try {
+      deleteCardStore(card.id);
       await archiveCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
       showToast(`"${card.title}" archived`, 'success');
     } catch {

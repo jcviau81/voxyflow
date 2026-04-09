@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Card, CardStatus, CardRelation, CardRelationType, CardHistoryEntry, TimeEntry, CardComment, ChecklistItem, CardAttachment } from '../../types';
+import { useCardStore } from '../../stores/useCardStore';
 
 const API = '';
 
@@ -212,13 +213,14 @@ export function useCreateCard() {
         body: JSON.stringify({
           title: data.title,
           description: data.description ?? '',
-          status: data.status ?? 'idea',
+          status: data.status ?? 'card',
           priority: data.priority ?? 0,
         }),
       });
       return mapRawCard(raw);
     },
     onSuccess: (card) => {
+      useCardStore.getState().upsertCard(card);
       if (card.projectId) {
         qc.invalidateQueries({ queryKey: cardKeys.byProject(card.projectId) });
       }
@@ -286,7 +288,9 @@ export function useRestoreCard() {
       const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/restore`, { method: 'POST' });
       return mapRawCard(raw);
     },
-    onSuccess: (_data, { projectId }) => {
+    onSuccess: (card, { projectId }) => {
+      // Optimistic: add restored card back to the store immediately
+      useCardStore.getState().upsertCard(card);
       if (projectId) {
         qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
         qc.invalidateQueries({ queryKey: cardKeys.archived(projectId) });
@@ -302,7 +306,8 @@ export function useDuplicateCard() {
       const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/duplicate`, { method: 'POST' });
       return mapRawCard(raw);
     },
-    onSuccess: (_data, { projectId }) => {
+    onSuccess: (card, { projectId }) => {
+      useCardStore.getState().upsertCard(card);
       if (projectId) {
         qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
       }
@@ -317,7 +322,8 @@ export function useCloneCard() {
       const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/clone-to/${targetProjectId}`, { method: 'POST' });
       return mapRawCard(raw);
     },
-    onSuccess: (_data, { targetProjectId, sourceProjectId }) => {
+    onSuccess: (card, { targetProjectId, sourceProjectId }) => {
+      useCardStore.getState().upsertCard(card);
       qc.invalidateQueries({ queryKey: cardKeys.byProject(targetProjectId) });
       if (sourceProjectId) {
         qc.invalidateQueries({ queryKey: cardKeys.byProject(sourceProjectId) });
@@ -333,7 +339,12 @@ export function useMoveCard() {
       const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/move-to/${targetProjectId}`, { method: 'POST' });
       return mapRawCard(raw);
     },
-    onSuccess: (_data, { targetProjectId, sourceProjectId }) => {
+    onSuccess: (card, { targetProjectId, sourceProjectId }) => {
+      // Remove from source project in store, add to target
+      if (sourceProjectId) {
+        useCardStore.getState().deleteCard(card.id);
+      }
+      useCardStore.getState().upsertCard(card);
       qc.invalidateQueries({ queryKey: cardKeys.byProject(targetProjectId) });
       if (sourceProjectId) {
         qc.invalidateQueries({ queryKey: cardKeys.byProject(sourceProjectId) });

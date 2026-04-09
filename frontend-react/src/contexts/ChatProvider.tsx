@@ -996,7 +996,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       cardStore.addCard({
         title: data.title,
         description: data.description || '',
-        status: 'idea',
+        status: 'todo',
         projectId: pStore.currentProjectId || '',
         dependencies: [],
         tags: [],

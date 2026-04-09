@@ -9,7 +9,7 @@
 1. [Navigation et structure générale](#1-navigation-et-structure-générale)
 2. [Vue Chat](#2-vue-chat)
 3. [Vue Kanban](#3-vue-kanban)
-4. [Vue FreeBoard (Board)](#4-vue-freeboard-board)
+4. [Vue Backlog](#4-vue-backlog)
 5. [Vue Knowledge (Documents, Wiki, RAG)](#5-vue-knowledge-documents-wiki-rag)
 6. [Vue Stats (projets uniquement)](#6-vue-stats-projets-uniquement)
 7. [Card Detail Modal](#7-card-detail-modal)
@@ -193,12 +193,12 @@ Chaque carte affiche : titre, priorité, agent assigné, tags, et indicateurs vi
 
 ---
 
-## 4. Vue FreeBoard (Board)
+## 4. Vue Backlog
 
 ### Accès
 
-- Onglet Main → "Board" dans le ProjectHeader
-- Onglet d'un projet → "Board"
+- Onglet Main → "Backlog" dans le ProjectHeader
+- Onglet d'un projet → "Backlog"
 
 ### Ce qu'elle montre
 
@@ -285,7 +285,7 @@ Le Standup, le Brief, le Health score et la priorisation du backlog sont génér
 
 ### Accès
 
-Cliquer sur n'importe quelle carte (Kanban ou FreeBoard) ouvre la Card Detail Modal.
+Cliquer sur n'importe quelle carte (Kanban ou Backlog) ouvre la Card Detail Modal.
 
 ### Ce qu'elle montre
 

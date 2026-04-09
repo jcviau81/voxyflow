@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ListChecks, X } from 'lucide-react';
 import type { ChecklistItem } from '../../../types';
 import {
@@ -97,6 +97,11 @@ function ChecklistItemRow({
 }) {
   const [editText, setEditText] = useState(item.text);
   const [editing, setEditing] = useState(false);
+
+  // Sync from server when not actively editing
+  useEffect(() => {
+    if (!editing) setEditText(item.text);
+  }, [editing, item.text]);
 
   return (
     <div className="flex items-center gap-1.5 text-[11px]">

@@ -3,8 +3,8 @@
  * Port of the vanilla buildRelationsSection().
  */
 
-import { useState, useMemo } from 'react';
-import { X, Link2, Copy, ShieldAlert, ShieldX, GitBranch, type LucideIcon } from 'lucide-react';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { X, Link2, Copy, ShieldAlert, ShieldX, GitBranch, Search, Plus, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CardRelation, CardRelationType } from '../../types';
 import { useRelations, useAddRelation, useDeleteRelation } from '../../hooks/api/useCards';
@@ -52,7 +52,7 @@ const BADGE_COLOR: Record<string, string> = {
 };
 
 const STATUS_DOT: Record<string, string> = {
-  idea: 'bg-slate-400',
+  card: 'bg-slate-400',
   todo: 'bg-blue-400',
   'in-progress': 'bg-amber-400',
   done: 'bg-emerald-400',
@@ -73,22 +73,50 @@ export function RelationsSection({ cardId, projectId }: Props) {
   const cardsById = useCardStore((s) => s.cardsById);
   const showToast = useToastStore((s) => s.showToast);
 
-  const [selectedCard, setSelectedCard] = useState('');
+  const [search, setSearch] = useState('');
   const [selectedType, setSelectedType] = useState<CardRelationType>('relates_to');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Already-related card IDs for filtering
+  const relatedIds = useMemo(
+    () => new Set(relations.map((r) => r.relatedCardId)),
+    [relations],
+  );
 
   const projectCards = useMemo(
     () => projectId
-      ? Object.values(cardsById).filter((c) => c.projectId === projectId && c.id !== cardId)
+      ? Object.values(cardsById).filter((c) => c.projectId === projectId && c.id !== cardId && !relatedIds.has(c.id))
       : [],
-    [cardsById, projectId, cardId],
+    [cardsById, projectId, cardId, relatedIds],
   );
 
-  const handleAdd = () => {
-    if (!selectedCard) return;
+  const filtered = useMemo(() => {
+    if (!search.trim()) return projectCards;
+    const q = search.toLowerCase();
+    return projectCards.filter((c) => c.title.toLowerCase().includes(q));
+  }, [projectCards, search]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleAdd = (targetCardId: string) => {
     addRelation.mutate(
-      { cardId, targetCardId: selectedCard, relationType: selectedType },
+      { cardId, targetCardId, relationType: selectedType },
       {
-        onSuccess: () => setSelectedCard(''),
+        onSuccess: () => {
+          setSearch('');
+          setShowDropdown(false);
+        },
         onError: () => showToast('Could not add relation', 'error'),
       },
     );
@@ -146,42 +174,56 @@ export function RelationsSection({ cardId, projectId }: Props) {
         ))}
       </div>
 
-      {/* Add row */}
-      {projectCards.length > 0 ? (
-        <div className="flex items-center gap-1">
-          <select
-            value={selectedCard}
-            onChange={(e) => setSelectedCard(e.target.value)}
-            className="flex-1 rounded-md border border-border bg-card text-foreground px-1.5 py-1 text-xs outline-none"
-          >
-            <option value="" disabled>
-              Select card…
-            </option>
-            {projectCards.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.status === 'done' ? '✓' : '○'} {c.title}
-              </option>
-            ))}
-          </select>
-          <select
-            value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value as CardRelationType)}
-            className="rounded-md border border-border bg-card text-foreground px-1.5 py-1 text-xs outline-none"
-          >
-            {RELATION_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {RELATION_LABEL[t]}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={handleAdd}
-            disabled={!selectedCard || addRelation.isPending}
-            className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
-          >
-            {addRelation.isPending ? '…' : '+ Add'}
-          </button>
+      {/* Add relation */}
+      {projectCards.length > 0 || search ? (
+        <div className="space-y-1" ref={containerRef}>
+          <div className="flex items-center gap-1">
+            <select
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value as CardRelationType)}
+              className="shrink-0 rounded-md border border-border bg-card text-foreground px-1.5 py-1 text-xs outline-none"
+            >
+              {RELATION_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {RELATION_LABEL[t]}
+                </option>
+              ))}
+            </select>
+            <div className="relative flex-1">
+              <Search size={11} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setShowDropdown(true); }}
+                onFocus={() => setShowDropdown(true)}
+                placeholder="Search cards…"
+                className="w-full rounded-md border border-border bg-card text-foreground pl-6 pr-2 py-1 text-xs outline-none placeholder:text-muted-foreground/40 focus:border-accent"
+              />
+              {/* Dropdown */}
+              {showDropdown && (
+                <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-40 overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+                  {filtered.length === 0 ? (
+                    <p className="px-2 py-2 text-xs text-muted-foreground/60">No matching cards</p>
+                  ) : (
+                    filtered.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleAdd(c.id)}
+                        disabled={addRelation.isPending}
+                        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs hover:bg-muted transition-colors disabled:opacity-50"
+                      >
+                        <Plus size={10} className="shrink-0 text-muted-foreground/60" />
+                        <span className={cn('h-2 w-2 shrink-0 rounded-full', STATUS_DOT[c.status] ?? 'bg-gray-500')} />
+                        <span className="truncate">{c.title}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground/60">No other cards in this project</p>

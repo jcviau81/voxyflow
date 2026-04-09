@@ -67,7 +67,7 @@ export function OpportunitiesPanel({
             projectId: currentProjectId,
             title: opp.title,
             description: opp.description,
-            status: 'idea',
+            status: 'todo',
             priority: 0,
           });
           // Sync into Zustand so the board reflects the new card immediately

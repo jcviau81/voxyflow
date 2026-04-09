@@ -265,7 +265,7 @@ Document upload and knowledge base management (see [RAG / Knowledge Base](#6-rag
 - Upload documents for RAG context injection
 - List and delete indexed documents
 
-#### 📝 Main Board (FreeBoard)
+#### 📝 Backlog
 A card-based scratchpad for brainstorming:
 - Quick-add form
 - 6 pastel colors
@@ -323,7 +323,7 @@ Cards are created via the Card Form (click `+` in any column, or "Create from su
 |-------|-------|
 | Title | Required |
 | Description | Markdown-supported |
-| Status | `idea` / `todo` / `in-progress` / `done` |
+| Status | `card` / `todo` / `in-progress` / `done` |
 | Priority | 0=none, 1=low, 2=medium, 3=high, 4=critical |
 | Agent | Chip selector for the 7 agent types |
 | Context | Notes for the agent (injected as agent context) |
@@ -491,7 +491,7 @@ Two distinct recurrence mechanisms:
 **Recurrence (card regeneration):**
 - Set recurrence on a card via the Recurrence field in Card Detail Modal
 - Supported intervals: `hourly`, `6hours`, `daily`, `weekdays`, `weekly`, `biweekly`, `monthly`
-- The scheduler checks every 5 minutes and creates a fresh copy (status `idea`) when `recurrence_next` is reached
+- The scheduler checks every 5 minutes and creates a fresh copy (status `todo`) when `recurrence_next` is reached
 - `recurrence_next` is automatically advanced to the next occurrence after each copy is created
 - Configurable via Settings → Personality (or directly via card detail)
 

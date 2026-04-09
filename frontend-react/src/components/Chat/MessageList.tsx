@@ -191,6 +191,15 @@ export function MessageList({
   }, [registerCallbacks, speakAssistantMessage, scrollToBottom, isTtsAutoPlay]);
 
   // ---------------------------------------------------------------------------
+  // Typing indicator — show when last message is from user and no streaming yet
+  // ---------------------------------------------------------------------------
+
+  const lastMessage = messages[messages.length - 1];
+  const isStreaming = messages.some((m) => m.streaming);
+  const showTypingIndicator =
+    messages.length > 0 && lastMessage?.role === 'user' && !isStreaming;
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
@@ -244,6 +253,19 @@ export function MessageList({
           );
         })}
       </div>
+
+      {/* Typing indicator */}
+      {showTypingIndicator && (
+        <div className="flex items-center gap-2 px-4 py-3">
+          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-muted/50 text-muted-foreground">
+            <span className="flex gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:0ms]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:150ms]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:300ms]" />
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Scroll-to-bottom button when user has scrolled up */}
       {!autoScroll && (

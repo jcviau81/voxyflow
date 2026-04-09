@@ -18,11 +18,10 @@
 
 | Status Value | Display Name | Where Used |
 |-------------|-------------|------------|
-| `card` | Card | Main Board (default for unassigned cards) |
-| `idea` | Idea | Project Kanban — ideation column |
-| `todo` | Todo | Project Kanban — ready for work |
-| `in-progress` | In Progress | Project Kanban — currently active |
-| `done` | Done | Project Kanban — completed |
+| `card` | Backlog | Backlog card (freeboard/backlog view) |
+| `todo` | Todo | Kanban — ready for work |
+| `in-progress` | In Progress | Kanban — currently active |
+| `done` | Done | Kanban — completed |
 | `archived` | Archived | Both — hidden from active views |
 
 ### Card Priority Values
@@ -63,7 +62,7 @@
 | **Sprints** | Time-boxed card groupings | 🏃 Sprints tab in project |
 | **Docs** | Uploaded files for AI context (RAG) | 📚 Docs tab in project |
 | **Knowledge** | Unified view of Wiki + Docs + RAG sources | 🧠 Knowledge tab in project |
-| **Freeboard** | Free-form spatial canvas | Canvas mode |
+| **Backlog** | Project backlog (cards with status `card`) | Backlog tab in project |
 
 ---
 
