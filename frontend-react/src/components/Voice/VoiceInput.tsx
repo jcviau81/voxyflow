@@ -91,6 +91,9 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
     const sessionId = wakeWordSessionIdRef.current || useSessionStore.getState().getActiveChatId(contextTabId);
     chat.sendMessage(text, undefined, undefined, sessionId);
     eventBus.emit(VOICE_EVENTS.VOICE_MESSAGE_SENT);
+    // Clear the chat input textarea (it was being filled live via
+    // handleVoiceTranscript during wake-word transcription).
+    chat.handleVoiceTranscript('', false);
 
     autoSendBufferRef.current = '';
     sttService.clearBuffer();
@@ -224,10 +227,11 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
         setTranscript(text);
         setTranscriptFinal(isFinal);
 
-        // Forward to ChatProvider for non-wake-word mode (fills input field)
-        if (!wakeWordEnabled) {
-          chat.handleVoiceTranscript(text, isFinal);
-        }
+        // Forward to ChatProvider so the live transcript shows up in the
+        // chat input textarea. In wake-word mode we force isFinal=false so
+        // ChatProvider's stt_auto_send path doesn't fire — the wake-word
+        // auto-send handler below owns that flow.
+        chat.handleVoiceTranscript(text, wakeWordEnabled ? false : isFinal);
 
         // Wake word mode: buffer finals and debounce auto-send
         if (wakeWordEnabled && text.trim()) {

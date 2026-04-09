@@ -1,7 +1,14 @@
 import { eventBus } from '../utils/eventBus';
 import * as ort from 'onnxruntime-web';
+// Explicit ?url imports so Vite emits the ORT runtime files as hashed build
+// assets — the old `wasmPaths = '/'` relied on files that only existed in the
+// legacy webpack public/ dir and 404 in the Vite build.
+// ORT 1.25 loads a single variant at runtime (the default non-jsep build is
+// enough for pure CPU inference, which is all wake word needs).
+import ortWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
+import ortMjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
 
-ort.env.wasm.wasmPaths = '/';
+ort.env.wasm.wasmPaths = { wasm: ortWasmUrl, mjs: ortMjsUrl };
 ort.env.wasm.numThreads = 1;
 
 const MEL_FEATURES = 32;
