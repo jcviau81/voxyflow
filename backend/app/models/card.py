@@ -46,7 +46,6 @@ class CardUpdate(BaseModel):
     agent_context: Optional[str] = None
     assignee: Optional[str] = None
     watchers: Optional[str] = None
-    sprint_id: Optional[str] = None
     recurring: Optional[bool] = None
     recurrence: RecurrenceType = None
     recurrence_next: Optional[datetime] = None
@@ -94,7 +93,6 @@ class CardResponse(BaseModel):
     assignee: Optional[str] = None
     watchers: str = ""
     votes: int = 0
-    sprint_id: Optional[str] = None
     recurring: bool = False
     recurrence: RecurrenceType = None
     recurrence_next: Optional[datetime] = None

@@ -221,6 +221,7 @@ class ClaudeCliBackend:
         role: str = "worker",
         voxyflow_dev_task: bool = False,
         project_id: str = "",
+        card_id: str = "",
     ) -> str:
         """Build MCP config JSON string pointing to Voxyflow's stdio server.
 
@@ -230,10 +231,10 @@ class ClaudeCliBackend:
             voxyflow_dev_task: When True, sets VOXYFLOW_DEV_TASK=1 in the MCP server env,
                   which allows workers to write to ~/voxyflow/ (the app codebase).
                   Only set this for tasks that explicitly modify the Voxyflow codebase.
-            project_id: Project scope for memory/knowledge handlers inside the MCP server.
-                  Exposed to the subprocess as VOXYFLOW_PROJECT_ID so memory_search/
-                  memory_save/knowledge_search can scope results to a single project.
-                  Defaults to "system-main" when empty.
+            project_id: Project scope for MCP tools. Exposed as VOXYFLOW_PROJECT_ID.
+                  Auto-injected into tool path parameters. Defaults to "system-main".
+            card_id: Card scope for MCP tools. Exposed as VOXYFLOW_CARD_ID.
+                  Auto-injected into tool path parameters when in card chat context.
         """
         # Find the Python interpreter — prefer the backend venv, then current interpreter
         venv_python = str(_BACKEND_DIR / "venv" / "bin" / "python3")
@@ -249,6 +250,8 @@ class ClaudeCliBackend:
             "VOXYFLOW_MCP_ROLE": role,
             "VOXYFLOW_PROJECT_ID": project_id or "system-main",
         }
+        if card_id:
+            mcp_env["VOXYFLOW_CARD_ID"] = card_id
         if voxyflow_dev_task:
             mcp_env["VOXYFLOW_DEV_TASK"] = "1"
 
@@ -276,6 +279,7 @@ class ClaudeCliBackend:
         native_tools: bool = False,
         voxyflow_dev_task: bool = False,
         project_id: str = "",
+        card_id: str = "",
     ) -> list[str]:
         """Build the CLI argument list.
 
@@ -321,6 +325,7 @@ class ClaudeCliBackend:
                     role=mcp_role,
                     voxyflow_dev_task=voxyflow_dev_task,
                     project_id=project_id,
+                    card_id=card_id,
                 ),
             ])
 
@@ -347,6 +352,7 @@ class ClaudeCliBackend:
         session_id: str = "",
         chat_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         session_type: str = "worker",
         cwd: str = "",
     ) -> tuple[str, dict]:
@@ -369,8 +375,8 @@ class ClaudeCliBackend:
                 cancel_event=cancel_event, tool_callback=tool_callback,
                 message_queue=message_queue,
                 session_id=session_id, chat_id=chat_id,
-                project_id=project_id, session_type=session_type,
-                cwd=cwd,
+                project_id=project_id, card_id=card_id,
+                session_type=session_type, cwd=cwd,
             )
 
         system_prompt = _flatten_system(system)
@@ -380,7 +386,7 @@ class ClaudeCliBackend:
             streaming=False, use_tools=use_tools, mcp_role=mcp_role,
             native_tools=use_tools,  # Workers get native Claude tools
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
-            project_id=project_id,
+            project_id=project_id, card_id=card_id,
         )
 
         gate = get_rate_gate()
@@ -487,9 +493,11 @@ class ClaudeCliBackend:
         mcp_role: str = "worker",
         cancel_event: Optional[asyncio.Event] = None,
         tool_callback: Optional[Callable] = None,
+        message_queue: Optional[asyncio.Queue] = None,
         session_id: str = "",
         chat_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         session_type: str = "worker",
         cwd: str = "",
     ) -> tuple[str, dict]:
@@ -509,7 +517,7 @@ class ClaudeCliBackend:
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
             native_tools=use_tools,  # Workers get native Claude tools (Read, Edit, Bash)
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
-            project_id=project_id,
+            project_id=project_id, card_id=card_id,
         )
 
         gate = get_rate_gate()
@@ -737,6 +745,7 @@ class ClaudeCliBackend:
         mcp_role: str = "dispatcher",
         session_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         cwd: str = "",
     ) -> PersistentChatProcess:
         """Spawn a persistent claude -p process for multi-turn chat."""
@@ -746,7 +755,7 @@ class ClaudeCliBackend:
             model, system_prompt,
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
             interactive=True,
-            project_id=project_id,
+            project_id=project_id, card_id=card_id,
         )
 
         logger.info(
@@ -811,6 +820,7 @@ class ClaudeCliBackend:
         mcp_role: str = "dispatcher",
         session_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
     ) -> AsyncIterator[str]:
@@ -849,7 +859,8 @@ class ClaudeCliBackend:
                 pcp = await self._spawn_persistent_chat(
                     chat_id=chat_id, model=model, system=system, messages=messages,
                     use_tools=use_tools, mcp_role=mcp_role,
-                    session_id=session_id, project_id=project_id, cwd=cwd,
+                    session_id=session_id, project_id=project_id, card_id=card_id,
+                    cwd=cwd,
                 )
                 # Yield tokens from the first turn
                 async with pcp.turn_lock:
@@ -931,6 +942,7 @@ class ClaudeCliBackend:
         mcp_role: str = "worker",
         voxyflow_dev_task: bool = False,
         project_id: str = "",
+        card_id: str = "",
     ) -> list[str]:
         """Build CLI args for a steerable worker using --input-format stream-json.
 
@@ -959,6 +971,7 @@ class ClaudeCliBackend:
                     role=mcp_role,
                     voxyflow_dev_task=voxyflow_dev_task,
                     project_id=project_id,
+                    card_id=card_id,
                 ),
             ])
 
@@ -981,6 +994,7 @@ class ClaudeCliBackend:
         session_id: str = "",
         chat_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
         steer_queue: Optional[asyncio.Queue] = None,
@@ -1000,8 +1014,8 @@ class ClaudeCliBackend:
         prompt = _format_messages(messages)
         args = self._build_args_steerable(
             model, system_prompt, use_tools=use_tools, mcp_role=mcp_role,
-            voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
-            project_id=project_id,
+            voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),
+            project_id=project_id, card_id=card_id,
         )
 
         gate = get_rate_gate()
@@ -1217,6 +1231,7 @@ class ClaudeCliBackend:
         session_id: str = "",
         chat_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
     ) -> AsyncIterator[str]:
@@ -1230,7 +1245,7 @@ class ClaudeCliBackend:
         args = self._build_args(
             model, system_prompt,
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
-            project_id=project_id,
+            project_id=project_id, card_id=card_id,
         )
 
         gate = get_rate_gate()

@@ -583,6 +583,7 @@ class DeepWorkerPool:
                         prompt=execution_prompt,
                         model=event.model,
                         project_id=event.data.get("project_id"),
+                        card_context=event.data.get("card_context"),
                         tool_callback=tool_callback,
                         cancel_event=cancel_event,
                         message_queue=message_queue,

@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.database import get_db, Project, Card, WikiPage, Sprint, new_uuid, utcnow
+from app.database import get_db, Project, Card, WikiPage, new_uuid, utcnow
 from app.models.project import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithCards
 from app.services.agent_personas import AgentType, get_persona
 from app.services.workspace_service import get_workspace_service
@@ -98,7 +98,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
     },
     "bugfix": {
         "id": "bugfix",
-        "name": "Bug Fix Sprint",
+        "name": "Bug Fix",
         "emoji": "🐛",
         "description": "Systematic process to squash a bug and ship the fix.",
         "color": "#ff6b6b",
@@ -741,7 +741,7 @@ class HealthResponse(BaseModel):
     generated_at: str
 
 
-def _compute_health(project: "Project", cards: list["Card"], sprints: list["Sprint"]) -> dict:
+def _compute_health(project: "Project", cards: list["Card"]) -> dict:
     """Rule-based health analysis. Returns raw data dict (no AI summary yet)."""
     now = datetime.now(timezone.utc)
     issues: list[dict] = []
@@ -825,18 +825,6 @@ def _compute_health(project: "Project", cards: list["Card"], sprints: list["Spri
                 "message": f"Checklist completion is low ({round(completion_rate*100)}% of {len(all_checklist)} items done).",
             })
 
-    # ── Strength: sprint planning in use ──────────────────────────────────
-    if sprints:
-        active_sprints = [s for s in sprints if s.status == "active"]
-        if active_sprints:
-            strengths.append("Active sprint in progress — structured planning is in use.")
-        else:
-            strengths.append(f"{len(sprints)} sprint(s) defined — sprint planning is in use.")
-        recommendations_text = "Continue using sprint planning to maintain velocity and focus."
-    else:
-        if total > 5:
-            recommendations.append("Consider using sprint planning to group and prioritize your cards.")
-
     # ── Issue: blocked cards (cards with is_blocked_by relations) ──────────
     blocked_cards = []
     for c in cards:
@@ -891,7 +879,6 @@ def _compute_health(project: "Project", cards: list["Card"], sprints: list["Spri
             "inprog": len(inprog_cards),
             "done": len(done_cards),
             "backlog": len(backlog_cards),
-            "sprints": len(sprints),
             "project_title": project.title,
         },
     }
@@ -908,7 +895,6 @@ async def project_health_check(project_id: str, db: AsyncSession = Depends(get_d
         .options(
             slo(Project.cards).selectinload(Card.checklist_items),
             slo(Project.cards).selectinload(Card.relations_as_target).selectinload(CardRelation.source_card),
-            slo(Project.sprints),
         )
         .where(Project.id == project_id)
     )
@@ -918,9 +904,8 @@ async def project_health_check(project_id: str, db: AsyncSession = Depends(get_d
         raise HTTPException(404, "Project not found.")
 
     cards = list(project.cards)
-    sprints = list(project.sprints) if hasattr(project, "sprints") else []
 
-    health = _compute_health(project, cards, sprints)
+    health = _compute_health(project, cards)
 
     # Build AI summary prompt
     meta = health.pop("_meta")
@@ -934,8 +919,7 @@ async def project_health_check(project_id: str, db: AsyncSession = Depends(get_d
         f"Project: {meta['project_title']}\n"
         f"Health score: {health['score']}/100 (Grade {health['grade']})\n"
         f"Cards: {meta['total']} total — {meta['inprog']} in-progress, {meta['todo']} todo, "
-        f"{meta['done']} done, {meta['backlog']} backlog\n"
-        f"Sprints: {meta['sprints']}\n\n"
+        f"{meta['done']} done, {meta['backlog']} backlog\n\n"
         f"Strengths:\n{strengths_text}\n\n"
         f"Issues:\n{issues_text}\n\n"
         f"Recommendations:\n{recs_text}\n\n"
@@ -1234,198 +1218,6 @@ async def delete_wiki_page(
     await db.commit()
 
 
-# ---------------------------------------------------------------------------
-# Sprint Planning
-# ---------------------------------------------------------------------------
-
-class SprintCreate(BaseModel):
-    name: str
-    goal: str | None = None
-    start_date: str  # ISO date string
-    end_date: str    # ISO date string
-
-
-class SprintUpdate(BaseModel):
-    name: str | None = None
-    goal: str | None = None
-    start_date: str | None = None
-    end_date: str | None = None
-
-
-class SprintResponse(BaseModel):
-    id: str
-    project_id: str
-    name: str
-    goal: str | None
-    start_date: str
-    end_date: str
-    status: str
-    created_at: str
-    card_count: int = 0
-
-
-def _sprint_to_response(sprint: Sprint, card_count: int = 0) -> SprintResponse:
-    return SprintResponse(
-        id=sprint.id,
-        project_id=sprint.project_id,
-        name=sprint.name,
-        goal=sprint.goal,
-        start_date=sprint.start_date.isoformat() if sprint.start_date else "",
-        end_date=sprint.end_date.isoformat() if sprint.end_date else "",
-        status=sprint.status,
-        created_at=sprint.created_at.isoformat() if sprint.created_at else "",
-        card_count=card_count,
-    )
-
-
-@router.get("/{project_id}/sprints", response_model=list[SprintResponse])
-async def list_sprints(project_id: str, db: AsyncSession = Depends(get_db)):
-    """List all sprints for a project with card counts."""
-    project = await db.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found.")
-
-    stmt = select(Sprint).where(Sprint.project_id == project_id).order_by(Sprint.start_date)
-    result = await db.execute(stmt)
-    sprints = result.scalars().all()
-
-    # Count cards per sprint
-    count_stmt = (
-        select(Card.sprint_id, func.count(Card.id).label("cnt"))
-        .where(Card.project_id == project_id)
-        .where(Card.sprint_id.isnot(None))
-        .group_by(Card.sprint_id)
-    )
-    count_result = await db.execute(count_stmt)
-    counts = {row.sprint_id: row.cnt for row in count_result.fetchall()}
-
-    return [_sprint_to_response(s, counts.get(s.id, 0)) for s in sprints]
-
-
-@router.post("/{project_id}/sprints", response_model=SprintResponse, status_code=201)
-async def create_sprint(
-    project_id: str,
-    body: SprintCreate,
-    db: AsyncSession = Depends(get_db),
-):
-    """Create a new sprint for a project."""
-    project = await db.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found.")
-
-    try:
-        start = datetime.fromisoformat(body.start_date.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(body.end_date.replace("Z", "+00:00"))
-    except ValueError as e:
-        raise HTTPException(400, f"Invalid date format: {e}")
-
-    if end <= start:
-        raise HTTPException(400, "end_date must be after start_date.")
-
-    sprint = Sprint(
-        id=new_uuid(),
-        project_id=project_id,
-        name=body.name,
-        goal=body.goal,
-        start_date=start,
-        end_date=end,
-        status="planning",
-    )
-    db.add(sprint)
-    await db.commit()
-    await db.refresh(sprint)
-    return _sprint_to_response(sprint, 0)
-
-
-@router.put("/{project_id}/sprints/{sprint_id}", response_model=SprintResponse)
-async def update_sprint(
-    project_id: str,
-    sprint_id: str,
-    body: SprintUpdate,
-    db: AsyncSession = Depends(get_db),
-):
-    """Update sprint name, goal, or dates."""
-    sprint = await db.get(Sprint, sprint_id)
-    if not sprint or sprint.project_id != project_id:
-        raise HTTPException(404, "Sprint not found.")
-
-    if body.name is not None:
-        sprint.name = body.name
-    if body.goal is not None:
-        sprint.goal = body.goal
-    if body.start_date is not None:
-        try:
-            sprint.start_date = datetime.fromisoformat(body.start_date.replace("Z", "+00:00"))
-        except ValueError as e:
-            raise HTTPException(400, f"Invalid start_date: {e}")
-    if body.end_date is not None:
-        try:
-            sprint.end_date = datetime.fromisoformat(body.end_date.replace("Z", "+00:00"))
-        except ValueError as e:
-            raise HTTPException(400, f"Invalid end_date: {e}")
-
-    await db.commit()
-    await db.refresh(sprint)
-
-    # Get card count
-    count_result = await db.execute(
-        select(func.count(Card.id)).where(Card.sprint_id == sprint_id)
-    )
-    card_count = count_result.scalar() or 0
-    return _sprint_to_response(sprint, card_count)
-
-
-@router.delete("/{project_id}/sprints/{sprint_id}", status_code=204)
-async def delete_sprint(
-    project_id: str,
-    sprint_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Delete a sprint. Cards in this sprint lose their sprint assignment."""
-    sprint = await db.get(Sprint, sprint_id)
-    if not sprint or sprint.project_id != project_id:
-        raise HTTPException(404, "Sprint not found.")
-
-    # Unassign cards from this sprint
-    stmt = select(Card).where(Card.sprint_id == sprint_id)
-    result = await db.execute(stmt)
-    for card in result.scalars().all():
-        card.sprint_id = None
-
-    await db.delete(sprint)
-    await db.commit()
-
-
-@router.post("/{project_id}/sprints/{sprint_id}/start", response_model=SprintResponse)
-async def start_sprint(
-    project_id: str,
-    sprint_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Activate a sprint (set status to 'active'). Only one sprint can be active at a time."""
-    project = await db.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found.")
-
-    sprint = await db.get(Sprint, sprint_id)
-    if not sprint or sprint.project_id != project_id:
-        raise HTTPException(404, "Sprint not found.")
-
-    # Deactivate any currently active sprint
-    stmt = select(Sprint).where(Sprint.project_id == project_id, Sprint.status == "active")
-    result = await db.execute(stmt)
-    for active in result.scalars().all():
-        active.status = "planning"  # revert previous active to planning
-
-    sprint.status = "active"
-    await db.commit()
-    await db.refresh(sprint)
-
-    count_result = await db.execute(
-        select(func.count(Card.id)).where(Card.sprint_id == sprint_id)
-    )
-    card_count = count_result.scalar() or 0
-    return _sprint_to_response(sprint, card_count)
 
 
 # ---------------------------------------------------------------------------
@@ -1619,27 +1411,6 @@ async def smart_prioritize(project_id: str, db: AsyncSession = Depends(get_db)):
 
     return PrioritizeResponse(ordered_cards=ordered, summary=summary)
 
-
-@router.post("/{project_id}/sprints/{sprint_id}/complete", response_model=SprintResponse)
-async def complete_sprint(
-    project_id: str,
-    sprint_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Mark a sprint as completed."""
-    sprint = await db.get(Sprint, sprint_id)
-    if not sprint or sprint.project_id != project_id:
-        raise HTTPException(404, "Sprint not found.")
-
-    sprint.status = "completed"
-    await db.commit()
-    await db.refresh(sprint)
-
-    count_result = await db.execute(
-        select(func.count(Card.id)).where(Card.sprint_id == sprint_id)
-    )
-    card_count = count_result.scalar() or 0
-    return _sprint_to_response(sprint, card_count)
 
 
 # ---------------------------------------------------------------------------

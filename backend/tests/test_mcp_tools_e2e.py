@@ -53,7 +53,7 @@ async def test_session_search_messages():
 @pytest.mark.asyncio
 async def test_project_full_lifecycle():
     """
-    Test all project/card/wiki/sprint endpoints in one test to maintain state.
+    Test all project/card/wiki endpoints in one test to maintain state.
     Cleans up at the end.
     """
     import time
@@ -156,14 +156,6 @@ async def test_project_full_lifecycle():
         r = await c.get(f"{BASE}/api/projects/{pid}/wiki/{wiki_id}")
         assert r.status_code == 200, f"Wiki get: {r.status_code} {r.text}"
 
-        # ── SPRINT CREATE ───────────────────────────────────────────────────
-        r = await c.post(f"{BASE}/api/projects/{pid}/sprints", json={
-            "name": "Sprint E2E Test",
-            "start_date": "2026-03-18",
-            "end_date": "2026-04-01"
-        })
-        assert r.status_code in (200, 201), f"Sprint create: {r.status_code} {r.text}"
-
         # ── CLEANUP ─────────────────────────────────────────────────────────
         # Delete duplicate card if we got an id
         if dup_id:
@@ -173,4 +165,4 @@ async def test_project_full_lifecycle():
         r = await c.delete(f"{BASE}/api/projects/{pid}")
         # Don't assert — endpoint may not exist
 
-        print(f"\n✅ All project/card/wiki/sprint endpoints passed! (project_id={pid})")
+        print(f"\n✅ All project/card/wiki endpoints passed! (project_id={pid})")

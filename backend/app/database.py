@@ -71,8 +71,7 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN watchers TEXT NOT NULL DEFAULT ''"))
         if "votes" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN votes INTEGER NOT NULL DEFAULT 0"))
-        if "sprint_id" not in existing_columns:
-            await conn.execute(text("ALTER TABLE cards ADD COLUMN sprint_id TEXT REFERENCES sprints(id)"))
+
         if "preferred_model" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN preferred_model TEXT"))
         if "recurrence" not in existing_columns:
@@ -285,7 +284,6 @@ class Project(Base):
     cards = relationship("Card", back_populates="project", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
     wiki_pages = relationship("WikiPage", back_populates="project", cascade="all, delete-orphan")
-    sprints = relationship("Sprint", back_populates="project", cascade="all, delete-orphan")
 
 
 class WikiPage(Base):
@@ -300,21 +298,6 @@ class WikiPage(Base):
 
     project = relationship("Project", back_populates="wiki_pages")
 
-
-class Sprint(Base):
-    __tablename__ = "sprints"
-
-    id = Column(String, primary_key=True, default=new_uuid)
-    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    name = Column(String, nullable=False)        # "Sprint 1", "Sprint 2", etc.
-    goal = Column(Text, nullable=True)           # Sprint goal description
-    start_date = Column(DateTime, nullable=False)
-    end_date = Column(DateTime, nullable=False)
-    status = Column(String, default="planning")  # planning | active | completed
-    created_at = Column(DateTime, default=utcnow)
-
-    project = relationship("Project", back_populates="sprints")
-    cards = relationship("Card", back_populates="sprint", foreign_keys="[Card.sprint_id]")
 
 
 class Card(Base):
@@ -336,7 +319,7 @@ class Card(Base):
     assignee = Column(String, nullable=True)  # display name of assigned person
     watchers = Column(String, nullable=False, default="")  # comma-separated watcher names
     votes = Column(Integer, nullable=False, default=0)  # upvote count
-    sprint_id = Column(String, ForeignKey("sprints.id"), nullable=True)  # sprint assignment
+
     recurring = Column(Boolean, default=False, nullable=False)  # reset to todo after board run
     recurrence = Column(String, nullable=True)  # "daily" | "weekly" | "monthly" | None
     recurrence_next = Column(DateTime, nullable=True)  # next occurrence datetime
@@ -348,7 +331,7 @@ class Card(Base):
 
     project = relationship("Project", back_populates="cards")
     source_message = relationship("Message", foreign_keys=[source_message_id])
-    sprint = relationship("Sprint", back_populates="cards", foreign_keys="[Card.sprint_id]")
+
     dependencies = relationship(
         "Card",
         secondary=card_dependencies,

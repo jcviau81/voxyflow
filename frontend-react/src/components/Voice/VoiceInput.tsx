@@ -237,10 +237,11 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
     unsubs.push(
       eventBus.on(VOICE_EVENTS.WAKEWORD_DETECTED, async (data: unknown) => {
         if (!wakeWordEnabled || sttService.recording) return;
-        const label = (data as { modelLabel?: string } | undefined)?.modelLabel ?? wakeWordLabel;
+        const { modelLabel, score } = (data ?? {}) as { modelLabel?: string; score?: number };
+        const label = modelLabel ?? wakeWordLabel;
         await wakeWordService.stop();
         await playAckSound();
-        showToast(`✨ Wake word detected — ${label}`, 'success', 3000);
+        showToast(`✨ Wake word detected — ${label} (${score?.toFixed(2) ?? '?'})`, 'success', 3000);
         setWakeWordPulsing(true);
         await sttService.startRecording();
       }),

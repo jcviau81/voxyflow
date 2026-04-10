@@ -177,7 +177,6 @@ export interface Card {
   assignee?: string | null;
   watchers?: string;
   votes?: number;
-  sprintId?: string | null;
   preferredModel?: 'haiku' | 'sonnet' | 'opus' | null;
   recurring?: boolean;
   recurrence?: 'daily' | 'weekly' | 'monthly' | null;
@@ -278,16 +277,4 @@ export interface CardHistoryEntry {
   changedBy: string;
 }
 
-export type SprintStatus = 'planning' | 'active' | 'completed';
 
-export interface Sprint {
-  id: string;
-  projectId: string;
-  name: string;
-  goal?: string | null;
-  startDate: string;
-  endDate: string;
-  status: SprintStatus;
-  createdAt: string;
-  cardCount: number;
-}

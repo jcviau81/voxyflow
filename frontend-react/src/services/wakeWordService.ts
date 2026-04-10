@@ -223,10 +223,10 @@ class WakeWordService {
           const score = (wwOut[this.wwOutputName].data as Float32Array)[0];
           this.debugCounters.scores++;
 
-          if (score > 0.3) {
+          if (score > 0.7) {
             const model = this.getCurrentModel();
             console.log(`[WakeWord] 🎉 WAKE WORD DETECTED! model=${model.label} score=${score.toFixed(3)}`);
-            eventBus.emit('wakeword:detected', { modelId: model.id, modelLabel: model.label });
+            eventBus.emit('wakeword:detected', { modelId: model.id, modelLabel: model.label, score });
             this.melBuffer = [];
             this.embBuffer = [];
             this.chunkQueue = [];

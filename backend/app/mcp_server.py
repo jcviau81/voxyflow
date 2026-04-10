@@ -163,6 +163,30 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_http": ("GET", "/api/projects/{project_id}/export", None),
     },
+    {
+        "name": "voxyflow.project.archive",
+        "description": "Archive a project (hide from main list, keep all data).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["project_id"],
+            "properties": {
+                "project_id": {"type": "string", "description": "Project ID to archive"},
+            },
+        },
+        "_http": ("POST", "/api/projects/{project_id}/archive", None),
+    },
+    {
+        "name": "voxyflow.project.restore",
+        "description": "Restore an archived project back to active status.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["project_id"],
+            "properties": {
+                "project_id": {"type": "string", "description": "Project ID to restore"},
+            },
+        },
+        "_http": ("POST", "/api/projects/{project_id}/restore", None),
+    },
 
     # ---- Cards -------------------------------------------------------------
     {
@@ -309,6 +333,169 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_http": ("POST", "/api/cards/{card_id}/enrich", None),
     },
+    {
+        "name": "voxyflow.card.restore",
+        "description": "Restore an archived card back to active status.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID to restore"},
+            },
+        },
+        "_http": ("POST", "/api/cards/{card_id}/restore", None),
+    },
+    {
+        "name": "voxyflow.card.list_archived",
+        "description": "List all archived cards for a project.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["project_id"],
+            "properties": {
+                "project_id": {"type": "string", "description": "Project ID"},
+            },
+        },
+        "_http": ("GET", "/api/projects/{project_id}/cards/archived", None),
+    },
+    {
+        "name": "voxyflow.card.history",
+        "description": "Get change history for a card (max 50 entries, newest first).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+            },
+        },
+        "_http": ("GET", "/api/cards/{card_id}/history", None),
+    },
+
+    # ---- Card Comments -----------------------------------------------------
+    {
+        "name": "voxyflow.card.comment.add",
+        "description": "Add a comment to a card.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "content"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+                "content": {"type": "string", "description": "Comment text"},
+                "author": {"type": "string", "description": "Author name (default: Voxy)", "default": "Voxy"},
+            },
+        },
+        "_http": ("POST", "/api/cards/{card_id}/comments", None),
+    },
+    {
+        "name": "voxyflow.card.comment.list",
+        "description": "List all comments on a card (newest first).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+            },
+        },
+        "_http": ("GET", "/api/cards/{card_id}/comments", None),
+    },
+    {
+        "name": "voxyflow.card.comment.delete",
+        "description": "Delete a comment from a card.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "comment_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+                "comment_id": {"type": "string", "description": "Comment ID to delete"},
+            },
+        },
+        "_http": ("DELETE", "/api/cards/{card_id}/comments/{comment_id}", None),
+    },
+
+    # ---- Card Relations ----------------------------------------------------
+    {
+        "name": "voxyflow.card.relation.add",
+        "description": "Add a relation between two cards (blocks, is_blocked_by, duplicates, relates_to, etc.).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "target_card_id", "relation_type"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Source card ID"},
+                "target_card_id": {"type": "string", "description": "Target card ID"},
+                "relation_type": {
+                    "type": "string",
+                    "enum": ["blocks", "is_blocked_by", "duplicates", "duplicated_by", "relates_to", "cloned_from"],
+                    "description": "Type of relation",
+                },
+            },
+        },
+        "_http": ("POST", "/api/cards/{card_id}/relations", None),
+    },
+    {
+        "name": "voxyflow.card.relation.list",
+        "description": "List all relations for a card.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+            },
+        },
+        "_http": ("GET", "/api/cards/{card_id}/relations", None),
+    },
+    {
+        "name": "voxyflow.card.relation.delete",
+        "description": "Delete a relation from a card.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "relation_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+                "relation_id": {"type": "string", "description": "Relation ID to delete"},
+            },
+        },
+        "_http": ("DELETE", "/api/cards/{card_id}/relations/{relation_id}", None),
+    },
+
+    # ---- Card Time Tracking ------------------------------------------------
+    {
+        "name": "voxyflow.card.time.log",
+        "description": "Log time spent on a card.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "duration_minutes"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+                "duration_minutes": {"type": "integer", "description": "Time spent in minutes (min 1)"},
+                "note": {"type": "string", "description": "Optional note about the work done"},
+            },
+        },
+        "_http": ("POST", "/api/cards/{card_id}/time", None),
+    },
+    {
+        "name": "voxyflow.card.time.list",
+        "description": "List all time entries for a card.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+            },
+        },
+        "_http": ("GET", "/api/cards/{card_id}/time", None),
+    },
+    {
+        "name": "voxyflow.card.time.delete",
+        "description": "Delete a time entry from a card.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["card_id", "entry_id"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID"},
+                "entry_id": {"type": "string", "description": "Time entry ID to delete"},
+            },
+        },
+        "_http": ("DELETE", "/api/cards/{card_id}/time/{entry_id}", None),
+    },
 
     # ---- Checklist ---------------------------------------------------------
     {
@@ -445,6 +632,19 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_http": ("PUT", "/api/projects/{project_id}/wiki/{page_id}", None),
     },
+    {
+        "name": "voxyflow.wiki.delete",
+        "description": "Delete a wiki page.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["project_id", "page_id"],
+            "properties": {
+                "project_id": {"type": "string", "description": "Project ID"},
+                "page_id": {"type": "string", "description": "Wiki page ID to delete"},
+            },
+        },
+        "_http": ("DELETE", "/api/projects/{project_id}/wiki/{page_id}", None),
+    },
 
     # ---- AI ----------------------------------------------------------------
     {
@@ -536,6 +736,37 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_http": ("DELETE", "/api/projects/{project_id}/documents/{document_id}", None),
+    },
+
+    # ---- Focus Sessions ----------------------------------------------------
+    {
+        "name": "voxyflow.focus.log",
+        "description": "Log a completed Pomodoro/focus session for a card or project.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["duration_minutes", "completed", "started_at", "ended_at"],
+            "properties": {
+                "card_id": {"type": "string", "description": "Card ID (optional)"},
+                "project_id": {"type": "string", "description": "Project ID (optional)"},
+                "duration_minutes": {"type": "integer", "description": "Session duration in minutes"},
+                "completed": {"type": "boolean", "description": "Whether the session was completed"},
+                "started_at": {"type": "string", "description": "ISO datetime when session started"},
+                "ended_at": {"type": "string", "description": "ISO datetime when session ended"},
+            },
+        },
+        "_http": ("POST", "/api/focus-sessions", None),
+    },
+    {
+        "name": "voxyflow.focus.analytics",
+        "description": "Get focus session analytics for a project (totals, by card, by day).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["project_id"],
+            "properties": {
+                "project_id": {"type": "string", "description": "Project ID"},
+            },
+        },
+        "_http": ("GET", "/api/projects/{project_id}/focus", None),
     },
 
     # ---- CLI Sessions ------------------------------------------------------
@@ -1081,6 +1312,245 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
 ]
 
+
+# ---------------------------------------------------------------------------
+# Helpers needed before consolidation
+# ---------------------------------------------------------------------------
+
+def _find_tool(name: str) -> dict | None:
+    for t in _TOOL_DEFINITIONS:
+        if t["name"] == name:
+            return t
+    return None
+
+
+def _auto_injectable_params() -> set[str]:
+    """Return the set of path params that are auto-injected from env vars.
+
+    - project_id: stripped when VOXYFLOW_PROJECT_ID is a real UUID (not "system-main")
+    - card_id: stripped when VOXYFLOW_CARD_ID is set
+    """
+    injectable = set()
+    pid = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+    if pid and pid != "system-main":
+        injectable.add("project_id")
+    cid = os.environ.get("VOXYFLOW_CARD_ID", "").strip()
+    if cid:
+        injectable.add("card_id")
+    return injectable
+
+
+# ---------------------------------------------------------------------------
+# Tool Consolidation — groups of individual tools exposed as single MCP tools
+# ---------------------------------------------------------------------------
+
+_TOOL_GROUPS: dict[str, dict] = {
+    "voxyflow.card": {
+        "description": "Manage cards/tasks. project_id and card_id auto-injected from context.",
+        "actions": {
+            "create": "voxyflow.card.create",
+            "create_unassigned": "voxyflow.card.create_unassigned",
+            "list": "voxyflow.card.list",
+            "list_unassigned": "voxyflow.card.list_unassigned",
+            "get": "voxyflow.card.get",
+            "update": "voxyflow.card.update",
+            "move": "voxyflow.card.move",
+            "archive": "voxyflow.card.archive",
+            "delete": "voxyflow.card.delete",
+            "duplicate": "voxyflow.card.duplicate",
+            "enrich": "voxyflow.card.enrich",
+            "restore": "voxyflow.card.restore",
+            "list_archived": "voxyflow.card.list_archived",
+            "history": "voxyflow.card.history",
+        },
+    },
+    "voxyflow.card.comment": {
+        "description": "Manage comments on cards. card_id auto-injected from context.",
+        "actions": {
+            "add": "voxyflow.card.comment.add",
+            "list": "voxyflow.card.comment.list",
+            "delete": "voxyflow.card.comment.delete",
+        },
+    },
+    "voxyflow.card.relation": {
+        "description": "Manage relations between cards. card_id auto-injected from context.",
+        "actions": {
+            "add": "voxyflow.card.relation.add",
+            "list": "voxyflow.card.relation.list",
+            "delete": "voxyflow.card.relation.delete",
+        },
+    },
+    "voxyflow.card.time": {
+        "description": "Track time on cards. card_id auto-injected from context.",
+        "actions": {
+            "log": "voxyflow.card.time.log",
+            "list": "voxyflow.card.time.list",
+            "delete": "voxyflow.card.time.delete",
+        },
+    },
+    "voxyflow.card.checklist": {
+        "description": "Manage checklists on cards. card_id auto-injected from context.",
+        "actions": {
+            "add": "voxyflow.card.checklist.add",
+            "add_bulk": "voxyflow.card.checklist.add_bulk",
+            "list": "voxyflow.card.checklist.list",
+            "update": "voxyflow.card.checklist.update",
+            "delete": "voxyflow.card.checklist.delete",
+        },
+    },
+    "voxyflow.project": {
+        "description": "Manage projects in Voxyflow.",
+        "actions": {
+            "create": "voxyflow.project.create",
+            "list": "voxyflow.project.list",
+            "get": "voxyflow.project.get",
+            "update": "voxyflow.project.update",
+            "delete": "voxyflow.project.delete",
+            "export": "voxyflow.project.export",
+            "archive": "voxyflow.project.archive",
+            "restore": "voxyflow.project.restore",
+        },
+    },
+    "voxyflow.wiki": {
+        "description": "Manage wiki pages. project_id auto-injected from context.",
+        "actions": {
+            "list": "voxyflow.wiki.list",
+            "create": "voxyflow.wiki.create",
+            "get": "voxyflow.wiki.get",
+            "update": "voxyflow.wiki.update",
+            "delete": "voxyflow.wiki.delete",
+        },
+    },
+    "voxyflow.ai": {
+        "description": "AI-powered project analysis. project_id auto-injected from context.",
+        "actions": {
+            "standup": "voxyflow.ai.standup",
+            "brief": "voxyflow.ai.brief",
+            "health": "voxyflow.ai.health",
+            "prioritize": "voxyflow.ai.prioritize",
+            "review_code": "voxyflow.ai.review_code",
+        },
+    },
+    "voxyflow.doc": {
+        "description": "Manage project documents. project_id auto-injected from context.",
+        "actions": {
+            "list": "voxyflow.doc.list",
+            "delete": "voxyflow.doc.delete",
+        },
+    },
+    "voxyflow.focus": {
+        "description": "Focus/Pomodoro session tracking.",
+        "actions": {
+            "log": "voxyflow.focus.log",
+            "analytics": "voxyflow.focus.analytics",
+        },
+    },
+    "voxyflow.jobs": {
+        "description": "Manage scheduled jobs.",
+        "actions": {
+            "list": "voxyflow.jobs.list",
+            "create": "voxyflow.jobs.create",
+            "update": "voxyflow.jobs.update",
+            "delete": "voxyflow.jobs.delete",
+        },
+    },
+    "voxyflow.workers": {
+        "description": "Monitor and read worker task results.",
+        "actions": {
+            "list": "voxyflow.workers.list",
+            "get_result": "voxyflow.workers.get_result",
+            "read_artifact": "voxyflow.workers.read_artifact",
+        },
+    },
+    "voxyflow.task": {
+        "description": "Monitor and control running worker tasks.",
+        "actions": {
+            "peek": "voxyflow.task.peek",
+            "cancel": "voxyflow.task.cancel",
+        },
+    },
+}
+
+# Set of tool names that belong to a consolidated group
+_GROUPED_TOOL_NAMES: set[str] = set()
+for _g in _TOOL_GROUPS.values():
+    _GROUPED_TOOL_NAMES.update(_g["actions"].values())
+
+
+def _build_consolidated_tools() -> list[dict]:
+    """Build consolidated MCP tool list from _TOOL_GROUPS + ungrouped tools.
+
+    Each group becomes a single tool with an `action` enum. Properties from all
+    sub-tools are merged into a flat union schema. Auto-injectable params
+    (project_id, card_id) are stripped when env vars are set.
+    """
+    injectable = _auto_injectable_params()
+    consolidated: list[dict] = []
+
+    for group_name, group_info in _TOOL_GROUPS.items():
+        actions = group_info["actions"]
+        action_names = list(actions.keys())
+
+        # Collect all properties across actions
+        all_props: dict[str, dict] = {}
+        used_by: dict[str, list[str]] = {}  # prop_name → [action_names]
+
+        for action_name, tool_name in actions.items():
+            tool_def = _find_tool(tool_name)
+            if not tool_def:
+                continue
+            for prop_name, prop_schema in tool_def["inputSchema"].get("properties", {}).items():
+                if prop_name in injectable:
+                    continue
+                if prop_name not in all_props:
+                    all_props[prop_name] = dict(prop_schema)
+                    used_by[prop_name] = []
+                else:
+                    # Merge enums — take the union of all values
+                    existing = all_props[prop_name]
+                    if "enum" in existing and "enum" in prop_schema:
+                        combined = list(dict.fromkeys(existing["enum"] + prop_schema["enum"]))
+                        existing["enum"] = combined
+                used_by[prop_name].append(action_name)
+
+        # Annotate descriptions with action scope when not universal
+        for prop_name, action_list in used_by.items():
+            if set(action_list) != set(action_names):
+                desc = all_props[prop_name].get("description", prop_name)
+                all_props[prop_name]["description"] = f"{desc} ({', '.join(action_list)})"
+
+        schema: dict = {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": action_names,
+                    "description": "Action to perform",
+                },
+                **all_props,
+            },
+        }
+
+        consolidated.append({
+            "name": group_name,
+            "description": group_info["description"],
+            "inputSchema": schema,
+            "_dispatch": dict(actions),  # action_name → original tool name
+        })
+
+    # Add ungrouped tools (singletons, system, memory, etc.)
+    for tool_def in _TOOL_DEFINITIONS:
+        if tool_def["name"] not in _GROUPED_TOOL_NAMES:
+            consolidated.append(tool_def)
+
+    return consolidated
+
+
+# Built at module load — env vars are already set by the MCP subprocess
+_CONSOLIDATED_MCP_TOOLS: list[dict] = _build_consolidated_tools()
+
+
 # ---------------------------------------------------------------------------
 # System tool handler registry
 # ---------------------------------------------------------------------------
@@ -1364,6 +1834,10 @@ def _build_url_and_payload(
     for var in path_vars:
         value = remaining_params.pop(var, None)
         if value is None:
+            # Auto-inject from environment (e.g. project_id → VOXYFLOW_PROJECT_ID)
+            env_key = f"VOXYFLOW_{var.upper()}"
+            value = os.environ.get(env_key, "").strip() or None
+        if value is None:
             raise ValueError(f"Missing required path parameter: {var}")
         path = path.replace(f"{{{var}}}", str(value))
 
@@ -1436,30 +1910,53 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Build MCP tool list (without _http internal key)
+# Build MCP tool list (consolidated, role-filtered, schema-stripped)
 # ---------------------------------------------------------------------------
 
-def _visible_tools() -> list[dict]:
-    """Return tool definitions visible to the current role."""
+def _strip_auto_injected(schema: dict, injectable: set[str]) -> dict:
+    """Return a copy of inputSchema with auto-injectable params removed."""
+    if not injectable:
+        return schema
+    props = schema.get("properties", {})
+    required = schema.get("required", [])
+    to_strip = injectable & props.keys()
+    if not to_strip:
+        return schema
+    new_schema = dict(schema)
+    new_schema["properties"] = {k: v for k, v in props.items() if k not in to_strip}
+    new_schema["required"] = [r for r in required if r not in to_strip]
+    if not new_schema["required"]:
+        new_schema.pop("required", None)
+    return new_schema
+
+
+def _visible_tools_consolidated() -> list[dict]:
+    """Return consolidated tool definitions visible to the current role."""
+    role = VOXYFLOW_MCP_ROLE
+    if role == "dispatcher":
+        return [t for t in _CONSOLIDATED_MCP_TOOLS if t.get("_role", "all") != "worker"]
+    return _CONSOLIDATED_MCP_TOOLS  # workers see everything
+
+
+def _visible_tools_flat() -> list[dict]:
+    """Return individual (flat) tool definitions visible to the current role."""
     role = VOXYFLOW_MCP_ROLE
     if role == "dispatcher":
         return [t for t in _TOOL_DEFINITIONS if t.get("_role", "all") != "worker"]
-    return _TOOL_DEFINITIONS  # workers see everything
+    return _TOOL_DEFINITIONS
 
 
 def _public_tool_defs() -> list[dict]:
-    """Return tool definitions without internal keys (_http, _handler, _role)."""
-    return [
-        {k: v for k, v in t.items() if not k.startswith("_")}
-        for t in _visible_tools()
-    ]
-
-
-def _find_tool(name: str) -> dict | None:
-    for t in _TOOL_DEFINITIONS:
-        if t["name"] == name:
-            return t
-    return None
+    """Return flat individual tool definitions without internal keys, with
+    auto-injectable params stripped. Used by the inline/native SDK path."""
+    injectable = _auto_injectable_params()
+    result = []
+    for t in _visible_tools_flat():
+        cleaned = {k: v for k, v in t.items() if not k.startswith("_")}
+        if injectable:
+            cleaned["inputSchema"] = _strip_auto_injected(cleaned["inputSchema"], injectable)
+        result.append(cleaned)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1469,30 +1966,71 @@ def _find_tool(name: str) -> dict | None:
 if MCP_AVAILABLE:
     server = Server("voxyflow")
 
+    def _find_consolidated(name: str) -> dict | None:
+        """Find a tool in the consolidated list (for MCP dispatch)."""
+        for t in _CONSOLIDATED_MCP_TOOLS:
+            if t["name"] == name:
+                return t
+        return None
+
     @server.list_tools()
     async def list_tools() -> list[Tool]:
-        """Expose Voxyflow tools filtered by role (dispatcher vs worker)."""
+        """Expose consolidated tools filtered by role, injectable params stripped."""
+        injectable = _auto_injectable_params()
         tools = []
-        for defn in _visible_tools():
+        for defn in _visible_tools_consolidated():
+            schema = defn["inputSchema"]
+            # Strip injectable params from ungrouped tools (consolidated already stripped)
+            if injectable and "_dispatch" not in defn:
+                schema = _strip_auto_injected(schema, injectable)
             tools.append(
                 Tool(
                     name=defn["name"],
                     description=defn["description"],
-                    inputSchema=defn["inputSchema"],
+                    inputSchema=schema,
                 )
             )
-        logger.info(f"[MCP] list_tools → role={VOXYFLOW_MCP_ROLE}, {len(tools)} tools exposed")
+        logger.info(f"[MCP] list_tools → role={VOXYFLOW_MCP_ROLE}, {len(tools)} tools, injectable={injectable}")
         return tools
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-        """Route an MCP tool call to the Voxyflow REST API."""
-        tool_def = _find_tool(name)
-        if tool_def is None:
-            return [TextContent(type="text", text=json.dumps({
-                "success": False,
-                "error": f"Unknown tool: {name}",
-            }))]
+        """Route an MCP tool call — supports consolidated and individual tools."""
+        args = dict(arguments or {})
+
+        # 1. Try consolidated tool first
+        consolidated = _find_consolidated(name)
+        if consolidated and "_dispatch" in consolidated:
+            action = args.pop("action", None)
+            if not action:
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": f"Missing required parameter: action",
+                }))]
+            original_name = consolidated["_dispatch"].get(action)
+            if not original_name:
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": f"Unknown action '{action}' for tool '{name}'. Valid: {list(consolidated['_dispatch'].keys())}",
+                }))]
+            tool_def = _find_tool(original_name)
+            if tool_def is None:
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": f"Internal error: action '{action}' maps to unknown tool '{original_name}'",
+                }))]
+            logger.debug(f"[MCP] Consolidated dispatch: {name}.{action} → {original_name}")
+        else:
+            # 2. Try individual tool (backward compat + ungrouped tools)
+            tool_def = _find_tool(name)
+            if tool_def is None:
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": f"Unknown tool: {name}",
+                }))]
+            # Log deprecation if this is a grouped tool called by old name
+            if name in _GROUPED_TOOL_NAMES:
+                logger.warning(f"[MCP] Deprecated individual tool call: {name} — use consolidated group instead")
 
         # Enforce role-based access (defense in depth — even if list_tools filters)
         if VOXYFLOW_MCP_ROLE == "dispatcher" and tool_def.get("_role") == "worker":
@@ -1503,7 +2041,7 @@ if MCP_AVAILABLE:
             }))]
 
         try:
-            result = await _call_api(tool_def, arguments or {})
+            result = await _call_api(tool_def, args)
         except Exception as e:
             logger.error(f"MCP tool call failed: {name} → {e}")
             result = {"success": False, "error": str(e)}
@@ -1525,12 +2063,3 @@ else:
 def get_tool_list() -> list[dict]:
     """Return all MCP tool definitions (public, no internal keys)."""
     return _public_tool_defs()
-
-
-def get_tools_for_names(names: set[str]) -> list[dict]:
-    """Return tool definitions (public, no internal keys) filtered to the given names."""
-    return [
-        {k: v for k, v in t.items() if k not in ("_http", "_handler")}
-        for t in _TOOL_DEFINITIONS
-        if t["name"] in names
-    ]

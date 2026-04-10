@@ -8,7 +8,7 @@
  *   - 'projects'  → ProjectList
  *
  * View state lives in useViewStore (persisted). Any view that is not valid
- * for the main tab (stats, knowledge, docs, roadmap, sprint) is reset to 'chat'.
+ * for the main tab (stats, knowledge, docs, roadmap) is reset to 'chat'.
  */
 import { useEffect } from 'react';
 import { ChatWindow } from '../components/Chat/ChatWindow';

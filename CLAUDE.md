@@ -35,7 +35,7 @@ Proxy at `localhost:3457`. Being deprecated (Anthropic cutting third-party harne
 - `backend/app/services/llm/client_factory.py` — SDK client creation
 - `backend/app/services/personality_service.py` — System prompts, 3 delegate modes
 - `backend/app/services/chat_orchestration.py` — Orchestrator, delegate parsing
-- `backend/app/mcp_server.py` — MCP tool definitions (53 tools)
+- `backend/app/mcp_server.py` — MCP tool definitions (86 individual, consolidated to 40 via MCP)
 - `backend/mcp_stdio.py` — MCP stdio transport entry point
 - `backend/app/config.py` — Settings (env vars + keyring)
 

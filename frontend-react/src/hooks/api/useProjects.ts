@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Project, ProjectFormData, Sprint, SprintStatus } from '../../types';
+import type { Project, ProjectFormData } from '../../types';
 
 const API = '';
 
@@ -36,22 +36,6 @@ function mapRawProject(p: Record<string, unknown>): Project {
   };
 }
 
-function mapRawSprint(s: {
-  id: string; project_id: string; name: string; goal: string | null;
-  start_date: string; end_date: string; status: string; created_at: string; card_count: number;
-}): Sprint {
-  return {
-    id: s.id,
-    projectId: s.project_id,
-    name: s.name,
-    goal: s.goal,
-    startDate: s.start_date,
-    endDate: s.end_date,
-    status: s.status as SprintStatus,
-    createdAt: s.created_at,
-    cardCount: s.card_count,
-  };
-}
 
 // --- Query keys ---
 
@@ -62,7 +46,7 @@ export const projectKeys = {
   archived: () => ['projects', 'list', 'archived'] as const,
   detail: (id: string) => ['projects', id] as const,
   templates: () => ['projects', 'templates'] as const,
-  sprints: (projectId: string) => ['projects', projectId, 'sprints'] as const,
+
 };
 
 // --- Queries ---
@@ -93,20 +77,6 @@ export function useProjectTemplates() {
   });
 }
 
-export function useSprints(projectId: string) {
-  return useQuery({
-    queryKey: projectKeys.sprints(projectId),
-    queryFn: async () => {
-      const data = await apiFetch<Array<{
-        id: string; project_id: string; name: string; goal: string | null;
-        start_date: string; end_date: string; status: string; created_at: string; card_count: number;
-      }>>(`/api/projects/${projectId}/sprints`);
-      return data.map(mapRawSprint);
-    },
-    staleTime: 30_000,
-    enabled: !!projectId,
-  });
-}
 
 // --- Mutations ---
 
@@ -263,79 +233,3 @@ export function useExecuteBoardPlan() {
   });
 }
 
-// --- Sprint mutations ---
-
-export function useCreateSprint() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, data }: {
-      projectId: string;
-      data: { name: string; goal?: string; start_date: string; end_date: string };
-    }) => {
-      const s = await apiFetch<{
-        id: string; project_id: string; name: string; goal: string | null;
-        start_date: string; end_date: string; status: string; created_at: string; card_count: number;
-      }>(`/api/projects/${projectId}/sprints`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      return mapRawSprint(s);
-    },
-    onSuccess: (_data, { projectId }) => {
-      qc.invalidateQueries({ queryKey: projectKeys.sprints(projectId) });
-    },
-  });
-}
-
-export function useUpdateSprint() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, sprintId, data }: {
-      projectId: string;
-      sprintId: string;
-      data: { name?: string; goal?: string; start_date?: string; end_date?: string };
-    }) => {
-      const s = await apiFetch<{
-        id: string; project_id: string; name: string; goal: string | null;
-        start_date: string; end_date: string; status: string; created_at: string; card_count: number;
-      }>(`/api/projects/${projectId}/sprints/${sprintId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      return mapRawSprint(s);
-    },
-    onSuccess: (_data, { projectId }) => {
-      qc.invalidateQueries({ queryKey: projectKeys.sprints(projectId) });
-    },
-  });
-}
-
-export function useDeleteSprint() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, sprintId }: { projectId: string; sprintId: string }) => {
-      await fetch(`${API}/api/projects/${projectId}/sprints/${sprintId}`, { method: 'DELETE' });
-    },
-    onSuccess: (_data, { projectId }) => {
-      qc.invalidateQueries({ queryKey: projectKeys.sprints(projectId) });
-    },
-  });
-}
-
-export function useSprintAction() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, sprintId, action }: { projectId: string; sprintId: string; action: 'start' | 'complete' }) => {
-      const s = await apiFetch<{
-        id: string; project_id: string; name: string; goal: string | null;
-        start_date: string; end_date: string; status: string; created_at: string; card_count: number;
-      }>(`/api/projects/${projectId}/sprints/${sprintId}/${action}`, { method: 'POST' });
-      return mapRawSprint(s);
-    },
-    onSuccess: (_data, { projectId }) => {
-      qc.invalidateQueries({ queryKey: projectKeys.sprints(projectId) });
-    },
-  });
-}

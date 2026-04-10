@@ -474,6 +474,7 @@ class ClaudeService(ApiCallerMixin):
         card_context: Optional[dict] = None,
     ) -> str:
         """Layer 1: Fast conversational response, personality-infused."""
+        card_id = card_context.get("id", "") if card_context else ""
         await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
 
         recent = await self._get_windowed_history(chat_id)
@@ -520,6 +521,7 @@ class ClaudeService(ApiCallerMixin):
             client=self.fast_client,
             client_type=self.fast_client_type,
             chat_level=chat_level,
+            project_id=project_id or "", card_id=card_id,
         )
 
         await self._append_and_persist_async(chat_id, "assistant", response_text, model="fast")
@@ -546,6 +548,7 @@ class ClaudeService(ApiCallerMixin):
         """
         use_native_delegate = self.fast_client_type == "anthropic"
         use_cli_mcp = self.fast_client_type == "cli"
+        card_id = card_context.get("id", "") if card_context else ""
 
         await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
@@ -690,7 +693,7 @@ class ClaudeService(ApiCallerMixin):
                 mcp_role="dispatcher",
                 chat_level=chat_level,
                 chat_id=chat_id,
-                session_id=session_id, project_id=project_id or "",
+                session_id=session_id, project_id=project_id or "", card_id=card_id,
                 session_type="chat",
                 cwd=str(VOXYFLOW_WORKSPACE_DIR),
             ):
@@ -713,7 +716,7 @@ class ClaudeService(ApiCallerMixin):
                 use_tools=False,
                 chat_level=chat_level,
                 chat_id=chat_id,
-                session_id=session_id, project_id=project_id or "",
+                session_id=session_id, project_id=project_id or "", card_id=card_id,
                 session_type="chat",
                 cwd=str(VOXYFLOW_WORKSPACE_DIR),
             ):
@@ -747,6 +750,7 @@ class ClaudeService(ApiCallerMixin):
         """
         use_native_delegate = self.deep_client_type == "anthropic"
         use_cli_mcp = self.deep_client_type == "cli"
+        card_id = card_context.get("id", "") if card_context else ""
 
         await self._append_and_persist_async(chat_id, "user", user_message, model="deep")
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
@@ -884,7 +888,7 @@ class ClaudeService(ApiCallerMixin):
                 mcp_role="dispatcher",
                 chat_level=chat_level,
                 chat_id=chat_id,
-                session_id=session_id, project_id=project_id or "",
+                session_id=session_id, project_id=project_id or "", card_id=card_id,
                 session_type="chat",
                 cwd=str(VOXYFLOW_WORKSPACE_DIR),
             ):
@@ -902,7 +906,7 @@ class ClaudeService(ApiCallerMixin):
                 use_tools=False,
                 chat_level=chat_level,
                 chat_id=chat_id,
-                session_id=session_id, project_id=project_id or "",
+                session_id=session_id, project_id=project_id or "", card_id=card_id,
                 session_type="chat",
                 cwd=str(VOXYFLOW_WORKSPACE_DIR),
             ):
@@ -932,6 +936,7 @@ class ClaudeService(ApiCallerMixin):
         task_id: str = "",
     ) -> str:
         """Execute a delegated task with the specified worker model (haiku/sonnet/opus)."""
+        card_id = card_context.get("id", "") if card_context else ""
         # Select client/model based on model param — all workers get full tools
         if model == "haiku":
             client, client_type, model_name = (
@@ -1014,7 +1019,7 @@ class ClaudeService(ApiCallerMixin):
             chat_id=chat_id,
             cancel_event=cancel_event,
             message_queue=message_queue,
-            session_id=session_id, project_id=project_id or "",
+            session_id=session_id, project_id=project_id or "", card_id=card_id,
             session_type="worker",
             task_id=task_id,
             cwd=worker_cwd,
@@ -1027,6 +1032,7 @@ class ClaudeService(ApiCallerMixin):
         prompt: str,
         model: str = "haiku",
         project_id: Optional[str] = None,
+        card_context: Optional[dict] = None,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
@@ -1038,6 +1044,7 @@ class ClaudeService(ApiCallerMixin):
         For tasks that need LLM judgment but not full context (enrich, summarize,
         research). Saves ~80% tokens vs execute_worker_task.
         """
+        card_id = card_context.get("id", "") if card_context else ""
         if model == "haiku":
             client, client_type, model_name = (
                 self.haiku_client, self.haiku_client_type, self.haiku_model
@@ -1077,7 +1084,7 @@ class ClaudeService(ApiCallerMixin):
             chat_id=chat_id,
             cancel_event=cancel_event,
             message_queue=message_queue,
-            session_id=session_id, project_id=project_id or "",
+            session_id=session_id, project_id=project_id or "", card_id=card_id,
             session_type="worker",
             task_id=task_id,
             cwd=str(VOXYFLOW_WORKSPACE_DIR),

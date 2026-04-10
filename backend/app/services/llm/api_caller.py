@@ -1201,6 +1201,7 @@ class ApiCallerMixin:
         tool_callback: Optional[Callable] = None,
         session_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
         cwd: str = "",
@@ -1224,6 +1225,7 @@ class ApiCallerMixin:
                 session_id=session_id,
                 chat_id=chat_id,
                 project_id=project_id,
+                card_id=card_id,
                 session_type=session_type,
                 task_id=task_id,
                 steer_queue=message_queue,
@@ -1241,6 +1243,7 @@ class ApiCallerMixin:
                 session_id=session_id,
                 chat_id=chat_id,
                 project_id=project_id,
+                card_id=card_id,
                 session_type=session_type,
                 cwd=cwd,
             )
@@ -1275,6 +1278,7 @@ class ApiCallerMixin:
         chat_id: str = "",
         session_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
     ) -> AsyncIterator[str]:
@@ -1287,7 +1291,7 @@ class ApiCallerMixin:
             async for token in self._cli_backend.stream_persistent(
                 model=model, system=system, messages=messages,
                 chat_id=chat_id, use_tools=use_tools, mcp_role=mcp_role,
-                session_id=session_id, project_id=project_id,
+                session_id=session_id, project_id=project_id, card_id=card_id,
                 session_type=session_type, cwd=cwd,
             ):
                 yield token
@@ -1296,8 +1300,8 @@ class ApiCallerMixin:
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role,
                 session_id=session_id, chat_id=chat_id,
-                project_id=project_id, session_type=session_type,
-                cwd=cwd,
+                project_id=project_id, card_id=card_id,
+                session_type=session_type, cwd=cwd,
             ):
                 yield token
         # Log token usage from the completed stream
@@ -1350,6 +1354,7 @@ class ApiCallerMixin:
         message_queue: Optional[asyncio.Queue] = None,
         session_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
         cwd: str = "",
@@ -1364,8 +1369,8 @@ class ApiCallerMixin:
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
                 cancel_event=cancel_event, message_queue=message_queue,
                 tool_callback=tool_callback,
-                session_id=session_id, project_id=project_id, session_type=session_type,
-                task_id=task_id, cwd=cwd,
+                session_id=session_id, project_id=project_id, card_id=card_id,
+                session_type=session_type, task_id=task_id, cwd=cwd,
             )
         if ct == "anthropic":
             return await self._call_api_anthropic(
@@ -1404,6 +1409,7 @@ class ApiCallerMixin:
         chat_id: str = "",
         session_id: str = "",
         project_id: str = "",
+        card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
     ) -> AsyncIterator[str]:
@@ -1415,8 +1421,8 @@ class ApiCallerMixin:
             async for token in self._call_api_stream_cli(
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
-                session_id=session_id, project_id=project_id, session_type=session_type,
-                cwd=cwd,
+                session_id=session_id, project_id=project_id, card_id=card_id,
+                session_type=session_type, cwd=cwd,
             ):
                 yield token
             return

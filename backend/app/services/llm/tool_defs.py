@@ -36,7 +36,7 @@ DELEGATE_ACTION_TOOL = {
                 "description": (
                     "The action to perform. Examples: create_card, move_card, update_card, "
                     "create_project, search_web, run_command, write_file, analyze_code, "
-                    "create_sprint, web_research"
+                    "web_research"
                 ),
             },
             "summary": {
