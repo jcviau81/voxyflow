@@ -37,7 +37,7 @@ function readPersistedMode(): 'edit' | 'preview' {
   } catch {
     // ignore
   }
-  return 'edit';
+  return 'preview';
 }
 
 function persistMode(mode: 'edit' | 'preview') {
