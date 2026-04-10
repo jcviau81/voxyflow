@@ -91,10 +91,6 @@ function getTagColor(tag: string): [string, string] {
   return TAG_COLORS[stringHash(tag) % TAG_COLORS.length];
 }
 
-function truncate(str: string, max: number): string {
-  return str.length > max ? str.slice(0, max) + '…' : str;
-}
-
 function highlightText(text: string, query: string): React.ReactNode {
   if (!query) return text;
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -394,7 +390,7 @@ export function KanbanCard({
           <span className={cn('mt-1.5 flex-shrink-0 w-2 h-2 rounded-full', CARD_COLOR_DOT[card.color])} />
         )}
         <div className="flex-1 min-w-0">
-          <div className="text-[13px] font-medium text-foreground leading-snug break-words">
+          <div className="text-[0.8125rem] font-medium text-foreground leading-snug break-words">
             {query ? highlightText(card.title, query) : card.title}
           </div>
         </div>
@@ -482,10 +478,10 @@ export function KanbanCard({
         </DropdownMenu>
       </div>
 
-      {/* Description preview (truncated to 80 chars) */}
+      {/* Description preview */}
       {card.description && (
-        <p className="mt-1.5 text-[11px] text-muted-foreground leading-relaxed">
-          {truncate(card.description, 80)}
+        <p className="mt-1.5 text-[0.6875rem] text-muted-foreground leading-relaxed line-clamp-4">
+          {card.description}
         </p>
       )}
 
@@ -511,7 +507,7 @@ export function KanbanCard({
                 key={tag}
                 title={tag}
                 style={{ background: bg, color }}
-                className="px-1.5 py-0.5 rounded text-[10px] font-medium cursor-pointer leading-none"
+                className="px-1.5 py-0.5 rounded text-[0.625rem] font-medium cursor-pointer leading-none"
                 onClick={(e) => {
                   e.stopPropagation();
                   onTagClick?.(tag);
@@ -522,7 +518,7 @@ export function KanbanCard({
             );
           })}
           {hiddenTagCount > 0 && (
-            <span className="text-[10px] text-muted-foreground font-medium">
+            <span className="text-[0.625rem] text-muted-foreground font-medium">
               +{hiddenTagCount}
             </span>
           )}
@@ -531,7 +527,7 @@ export function KanbanCard({
           {timeLabel && (
             <span
               title={`${card.totalMinutes} minutes logged`}
-              className="flex items-center gap-0.5 text-[10px] text-muted-foreground font-medium"
+              className="flex items-center gap-0.5 text-[0.625rem] text-muted-foreground font-medium"
             >
               <Timer size={10} /> {timeLabel}
             </span>
@@ -542,7 +538,7 @@ export function KanbanCard({
             <span
               title={`Checklist: ${card.checklistProgress.completed}/${card.checklistProgress.total} completed`}
               className={cn(
-                'text-[10px] font-medium',
+                'text-[0.625rem] font-medium',
                 card.checklistProgress.completed === card.checklistProgress.total
                   ? 'text-green-400'
                   : 'text-muted-foreground',
@@ -557,7 +553,7 @@ export function KanbanCard({
             <span
               title={depTooltip}
               className={cn(
-                'text-[10px] font-medium',
+                'text-[0.625rem] font-medium',
                 isBlocked ? 'text-orange-400' : 'text-muted-foreground',
               )}
             >

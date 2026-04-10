@@ -75,14 +75,14 @@ export function ProjectPage() {
     </>
   );
 
-  // Desktop: split layout — chat left (30%) + content right (70%)
+  // Desktop: split layout — chat left (40%) + content right (60%)
   if (isDesktop) {
     return (
       <div className={cn('project-page flex flex-col h-full w-full overflow-hidden', `project-page--${view}`)}>
         {/* BoardHeader portals here (rendered by KanbanBoard/FreeBoard) */}
         <div id="board-header-slot" />
         <div className="flex flex-row flex-1 overflow-hidden">
-          <div className="w-[30%] min-w-[280px] border-r border-border flex flex-col">
+          <div className="w-[40%] min-w-[280px] border-r border-border flex flex-col">
             <ChatWindow
               tabId={id}
               chatLevel="project"

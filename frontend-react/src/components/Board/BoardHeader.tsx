@@ -108,7 +108,7 @@ function FilterChips({
           <button
             key={String(pf.value)}
             className={cn(
-              'shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+              'shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.625rem] border transition-colors whitespace-nowrap',
               priorityFilter === pf.value
                 ? 'bg-primary text-primary-foreground border-primary'
                 : 'text-muted-foreground border-transparent hover:border-border',
@@ -131,7 +131,7 @@ function FilterChips({
           <button
             key={String(af.value)}
             className={cn(
-              'shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+              'shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.625rem] border transition-colors whitespace-nowrap',
               agentFilter === af.value
                 ? 'bg-primary text-primary-foreground border-primary'
                 : 'text-muted-foreground border-transparent hover:border-border',
@@ -151,7 +151,7 @@ function FilterChips({
             <button
               key={tag}
               className={cn(
-                'shrink-0 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+                'shrink-0 px-1.5 py-0.5 rounded text-[0.625rem] border transition-colors whitespace-nowrap',
                 tagFilter === tag
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'text-muted-foreground border-transparent hover:border-border',
@@ -247,7 +247,7 @@ export function BoardHeader({
           />
 
           {filterMatchInfo && (
-            <span className="shrink-0 text-[10px] text-muted-foreground ml-1">
+            <span className="shrink-0 text-[0.625rem] text-muted-foreground ml-1">
               {filterMatchInfo.visible}/{filterMatchInfo.total}
             </span>
           )}
@@ -266,7 +266,7 @@ export function BoardHeader({
             <Filter size={12} />
             <span className="text-xs">Filters</span>
             {activeFilterCount > 0 && (
-              <span className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[9px] font-bold">
+              <span className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[0.5625rem] font-bold">
                 {activeFilterCount}
               </span>
             )}
@@ -296,7 +296,7 @@ export function BoardHeader({
 
               {/* Priority */}
               <div>
-                <div className="text-[10px] font-medium text-muted-foreground mb-1">Priority</div>
+                <div className="text-[0.625rem] font-medium text-muted-foreground mb-1">Priority</div>
                 <div className="flex flex-wrap gap-1">
                   <FilterChips
                     priorityFilter={priorityFilter}
@@ -312,7 +312,7 @@ export function BoardHeader({
 
               {/* Agent */}
               <div>
-                <div className="text-[10px] font-medium text-muted-foreground mb-1">Agent</div>
+                <div className="text-[0.625rem] font-medium text-muted-foreground mb-1">Agent</div>
                 <div className="flex flex-wrap gap-1">
                   {AGENT_FILTERS.slice(1).map((af) => {
                     const AIcon = af.value ? AGENT_ICONS[af.value] : undefined;
@@ -321,7 +321,7 @@ export function BoardHeader({
                       <button
                         key={String(af.value)}
                         className={cn(
-                          'shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+                          'shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.625rem] border transition-colors whitespace-nowrap',
                           agentFilter === af.value
                             ? 'bg-primary text-primary-foreground border-primary'
                             : 'text-muted-foreground border-transparent hover:border-border',
@@ -339,13 +339,13 @@ export function BoardHeader({
               {/* Tags */}
               {allTags.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-medium text-muted-foreground mb-1">Tags</div>
+                  <div className="text-[0.625rem] font-medium text-muted-foreground mb-1">Tags</div>
                   <div className="flex flex-wrap gap-1">
                     {allTags.slice(0, 8).map((tag) => (
                       <button
                         key={tag}
                         className={cn(
-                          'shrink-0 px-1.5 py-0.5 rounded text-[10px] border transition-colors whitespace-nowrap',
+                          'shrink-0 px-1.5 py-0.5 rounded text-[0.625rem] border transition-colors whitespace-nowrap',
                           tagFilter === tag
                             ? 'bg-primary text-primary-foreground border-primary'
                             : 'text-muted-foreground border-transparent hover:border-border',
@@ -360,7 +360,7 @@ export function BoardHeader({
               )}
 
               {filterMatchInfo && (
-                <div className="text-[10px] text-muted-foreground">
+                <div className="text-[0.625rem] text-muted-foreground">
                   Showing {filterMatchInfo.visible}/{filterMatchInfo.total} cards
                 </div>
               )}
@@ -368,7 +368,7 @@ export function BoardHeader({
               {/* Clear all */}
               {activeFilterCount > 0 && (
                 <button
-                  className="text-[10px] text-destructive hover:underline"
+                  className="text-[0.625rem] text-destructive hover:underline"
                   onClick={() => {
                     onSearchChange('');
                     onPriorityChange(null);
@@ -394,7 +394,7 @@ export function BoardHeader({
       <Button
         variant="default"
         size="sm"
-        className="h-6 text-[10px] px-2 shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground border-0"
+        className="h-6 text-[0.625rem] px-2 shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground border-0"
         title="Create a new card"
         onClick={onNewCard}
       >
