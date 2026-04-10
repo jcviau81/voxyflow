@@ -69,7 +69,7 @@ export function MainPage() {
         {/* BoardHeader portals here (rendered by KanbanBoard/FreeBoard) */}
         <div id="board-header-slot" />
         <div className="flex flex-row flex-1 overflow-hidden">
-          <div className="w-[30%] min-w-[280px] border-r border-border flex flex-col">
+          <div className="w-[40%] min-w-[280px] border-r border-border flex flex-col">
             <ChatWindow
               tabId={SYSTEM_PROJECT_ID}
               chatLevel="general"
