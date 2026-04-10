@@ -28,6 +28,25 @@ imsg watch --json
 
 ## Prerequisites
 
+### ⚠️ Hardware & Apple ID Requirement — Read This First
+
+> **This bridge requires TWO separate Mac computers, each signed into a DIFFERENT Apple ID.**
+
+| Mac | Role | Apple ID |
+|-----|------|----------|
+| **Mac A** (host) | Runs the bridge script + Voxyflow backend | Apple ID A (e.g. `host@example.com`) |
+| **Mac B** (sender) | Sends iMessages to Mac A | Apple ID B (e.g. `sender@example.com`) |
+
+**Why two Macs?**
+iMessage routes messages within the same Apple ID to all devices sharing that account — so a message sent *to* your own Apple ID never appears as an incoming message on the same Mac.
+The bridge works by watching Mac A's `Messages.app` for **incoming** iMessages from Mac B's Apple ID. If both Macs share the same Apple ID, the message will be delivered as an outgoing message on both devices and the bridge will never trigger.
+
+> **Summary:** Mac B sends an iMessage to Mac A's Apple ID → Mac A receives it as an incoming message → the bridge picks it up → queries Voxyflow → replies back to Mac B.
+
+---
+
+### Software dependencies
+
 ```bash
 # 1. Install imsg (macOS iMessage CLI)
 brew install steipete/tap/imsg
