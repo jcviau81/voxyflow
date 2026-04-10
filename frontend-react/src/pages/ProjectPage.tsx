@@ -12,7 +12,7 @@
  * On mount: sets currentProjectId in the store so all child components
  * pick up the correct project context automatically.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { ChatWindow } from '../components/Chat/ChatWindow';
 import { KanbanBoard } from '../components/Kanban/KanbanBoard';
@@ -75,14 +75,46 @@ export function ProjectPage() {
     </>
   );
 
-  // Desktop: split layout — chat left (40%) + content right (60%)
+  // Desktop: resizable split layout — chat left (default 40%, max 50%) + content right
+  const [chatPct, setChatPct] = useState(40);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      setChatPct(Math.min(50, Math.max(20, pct)));
+    };
+    const onUp = () => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
   if (isDesktop) {
     return (
       <div className={cn('project-page flex flex-col h-full w-full overflow-hidden', `project-page--${view}`)}>
         {/* BoardHeader portals here (rendered by KanbanBoard/FreeBoard) */}
         <div id="board-header-slot" />
-        <div className="flex flex-row flex-1 overflow-hidden">
-          <div className="w-[40%] min-w-[280px] border-r border-border flex flex-col">
+        <div ref={containerRef} className="flex flex-row flex-1 overflow-hidden">
+          <div style={{ width: `${chatPct}%` }} className="min-w-70 flex flex-col">
             <ChatWindow
               tabId={id}
               chatLevel="project"
@@ -90,6 +122,11 @@ export function ProjectPage() {
               className="flex-1"
             />
           </div>
+          {/* Drag handle */}
+          <div
+            onMouseDown={onMouseDown}
+            className="w-1 cursor-col-resize bg-border hover:bg-primary/40 active:bg-primary/60 transition-colors shrink-0"
+          />
           <div className="flex-1 overflow-hidden flex flex-col">
             {contentPanel}
           </div>
