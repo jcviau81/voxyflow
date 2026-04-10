@@ -317,10 +317,27 @@ Create a new scheduled job.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | name | string | yes | Job name |
-| type | string | yes | reminder, github_sync, rag_index, custom |
-| cron | string | yes | Cron expression (e.g. '0 9 * * 1-5') |
+| type | string | yes | reminder, github_sync, rag_index, custom, board_run |
+| schedule | string | yes | Cron expression (e.g. '0 9 * * 1-5') or interval ('every_5min', 'every_1h') |
 | enabled | boolean | no | Whether enabled (default: true) |
-| config | object | no | Job-specific configuration |
+| payload | object | no | Job-specific configuration |
+
+#### voxyflow.jobs.update
+Update an existing scheduled job. Pass only the fields to change.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| job_id | string | yes | ID of the job to update |
+| name | string | no | New job name |
+| type | string | no | New job type |
+| schedule | string | no | New cron expression or interval |
+| enabled | boolean | no | Enable or disable the job |
+| payload | object | no | New job-specific configuration |
+
+#### voxyflow.jobs.delete
+Delete a scheduled job permanently. Requires confirmation.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| job_id | string | yes | ID of the job to delete |
 
 #### voxyflow.sessions.list
 List active CLI subprocess sessions (chat and worker processes).

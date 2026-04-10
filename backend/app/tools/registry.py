@@ -50,7 +50,7 @@ TOOLS_FULL = TOOLS_VOXYFLOW_CRUD | {
     "voxyflow.doc.delete",
     "voxyflow.ai.standup", "voxyflow.ai.brief", "voxyflow.ai.health",
     "voxyflow.ai.prioritize", "voxyflow.ai.review_code",
-    "voxyflow.jobs.create",
+    "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
     "git.commit",
     "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
 }
@@ -129,7 +129,7 @@ def _register_all_tools(registry: ToolRegistry) -> None:
 
         dangerous = name in {"system.exec", "file.write", "file.patch", "git.commit",
                              "voxyflow.project.delete", "voxyflow.card.delete",
-                             "voxyflow.doc.delete", "tmux.kill"}
+                             "voxyflow.doc.delete", "voxyflow.jobs.delete", "tmux.kill"}
 
         # Build handler — reuse existing mcp_server infrastructure
         if "_handler" in tool_def:

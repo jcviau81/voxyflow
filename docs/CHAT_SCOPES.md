@@ -62,7 +62,7 @@ From `_GENERAL_CONTEXT_TOOLS`:
 - `file.read`, `file.write`, `file.list`
 - `git.status`, `git.log`, `git.diff`, `git.branches`, `git.commit`
 - `tmux.*` (all tmux tools)
-- `voxyflow.jobs.list`, `voxyflow.jobs.create`
+- `voxyflow.jobs.list`, `voxyflow.jobs.create`, `voxyflow.jobs.update`, `voxyflow.jobs.delete`
 - `voxyflow.doc.list`, `voxyflow.doc.delete`
 
 ### Session Model

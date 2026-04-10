@@ -183,7 +183,7 @@ These tools are loaded via MCP in the CLI subprocess. Call them directly — no 
 |------|----------|
 | `voxyflow.health` | System health status |
 | `voxyflow.sessions.list` | List active CLI subprocess sessions |
-| `voxyflow.jobs.list` / `.create` | Scheduled job management |
+| `voxyflow.jobs.list` / `.create` / `.update` / `.delete` | Scheduled job management (delete requires confirmation) |
 | `voxyflow.ai.standup` / `.brief` / `.health` / `.prioritize` | AI project analysis |
 
 ---

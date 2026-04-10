@@ -25,7 +25,7 @@ _GENERAL_CONTEXT_TOOLS = {
     "file.read", "file.write", "file.list",
     "git.status", "git.log", "git.diff", "git.branches", "git.commit",
     "tmux.list", "tmux.capture", "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
-    "voxyflow.jobs.list", "voxyflow.jobs.create",
+    "voxyflow.jobs.list", "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
     "voxyflow.doc.list", "voxyflow.doc.delete",
     "memory.search", "knowledge.search",
 }

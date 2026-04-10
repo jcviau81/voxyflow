@@ -57,6 +57,8 @@ DIRECT_ACTION_MAP: dict[str, str] = {
     # Jobs & health
     "jobs.list": "voxyflow.jobs.list",
     "list_jobs": "voxyflow.jobs.list",
+    "jobs.update": "voxyflow.jobs.update",
+    "jobs.delete": "voxyflow.jobs.delete",
     "health": "voxyflow.health",
     # Worker Ledger
     "workers.list": "voxyflow.workers.list",
@@ -64,7 +66,7 @@ DIRECT_ACTION_MAP: dict[str, str] = {
 }
 
 # Actions that require user confirmation before execution (irreversible)
-CONFIRM_REQUIRED = {"card.delete", "delete_card", "project.delete", "delete_project"}
+CONFIRM_REQUIRED = {"card.delete", "delete_card", "project.delete", "delete_project", "jobs.delete"}
 
 # Actions that require no params (can have empty/missing params dict)
 NO_PARAMS_REQUIRED = {"project.list", "list_projects", "jobs.list", "list_jobs", "health", "workers.list", "card.list", "list_cards", "wiki.list", "list_wiki"}

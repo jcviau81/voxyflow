@@ -666,6 +666,39 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_http": ("POST", "/api/jobs", None),
     },
+    {
+        "name": "voxyflow.jobs.update",
+        "description": "Update an existing scheduled job (name, schedule, enabled, payload). Pass only the fields to change.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["job_id"],
+            "properties": {
+                "job_id": {"type": "string", "description": "ID of the job to update"},
+                "name": {"type": "string", "description": "New job name"},
+                "type": {
+                    "type": "string",
+                    "enum": ["reminder", "github_sync", "rag_index", "custom", "board_run"],
+                    "description": "New job type",
+                },
+                "schedule": {"type": "string", "description": "New cron expression or interval"},
+                "enabled": {"type": "boolean", "description": "Enable or disable the job"},
+                "payload": {"type": "object", "description": "New job-specific configuration / payload"},
+            },
+        },
+        "_http": ("PATCH", "/api/jobs/{job_id}", "job_id"),
+    },
+    {
+        "name": "voxyflow.jobs.delete",
+        "description": "Delete a scheduled job permanently.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["job_id"],
+            "properties": {
+                "job_id": {"type": "string", "description": "ID of the job to delete"},
+            },
+        },
+        "_http": ("DELETE", "/api/jobs/{job_id}", "job_id"),
+    },
 
     # ======================================================================
     # SYSTEM TOOLS — direct execution, no REST API
