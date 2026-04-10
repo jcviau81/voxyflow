@@ -479,8 +479,8 @@ Create a new project.
   "title": "Voxyflow",
   "description": "Voice-first AI assistant",
   "context": "FastAPI + TypeScript",
-  "github_repo": "jcviau81/voxyflow",
-  "github_url": "https://github.com/jcviau81/voxyflow",
+  "github_repo": "your-org/voxyflow",
+  "github_url": "https://github.com/your-org/voxyflow",
   "github_branch": "main",
   "github_language": "TypeScript",
   "local_path": "~/projects/voxyflow"
@@ -506,7 +506,7 @@ List all projects, ordered by `updated_at` desc.
   "title": "Voxyflow",
   "description": "...",
   "status": "active",
-  "github_repo": "jcviau81/voxyflow",
+  "github_repo": "your-org/voxyflow",
   "created_at": "...",
   "updated_at": "..."
 }]
@@ -1106,7 +1106,7 @@ Check GitHub CLI and PAT configuration.
 {
   "gh_installed": true,
   "gh_authenticated": true,
-  "username": "jcviau81",
+  "username": "your-username",
   "token_configured": true,
   "method": "pat"
 }
@@ -1142,14 +1142,14 @@ Validate a GitHub repository and return its info.
 ```json
 {
   "valid": true,
-  "full_name": "jcviau81/voxyflow",
+  "full_name": "your-org/voxyflow",
   "description": "Voice-first AI assistant",
   "default_branch": "main",
   "language": "TypeScript",
   "stars": 0,
   "private": false,
-  "html_url": "https://github.com/jcviau81/voxyflow",
-  "clone_url": "https://github.com/jcviau81/voxyflow.git",
+  "html_url": "https://github.com/your-org/voxyflow",
+  "clone_url": "https://github.com/your-org/voxyflow.git",
   "updated_at": "..."
 }
 ```

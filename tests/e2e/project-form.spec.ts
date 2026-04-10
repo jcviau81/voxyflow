@@ -207,27 +207,27 @@ test.describe('Project Form — Inline Create/Edit', () => {
     await addBtn.click();
 
     // Mock successful API response
-    await page.route('**/api/github/validate/jcviau81/voxyflow', async (route) => {
+    await page.route('**/api/github/validate/acme-org/example-app', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           valid: true,
-          full_name: 'jcviau81/voxyflow',
+          full_name: 'acme-org/example-app',
           description: 'Voice-first project assistant',
           default_branch: 'main',
           language: 'TypeScript',
           stars: 5,
           private: false,
-          html_url: 'https://github.com/jcviau81/voxyflow',
-          clone_url: 'https://github.com/jcviau81/voxyflow.git',
+          html_url: 'https://github.com/acme-org/example-app',
+          clone_url: 'https://github.com/acme-org/example-app.git',
           updated_at: new Date().toISOString(),
         }),
       });
     });
 
     const githubInput = page.locator('[data-testid="project-github-input"]');
-    await githubInput.fill('jcviau81/voxyflow');
+    await githubInput.fill('acme-org/example-app');
 
     const connectBtn = page.locator('[data-testid="github-connect-btn"]');
     await connectBtn.click();
@@ -235,7 +235,7 @@ test.describe('Project Form — Inline Create/Edit', () => {
     // Should show connected status
     const githubStatus = page.locator('[data-testid="github-status"]');
     await expect(githubStatus).toHaveClass(/connected/);
-    await expect(githubStatus).toContainText('jcviau81/voxyflow');
+    await expect(githubStatus).toContainText('acme-org/example-app');
     await expect(githubStatus).toContainText('TypeScript');
   });
 

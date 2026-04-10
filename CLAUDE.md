@@ -60,7 +60,7 @@ cd frontend-react && npm run build
 - **Backend**: systemd user service `voxyflow-backend.service` (uvicorn on port 8000)
 - **Frontend**: Vite build served by Caddy reverse proxy
 - **Caddy**: system service (`/etc/caddy/Caddyfile`), proxies `/api/*`, `/ws`, `/ws/*` to backend, serves static frontend
-- **Linger**: enabled for `jcviau` so user services start at boot without login
+- **Linger**: enabled for the deploy user so user services start at boot without login
 
 ## .env (example)
 ```

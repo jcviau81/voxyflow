@@ -55,7 +55,7 @@ uvicorn app.main:app ...
 ## 1. Clone the Repo
 
 ```bash
-git clone https://github.com/jcviau81/voxyflow.git
+git clone https://github.com/your-org/voxyflow.git
 cd voxyflow
 ```
 
