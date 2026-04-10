@@ -1,5 +1,5 @@
-thething.tail6531d.ts.net {
-    tls /home/jcviau/thething.tail6531d.ts.net.crt /home/jcviau/thething.tail6531d.ts.net.key
+{$CADDY_HOSTNAME:localhost} {
+    tls {$CADDY_TLS_CERT:internal} {$CADDY_TLS_KEY:}
 
     # Service worker et manifest — no cache
     @nocache path /sw.js /manifest.webmanifest
@@ -20,7 +20,7 @@ thething.tail6531d.ts.net {
 
     # Frontend static
     handle {
-        root * /home/jcviau/apps/voxyflow/frontend-react/dist
+        root * {$CADDY_FRONTEND_ROOT:./frontend-react/dist}
         try_files {path} /index.html
         file_server
     }

@@ -102,7 +102,7 @@ export function OnboardingPage() {
         stt_language: 'auto',
         tts_enabled: true,
         tts_auto_play: false,
-        tts_url: 'http://192.168.1.59:5500',
+        tts_url: 'http://localhost:5500',
         tts_voice: 'default',
         tts_speed: 1.0,
         volume: 80,

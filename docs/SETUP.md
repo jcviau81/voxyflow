@@ -156,8 +156,8 @@ cp .env.example .env
 
 ```env
 # Override if backend is not on localhost:8000
-# VOXYFLOW_API_URL=http://192.168.1.100:8000
-# VOXYFLOW_WS_URL=ws://192.168.1.100:8000/ws
+# VOXYFLOW_API_URL=http://<your-server-ip>:8000
+# VOXYFLOW_WS_URL=ws://<your-server-ip>:8000/ws
 ```
 
 By default, the frontend proxies API and WebSocket requests to `localhost:8000` via Vite dev server config.
@@ -327,7 +327,7 @@ On first run, XTTS v2 downloads its model (~2GB), cached in `~/.local/share/tts/
 In Voxyflow, go to **Settings → Voice** and set the **TTS Server URL** to the address of your XTTS server:
 
 ```
-http://192.168.1.59:5500
+http://localhost:5500
 ```
 
 The backend proxies TTS requests to avoid CORS and mixed-content issues — the frontend calls `/api/settings/tts/speak`, and the backend forwards to your XTTS server.

@@ -1,8 +1,8 @@
 {
   "tools": {
     "brave_api_key": "",
-    "allowed_paths": ["~", "/tmp", "/home/jcviau"],
-    "denied_write_paths": ["/home/jcviau/voxyflow"],
+    "allowed_paths": ["~", "/tmp"],
+    "denied_write_paths": [],
     "exec_blocklist": [
       "rm -rf /",
       "rm -rf /*",

@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "voxyflow": {
-      "command": "/home/jcviau/voxyflow/backend/venv/bin/python3",
+      "command": "./backend/venv/bin/python3",
       "args": ["backend/mcp_stdio.py"],
-      "cwd": "/home/jcviau/voxyflow",
+      "cwd": ".",
       "env": {
         "VOXYFLOW_API_BASE": "http://localhost:8000"
       }

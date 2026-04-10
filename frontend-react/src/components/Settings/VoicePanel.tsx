@@ -98,7 +98,7 @@ const DEFAULT_VOICE: VoiceSettings = {
   whisper_local_filename: '',
   tts_enabled:           true,
   tts_auto_play:         false,
-  tts_url:               'http://192.168.1.59:5500',
+  tts_url:               'http://localhost:5500',
   tts_voice:             'default',
   tts_speed:             1.0,
   volume:                80,
@@ -759,7 +759,7 @@ export function VoicePanel() {
             <input
               type="text"
               className="setting-input w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-              placeholder="http://192.168.1.59:5500"
+              placeholder="http://localhost:5500"
               {...field}
             />
           )}

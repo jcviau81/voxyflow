@@ -318,7 +318,7 @@ function ModelLayerRow({ layerKey, control, watch, setValue, ollamaModels, ollam
 // ── ModelPanel ─────────────────────────────────────────────────────────────
 
 export function ModelPanel() {
-  const [ollamaUrl, setOllamaUrl] = useState('http://192.168.1.59:11434');
+  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
   const [ollamaStatus, setOllamaStatus] = useState<'idle' | 'checking' | 'ok' | 'empty' | 'fail'>('idle');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -434,7 +434,7 @@ export function ModelPanel() {
           type="text"
           className="setting-input text-sm rounded border border-input bg-background px-2 py-1 flex-1 min-w-40"
           value={ollamaUrl}
-          placeholder="http://192.168.1.59:11434"
+          placeholder="http://localhost:11434"
           onChange={(e) => setOllamaUrl(e.target.value)}
         />
         <button

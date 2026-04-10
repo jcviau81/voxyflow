@@ -164,10 +164,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=jcviau
-WorkingDirectory=/home/jcviau/voxyflow/backend
-EnvironmentFile=/home/jcviau/voxyflow/backend/.env
-ExecStart=/home/jcviau/voxyflow/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+User=<your-user>
+WorkingDirectory=/path/to/voxyflow/backend
+EnvironmentFile=/path/to/voxyflow/backend/.env
+ExecStart=/path/to/voxyflow/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=5
 

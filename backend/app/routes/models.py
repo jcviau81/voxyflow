@@ -46,7 +46,7 @@ def detect_provider_type(provider_url: str, model: str) -> str:
 
 
 @router.get("/ollama", response_model=list[OllamaModel])
-async def list_ollama_models(url: str = Query(default="http://192.168.1.59:11434")):
+async def list_ollama_models(url: str = Query(default="http://localhost:11434")):
     """Fetch available models from an Ollama instance. Returns empty list if unreachable."""
     import httpx
 
@@ -80,7 +80,7 @@ async def get_available_models():
     settings_path = voxyflow_data_dir / "settings.json"
 
     models_cfg: dict = {}
-    ollama_url = "http://192.168.1.59:11434"
+    ollama_url = "http://localhost:11434"
     if settings_path.exists():
         try:
             with open(settings_path) as f:

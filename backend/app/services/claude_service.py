@@ -959,7 +959,7 @@ class ClaudeService(ApiCallerMixin):
         # CLI path: no upgrade needed — Claude CLI handles tools via MCP.
         if client_type == "openai":
             _cfg = get_settings()
-            worker_api_url = _cfg.claude_proxy_url  # e.g. http://100.96.26.98:3457/v1
+            worker_api_url = _cfg.claude_proxy_url  # e.g. http://localhost:3457/v1
             worker_api_key = _cfg.claude_api_key or "not-needed"
             # CLIProxyAPI /v1/messages expects base_url without /v1 suffix
             anthropic_base = worker_api_url.rstrip("/")
