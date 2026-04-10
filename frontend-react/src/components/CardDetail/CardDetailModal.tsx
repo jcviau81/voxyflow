@@ -372,33 +372,12 @@ export function CardDetailModal() {
 
         {/* ── Three-column body ────────────────────────────────────────────── */}
         <div ref={bodyRef} className="flex min-h-0 flex-1 overflow-hidden" data-testid="card-detail-body">
-          {/* LEFT: Description */}
-          <div
-            data-testid="card-detail-description"
-            style={{ width: `${leftPct}%` }}
-            className={cn(
-              'flex flex-col p-4 md:shrink-0',
-              mobileTab === 'description' ? 'flex' : 'hidden md:flex',
-            )}
-          >
-            <DescriptionEditor
-              cardId={card.id}
-              value={description}
-              onChange={handleDescriptionChange}
-            />
-          </div>
-
-          {/* Drag handle: left | center */}
-          <div
-            onMouseDown={onDragHandleDown('left')}
-            className="hidden md:block w-1 cursor-col-resize shrink-0 bg-border hover:bg-primary/40 active:bg-primary/60 transition-colors"
-          />
-
-          {/* CENTER: Chat */}
+          {/* LEFT: Chat */}
           <div
             data-testid="card-detail-chat"
+            style={{ width: `${leftPct}%` }}
             className={cn(
-              'flex flex-col md:flex-1',
+              'flex flex-col md:shrink-0',
               mobileTab === 'chat' ? 'flex' : 'hidden md:flex',
             )}
           >
@@ -409,6 +388,27 @@ export function CardDetailModal() {
               cardId={card.id}
               embedded
               className="flex-1"
+            />
+          </div>
+
+          {/* Drag handle: left | center */}
+          <div
+            onMouseDown={onDragHandleDown('left')}
+            className="hidden md:block w-1 cursor-col-resize shrink-0 bg-border hover:bg-primary/40 active:bg-primary/60 transition-colors"
+          />
+
+          {/* CENTER: Description */}
+          <div
+            data-testid="card-detail-description"
+            className={cn(
+              'flex flex-col p-4 md:flex-1',
+              mobileTab === 'description' ? 'flex' : 'hidden md:flex',
+            )}
+          >
+            <DescriptionEditor
+              cardId={card.id}
+              value={description}
+              onChange={handleDescriptionChange}
             />
           </div>
 
