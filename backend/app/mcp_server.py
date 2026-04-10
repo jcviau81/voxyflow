@@ -581,6 +581,28 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_http": ("GET", "/api/worker-tasks/{task_id}", None),
     },
     {
+        "name": "voxyflow.workers.read_artifact",
+        "description": (
+            "Read the verbatim raw output of a finished worker from its on-disk "
+            "artifact (.md file under ~/.voxyflow/worker_artifacts/). Use this when "
+            "you need the EXACT content the worker produced — file contents, command "
+            "stdout, search results, logs — rather than the Haiku summary delivered "
+            "in the worker callback. Supports pagination via offset/length for "
+            "outputs larger than ~50k chars. Response: content, offset, length, "
+            "total_chars, has_more, path."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["task_id"],
+            "properties": {
+                "task_id": {"type": "string", "description": "Worker task ID whose artifact to read"},
+                "offset": {"type": "integer", "description": "Starting char offset into the artifact body (default 0)"},
+                "length": {"type": "integer", "description": "Max chars to return in this slice (default 50000)"},
+            },
+        },
+        "_handler": "workers_read_artifact",
+    },
+    {
         "name": "voxyflow.task.peek",
         "description": "Monitor a running worker task in real time. Returns the recent tools called, tool count, running duration, and current status. Use this when a worker seems stuck or to check its progress before deciding to cancel it. Returns source='live' if the worker is still running, or source='db' for completed tasks.",
         "inputSchema": {
@@ -1217,6 +1239,43 @@ def _get_system_handler(name: str):
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
+        async def workers_read_artifact(params: dict) -> dict:
+            """Read a slice of a finished worker's full raw output (.md artifact).
+
+            Worker callbacks only carry a Haiku-summarized version of the result;
+            the verbatim content (file dumps, command stdout, logs) is persisted
+            to ~/.voxyflow/worker_artifacts/{task_id}.md by the worker pool.
+            This handler reads paginated slices of that file so the dispatcher
+            can retrieve exact content on demand.
+            """
+            from app.services.worker_artifact_store import read_artifact
+            task_id = (params.get("task_id") or "").strip()
+            if not task_id:
+                return {"success": False, "error": "task_id is required"}
+            try:
+                offset = int(params.get("offset", 0) or 0)
+            except (TypeError, ValueError):
+                offset = 0
+            try:
+                length = int(params.get("length", 50_000) or 50_000)
+            except (TypeError, ValueError):
+                length = 50_000
+            try:
+                slice_data = read_artifact(task_id, offset=offset, length=length)
+                if slice_data is None:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"No artifact found for task {task_id}. The worker may "
+                            "not have completed yet, may have produced no output, or "
+                            "its artifact may have been cleaned up."
+                        ),
+                    }
+                return {"success": True, **slice_data}
+            except Exception as e:
+                logger.error(f"[mcp.workers.read_artifact] failed: {e}")
+                return {"success": False, "error": str(e)}
+
         _SYSTEM_HANDLERS.update({
             "system_exec": system_exec,
             "web_search": web_search,
@@ -1243,6 +1302,7 @@ def _get_system_handler(name: str):
             "memory_get": memory_get,
             "knowledge_search": knowledge_search,
             "task_steer": task_steer,
+            "workers_read_artifact": workers_read_artifact,
         })
     return _SYSTEM_HANDLERS.get(name)
 

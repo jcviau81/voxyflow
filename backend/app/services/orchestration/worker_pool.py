@@ -791,7 +791,7 @@ class DeepWorkerPool:
                             if artifact_path and raw_len > len(summarized) + 200:
                                 artifact_hint = (
                                     f"\n[Full raw output ({raw_len} chars) available — "
-                                    f"call workers_read_artifact(task_id=\"{event.task_id}\") "
+                                    f"call voxyflow.workers.read_artifact(task_id=\"{event.task_id}\") "
                                     f"to retrieve verbatim. Use offset/length for paging.]"
                                 )
 
