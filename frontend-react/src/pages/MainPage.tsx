@@ -62,7 +62,7 @@ export function MainPage() {
     </>
   );
 
-  // Desktop: split layout — chat left (30%) + content right (70%)
+  // Desktop: split layout — chat left (40%) + content right (60%)
   if (isDesktop) {
     return (
       <div className={cn('main-page flex flex-col h-full w-full overflow-hidden', `main-page--${view}`)}>
