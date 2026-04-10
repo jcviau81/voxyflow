@@ -252,27 +252,20 @@ export function DescriptionEditor({ cardId: _cardId, value, onChange }: Props) {
   }, []);
 
   return (
-    <div className="flex h-full flex-col">
-      {/* ── Mode toggle bar ── */}
-      <div className="mb-2 flex items-center justify-end">
-        <button
-          type="button"
-          onClick={toggleMode}
-          title={mode === 'edit' ? 'Switch to Preview' : 'Switch to Edit'}
-          className={cn(
-            'flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer',
-            mode === 'preview'
-              ? 'border-accent bg-accent text-accent-foreground'
-              : 'border-border bg-transparent text-muted-foreground hover:bg-muted',
-          )}
-        >
-          {mode === 'edit' ? (
-            <><Eye size={12} /> Preview</>
-          ) : (
-            <><Pencil size={12} /> Edit</>
-          )}
-        </button>
-      </div>
+    <div className="relative flex h-full flex-col">
+      {/* ── Mode toggle — absolute corner overlay ── */}
+      <button
+        type="button"
+        onClick={toggleMode}
+        title={mode === 'edit' ? 'Switch to Preview' : 'Switch to Edit'}
+        className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded border border-border bg-card/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:bg-muted cursor-pointer"
+      >
+        {mode === 'edit' ? (
+          <><Eye size={10} /> Preview</>
+        ) : (
+          <><Pencil size={10} /> Edit</>
+        )}
+      </button>
 
       {/* ── Content ── */}
       {mode === 'edit' ? (
