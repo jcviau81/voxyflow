@@ -25,7 +25,6 @@ import {
   Bell,
   Moon,
   Sun,
-  FolderPlus,
   Folder,
   Clock,
   Star,
@@ -144,8 +143,6 @@ function ProjectItem({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function Sidebar({ isOpen, onToggle }: SidebarProps) {
-  const navigate = useNavigate();
-
   // Stores
   const projects = useProjectStore((s) => s.projects);
   const activeTab = useTabStore((s) => s.activeTab);
@@ -245,17 +242,6 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
               isActive={activeTab === proj.id}
             />
           ))}
-
-          {/* New project */}
-          <button
-            className={NAV_ITEM}
-            data-testid="sidebar-new-project"
-            onClick={() => navigate('/projects?new=1')}
-          >
-            <FolderPlus size={14} className="shrink-0" />
-            <span>New Project</span>
-          </button>
-
 
         </div>
 
