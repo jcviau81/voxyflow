@@ -119,6 +119,45 @@ export function CardDetailModal() {
   const [description, setDescription] = useState('');
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Resizable columns (desktop only)
+  const [leftPct, setLeftPct] = useState(35);
+  const [rightPct, setRightPct] = useState(28);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const dragTarget = useRef<'left' | 'right' | null>(null);
+
+  const onDragHandleDown = useCallback((target: 'left' | 'right') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragTarget.current = target;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragTarget.current || !bodyRef.current) return;
+      const rect = bodyRef.current.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      if (dragTarget.current === 'left') {
+        setLeftPct(Math.min(50, Math.max(15, pct)));
+      } else {
+        const rPct = ((rect.right - e.clientX) / rect.width) * 100;
+        setRightPct(Math.min(40, Math.max(15, rPct)));
+      }
+    };
+    const onUp = () => {
+      if (!dragTarget.current) return;
+      dragTarget.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
   const isOpen = !!card;
 
   // Determine if on main board
@@ -332,12 +371,13 @@ export function CardDetailModal() {
         </div>
 
         {/* ── Three-column body ────────────────────────────────────────────── */}
-        <div className="flex min-h-0 flex-1 overflow-hidden" data-testid="card-detail-body">
+        <div ref={bodyRef} className="flex min-h-0 flex-1 overflow-hidden" data-testid="card-detail-body">
           {/* LEFT: Description */}
           <div
             data-testid="card-detail-description"
+            style={{ width: `${leftPct}%` }}
             className={cn(
-              'flex flex-col border-r border-border p-4 md:w-[35%]',
+              'flex flex-col p-4 md:shrink-0',
               mobileTab === 'description' ? 'flex' : 'hidden md:flex',
             )}
           >
@@ -348,11 +388,17 @@ export function CardDetailModal() {
             />
           </div>
 
+          {/* Drag handle: left | center */}
+          <div
+            onMouseDown={onDragHandleDown('left')}
+            className="hidden md:block w-1 cursor-col-resize shrink-0 bg-border hover:bg-primary/40 active:bg-primary/60 transition-colors"
+          />
+
           {/* CENTER: Chat */}
           <div
             data-testid="card-detail-chat"
             className={cn(
-              'flex flex-col border-r border-border md:flex-1',
+              'flex flex-col md:flex-1',
               mobileTab === 'chat' ? 'flex' : 'hidden md:flex',
             )}
           >
@@ -366,11 +412,18 @@ export function CardDetailModal() {
             />
           </div>
 
+          {/* Drag handle: center | right */}
+          <div
+            onMouseDown={onDragHandleDown('right')}
+            className="hidden md:block w-1 cursor-col-resize shrink-0 bg-border hover:bg-primary/40 active:bg-primary/60 transition-colors"
+          />
+
           {/* RIGHT: Metadata sidebar */}
           <div
             data-testid="card-detail-sidebar"
+            style={{ width: `${rightPct}%` }}
             className={cn(
-              'flex flex-col overflow-y-auto md:w-[400px] md:min-w-[400px]',
+              'flex flex-col overflow-y-auto md:shrink-0',
               mobileTab === 'details' ? 'flex' : 'hidden md:flex',
             )}
           >

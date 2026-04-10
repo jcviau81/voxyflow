@@ -152,7 +152,7 @@ function KanbanColumn({
   return (
     <div
       ref={setNodeRef}
-      className="flex flex-col min-w-[260px] flex-1 rounded-xl bg-muted/40 border border-border/40"
+      className="flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40"
       data-status={status}
     >
       {/* Column header */}
