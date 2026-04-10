@@ -36,9 +36,18 @@ BACKEND_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 import chromadb  # noqa: E402
+from chromadb.utils.embedding_functions import (  # noqa: E402
+    SentenceTransformerEmbeddingFunction,
+)
 
 DB_PATH = os.path.expanduser("~/.voxyflow/voxyflow.db")
 CHROMA_PATH = os.path.expanduser("~/.voxyflow/chroma")
+# Must match memory_service.py — otherwise destination collections persist a
+# different EF in their metadata and the runtime hits an "embedding function
+# conflict" on first read/write. See fix_memory_ef_conflict.py for the rescue
+# script if this ever drifts.
+MEMORY_EF_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+_EF = SentenceTransformerEmbeddingFunction(model_name=MEMORY_EF_MODEL)
 
 UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -81,7 +90,9 @@ def copy_collection(client, src_name: str, dst_name: str) -> int:
 
     try:
         dst = client.get_or_create_collection(
-            dst_name, metadata={"hnsw:space": "cosine"}
+            dst_name,
+            embedding_function=_EF,
+            metadata={"hnsw:space": "cosine"},
         )
     except Exception as e:
         print(f"  ! cannot create dst {dst_name}: {e}")
