@@ -17,7 +17,6 @@ import { OnboardingGuard } from './components/OnboardingGuard';
 
 import { SettingsPage } from './components/Settings/SettingsPage';
 import { ProjectList } from './components/Projects';
-import { MainPage } from './pages/MainPage';
 import { ProjectPage } from './pages/ProjectPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { JobsPage } from './pages/JobsPage';
@@ -40,7 +39,7 @@ export const router = createBrowserRouter([
       </OnboardingGuard>
     ),
     children: [
-      { index: true, element: <MainPage /> },
+      { index: true, element: <ProjectPage /> },
       { path: 'projects', element: <ProjectList /> },
       { path: 'project/:id', element: <ProjectPage /> },
       { path: 'settings', element: <SettingsPage /> },
