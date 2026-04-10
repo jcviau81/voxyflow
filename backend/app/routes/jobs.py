@@ -322,6 +322,7 @@ async def _run_board_run(job: dict, payload: dict) -> dict:
     from app.main import _orchestrator
 
     session_id = f"job-{job.get('id', str(uuid4()))}"
+    chat_id = f"job:{plan.execution_id}"
 
     await execute_board(
         execution_id=plan.execution_id,
@@ -330,6 +331,7 @@ async def _run_board_run(job: dict, payload: dict) -> dict:
         websocket=_BroadcastWS(),
         orchestrator=_orchestrator,
         session_id=session_id,
+        chat_id=chat_id,
     )
 
     return {"status": "ok", "message": f"Board run completed: {plan.total} cards executed"}

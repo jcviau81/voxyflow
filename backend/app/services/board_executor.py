@@ -10,9 +10,9 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import Any
 from uuid import uuid4
 
-from fastapi import WebSocket
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -174,9 +174,10 @@ async def execute_board(
     execution_id: str,
     project_id: str,
     cards: list[CardPlan],
-    websocket: WebSocket,
+    websocket: Any,
     orchestrator,
     session_id: str,
+    chat_id: str | None = None,
 ) -> None:
     """Execute all cards sequentially through the chat pipeline.
 
@@ -188,7 +189,7 @@ async def execute_board(
         cards=cards,
     )
     _active_executions[execution_id] = execution
-    chat_id = f"project:{project_id}"
+    chat_id = chat_id or f"project:{project_id}"
     done_card_ids: list[str] = []
 
     try:

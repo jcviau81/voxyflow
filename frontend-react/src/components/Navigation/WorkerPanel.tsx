@@ -16,7 +16,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, Send, ExternalLink, ChevronRight, ChevronDown, Eye } from 'lucide-react';
+import { MessageSquare, Send, ExternalLink, ChevronRight, ChevronDown, Eye, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -75,6 +75,8 @@ function formatAction(action: string): string {
 /** Parse a chatId like "project:uuid" or "project:card-uuid" into a session label. */
 function parseSessionLabel(chatId: string | null, cardTitles: Record<string, string>): string {
   if (!chatId) return 'Direct';
+  // Scheduled background session: "job:<execution_id>"
+  if (chatId.startsWith('job:')) return 'Board Run';
   // Card session: "project:card-<uuid>"
   const cardMatch = chatId.match(/^project:card-(.+)$/);
   if (cardMatch) {
@@ -373,8 +375,10 @@ function SessionRow({ session, projectId, onCancel, onSteer, peekData, expandedP
 
   const isActive = !!session.cliSession || session.workers.some((w) => !TERMINAL_STATUSES.has(w.status));
 
+  const isJobSession = session.chatId.startsWith('job:');
+
   // Detect dispatcher: CLI session of type "chat" or chatId starts with "project:" / "card:"
-  const isDispatcher = !!(
+  const isDispatcher = !isJobSession && !!(
     session.cliSession?.type === 'chat' ||
     session.chatId.startsWith('project:') ||
     session.chatId.startsWith('general:')
@@ -413,6 +417,10 @@ function SessionRow({ session, projectId, onCancel, onSteer, peekData, expandedP
           <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
         )}
 
+        {isJobSession && (
+          <Clock size={9} className="shrink-0 text-muted-foreground" />
+        )}
+
         {isDispatcher && hasChildren && (
           <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent shrink-0">
             Voxy
@@ -439,7 +447,7 @@ function SessionRow({ session, projectId, onCancel, onSteer, peekData, expandedP
       </button>
 
       {open && hasChildren && (
-        <div className="flex flex-col ml-2 border-l-2 border-border/30 pl-1">
+        <div className="flex flex-col">
           {session.workers.map((w, idx) => (
             <WorkerRow
               key={w.taskId}

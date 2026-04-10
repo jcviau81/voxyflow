@@ -89,7 +89,7 @@ class DeepWorkerPool:
         self,
         claude_service: ClaudeService,
         bus: SessionEventBus,
-        websocket: WebSocket,
+        websocket: WebSocket | None,
         orchestrator: ChatOrchestrator | None = None,
     ):
         self._claude = claude_service
@@ -115,7 +115,7 @@ class DeepWorkerPool:
         self._cleanup_task = asyncio.create_task(self._stale_cleanup_loop())
         logger.info(f"[DeepWorkerPool] Started for session {self._bus.session_id}")
 
-    def update_websocket(self, websocket: WebSocket) -> None:
+    def update_websocket(self, websocket: WebSocket | None) -> None:
         """Update the WebSocket reference after a client reconnect."""
         self._ws = websocket
         logger.info(f"[DeepWorkerPool] Updated WebSocket for session {self._bus.session_id}")
@@ -776,7 +776,8 @@ class DeepWorkerPool:
             if dispatcher_chat_id and self._orchestrator:
                 try:
                     from starlette.websockets import WebSocketState
-                    if self._ws.client_state == WebSocketState.CONNECTED:
+                    _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
+                    if _ws_state == WebSocketState.CONNECTED:
                         async with self._callback_lock:
                             summarized = result_content or "(no output)"
                             if result_content:
@@ -882,7 +883,8 @@ class DeepWorkerPool:
             if dispatcher_chat_id and self._orchestrator:
                 try:
                     from starlette.websockets import WebSocketState
-                    if self._ws.client_state == WebSocketState.CONNECTED:
+                    _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
+                    if _ws_state == WebSocketState.CONNECTED:
                         async with self._callback_lock:
                             error_msg = str(e)[:500]
                             callback_msg = (
@@ -925,9 +927,12 @@ class DeepWorkerPool:
             "timestamp": int(time.time() * 1000),
         }
         try:
-            await self._ws.send_json(message)
             from app.services.ws_broadcast import ws_broadcast
-            await ws_broadcast.emit_to_others(self._ws, event_type, {"taskId": task_id, **payload})
+            if self._ws is not None:
+                await self._ws.send_json(message)
+                await ws_broadcast.emit_to_others(self._ws, event_type, {"taskId": task_id, **payload})
+            else:
+                ws_broadcast.emit_sync(event_type, {"taskId": task_id, **payload})
         except Exception as e:
             logger.warning(f"[DeepWorkerPool] Failed to send {event_type} via WS: {e}")
             if event_type in ("task:completed", "task:cancelled", "task:timeout"):

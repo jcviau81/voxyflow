@@ -90,7 +90,7 @@ class ChatOrchestrator(LayerRunnersMixin):
 
     async def handle_message(
         self,
-        websocket: WebSocket,
+        websocket: WebSocket | None,
         content: str,
         message_id: str,
         chat_id: str,
@@ -120,7 +120,7 @@ class ChatOrchestrator(LayerRunnersMixin):
 
     async def _handle_message_inner(
         self,
-        websocket: WebSocket,
+        websocket: WebSocket | None,
         content: str,
         message_id: str,
         chat_id: str,
@@ -397,7 +397,7 @@ class ChatOrchestrator(LayerRunnersMixin):
     # Event Bus: Worker pool lifecycle
     # ------------------------------------------------------------------
 
-    def start_worker_pool(self, session_id: str, websocket: WebSocket) -> DeepWorkerPool:
+    def start_worker_pool(self, session_id: str, websocket: WebSocket | None) -> DeepWorkerPool:
         """Create and start a DeepWorkerPool for a session.
 
         If a pool already exists for this session_id (e.g. browser reconnect),
@@ -413,7 +413,9 @@ class ChatOrchestrator(LayerRunnersMixin):
                 orphan_ids.append(sid)
                 continue
             ws = pool._ws
-            if ws is None or ws.client_state != WebSocketState.CONNECTED:
+            # Background pools (ws=None) are not orphans — they're intentionally headless.
+            # Only real WebSocket connections that have gone dead are orphans.
+            if ws is not None and getattr(ws, "client_state", WebSocketState.CONNECTED) != WebSocketState.CONNECTED:
                 orphan_ids.append(sid)
 
         for orphan_sid in orphan_ids:
