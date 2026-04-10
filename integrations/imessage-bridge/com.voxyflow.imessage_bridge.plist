@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd Login Agent for iMessage → Voxyflow Bridge
+  ====================================================
+  This runs the bridge as the current macOS user at login, restarting it
+  automatically if it crashes.
+
+  Quick install (replace YOUR_USERNAME and YOUR_CONTACT):
+    cp com.voxyflow.imessage_bridge.plist ~/Library/LaunchAgents/
+    # Edit the plist — set IMSG_CONTACT and update the paths below
+    launchctl load ~/Library/LaunchAgents/com.voxyflow.imessage_bridge.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.voxyflow.imessage_bridge.plist
+    rm ~/Library/LaunchAgents/com.voxyflow.imessage_bridge.plist
+
+  Status:
+    launchctl list | grep voxyflow
+    tail -f ~/bridge/bridge.log
+
+  Prerequisites:
+    - imsg:      brew install steipete/tap/imsg
+    - websockets: pip3 install websockets
+    - Voxyflow running at localhost:8000
+    - Messages.app: System Settings → Privacy → Full Disk Access → add Terminal
+-->
+<plist version="1.0">
+<dict>
+
+    <!-- Unique label for this launch agent -->
+    <key>Label</key>
+    <string>com.voxyflow.imessage_bridge</string>
+
+    <!-- Program to run — update the path to match your username -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <!-- Change /Users/YOUR_USERNAME to your actual home directory -->
+        <string>/Users/YOUR_USERNAME/bridge/imessage_bridge.py</string>
+    </array>
+
+    <!-- Environment variables — configure these for your setup -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Apple ID or phone number to watch for incoming messages -->
+        <key>IMSG_CONTACT</key>
+        <string>you@example.com</string>
+
+        <!-- Voxyflow WebSocket endpoint (default: local, adjust for remote) -->
+        <key>VOXYFLOW_WS_URL</key>
+        <string>ws://localhost:8000/ws</string>
+
+        <!-- Voxyflow project context for AI responses -->
+        <key>VOXYFLOW_PROJECT</key>
+        <string>system-main</string>
+
+        <!-- iMessage or sms -->
+        <key>IMSG_SERVICE</key>
+        <string>imessage</string>
+
+        <!-- Path to imsg binary (installed via Homebrew) -->
+        <key>IMSG_BIN</key>
+        <string>/opt/homebrew/bin/imsg</string>
+
+        <!-- State file — change YOUR_USERNAME -->
+        <key>STATE_FILE</key>
+        <string>/Users/YOUR_USERNAME/bridge/.state.json</string>
+
+        <!-- Log file — change YOUR_USERNAME -->
+        <key>LOG_FILE</key>
+        <string>/Users/YOUR_USERNAME/bridge/bridge.log</string>
+
+        <!-- Ensure Homebrew is in PATH -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Restart automatically if it crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Start at login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Throttle rapid restarts (e.g., if Voxyflow isn't up yet) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Working directory — change YOUR_USERNAME -->
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USERNAME/bridge</string>
+
+    <!-- stdout/stderr (launchd level; script also writes to bridge.log) — change YOUR_USERNAME -->
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USERNAME/bridge/launchd_stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USERNAME/bridge/launchd_stderr.log</string>
+
+    <!-- Soft resource limits -->
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>1024</integer>
+    </dict>
+
+</dict>
+</plist>
