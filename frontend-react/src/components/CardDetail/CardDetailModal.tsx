@@ -401,7 +401,7 @@ export function CardDetailModal() {
           <div
             data-testid="card-detail-description"
             className={cn(
-              'flex flex-col p-4 md:flex-1',
+              'flex flex-col px-4 pb-4 md:flex-1',
               mobileTab === 'description' ? 'flex' : 'hidden md:flex',
             )}
           >
