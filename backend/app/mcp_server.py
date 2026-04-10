@@ -651,17 +651,17 @@ _TOOL_DEFINITIONS: list[dict] = [
         "description": "Create a new scheduled job in Voxyflow.",
         "inputSchema": {
             "type": "object",
-            "required": ["name", "type", "cron"],
+            "required": ["name", "type", "schedule"],
             "properties": {
                 "name": {"type": "string", "description": "Job name"},
                 "type": {
                     "type": "string",
-                    "enum": ["reminder", "github_sync", "rag_index", "custom"],
+                    "enum": ["reminder", "github_sync", "rag_index", "custom", "board_run"],
                     "description": "Job type",
                 },
-                "cron": {"type": "string", "description": "Cron expression (e.g. '0 9 * * 1-5')"},
+                "schedule": {"type": "string", "description": "Cron expression (e.g. '0 9 * * 1-5') or interval ('every_5min', 'every_1h')"},
                 "enabled": {"type": "boolean", "description": "Whether the job is enabled (default: true)"},
-                "config": {"type": "object", "description": "Job-specific configuration"},
+                "payload": {"type": "object", "description": "Job-specific configuration / payload"},
             },
         },
         "_http": ("POST", "/api/jobs", None),
