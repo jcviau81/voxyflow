@@ -423,7 +423,11 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
         except Exception as e:
             return {"error": str(e)}
     elif name == "memory_save":
-        from app.services.memory_service import get_memory_service
+        from app.services.memory_service import (
+            get_memory_service,
+            GLOBAL_COLLECTION,
+            _project_collection,
+        )
         mem_content = params.get("content", "")
         if not mem_content:
             return {"error": "content is required"}
@@ -431,13 +435,27 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
         importance = params.get("importance", "medium")
         try:
             ms = get_memory_service()
+            # Mirror mcp_server.memory.save scoping: env var VOXYFLOW_PROJECT_ID
+            # wins so the model cannot write into another project's memory.
+            project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+            if project_id and project_id != "system-main":
+                collection = _project_collection(project_id)
+            else:
+                collection = GLOBAL_COLLECTION
+            from datetime import datetime, timezone
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             doc_id = ms.store_memory(
                 text=mem_content,
+                collection=collection,
                 metadata={
                     "type": memory_type,
                     "importance": importance,
                     "source": "manual",
+                    "date": date_str,
                 },
+            )
+            logger.info(
+                f"[InlineTool] memory_save project_id={project_id!r} collection={collection}"
             )
             return {"saved": True, "id": doc_id or ""}
         except Exception as e:

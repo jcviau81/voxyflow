@@ -983,7 +983,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                     "enum": ["high", "medium", "low"],
                     "description": "Importance level (default: medium)",
                 },
-                "project_id": {"type": "string", "description": "Project to scope memory to (optional, defaults to global)"},
+                "project_id": {"type": "string", "description": "Override project scope. Omit to auto-scope to the current project. Only use to explicitly save into a different project."},
             },
         },
         "_handler": "memory_save",
@@ -1145,9 +1145,9 @@ def _get_system_handler(name: str):
         async def memory_save(params: dict) -> dict:
             """Store a memory entry in Voxy's long-term memory (ChromaDB or file fallback).
 
-            Scope precedence: env var (VOXYFLOW_PROJECT_ID) → tool param
-            → global fallback. The env var wins so the model cannot write
-            into another project's memory by accident.
+            Auto-scoped to the current project via VOXYFLOW_PROJECT_ID env var.
+            Explicit project_id param overrides for intentional cross-project saves.
+            Fallback: global collection when no project context exists.
             """
             from app.services.memory_service import (
                 get_memory_service,
@@ -1162,7 +1162,9 @@ def _get_system_handler(name: str):
 
             env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
             param_project_id = (params.get("project_id") or "").strip()
-            project_id = env_project_id or param_project_id
+            # Auto-scope: env var is the default; explicit param overrides it
+            # (allows intentional cross-project saves when needed)
+            project_id = param_project_id or env_project_id
 
             if project_id and project_id != "system-main":
                 collection = _project_collection(project_id)

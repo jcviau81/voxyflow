@@ -133,7 +133,7 @@ These tools are loaded via MCP in the CLI subprocess. Call them directly — no 
 | Tool | Use when |
 |------|----------|
 | `memory.search` | Before answering about past decisions or user preferences. Returns `id`, `text`, `score`, `collection` per entry. Supports pagination: `limit` (default 10) + `offset` (default 0). Response includes `has_more` — use `offset` to page through results. |
-| `memory.save` | User shares something worth remembering across sessions |
+| `memory.save` | User shares something worth remembering across sessions. **Auto-scoped to the current project** — do NOT pass `project_id` unless you intentionally need to save into a different project. |
 | `memory.delete` | User asks to forget something — call `memory.search` first to get the `id`, then pass it to `memory.delete` with the `collection` from the search result |
 | `memory.get` | List recent chat sessions (history overview) — recall past conversations |
 | `knowledge.search` | Need project-specific background context (RAG) |
@@ -285,4 +285,5 @@ Worker CWD is automatically set from the project's `local_path`. Don't specify p
 | Worker reads and recaps without acting | Vague or open-ended prompt | Require a concrete deliverable in the prompt (file to write, card to update, etc.) |
 | Worker declared dead prematurely | Worker is silent between tool calls | Don't cancel silent workers — use `task.peek` first; wait for timeout before cancelling |
 | Empty response bubble | Dispatcher sent delegate-only response | Always add at least one sentence before the `<delegate>` block |
+| Memory saved to wrong project | Passed `project_id` manually and got it wrong | Don't pass `project_id` — `memory.save` auto-scopes to the current project. Only use the param to intentionally target a different project. |
 | User asked for verbatim output but you only have a summary | Worker callback carries a Haiku summary, not the raw content | Call `voxyflow.workers.read_artifact(task_id=…)` to read the full `.md` artifact (use `offset`/`length` to page) |
