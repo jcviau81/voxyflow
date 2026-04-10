@@ -427,7 +427,7 @@ export function CardDetailModal() {
               mobileTab === 'details' ? 'flex' : 'hidden md:flex',
             )}
           >
-            <div className="space-y-5 p-4">
+            <div className="space-y-5 px-4 pb-4">
               {/* Execute */}
               {(() => {
                 const workerRunning = card ? isCardActive(card.id) : false;
