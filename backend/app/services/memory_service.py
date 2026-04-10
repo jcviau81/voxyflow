@@ -1,8 +1,9 @@
 """Memory Service — ChromaDB-backed hierarchical memory with file-based fallback.
 
 Collections:
-  memory-global              ← user preferences, cross-project decisions, lessons learned
-  memory-project-{slug}      ← project-specific decisions, bugs, tech choices, context
+  memory-global                    ← user preferences, cross-project decisions, lessons learned
+  memory-project-{project_id}      ← project-specific decisions, bugs, tech choices, context
+                                    (keyed by project UUID, not slug — isolation-safe)
 
 ChromaDB persists to ~/.voxyflow/chroma/ (shared PersistentClient with RAG service).
 Embeddings use sentence-transformers/all-MiniLM-L6-v2 (local, no API key needed).
@@ -51,7 +52,7 @@ MEMORY_DIR = WORKSPACE_DIR / "memory"
 CHROMA_PERSIST_DIR = os.path.expanduser("~/.voxyflow/chroma")
 MIGRATION_FLAG_FILE = Path(CHROMA_PERSIST_DIR) / ".memory_migrated"
 
-GLOBAL_COLLECTION = "memory-project-main"
+GLOBAL_COLLECTION = "memory-global"
 
 VALID_TYPES = {"decision", "preference", "lesson", "fact", "context"}
 VALID_SOURCES = {"chat", "manual", "auto-extract"}
@@ -180,9 +181,14 @@ def _slugify(name: str) -> str:
     return slug or "default"
 
 
-def _project_collection(project_slug: str) -> str:
-    """Return the collection name for a project."""
-    return f"memory-project-{project_slug}"
+def _project_collection(project_id: str) -> str:
+    """Return the collection name for a project (keyed by project_id, not slug).
+
+    Using the project UUID as the collection key prevents cross-project
+    context leaks that happened when slugs collided (e.g. "main" matching
+    both the generic chat and the "system-main" project).
+    """
+    return f"memory-project-{project_id}"
 
 
 class MemoryService:
@@ -319,17 +325,23 @@ class MemoryService:
     ) -> list[dict]:
         """Semantic search across specified collections.
 
+        The ``collections`` parameter is REQUIRED — there is no silent
+        fallback to a global collection anymore. Callers must be explicit
+        about which project scope(s) they want to search, otherwise a
+        ``ValueError`` is raised. This prevents cross-project context
+        leaks that happened when callers relied on a hidden default.
+
         Returns list of {id, text, score, metadata, collection}.
         """
+        if collections is None:
+            raise ValueError("collections= is required for search_memory")
+
         if not self._chromadb_enabled:
             # Fall back to keyword search
             return self._keyword_search(query, limit)
 
         if not query or not query.strip():
             return []
-
-        if collections is None:
-            collections = [GLOBAL_COLLECTION]
 
         all_results: list[dict] = []
 
@@ -440,9 +452,16 @@ class MemoryService:
         self,
         chat_id: str,
         messages: list[dict],
-        project_slug: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> list[str]:
         """Analyze conversation messages and auto-store important facts/decisions.
+
+        ``project_id`` is the UUID of the project chat (or ``"system-main"``
+        / ``None`` for the general chat). Auto-extracted memories NEVER land
+        in the cross-project ``memory-global`` collection — that collection
+        is reserved for manual ``memory.save`` calls without a project
+        scope. General-chat auto extractions land in
+        ``memory-project-system-main``.
 
         B4 cost optimization flow:
         1. Message counter throttle — only run every EXTRACTION_INTERVAL messages
@@ -468,10 +487,16 @@ class MemoryService:
         stored_ids: list[str] = []
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        # Determine target collection
-        # Default to "main" so general/system-main chat memories land in
-        # memory-project-main instead of the empty memory-global collection.
-        collection = _project_collection(project_slug or "main")
+        # Determine target collection.
+        # - No project_id OR project_id == "system-main" → system-main project
+        # - Any other project_id → that project's collection
+        # We NEVER auto-extract into GLOBAL_COLLECTION; global memory is
+        # reserved for deliberate user saves without a project scope.
+        if not project_id or project_id == "system-main":
+            target_project_id = "system-main"
+        else:
+            target_project_id = project_id
+        collection = _project_collection(target_project_id)
 
         # Take the last 4 non-system messages
         relevant_messages = [
@@ -519,7 +544,7 @@ class MemoryService:
                     "importance": importance,
                     "confidence": round(confidence, 2),
                 }
-                metadata["project"] = project_slug or "main"
+                metadata["project"] = target_project_id
 
                 # Dedup: check if very similar memory already exists
                 existing = self.search_memory(
@@ -568,7 +593,7 @@ class MemoryService:
                     "source": "auto-extract",
                     "importance": importance,
                 }
-                metadata["project"] = project_slug or "main"
+                metadata["project"] = target_project_id
 
                 existing = self.search_memory(
                     query=sentence,
@@ -656,6 +681,7 @@ class MemoryService:
     def build_memory_context(
         self,
         project_name: Optional[str] = None,
+        project_id: Optional[str] = None,
         include_long_term: bool = True,
         include_daily: bool = True,
         query: Optional[str] = None,
@@ -666,6 +692,9 @@ class MemoryService:
         If ChromaDB is available and a query is provided, uses semantic search.
         Otherwise falls back to file-based memory loading.
 
+        ``project_id`` is the UUID (or "system-main") that keys the Chroma
+        collection. ``project_name`` is only used for display/section titles.
+
         Returns None if no memory available.
         """
         # If ChromaDB is available and we have a query, use semantic search
@@ -673,6 +702,7 @@ class MemoryService:
             return self._build_chromadb_context(
                 query=query,
                 project_name=project_name,
+                project_id=project_id,
                 card_id=card_id,
                 include_long_term=include_long_term,
             )
@@ -688,31 +718,33 @@ class MemoryService:
         self,
         query: str,
         project_name: Optional[str] = None,
+        project_id: Optional[str] = None,
         card_id: Optional[str] = None,
         include_long_term: bool = True,
     ) -> Optional[str]:
         """Build memory context using ChromaDB semantic search.
 
-        Hierarchy:
-        - General Chat → memory-global (top 10)
-        - Project Chat → memory-global (top 5) + memory-project-{slug} (top 10)
-        - Card Chat → memory-global (top 3) + memory-project-{slug} w/ card_id filter (top 5) + unfiltered project (top 5)
+        Hierarchy (strict project isolation — project chats NEVER see global):
+        - General/Main Chat → memory-global + memory-project-system-main (top 10)
+        - Project Chat → memory-project-{project_id} only (top 10)
+        - Card Chat → memory-project-{project_id} w/ card_id filter (top 5) + unfiltered project (top 5)
+
+        ``include_long_term`` only affects General/Main Chat (whether to include
+        memory-global). For Project/Card chats it is ignored — project chats
+        are fully isolated from cross-project memory.
+
+        Scoping is driven by ``project_id`` (the UUID or "system-main"),
+        NOT by the display name. ``project_name`` is used only for section
+        titles; if None we fall back to ``project_id`` for display.
         """
         sections: list[str] = []
+        # Section-title label: prefer the display name, fall back to project_id
+        display_label = project_name or project_id or ""
 
         try:
-            if project_name and card_id:
-                # Card Chat mode
-                slug = _slugify(project_name)
-                proj_col = _project_collection(slug)
-
-                if include_long_term:
-                    global_results = self.search_memory(
-                        query=query, collections=[GLOBAL_COLLECTION], limit=3
-                    )
-                    if global_results:
-                        texts = [r["text"] for r in global_results]
-                        sections.append("**Global memory:**\n" + "\n".join(f"- {t}" for t in texts))
+            if project_id and card_id:
+                # Card Chat mode — strictly project-scoped, NEVER queries global
+                proj_col = _project_collection(project_id)
 
                 # Card-scoped project memories
                 card_results = self.search_memory(
@@ -724,7 +756,7 @@ class MemoryService:
                 if card_results:
                     texts = [r["text"] for r in card_results]
                     sections.append(
-                        f"**Card memory ({project_name}):**\n" + "\n".join(f"- {t}" for t in texts)
+                        f"**Card memory ({display_label}):**\n" + "\n".join(f"- {t}" for t in texts)
                     )
 
                 # Unfiltered project memories
@@ -738,22 +770,13 @@ class MemoryService:
                     if proj_unique:
                         texts = [r["text"] for r in proj_unique]
                         sections.append(
-                            f"**Project memory ({project_name}):**\n"
+                            f"**Project memory ({display_label}):**\n"
                             + "\n".join(f"- {t}" for t in texts)
                         )
 
-            elif project_name:
-                # Project Chat mode
-                slug = _slugify(project_name)
-                proj_col = _project_collection(slug)
-
-                if include_long_term:
-                    global_results = self.search_memory(
-                        query=query, collections=[GLOBAL_COLLECTION], limit=5
-                    )
-                    if global_results:
-                        texts = [r["text"] for r in global_results]
-                        sections.append("**Global memory:**\n" + "\n".join(f"- {t}" for t in texts))
+            elif project_id:
+                # Project Chat mode — strictly project-scoped, NEVER queries global
+                proj_col = _project_collection(project_id)
 
                 proj_results = self.search_memory(
                     query=query, collections=[proj_col], limit=10
@@ -761,15 +784,21 @@ class MemoryService:
                 if proj_results:
                     texts = [r["text"] for r in proj_results]
                     sections.append(
-                        f"**Project memory ({project_name}):**\n"
+                        f"**Project memory ({display_label}):**\n"
                         + "\n".join(f"- {t}" for t in texts)
                     )
 
             else:
-                # General Chat mode — search memory-project-main (where
-                # system-main chat memories are stored) plus global.
-                main_col = _project_collection("main")
-                search_cols = [main_col, GLOBAL_COLLECTION] if include_long_term else [main_col]
+                # General/Main Chat mode — search memory-project-system-main
+                # (where system-main chat memories land) plus the global
+                # cross-project memory. This is the ONLY place we query
+                # the global collection without a specific project scope.
+                main_col = _project_collection("system-main")
+                search_cols = (
+                    [main_col, GLOBAL_COLLECTION]
+                    if include_long_term
+                    else [main_col]
+                )
                 main_results = self.search_memory(
                     query=query, collections=search_cols, limit=10
                 )

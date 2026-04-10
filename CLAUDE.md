@@ -110,3 +110,50 @@ CLI_MIN_SPACING_MS=500
 | Worker lit et recrache sans agir | Demander une action concrète dans le prompt |
 | Worker déclaré mort trop tôt | Ne pas tuer un worker silencieux — attendre le timeout |
 | Bulle de réponse vide | Toujours ajouter du texte avant le delegate |
+
+---
+
+## Project Isolation
+
+Invariants to preserve when touching memory, MCP tools, or chat routing. Regressions here leak context across projects.
+
+### 1. ChromaDB collections keyed by `project_id` (UUID)
+- Memory store lives in `~/.voxyflow/chroma/`
+- Per-project: `memory-project-{project_id}` — `project_id` is the **UUID**, never the title/slug
+- Global cross-project: `memory-global` (constant `GLOBAL_COLLECTION` in `backend/app/services/memory_service.py`) — reserved for the **general/main chat only**
+- System / general chat (no project) uses pseudo-project `system-main` → collection `memory-project-system-main`
+- Slugs change on rename and orphan data — **never** use them as collection keys
+
+### 1a. STRICT: project chats never query `memory-global`
+- `memory_service._build_chromadb_context` Project Chat & Card Chat modes query the per-project collection ONLY. Do not add `GLOBAL_COLLECTION` to those branches.
+- `mcp_server.memory_search` handler: when `VOXYFLOW_PROJECT_ID` is a real project UUID → `collections=[_project_collection(pid)]`. Global is added **only** when env is empty / `system-main`.
+- `tool_defs._execute_inline_tool` memory_search branch mirrors the same rule.
+- **Why:** `memory-global` holds cross-bot imports / user-globals that the user explicitly wants kept out of project work. A clean project must show zero knowledge from other contexts.
+- **Regression guard:** `backend/scripts/smoke_test_isolation.py` test `_build_chromadb_context — Project Chat mode never queries memory-global` will fail if this is broken.
+
+### 2. `search_memory()` requires explicit collections
+- `backend/app/services/memory_service.py` — `search_memory()` raises `ValueError` if `collections=` is omitted. No silent fallback.
+- Callers must pass the collections they want.
+- `build_memory_context(project_id=...)` is the high-level helper — it picks the right collections based on `project_id`.
+
+### 3. MCP tools auto-scope via env var
+- MCP subprocess inherits `VOXYFLOW_PROJECT_ID` from `cli_backend._build_mcp_config(..., project_id=...)`
+- Handlers in `backend/app/mcp_server.py` (`memory_search`, `memory_save`, `knowledge_search`) read `os.environ.get("VOXYFLOW_PROJECT_ID", "")` and scope automatically
+- MCP tool schemas do **not** expose `project_id` — Voxy cannot override it. Scoping is enforced by the runtime, not by the LLM.
+- Empty / missing env → falls back to `system-main` (general chat behavior)
+
+### 4. `chat_id` is server-canonical, not client-trusted
+- `backend/app/main.py` derives the canonical `chat_id` from server-side `project_id` / `card_id`:
+  - card → `card:{card_id}`
+  - project → `project:{project_id}`
+  - general → `project:{SYSTEM_MAIN_PROJECT_ID}`
+- Frontend-supplied `chatId` is accepted only if it equals the canonical id or starts with `canonical + ":"` (sub-sessions). Otherwise logged as `[WS] Rejected mismatched chatId=...` and replaced.
+- Prevents a stale or malicious frontend from steering chat into the wrong session.
+
+### 5. When you add a new tool / new chat path
+- Tool touches memory or per-project data → **never** require the LLM to pass `project_id` as an arg. Read it from `os.environ["VOXYFLOW_PROJECT_ID"]` in the handler.
+- New CLI entrypoint in `cli_backend.py` → thread `project_id` through to `_build_mcp_config(..., project_id=project_id)`
+- New chat handler in `main.py` → derive `chat_id` from server-side ids, do not echo the frontend's `chatId` blindly
+
+### 6. Drift detection
+- `cli_backend.stream_persistent` logs `[CLI-persistent] PROJECT_ID DRIFT: ...` if a persistent chat process is reused with a different `project_id` than it was spawned with. If you see this in logs, something upstream is wrong.

@@ -8,6 +8,7 @@
 
 import json
 import logging
+import os
 from typing import Optional
 
 from app.tools.registry import TOOLS_READ_ONLY, _LAYER_TOOL_SETS
@@ -349,14 +350,27 @@ _INLINE_TOOL_NAMES = {t["name"] for t in INLINE_TOOLS}
 async def _execute_inline_tool(name: str, params: dict) -> dict:
     """Execute an inline tool and return the result."""
     if name == "memory_search":
-        from app.services.memory_service import get_memory_service
+        from app.services.memory_service import (
+            get_memory_service,
+            GLOBAL_COLLECTION,
+            _project_collection,
+        )
         query = params.get("query", "")
         if not query:
             return {"error": "query is required"}
         limit = params.get("limit", 5)
         try:
             ms = get_memory_service()
-            results = ms.search_memory(query, limit=limit)
+            # Mirror mcp_server.memory.search scoping: env var VOXYFLOW_PROJECT_ID
+            # wins so the model cannot leak context from other projects.
+            # STRICT ISOLATION: project chats NEVER see memory-global. Only the
+            # general chat (no project / system-main) is allowed to query global.
+            project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+            if project_id and project_id != "system-main":
+                collections = [_project_collection(project_id)]
+            else:
+                collections = [GLOBAL_COLLECTION, _project_collection("system-main")]
+            results = ms.search_memory(query, collections=collections, limit=limit)
             if not results:
                 return {"result": "No matching memories found."}
             formatted = [

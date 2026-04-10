@@ -929,7 +929,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Memory (semantic search across all memory) -------------------------
     {
         "name": "memory.search",
-        "description": "Search Voxy's long-term memory (global + project) for relevant context. Use when you need to recall prior conversations, decisions, user preferences, or stored facts.",
+        "description": "Search Voxy's long-term memory for relevant context. Strictly scoped to the current project (or global+main only when in general chat). Project chats never see global memory. Use when you need to recall prior conversations, decisions, or stored facts within this project.",
         "inputSchema": {
             "type": "object",
             "required": ["query"],
@@ -1045,16 +1045,40 @@ def _get_system_handler(name: str):
         from app.services.worker_supervisor import handle_task_complete
 
         async def memory_search(params: dict) -> dict:
-            """Semantic search across Voxy's long-term memory."""
-            from app.services.memory_service import get_memory_service
+            """Semantic search across Voxy's long-term memory, scoped to the current project."""
+            from app.services.memory_service import (
+                get_memory_service,
+                GLOBAL_COLLECTION,
+                _project_collection,
+            )
             query = params.get("query", "")
             if not query:
                 return {"error": "query is required"}
             limit = params.get("limit", 10)
             offset = params.get("offset", 0)
+
+            # Project scope from runtime env (injected by cli_backend per chat).
+            # STRICT ISOLATION: project chats NEVER see memory-global. Only the
+            # general chat (no project / system-main) is allowed to query global.
+            # - Real project UUID → that project's collection ONLY
+            # - Empty or "system-main" → general chat: global + system-main
+            project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+            if project_id and project_id != "system-main":
+                collections = [_project_collection(project_id)]
+            else:
+                collections = [GLOBAL_COLLECTION, _project_collection("system-main")]
+            logger.info(
+                f"[mcp.memory.search] project_id={project_id!r} collections={collections}"
+            )
+
             try:
                 ms = get_memory_service()
-                results = ms.search_memory(query, limit=limit, offset=offset)
+                results = ms.search_memory(
+                    query,
+                    collections=collections,
+                    limit=limit,
+                    offset=offset,
+                )
                 if not results:
                     return {"results": [], "offset": offset, "limit": limit, "count": 0}
                 formatted = []
@@ -1076,12 +1100,20 @@ def _get_system_handler(name: str):
                 return {"error": str(e)}
 
         async def knowledge_search(params: dict) -> dict:
-            """RAG search on project knowledge base — on-demand tool."""
+            """RAG search on project knowledge base — on-demand tool.
+
+            Scope precedence: env var (VOXYFLOW_PROJECT_ID) → tool param
+            → ``"system-main"``. The env var takes priority so the model
+            cannot accidentally leak context from other projects by
+            passing the wrong project_id in tool params.
+            """
             from app.services.rag_service import get_rag_service
-            project_id = params.get("project_id", "system-main")
+            env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+            project_id = env_project_id or params.get("project_id", "system-main")
             query = params.get("query", "")
             if not query:
                 return {"error": "query is required"}
+            logger.info(f"[mcp.knowledge.search] project_id={project_id!r}")
             try:
                 result = await get_rag_service().build_rag_context(project_id, query)
                 return {"result": result or "No relevant knowledge found."}
@@ -1089,19 +1121,41 @@ def _get_system_handler(name: str):
                 return {"error": str(e)}
 
         async def memory_save(params: dict) -> dict:
-            """Store a memory entry in Voxy's long-term memory (ChromaDB or file fallback)."""
-            from app.services.memory_service import get_memory_service, GLOBAL_COLLECTION, _project_collection
+            """Store a memory entry in Voxy's long-term memory (ChromaDB or file fallback).
+
+            Scope precedence: env var (VOXYFLOW_PROJECT_ID) → tool param
+            → global fallback. The env var wins so the model cannot write
+            into another project's memory by accident.
+            """
+            from app.services.memory_service import (
+                get_memory_service,
+                GLOBAL_COLLECTION,
+                _project_collection,
+            )
             text = params.get("text", "").strip()
             if not text:
                 return {"error": "text is required"}
             mem_type = params.get("type", "fact")
             importance = params.get("importance", "medium")
-            project_id = params.get("project_id")
+
+            env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+            param_project_id = (params.get("project_id") or "").strip()
+            project_id = env_project_id or param_project_id
+
+            if project_id and project_id != "system-main":
+                collection = _project_collection(project_id)
+            elif project_id == "system-main":
+                collection = _project_collection("system-main")
+            else:
+                collection = GLOBAL_COLLECTION
+            logger.info(
+                f"[mcp.memory.save] project_id={project_id!r} collection={collection}"
+            )
+
             from datetime import datetime, timezone
             date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             try:
                 ms = get_memory_service()
-                collection = _project_collection(project_id) if project_id else GLOBAL_COLLECTION
                 doc_id = ms.store_memory(
                     text=text,
                     collection=collection,

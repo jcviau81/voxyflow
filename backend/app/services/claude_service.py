@@ -480,6 +480,7 @@ class ClaudeService(ApiCallerMixin):
 
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
+            project_id=project_id,
             include_long_term=False,
             include_daily=True,
             query=user_message,
@@ -552,6 +553,7 @@ class ClaudeService(ApiCallerMixin):
 
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
+            project_id=project_id,
             include_long_term=False,
             include_daily=True,
             query=user_message,
@@ -752,6 +754,7 @@ class ClaudeService(ApiCallerMixin):
 
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
+            project_id=project_id,
             include_long_term=True,
             include_daily=True,
             query=user_message,

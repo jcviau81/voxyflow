@@ -431,31 +431,40 @@ async def general_websocket(websocket: WebSocket):
                     # Deliver any pending results from previous connection
                     await _deliver_pending(session_id)
 
-                    # Derive chat_id from context for conversation isolation
-                    # If the frontend sends a stable chatId, use it directly.
-                    frontend_chat_id = payload.get("chatId")
-
-                    if frontend_chat_id:
-                        # Frontend-provided stable chat_id (cross-device sync)
-                        chat_id = frontend_chat_id
-                        if not project_id:
-                            project_id = SYSTEM_MAIN_PROJECT_ID
-                        if chat_id.startswith("card:"):
-                            chat_level = "card"
-                        elif chat_level == "general":
-                            chat_level = "project" if project_id != SYSTEM_MAIN_PROJECT_ID else "general"
-                    elif card_id:
-                        chat_id = f"card:{card_id}"
+                    # Derive the canonical chat_id from project_id/card_id (server-side authority).
+                    # The frontend may pass a stable chatId for sub-sessions, but we validate
+                    # it against what the project/card context says — a mismatch would bleed
+                    # history and CLI subprocesses across projects.
+                    if card_id:
+                        canonical_chat_id = f"card:{card_id}"
                         chat_level = "card"
                     elif project_id:
-                        chat_id = f"project:{project_id}"
+                        canonical_chat_id = f"project:{project_id}"
                         if chat_level == "general":
-                            chat_level = "project"
+                            chat_level = "project" if project_id != SYSTEM_MAIN_PROJECT_ID else "general"
                     else:
-                        # No project specified → default to system-main project
                         project_id = SYSTEM_MAIN_PROJECT_ID
-                        chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}"
+                        canonical_chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}"
                         chat_level = "general"  # Keep "general" for backward compat in prompts
+
+                    # Frontend may pass a stable chatId for sub-sessions (e.g. "project:{id}:s-abc123")
+                    # but it MUST be prefixed with the canonical chat_id. Reject mismatches.
+                    frontend_chat_id = payload.get("chatId")
+                    if frontend_chat_id:
+                        if (
+                            frontend_chat_id == canonical_chat_id
+                            or frontend_chat_id.startswith(canonical_chat_id + ":")
+                        ):
+                            chat_id = frontend_chat_id
+                        else:
+                            logger.warning(
+                                f"[WS] Rejected mismatched chatId={frontend_chat_id!r} for "
+                                f"project_id={project_id!r} card_id={card_id!r} — "
+                                f"using canonical {canonical_chat_id!r} instead"
+                            )
+                            chat_id = canonical_chat_id
+                    else:
+                        chat_id = canonical_chat_id
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
 
@@ -528,17 +537,32 @@ async def general_websocket(websocket: WebSocket):
                     project_id = payload.get("projectId")
                     card_id = payload.get("cardId")
                     session_id = payload.get("sessionId") or str(uuid4())
-                    frontend_chat_id = payload.get("chatId")
-
-                    # Derive chat_id matching the conversation isolation logic
-                    if frontend_chat_id:
-                        chat_id = frontend_chat_id
-                    elif card_id:
-                        chat_id = f"card:{card_id}"
+                    # Derive canonical chat_id from context (same isolation logic as chat:message)
+                    if card_id:
+                        canonical_chat_id = f"card:{card_id}"
                     elif project_id:
-                        chat_id = f"project:{project_id}"
+                        canonical_chat_id = f"project:{project_id}"
                     else:
-                        chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}"
+                        canonical_chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}"
+
+                    # Validate frontend-provided chatId against canonical — reject mismatches
+                    # so we don't clear the history of a different project.
+                    frontend_chat_id = payload.get("chatId")
+                    if frontend_chat_id:
+                        if (
+                            frontend_chat_id == canonical_chat_id
+                            or frontend_chat_id.startswith(canonical_chat_id + ":")
+                        ):
+                            chat_id = frontend_chat_id
+                        else:
+                            logger.warning(
+                                f"[WS] session:reset rejected mismatched chatId={frontend_chat_id!r} "
+                                f"for project_id={project_id!r} card_id={card_id!r} — "
+                                f"using canonical {canonical_chat_id!r} instead"
+                            )
+                            chat_id = canonical_chat_id
+                    else:
+                        chat_id = canonical_chat_id
 
                     # Fix 5: full session teardown — stop worker pool, clear event bus,
                     # remove from active_session_ids, then clear chat history.

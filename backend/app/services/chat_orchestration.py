@@ -315,6 +315,7 @@ class ChatOrchestrator(LayerRunnersMixin):
                     chat_id=chat_id,
                     user_message=content,
                     project_name=project_name,
+                    project_id=project_id,
                 )
             )
             _bg_tasks.append(_t)
@@ -535,6 +536,7 @@ class ChatOrchestrator(LayerRunnersMixin):
         chat_id: str,
         user_message: str,
         project_name: str | None = None,
+        project_id: str | None = None,
     ) -> None:
         """Background-safe wrapper for memory auto-extraction."""
         try:
@@ -548,17 +550,10 @@ class ChatOrchestrator(LayerRunnersMixin):
             # Take last 4 messages (2 user + 2 assistant turns) for extraction
             recent = history[-4:] if len(history) >= 4 else history
 
-            project_slug = None
-            if project_name:
-                import re
-                slug = project_name.lower().strip()
-                slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")
-                project_slug = slug or None
-
             stored = await memory.auto_extract_memories(
                 chat_id=chat_id,
                 messages=recent,
-                project_slug=project_slug,
+                project_id=project_id,
             )
             if stored:
                 logger.info(f"[Orchestrator] Auto-extracted {len(stored)} memories from chat {chat_id}")
@@ -1639,6 +1634,7 @@ class ChatOrchestrator(LayerRunnersMixin):
         # Build system prompt for the follow-up (static base + dynamic context block)
         memory_context = self._claude.memory.build_memory_context(
             project_name=project_name,
+            project_id=project_id,
             include_long_term=False,
             include_daily=True,
         )

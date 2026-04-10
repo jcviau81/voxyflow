@@ -216,7 +216,12 @@ class ClaudeCliBackend:
         """Token usage from the most recent call (for logging)."""
         return self._last_usage
 
-    def _build_mcp_config(self, role: str = "worker", voxyflow_dev_task: bool = False) -> str:
+    def _build_mcp_config(
+        self,
+        role: str = "worker",
+        voxyflow_dev_task: bool = False,
+        project_id: str = "",
+    ) -> str:
         """Build MCP config JSON string pointing to Voxyflow's stdio server.
 
         Args:
@@ -225,6 +230,10 @@ class ClaudeCliBackend:
             voxyflow_dev_task: When True, sets VOXYFLOW_DEV_TASK=1 in the MCP server env,
                   which allows workers to write to ~/voxyflow/ (the app codebase).
                   Only set this for tasks that explicitly modify the Voxyflow codebase.
+            project_id: Project scope for memory/knowledge handlers inside the MCP server.
+                  Exposed to the subprocess as VOXYFLOW_PROJECT_ID so memory_search/
+                  memory_save/knowledge_search can scope results to a single project.
+                  Defaults to "system-main" when empty.
         """
         # Find the Python interpreter — prefer the backend venv, then current interpreter
         venv_python = str(_BACKEND_DIR / "venv" / "bin" / "python3")
@@ -238,6 +247,7 @@ class ClaudeCliBackend:
                 "VOXYFLOW_API_BASE", "http://localhost:8000"
             ),
             "VOXYFLOW_MCP_ROLE": role,
+            "VOXYFLOW_PROJECT_ID": project_id or "system-main",
         }
         if voxyflow_dev_task:
             mcp_env["VOXYFLOW_DEV_TASK"] = "1"
@@ -265,6 +275,7 @@ class ClaudeCliBackend:
         interactive: bool = False,
         native_tools: bool = False,
         voxyflow_dev_task: bool = False,
+        project_id: str = "",
     ) -> list[str]:
         """Build the CLI argument list.
 
@@ -304,7 +315,14 @@ class ClaudeCliBackend:
             args.extend(["--tools", ""])
 
         if use_tools:
-            args.extend(["--mcp-config", self._build_mcp_config(role=mcp_role, voxyflow_dev_task=voxyflow_dev_task)])
+            args.extend([
+                "--mcp-config",
+                self._build_mcp_config(
+                    role=mcp_role,
+                    voxyflow_dev_task=voxyflow_dev_task,
+                    project_id=project_id,
+                ),
+            ])
 
         # Prevent Claude Code from loading its own MCP servers (openfeeder, Gmail, etc.)
         # which add ~1700 tokens of system prompt noise. For workers, --strict-mcp-config
@@ -362,6 +380,7 @@ class ClaudeCliBackend:
             streaming=False, use_tools=use_tools, mcp_role=mcp_role,
             native_tools=use_tools,  # Workers get native Claude tools
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
+            project_id=project_id,
         )
 
         gate = get_rate_gate()
@@ -490,6 +509,7 @@ class ClaudeCliBackend:
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
             native_tools=use_tools,  # Workers get native Claude tools (Read, Edit, Bash)
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
+            project_id=project_id,
         )
 
         gate = get_rate_gate()
@@ -726,6 +746,7 @@ class ClaudeCliBackend:
             model, system_prompt,
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
             interactive=True,
+            project_id=project_id,
         )
 
         logger.info(
@@ -799,6 +820,20 @@ class ClaudeCliBackend:
         inject only the new user message via stdin stream-json.
         """
         pcp = self._persistent_chats.get(chat_id)
+
+        # Guard-rail: detect project_id drift on reused persistent processes.
+        # The MCP subprocess env is fixed at spawn time, so if a chat_id is
+        # reused with a different project_id the memory/knowledge handlers
+        # will leak across project scopes. Canary for bug #6 (unchecked
+        # chat_id on the frontend).
+        if pcp and project_id:
+            sess = get_cli_session_registry().get_by_chat_id(chat_id)
+            if sess and sess.project_id and sess.project_id != project_id:
+                logger.error(
+                    f"[CLI-persistent] PROJECT_ID DRIFT: chat_id={chat_id} "
+                    f"was spawned with project_id={sess.project_id!r} "
+                    f"but called with project_id={project_id!r} — context bleed!"
+                )
 
         # Check if process is alive
         if pcp and pcp.proc.returncode is not None:
@@ -895,6 +930,7 @@ class ClaudeCliBackend:
         use_tools: bool = True,
         mcp_role: str = "worker",
         voxyflow_dev_task: bool = False,
+        project_id: str = "",
     ) -> list[str]:
         """Build CLI args for a steerable worker using --input-format stream-json.
 
@@ -917,7 +953,14 @@ class ClaudeCliBackend:
         args.extend(["--tools", ""])
 
         if use_tools:
-            args.extend(["--mcp-config", self._build_mcp_config(role=mcp_role, voxyflow_dev_task=voxyflow_dev_task)])
+            args.extend([
+                "--mcp-config",
+                self._build_mcp_config(
+                    role=mcp_role,
+                    voxyflow_dev_task=voxyflow_dev_task,
+                    project_id=project_id,
+                ),
+            ])
 
         args.extend(["--strict-mcp-config"])
         if not use_tools:
@@ -958,6 +1001,7 @@ class ClaudeCliBackend:
         args = self._build_args_steerable(
             model, system_prompt, use_tools=use_tools, mcp_role=mcp_role,
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
+            project_id=project_id,
         )
 
         gate = get_rate_gate()
@@ -1186,6 +1230,7 @@ class ClaudeCliBackend:
         args = self._build_args(
             model, system_prompt,
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
+            project_id=project_id,
         )
 
         gate = get_rate_gate()
