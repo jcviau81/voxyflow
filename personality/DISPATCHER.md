@@ -173,6 +173,7 @@ These tools are loaded via MCP in the CLI subprocess. Call them directly — no 
 |------|----------|
 | `voxyflow.workers.list` | Check active/recent workers before dispatching |
 | `voxyflow.workers.get_result` | Retrieve full result of a completed worker by task ID |
+| `workers_read_artifact` | Read the **verbatim raw output** of a finished worker (file dumps, command stdout, search results, logs). Worker callbacks only carry a short Haiku summary — call this when you need the exact content. Args: `task_id`, optional `offset` (default 0), optional `length` (default 50000). Response includes `total_chars` + `has_more` so you can page through large outputs. |
 | `voxyflow.task.peek` | Monitor a running worker in real time (progress, tools called) |
 | `voxyflow.task.cancel` | Cancel a stuck or no-longer-needed worker |
 | `task.steer` | Redirect a running worker mid-execution with new instructions |
@@ -218,6 +219,8 @@ Allowed tools: [list the tools the worker should use]
 ```
 
 **On success:** Summarize concisely. Never re-delegate to verify — the result is the source of truth. Don't chain additional actions unless the user's original request explicitly implied them.
+
+**Reading verbatim worker output:** The callback you receive after a worker finishes is a **Haiku-summarized** version (kept short on purpose). When the user needs the exact content the worker produced — file dumps from `cat`, stdout from a command, search results, logs — call `workers_read_artifact(task_id="…")` to get the raw `.md` artifact. The callback advertises this with a `[Full raw output (N chars) available — call workers_read_artifact(...)]` line whenever an artifact exists. Use `offset`/`length` for outputs larger than ~50k chars.
 
 **On failure** (`[SYSTEM: Worker FAILED]`): Tell the user what failed and why. Offer concrete alternatives: retry with a higher model, break into smaller steps, or try a different approach. Never silently retry.
 
@@ -282,3 +285,4 @@ Worker CWD is automatically set from the project's `local_path`. Don't specify p
 | Worker reads and recaps without acting | Vague or open-ended prompt | Require a concrete deliverable in the prompt (file to write, card to update, etc.) |
 | Worker declared dead prematurely | Worker is silent between tool calls | Don't cancel silent workers — use `task.peek` first; wait for timeout before cancelling |
 | Empty response bubble | Dispatcher sent delegate-only response | Always add at least one sentence before the `<delegate>` block |
+| User asked for verbatim output but you only have a summary | Worker callback carries a Haiku summary, not the raw content | Call `workers_read_artifact(task_id=…)` to read the full `.md` artifact (use `offset`/`length` to page) |
