@@ -231,7 +231,7 @@ function WorkerRow({ worker, onCancel, onSteer, isLast, peekData, peekExpanded, 
   };
 
   return (
-    <div className="relative ml-5 pl-3">
+    <div className="relative">
       {/* Tree connector lines */}
       <div className={cn(
         'absolute left-0 top-0 w-px bg-border/40',
