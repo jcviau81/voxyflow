@@ -685,7 +685,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "payload": {"type": "object", "description": "New job-specific configuration / payload"},
             },
         },
-        "_http": ("PATCH", "/api/jobs/{job_id}", "job_id"),
+        "_http": ("PATCH", "/api/jobs/{job_id}", None),
     },
     {
         "name": "voxyflow.jobs.delete",
@@ -697,7 +697,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "job_id": {"type": "string", "description": "ID of the job to delete"},
             },
         },
-        "_http": ("DELETE", "/api/jobs/{job_id}", "job_id"),
+        "_http": ("DELETE", "/api/jobs/{job_id}", None),
     },
 
     # ======================================================================
