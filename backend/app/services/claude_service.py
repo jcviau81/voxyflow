@@ -616,7 +616,7 @@ class ClaudeService(ApiCallerMixin):
                     "I converse with you directly and use inline tools for fast operations. "
                     "My inline tools: memory_search, memory_save, knowledge_search, "
                     "card_list, card_get, card_create, card_update, card_move, "
-                    "workers_list, workers_get_result. For complex tasks (research, code, "
+                    "workers_list, workers_get_result, workers_read_artifact. For complex tasks (research, code, "
                     "multi-step ops), I delegate to background workers via delegate_action."
                 )
             elif use_cli_mcp:

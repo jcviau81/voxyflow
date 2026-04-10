@@ -703,7 +703,29 @@ class DeepWorkerPool:
             if result_content:
                 self._result_contents[event.task_id] = result_content or ""
 
-            _wss.update_status(event.task_id, "completed", result_content or "")
+            # Persist the full raw result to a .md artifact so the dispatcher
+            # can retrieve verbatim output via workers_read_artifact, even
+            # though the callback only carries a Haiku summary.
+            artifact_path: str | None = None
+            if result_content:
+                from app.services.worker_artifact_store import write_artifact
+                artifact_path = write_artifact(
+                    event.task_id,
+                    result_content,
+                    intent=event.intent,
+                    model=event.model,
+                    project_id=event.data.get("project_id"),
+                    card_id=event.data.get("card_id"),
+                    session_id=event.session_id,
+                    status="success",
+                )
+
+            _wss.update_status(
+                event.task_id,
+                "completed",
+                result_content or "",
+                artifact_path=artifact_path,
+            )
 
             await self._ledger_update(
                 event.task_id, "done",
@@ -727,6 +749,7 @@ class DeepWorkerPool:
                 "sessionId": event.session_id,
                 "projectId": event.data.get("project_id"),
                 "cardId": event.data.get("card_id"),
+                "artifactPath": artifact_path,
             })
 
             # --- Persist worker result to session store (survives page refresh) ---
@@ -758,11 +781,25 @@ class DeepWorkerPool:
                             if result_content:
                                 summarized = await self._summarize_result(result_content, event.intent or "")
 
+                            # If the raw result is materially larger than the
+                            # summary the dispatcher is about to see, advertise
+                            # the artifact tool so it knows it can pull the
+                            # verbatim output (file contents, command stdout,
+                            # logs, etc.) when needed.
+                            artifact_hint = ""
+                            raw_len = len(result_content or "")
+                            if artifact_path and raw_len > len(summarized) + 200:
+                                artifact_hint = (
+                                    f"\n[Full raw output ({raw_len} chars) available — "
+                                    f"call workers_read_artifact(task_id=\"{event.task_id}\") "
+                                    f"to retrieve verbatim. Use offset/length for paging.]"
+                                )
+
                             callback_msg = (
                                 f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) completed successfully.]\n\n"
                                 f"--- Worker Result ---\n"
                                 f"{summarized}\n"
-                                f"--- End Result ---\n\n"
+                                f"--- End Result ---{artifact_hint}\n\n"
                                 f"Present this result to the user naturally and decide if follow-up actions are needed."
                             )
                             callback_message_id = f"worker-cb-{uuid4().hex[:8]}"

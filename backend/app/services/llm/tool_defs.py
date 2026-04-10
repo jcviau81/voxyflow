@@ -328,7 +328,9 @@ INLINE_TOOLS = [
         "name": "workers_get_result",
         "description": (
             "Get the full details and result of a specific worker task by task_id. "
-            "Use to retrieve the outcome of a completed worker."
+            "Returns metadata + the worker's full result text. For very large outputs "
+            "(file dumps, command stdout, logs) use workers_read_artifact instead — "
+            "it pages through the .md artifact on disk."
         ),
         "input_schema": {
             "type": "object",
@@ -336,6 +338,34 @@ INLINE_TOOLS = [
                 "task_id": {
                     "type": "string",
                     "description": "Worker task ID to look up",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "workers_read_artifact",
+        "description": (
+            "Read the verbatim raw output of a completed worker from its on-disk "
+            "artifact (.md file). Use this when you need the EXACT content the "
+            "worker produced — file contents, command stdout, search results, logs — "
+            "rather than the Haiku summary delivered in the worker callback. "
+            "Supports pagination via offset/length for outputs larger than ~50k chars."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Worker task ID whose artifact to read",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Starting char offset into the artifact body (default 0)",
+                },
+                "length": {
+                    "type": "integer",
+                    "description": "Max chars to return in this slice (default 50000)",
                 },
             },
             "required": ["task_id"],
@@ -456,11 +486,71 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
         try:
             store = get_worker_session_store()
             session = store.get_session(task_id)
+
+            # The session JSON only carries a 500-char preview of the result.
+            # The full untruncated result lives in worker_tasks.result_summary
+            # (Text column) — read it from the DB so the dispatcher gets the
+            # complete output, not the UI preview.
+            full_result = None
+            try:
+                from app.database import async_session, WorkerTask
+                from sqlalchemy import select
+                async with async_session() as db:
+                    row = (await db.execute(
+                        select(WorkerTask).where(WorkerTask.id == task_id)
+                    )).scalar_one_or_none()
+                    if row is not None:
+                        full_result = row.result_summary
+                        if session is None:
+                            session = {
+                                "task_id": row.id,
+                                "session_id": row.session_id,
+                                "project_id": row.project_id,
+                                "card_id": row.card_id,
+                                "intent": row.action,
+                                "model": row.model,
+                                "status": row.status,
+                                "summary": row.description,
+                            }
+            except Exception as db_err:
+                logger.warning(f"[InlineTool] workers_get_result DB read failed: {db_err}")
+
             if session is None:
                 return {"error": f"Worker task not found: {task_id}"}
+
+            if full_result is not None:
+                session = {**session, "result_summary": full_result}
+
             return session
         except Exception as e:
             logger.error(f"[InlineTool] workers_get_result failed: {e}")
+            return {"error": str(e)}
+    elif name == "workers_read_artifact":
+        from app.services.worker_artifact_store import read_artifact
+        task_id = params.get("task_id", "")
+        if not task_id:
+            return {"error": "task_id is required"}
+        try:
+            offset = int(params.get("offset", 0) or 0)
+        except (TypeError, ValueError):
+            offset = 0
+        try:
+            length = int(params.get("length", 50_000) or 50_000)
+        except (TypeError, ValueError):
+            length = 50_000
+        try:
+            slice_data = read_artifact(task_id, offset=offset, length=length)
+            if slice_data is None:
+                return {
+                    "error": (
+                        f"No artifact found for task {task_id}. "
+                        "The worker may not have completed yet, may have produced no output, "
+                        "or its artifact may have been cleaned up."
+                    )
+                }
+            return slice_data
+        except Exception as e:
+            logger.error(f"[InlineTool] workers_read_artifact failed: {e}")
             return {"error": str(e)}
     return {"error": f"Unknown inline tool: {name}"}
 

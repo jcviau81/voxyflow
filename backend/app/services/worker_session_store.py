@@ -27,7 +27,7 @@ class WorkerSession:
 
     __slots__ = (
         "task_id", "session_id", "chat_id", "project_id", "card_id", "status", "model", "intent",
-        "summary", "start_time", "end_time", "result_summary",
+        "summary", "start_time", "end_time", "result_summary", "artifact_path",
     )
 
     def __init__(
@@ -44,6 +44,7 @@ class WorkerSession:
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
         result_summary: Optional[str] = None,
+        artifact_path: Optional[str] = None,
     ):
         self.task_id = task_id
         self.session_id = session_id
@@ -57,6 +58,7 @@ class WorkerSession:
         self.start_time = start_time or time.time()
         self.end_time = end_time
         self.result_summary = result_summary
+        self.artifact_path = artifact_path
 
     def to_dict(self) -> dict:
         return {
@@ -72,6 +74,7 @@ class WorkerSession:
             "start_time": self.start_time,
             "end_time": self.end_time,
             "result_summary": self.result_summary,
+            "artifact_path": self.artifact_path,
         }
 
     @classmethod
@@ -89,6 +92,7 @@ class WorkerSession:
             start_time=data.get("start_time"),
             end_time=data.get("end_time"),
             result_summary=data.get("result_summary"),
+            artifact_path=data.get("artifact_path"),
         )
 
 
@@ -178,8 +182,14 @@ class WorkerSessionStore:
         task_id: str,
         status: str,
         result_summary: Optional[str] = None,
+        artifact_path: Optional[str] = None,
     ) -> None:
-        """Update a session's status (completed, failed, timed_out, cancelled)."""
+        """Update a session's status (completed, failed, timed_out, cancelled).
+
+        ``result_summary`` is truncated to 500 chars for the UI list view —
+        the full raw output lives in the ``.md`` artifact at ``artifact_path``
+        (and in the ``worker_tasks.result_summary`` DB column, untruncated).
+        """
         session = self._sessions.get(task_id)
         if not session:
             return
@@ -187,6 +197,8 @@ class WorkerSessionStore:
         session.end_time = time.time()
         if result_summary is not None:
             session.result_summary = result_summary[:500]
+        if artifact_path is not None:
+            session.artifact_path = artifact_path
         self._persist(session)
         logger.debug(f"[WorkerSessionStore] Updated task {task_id[:8]} → {status}")
 
@@ -281,7 +293,13 @@ class WorkerSessionStore:
         return stale
 
     def cleanup_old(self, max_age_seconds: int = 86400) -> int:
-        """Remove sessions older than max_age_seconds. Returns count removed."""
+        """Remove sessions older than max_age_seconds. Returns count removed.
+
+        Also deletes the on-disk worker artifact (.md) for each removed session
+        so they don't accumulate forever.
+        """
+        from app.services.worker_artifact_store import delete_artifact
+
         cutoff = time.time() - max_age_seconds
         to_remove = [
             tid for tid, s in self._sessions.items()
@@ -290,6 +308,7 @@ class WorkerSessionStore:
         for tid in to_remove:
             del self._sessions[tid]
             self._cleanup_file(tid)
+            delete_artifact(tid)
         if to_remove:
             logger.info(f"[WorkerSessionStore] Cleaned up {len(to_remove)} old sessions")
         return len(to_remove)
