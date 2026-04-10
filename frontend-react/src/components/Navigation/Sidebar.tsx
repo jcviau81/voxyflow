@@ -212,6 +212,15 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             <span>Home</span>
           </NavLink>
 
+          {/* ── Favorites ── */}
+          {favoriteProjects.length > 0 && favoriteProjects.map((proj) => (
+            <ProjectItem
+              key={proj.id}
+              project={proj}
+              isActive={activeTab === proj.id}
+            />
+          ))}
+
           <NavLink
             to="/jobs"
             className={({ isActive }) =>
@@ -233,15 +242,6 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             <Folder size={14} className="shrink-0" />
             <span>Projects</span>
           </NavLink>
-
-          {/* ── Favorites ── */}
-          {favoriteProjects.length > 0 && favoriteProjects.map((proj) => (
-            <ProjectItem
-              key={proj.id}
-              project={proj}
-              isActive={activeTab === proj.id}
-            />
-          ))}
 
         </div>
 
