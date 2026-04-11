@@ -345,44 +345,13 @@ class DeepWorkerPool:
 
         return {"active": active, "completed": completed}
 
-    async def _summarize_result(self, result: str, intent: str, max_chars: int = 2000) -> str:
-        """Summarize a large worker result for dispatcher injection.
+    async def _summarize_result(self, result: str, intent: str, max_chars: int = 0) -> str:
+        """Pass worker results through to the dispatcher unchanged.
 
-        Results <= max_chars pass through unchanged.
-        Larger results are summarized via Haiku with truncation fallback.
+        Large results are stored as artifacts with paging support via
+        workers.read_artifact — no summarization or truncation needed here.
         """
-        if len(result) <= max_chars:
-            return result
-
-        try:
-            summary = await self._claude._call_api(
-                model=self._claude.haiku_model,
-                system=(
-                    "Summarize this worker task result concisely. "
-                    "Preserve key facts, IDs, names, and outcomes. "
-                    "Output only the summary, max 500 chars."
-                ),
-                messages=[{
-                    "role": "user",
-                    "content": f"Task: {intent}\n\nResult:\n{result[:8000]}",
-                }],
-                client=self._claude.haiku_client,
-                client_type=self._claude.haiku_client_type,
-                use_tools=False,
-                layer="analyzer",
-                chat_level="general",
-            )
-            if summary and len(summary.strip()) > 20:
-                return summary.strip()
-        except Exception as e:
-            logger.warning(f"[DeepWorker] Haiku summarization failed: {e}")
-
-        # Fallback: smart truncation
-        return (
-            result[:500]
-            + f"\n\n[... {len(result) - 800} chars omitted ...]\n\n"
-            + result[-300:]
-        )
+        return result
 
     async def _stale_cleanup_loop(self) -> None:
         """Prune old completed-task entries from memory (every 60s)."""
@@ -506,10 +475,10 @@ class DeepWorkerPool:
                 f"Intent: {event.intent}\n"
                 f"Summary: {event.summary}\n"
                 f"Task ID: {event.task_id}\n"
-                f"\nWhen done, call task.complete(task_id=\"{event.task_id}\", summary=\"<ACTUAL RESULTS HERE>\", status=\"success|partial|failed\").\n"
-                f"CRITICAL: The summary MUST contain the concrete output — full stdout from commands, "
-                f"actual data retrieved, real values returned. Never write just 'Done' or 'Task complete'. "
-                f"The user only sees the summary, so include everything they need.\n"
+                f"\nWhen done, call task.complete(task_id=\"{event.task_id}\", summary=\"<FULL RAW OUTPUT HERE>\", status=\"success|partial|failed\").\n"
+                f"CRITICAL: Put the COMPLETE, VERBATIM output in the summary field — full file contents, "
+                f"full stdout/stderr from commands, all data retrieved. Do NOT summarize, paraphrase, "
+                f"or truncate. The dispatcher needs the raw content, not a description of it.\n"
             )
 
             if is_move_or_update:
@@ -762,8 +731,8 @@ class DeepWorkerPool:
                 self._result_contents[event.task_id] = result_content or ""
 
             # Persist the full raw result to a .md artifact so the dispatcher
-            # can retrieve verbatim output via workers_read_artifact, even
-            # though the callback only carries a Haiku summary.
+            # can retrieve verbatim output via workers_read_artifact for
+            # paged reading of very large outputs.
             artifact_path: str | None = None
             if result_content:
                 from app.services.worker_artifact_store import write_artifact

@@ -186,9 +186,8 @@ class WorkerSessionStore:
     ) -> None:
         """Update a session's status (completed, failed, timed_out, cancelled).
 
-        ``result_summary`` is truncated to 500 chars for the UI list view —
-        the full raw output lives in the ``.md`` artifact at ``artifact_path``
-        (and in the ``worker_tasks.result_summary`` DB column, untruncated).
+        ``result_summary`` stores the full raw output (no truncation).
+        The full output also lives in the ``.md`` artifact at ``artifact_path``.
         """
         session = self._sessions.get(task_id)
         if not session:
@@ -196,7 +195,7 @@ class WorkerSessionStore:
         session.status = status
         session.end_time = time.time()
         if result_summary is not None:
-            session.result_summary = result_summary[:500]
+            session.result_summary = result_summary
         if artifact_path is not None:
             session.artifact_path = artifact_path
         self._persist(session)

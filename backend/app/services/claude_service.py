@@ -982,9 +982,10 @@ class ClaudeService(ApiCallerMixin):
         # Mandatory task.complete instruction for workers
         dynamic_parts.append(
             "IMPORTANT: When your task is complete, you MUST call the task.complete tool "
-            "with a status (success/partial/failed) and a summary containing the ACTUAL RESULTS. "
-            "Include full stdout/stderr from commands, real data values, concrete findings. "
-            "The user only sees the summary — never write generic 'Done' or 'Task complete'. "
+            "with a status (success/partial/failed) and the FULL RAW OUTPUT in the summary field. "
+            "Put the COMPLETE, VERBATIM content — full file contents, full stdout/stderr, all data. "
+            "Do NOT summarize, paraphrase, or truncate. Never write generic 'Done' or 'Task complete'. "
+            "The dispatcher needs the exact raw content, not a description of what you found. "
             "This is mandatory — never finish without calling task.complete."
         )
 
@@ -1060,9 +1061,9 @@ class ClaudeService(ApiCallerMixin):
 
         system_prompt = (
             "You are a task worker. Execute the task below using the available MCP tools. "
-            "Be precise and concise. When done, call task.complete with a summary "
-            "containing the ACTUAL RESULTS (not just 'Done'). "
-            "Include concrete output: data values, file contents, command results."
+            "Be precise and concise. When done, call task.complete with the FULL RAW OUTPUT "
+            "in the summary field (not just 'Done'). Do NOT summarize or truncate — include "
+            "the complete verbatim content: file contents, command stdout/stderr, data values."
         )
 
         if client_type in ("anthropic", "cli"):

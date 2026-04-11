@@ -143,7 +143,7 @@ async def _build_card_prompt(card_id: str) -> tuple[str, str | None]:
         parts.append("\nExecute this card. Read the description carefully and do what it asks.")
         parts.append("If anything is unclear, ask for clarification in the card chat.")
         parts.append("When you complete checklist items, check them off.")
-        parts.append("When done, summarize what you did.")
+        parts.append("When done, report what you did with the full raw output.")
 
         return "\n".join(parts), project_name
 

@@ -349,7 +349,7 @@ INLINE_TOOLS = [
             "Read the verbatim raw output of a completed worker from its on-disk "
             "artifact (.md file). Use this when you need the EXACT content the "
             "worker produced — file contents, command stdout, search results, logs — "
-            "rather than the Haiku summary delivered in the worker callback. "
+            "or for paged reading of very large outputs. "
             "Supports pagination via offset/length for outputs larger than ~50k chars."
         ),
         "input_schema": {

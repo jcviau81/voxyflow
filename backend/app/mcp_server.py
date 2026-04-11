@@ -20,6 +20,7 @@ import httpx
 
 try:
     from mcp.server import Server
+    from mcp import types
     from mcp.types import Tool, TextContent
     MCP_AVAILABLE = True
 except ImportError:
@@ -43,6 +44,13 @@ VOXYFLOW_MCP_ROLE = os.environ.get("VOXYFLOW_MCP_ROLE", "worker")
 
 # Tools tagged _role="worker" are hidden from the dispatcher.
 # Tools with no _role tag (or _role="all") are available to everyone.
+
+# ---------------------------------------------------------------------------
+# Dynamic tool scoping — workers start with core tools only and load more
+# All scopes enabled by default — dynamic loading via tools.load is broken
+# because Claude CLI does not support ToolListChangedNotification.
+# ---------------------------------------------------------------------------
+_active_scopes: set[str] = {"core", "file", "system", "voxyflow", "web", "git", "tmux"}
 
 # ---------------------------------------------------------------------------
 # MCP Tool definitions
@@ -832,6 +840,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "workers_read_artifact",
+        "_scope": "voxyflow",
     },
     {
         "name": "voxyflow.task.peek",
@@ -949,6 +958,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "system_exec",
         "_role": "worker",
+        "_scope": "system",
     },
     {
         "name": "web.search",
@@ -963,6 +973,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "web_search",
         "_role": "worker",
+        "_scope": "web",
     },
     {
         "name": "web.fetch",
@@ -977,6 +988,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "web_fetch",
         "_role": "worker",
+        "_scope": "web",
     },
     {
         "name": "file.read",
@@ -992,6 +1004,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "file_read",
         "_role": "worker",
+        "_scope": "file",
     },
     {
         "name": "file.write",
@@ -1012,6 +1025,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "file_write",
         "_role": "worker",
+        "_scope": "file",
     },
     {
         "name": "file.patch",
@@ -1027,6 +1041,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "file_patch",
         "_role": "worker",
+        "_scope": "file",
     },
     {
         "name": "file.list",
@@ -1042,6 +1057,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "file_list",
         "_role": "worker",
+        "_scope": "file",
     },
 
     # ---- Git ---------------------------------------------------------------
@@ -1056,6 +1072,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "git_status",
         "_role": "worker",
+        "_scope": "git",
     },
     {
         "name": "git.log",
@@ -1069,6 +1086,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "git_log",
         "_role": "worker",
+        "_scope": "git",
     },
     {
         "name": "git.diff",
@@ -1082,6 +1100,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "git_diff",
         "_role": "worker",
+        "_scope": "git",
     },
     {
         "name": "git.branches",
@@ -1094,6 +1113,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "git_branches",
         "_role": "worker",
+        "_scope": "git",
     },
     {
         "name": "git.commit",
@@ -1108,6 +1128,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "git_commit",
         "_role": "worker",
+        "_scope": "git",
     },
 
     # ---- Tmux --------------------------------------------------------------
@@ -1120,6 +1141,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "tmux_list",
         "_role": "worker",
+        "_scope": "tmux",
     },
     {
         "name": "tmux.run",
@@ -1134,6 +1156,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "tmux_run",
         "_role": "worker",
+        "_scope": "tmux",
     },
     {
         "name": "tmux.send",
@@ -1148,6 +1171,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "tmux_send",
         "_role": "worker",
+        "_scope": "tmux",
     },
     {
         "name": "tmux.capture",
@@ -1161,6 +1185,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "tmux_capture",
         "_role": "worker",
+        "_scope": "tmux",
     },
     {
         "name": "tmux.new",
@@ -1175,6 +1200,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "tmux_new",
         "_role": "worker",
+        "_scope": "tmux",
     },
     {
         "name": "tmux.kill",
@@ -1188,6 +1214,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "tmux_kill",
         "_role": "worker",
+        "_scope": "tmux",
     },
 
     # ---- Worker Supervision ------------------------------------------------
@@ -1210,6 +1237,32 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_handler": "task_complete",
         "_role": "worker",
+        "_scope": "core",
+    },
+
+    # ---- Dynamic Tool Loading ------------------------------------------------
+    {
+        "name": "tools.load",
+        "description": (
+            "Load additional tool scopes into this session. "
+            "Available scopes: voxyflow (cards, wiki, memory, projects), "
+            "web (search, fetch), git (status, log, diff, commit), tmux (sessions). "
+            "Base tools (file.read, file.write, file.list, system.exec, task.complete) "
+            "are always available. Call this BEFORE using tools from a scope."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["scopes"],
+            "properties": {
+                "scopes": {
+                    "type": "string",
+                    "description": "Comma-separated scopes to load: voxyflow, web, git, tmux",
+                },
+            },
+        },
+        "_handler": "tools_load",
+        "_role": "worker",
+        "_scope": "core",
     },
 
     # ---- Memory (semantic search across all memory) -------------------------
@@ -1226,6 +1279,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "memory_search",
+        "_scope": "voxyflow",
     },
 
     # ---- Memory Save (write to long-term memory) ----------------------------
@@ -1251,6 +1305,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "memory_save",
+        "_scope": "voxyflow",
     },
 
     # ---- Knowledge Base (on-demand RAG) ------------------------------------
@@ -1266,6 +1321,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "knowledge_search",
+        "_scope": "voxyflow",
     },
 
     # ---- Memory Delete --------------------------------------------------------
@@ -1281,6 +1337,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "memory_delete",
+        "_scope": "voxyflow",
     },
 
     # ---- Memory Get (recent session history) ----------------------------------
@@ -1294,6 +1351,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "memory_get",
+        "_scope": "voxyflow",
     },
 
     # ---- Task Steer -----------------------------------------------------------
@@ -1309,6 +1367,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "task_steer",
+        "_scope": "voxyflow",
     },
 ]
 
@@ -1537,11 +1596,15 @@ def _build_consolidated_tools() -> list[dict]:
             "description": group_info["description"],
             "inputSchema": schema,
             "_dispatch": dict(actions),  # action_name → original tool name
+            "_scope": "voxyflow",
         })
 
     # Add ungrouped tools (singletons, system, memory, etc.)
     for tool_def in _TOOL_DEFINITIONS:
         if tool_def["name"] not in _GROUPED_TOOL_NAMES:
+            # Auto-assign scope for voxyflow tools that don't have one
+            if "_scope" not in tool_def and tool_def["name"].startswith("voxyflow."):
+                tool_def["_scope"] = "voxyflow"
             consolidated.append(tool_def)
 
     return consolidated
@@ -1781,7 +1844,41 @@ def _get_system_handler(name: str):
                 logger.error(f"[mcp.workers.read_artifact] failed: {e}")
                 return {"success": False, "error": str(e)}
 
+        async def tools_load(params: dict) -> dict:
+            """Activate additional tool scopes dynamically."""
+            raw = params.get("scopes", "")
+            requested = {s.strip() for s in raw.split(",") if s.strip()}
+            valid_scopes = {"voxyflow", "web", "git", "tmux", "file", "system"}
+            invalid = requested - valid_scopes
+            if invalid:
+                return {
+                    "success": False,
+                    "error": f"Unknown scopes: {invalid}. Valid: {sorted(valid_scopes)}",
+                }
+            newly_added = requested - _active_scopes
+            _active_scopes.update(requested)
+            if newly_added:
+                # Notify Claude Code to re-fetch tool list
+                try:
+                    ctx = server.request_context
+                    await ctx.session.send_notification(
+                        types.ToolListChangedNotification(
+                            method="notifications/tools/list_changed",
+                        )
+                    )
+                    logger.info(f"[tools.load] Activated scopes {newly_added}, sent ToolListChanged")
+                except Exception as e:
+                    logger.warning(f"[tools.load] Activated scopes {newly_added} but notification failed: {e}")
+            else:
+                logger.info(f"[tools.load] Scopes {requested} already active")
+            return {
+                "success": True,
+                "active_scopes": sorted(_active_scopes),
+                "newly_loaded": sorted(newly_added),
+            }
+
         _SYSTEM_HANDLERS.update({
+            "tools_load": tools_load,
             "system_exec": system_exec,
             "web_search": web_search,
             "web_fetch": web_fetch,
@@ -1931,19 +2028,21 @@ def _strip_auto_injected(schema: dict, injectable: set[str]) -> dict:
 
 
 def _visible_tools_consolidated() -> list[dict]:
-    """Return consolidated tool definitions visible to the current role."""
+    """Return consolidated tool definitions visible to the current role + active scopes."""
     role = VOXYFLOW_MCP_ROLE
     if role == "dispatcher":
         return [t for t in _CONSOLIDATED_MCP_TOOLS if t.get("_role", "all") != "worker"]
-    return _CONSOLIDATED_MCP_TOOLS  # workers see everything
+    # Workers: filter by active scopes
+    return [t for t in _CONSOLIDATED_MCP_TOOLS if t.get("_scope", "core") in _active_scopes]
 
 
 def _visible_tools_flat() -> list[dict]:
-    """Return individual (flat) tool definitions visible to the current role."""
+    """Return individual (flat) tool definitions visible to the current role + active scopes."""
     role = VOXYFLOW_MCP_ROLE
     if role == "dispatcher":
         return [t for t in _TOOL_DEFINITIONS if t.get("_role", "all") != "worker"]
-    return _TOOL_DEFINITIONS
+    # Workers: filter by active scopes
+    return [t for t in _TOOL_DEFINITIONS if t.get("_scope", "core") in _active_scopes]
 
 
 def _public_tool_defs() -> list[dict]:
@@ -1990,7 +2089,7 @@ if MCP_AVAILABLE:
                     inputSchema=schema,
                 )
             )
-        logger.info(f"[MCP] list_tools → role={VOXYFLOW_MCP_ROLE}, {len(tools)} tools, injectable={injectable}")
+        logger.info(f"[MCP] list_tools → role={VOXYFLOW_MCP_ROLE}, scopes={sorted(_active_scopes)}, {len(tools)} tools")
         return tools
 
     @server.call_tool()

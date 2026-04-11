@@ -3,12 +3,9 @@
 When a worker completes, its full ``result_content`` is written to
 ``~/.voxyflow/worker_artifacts/{task_id}.md`` with a YAML frontmatter header.
 
-The dispatcher only sees a Haiku-summarized callback (kept short to preserve
-context), but can retrieve the verbatim output on-demand via the
-``workers_read_artifact`` inline tool, which reads slices of these files.
-
-This fixes the bug where ``cat file.md`` and similar verbose tool outputs were
-lost because ``result_summary`` was paraphrased and truncated to ~500 chars.
+The dispatcher receives the full raw output in the callback. The artifact
+file serves as persistent storage and supports paged reads via the
+``workers_read_artifact`` inline tool for very large outputs.
 """
 
 from __future__ import annotations

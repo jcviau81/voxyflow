@@ -208,7 +208,7 @@ _DEFAULT_BLOCKLIST = [
     "curl | bash",
 ]
 
-MAX_OUTPUT_CHARS = 10000
+MAX_OUTPUT_CHARS = 100000
 
 
 def _is_command_blocked(command: str) -> bool:
