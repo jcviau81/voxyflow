@@ -24,7 +24,7 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Eye, Pencil } from 'lucide-react';
-import { cn } from '../../lib/utils';
+
 
 // ── Mode persistence ────────────────────────────────────────────────────────
 
