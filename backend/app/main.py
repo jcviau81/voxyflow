@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db, SYSTEM_MAIN_PROJECT_ID
-from app.routes import projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers, models, worker_tasks, cli_sessions
+from app.routes import projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers, models, worker_tasks, cli_sessions, backup
 from app.routes.health import metrics_router
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
@@ -150,6 +150,16 @@ async def lifespan(app: FastAPI):
     if memory.chromadb_enabled:
         logger.info("✅ MemoryService ChromaDB initialized")
         try:
+            repair_results = memory.repair_collections()
+            repaired = {k: v for k, v in repair_results.items() if v.startswith("repaired")}
+            if repaired:
+                for col_name, status in repaired.items():
+                    logger.warning(f"🔧 ChromaDB auto-repair: {col_name} → {status}")
+            else:
+                logger.info("✅ ChromaDB collections healthy")
+        except Exception as e:
+            logger.warning(f"⚠️  ChromaDB repair check failed (non-fatal): {e}")
+        try:
             migrated = await memory.migrate_from_files()
             if migrated > 0:
                 logger.info(f"✅ Migrated {migrated} memory entries from files to ChromaDB")
@@ -165,6 +175,7 @@ async def lifespan(app: FastAPI):
     _sched_enabled = True
     _heartbeat_interval = 2
     _rag_interval = 15
+    _backup_enabled = False
     try:
         from pathlib import Path
         _voxyflow_data_dir = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
@@ -176,6 +187,10 @@ async def lifespan(app: FastAPI):
             _sched_enabled = _sched_cfg.get("enabled", True)
             _heartbeat_interval = _sched_cfg.get("heartbeat_interval_minutes", 2)
             _rag_interval = _sched_cfg.get("rag_index_interval_minutes", 15)
+            _backup_cfg = _stored.get("backup", {})
+            _backup_enabled = _backup_cfg.get("chromadb_enabled", False)
+            scheduler._backup_hour = _backup_cfg.get("backup_hour", 3)
+            scheduler._backup_enabled = _backup_enabled
     except Exception as _e:
         logger.warning(f"Failed to load scheduler settings: {_e} — using defaults")
 
@@ -186,6 +201,9 @@ async def lifespan(app: FastAPI):
         )
     else:
         logger.info("⏸️  Scheduler disabled via settings")
+
+    if not _backup_enabled:
+        logger.info("💡 ChromaDB daily backup is disabled. Enable it in Settings → Backup to protect your memory data.")
 
     # Background task: cleanup idle persistent chat sessions, event buses, and pending results every 5 minutes
     async def _cleanup_idle_sessions():
@@ -369,6 +387,7 @@ app.include_router(workers.router)
 app.include_router(worker_tasks.router)
 app.include_router(models.router)
 app.include_router(cli_sessions.router)
+app.include_router(backup.router)
 app.include_router(mcp_routes.router)  # MCP server (SSE + stdio, no /api prefix)
 
 

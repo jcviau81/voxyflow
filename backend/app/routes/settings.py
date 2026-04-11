@@ -118,6 +118,12 @@ class SchedulerSettings(BaseModel):
     rag_index_interval_minutes: int = 15
 
 
+class BackupSettings(BaseModel):
+    chromadb_enabled: bool = False
+    retention_days: int = 7
+    backup_hour: int = 3  # UTC hour to run daily backup
+
+
 class VoiceSettings(BaseModel):
     stt_engine: str = "native"   # "native" (Web Speech API) | "whisper" (server-side) | "whisper_local" (browser WASM)
     stt_model: str = "medium"    # Whisper server model name (tiny, base, small, medium, large-v3, turbo)
@@ -135,6 +141,7 @@ class AppSettings(BaseModel):
     personality: PersonalitySettings = PersonalitySettings()
     models: ModelsSettings = ModelsSettings()
     scheduler: SchedulerSettings = SchedulerSettings()
+    backup: BackupSettings = BackupSettings()
     voice: VoiceSettings = VoiceSettings()
     onboarding_complete: bool = False
     user_name: str = ""

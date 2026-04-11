@@ -231,6 +231,106 @@ class MemoryService:
                 logger.error(f"MemoryService ChromaDB init failed — file-based fallback: {e}")
 
     # ------------------------------------------------------------------
+    # ChromaDB self-healing: detect & repair corrupted HNSW indexes
+    # ------------------------------------------------------------------
+
+    def repair_collections(self) -> dict[str, str]:
+        """Check all memory-* collections and rebuild any with corrupt HNSW indexes.
+
+        Returns a dict of {collection_name: status} where status is
+        "ok", "repaired (N/M docs recovered)", or "empty".
+        """
+        if not self._chromadb_enabled:
+            return {}
+
+        results: dict[str, str] = {}
+        try:
+            collections = self._client.list_collections()
+        except Exception as e:
+            logger.error(f"repair_collections: cannot list collections: {e}")
+            return {}
+
+        memory_cols = [c for c in collections if c.name.startswith("memory-")]
+
+        for col in memory_cols:
+            name = col.name
+            count = 0
+            try:
+                count = col.count()
+                if count == 0:
+                    results[name] = "empty"
+                    continue
+                col.query(query_texts=["health check"], n_results=1)
+                results[name] = "ok"
+            except Exception:
+                logger.warning(f"[repair] Collection {name} ({count} docs) has corrupt index — rebuilding")
+                repaired = self._rebuild_collection(col, name, count)
+                results[name] = repaired
+
+        return results
+
+    def _rebuild_collection(self, col, name: str, count: int) -> str:
+        """Export recoverable docs from a corrupt collection, drop it, and re-insert."""
+        # Phase 1: get all IDs (this usually works even when queries fail)
+        try:
+            all_id_result = col.get(include=[])
+            all_ids = all_id_result["ids"]
+        except Exception as e:
+            logger.error(f"[repair] {name}: cannot even list IDs — skipping: {e}")
+            return f"failed (cannot list IDs: {e})"
+
+        # Phase 2: fetch each doc individually, skip corrupt ones
+        recovered_ids = []
+        recovered_docs = []
+        recovered_metas = []
+        recovered_embeds = []
+
+        for doc_id in all_ids:
+            try:
+                b = col.get(ids=[doc_id], include=["documents", "metadatas", "embeddings"])
+                if b["ids"]:
+                    recovered_ids.append(b["ids"][0])
+                    recovered_docs.append(b["documents"][0])
+                    recovered_metas.append(b["metadatas"][0])
+                    recovered_embeds.append(b["embeddings"][0])
+            except Exception:
+                pass  # corrupt segment — skip
+
+        # Phase 3: drop and recreate
+        try:
+            self._client.delete_collection(name)
+            new_col = self._client.get_or_create_collection(
+                name=name,
+                metadata={"hnsw:space": "cosine"},
+            )
+        except Exception as e:
+            logger.error(f"[repair] {name}: failed to recreate collection: {e}")
+            return f"failed (recreate error: {e})"
+
+        # Phase 4: re-insert in batches
+        batch_size = 200
+        for i in range(0, len(recovered_ids), batch_size):
+            end = min(i + batch_size, len(recovered_ids))
+            try:
+                new_col.add(
+                    ids=recovered_ids[i:end],
+                    documents=recovered_docs[i:end],
+                    metadatas=recovered_metas[i:end],
+                    embeddings=recovered_embeds[i:end],
+                )
+            except Exception as e:
+                logger.error(f"[repair] {name}: insert batch {i}-{end} failed: {e}")
+
+        final_count = new_col.count()
+        lost = count - final_count
+        status = f"repaired ({final_count}/{count} docs recovered"
+        if lost > 0:
+            status += f", {lost} lost"
+        status += ")"
+        logger.info(f"[repair] {name}: {status}")
+        return status
+
+    # ------------------------------------------------------------------
     # ChromaDB collection helpers
     # ------------------------------------------------------------------
 

@@ -57,6 +57,8 @@ class SchedulerService:
             "chromadb": {"status": "unknown", "checked_at": None},
         }
         self._enabled = _APSCHEDULER_AVAILABLE
+        self._backup_hour: int = 3
+        self._backup_enabled: bool = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -118,6 +120,19 @@ class SchedulerService:
             minute=0,
             id="session_cleanup",
             name="Session File Cleanup (30-day TTL)",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+
+        # ChromaDB daily backup (checks settings internally; no-ops if disabled)
+        backup_hour = self._backup_hour
+        self._scheduler.add_job(
+            self._chromadb_backup_job,
+            trigger="cron",
+            hour=backup_hour,
+            minute=30,
+            id="chromadb_backup",
+            name="ChromaDB Daily Backup",
             replace_existing=True,
             misfire_grace_time=3600,
         )
@@ -682,6 +697,96 @@ class SchedulerService:
 
         except Exception as e:
             logger.error(f"[SessionCleanup] unexpected error: {e}", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # ChromaDB backup
+    # ------------------------------------------------------------------
+
+    async def _chromadb_backup_job(self) -> None:
+        """Daily backup of all ChromaDB collections to timestamped directories.
+
+        Exports each collection's documents, metadatas, and embeddings to a
+        pickle file under ~/.voxyflow/backups/chromadb/<date>/. Old backups
+        beyond the retention window are pruned automatically.
+        """
+        try:
+            import os
+            import pickle
+            import shutil
+            import time as _time
+
+            # Read settings for retention
+            from app.routes.settings import _load_settings_from_db
+            settings = await _load_settings_from_db() or {}
+            backup_cfg = settings.get("backup", {})
+            if not backup_cfg.get("chromadb_enabled", False):
+                logger.debug("[ChromaBackup] Disabled in settings — skipping")
+                return
+
+            retention_days = backup_cfg.get("retention_days", 7)
+
+            chroma_dir = os.path.expanduser("~/.voxyflow/chroma")
+            backup_root = Path(os.path.expanduser("~/.voxyflow/backups/chromadb"))
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            backup_dir = backup_root / today
+
+            if backup_dir.exists():
+                logger.debug(f"[ChromaBackup] Backup for {today} already exists — skipping")
+                return
+
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            import chromadb
+            client = chromadb.PersistentClient(path=chroma_dir)
+            collections = client.list_collections()
+
+            total_docs = 0
+            col_count = 0
+
+            for col in collections:
+                name = col.name
+                count = col.count()
+                if count == 0:
+                    continue
+
+                # Export all docs (by ID to avoid query-index issues)
+                try:
+                    all_data = col.get(include=["documents", "metadatas", "embeddings"])
+                    with open(backup_dir / f"{name}.pkl", "wb") as f:
+                        pickle.dump({
+                            "ids": all_data["ids"],
+                            "documents": all_data["documents"],
+                            "metadatas": all_data["metadatas"],
+                            "embeddings": all_data["embeddings"],
+                        }, f)
+                    total_docs += len(all_data["ids"])
+                    col_count += 1
+                except Exception as col_err:
+                    logger.warning(f"[ChromaBackup] Failed to backup {name}: {col_err}")
+
+            logger.info(
+                f"[ChromaBackup] Backed up {col_count} collection(s), "
+                f"{total_docs} doc(s) → {backup_dir}"
+            )
+
+            # Prune old backups
+            cutoff = _time.time() - (retention_days * 86400)
+            pruned = 0
+            for entry in backup_root.iterdir():
+                if entry.is_dir() and entry != backup_dir:
+                    try:
+                        dir_mtime = entry.stat().st_mtime
+                        if dir_mtime < cutoff:
+                            shutil.rmtree(entry)
+                            pruned += 1
+                    except Exception as prune_err:
+                        logger.warning(f"[ChromaBackup] Failed to prune {entry}: {prune_err}")
+
+            if pruned:
+                logger.info(f"[ChromaBackup] Pruned {pruned} backup(s) older than {retention_days}d")
+
+        except Exception as e:
+            logger.error(f"[ChromaBackup] unexpected error: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
     # Health status
