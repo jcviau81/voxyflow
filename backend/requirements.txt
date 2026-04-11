@@ -39,6 +39,9 @@ apscheduler>=3.10.0
 # MCP (Model Context Protocol) server
 mcp>=1.0.0
 
+# System monitoring
+psutil>=5.9.0
+
 # Dev
 python-dotenv>=1.0.0
 openai>=1.0.0

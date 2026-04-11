@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import init_db, SYSTEM_MAIN_PROJECT_ID
 from app.routes import projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers, models, worker_tasks, cli_sessions
+from app.routes.health import metrics_router
 from app.services.claude_service import ClaudeService
 from app.services.analyzer_service import AnalyzerService
 from app.services.chat_orchestration import ChatOrchestrator
@@ -317,6 +318,39 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+# ---------------------------------------------------------------------------
+# Request timing middleware
+# ---------------------------------------------------------------------------
+
+_SKIP_TIMING_PREFIXES = ("/ws", "/static", "/assets", "/sw.js", "/workbox")
+_timing_logger = logging.getLogger("voxyflow.timing")
+
+
+@app.middleware("http")
+async def _timing_middleware(request: Request, call_next):
+    # Skip WebSocket upgrades and static assets
+    path = request.url.path
+    if any(path.startswith(p) for p in _SKIP_TIMING_PREFIXES):
+        return await call_next(request)
+
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - t0) * 1000
+
+    from app.services.metrics_store import get_metrics_store, SLOW_THRESHOLD_MS
+    get_metrics_store().record_request(path, request.method, response.status_code, duration_ms)
+
+    if duration_ms >= SLOW_THRESHOLD_MS:
+        _timing_logger.warning(
+            "[SLOW] %s %s → %d  %.0fms", request.method, path, response.status_code, duration_ms
+        )
+    else:
+        _timing_logger.debug(
+            "%s %s → %d  %.0fms", request.method, path, response.status_code, duration_ms
+        )
+
+    return response
+
 # Routes
 app.include_router(projects.router, prefix="/api")
 app.include_router(cards.router, prefix="/api")
@@ -326,6 +360,7 @@ app.include_router(settings.router)
 app.include_router(sessions.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(health.router)
+app.include_router(metrics_router)
 app.include_router(jobs.router)
 app.include_router(code.router, prefix="/api")
 app.include_router(focus_sessions.router, prefix="/api")

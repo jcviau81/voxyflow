@@ -396,6 +396,40 @@ class SchedulerService:
             if prev not in (None, "unknown") and prev != status:
                 logger.warning(f"[Heartbeat] ChromaDB status changed: {prev} → {status}")
 
+            # System resources via psutil
+            try:
+                import psutil, os as _os
+                from app.services.metrics_store import get_metrics_store, ResourceSnapshot
+
+                cpu_pct = psutil.cpu_percent(interval=0.2)
+                vm = psutil.virtual_memory()
+                proc = psutil.Process(_os.getpid())
+                proc_ram_mb = proc.memory_info().rss / 1024 / 1024
+
+                snap = ResourceSnapshot(
+                    cpu_pct=cpu_pct,
+                    ram_used_mb=round(vm.used / 1024 / 1024, 1),
+                    ram_total_mb=round(vm.total / 1024 / 1024, 1),
+                    ram_pct=vm.percent,
+                    process_ram_mb=round(proc_ram_mb, 1),
+                )
+                get_metrics_store().record_resources(snap)
+                self._health["resources"] = {
+                    "cpu_pct": cpu_pct,
+                    "ram_pct": vm.percent,
+                    "ram_used_mb": snap.ram_used_mb,
+                    "ram_total_mb": snap.ram_total_mb,
+                    "process_ram_mb": snap.process_ram_mb,
+                    "checked_at": _now_iso(),
+                }
+                logger.info(
+                    f"[Heartbeat] cpu={cpu_pct:.1f}%  ram={vm.percent:.1f}%"
+                    f" ({snap.ram_used_mb:.0f}/{snap.ram_total_mb:.0f} MB)"
+                    f"  process={proc_ram_mb:.0f} MB"
+                )
+            except Exception as e:
+                logger.debug(f"[Heartbeat] psutil unavailable: {e}")
+
             logger.debug(
                 f"[Heartbeat] claude_proxy={self._health['claude_proxy']['status']} "
                 f"xtts={self._health['xtts']['status']} "
