@@ -382,7 +382,7 @@ export function CardDetailModal() {
             )}
           >
             <ChatWindow
-              tabId={`card-${card.id}`}
+              tabId={card.id}
               chatLevel="card"
               projectId={card.projectId ?? undefined}
               cardId={card.id}

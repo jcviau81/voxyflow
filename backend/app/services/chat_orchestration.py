@@ -636,6 +636,35 @@ class ChatOrchestrator(LayerRunnersMixin):
         # Ensure worker pool is running (also updates WS on reconnect)
         self.start_worker_pool(session_id, websocket)
 
+        # --- Deduplication: skip delegates that match an active or recently completed worker ---
+        pool = self._worker_pools.get(session_id)
+        if pool:
+            existing = pool.get_active_tasks()
+            active_actions = {t["action"].lower() for t in existing.get("active", [])}
+            completed_actions = {
+                t["action"].lower()
+                for t in existing.get("completed", [])
+                if t.get("success", True)
+            }
+            already_handled = active_actions | completed_actions
+
+            deduped = []
+            for data in worker_delegates:
+                action = (data.get("action") or "unknown").lower()
+                if action in already_handled:
+                    logger.info(
+                        f"[Orchestrator] Dedup: skipping delegate '{action}' — "
+                        f"already {'active' if action in active_actions else 'completed'}"
+                    )
+                else:
+                    deduped.append(data)
+                    already_handled.add(action)
+
+            if not deduped:
+                logger.info("[Orchestrator] All delegates deduplicated — nothing to emit")
+                return
+            worker_delegates = deduped
+
         bus = event_bus_registry.get_or_create(session_id)
 
         # Shield the emit loop so that a WebSocket-disconnect cancel on the
@@ -785,6 +814,36 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         # Ensure worker pool is running (also updates WS on reconnect)
         self.start_worker_pool(session_id, websocket)
+
+        # --- Deduplication: skip delegates that match an active or recently completed worker ---
+        pool = self._worker_pools.get(session_id)
+        if pool:
+            existing = pool.get_active_tasks()
+            active_actions = {t["action"].lower() for t in existing.get("active", [])}
+            completed_actions = {
+                t["action"].lower()
+                for t in existing.get("completed", [])
+                if t.get("success", True)
+            }
+            already_handled = active_actions | completed_actions
+
+            deduped = []
+            for data in worker_delegates:
+                action = (data.get("intent") or data.get("action") or "unknown").lower()
+                if action in already_handled:
+                    logger.info(
+                        f"[Orchestrator] Dedup: skipping delegate '{action}' — "
+                        f"already {'active' if action in active_actions else 'completed'}"
+                    )
+                else:
+                    deduped.append(data)
+                    # Track within this batch to prevent intra-batch duplicates
+                    already_handled.add(action)
+
+            if not deduped:
+                logger.info("[Orchestrator] All delegates deduplicated — nothing to emit")
+                return
+            worker_delegates = deduped
 
         bus = event_bus_registry.get_or_create(session_id)
 
