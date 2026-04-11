@@ -82,7 +82,7 @@ export function ChatWindow({
 
     // Fetch active sessions from server and merge into local store
     // For Main (no projectId), filter to system-main sessions only
-    const prefix = projectId ? `project:${projectId}` : `project:${tabId}`;
+    const prefix = projectId ? `project:${projectId}` : `${chatLevel}:${tabId}`;
     fetch(`/api/sessions?active=true&max_age_hours=720`)
       .then((r) => (r.ok ? r.json() : []))
       .then((serverSessions: ServerSession[]) => {
@@ -124,7 +124,7 @@ export function ChatWindow({
         }
       })
       .catch((e) => console.warn('[ChatWindow] Session sync failed:', e));
-  }, [connectionState, tabId, projectId, cardId, injectServerSession, setActiveSession, loadHistory]);
+  }, [connectionState, tabId, projectId, cardId, chatLevel, injectServerSession, setActiveSession, loadHistory]);
 
   // ---------------------------------------------------------------------------
   // Load history when session changes
