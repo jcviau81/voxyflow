@@ -29,10 +29,11 @@ logger = logging.getLogger(__name__)
 
 try:
     import chromadb
-    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+    from app.services.embedding_function import get_embedding_function, _CHROMADB_AVAILABLE
 
-    _CHROMADB_AVAILABLE = True
-    logger.info("chromadb available — RAG enabled")
+    _CHROMADB_AVAILABLE = _CHROMADB_AVAILABLE
+    if _CHROMADB_AVAILABLE:
+        logger.info("chromadb available — RAG enabled")
 except ImportError:
     _CHROMADB_AVAILABLE = False
     logger.warning("chromadb not installed — RAG disabled (install chromadb + sentence-transformers to enable)")
@@ -72,9 +73,7 @@ class RAGService:
             os.makedirs(persist_path, exist_ok=True)
 
             self._client = chromadb.PersistentClient(path=persist_path)
-            self._ef = SentenceTransformerEmbeddingFunction(
-                model_name="sentence-transformers/all-MiniLM-L6-v2"
-            )
+            self._ef = get_embedding_function()
             logger.info(f"RAGService initialized, persist_dir={persist_path!r}")
         except Exception as e:
             self._enabled = False

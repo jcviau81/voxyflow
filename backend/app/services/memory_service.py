@@ -30,10 +30,11 @@ logger = logging.getLogger(__name__)
 
 try:
     import chromadb
-    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+    from app.services.embedding_function import get_embedding_function, _CHROMADB_AVAILABLE
 
-    _CHROMADB_AVAILABLE = True
-    logger.info("chromadb available — ChromaDB memory enabled")
+    _CHROMADB_AVAILABLE = _CHROMADB_AVAILABLE
+    if _CHROMADB_AVAILABLE:
+        logger.info("chromadb available — ChromaDB memory enabled")
 except ImportError:
     _CHROMADB_AVAILABLE = False
     logger.warning(
@@ -222,9 +223,7 @@ class MemoryService:
                 persist_path = os.path.expanduser(persist_dir)
                 os.makedirs(persist_path, exist_ok=True)
                 self._client = chromadb.PersistentClient(path=persist_path)
-                self._ef = SentenceTransformerEmbeddingFunction(
-                    model_name="sentence-transformers/all-MiniLM-L6-v2"
-                )
+                self._ef = get_embedding_function()
                 self._chromadb_enabled = True
                 logger.info(f"MemoryService ChromaDB initialized, persist_dir={persist_path!r}")
             except Exception as e:
