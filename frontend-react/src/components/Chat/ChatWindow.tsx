@@ -84,7 +84,8 @@ export function ChatWindow({
     if (!justConnected && !(isFirstMount && connectionState === 'connected')) return;
 
     // Fetch active sessions from server and merge into local store
-    const prefix = projectId ? `project:${projectId}` : `${chatLevel}:${tabId}`;
+    // Use the canonical prefix that matches the backend: "card:" for cards, "project:" for everything else
+    const prefix = cardId ? `card:${cardId}` : `project:${projectId || tabId}`;
     fetch(`/api/sessions?active=true&max_age_hours=720`)
       .then((r) => (r.ok ? r.json() : []))
       .then((serverSessions: ServerSession[]) => {
@@ -126,7 +127,7 @@ export function ChatWindow({
         }
       })
       .catch((e) => console.warn('[ChatWindow] Session sync failed:', e));
-  }, [connectionState, tabId, projectId, cardId, chatLevel, injectServerSession, setActiveSession, loadHistory]);
+  }, [connectionState, tabId, projectId, cardId, injectServerSession, setActiveSession, loadHistory]);
 
   // ---------------------------------------------------------------------------
   // Load history when session changes

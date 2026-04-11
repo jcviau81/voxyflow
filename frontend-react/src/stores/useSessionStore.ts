@@ -5,6 +5,16 @@ import { generateId } from '../lib/utils';
 
 const MAX_SESSIONS_PER_TAB = 5;
 
+/**
+ * Map scope to the canonical chatId prefix used by the backend.
+ * Backend always uses "project:" for both project and general chats,
+ * and "card:" for card chats. We must match this exactly or the
+ * backend will reject our chatId and store messages under a different key.
+ */
+function chatIdPrefix(scope: 'general' | 'project' | 'card'): string {
+  return scope === 'card' ? 'card' : 'project';
+}
+
 export interface SessionState {
   // tabId → list of sessions (ordered)
   sessions: Record<string, SessionInfo[]>;
@@ -62,10 +72,11 @@ export const useSessionStore = create<SessionState>()(
         const sessionNumber = existing.length + 1;
         // Use a unique suffix so new sessions never collide with old chat history
         const uniqueSuffix = Date.now().toString(36);
+        const prefix = chatIdPrefix(scope);
         const chatId =
           sessionNumber === 1
-            ? `${scope}:${tabId}`
-            : `${scope}:${tabId}:s-${uniqueSuffix}`;
+            ? `${prefix}:${tabId}`
+            : `${prefix}:${tabId}:s-${uniqueSuffix}`;
         const session: SessionInfo = {
           id: generateId(),
           chatId,
@@ -157,7 +168,7 @@ export const useSessionStore = create<SessionState>()(
 
       resetLastSession: (tabId, scope = 'project') => {
         // Replace ALL sessions for this tab with a single fresh Session 1
-        const chatId = `${scope}:${tabId}`;
+        const chatId = `${chatIdPrefix(scope)}:${tabId}`;
         const session: SessionInfo = {
           id: generateId(),
           chatId,
@@ -241,10 +252,24 @@ export const useSessionStore = create<SessionState>()(
     }),
     {
       name: 'voxyflow_sessions',
+      version: 1,
       partialize: (state) => ({
         sessions: state.sessions,
         activeSession: state.activeSession,
       }),
+      migrate: (persisted, version) => {
+        const state = persisted as { sessions: Record<string, SessionInfo[]>; activeSession: Record<string, string> };
+        if (version === 0) {
+          // v0 → v1: rewrite "general:" chatId prefixes to "project:" to match backend canonical format
+          for (const tabId of Object.keys(state.sessions)) {
+            state.sessions[tabId] = state.sessions[tabId].map((s) => ({
+              ...s,
+              chatId: s.chatId.replace(/^general:/, 'project:'),
+            }));
+          }
+        }
+        return state;
+      },
     }
   )
 );
