@@ -545,8 +545,38 @@ class DeepWorkerPool:
             message_queue: asyncio.Queue[str] = asyncio.Queue()
             self._task_message_queues[event.task_id] = message_queue
 
+            # Accumulate raw tool output — the LLM's text response is often
+            # a summary; the real content lives in tool_results from file.read,
+            # system.exec, etc.
+            _CONTENT_TOOLS = frozenset({"file.read", "file_read", "system.exec", "system_exec"})
+            _captured_tool_outputs: list[str] = []
+
             async def _tool_callback(tool_name: str, arguments: dict, result: dict):
                 supervisor.record_tool_call(event.task_id, tool_name, arguments)
+
+                # Capture raw output from content-producing tools.
+                # tool_result from CLI is {"content": "<json_string>"} where
+                # the json_string is the MCP tool's serialized response.
+                if tool_name in _CONTENT_TOOLS and isinstance(result, dict):
+                    raw = result.get("content", "")
+                    # Try to parse the JSON to extract the actual content
+                    parsed = None
+                    if isinstance(raw, str):
+                        try:
+                            parsed = json.loads(raw)
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+                    if isinstance(parsed, dict):
+                        output = (
+                            parsed.get("content")   # file.read
+                            or parsed.get("stdout")  # system.exec
+                            or parsed.get("output")
+                            or ""
+                        )
+                    else:
+                        output = raw  # fallback to raw text
+                    if isinstance(output, str) and len(output) > 200:
+                        _captured_tool_outputs.append(output)
 
                 # Buffer tool event for dispatcher peek
                 tool_buf = self._task_tool_events.setdefault(event.task_id, [])
@@ -667,6 +697,18 @@ class DeepWorkerPool:
                     f"[DeepWorker] result_content was empty for task "
                     f"{event.task_id} — fell back to event.summary"
                 )
+
+            # If the LLM returned a short summary but tool calls captured
+            # substantial raw output, use the tool output instead.
+            if _captured_tool_outputs:
+                captured_total = sum(len(o) for o in _captured_tool_outputs)
+                llm_len = len(result_content or "")
+                if captured_total > llm_len * 2 and captured_total > 500:
+                    logger.info(
+                        f"[DeepWorker] Using captured tool output ({captured_total} chars) "
+                        f"over LLM text ({llm_len} chars) for task {event.task_id}"
+                    )
+                    result_content = "\n\n".join(_captured_tool_outputs)
 
             if not supervisor.is_completed(event.task_id):
                 # Auto-complete: worker finished but forgot to call task.complete
