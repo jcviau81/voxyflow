@@ -41,7 +41,7 @@ from app.services.direct_executor import DirectExecutor, READ_ACTIONS
 from app.services.worker_supervisor import get_worker_supervisor
 from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
 from app.tools.executor import get_executor
-from app.services.orchestration.worker_pool import DeepWorkerPool, LIGHTWEIGHT_INTENTS, _format_result_for_card
+from app.services.orchestration.worker_pool import DeepWorkerPool, LIGHTWEIGHT_INTENTS, is_lightweight_intent, _format_result_for_card
 from app.services.orchestration.layer_runners import LayerRunnersMixin
 from app.services.orchestration.session_timeline import get_timeline
 

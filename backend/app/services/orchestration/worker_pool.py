@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -31,6 +32,22 @@ LIGHTWEIGHT_INTENTS = {
     "research", "web_search", "search",
     "code_review", "review",
 }
+
+# Keywords that signal a lightweight task when found anywhere in the intent.
+# Used for natural-language intents like "Read the file X and return its content".
+LIGHTWEIGHT_KEYWORDS = {
+    "read", "list", "get", "fetch", "show", "display", "cat", "print",
+    "enrich", "summarize", "search", "review",
+}
+
+
+def is_lightweight_intent(intent: str) -> bool:
+    """Check if an intent is lightweight — either exact match or keyword match."""
+    lower = intent.lower()
+    if lower in LIGHTWEIGHT_INTENTS:
+        return True
+    words = set(lower.split())
+    return bool(words & LIGHTWEIGHT_KEYWORDS)
 
 logger = logging.getLogger("voxyflow.orchestration")
 
@@ -108,6 +125,40 @@ class DeepWorkerPool:
         self._MAX_TOOL_EVENTS = 50
         self._task_message_queues: dict[str, asyncio.Queue] = {}  # task_id → steer queue
         self._stopped = False
+
+    # Regex to extract file path from read-file intents
+    _READ_FILE_RE = re.compile(
+        r"^read\s+(?:the\s+)?(?:file\s+|content\s+of\s+)?([^\s]+)",
+        re.IGNORECASE,
+    )
+
+    async def _try_direct_execution(self, event: ActionIntent) -> str | None:
+        """Fast-path: execute trivial intents directly without spawning an LLM.
+
+        Returns the result string if handled, or None to fall through to LLM workers.
+        Currently handles: file read intents.
+        """
+        intent = (event.intent or "").strip()
+        m = self._READ_FILE_RE.match(intent)
+        if not m:
+            return None
+
+        from app.tools.system_tools import file_read
+
+        path = m.group(1).strip("\"'")
+        result = await file_read({"path": path})
+
+        if not result.get("success"):
+            return f"Error reading file: {result.get('error', 'unknown error')}"
+
+        content = result.get("content", "")
+        total = result.get("total_lines", 0)
+        truncated = result.get("truncated", False)
+        header = f"File: {path} ({total} lines"
+        if truncated:
+            header += ", truncated"
+        header += ")\n\n"
+        return header + content
 
     def start(self) -> None:
         """Start listening on the bus for events."""
@@ -574,9 +625,15 @@ class DeepWorkerPool:
             stall_task = asyncio.create_task(_stall_monitor())
 
             try:
-                # Route to lightweight or full worker based on intent
-                is_lightweight = (event.intent or "").lower() in LIGHTWEIGHT_INTENTS
-                if is_lightweight:
+                # Fast-path: execute file reads directly without LLM
+                result_content = await self._try_direct_execution(event)
+
+                if result_content is not None:
+                    logger.info(
+                        f"[DirectExec] Task {event.task_id} completed via fast-path "
+                        f"({len(result_content)} chars)"
+                    )
+                elif is_lightweight_intent(event.intent or ""):
                     logger.info(f"[LightWorker] Routing {event.task_id} to lightweight worker ({event.intent})")
                     result_content = await self._claude.execute_lightweight_task(
                         chat_id=event.data.get("dispatcher_chat_id") or task_chat_id,
