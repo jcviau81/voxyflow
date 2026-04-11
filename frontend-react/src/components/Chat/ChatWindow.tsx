@@ -70,18 +70,20 @@ export function ChatWindow({
   // Cross-device session sync — fetch server sessions on WS connect
   // ---------------------------------------------------------------------------
 
-  const prevConnState = useRef(connectionState);
+  const prevConnState = useRef<string | null>(null);   // null = first mount
   const injectServerSession = useSessionStore((s) => s.injectServerSession);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
 
   useEffect(() => {
+    const isFirstMount = prevConnState.current === null;
     const justConnected =
       prevConnState.current !== 'connected' && connectionState === 'connected';
     prevConnState.current = connectionState;
-    if (!justConnected) return;
+
+    // Run sync on WS transition to connected OR on first mount when already connected
+    if (!justConnected && !(isFirstMount && connectionState === 'connected')) return;
 
     // Fetch active sessions from server and merge into local store
-    // For Main (no projectId), filter to system-main sessions only
     const prefix = projectId ? `project:${projectId}` : `${chatLevel}:${tabId}`;
     fetch(`/api/sessions?active=true&max_age_hours=720`)
       .then((r) => (r.ok ? r.json() : []))
