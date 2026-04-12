@@ -78,14 +78,32 @@ class SessionStore:
                     pass
                 raise
 
+    def _find_latest_archive(self, path: Path) -> Path | None:
+        """Find the most recent .archived-*.json file for a given session path."""
+        stem = path.stem  # e.g. "system-main"
+        parent = path.parent
+        if not parent.exists():
+            return None
+        archives = sorted(
+            parent.glob(f"{stem}.archived-*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        return archives[0] if archives else None
+
     def load_session(self, chat_id: str) -> List[dict]:
-        """Load all messages for a session."""
+        """Load all messages for a session.
+
+        Falls back to the most recent archived session if the active file
+        doesn't exist (e.g. after a session:reset where the init didn't complete).
+        """
         path = self._get_session_path(chat_id)
-        if not path.exists():
+        target = path if path.exists() else self._find_latest_archive(path)
+        if not target:
             return []
 
         try:
-            with open(path) as f:
+            with open(target) as f:
                 data = json.load(f)
                 return data.get("messages", [])
         except (json.JSONDecodeError, IOError):
@@ -218,72 +236,107 @@ class SessionStore:
             sessions, key=lambda s: s.get("updated_at", ""), reverse=True
         )
 
+    def _parse_session_entry(self, data: dict, cutoff: datetime) -> dict | None:
+        """Parse a session JSON dict into a list_active_sessions entry, or None if filtered."""
+        updated_at_str = data.get("updated_at")
+        if not updated_at_str:
+            return None
+
+        try:
+            updated_at = datetime.fromisoformat(updated_at_str)
+            if updated_at.tzinfo is not None:
+                updated_at = updated_at.replace(tzinfo=None)
+        except ValueError:
+            return None
+
+        if updated_at < cutoff:
+            return None
+
+        chat_id = data.get("chat_id", "")
+        messages = data.get("messages", [])
+        message_count = data.get("message_count", len(messages))
+
+        if not (chat_id.startswith("project:") or chat_id.startswith("card:")):
+            return None
+        if message_count < 1:
+            return None
+
+        last_message = None
+        first_user_message = None
+        for msg in messages:
+            if msg.get("role") == "user" and msg.get("content") and not first_user_message:
+                first_user_message = msg["content"][:60]
+        for msg in reversed(messages):
+            if msg.get("role") in ("user", "assistant") and msg.get("content"):
+                last_message = {
+                    "role": msg["role"],
+                    "content": msg["content"][:100],
+                    "timestamp": msg.get("timestamp"),
+                }
+                break
+
+        title = first_user_message or chat_id.split(":")[-1].replace("-", " ").title()
+
+        return {
+            "chatId": chat_id,
+            "title": title,
+            "lastMessage": last_message,
+            "messageCount": message_count,
+            "updatedAt": updated_at_str,
+        }
+
     def list_active_sessions(self, max_age_hours: int = 720) -> List[dict]:
         """List sessions updated within max_age_hours, with lastMessage info.
 
         Returns [{ chatId, title, lastMessage, messageCount, updatedAt }] sorted by updatedAt desc.
+        Falls back to the most recent archived session when no active file exists for a chatId.
         """
         from datetime import timedelta, timezone
         cutoff = datetime.now() - timedelta(hours=max_age_hours)
         sessions = []
+        seen_chat_ids: set[str] = set()
+
+        # First pass: active (non-archived) sessions
         for path in self.sessions_dir.rglob("*.json"):
             if path.name.startswith(".") or "archived" in path.name:
                 continue
             try:
                 with open(path) as f:
                     data = json.load(f)
+                entry = self._parse_session_entry(data, cutoff)
+                if entry:
+                    sessions.append(entry)
+                    seen_chat_ids.add(entry["chatId"])
+            except (json.JSONDecodeError, IOError):
+                pass
 
-                updated_at_str = data.get("updated_at")
-                if not updated_at_str:
-                    continue
+        # Second pass: for chatIds with no active session, fall back to the
+        # most recent archive (by mtime).  Collect candidates keyed by their
+        # base active path so we can pick the newest per slot.
+        archive_candidates: dict[str, Path] = {}  # active_path_str → newest archive Path
+        for path in self.sessions_dir.rglob("*.json"):
+            if "archived" not in path.name or path.name.startswith("."):
+                continue
+            stem = path.name.split(".archived-")[0]
+            active_path = path.parent / f"{stem}.json"
+            if active_path.exists():
+                continue  # active file exists, already handled in first pass
+            key = str(active_path)
+            prev = archive_candidates.get(key)
+            if prev is None or path.stat().st_mtime > prev.stat().st_mtime:
+                archive_candidates[key] = path
 
-                # Parse updated_at (ISO format, may or may not have timezone)
-                try:
-                    updated_at = datetime.fromisoformat(updated_at_str)
-                    # Strip timezone info for naive comparison
-                    if updated_at.tzinfo is not None:
-                        updated_at = updated_at.replace(tzinfo=None)
-                except ValueError:
-                    continue
-
-                if updated_at < cutoff:
-                    continue
-
+        for path in archive_candidates.values():
+            try:
+                with open(path) as f:
+                    data = json.load(f)
                 chat_id = data.get("chat_id", "")
-                messages = data.get("messages", [])
-                message_count = data.get("message_count", len(messages))
-
-                # Filter: include project: and card: sessions with >0 messages
-                if not (chat_id.startswith("project:") or chat_id.startswith("card:")):
+                if chat_id in seen_chat_ids:
                     continue
-                if message_count < 1:
-                    continue
-
-                last_message = None
-                first_user_message = None
-                # Find last user or assistant message + first user message for title
-                for msg in messages:
-                    if msg.get("role") == "user" and msg.get("content") and not first_user_message:
-                        first_user_message = msg["content"][:60]
-                for msg in reversed(messages):
-                    if msg.get("role") in ("user", "assistant") and msg.get("content"):
-                        last_message = {
-                            "role": msg["role"],
-                            "content": msg["content"][:100],  # snippet
-                            "timestamp": msg.get("timestamp"),
-                        }
-                        break
-
-                # Derive title from first user message
-                title = first_user_message or chat_id.split(":")[-1].replace("-", " ").title()
-
-                sessions.append({
-                    "chatId": chat_id,
-                    "title": title,
-                    "lastMessage": last_message,
-                    "messageCount": message_count,
-                    "updatedAt": updated_at_str,
-                })
+                entry = self._parse_session_entry(data, cutoff)
+                if entry:
+                    sessions.append(entry)
+                    seen_chat_ids.add(chat_id)
             except (json.JSONDecodeError, IOError):
                 pass
 
