@@ -36,8 +36,29 @@ Proxy at `localhost:3457`. Being deprecated (Anthropic cutting third-party harne
 - `backend/app/services/personality_service.py` — System prompts, 3 delegate modes
 - `backend/app/services/chat_orchestration.py` — Orchestrator, delegate parsing
 - `backend/app/mcp_server.py` — MCP tool definitions (86 individual, consolidated to 40 via MCP)
+- `backend/app/services/knowledge_graph_service.py` — Temporal KG (entities, triples, attributes)
 - `backend/mcp_stdio.py` — MCP stdio transport entry point
 - `backend/app/config.py` — Settings (env vars + keyring)
+
+## Knowledge Graph — Temporal Model
+The KG stores entities (persistent, not temporal) linked by **triples** (relationships)
+and **attributes** (key-value properties), both with temporal bounds:
+
+- `valid_from` (NOT NULL) — when the fact became true (set on INSERT)
+- `valid_to` (NULL = active) — when the fact ended (set by `kg.invalidate`)
+
+The pair forms a half-open interval **[valid_from, valid_to)**:
+- `valid_to IS NULL` → fact is **current** (returned by `kg.query`, counted by `kg.stats`)
+- `valid_to` set → fact is **historical** (only visible in `kg.timeline`)
+
+To update a fact (e.g. "Redis version changed from 6 to 7"), invalidate the old
+attribute and add a new one — this preserves the audit trail. `kg.timeline` shows
+the full history; `kg.query` shows only the present state.
+
+Memory context injection uses three tiers with token budgets:
+- **L0** — pinned KG entities (attributes with `key='pinned', value='true'`)
+- **L1** — high-importance ChromaDB memories
+- **L2** — full semantic search (current behavior)
 
 ## Dispatcher Flow
 1. User message → `chat_fast_stream()` or `chat_deep_stream()`

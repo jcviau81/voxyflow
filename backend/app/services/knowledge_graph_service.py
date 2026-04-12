@@ -1,4 +1,38 @@
-"""Knowledge Graph service — entity/relationship store with temporal bounds."""
+"""Knowledge Graph service — entity/relationship store with temporal bounds.
+
+Temporal model
+--------------
+Triples (relationships) and attributes carry two time columns:
+
+  valid_from  DATETIME NOT NULL  — when the fact became true (set to now() on INSERT)
+  valid_to    DATETIME NULL      — when the fact stopped being true (NULL = still active)
+
+The pair forms a half-open interval **[valid_from, valid_to)**:
+  - A row with valid_to IS NULL is **current** — it represents the present state.
+  - A row with valid_to set is **historical** — it was true during that window.
+  - Calling ``invalidate(triple_id=...)`` sets valid_to = now(), closing the fact.
+
+Entities themselves are NOT temporally scoped — they persist once created and are
+mutated via upsert (updated_at tracks the last touch). Only their *relationships*
+and *attributes* have temporal bounds. Deleting an entity cascades to its triples
+and attributes.
+
+Query behaviour:
+  - ``query_relationships()`` returns only current facts (``valid_to IS NULL``).
+  - ``query_relationships(as_of=dt)`` returns facts active at that point
+    (``valid_from <= dt AND valid_to IS NULL``). Note: this does not yet handle
+    the case where valid_to is set but > dt; a future refinement can add
+    ``(valid_to IS NULL OR valid_to > dt)``.
+  - ``get_timeline()`` returns ALL facts (current + historical) ordered by
+    valid_from DESC, giving a chronological audit trail.
+  - ``get_stats()`` counts only current facts (``valid_to IS NULL``).
+
+Pinned context (L0):
+  An entity with an active attribute ``key='pinned', value='true', valid_to IS NULL``
+  is surfaced by ``get_pinned_context()`` for injection into system prompts.
+  Invalidating the 'pinned' attribute removes it from context on the next cache
+  refresh (≤30 s TTL).
+"""
 
 import json
 import logging
@@ -31,7 +65,10 @@ def get_knowledge_graph_service() -> "KnowledgeGraphService":
 # ---------------------------------------------------------------------------
 
 class KnowledgeGraphService:
-    """Temporal knowledge graph backed by SQLite (kg_entities / kg_triples / kg_attributes)."""
+    """Temporal knowledge graph backed by SQLite (kg_entities / kg_triples / kg_attributes).
+
+    See module docstring for the full temporal model (valid_from / valid_to semantics).
+    """
 
     CACHE_TTL = 30.0  # seconds
     MAX_NAME_LEN = 500
@@ -51,7 +88,12 @@ class KnowledgeGraphService:
         project_id: str,
         properties: Optional[dict] = None,
     ) -> str:
-        """Upsert an entity by (name, entity_type, project_id). Returns entity id."""
+        """Upsert an entity by (name, entity_type, project_id). Returns entity id.
+
+        Entities are not temporally scoped — they persist once created. Repeated
+        calls with the same (name, type, project) update properties and
+        updated_at but return the same id.
+        """
         if len(name) > self.MAX_NAME_LEN:
             name = name[:self.MAX_NAME_LEN]
         if len(entity_type) > self.MAX_NAME_LEN:
@@ -96,8 +138,12 @@ class KnowledgeGraphService:
     ) -> str:
         """Add a relationship triple. Returns triple id.
 
-        Raises ValueError if subject_id or object_id don't exist, or if
-        confidence is not a finite number in [0.0, 1.0].
+        The triple is created with valid_from = now() and valid_to = NULL,
+        meaning it is immediately active. To end the relationship later, call
+        ``invalidate(triple_id=...)``, which sets valid_to = now().
+
+        Raises ValueError if subject_id or object_id don't exist.
+        Confidence is clamped to [0.0, 1.0]; NaN/Inf default to 1.0.
         """
         # Validate confidence
         import math
@@ -132,7 +178,13 @@ class KnowledgeGraphService:
         key: str,
         value: str,
     ) -> str:
-        """Add a time-scoped attribute on an entity. Returns attribute id."""
+        """Add a time-scoped attribute on an entity. Returns attribute id.
+
+        Created with valid_from = now(), valid_to = NULL (active). Multiple
+        attributes with the same key can coexist — each represents a distinct
+        temporal assertion. To supersede an old value, invalidate the previous
+        attribute and add a new one.
+        """
         if len(key) > self.MAX_NAME_LEN:
             key = key[:self.MAX_NAME_LEN]
         if len(value) > self.MAX_VALUE_LEN:
@@ -159,7 +211,13 @@ class KnowledgeGraphService:
         as_of: Optional[datetime] = None,
         limit: int = 20,
     ) -> list[dict]:
-        """Search entities in a project. Filters are optional."""
+        """Search entities in a project. Filters are optional.
+
+        Entities are not temporal — all entities are returned regardless of
+        valid_from/valid_to (those live on triples/attributes, not entities).
+        The ``as_of`` parameter is accepted for API symmetry but currently
+        only affects ``query_relationships()``.
+        """
         clauses = ["e.project_id = :pid"]
         params: dict = {"pid": project_id, "lim": limit}
 
@@ -193,7 +251,12 @@ class KnowledgeGraphService:
         as_of: Optional[datetime] = None,
         limit: int = 20,
     ) -> list[dict]:
-        """Query active relationships for a project, optionally filtered by entity name or predicate."""
+        """Query active relationships (valid_to IS NULL) for a project.
+
+        Optionally filtered by entity name, predicate, or point-in-time (as_of).
+        When ``as_of`` is provided, also filters to valid_from <= as_of.
+        Only returns current (non-invalidated) triples.
+        """
         clauses = ["s.project_id = :pid", "t.valid_to IS NULL"]
         params: dict = {"pid": project_id, "lim": limit}
 
@@ -235,7 +298,13 @@ class KnowledgeGraphService:
         entity_name: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
-        """Chronological history of triples and attributes for a project/entity."""
+        """Chronological audit trail of ALL triples and attributes (current + historical).
+
+        Unlike query_relationships() which only returns active facts, timeline
+        includes invalidated rows too — showing valid_from, valid_to, and whether
+        each fact is still current (valid_to = None) or ended. Ordered by
+        valid_from DESC (newest first).
+        """
         params: dict = {"pid": project_id, "lim": limit}
         name_filter = ""
         if entity_name:
@@ -280,7 +349,12 @@ class KnowledgeGraphService:
         triple_id: Optional[str] = None,
         attribute_id: Optional[str] = None,
     ) -> bool:
-        """Close a triple or attribute by setting valid_to = now()."""
+        """Close a triple or attribute by setting valid_to = now().
+
+        This marks the fact as historical — it remains in the database for
+        timeline queries but no longer appears in active queries or stats.
+        Idempotent: invalidating an already-closed row returns False.
+        """
         now = utcnow()
         async with async_session() as db:
             if triple_id:

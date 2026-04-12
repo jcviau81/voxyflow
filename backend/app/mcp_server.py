@@ -1358,7 +1358,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Knowledge Graph -----------------------------------------------------
     {
         "name": "kg.add",
-        "description": "Add an entity to the project knowledge graph, optionally with relationships and attributes. Use this to record named things (people, technologies, components, decisions) and how they relate.",
+        "description": "Add an entity to the project knowledge graph, optionally with relationships and attributes. Use this to record named things (people, technologies, components, decisions) and how they relate. Relationships and attributes are created as current facts (valid_from=now, valid_to=NULL). To supersede a fact later, invalidate the old one with kg.invalidate and add the new one.",
         "inputSchema": {
             "type": "object",
             "required": ["entity_name", "entity_type"],
@@ -1405,7 +1405,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "kg.query",
-        "description": "Search entities and their relationships in the project knowledge graph. Returns entities matching the filter, optionally with their active relationships.",
+        "description": "Search entities and their relationships in the project knowledge graph. Returns entities matching the filter, optionally with their active (non-invalidated) relationships. Use as_of to see which relationships existed at a past point in time.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1415,7 +1415,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                     "enum": ["person", "technology", "component", "concept", "decision"],
                     "description": "Filter by entity type",
                 },
-                "as_of": {"type": "string", "description": "ISO datetime — show state as of this time (default: now)"},
+                "as_of": {"type": "string", "description": "ISO datetime — show relationships that existed at this point in time (filters to valid_from <= as_of AND still active). Default: now (current state only)"},
                 "include_relationships": {"type": "boolean", "description": "Include active relationships in results (default: true)"},
                 "limit": {"type": "integer", "description": "Max results (default 20)"},
             },
@@ -1425,7 +1425,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "kg.timeline",
-        "description": "Get chronological history of knowledge graph changes for a project or entity. Shows when facts were established or invalidated.",
+        "description": "Get chronological history of knowledge graph changes for a project or entity. Unlike kg.query (which returns only current/active facts), timeline shows ALL facts — both current (valid_to=null) and historical (valid_to set) — ordered newest-first. Use this to answer 'when did we decide X?' or 'what changed?'.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1438,7 +1438,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "kg.invalidate",
-        "description": "Mark a relationship or attribute as no longer valid (sets valid_to = now). Use when a fact has changed or is outdated.",
+        "description": "Mark a relationship or attribute as no longer valid by setting valid_to=now(), closing the [valid_from, valid_to) interval. The fact becomes historical — it still appears in kg.timeline but is excluded from kg.query and kg.stats. Use this when a fact has changed or been superseded (e.g. 'project no longer uses Redis'). Idempotent: invalidating an already-closed fact returns success=false.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1451,7 +1451,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "kg.stats",
-        "description": "Get knowledge graph statistics for the current project — entity count, active triples, active attributes.",
+        "description": "Get knowledge graph statistics for the current project — entity count, active (non-invalidated) triples, and active attributes. Historical/invalidated facts are not counted.",
         "inputSchema": {
             "type": "object",
             "properties": {},

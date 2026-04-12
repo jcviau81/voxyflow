@@ -531,9 +531,20 @@ class Document(Base):
 
 # ---------------------------------------------------------------------------
 # Knowledge Graph tables
+#
+# Temporal model: triples and attributes carry [valid_from, valid_to).
+#   valid_to IS NULL  →  fact is current / active
+#   valid_to set      →  fact was true only during [valid_from, valid_to)
+# Entities are NOT temporal — they persist once created and track updated_at.
+# See knowledge_graph_service.py module docstring for full semantics.
 # ---------------------------------------------------------------------------
 
 class KGEntity(Base):
+    """Named thing in the KG (person, technology, component, concept, decision).
+
+    Not temporally scoped — once created, an entity persists. updated_at
+    tracks the last upsert. Unique on (name, entity_type, project_id).
+    """
     __tablename__ = "kg_entities"
 
     id = Column(String, primary_key=True, default=new_uuid)
@@ -550,13 +561,22 @@ class KGEntity(Base):
 
 
 class KGTriple(Base):
+    """Directed relationship between two entities, with temporal bounds.
+
+    [valid_from, valid_to) defines when this relationship held:
+      valid_from  — set to now() on creation (when fact became true)
+      valid_to    — NULL while active; set to now() by invalidate() when the
+                    fact is superseded or retracted
+    Queries filter on valid_to IS NULL to see current state.
+    Timeline shows all rows (current + historical) for audit.
+    """
     __tablename__ = "kg_triples"
 
     id = Column(String, primary_key=True, default=new_uuid)
     subject_id = Column(String, ForeignKey("kg_entities.id", ondelete="CASCADE"), nullable=False)
     predicate = Column(String, nullable=False)       # e.g. "uses", "depends_on"
     object_id = Column(String, ForeignKey("kg_entities.id", ondelete="CASCADE"), nullable=False)
-    confidence = Column(Float, nullable=False, default=1.0)
+    confidence = Column(Float, nullable=False, default=1.0)  # clamped [0.0, 1.0]
     source = Column(String, nullable=False, default="auto")  # auto|manual|chat
     valid_from = Column(DateTime, nullable=False, default=utcnow)
     valid_to = Column(DateTime, nullable=True)        # NULL = still valid
@@ -567,6 +587,15 @@ class KGTriple(Base):
 
 
 class KGAttribute(Base):
+    """Time-scoped key-value property on an entity.
+
+    Same temporal model as KGTriple: [valid_from, valid_to).
+    Multiple rows with the same (entity_id, key) can coexist — each represents
+    a distinct temporal assertion. To update a value, invalidate the old row
+    and insert a new one (append-only history).
+    Special key 'pinned' with value 'true' marks the entity for L0 context
+    injection (see get_pinned_context).
+    """
     __tablename__ = "kg_attributes"
 
     id = Column(String, primary_key=True, default=new_uuid)
