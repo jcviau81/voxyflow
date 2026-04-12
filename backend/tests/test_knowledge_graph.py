@@ -128,6 +128,35 @@ class TestTriples:
         ok = await kg.invalidate(triple_id="nonexistent-id")
         assert ok is False
 
+    @pytest.mark.asyncio
+    async def test_as_of_sees_invalidated_triple(self, kg):
+        """A triple invalidated AFTER as_of should still appear in as_of queries."""
+        from datetime import datetime, timezone, timedelta
+
+        pid = _pid()
+        eid1 = await kg.add_entity("app", "component", pid)
+        eid2 = await kg.add_entity("Redis", "technology", pid)
+        tid = await kg.add_triple(eid1, "uses", eid2)
+
+        # Snapshot a time when the triple was active
+        point_in_time = datetime.now(timezone.utc)
+
+        # Small delay so invalidation timestamp is strictly after point_in_time
+        import asyncio
+        await asyncio.sleep(0.05)
+
+        # Invalidate the triple (valid_to = now, which is after point_in_time)
+        await kg.invalidate(triple_id=tid)
+
+        # Current query: triple should be gone
+        current = await kg.query_relationships(pid)
+        assert len(current) == 0
+
+        # as_of query at point_in_time: triple should still appear
+        historical = await kg.query_relationships(pid, as_of=point_in_time)
+        assert len(historical) == 1
+        assert historical[0]["subject"] == "app"
+
 
 # ============================================================================
 # Attribute CRUD + Invalidation

@@ -19,10 +19,9 @@ and attributes.
 
 Query behaviour:
   - ``query_relationships()`` returns only current facts (``valid_to IS NULL``).
-  - ``query_relationships(as_of=dt)`` returns facts active at that point
-    (``valid_from <= dt AND valid_to IS NULL``). Note: this does not yet handle
-    the case where valid_to is set but > dt; a future refinement can add
-    ``(valid_to IS NULL OR valid_to > dt)``.
+  - ``query_relationships(as_of=dt)`` returns facts active at that instant:
+    ``valid_from <= dt AND (valid_to IS NULL OR valid_to > dt)``.
+    This includes facts that were later invalidated but were still true at ``dt``.
   - ``get_timeline()`` returns ALL facts (current + historical) ordered by
     valid_from DESC, giving a chronological audit trail.
   - ``get_stats()`` counts only current facts (``valid_to IS NULL``).
@@ -254,11 +253,23 @@ class KnowledgeGraphService:
         """Query active relationships (valid_to IS NULL) for a project.
 
         Optionally filtered by entity name, predicate, or point-in-time (as_of).
-        When ``as_of`` is provided, also filters to valid_from <= as_of.
-        Only returns current (non-invalidated) triples.
+        Without ``as_of``, returns only current facts (valid_to IS NULL).
+        With ``as_of``, returns facts that were active at that instant:
+        valid_from <= as_of AND (valid_to IS NULL OR valid_to > as_of).
         """
-        clauses = ["s.project_id = :pid", "t.valid_to IS NULL"]
         params: dict = {"pid": project_id, "lim": limit}
+
+        if as_of:
+            # Full temporal range: facts active at the given instant
+            clauses = [
+                "s.project_id = :pid",
+                "t.valid_from <= :asof",
+                "(t.valid_to IS NULL OR t.valid_to > :asof)",
+            ]
+            params["asof"] = as_of
+        else:
+            # Current state only
+            clauses = ["s.project_id = :pid", "t.valid_to IS NULL"]
 
         if entity_name:
             clauses.append("(LOWER(s.name) LIKE :ename OR LOWER(o.name) LIKE :ename)")
@@ -266,9 +277,6 @@ class KnowledgeGraphService:
         if predicate:
             clauses.append("t.predicate = :pred")
             params["pred"] = predicate
-        if as_of:
-            clauses.append("t.valid_from <= :asof")
-            params["asof"] = as_of
 
         where = " AND ".join(clauses)
         sql = (
