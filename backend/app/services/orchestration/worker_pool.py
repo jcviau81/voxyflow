@@ -554,6 +554,21 @@ class DeepWorkerPool:
             async def _tool_callback(tool_name: str, arguments: dict, result: dict):
                 supervisor.record_tool_call(event.task_id, tool_name, arguments)
 
+                # Intercept task.complete calls — the MCP handler runs in a
+                # subprocess with its own supervisor instance, so we must
+                # propagate the completion to the main-process supervisor here.
+                if tool_name in ("task.complete", "task_complete"):
+                    tc_task_id = arguments.get("task_id", event.task_id)
+                    tc_summary = arguments.get("summary", "")
+                    tc_status = arguments.get("status", "success")
+                    if tc_summary:
+                        supervisor.mark_completed(tc_task_id, tc_summary, tc_status)
+                        logger.info(
+                            f"[Supervisor] Task {tc_task_id} explicitly completed via "
+                            f"task.complete (status={tc_status}, "
+                            f"summary_len={len(tc_summary)})"
+                        )
+
                 # Capture raw output from content-producing tools.
                 # tool_result from CLI is {"content": "<json_string>"} where
                 # the json_string is the MCP tool's serialized response.
