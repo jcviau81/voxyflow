@@ -224,33 +224,13 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         # --- Parse delegates and emit to event bus (BACKGROUND — non-blocking) ---
         if session_id and callback_depth < self.MAX_CALLBACK_DEPTH:
-            # Guard: don't fire delegates if the response contains a question
-            # (model is asking for confirmation — wait for user to answer first)
-            _response_for_guard = ""
-            _guard_history = self._claude.get_history(chat_id)
-            for _msg in reversed(_guard_history):
-                if _msg.get("role") == "assistant":
-                    _response_for_guard = _msg.get("content", "")
-                    break
-            _QUESTION_KEYWORDS = [
-                "tu veux", "veux-tu", "voulez-vous", "devrais-je",
-                "want me to", "shall i", "should i", "do you want",
-            ]
-            _response_lower = _response_for_guard.lower()
-            _has_question = "?" in _response_lower and any(
-                kw in _response_lower for kw in _QUESTION_KEYWORDS
-            )
-
             # Check for native tool_use delegates FIRST (collected by claude_service)
             native_delegates = self._claude.pop_pending_delegates(chat_id)
-
-            if _has_question:
-                logger.info("[Orchestrator] Delegate guard: question detected in response — skipping delegate emission")
 
             # Workers spawned from a callback response carry incremented depth
             child_callback_depth = callback_depth + 1 if is_callback else callback_depth
 
-            if not _has_question and native_delegates:
+            if native_delegates:
                 # Native path: structured delegate_action tool_use blocks
                 logger.info(f"[Orchestrator] Native delegate path: {len(native_delegates)} delegate(s) from tool_use")
                 _t = asyncio.create_task(
@@ -268,7 +248,7 @@ class ChatOrchestrator(LayerRunnersMixin):
                     )
                 )
                 _bg_tasks.append(_t)
-            elif not _has_question:
+            else:
                 # Fallback: parse <delegate> XML blocks from text response
                 chat_response = ""
                 history = self._claude.get_history(chat_id)
@@ -602,6 +582,58 @@ class ChatOrchestrator(LayerRunnersMixin):
             logger.error(f"[Orchestrator] Background analyzer failed: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
+    # Deduplication helper (shared by native + XML paths)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _dedup_delegates(
+        worker_delegates: list[dict],
+        pool,
+    ) -> list[dict]:
+        """Deduplicate delegates against active/completed workers.
+
+        Uses (action, description_prefix) tuples instead of just the action
+        name so that two unrelated ``run_command`` delegates are not falsely
+        deduped.
+        """
+        if not pool:
+            return worker_delegates
+
+        existing = pool.get_active_tasks()
+
+        def _key(action: str, desc: str) -> tuple[str, str]:
+            return (action.lower(), desc.lower()[:200].strip())
+
+        active_keys = {
+            _key(t["action"], t.get("description", ""))
+            for t in existing.get("active", [])
+        }
+        completed_keys = {
+            _key(t["action"], t.get("description", ""))
+            for t in existing.get("completed", [])
+            if t.get("success", True)
+        }
+        already = active_keys | completed_keys
+
+        deduped: list[dict] = []
+        for data in worker_delegates:
+            action = data.get("action") or data.get("intent") or "unknown"
+            summary = data.get("summary") or data.get("description") or ""
+            k = _key(action, summary)
+            if k in already:
+                logger.info(
+                    f"[Orchestrator] Dedup: skipping delegate '{action}' "
+                    f"(summary matches existing task)"
+                )
+            else:
+                deduped.append(data)
+                already.add(k)
+
+        if not deduped:
+            logger.info("[Orchestrator] All delegates deduplicated — nothing to emit")
+        return deduped
+
+    # ------------------------------------------------------------------
     # Event Bus: Native delegate emission (tool_use path)
     # ------------------------------------------------------------------
 
@@ -649,34 +681,12 @@ class ChatOrchestrator(LayerRunnersMixin):
         # Ensure worker pool is running (also updates WS on reconnect)
         self.start_worker_pool(session_id, websocket)
 
-        # --- Deduplication: skip delegates that match an active or recently completed worker ---
-        pool = self._worker_pools.get(session_id)
-        if pool:
-            existing = pool.get_active_tasks()
-            active_actions = {t["action"].lower() for t in existing.get("active", [])}
-            completed_actions = {
-                t["action"].lower()
-                for t in existing.get("completed", [])
-                if t.get("success", True)
-            }
-            already_handled = active_actions | completed_actions
-
-            deduped = []
-            for data in worker_delegates:
-                action = (data.get("action") or "unknown").lower()
-                if action in already_handled:
-                    logger.info(
-                        f"[Orchestrator] Dedup: skipping delegate '{action}' — "
-                        f"already {'active' if action in active_actions else 'completed'}"
-                    )
-                else:
-                    deduped.append(data)
-                    already_handled.add(action)
-
-            if not deduped:
-                logger.info("[Orchestrator] All delegates deduplicated — nothing to emit")
-                return
-            worker_delegates = deduped
+        # --- Deduplication ---
+        worker_delegates = self._dedup_delegates(
+            worker_delegates, self._worker_pools.get(session_id)
+        )
+        if not worker_delegates:
+            return
 
         bus = event_bus_registry.get_or_create(session_id)
 
@@ -784,18 +794,6 @@ class ChatOrchestrator(LayerRunnersMixin):
         logger.info(f"[Orchestrator] Parsing delegates from response (len={len(fast_response)}), tail: {response_preview!r}")
         matches = self._DELEGATE_PATTERN.findall(fast_response)
         if not matches:
-            # Safety net: detect promised actions without delegate blocks
-            await self._detect_missing_delegate(
-                fast_response=fast_response,
-                session_id=session_id,
-                websocket=websocket,
-                project_name=project_name,
-                chat_level=chat_level,
-                project_context=project_context,
-                card_context=card_context,
-                project_id=project_id,
-                chat_id=chat_id,
-            )
             return
 
         # First pass: separate direct-eligible delegates from worker delegates
@@ -828,35 +826,12 @@ class ChatOrchestrator(LayerRunnersMixin):
         # Ensure worker pool is running (also updates WS on reconnect)
         self.start_worker_pool(session_id, websocket)
 
-        # --- Deduplication: skip delegates that match an active or recently completed worker ---
-        pool = self._worker_pools.get(session_id)
-        if pool:
-            existing = pool.get_active_tasks()
-            active_actions = {t["action"].lower() for t in existing.get("active", [])}
-            completed_actions = {
-                t["action"].lower()
-                for t in existing.get("completed", [])
-                if t.get("success", True)
-            }
-            already_handled = active_actions | completed_actions
-
-            deduped = []
-            for data in worker_delegates:
-                action = (data.get("intent") or data.get("action") or "unknown").lower()
-                if action in already_handled:
-                    logger.info(
-                        f"[Orchestrator] Dedup: skipping delegate '{action}' — "
-                        f"already {'active' if action in active_actions else 'completed'}"
-                    )
-                else:
-                    deduped.append(data)
-                    # Track within this batch to prevent intra-batch duplicates
-                    already_handled.add(action)
-
-            if not deduped:
-                logger.info("[Orchestrator] All delegates deduplicated — nothing to emit")
-                return
-            worker_delegates = deduped
+        # --- Deduplication ---
+        worker_delegates = self._dedup_delegates(
+            worker_delegates, self._worker_pools.get(session_id)
+        )
+        if not worker_delegates:
+            return
 
         bus = event_bus_registry.get_or_create(session_id)
 
@@ -1290,144 +1265,6 @@ class ChatOrchestrator(LayerRunnersMixin):
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
-    # ------------------------------------------------------------------
-    # Safety Net: Detect missing delegates
-    # ------------------------------------------------------------------
-
-    # Action-intent phrases — if Voxy says these but no <delegate> was emitted,
-    # the safety net kicks in.
-    _ACTION_INTENT_PHRASES_FR = re.compile(
-        r"je\s+vais|je\s+te\s+cr[ée]e|je\s+cherche|je\s+lance|laisse[- ]moi"
-        r"|je\s+m['\u2019]en\s+occupe|je\s+regarde|je\s+v[ée]rifie",
-        re.IGNORECASE,
-    )
-    _ACTION_INTENT_PHRASES_EN = re.compile(
-        r"let\s+me|i['\u2019]ll\b|i\s+will\b|creating\b|searching\b"
-        r"|looking\s+into|checking\b",
-        re.IGNORECASE,
-    )
-    _ACTION_NOUNS = re.compile(
-        r"carte|card|recherche|search|fichier|file|commande|command",
-        re.IGNORECASE,
-    )
-
-    def _has_action_intent(self, text: str) -> bool:
-        """Return True if the text contains action-intent signals."""
-        if self._ACTION_INTENT_PHRASES_FR.search(text):
-            return True
-        if self._ACTION_INTENT_PHRASES_EN.search(text):
-            return True
-        return False
-
-    async def _detect_missing_delegate(
-        self,
-        fast_response: str,
-        session_id: str,
-        websocket: WebSocket,
-        project_name: str | None = None,
-        chat_level: str = "general",
-        project_context: dict | None = None,
-        card_context: dict | None = None,
-        project_id: str | None = None,
-        chat_id: str | None = None,
-    ) -> None:
-        """Safety net: if no <delegate> was found but the response promises an action,
-        use a quick Haiku call to generate the missing delegate and emit it."""
-        from app.config import get_settings
-        settings = get_settings()
-        if not settings.delegate_safety_net_enabled:
-            return
-
-        if not self._has_action_intent(fast_response):
-            logger.debug("[SafetyNet] No action-intent phrases detected, skipping")
-            return
-
-        logger.info("[SafetyNet] Detected action-intent without delegate — auto-generating")
-
-        raw_json = await self._claude.safety_net_generate_delegate(fast_response)
-        if not raw_json:
-            logger.warning("[SafetyNet] Haiku returned empty response, aborting")
-            return
-
-        # Strip markdown fences if Haiku wraps it
-        cleaned = raw_json.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-            cleaned = re.sub(r"\s*```$", "", cleaned)
-
-        try:
-            data = json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            logger.warning(f"[SafetyNet] Failed to parse Haiku JSON: {e} — raw: {cleaned[:200]}")
-            return
-
-        intent = data.get("intent", data.get("action", "unknown"))
-        summary = data.get("summary", data.get("description", ""))
-        complexity = data.get("complexity", "simple")
-        model = data.get("model", "sonnet")
-        if model not in ("haiku", "sonnet", "opus"):
-            model = "sonnet"
-
-        # Auto-upgrade model for coding tasks (safety-net path)
-        _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
-        description_lower = data.get("description", "").lower()
-        if any(kw in description_lower for kw in _CODING_KEYWORDS):
-            if model == "haiku":
-                original_model = model
-                model = "sonnet"
-                logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
-
-        task_id = f"task-{uuid4().hex[:8]}"
-
-        if complexity == "complex" or model == "opus":
-            intent_type = "complex"
-        elif intent in ("create_card", "move_card", "update_card"):
-            intent_type = "crud_simple"
-        else:
-            intent_type = "complex"
-
-        card_id = card_context.get("id") if card_context else None
-
-        event = ActionIntent(
-            task_id=task_id,
-            intent_type=intent_type,
-            intent=intent,
-            summary=summary,
-            data={
-                "project_name": project_name,
-                "chat_level": chat_level,
-                "project_context": project_context,
-                "card_context": card_context,
-                "card_id": card_id,
-                "dispatcher_chat_id": chat_id,
-                "auto_recovered": True,
-                **data,
-                # Fallback chain: delegate.data['project_id'] → session project_id → None
-                "project_id": data.get("project_id") or project_id,
-            },
-            session_id=session_id,
-            complexity=complexity,
-            model=model,
-        )
-
-        # Ensure worker pool is running (also updates WS on reconnect)
-        self.start_worker_pool(session_id, websocket)
-
-        bus = event_bus_registry.get_or_create(session_id)
-        await bus.emit(event)
-        get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=f"[auto-recovered] {summary}")
-        logger.info(f"[SafetyNet] Emitted auto-recovered delegate: {intent} → task {task_id}")
-
-        # Notify frontend about the auto-recovery
-        try:
-            await websocket.send_json({
-                "type": "delegate:auto_recovered",
-                "payload": {"intent": intent, "taskId": task_id, "summary": summary},
-                "timestamp": int(time.time() * 1000),
-            })
-        except Exception as e:
-            logger.warning(f"[SafetyNet] Failed to send auto_recovered WS event: {e}")
-
     # ------------------------------------------------------------------
     # Internal: Context resolution
     # ------------------------------------------------------------------
