@@ -51,6 +51,21 @@ def is_lightweight_intent(intent: str) -> bool:
 
 logger = logging.getLogger("voxyflow.orchestration")
 
+# ---------------------------------------------------------------------------
+# Result preview helpers — the artifact file is the canonical blob store;
+# everything else gets a short preview + artifact_path reference.
+# ---------------------------------------------------------------------------
+PREVIEW_CHARS = 500          # for DB ledger, worker session store, session store
+DISPATCHER_PREVIEW_CHARS = 10_000  # for the dispatcher callback to the LLM
+WS_RESULT_CHARS = 2_000     # for the task:completed WS event to the frontend
+
+
+def _preview(text: str, limit: int = PREVIEW_CHARS) -> str:
+    """Return the first *limit* chars of *text*, with a truncation marker if cut."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n[... truncated — {len(text):,} chars total ...]"
+
 
 def _format_result_for_card(text: str) -> str:
     """Convert raw LLM result to clean human-readable text for card injection.
@@ -347,12 +362,16 @@ class DeepWorkerPool:
         return {"active": active, "completed": completed}
 
     async def _summarize_result(self, result: str, intent: str, max_chars: int = 0) -> str:
-        """Pass worker results through to the dispatcher unchanged.
+        """Return a dispatcher-sized preview of the worker result.
 
-        Large results are stored as artifacts with paging support via
-        workers.read_artifact — no summarization or truncation needed here.
+        The full output lives in the artifact file.  The dispatcher gets the
+        first DISPATCHER_PREVIEW_CHARS here and can call read_artifact for more.
+        No LLM summarization — just mechanical truncation.
         """
-        return result
+        limit = max_chars or DISPATCHER_PREVIEW_CHARS
+        if len(result) <= limit:
+            return result
+        return result[:limit] + f"\n[... truncated — {len(result):,} chars total ...]"
 
     async def _stale_cleanup_loop(self) -> None:
         """Prune old completed-task entries from memory (every 60s)."""
@@ -806,16 +825,19 @@ class DeepWorkerPool:
                     status="success",
                 )
 
+            # --- Secondary stores get previews; artifact is canonical ---
+            result_preview = _preview(result_content, PREVIEW_CHARS) if result_content else ""
+
             _wss.update_status(
                 event.task_id,
                 "completed",
-                result_content or "",
+                result_preview,
                 artifact_path=artifact_path,
             )
 
             await self._ledger_update(
                 event.task_id, "done",
-                result_summary=result_content or "",
+                result_summary=result_preview,
             )
 
             # Record completion in session timeline
@@ -830,7 +852,8 @@ class DeepWorkerPool:
             await self._send_task_event("task:completed", event.task_id, {
                 "intent": event.intent,
                 "summary": event.summary,
-                "result": result_content,
+                "result": _preview(result_content, WS_RESULT_CHARS) if result_content else "",
+                "totalChars": len(result_content or ""),
                 "success": True,
                 "sessionId": event.session_id,
                 "projectId": event.data.get("project_id"),
@@ -844,11 +867,13 @@ class DeepWorkerPool:
                     from app.services.session_store import session_store as _ss
                     _ss.save_message(event.session_id, {
                         "role": "assistant",
-                        "content": result_content,
+                        "content": result_preview,
                         "model": "worker",
                         "type": "worker_result",
                         "task_id": event.task_id,
                         "intent": event.intent,
+                        "artifactPath": artifact_path,
+                        "totalChars": len(result_content),
                     })
                 except Exception as _persist_err:
                     logger.warning(f"[DeepWorker] Failed to persist worker result: {_persist_err}")
@@ -868,16 +893,14 @@ class DeepWorkerPool:
                             if result_content:
                                 summarized = await self._summarize_result(result_content, event.intent or "")
 
-                            # If the raw result is materially larger than the
-                            # summary the dispatcher is about to see, advertise
-                            # the artifact tool so it knows it can pull the
-                            # verbatim output (file contents, command stdout,
-                            # logs, etc.) when needed.
+                            # Always advertise the artifact when the result
+                            # was truncated or is large enough to warrant
+                            # paged access.
                             artifact_hint = ""
                             raw_len = len(result_content or "")
-                            if artifact_path and raw_len > len(summarized) + 200:
+                            if artifact_path and raw_len > len(summarized):
                                 artifact_hint = (
-                                    f"\n[Full raw output ({raw_len} chars) available — "
+                                    f"\n[Full raw output ({raw_len:,} chars) available — "
                                     f"call voxyflow.workers.read_artifact(task_id=\"{event.task_id}\") "
                                     f"to retrieve verbatim. Use offset/length for paging.]"
                                 )

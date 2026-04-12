@@ -25,6 +25,7 @@ Your CWD is set to the correct workspace automatically. NEVER write project file
 - Respond in the **same language** the user used.
 - When your task is complete, you **MUST** call `task.complete(task_id="<your task_id>", summary="...", status="success|partial|failed")`. This is mandatory.
 - The summary must contain **ACTUAL RESULTS** — real data, stdout/stderr, concrete findings. Never write generic "Done" or "Task complete".
+- Your full output is stored as an artifact file and the dispatcher can page through it via `read_artifact`. Include all relevant raw output — don't truncate or summarize it yourself. The system handles delivery.
 
 ---
 

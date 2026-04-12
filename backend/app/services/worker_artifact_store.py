@@ -1,11 +1,13 @@
-"""Worker Artifact Store — Persists full raw worker output to disk as .md files.
+"""Worker Artifact Store — Canonical blob store for full raw worker output.
 
-When a worker completes, its full ``result_content`` is written to
-``~/.voxyflow/worker_artifacts/{task_id}.md`` with a YAML frontmatter header.
+This is the **single source of truth** for complete worker results.  All other
+stores (DB ledger, worker session JSON, session store) keep only a short
+preview + a reference to the artifact path.  The dispatcher gets a ~10K
+inline preview and can page through the full output here via the
+``workers.read_artifact`` MCP tool.
 
-The dispatcher receives the full raw output in the callback. The artifact
-file serves as persistent storage and supports paged reads via the
-``workers_read_artifact`` inline tool for very large outputs.
+Files live at ``~/.voxyflow/worker_artifacts/{task_id}.md`` with YAML
+frontmatter.
 """
 
 from __future__ import annotations
@@ -18,9 +20,9 @@ from typing import Optional
 
 logger = logging.getLogger("voxyflow.worker_artifacts")
 
-# Hard cap on artifact file size on disk. Prevents a runaway worker from
-# filling the data dir with multi-megabyte logs.
-MAX_ARTIFACT_BYTES = 2 * 1024 * 1024  # 2 MB
+# Hard cap — safety valve against truly runaway workers.  This is the
+# canonical store so we keep the full output up to a generous limit.
+MAX_ARTIFACT_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Default slice length when read_artifact is called without an explicit length.
 DEFAULT_READ_LENGTH = 50_000
@@ -63,15 +65,16 @@ def write_artifact(
         return None
 
     body = content
-    truncated_note = ""
+    truncated = False
     body_bytes = body.encode("utf-8", errors="replace")
     if len(body_bytes) > MAX_ARTIFACT_BYTES:
-        # Keep the head — that's the useful part for `cat`/`head` style output.
+        # Safety cap for truly runaway output.  Keep the head — at 10MB this
+        # should rarely trigger, and if it does the interesting part (command
+        # start, file contents) is at the beginning.
         body_bytes = body_bytes[:MAX_ARTIFACT_BYTES]
         body = body_bytes.decode("utf-8", errors="replace")
-        truncated_note = (
-            f"\n\n[... artifact truncated at {MAX_ARTIFACT_BYTES} bytes ...]\n"
-        )
+        body += f"\n\n[... truncated at {MAX_ARTIFACT_BYTES // (1024*1024)} MB — original was {len(content):,} chars ...]\n"
+        truncated = True
 
     now_iso = datetime.now(timezone.utc).isoformat()
     frontmatter_lines = [
@@ -96,10 +99,10 @@ def write_artifact(
 
     path = artifact_path(task_id)
     try:
-        path.write_text(frontmatter + body + truncated_note, encoding="utf-8")
+        path.write_text(frontmatter + body, encoding="utf-8")
         logger.info(
             f"[WorkerArtifact] Wrote {path.name} ({len(body)} chars"
-            f"{', truncated' if truncated_note else ''})"
+            f"{', truncated' if truncated else ''})"
         )
         return str(path)
     except Exception as e:

@@ -234,8 +234,10 @@ async def execute_board(
             # Generate a unique message ID for this card execution
             message_id = f"exec-{execution_id}-{card_plan.id}"
 
-            # Send through chat orchestration pipeline
-            await orchestrator.handle_message(
+            # Send through chat orchestration pipeline.
+            # handle_message awaits the full streaming response, then returns
+            # background tasks (delegates, analyzer, memory extraction).
+            bg_tasks = await orchestrator.handle_message(
                 websocket=websocket,
                 content=prompt,
                 message_id=message_id,
@@ -247,9 +249,17 @@ async def execute_board(
                 session_id=session_id,
             )
 
-            # Wait a moment for streaming to complete
-            # The orchestrator streams asynchronously; we give it time to finish
-            await asyncio.sleep(2)
+            # Await background work (delegates, analyzer) before moving to the
+            # next card — ensures delegate workers from card N finish before
+            # card N+1 starts, and prevents interleaved WS messages.
+            if bg_tasks:
+                results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+                for r in results:
+                    if isinstance(r, Exception):
+                        logger.warning(
+                            f"[BoardExecutor] Background task failed for card "
+                            f"'{card_plan.title}': {r}"
+                        )
 
             # Build chain context summary for next card
             summary = f"Card '{card_plan.title}': Executed successfully."
