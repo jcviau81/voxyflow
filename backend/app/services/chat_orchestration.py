@@ -427,10 +427,23 @@ class ChatOrchestrator(LayerRunnersMixin):
 
         existing = self._worker_pools.get(session_id)
         if existing and not existing._stopped:
-            # Pool is alive: just update the WebSocket so in-flight workers
+            # Pool is alive: update the WebSocket so in-flight workers
             # can deliver results to the new connection.
             existing.update_websocket(websocket)
-            logger.info(f"[ChatOrchestrator] Reused existing pool for {session_id}, updated WS")
+
+            # If the event bus was cleaned up (idle timeout), the listener
+            # is dead. Reconnect the pool to a fresh bus and restart it.
+            bus = event_bus_registry.get_or_create(session_id)
+            listener_dead = (
+                existing._listener_task is None
+                or existing._listener_task.done()
+            )
+            if listener_dead or existing._bus is not bus:
+                existing._bus = bus
+                existing._listener_task = asyncio.create_task(existing._listen_loop())
+                logger.info(f"[ChatOrchestrator] Revived listener for pool {session_id} (bus was recycled)")
+            else:
+                logger.info(f"[ChatOrchestrator] Reused existing pool for {session_id}, updated WS")
             return existing
 
         # No existing pool (or stopped): create a fresh one.
