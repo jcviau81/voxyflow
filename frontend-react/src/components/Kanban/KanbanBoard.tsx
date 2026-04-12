@@ -450,7 +450,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const importProject = useImportProject();
   const executeBoardPlan = useExecuteBoardPlan();
   const deleteCardMut = useDeleteCard();
-  const { send: wsSend } = useWebSocket();
+  const { send: wsSend, subscribe } = useWebSocket();
 
   // Worker execution status — poll every 3s to show per-card activity badges
   const { isCardActive } = useWorkerStatus(projectId ?? '');
@@ -770,25 +770,21 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
 
   // Listen for WS board execution events
   useEffect(() => {
-    const handleWsMessage = (event: CustomEvent<{ type: string; payload: Record<string, unknown> }>) => {
-      const { type, payload } = event.detail;
-      if (type === 'kanban:execute:card:start') {
+    const unsubs = [
+      subscribe('kanban:execute:card:start', (payload) => {
         setExecutionProgress({
           index: payload.index as number,
           total: payload.total as number,
           cardTitle: payload.cardTitle as string,
           cardId: payload.cardId as string,
         });
-      } else if (type === 'kanban:execute:complete' || type === 'kanban:execute:cancelled' || type === 'kanban:execute:error') {
-        resetExecution();
-      }
-    };
-
-    window.addEventListener('voxyflow:ws:message' as string, handleWsMessage as EventListener);
-    return () => {
-      window.removeEventListener('voxyflow:ws:message' as string, handleWsMessage as EventListener);
-    };
-  }, [resetExecution]);
+      }),
+      subscribe('kanban:execute:complete', resetExecution),
+      subscribe('kanban:execute:cancelled', resetExecution),
+      subscribe('kanban:execute:error', resetExecution),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [subscribe, resetExecution]);
 
   // ── Bulk actions ─────────────────────────────────────────────────────────
 

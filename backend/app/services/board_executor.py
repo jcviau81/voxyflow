@@ -243,7 +243,7 @@ async def execute_board(
                 project_id=project_id,
                 layers={"deep": False, "analyzer": False},
                 chat_level="project",
-                card_id=None,  # Execute in project context, not card context
+                card_id=card_plan.id,
                 session_id=session_id,
             )
 
