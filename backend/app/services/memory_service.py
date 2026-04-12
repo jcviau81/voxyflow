@@ -154,6 +154,21 @@ Each item in the array must be a JSON object with exactly these fields:
 - One memory per distinct piece of information (don't bundle multiple facts)
 - Keep "content" concise but complete — someone reading it later should understand it without context
 - If nothing is worth remembering, return an empty array: []
+
+## Entity Extraction (Knowledge Graph)
+Also extract named entities and relationships mentioned in the conversation:
+- entities: People, technologies, tools, components, concepts, or decisions discussed
+- relationships: How they relate (e.g. "project uses Redis", "auth depends on JWT")
+
+Return a JSON object (not an array) with two keys:
+  - "memories": the array of memory objects described above
+  - "entities": an array of entity objects, each with:
+    - "name": entity name (e.g. "Redis", "auth-service")
+    - "type": one of "person" | "technology" | "component" | "concept" | "decision"
+    - "relationships": array of {"predicate": string, "target": string, "target_type": string}
+
+If no entities are found, set "entities": [].
+If no memories are found, set "memories": [].
 """
 
 _MEMORY_EXTRACTION_USER_TEMPLATE = """\
@@ -616,9 +631,21 @@ class MemoryService:
         logger.info(f"auto_extract: regex pre-filter detected signal for {chat_id} — calling LLM")
 
         # --- Primary path: LLM extraction ---
-        extracted_items = await self._llm_extract_memories(relevant_messages)
+        extraction_result = await self._llm_extract_memories(relevant_messages)
 
-        if extracted_items is not None:
+        if extraction_result is not None:
+            extracted_items = extraction_result.get("memories", [])
+            extracted_entities = extraction_result.get("entities", [])
+
+            # Pipe entities to Knowledge Graph (non-blocking, never fails extraction)
+            if extracted_entities:
+                try:
+                    from app.services.knowledge_graph_service import get_knowledge_graph_service
+                    kg = get_knowledge_graph_service()
+                    await kg.extract_entities_from_llm_output(extracted_entities, target_project_id)
+                except Exception as e:
+                    logger.warning(f"auto_extract: KG entity extraction failed (non-fatal): {e}")
+
             # LLM succeeded — process its output
             for item in extracted_items:
                 mem_type = item.get("type", "skip")
@@ -717,11 +744,12 @@ class MemoryService:
     async def _llm_extract_memories(
         self,
         messages: list[dict],
-    ) -> Optional[list[dict]]:
-        """Call haiku to extract memories from a block of messages.
+    ) -> Optional[dict]:
+        """Call haiku to extract memories + entities from a block of messages.
 
-        Returns a list of extracted memory dicts on success, or None on failure.
-        The caller is responsible for filtering by confidence threshold.
+        Returns a dict with keys "memories" (list[dict]) and "entities" (list[dict])
+        on success, or None on failure. Backward-compatible: if LLM returns a plain
+        list (old format), wraps it as {"memories": [...], "entities": []}.
         """
         try:
             # Import here to avoid circular dependency at module load time
@@ -759,12 +787,21 @@ class MemoryService:
                 text = text.rsplit("```", 1)[0].strip()
 
             parsed = json.loads(text)
-            if not isinstance(parsed, list):
-                logger.warning(f"_llm_extract_memories: expected list, got {type(parsed).__name__}")
-                return None
 
-            logger.info(f"_llm_extract_memories: LLM returned {len(parsed)} candidate memories")
-            return parsed
+            # Backward compat: old format returns a list (memories only)
+            if isinstance(parsed, list):
+                logger.info(f"_llm_extract_memories: LLM returned {len(parsed)} candidate memories (old format)")
+                return {"memories": parsed, "entities": []}
+
+            # New format: dict with "memories" and "entities"
+            if isinstance(parsed, dict) and "memories" in parsed:
+                memories = parsed.get("memories", [])
+                entities = parsed.get("entities", [])
+                logger.info(f"_llm_extract_memories: LLM returned {len(memories)} memories + {len(entities)} entities")
+                return {"memories": memories, "entities": entities}
+
+            logger.warning(f"_llm_extract_memories: unexpected format {type(parsed).__name__}")
+            return None
 
         except json.JSONDecodeError as e:
             logger.warning(f"_llm_extract_memories: JSON parse error: {e}")
@@ -777,6 +814,11 @@ class MemoryService:
     # build_memory_context — backward-compatible, now with semantic search
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """Rough token estimate (~1.3 tokens per word)."""
+        return int(len(text.split()) * 1.3)
+
     def build_memory_context(
         self,
         project_name: Optional[str] = None,
@@ -785,11 +827,19 @@ class MemoryService:
         include_daily: bool = True,
         query: Optional[str] = None,
         card_id: Optional[str] = None,
+        budget: int = 1500,
+        layers: tuple[int, ...] = (0, 1, 2),
     ) -> Optional[str]:
         """Build a combined memory context string for injection into system prompts.
 
-        If ChromaDB is available and a query is provided, uses semantic search.
-        Otherwise falls back to file-based memory loading.
+        If ChromaDB is available and a query is provided, uses semantic search
+        with tiered layers:
+          L0 — pinned KG entities (identity)
+          L1 — high-importance recent memories (essentials)
+          L2 — full semantic search (on-demand)
+
+        ``budget`` caps total estimated tokens across all layers.
+        ``layers`` controls which tiers to load.
 
         ``project_id`` is the UUID (or "system-main") that keys the Chroma
         collection. ``project_name`` is only used for display/section titles.
@@ -804,6 +854,8 @@ class MemoryService:
                 project_id=project_id,
                 card_id=card_id,
                 include_long_term=include_long_term,
+                budget=budget,
+                layers=layers,
             )
 
         # Fallback: file-based memory
@@ -813,6 +865,141 @@ class MemoryService:
             include_daily=include_daily,
         )
 
+    def _build_l0_identity(self, project_id: str) -> Optional[str]:
+        """L0: Pinned KG entities — project identity. Sync-safe (reads from cache)."""
+        try:
+            from app.services.knowledge_graph_service import get_knowledge_graph_service
+            kg = get_knowledge_graph_service()
+            pinned = kg.get_pinned_context(project_id or "system-main")
+            if not pinned:
+                return None
+            lines = [f"- {e['name']} ({e['entity_type']}): {e['value']}" for e in pinned]
+            return "**Project identity:**\n" + "\n".join(lines)
+        except Exception:
+            return None
+
+    def _build_l1_essentials(
+        self,
+        query: str,
+        project_id: Optional[str],
+        card_id: Optional[str],
+        budget: int,
+    ) -> Optional[str]:
+        """L1: High-importance recent memories (essentials). Budget-capped."""
+        try:
+            if not project_id:
+                return None  # L1 only applies to project/card contexts
+
+            proj_col = _project_collection(project_id)
+            results = self.search_memory(
+                query=query,
+                collections=[proj_col],
+                filters={"importance": "high"},
+                limit=5,
+            )
+            if not results:
+                return None
+
+            display = project_id
+            lines = []
+            token_count = 0
+            for r in results:
+                line = f"- {r['text']}"
+                line_tokens = self._estimate_tokens(line)
+                if token_count + line_tokens > budget:
+                    break
+                lines.append(line)
+                token_count += line_tokens
+
+            if not lines:
+                return None
+            return f"**Key facts ({display}):**\n" + "\n".join(lines)
+        except Exception as e:
+            logger.debug(f"_build_l1_essentials failed: {e}")
+            return None
+
+    def _build_l2_ondemand(
+        self,
+        query: str,
+        project_name: Optional[str],
+        project_id: Optional[str],
+        card_id: Optional[str],
+        include_long_term: bool,
+        budget: int,
+        l1_ids: set[str] | None = None,
+    ) -> Optional[str]:
+        """L2: Full semantic search (current behavior, budget-capped). Deduplicates against L1."""
+        sections: list[str] = []
+        display_label = project_name or project_id or ""
+        l1_ids = l1_ids or set()
+        remaining = budget
+
+        def _cap_results(results: list[dict], cap: int) -> list[str]:
+            nonlocal remaining
+            texts = []
+            for r in results:
+                if r["id"] in l1_ids:
+                    continue
+                line = r["text"]
+                t = self._estimate_tokens(line)
+                if remaining - t < 0:
+                    break
+                texts.append(line)
+                remaining -= t
+            return texts
+
+        if project_id and card_id:
+            proj_col = _project_collection(project_id)
+            card_results = self.search_memory(
+                query=query, collections=[proj_col],
+                filters={"card_id": card_id}, limit=5,
+            )
+            if card_results:
+                texts = _cap_results(card_results, remaining)
+                if texts:
+                    sections.append(
+                        f"**Card memory ({display_label}):**\n" + "\n".join(f"- {t}" for t in texts)
+                    )
+
+            proj_results = self.search_memory(
+                query=query, collections=[proj_col], limit=5,
+            )
+            if proj_results:
+                card_ids = {r["id"] for r in card_results} if card_results else set()
+                proj_unique = [r for r in proj_results if r["id"] not in card_ids]
+                texts = _cap_results(proj_unique, remaining)
+                if texts:
+                    sections.append(
+                        f"**Project memory ({display_label}):**\n" + "\n".join(f"- {t}" for t in texts)
+                    )
+
+        elif project_id:
+            proj_col = _project_collection(project_id)
+            proj_results = self.search_memory(
+                query=query, collections=[proj_col], limit=10,
+            )
+            if proj_results:
+                texts = _cap_results(proj_results, remaining)
+                if texts:
+                    sections.append(
+                        f"**Project memory ({display_label}):**\n" + "\n".join(f"- {t}" for t in texts)
+                    )
+
+        else:
+            main_col = _project_collection("system-main")
+            search_cols = (
+                [main_col, GLOBAL_COLLECTION] if include_long_term else [main_col]
+            )
+            main_results = self.search_memory(
+                query=query, collections=search_cols, limit=10,
+            )
+            if main_results:
+                texts = _cap_results(main_results, remaining)
+                if texts:
+                    sections.append("**Relevant memory:**\n" + "\n".join(f"- {t}" for t in texts))
+
+        return "\n\n---\n\n".join(sections) if sections else None
+
     def _build_chromadb_context(
         self,
         query: str,
@@ -820,94 +1007,50 @@ class MemoryService:
         project_id: Optional[str] = None,
         card_id: Optional[str] = None,
         include_long_term: bool = True,
+        budget: int = 1500,
+        layers: tuple[int, ...] = (0, 1, 2),
     ) -> Optional[str]:
-        """Build memory context using ChromaDB semantic search.
+        """Build memory context using tiered layers with budget tracking.
 
-        Hierarchy (strict project isolation — project chats NEVER see global):
-        - General/Main Chat → memory-global + memory-project-system-main (top 10)
-        - Project Chat → memory-project-{project_id} only (top 10)
-        - Card Chat → memory-project-{project_id} w/ card_id filter (top 5) + unfiltered project (top 5)
+        L0 — Pinned KG entities (project identity, ~100 tokens)
+        L1 — High-importance recent memories (essentials, ~400 tokens)
+        L2 — Full semantic search (on-demand, remaining budget)
 
-        ``include_long_term`` only affects General/Main Chat (whether to include
-        memory-global). For Project/Card chats it is ignored — project chats
-        are fully isolated from cross-project memory.
-
-        Scoping is driven by ``project_id`` (the UUID or "system-main"),
-        NOT by the display name. ``project_name`` is used only for section
-        titles; if None we fall back to ``project_id`` for display.
+        Strict project isolation: project chats NEVER see global.
         """
+        remaining = budget
         sections: list[str] = []
-        # Section-title label: prefer the display name, fall back to project_id
-        display_label = project_name or project_id or ""
+        l1_ids: set[str] = set()
 
         try:
-            if project_id and card_id:
-                # Card Chat mode — strictly project-scoped, NEVER queries global
-                proj_col = _project_collection(project_id)
+            # L0: Project identity from KG pinned cache
+            if 0 in layers:
+                l0 = self._build_l0_identity(project_id)
+                if l0:
+                    sections.append(l0)
+                    remaining -= self._estimate_tokens(l0)
 
-                # Card-scoped project memories
-                card_results = self.search_memory(
-                    query=query,
-                    collections=[proj_col],
-                    filters={"card_id": card_id},
-                    limit=5,
+            # L1: High-importance essentials
+            if 1 in layers and remaining > 50:
+                l1 = self._build_l1_essentials(
+                    query, project_id, card_id, min(400, remaining),
                 )
-                if card_results:
-                    texts = [r["text"] for r in card_results]
-                    sections.append(
-                        f"**Card memory ({display_label}):**\n" + "\n".join(f"- {t}" for t in texts)
-                    )
+                if l1:
+                    sections.append(l1)
+                    remaining -= self._estimate_tokens(l1)
 
-                # Unfiltered project memories
-                proj_results = self.search_memory(
-                    query=query, collections=[proj_col], limit=5
+            # L2: Full semantic search (current behavior)
+            if 2 in layers and remaining > 50:
+                l2 = self._build_l2_ondemand(
+                    query, project_name, project_id, card_id,
+                    include_long_term, min(remaining, 800),
+                    l1_ids=l1_ids,
                 )
-                if proj_results:
-                    # Deduplicate against card results
-                    card_ids = {r["id"] for r in card_results}
-                    proj_unique = [r for r in proj_results if r["id"] not in card_ids]
-                    if proj_unique:
-                        texts = [r["text"] for r in proj_unique]
-                        sections.append(
-                            f"**Project memory ({display_label}):**\n"
-                            + "\n".join(f"- {t}" for t in texts)
-                        )
-
-            elif project_id:
-                # Project Chat mode — strictly project-scoped, NEVER queries global
-                proj_col = _project_collection(project_id)
-
-                proj_results = self.search_memory(
-                    query=query, collections=[proj_col], limit=10
-                )
-                if proj_results:
-                    texts = [r["text"] for r in proj_results]
-                    sections.append(
-                        f"**Project memory ({display_label}):**\n"
-                        + "\n".join(f"- {t}" for t in texts)
-                    )
-
-            else:
-                # General/Main Chat mode — search memory-project-system-main
-                # (where system-main chat memories land) plus the global
-                # cross-project memory. This is the ONLY place we query
-                # the global collection without a specific project scope.
-                main_col = _project_collection("system-main")
-                search_cols = (
-                    [main_col, GLOBAL_COLLECTION]
-                    if include_long_term
-                    else [main_col]
-                )
-                main_results = self.search_memory(
-                    query=query, collections=search_cols, limit=10
-                )
-                if main_results:
-                    texts = [r["text"] for r in main_results]
-                    sections.append("**Relevant memory:**\n" + "\n".join(f"- {t}" for t in texts))
+                if l2:
+                    sections.append(l2)
 
         except Exception as e:
             logger.error(f"_build_chromadb_context failed: {e}")
-            # Fall back to file-based
             return self._build_file_context(
                 project_name=project_name,
                 include_long_term=include_long_term,
@@ -915,7 +1058,6 @@ class MemoryService:
             )
 
         if not sections:
-            # If ChromaDB returned nothing, try file-based as fallback
             return self._build_file_context(
                 project_name=project_name,
                 include_long_term=include_long_term,

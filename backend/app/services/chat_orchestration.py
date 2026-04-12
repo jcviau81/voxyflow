@@ -1548,6 +1548,8 @@ class ChatOrchestrator(LayerRunnersMixin):
             project_id=project_id,
             include_long_term=False,
             include_daily=True,
+            budget=200,
+            layers=(0,),
         )
         # Static base (cacheable) — dynamic context injected separately below
         base_prompt = self._claude.personality.build_fast_prompt(

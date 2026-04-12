@@ -485,6 +485,8 @@ class ClaudeService(ApiCallerMixin):
             include_long_term=False,
             include_daily=True,
             query=user_message,
+            budget=600,
+            layers=(0, 1),
         )
         # Static base prompt (cacheable)
         base_prompt = self.personality.build_fast_prompt(
@@ -554,12 +556,19 @@ class ClaudeService(ApiCallerMixin):
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
         recent = await self._get_windowed_history(chat_id)  # windowed messages for the API
 
+        # Adaptive layers: if message has extractable signal, load full context
+        fast_layers: tuple[int, ...] = (0, 1)
+        if self.memory._has_extractable_signal([{"content": user_message, "role": "user"}]):
+            fast_layers = (0, 1, 2)
+
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
             project_id=project_id,
             include_long_term=False,
             include_daily=True,
             query=user_message,
+            budget=600,
+            layers=fast_layers,
         )
         # Determine tool mode for personality prompt
         native_tools_mode = "cli_mcp" if use_cli_mcp else use_native_delegate
@@ -762,6 +771,8 @@ class ClaudeService(ApiCallerMixin):
             include_long_term=True,
             include_daily=True,
             query=user_message,
+            budget=1500,
+            layers=(0, 1, 2),
         )
         # Determine tool mode for personality prompt
         native_tools_mode = "cli_mcp" if use_cli_mcp else use_native_delegate

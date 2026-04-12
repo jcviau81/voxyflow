@@ -188,6 +188,61 @@ async def init_db():
             "completed_at=CURRENT_TIMESTAMP WHERE status IN ('running', 'pending')"
         ))
 
+        # --- Knowledge Graph tables ---
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS kg_entities (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                properties TEXT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+        """))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_kg_entity_name_type_project "
+            "ON kg_entities (name, entity_type, project_id)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS kg_triples (
+                id TEXT PRIMARY KEY,
+                subject_id TEXT NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+                predicate TEXT NOT NULL,
+                object_id TEXT NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                source TEXT NOT NULL DEFAULT 'auto',
+                valid_from DATETIME NOT NULL,
+                valid_to DATETIME,
+                created_at DATETIME NOT NULL
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_kg_triples_subject_valid "
+            "ON kg_triples (subject_id, valid_to)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_kg_triples_object_valid "
+            "ON kg_triples (object_id, valid_to)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS kg_attributes (
+                id TEXT PRIMARY KEY,
+                entity_id TEXT NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+                key TEXT NOT NULL,
+                value TEXT,
+                valid_from DATETIME NOT NULL,
+                valid_to DATETIME,
+                created_at DATETIME NOT NULL
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_kg_attributes_entity_valid "
+            "ON kg_attributes (entity_id, valid_to)"
+        ))
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -472,3 +527,54 @@ class Document(Base):
     indexed_at = Column(DateTime, nullable=True)
 
     project = relationship("Project", back_populates="documents")
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Graph tables
+# ---------------------------------------------------------------------------
+
+class KGEntity(Base):
+    __tablename__ = "kg_entities"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    name = Column(String, nullable=False)
+    entity_type = Column(String, nullable=False)  # person|technology|component|concept|decision
+    project_id = Column(String, nullable=False)    # not FK — may be "system-main"
+    properties = Column(Text, nullable=True)        # JSON text
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    triples_as_subject = relationship("KGTriple", foreign_keys="KGTriple.subject_id", back_populates="subject", cascade="all, delete-orphan")
+    triples_as_object = relationship("KGTriple", foreign_keys="KGTriple.object_id", back_populates="object", cascade="all, delete-orphan")
+    attributes = relationship("KGAttribute", back_populates="entity", cascade="all, delete-orphan")
+
+
+class KGTriple(Base):
+    __tablename__ = "kg_triples"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    subject_id = Column(String, ForeignKey("kg_entities.id", ondelete="CASCADE"), nullable=False)
+    predicate = Column(String, nullable=False)       # e.g. "uses", "depends_on"
+    object_id = Column(String, ForeignKey("kg_entities.id", ondelete="CASCADE"), nullable=False)
+    confidence = Column(Float, nullable=False, default=1.0)
+    source = Column(String, nullable=False, default="auto")  # auto|manual|chat
+    valid_from = Column(DateTime, nullable=False, default=utcnow)
+    valid_to = Column(DateTime, nullable=True)        # NULL = still valid
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    subject = relationship("KGEntity", foreign_keys=[subject_id], back_populates="triples_as_subject")
+    object = relationship("KGEntity", foreign_keys=[object_id], back_populates="triples_as_object")
+
+
+class KGAttribute(Base):
+    __tablename__ = "kg_attributes"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    entity_id = Column(String, ForeignKey("kg_entities.id", ondelete="CASCADE"), nullable=False)
+    key = Column(String, nullable=False)
+    value = Column(Text, nullable=True)
+    valid_from = Column(DateTime, nullable=False, default=utcnow)
+    valid_to = Column(DateTime, nullable=True)        # NULL = still valid
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    entity = relationship("KGEntity", back_populates="attributes")

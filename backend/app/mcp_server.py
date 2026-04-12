@@ -14,6 +14,7 @@ Transport modes:
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -1354,6 +1355,111 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_scope": "voxyflow",
     },
 
+    # ---- Knowledge Graph -----------------------------------------------------
+    {
+        "name": "kg.add",
+        "description": "Add an entity to the project knowledge graph, optionally with relationships and attributes. Use this to record named things (people, technologies, components, decisions) and how they relate.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["entity_name", "entity_type"],
+            "properties": {
+                "entity_name": {"type": "string", "description": "Name of the entity (e.g. 'Redis', 'auth-service', 'Alice')"},
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["person", "technology", "component", "concept", "decision"],
+                    "description": "Category of the entity",
+                },
+                "relationships": {
+                    "type": "array",
+                    "description": "Optional relationships to other entities",
+                    "items": {
+                        "type": "object",
+                        "required": ["predicate", "target", "target_type"],
+                        "properties": {
+                            "predicate": {"type": "string", "description": "Relationship verb (e.g. 'uses', 'depends_on', 'created_by')"},
+                            "target": {"type": "string", "description": "Name of the target entity"},
+                            "target_type": {
+                                "type": "string",
+                                "enum": ["person", "technology", "component", "concept", "decision"],
+                                "description": "Type of the target entity",
+                            },
+                        },
+                    },
+                },
+                "attributes": {
+                    "type": "array",
+                    "description": "Optional key-value attributes on the entity",
+                    "items": {
+                        "type": "object",
+                        "required": ["key", "value"],
+                        "properties": {
+                            "key": {"type": "string", "description": "Attribute key (e.g. 'version', 'status', 'pinned')"},
+                            "value": {"type": "string", "description": "Attribute value"},
+                        },
+                    },
+                },
+            },
+        },
+        "_handler": "kg_add",
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "kg.query",
+        "description": "Search entities and their relationships in the project knowledge graph. Returns entities matching the filter, optionally with their active relationships.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Filter by entity name (partial match)"},
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["person", "technology", "component", "concept", "decision"],
+                    "description": "Filter by entity type",
+                },
+                "as_of": {"type": "string", "description": "ISO datetime — show state as of this time (default: now)"},
+                "include_relationships": {"type": "boolean", "description": "Include active relationships in results (default: true)"},
+                "limit": {"type": "integer", "description": "Max results (default 20)"},
+            },
+        },
+        "_handler": "kg_query",
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "kg.timeline",
+        "description": "Get chronological history of knowledge graph changes for a project or entity. Shows when facts were established or invalidated.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_name": {"type": "string", "description": "Filter timeline to a specific entity (partial match)"},
+                "limit": {"type": "integer", "description": "Max events (default 50)"},
+            },
+        },
+        "_handler": "kg_timeline",
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "kg.invalidate",
+        "description": "Mark a relationship or attribute as no longer valid (sets valid_to = now). Use when a fact has changed or is outdated.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "triple_id": {"type": "string", "description": "ID of the relationship triple to invalidate"},
+                "attribute_id": {"type": "string", "description": "ID of the attribute to invalidate"},
+            },
+        },
+        "_handler": "kg_invalidate",
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "kg.stats",
+        "description": "Get knowledge graph statistics for the current project — entity count, active triples, active attributes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+        "_handler": "kg_stats",
+        "_scope": "voxyflow",
+    },
+
     # ---- Task Steer -----------------------------------------------------------
     {
         "name": "task.steer",
@@ -1877,6 +1983,157 @@ def _get_system_handler(name: str):
                 "newly_loaded": sorted(newly_added),
             }
 
+        # ---- Knowledge Graph handlers ------------------------------------------
+
+        # --- KG input limits ---
+        _KG_MAX_NAME = 500
+        _KG_MAX_VALUE = 5000
+        _KG_MAX_LIMIT = 200
+
+        def _kg_clamp_limit(raw, default: int, ceiling: int = _KG_MAX_LIMIT) -> int:
+            try:
+                v = int(raw)
+            except (TypeError, ValueError):
+                return default
+            return max(1, min(v, ceiling))
+
+        def _kg_truncate(s: str | None, maxlen: int) -> str:
+            s = (s or "").strip()
+            return s[:maxlen]
+
+        async def kg_add(params: dict) -> dict:
+            """Add entity + optional relationships/attributes to the KG."""
+            from app.services.knowledge_graph_service import get_knowledge_graph_service
+            project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+            kg = get_knowledge_graph_service()
+
+            entity_name = _kg_truncate(params.get("entity_name"), _KG_MAX_NAME)
+            entity_type = _kg_truncate(params.get("entity_type"), _KG_MAX_NAME)
+            if not entity_name or not entity_type:
+                return {"error": "entity_name and entity_type are required"}
+
+            try:
+                eid = await kg.add_entity(entity_name, entity_type, project_id)
+                result: dict = {"success": True, "entity_id": eid, "entity_name": entity_name}
+
+                # Relationships
+                rels_added = []
+                for rel in params.get("relationships", [])[:50]:
+                    target = _kg_truncate(rel.get("target"), _KG_MAX_NAME)
+                    target_type = _kg_truncate(rel.get("target_type"), _KG_MAX_NAME) or "concept"
+                    predicate = _kg_truncate(rel.get("predicate"), _KG_MAX_NAME) or "related_to"
+                    if not target:
+                        continue
+                    tid = await kg.add_entity(target, target_type, project_id)
+                    triple_id = await kg.add_triple(eid, predicate, tid, source="chat")
+                    rels_added.append({"triple_id": triple_id, "predicate": predicate, "target": target})
+
+                # Attributes
+                attrs_added = []
+                for attr in params.get("attributes", [])[:50]:
+                    key = _kg_truncate(attr.get("key"), _KG_MAX_NAME)
+                    value = _kg_truncate(attr.get("value"), _KG_MAX_VALUE)
+                    if not key:
+                        continue
+                    aid = await kg.add_attribute(eid, key, value)
+                    attrs_added.append({"attribute_id": aid, "key": key, "value": value})
+
+                if rels_added:
+                    result["relationships"] = rels_added
+                if attrs_added:
+                    result["attributes"] = attrs_added
+
+                await kg.refresh_pinned_cache(project_id)
+                logger.info(f"[mcp.kg.add] project={project_id} entity={entity_name!r} rels={len(rels_added)} attrs={len(attrs_added)}")
+                return result
+            except Exception as e:
+                logger.error(f"[mcp.kg.add] failed: {e}")
+                return {"error": str(e)}
+
+        async def kg_query(params: dict) -> dict:
+            """Search entities and relationships in the KG."""
+            from app.services.knowledge_graph_service import get_knowledge_graph_service
+            project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+            kg = get_knowledge_graph_service()
+
+            name = params.get("name")
+            entity_type = params.get("entity_type")
+            limit = _kg_clamp_limit(params.get("limit"), 20)
+            include_rels = params.get("include_relationships", True)
+            as_of_str = params.get("as_of")
+            as_of = None
+            if as_of_str:
+                try:
+                    as_of = datetime.fromisoformat(as_of_str)
+                except (ValueError, TypeError):
+                    return {"error": f"Invalid as_of datetime: {as_of_str!r}"}
+
+            try:
+                entities = await kg.query_entities(project_id, name=name, entity_type=entity_type, as_of=as_of, limit=limit)
+                result: dict = {"entities": entities, "count": len(entities)}
+
+                if include_rels and entities:
+                    rels = await kg.query_relationships(project_id, entity_name=name, limit=limit)
+                    result["relationships"] = rels
+
+                logger.info(f"[mcp.kg.query] project={project_id} name={name!r} found={len(entities)}")
+                return result
+            except Exception as e:
+                logger.error(f"[mcp.kg.query] failed: {e}")
+                return {"error": str(e)}
+
+        async def kg_timeline(params: dict) -> dict:
+            """Chronological entity history."""
+            from app.services.knowledge_graph_service import get_knowledge_graph_service
+            project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+            kg = get_knowledge_graph_service()
+
+            entity_name = params.get("entity_name")
+            limit = _kg_clamp_limit(params.get("limit"), 50)
+
+            try:
+                events = await kg.get_timeline(project_id, entity_name=entity_name, limit=limit)
+                logger.info(f"[mcp.kg.timeline] project={project_id} entity={entity_name!r} events={len(events)}")
+                return {"events": events, "count": len(events)}
+            except Exception as e:
+                logger.error(f"[mcp.kg.timeline] failed: {e}")
+                return {"error": str(e)}
+
+        async def kg_invalidate(params: dict) -> dict:
+            """Mark a triple or attribute as ended."""
+            from app.services.knowledge_graph_service import get_knowledge_graph_service
+            project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+            kg = get_knowledge_graph_service()
+
+            triple_id = params.get("triple_id")
+            attribute_id = params.get("attribute_id")
+
+            if not triple_id and not attribute_id:
+                return {"error": "Provide triple_id or attribute_id to invalidate"}
+
+            try:
+                ok = await kg.invalidate(triple_id=triple_id, attribute_id=attribute_id)
+                await kg.refresh_pinned_cache(project_id)
+                logger.info(f"[mcp.kg.invalidate] project={project_id} triple={triple_id} attr={attribute_id} ok={ok}")
+                return {"success": ok, "invalidated": triple_id or attribute_id}
+            except Exception as e:
+                logger.error(f"[mcp.kg.invalidate] failed: {e}")
+                return {"error": str(e)}
+
+        async def kg_stats(params: dict) -> dict:
+            """KG counts for the current project."""
+            from app.services.knowledge_graph_service import get_knowledge_graph_service
+            project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+            kg = get_knowledge_graph_service()
+
+            try:
+                stats = await kg.get_stats(project_id)
+                logger.info(f"[mcp.kg.stats] project={project_id} stats={stats}")
+                return {"success": True, "project_id": project_id, **stats}
+            except Exception as e:
+                logger.error(f"[mcp.kg.stats] failed: {e}")
+                return {"error": str(e)}
+
         _SYSTEM_HANDLERS.update({
             "tools_load": tools_load,
             "system_exec": system_exec,
@@ -1905,6 +2162,11 @@ def _get_system_handler(name: str):
             "knowledge_search": knowledge_search,
             "task_steer": task_steer,
             "workers_read_artifact": workers_read_artifact,
+            "kg_add": kg_add,
+            "kg_query": kg_query,
+            "kg_timeline": kg_timeline,
+            "kg_invalidate": kg_invalidate,
+            "kg_stats": kg_stats,
         })
     return _SYSTEM_HANDLERS.get(name)
 
