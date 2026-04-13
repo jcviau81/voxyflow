@@ -1,7 +1,8 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useWS } from '../../providers/WebSocketProvider';
 import { cn } from '../../lib/utils';
+import type { ServerSession } from '../../hooks/api/useSessions';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -16,6 +17,8 @@ const MAX_SESSIONS = 5;
 export interface SessionTabBarProps {
   tabId: string;
   scope?: 'general' | 'project' | 'card';
+  projectId?: string;
+  cardId?: string;
   onSessionSwitch?: (sessionId: string) => void;
 }
 
@@ -26,6 +29,8 @@ export interface SessionTabBarProps {
 export function SessionTabBar({
   tabId,
   scope = 'project',
+  projectId,
+  cardId,
   onSessionSwitch,
 }: SessionTabBarProps) {
   const allSessions = useSessionStore((s) => s.sessions);
@@ -38,8 +43,67 @@ export function SessionTabBar({
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const closeSession = useSessionStore((s) => s.closeSession);
   const createSession = useSessionStore((s) => s.createSession);
+  const injectServerSession = useSessionStore((s) => s.injectServerSession);
   const resetLastSession = useSessionStore((s) => s.resetLastSession);
   const { send } = useWS();
+
+  // Session history dropdown state
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [serverSessions, setServerSessions] = useState<ServerSession[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    if (!historyOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+        setHistoryOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [historyOpen]);
+
+  const fetchSessionHistory = useCallback(() => {
+    const prefix = cardId ? `card:${cardId}` : `project:${projectId || tabId}`;
+    setHistoryLoading(true);
+    fetch(`/api/sessions?active=true&max_age_hours=720`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((all: ServerSession[]) => {
+        const localChatIds = new Set(sessions.map((s) => s.chatId));
+        // Show only sessions not already open as tabs
+        const available = all
+          .filter((s) => s.chatId.startsWith(prefix) && !localChatIds.has(s.chatId) && s.messageCount > 0);
+        setServerSessions(available);
+      })
+      .catch(() => setServerSessions([]))
+      .finally(() => setHistoryLoading(false));
+  }, [tabId, projectId, cardId, sessions]);
+
+  const handleToggleHistory = useCallback(() => {
+    if (!historyOpen) fetchSessionHistory();
+    setHistoryOpen((o) => !o);
+  }, [historyOpen, fetchSessionHistory]);
+
+  const handleRestoreSession = useCallback(
+    (ss: ServerSession) => {
+      injectServerSession(tabId, {
+        chatId: ss.chatId,
+        title: ss.title || ss.chatId,
+        messageCount: ss.messageCount,
+      });
+      // Switch to the restored session
+      const updated = useSessionStore.getState().sessions[tabId] || [];
+      const match = updated.find((s) => s.chatId === ss.chatId);
+      if (match) {
+        setActiveSession(tabId, match.id);
+        onSessionSwitch?.(match.id);
+      }
+      setHistoryOpen(false);
+    },
+    [tabId, injectServerSession, setActiveSession, onSessionSwitch],
+  );
 
   const handleSwitch = useCallback(
     (sessionId: string) => {
@@ -135,6 +199,48 @@ export function SessionTabBar({
       >
         +
       </button>
+
+      {/* Session history dropdown */}
+      <div className="relative" ref={historyRef}>
+        <button
+          type="button"
+          className="w-7 h-7 flex items-center justify-center rounded-md text-xs text-muted-foreground border border-border hover:bg-accent hover:text-accent-foreground hover:border-accent transition-colors"
+          title="Previous sessions"
+          onClick={handleToggleHistory}
+          data-testid="session-history-btn"
+        >
+          {'\u29D6'}
+        </button>
+
+        {historyOpen && (
+          <div className="absolute top-full right-0 mt-1 z-50 min-w-[220px] max-w-[320px] py-1 rounded-md border border-border bg-popover shadow-lg">
+            <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              Previous sessions
+            </div>
+            {historyLoading ? (
+              <div className="px-2 py-2 text-xs text-muted-foreground">Loading...</div>
+            ) : serverSessions.length === 0 ? (
+              <div className="px-2 py-2 text-xs text-muted-foreground">No previous sessions</div>
+            ) : (
+              serverSessions.map((ss) => (
+                <button
+                  key={ss.chatId}
+                  type="button"
+                  className="flex flex-col gap-0.5 w-full px-2 py-1.5 text-left text-sm hover:bg-accent transition-colors"
+                  onClick={() => handleRestoreSession(ss)}
+                >
+                  <span className="truncate font-medium">
+                    {ss.title || 'Untitled session'}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {ss.messageCount} messages &middot; {new Date(ss.updatedAt).toLocaleDateString()}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -83,8 +83,9 @@ export function ChatWindow({
     // Run sync on WS transition to connected OR on first mount when already connected
     if (!justConnected && !(isFirstMount && connectionState === 'connected')) return;
 
-    // Fetch active sessions from server and merge into local store
-    // Use the canonical prefix that matches the backend: "card:" for cards, "project:" for everything else
+    // Fetch active sessions from server — only used to resume the most recent one
+    // when the local store is empty. Old sessions are NOT injected as tabs;
+    // users can browse them via the session history dropdown in SessionTabBar.
     const prefix = cardId ? `card:${cardId}` : `project:${projectId || tabId}`;
     fetch(`/api/sessions?active=true&max_age_hours=720`)
       .then((r) => (r.ok ? r.json() : []))
@@ -94,30 +95,24 @@ export function ChatWindow({
         if (relevant.length === 0) return;
 
         const localSessions = useSessionStore.getState().sessions[tabId] || [];
-        const localChatIds = new Set(localSessions.map((s) => s.chatId));
 
-        // Find the most recent server session (first in list, sorted by updatedAt desc)
-        const mostRecent = relevant[0];
-
-        // Inject any server sessions not already in local store (without changing active session)
-        for (const ss of relevant) {
-          if (!localChatIds.has(ss.chatId)) {
-            injectServerSession(tabId, {
-              chatId: ss.chatId,
-              title: ss.title || ss.chatId,
-              messageCount: ss.messageCount,
-            });
-          }
-        }
-
-        // If local store had no sessions or only an empty session, switch to the most recent server session
+        // Only resume the most recent server session if local store has no messages
         const hasLocalMessages = localSessions.some((s) => {
           const msgs = useMessageStore.getState().getMessages(undefined, s.chatId);
           return msgs.length > 0;
         });
 
+        const mostRecent = relevant[0];
         if (!hasLocalMessages && mostRecent.messageCount > 0) {
-          // Resume the most recent server session
+          // Inject only the most recent session and switch to it
+          const localChatIds = new Set(localSessions.map((s) => s.chatId));
+          if (!localChatIds.has(mostRecent.chatId)) {
+            injectServerSession(tabId, {
+              chatId: mostRecent.chatId,
+              title: mostRecent.title || mostRecent.chatId,
+              messageCount: mostRecent.messageCount,
+            });
+          }
           const updated = useSessionStore.getState().sessions[tabId] || [];
           const match = updated.find((s) => s.chatId === mostRecent.chatId);
           if (match) {
@@ -254,6 +249,8 @@ export function ChatWindow({
         <SessionTabBar
           tabId={tabId}
           scope={chatLevel}
+          projectId={projectId}
+          cardId={cardId}
           onSessionSwitch={handleSessionSwitch}
         />
       )}
