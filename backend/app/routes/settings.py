@@ -77,6 +77,15 @@ class PersonalitySettings(BaseModel):
     warmth: str = "warm"  # "cold", "warm", "hot"
 
 
+class ProviderEndpoint(BaseModel):
+    """A named, reusable LLM endpoint (local or remote machine)."""
+    id: str = ""              # client-assigned UUID
+    name: str = ""            # display name, e.g. "Mac Studio — Ollama"
+    provider_type: str = ""   # "ollama" | "openai" | "lmstudio" | ...
+    url: str = ""             # base URL, e.g. "http://192.168.1.10:11434"
+    api_key: str = ""         # optional — leave empty for local providers
+
+
 class ModelLayerConfig(BaseModel):
     provider_url: str = ""   # e.g. "http://localhost:3457/v1" or "http://localhost:11434/v1"
     api_key: str = ""        # empty = no key required (e.g. Ollama)
@@ -86,6 +95,8 @@ class ModelLayerConfig(BaseModel):
     # Values: "cli" | "anthropic" | "openai" | "ollama" | "groq" | "mistral" | "gemini" | "lmstudio"
     # Empty string = auto-detect from URL (backward compat)
     provider_type: str = ""
+    # If set, this layer uses a saved endpoint (by id) from ModelsSettings.endpoints
+    endpoint_id: str = ""
 
 
 class ModelsSettings(BaseModel):
@@ -102,6 +113,8 @@ class ModelsSettings(BaseModel):
         enabled=True,
     )
     default_worker_model: str = "sonnet"  # "haiku" | "sonnet" | "opus"
+    # Named provider endpoints (user's machines / remote instances)
+    endpoints: list[ProviderEndpoint] = []
 
 
 class SchedulerSettings(BaseModel):

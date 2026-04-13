@@ -37,16 +37,27 @@ class ProviderInfo(BaseModel):
     url: str
 
 
+class EndpointInfo(BaseModel):
+    """Reachability status for a named user endpoint."""
+    id: str
+    name: str
+    provider_type: str
+    url: str
+    reachable: bool
+
+
 class LayerInfo(BaseModel):
     model: str
     provider_type: str
     provider_url: str
     enabled: bool
+    endpoint_id: str = ""
 
 
 class AvailableModelsResponse(BaseModel):
     layers: dict[str, LayerInfo]
     providers: dict[str, ProviderInfo]
+    endpoints: list[EndpointInfo] = []
 
 
 class ModelCapabilities(BaseModel):
@@ -106,22 +117,35 @@ async def list_ollama_models(url: str = Query(default="http://localhost:11434"))
 
 @router.get("/list")
 async def list_models_for_provider(
-    provider_type: str = Query(..., description="Provider type, e.g. 'ollama', 'openai'"),
+    provider_type: str = Query(default="", description="Provider type, e.g. 'ollama', 'openai'"),
     url: str = Query(default="", description="Provider base URL"),
     api_key: str = Query(default="", description="API key (optional)"),
+    endpoint_id: str = Query(default="", description="Named endpoint id — resolves url/api_key/type from saved endpoints"),
 ):
-    """List available models for a given provider.
+    """List available models for a given provider or named endpoint.
 
     Returns a list of model name strings. Empty list if unreachable or unsupported.
+    Pass either (provider_type, url) OR endpoint_id.
     """
     from app.services.llm.provider_factory import get_provider
 
+    # Resolve named endpoint
+    if endpoint_id:
+        models_cfg = _load_models_cfg()
+        for ep in models_cfg.get("endpoints", []):
+            if ep.get("id") == endpoint_id:
+                provider_type = ep.get("provider_type", provider_type)
+                url = ep.get("url", url)
+                api_key = ep.get("api_key", api_key)
+                break
+
+    if not provider_type:
+        return []
+
     if provider_type == "cli":
-        # CLI uses fixed Claude models — return known set
         return ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6"]
 
     if provider_type == "anthropic":
-        # Anthropic has no listing endpoint — return known models
         from app.services.llm.providers.anthropic_provider import _KNOWN_MODELS
         return _KNOWN_MODELS
 
@@ -153,6 +177,7 @@ async def get_model_capabilities(model: str = Query(...)):
 @router.get("/available", response_model=AvailableModelsResponse)
 async def get_available_models():
     """Return current model config per layer + detected provider availability."""
+    import asyncio
     models_cfg = _load_models_cfg()
 
     # Build layers info
@@ -167,19 +192,48 @@ async def get_available_models():
             provider_type=ptype,
             provider_url=purl,
             enabled=cfg.get("enabled", True),
+            endpoint_id=cfg.get("endpoint_id", ""),
         )
 
-    # Probe provider reachability in parallel
+    from app.services.llm.provider_factory import get_provider
+
+    async def _probe_provider(ptype: str, label: str, url: str) -> tuple[str, ProviderInfo]:
+        reachable = False
+        try:
+            if ptype == "anthropic":
+                cfg = get_settings()
+                reachable = bool(cfg.claude_api_key and cfg.claude_api_key not in ("placeholder", "not-needed"))
+            else:
+                provider = get_provider(provider_type=ptype, url=url)
+                reachable = await provider.is_reachable()
+        except Exception:
+            reachable = False
+        return ptype, ProviderInfo(type=ptype, label=label, reachable=reachable, url=url)
+
+    async def _probe_endpoint(ep: dict) -> EndpointInfo:
+        reachable = False
+        try:
+            provider = get_provider(provider_type=ep["provider_type"], url=ep["url"], api_key=ep.get("api_key", ""))
+            reachable = await provider.is_reachable()
+        except Exception:
+            reachable = False
+        return EndpointInfo(
+            id=ep.get("id", ""),
+            name=ep.get("name", ep.get("url", "")),
+            provider_type=ep.get("provider_type", ""),
+            url=ep.get("url", ""),
+            reachable=reachable,
+        )
+
+    # --- Probe built-in provider types (one per type, default URL) ---
     providers: dict[str, ProviderInfo] = {}
     known = list_known_providers()
 
-    # Collect unique URLs to probe (from layer configs + defaults)
     urls_to_probe: dict[str, tuple[str, str]] = {}  # type → (label, url)
     for p in known:
         ptype = p["type"]
         if ptype == "cli":
             continue
-        # Check if user has configured a custom URL for this provider
         custom_url = ""
         for layer_cfg in models_cfg.values():
             if isinstance(layer_cfg, dict):
@@ -190,33 +244,26 @@ async def get_available_models():
         url = custom_url or p["default_url"]
         urls_to_probe[ptype] = (p["label"], url)
 
-    async def _probe(ptype: str, label: str, url: str) -> tuple[str, ProviderInfo]:
-        reachable = False
-        try:
-            from app.services.llm.provider_factory import get_provider
-            if ptype == "anthropic":
-                # Anthropic: just check if API key is set
-                cfg = get_settings()
-                reachable = bool(cfg.claude_api_key and cfg.claude_api_key not in ("placeholder", "not-needed"))
-            else:
-                provider = get_provider(provider_type=ptype, url=url)
-                reachable = await provider.is_reachable()
-        except Exception:
-            reachable = False
-        return ptype, ProviderInfo(type=ptype, label=label, reachable=reachable, url=url)
+    provider_tasks = [_probe_provider(pt, lbl, u) for pt, (lbl, u) in urls_to_probe.items()]
 
-    import asyncio
-    results = await asyncio.gather(*[
-        _probe(pt, lbl, u) for pt, (lbl, u) in urls_to_probe.items()
-    ], return_exceptions=True)
+    # --- Probe named user endpoints ---
+    saved_endpoints: list[dict] = models_cfg.get("endpoints", [])
+    endpoint_tasks = [_probe_endpoint(ep) for ep in saved_endpoints if ep.get("url")]
 
-    for result in results:
+    all_results = await asyncio.gather(*provider_tasks, *endpoint_tasks, return_exceptions=True)
+
+    provider_results = all_results[:len(provider_tasks)]
+    endpoint_results = all_results[len(provider_tasks):]
+
+    for result in provider_results:
         if isinstance(result, Exception):
             continue
         ptype, info = result
         providers[ptype] = info
 
-    return AvailableModelsResponse(layers=layers, providers=providers)
+    endpoint_infos: list[EndpointInfo] = [r for r in endpoint_results if not isinstance(r, Exception)]
+
+    return AvailableModelsResponse(layers=layers, providers=providers, endpoints=endpoint_infos)
 
 
 @router.post("/test")
