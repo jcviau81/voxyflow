@@ -82,6 +82,10 @@ class ModelLayerConfig(BaseModel):
     api_key: str = ""        # empty = no key required (e.g. Ollama)
     model: str = ""          # e.g. "claude-sonnet-4", "qwen2.5:7b"
     enabled: bool = True
+    # Provider type — drives which LLMProvider subclass is instantiated.
+    # Values: "cli" | "anthropic" | "openai" | "ollama" | "groq" | "mistral" | "gemini" | "lmstudio"
+    # Empty string = auto-detect from URL (backward compat)
+    provider_type: str = ""
 
 
 class ModelsSettings(BaseModel):
