@@ -641,9 +641,10 @@ class MemoryService:
             if extracted_entities:
                 try:
                     from app.services.knowledge_graph_service import get_knowledge_graph_service
+                    from sqlalchemy.exc import SQLAlchemyError
                     kg = get_knowledge_graph_service()
                     await kg.extract_entities_from_llm_output(extracted_entities, target_project_id)
-                except Exception as e:
+                except (ImportError, ValueError, SQLAlchemyError) as e:
                     logger.warning(f"auto_extract: KG entity extraction failed (non-fatal): {e}")
 
             # LLM succeeded — process its output

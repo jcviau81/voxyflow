@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import async_session, new_uuid, utcnow
 
@@ -483,7 +484,7 @@ class KnowledgeGraphService:
                     target_id = await self.add_entity(target_name, target_type, project_id)
                     await self.add_triple(eid, predicate, target_id, source="auto")
 
-            except Exception as e:
+            except (ValueError, SQLAlchemyError) as e:
                 logger.warning(f"[KG] Failed to extract entity {name!r}: {e}")
                 continue
 
@@ -491,8 +492,8 @@ class KnowledgeGraphService:
         if entity_ids:
             try:
                 await self.refresh_pinned_cache(project_id)
-            except Exception:
-                pass
+            except SQLAlchemyError:
+                logger.debug("refresh_pinned_cache failed after extraction", exc_info=True)
 
         logger.info(f"[KG] Extracted {len(entity_ids)} entities for project {project_id}")
         return entity_ids
