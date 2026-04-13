@@ -5,11 +5,18 @@ Kanban + AI execution engine. Python/FastAPI backend, React frontend.
 - **Backend**: `backend/app/` — services, routes, tools, MCP server
 - **Frontend**: `frontend-react/src/` — React + Vite
 
-## LLM Backend — Three Paths (April 2026)
+## LLM Backend — Multi-Provider Architecture (April 2026)
 
-Voxyflow supports three LLM backend paths, configured via `backend/.env`:
+Voxyflow supports multiple LLM backends through a provider abstraction layer.
+Each layer (Fast/Deep) can independently use any provider via Settings UI or `backend/.env`.
 
-### 1. CLI Subprocess (`CLAUDE_USE_CLI=true`) — ACTIVE
+### Provider Abstraction
+- **Base class**: `backend/app/services/llm/providers/base.py` — `LLMProvider` ABC with `complete()`, `stream()`, `get_capabilities()`, `list_models()`
+- **Factory**: `backend/app/services/llm/provider_factory.py` — `get_provider(provider_type, url, api_key)` with instance caching
+- **Capability registry**: `backend/app/services/llm/capability_registry.py` — static database of 80+ models with tool-use, vision, context window flags; longest-prefix matching
+- **Supported provider types**: `cli`, `anthropic`, `openai`, `ollama`, `groq`, `mistral`, `gemini`, `lmstudio`
+
+### 1. CLI Subprocess (`provider_type: "cli"` or `CLAUDE_USE_CLI=true`) — DEFAULT
 Spawns `claude -p` subprocesses. Uses Claude Max subscription directly.
 - **File**: `backend/app/services/llm/cli_backend.py`
 - Chat layers: streaming via `--output-format stream-json`, MCP tools for inline ops
@@ -20,25 +27,64 @@ Spawns `claude -p` subprocesses. Uses Claude Max subscription directly.
 - `--strict-mcp-config` prevents Claude Code's own MCP servers from polluting context
 - **Rate gate**: `CliRateGate` in cli_backend.py — global semaphore (max concurrent) + min spacing between calls. Prevents 529 rate limit errors on Max subscription. Configured via `CLI_MAX_CONCURRENT` (default 2) and `CLI_MIN_SPACING_MS` (default 500). Applied to all 5 CLI entry points: `call()`, `_call_with_tool_events()`, `stream_persistent()`, `call_steerable()`, `stream()`
 
-### 2. Native Anthropic SDK (`CLAUDE_USE_NATIVE=true`)
+### 2. Native Anthropic SDK (`provider_type: "anthropic"` or `CLAUDE_USE_NATIVE=true`)
 Direct API calls via `anthropic` Python SDK. Requires API key.
+- **File**: `backend/app/services/llm/providers/anthropic_provider.py`
 - Uses `delegate_action` tool_use for dispatching (native tool blocks)
 - Prompt caching via `cache_control: {type: ephemeral}`
+- Converts OpenAI-format tool defs to Anthropic format automatically
 
-### 3. OpenAI-Compatible Proxy (default fallback)
-Proxy at `localhost:3457`. Being deprecated (Anthropic cutting third-party harness access).
+### 3. OpenAI-Compatible Providers (`provider_type: "openai" | "groq" | "mistral" | "gemini" | "lmstudio"`)
+Any endpoint speaking the OpenAI chat/completions API.
+- **File**: `backend/app/services/llm/providers/openai_compat.py`
+- Cloud: OpenAI, Groq, Mistral AI, Google Gemini (each with default URLs in factory)
+- Local: LM Studio (localhost:1234), any custom OpenAI-compat server
+
+### 4. Ollama (`provider_type: "ollama"`)
+Extends OpenAI-compat with Ollama-specific features.
+- **File**: `backend/app/services/llm/providers/ollama.py`
+- Native model listing via `/api/tags` (with 10s TTL cache)
+- Auto-normalises base URL (adds `/v1` for OpenAI-compat calls)
+
+### Named Endpoints ("My Machines")
+Users can save named LLM endpoints (local or remote machines) in Settings.
+- Stored as `ProviderEndpoint` in `ModelsSettings.endpoints[]` (id, name, provider_type, url, api_key)
+- Layers reference endpoints by `endpoint_id` — resolved dynamically at call time via `_resolve_endpoint_refs()`
+- Reachability probed in parallel on `/api/models/available`
+
+### Model Discovery API (`/api/models/`)
+- `GET /providers` — list all supported provider types with metadata
+- `GET /list?provider_type=X&url=Y` or `GET /list?endpoint_id=Z` — dynamic model listing per provider
+- `GET /capabilities?model=X` — capability lookup from static registry
+- `GET /available` — current layer config + live reachability probes (30s TTL cache)
+- `POST /test` — send a ping to any provider/model, returns latency + reply
+
+### API Key Security
+- `GET /api/settings` redacts `api_key` fields to `***` via `_redact_sensitive()`
+- `PUT /api/settings` preserves real keys when frontend sends `***` via `_merge_sensitive_on_save()`
+- `_get_api_key_from_settings()` guards against the `***` sentinel leaking into runtime
+- API keys are never sent in GET query params — resolved server-side from saved endpoints
 
 ## Key Files
-- `backend/app/services/claude_service.py` — ClaudeService singleton, 3 layers (fast/deep/haiku)
+- `backend/app/services/claude_service.py` — ClaudeService singleton, 3 layers (fast/deep/haiku), `reload_models()` uses provider_factory
 - `backend/app/services/llm/api_caller.py` — ApiCallerMixin, dispatch hub (`_call_api`, `_call_api_stream`)
 - `backend/app/services/llm/cli_backend.py` — ClaudeCliBackend (subprocess management)
 - `backend/app/services/llm/client_factory.py` — SDK client creation
+- `backend/app/services/llm/provider_factory.py` — `get_provider()` factory, `infer_provider_type()`, provider instance cache
+- `backend/app/services/llm/capability_registry.py` — Static model capability registry (80+ models), prefix matching, `lru_cache`
+- `backend/app/services/llm/providers/base.py` — `LLMProvider` ABC, `CompletionRequest`, `CompletionResponse`
+- `backend/app/services/llm/providers/openai_compat.py` — OpenAI-compatible provider (also used by Groq, Mistral, Gemini, LM Studio)
+- `backend/app/services/llm/providers/ollama.py` — Ollama provider (extends OpenAI-compat + native `/api/tags`)
+- `backend/app/services/llm/providers/anthropic_provider.py` — Native Anthropic SDK provider
 - `backend/app/services/personality_service.py` — System prompts, 3 delegate modes
 - `backend/app/services/chat_orchestration.py` — Orchestrator, delegate parsing
+- `backend/app/routes/models.py` — Model discovery API (`/providers`, `/list`, `/capabilities`, `/available`, `/test`)
+- `backend/app/routes/settings.py` — Settings CRUD, `ProviderEndpoint` model, API key redaction
 - `backend/app/mcp_server.py` — MCP tool definitions (86 individual, consolidated to 40 via MCP)
 - `backend/app/services/knowledge_graph_service.py` — Temporal KG (entities, triples, attributes)
 - `backend/mcp_stdio.py` — MCP stdio transport entry point
 - `backend/app/config.py` — Settings (env vars + keyring)
+- `frontend-react/src/components/Settings/ModelPanel.tsx` — Models & Machines settings UI (machine cards, layer config, capability badges)
 
 ## Knowledge Graph — Temporal Model
 The KG stores entities (persistent, not temporal) linked by **triples** (relationships)
