@@ -38,6 +38,23 @@ logger = logging.getLogger("voxyflow.mcp")
 
 VOXYFLOW_API_BASE = os.environ.get("VOXYFLOW_API_BASE", "http://localhost:8000")
 
+# ---------------------------------------------------------------------------
+# Persistent HTTP client — reuses TCP connections instead of one per tool call
+# ---------------------------------------------------------------------------
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Return (and lazily create) the module-level persistent HTTP client."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(
+            base_url=VOXYFLOW_API_BASE,
+            timeout=30.0,
+        )
+    return _http_client
+
+
 # Role-based tool filtering: "dispatcher" limits tools to lightweight CRUD +
 # knowledge; "worker" (or unset) exposes everything.  Set via env var
 # VOXYFLOW_MCP_ROLE passed through the MCP config.
@@ -2200,7 +2217,7 @@ def _build_url_and_payload(
             raise ValueError(f"Missing required path parameter: {var}")
         path = path.replace(f"{{{var}}}", str(value))
 
-    url = f"{VOXYFLOW_API_BASE}{path}"
+    url = path
 
     if payload_transformer is not None:
         body = payload_transformer(remaining_params)
@@ -2238,13 +2255,13 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
 
     logger.debug(f"MCP → {method} {url} body={json_body} query={query_params}")
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.request(
-            method=method,
-            url=url,
-            json=json_body if json_body else None,
-            params=query_params if query_params else None,
-        )
+    client = _get_http_client()
+    resp = await client.request(
+        method=method,
+        url=url,
+        json=json_body if json_body else None,
+        params=query_params if query_params else None,
+    )
 
     if resp.status_code == 204:
         return {"success": True, "status": "deleted"}

@@ -637,19 +637,35 @@ class DeepWorkerPool:
             tool_callback = _tool_callback
 
             async def _stall_monitor():
-                STALL_THRESHOLD = 1800   # 30 minutes idle before cancel
-                WARNING_THRESHOLD = 1500  # 25 minutes idle before warning
+                import os
+                from app.services.cli_session_registry import get_cli_session_registry
+
+                stall_timeout = int(os.environ.get("WORKER_STALL_TIMEOUT", "1800"))
+                stall_warning = int(os.environ.get("WORKER_STALL_WARNING", str(stall_timeout - 300)))
                 warned = False
                 while not cancel_event.is_set():
                     await asyncio.sleep(15)
+
+                    # Check supervisor's tool-call-based activity
                     stall_secs = supervisor.check_stall(event.task_id)
-                    if stall_secs > WARNING_THRESHOLD and not warned:
+
+                    # Also check CLI subprocess liveness — the stream loop
+                    # touches the session registry every ~10s while producing output
+                    cli_session = get_cli_session_registry().get_by_task_id(event.task_id)
+                    if cli_session and cli_session.last_activity > 0:
+                        cli_idle = time.time() - cli_session.last_activity
+                        if cli_idle < 60:
+                            # Process is actively producing output — reset stall counter
+                            supervisor.record_activity(event.task_id)
+                            stall_secs = min(stall_secs, cli_idle)
+
+                    if stall_secs > stall_warning and not warned:
                         warned = True
                         message_queue.put_nowait(
                             f"WARNING: You have been idle for {stall_secs:.0f}s. "
                             "Wrap up now and call task.complete or you will be cancelled."
                         )
-                    if stall_secs > STALL_THRESHOLD:
+                    if stall_secs > stall_timeout:
                         logger.warning(
                             f"[Supervisor] Task {event.task_id} stalled for {stall_secs:.0f}s — cancelling"
                         )

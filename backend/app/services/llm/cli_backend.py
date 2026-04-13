@@ -52,6 +52,7 @@ class CliRateGate:
         self._min_spacing = min_spacing_ms / 1000.0
         self._last_call: float = 0.0
         self._spacing_lock = asyncio.Lock()
+        self._active: int = 0
         self.max_concurrent = max_concurrent
         self.min_spacing_ms = min_spacing_ms
         logger.info(
@@ -62,6 +63,7 @@ class CliRateGate:
     async def acquire(self) -> None:
         """Acquire a slot — blocks if at capacity or too soon after last call."""
         await self._sem.acquire()
+        self._active += 1
         # Enforce minimum spacing
         async with self._spacing_lock:
             now = time.monotonic()
@@ -73,12 +75,13 @@ class CliRateGate:
 
     def release(self) -> None:
         """Release a slot after the API call completes."""
+        self._active -= 1
         self._sem.release()
 
     @property
     def active(self) -> int:
         """Number of currently in-flight calls."""
-        return self.max_concurrent - self._sem._value
+        return self._active
 
 
 # Module-level singleton — shared across all ClaudeCliBackend instances
@@ -573,12 +576,21 @@ class ClaudeCliBackend:
         usage = {}
         # Track pending tool_use blocks: id → {name, arguments}
         pending_tools: dict[str, dict] = {}
+        _last_touch = time.monotonic()
+        _registry = get_cli_session_registry()
 
         try:
             async for raw_line in proc.stdout:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue
+
+                # Throttled liveness signal — prevents stall monitor false positives
+                _now = time.monotonic()
+                if _now - _last_touch > 10:
+                    _registry.touch(_reg_id)
+                    _last_touch = _now
+
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:
@@ -631,7 +643,7 @@ class ClaudeCliBackend:
 
         finally:
             gate.release()
-            get_cli_session_registry().deregister(_reg_id)
+            _registry.deregister(_reg_id)
             if cancel_task:
                 cancel_task.cancel()
                 try:
@@ -1102,12 +1114,21 @@ class ClaudeCliBackend:
         result_text = ""
         usage = {}
         pending_tools: dict[str, dict] = {}
+        _last_touch = time.monotonic()
+        _registry = get_cli_session_registry()
 
         try:
             async for raw_line in proc.stdout:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue
+
+                # Throttled liveness signal — prevents stall monitor false positives
+                _now = time.monotonic()
+                if _now - _last_touch > 10:
+                    _registry.touch(_reg_id)
+                    _last_touch = _now
+
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:

@@ -31,6 +31,12 @@ class WorkerSupervisor:
         }
         logger.debug(f"[Supervisor] Registered task {task_id}")
 
+    def record_activity(self, task_id: str) -> None:
+        """Bump last_activity without recording a tool call (e.g. stream output)."""
+        task = self._tasks.get(task_id)
+        if task:
+            task["last_activity"] = time.time()
+
     def record_tool_call(self, task_id: str, tool_name: str, params: dict) -> None:
         """Record a tool call for a task. Updates last_activity."""
         task = self._tasks.get(task_id)

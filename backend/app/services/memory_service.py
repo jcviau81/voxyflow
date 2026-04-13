@@ -309,7 +309,7 @@ class MemoryService:
                     recovered_metas.append(b["metadatas"][0])
                     recovered_embeds.append(b["embeddings"][0])
             except Exception:
-                pass  # corrupt segment — skip
+                logger.debug(f"[repair] {name}: doc {doc_id} unreadable — skipping")
 
         # Phase 3: drop and recreate
         try:
@@ -390,7 +390,7 @@ class MemoryService:
                     _f.write(entry)
                 logger.info(f"store_memory: wrote to MEMORY.md (file-based) — {doc_id}")
                 return doc_id
-            except Exception as fe:
+            except OSError as fe:
                 logger.error(f"store_memory file fallback failed: {fe}")
                 return None
 
@@ -816,8 +816,12 @@ class MemoryService:
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """Rough token estimate (~1.3 tokens per word)."""
-        return int(len(text.split()) * 1.3)
+        """Rough token estimate (~1 token per 4 chars).
+
+        More reliable than word-splitting for code, URLs, and non-English text
+        where whitespace-delimited words don't map well to BPE tokens.
+        """
+        return max(1, len(text) // 4)
 
     def build_memory_context(
         self,
@@ -876,6 +880,7 @@ class MemoryService:
             lines = [f"- {e['name']} ({e['entity_type']}): {e['value']}" for e in pinned]
             return "**Project identity:**\n" + "\n".join(lines)
         except Exception:
+            logger.debug("_build_l0_identity failed", exc_info=True)
             return None
 
     def _build_l1_essentials(
@@ -1106,7 +1111,7 @@ class MemoryService:
         try:
             content = MEMORY_FILE.read_text(encoding="utf-8").strip()
             return content
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Failed to read MEMORY.md: {e}")
             return ""
 
@@ -1127,7 +1132,7 @@ class MemoryService:
                 try:
                     content = daily_file.read_text(encoding="utf-8").strip()
                     entries.append(f"### {date_str}\n{content}")
-                except Exception as e:
+                except OSError as e:
                     logger.warning(f"Failed to read {daily_file}: {e}")
 
         return "\n\n".join(entries)
@@ -1145,7 +1150,7 @@ class MemoryService:
         try:
             content = project_file.read_text(encoding="utf-8").strip()
             return content
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Failed to read project memory {project_file}: {e}")
             return ""
 
@@ -1186,7 +1191,7 @@ class MemoryService:
                     "metadata": {"file": str(md_file.relative_to(WORKSPACE_DIR))},
                     "collection": "file-based",
                 })
-            except Exception:
+            except OSError:
                 continue
 
         if MEMORY_FILE.exists():
@@ -1207,7 +1212,7 @@ class MemoryService:
                                 "collection": "file-based",
                             })
                             break
-            except Exception as e:
+            except OSError as e:
                 logger.warning("Failed to search MEMORY.md: %s", e)
 
         results.sort(key=lambda r: r["score"], reverse=True)
@@ -1236,7 +1241,7 @@ class MemoryService:
             daily_file.write_text(new_content, encoding="utf-8")
             logger.info(f"Appended to daily log: {daily_file}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Failed to write daily log: {e}")
             return False
 
@@ -1251,7 +1256,7 @@ class MemoryService:
             project_file.write_text(content, encoding="utf-8")
             logger.info(f"Updated project memory: {project_file}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Failed to update project memory: {e}")
             return False
 
@@ -1377,7 +1382,7 @@ class MemoryService:
                 f"Migrated on {today}. {inserted} documents inserted.\n",
                 encoding="utf-8",
             )
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"migrate_from_files: could not write flag file: {e}")
 
         logger.info(f"migrate_from_files: completed — {inserted} documents inserted")
