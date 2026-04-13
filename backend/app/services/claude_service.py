@@ -254,8 +254,8 @@ class ClaudeService(ApiCallerMixin):
             # Explicit provider_type in settings takes precedence over env-var flags
             explicit_ptype = cfg.get("provider_type", "").strip().lower()
 
-            if self.use_cli and not explicit_ptype:
-                # Legacy CLI mode (no provider_type set) — use CLI subprocess
+            if explicit_ptype == "cli" or (self.use_cli and not explicit_ptype):
+                # CLI mode — explicit "cli" type or env flag with no override
                 client = None
                 client_type = "cli"
                 provider = None
