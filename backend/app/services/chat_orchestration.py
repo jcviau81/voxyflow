@@ -590,11 +590,12 @@ class ChatOrchestrator(LayerRunnersMixin):
         worker_delegates: list[dict],
         pool,
     ) -> list[dict]:
-        """Deduplicate delegates against active/completed workers.
+        """Deduplicate delegates against currently active workers only.
 
         Uses (action, description_prefix) tuples instead of just the action
         name so that two unrelated ``run_command`` delegates are not falsely
-        deduped.
+        deduped.  Completed tasks are intentionally excluded — the same action
+        may legitimately be redispatched after a previous run finishes.
         """
         if not pool:
             return worker_delegates
@@ -604,16 +605,10 @@ class ChatOrchestrator(LayerRunnersMixin):
         def _key(action: str, desc: str) -> tuple[str, str]:
             return (action.lower(), desc.lower()[:200].strip())
 
-        active_keys = {
+        already = {
             _key(t["action"], t.get("description", ""))
             for t in existing.get("active", [])
         }
-        completed_keys = {
-            _key(t["action"], t.get("description", ""))
-            for t in existing.get("completed", [])
-            if t.get("success", True)
-        }
-        already = active_keys | completed_keys
 
         deduped: list[dict] = []
         for data in worker_delegates:
