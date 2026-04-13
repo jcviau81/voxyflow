@@ -126,6 +126,24 @@ async def cancel_worker_task(task_id: str):
     return {"cancelled": cancelled, "task_id": task_id}
 
 
+@router.get("/{task_id}/artifact")
+async def get_worker_artifact(
+    task_id: str,
+    offset: int = 0,
+    length: int = 50000,
+):
+    """Read the full raw output artifact of a completed worker task.
+
+    Returns paginated content from ~/.voxyflow/worker_artifacts/{task_id}.md.
+    """
+    from app.services.worker_artifact_store import read_artifact
+
+    data = read_artifact(task_id, offset=offset, length=length)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Artifact not found for this task.")
+    return data
+
+
 @router.get("/{task_id}")
 async def get_worker_task(
     task_id: str,

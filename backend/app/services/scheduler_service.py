@@ -59,6 +59,32 @@ class SchedulerService:
         self._enabled = _APSCHEDULER_AVAILABLE
         self._backup_hour: int = 3
         self._backup_enabled: bool = False
+        # Track previous health statuses for heartbeat change detection
+        self._prev_health_statuses: dict[str, str] = {}
+
+    # ------------------------------------------------------------------
+    # WS event helper
+    # ------------------------------------------------------------------
+
+    def _emit_job_event(
+        self,
+        job_id: str,
+        job_name: str,
+        status: str,
+        message: str,
+        details: dict | None = None,
+    ) -> None:
+        """Emit a ``system:job:completed`` WS event for scheduler jobs."""
+        from app.services.ws_broadcast import ws_broadcast
+
+        ws_broadcast.emit_sync("system:job:completed", {
+            "jobId": job_id,
+            "jobName": job_name,
+            "status": status,       # ok | warning | error | skipped
+            "message": message,
+            "details": details or {},
+            "timestamp": _now_iso(),
+        })
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -303,11 +329,22 @@ class SchedulerService:
         # Lazy import to avoid circular dependency at module load time
         from app.routes.jobs import _execute_job, _load_jobs, _save_jobs, _find_job
 
+        result = {"status": "error", "message": "unknown"}
         try:
             result = await _execute_job(job)
             logger.info(f"[Jobs] Scheduled job '{name}' completed: {result.get('status', 'ok')}")
         except Exception as e:
+            result = {"status": "error", "message": str(e)}
             logger.error(f"[Jobs] Scheduled job '{name}' failed: {e}", exc_info=True)
+
+        # Broadcast completion to notification panel
+        self._emit_job_event(
+            job_id,
+            name,
+            result.get("status", "ok"),
+            result.get("message", ""),
+            result,
+        )
 
         # Update last_run in jobs.json (best-effort)
         try:
@@ -451,6 +488,29 @@ class SchedulerService:
                 f"chromadb={self._health['chromadb']['status']}"
             )
 
+            # Emit WS notification only when a service status changes
+            current_statuses = {
+                k: v.get("status", "unknown")
+                for k, v in self._health.items()
+                if k != "resources"
+            }
+            changed = {
+                k: (self._prev_health_statuses.get(k), v)
+                for k, v in current_statuses.items()
+                if self._prev_health_statuses.get(k) not in (None, v)
+            }
+            if changed:
+                parts = [f"{k}: {old} -> {new}" for k, (old, new) in changed.items()]
+                any_down = any(v == "down" for v in current_statuses.values())
+                self._emit_job_event(
+                    "heartbeat",
+                    "Service Heartbeat",
+                    "error" if any_down else "ok",
+                    "Status changed: " + ", ".join(parts),
+                    {"services": current_statuses, "changes": {k: {"from": old, "to": new} for k, (old, new) in changed.items()}},
+                )
+            self._prev_health_statuses = current_statuses
+
         except Exception as e:
             logger.error(f"[Heartbeat] unexpected error: {e}", exc_info=True)
 
@@ -547,6 +607,15 @@ class SchedulerService:
 
                 await db.commit()
 
+            if due_cards:
+                titles = [c.title for c in due_cards[:5]]
+                self._emit_job_event(
+                    "recurrence",
+                    "Recurring Card Generator",
+                    "ok",
+                    f"Created {len(due_cards)} recurring card(s): {', '.join(titles)}",
+                )
+
         except Exception as e:
             logger.error(f"[Recurrence] unexpected error: {e}", exc_info=True)
 
@@ -642,6 +711,12 @@ class SchedulerService:
 
                 if indexed_count:
                     logger.info(f"[RAGIndex] Done — re-indexed {indexed_count} active project(s)")
+                    self._emit_job_event(
+                        "rag_index",
+                        "RAG Workspace Indexer",
+                        "ok",
+                        f"Re-indexed {indexed_count} active project(s)",
+                    )
                 else:
                     logger.debug("[RAGIndex] No recently-active projects to re-index")
 
@@ -691,6 +766,12 @@ class SchedulerService:
                 logger.info(
                     f"[SessionCleanup] Done — deleted {deleted} stale file(s) "
                     f"(>{max_age_days}d), {errors} error(s)"
+                )
+                self._emit_job_event(
+                    "session_cleanup",
+                    "Session Cleanup",
+                    "ok" if not errors else "warning",
+                    f"Deleted {deleted} stale file(s) (>{max_age_days}d), {errors} error(s)",
                 )
             else:
                 logger.debug(f"[SessionCleanup] No stale session files found (threshold: {max_age_days}d)")
@@ -784,6 +865,13 @@ class SchedulerService:
 
             if pruned:
                 logger.info(f"[ChromaBackup] Pruned {pruned} backup(s) older than {retention_days}d")
+
+            self._emit_job_event(
+                "chromadb_backup",
+                "ChromaDB Backup",
+                "ok",
+                f"Backed up {col_count} collection(s), {total_docs} doc(s). Pruned {pruned} old backup(s).",
+            )
 
         except Exception as e:
             logger.error(f"[ChromaBackup] unexpected error: {e}", exc_info=True)

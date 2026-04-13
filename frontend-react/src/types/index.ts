@@ -224,7 +224,9 @@ export type NotificationType =
   | 'service_down'
   | 'document_indexed'
   | 'focus_completed'
-  | 'system';
+  | 'system'
+  | 'worker_completed'
+  | 'system_job';
 
 export interface NotificationEntry {
   id: string;
@@ -233,6 +235,10 @@ export interface NotificationEntry {
   timestamp: number;
   read: boolean;
   link?: string;
+  taskId?: string;
+  jobId?: string;
+  success?: boolean;
+  details?: string;
 }
 
 export interface WebSocketMessage {

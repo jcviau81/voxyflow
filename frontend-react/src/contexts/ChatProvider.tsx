@@ -13,6 +13,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useCardStore } from '../stores/useCardStore';
 import { useToastStore } from '../stores/useToastStore';
+import { useNotificationStore } from '../stores/useNotificationStore';
 import { generateId } from '../lib/utils';
 import {
   SYSTEM_PROJECT_ID,
@@ -129,6 +130,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const projectStore = useProjectStore();
   const cardStore = useCardStore();
   const showToast = useToastStore((s) => s.showToast);
+  const addNotification = useNotificationStore((s) => s.addNotification);
+  const addNotificationRef = useRef(addNotification);
+  addNotificationRef.current = addNotification;
 
   // Refs for mutable state that must not trigger re-renders
   const activeSessionIdRef = useRef<string | undefined>(undefined);
@@ -533,6 +537,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         } else {
           showToast(`\u274C ${intent} failed`, 'error', 5000);
         }
+
+        // Persist to notification panel for activity history
+        addNotificationRef.current({
+          type: 'worker_completed',
+          message: success
+            ? `Worker completed: ${intent}`
+            : `Worker failed: ${intent}`,
+          taskId: (payload as Record<string, unknown>).taskId as string | undefined,
+          success,
+          link: cardId || undefined,
+        });
       }),
     );
     unsubs.push(
@@ -665,6 +680,34 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       subscribe('reminder:fired', (payload) => {
         const { jobName, message } = payload as { jobName?: string; message?: string };
         showToast(`${jobName || 'Reminder'}: ${message || ''}`, 'info', 5000);
+        addNotificationRef.current({
+          type: 'system_job',
+          message: `${jobName || 'Reminder'}: ${message || ''}`,
+          jobId: (payload as Record<string, unknown>).jobId as string | undefined,
+          success: true,
+        });
+      }),
+    );
+
+    // --- system:job:completed — scheduler / cron job finished ---
+    unsubs.push(
+      subscribe('system:job:completed', (payload) => {
+        const { jobId, jobName, status, message } = payload as {
+          jobId: string;
+          jobName: string;
+          status: string;
+          message: string;
+        };
+        // Skip routine heartbeat "ok" — only notify on status changes (warning/error)
+        if (jobId === 'heartbeat' && status === 'ok') return;
+
+        addNotificationRef.current({
+          type: 'system_job',
+          message: `${jobName}: ${message}`,
+          jobId,
+          success: status === 'ok' || status === 'skipped',
+          details: message,
+        });
       }),
     );
 
