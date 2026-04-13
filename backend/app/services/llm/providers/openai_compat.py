@@ -19,6 +19,7 @@ from typing import AsyncIterator
 
 from app.services.llm.providers.base import (
     CompletionRequest,
+    CompletionResponse,
     LLMProvider,
     ProviderCapabilities,
 )
@@ -37,7 +38,7 @@ class OpenAICompatProvider(LLMProvider):
         from openai import AsyncOpenAI
 
         self._url = provider_url
-        self._api_key = api_key or "not-needed"
+        self._api_key = api_key or "local"
         if label:
             self.provider_label = label
         self._client = AsyncOpenAI(
@@ -49,7 +50,7 @@ class OpenAICompatProvider(LLMProvider):
     # LLMProvider interface
     # ------------------------------------------------------------------
 
-    async def complete(self, request: CompletionRequest) -> str:
+    async def complete(self, request: CompletionRequest) -> CompletionResponse:
         messages = self._build_messages(request)
         kwargs = self._base_kwargs(request)
 
@@ -61,7 +62,32 @@ class OpenAICompatProvider(LLMProvider):
         response = await self._client.chat.completions.create(
             messages=messages, stream=False, **kwargs
         )
-        return response.choices[0].message.content or ""
+        msg = response.choices[0].message
+        tool_calls = None
+        if msg.tool_calls:
+            tool_calls = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+        usage = None
+        if response.usage:
+            usage = {
+                "input_tokens": response.usage.prompt_tokens,
+                "output_tokens": response.usage.completion_tokens,
+            }
+        return CompletionResponse(
+            content=msg.content or "",
+            tool_calls=tool_calls,
+            stop_reason=response.choices[0].finish_reason or "",
+            usage=usage,
+        )
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
         messages = self._build_messages(request)
@@ -71,13 +97,21 @@ class OpenAICompatProvider(LLMProvider):
             kwargs["tools"] = request.tools
             kwargs["tool_choice"] = "auto"
 
+        had_content = False
+        had_tool_calls = False
         async with await self._client.chat.completions.create(
             messages=messages, stream=True, **kwargs
         ) as response:
             async for chunk in response:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta and delta.content:
+                    had_content = True
                     yield delta.content
+                if delta and delta.tool_calls:
+                    had_tool_calls = True
+
+        if had_tool_calls and not had_content:
+            logger.warning("[OpenAICompat] tool_call in stream — not forwarded")
 
     def get_capabilities(self, model: str) -> ProviderCapabilities:
         entry = caps_db.lookup(model)

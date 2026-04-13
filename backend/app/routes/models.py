@@ -1,10 +1,7 @@
 """Model discovery and provider detection endpoints."""
 
-import json
 import logging
-import os
 import time
-from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Query
@@ -16,9 +13,6 @@ from app.services.llm.provider_factory import infer_provider_type, list_known_pr
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/models", tags=["models"])
-
-_VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
-_SETTINGS_FILE = _VOXYFLOW_DATA_DIR / "settings.json"
 
 
 # ---------------------------------------------------------------------------
@@ -73,15 +67,21 @@ class ModelCapabilities(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _load_models_cfg() -> dict:
-    """Load the models section from settings (DB-backed settings.json)."""
-    if _SETTINGS_FILE.exists():
-        try:
-            with open(_SETTINGS_FILE) as f:
-                return json.load(f).get("models", {})
-        except Exception as e:
-            logger.warning("Failed to read settings.json: %s", e)
+async def _load_models_cfg() -> dict:
+    """Load the models section from settings (DB-backed)."""
+    from app.routes.settings import _load_settings_from_db
+    data = await _load_settings_from_db()
+    if data:
+        return data.get("models", {})
     return {}
+
+
+# ---------------------------------------------------------------------------
+# Reachability cache (Fix #14)
+# ---------------------------------------------------------------------------
+
+_reachability_cache: dict = {}   # {"providers": {...}, "ts": float}
+_REACHABILITY_TTL = 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -119,24 +119,26 @@ async def list_ollama_models(url: str = Query(default="http://localhost:11434"))
 async def list_models_for_provider(
     provider_type: str = Query(default="", description="Provider type, e.g. 'ollama', 'openai'"),
     url: str = Query(default="", description="Provider base URL"),
-    api_key: str = Query(default="", description="API key (optional)"),
     endpoint_id: str = Query(default="", description="Named endpoint id — resolves url/api_key/type from saved endpoints"),
 ):
     """List available models for a given provider or named endpoint.
 
     Returns a list of model name strings. Empty list if unreachable or unsupported.
     Pass either (provider_type, url) OR endpoint_id.
+    API keys are resolved server-side from saved endpoints — never sent in query strings.
     """
     from app.services.llm.provider_factory import get_provider
 
-    # Resolve named endpoint
+    api_key = ""
+
+    # Resolve named endpoint — key is resolved server-side, never from query params
     if endpoint_id:
-        models_cfg = _load_models_cfg()
+        models_cfg = await _load_models_cfg()
         for ep in models_cfg.get("endpoints", []):
             if ep.get("id") == endpoint_id:
                 provider_type = ep.get("provider_type", provider_type)
                 url = ep.get("url", url)
-                api_key = ep.get("api_key", api_key)
+                api_key = ep.get("api_key", "")
                 break
 
     if not provider_type:
@@ -178,7 +180,7 @@ async def get_model_capabilities(model: str = Query(...)):
 async def get_available_models():
     """Return current model config per layer + detected provider availability."""
     import asyncio
-    models_cfg = _load_models_cfg()
+    models_cfg = await _load_models_cfg()
 
     # Build layers info
     layers: dict[str, LayerInfo] = {}
@@ -244,22 +246,39 @@ async def get_available_models():
         url = custom_url or p["default_url"]
         urls_to_probe[ptype] = (p["label"], url)
 
-    provider_tasks = [_probe_provider(pt, lbl, u) for pt, (lbl, u) in urls_to_probe.items()]
+    # Check reachability cache for built-in providers
+    now = time.monotonic()
+    cached_ts = _reachability_cache.get("ts", 0.0)
+    cached_providers = _reachability_cache.get("providers", {})
+    if (now - cached_ts) < _REACHABILITY_TTL and cached_providers:
+        # Use cached provider reachability
+        for pt, (lbl, u) in urls_to_probe.items():
+            if pt in cached_providers:
+                providers[pt] = cached_providers[pt]
+            else:
+                # New provider not in cache — probe it
+                try:
+                    _, info = await _probe_provider(pt, lbl, u)
+                    providers[pt] = info
+                except Exception:
+                    pass
+    else:
+        # Cache miss — probe all providers
+        provider_tasks = [_probe_provider(pt, lbl, u) for pt, (lbl, u) in urls_to_probe.items()]
+        provider_results = await asyncio.gather(*provider_tasks, return_exceptions=True)
+        for result in provider_results:
+            if isinstance(result, Exception):
+                continue
+            ptype, info = result
+            providers[ptype] = info
+        # Update cache
+        _reachability_cache["providers"] = dict(providers)
+        _reachability_cache["ts"] = now
 
-    # --- Probe named user endpoints ---
+    # --- Probe named user endpoints (always fresh) ---
     saved_endpoints: list[dict] = models_cfg.get("endpoints", [])
     endpoint_tasks = [_probe_endpoint(ep) for ep in saved_endpoints if ep.get("url")]
-
-    all_results = await asyncio.gather(*provider_tasks, *endpoint_tasks, return_exceptions=True)
-
-    provider_results = all_results[:len(provider_tasks)]
-    endpoint_results = all_results[len(provider_tasks):]
-
-    for result in provider_results:
-        if isinstance(result, Exception):
-            continue
-        ptype, info = result
-        providers[ptype] = info
+    endpoint_results = await asyncio.gather(*endpoint_tasks, return_exceptions=True)
 
     endpoint_infos: list[EndpointInfo] = [r for r in endpoint_results if not isinstance(r, Exception)]
 
@@ -292,12 +311,12 @@ async def test_model_layer(body: dict):
             model=model,
             max_tokens=20,
         )
-        reply = await provider.complete(req)
+        result = await provider.complete(req)
         elapsed_ms = round((time.monotonic() - start) * 1000)
         return {
             "success": True,
             "latency_ms": elapsed_ms,
-            "reply": reply[:100],
+            "reply": result.content[:100],
             "model": model,
             "provider_type": provider_type,
         }

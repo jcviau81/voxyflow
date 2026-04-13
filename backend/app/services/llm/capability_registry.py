@@ -17,6 +17,7 @@ Sources:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 
 @dataclass
@@ -105,15 +106,18 @@ _DEFAULT = _ModelEntry(
     max_output_tokens=4_096,
 )
 
+# Pre-sort keys by length descending so the first match is the longest prefix
+_SORTED_KEYS = sorted(_REGISTRY.keys(), key=len, reverse=True)
 
+
+@lru_cache(maxsize=256)
 def lookup(model: str) -> _ModelEntry:
     """Return capability entry for *model*, using longest-prefix matching."""
     lower = model.lower().strip()
-    best_key = ""
-    for key in _REGISTRY:
-        if lower.startswith(key) and len(key) > len(best_key):
-            best_key = key
-    return _REGISTRY[best_key] if best_key else _DEFAULT
+    for key in _SORTED_KEYS:
+        if lower.startswith(key):
+            return _REGISTRY[key]
+    return _DEFAULT
 
 
 def supports_tools(model: str) -> bool:

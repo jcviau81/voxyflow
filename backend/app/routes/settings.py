@@ -5,7 +5,7 @@ Personality files are stored in voxyflow/personality/ (NOT OpenClaw workspace).
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import json
 import os
 import logging
@@ -85,6 +85,13 @@ class ProviderEndpoint(BaseModel):
     url: str = ""             # base URL, e.g. "http://192.168.1.10:11434"
     api_key: str = ""         # optional — leave empty for local providers
 
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("URL must start with http:// or https://")
+        return v.rstrip("/")
+
 
 class ModelLayerConfig(BaseModel):
     provider_url: str = ""   # e.g. "http://localhost:3457/v1" or "http://localhost:11434/v1"
@@ -154,6 +161,43 @@ class AppSettings(BaseModel):
     workspace_path: str = str(Path.home() / ".voxyflow" / "workspace")  # absolute path to workspace root
 
 
+def _redact_sensitive(data: dict) -> dict:
+    """Mask api_key fields in settings response. Never expose real keys via GET."""
+    import copy
+    redacted = copy.deepcopy(data)
+    models = redacted.get("models", {})
+    # Redact layer-level api_key fields
+    for layer_key in ("fast", "deep"):
+        layer = models.get(layer_key, {})
+        if isinstance(layer, dict) and layer.get("api_key"):
+            layer["api_key"] = "***"
+    # Redact endpoint api_key fields
+    for ep in models.get("endpoints", []):
+        if isinstance(ep, dict) and ep.get("api_key"):
+            ep["api_key"] = "***"
+    return redacted
+
+
+def _merge_sensitive_on_save(incoming: dict, existing: dict) -> dict:
+    """When incoming data has '***' for api_key, preserve the existing real value."""
+    models_in = incoming.get("models", {})
+    models_ex = existing.get("models", {})
+    for layer_key in ("fast", "deep"):
+        layer_in = models_in.get(layer_key, {})
+        layer_ex = models_ex.get(layer_key, {})
+        if isinstance(layer_in, dict) and layer_in.get("api_key") == "***":
+            layer_in["api_key"] = layer_ex.get("api_key", "")
+    # Merge endpoint api_keys
+    eps_in = models_in.get("endpoints", [])
+    eps_ex = {ep.get("id"): ep for ep in models_ex.get("endpoints", []) if isinstance(ep, dict)}
+    for ep_in in eps_in:
+        if isinstance(ep_in, dict) and ep_in.get("api_key") == "***":
+            existing_ep = eps_ex.get(ep_in.get("id"))
+            if existing_ep:
+                ep_in["api_key"] = existing_ep.get("api_key", "")
+    return incoming
+
+
 def _resolve_personality_path(rel_path: str) -> Path:
     """Resolve a personality file path relative to VOXYFLOW_DIR."""
     p = Path(rel_path)
@@ -183,7 +227,7 @@ async def get_settings():
         # Merge with Pydantic defaults so new fields are always present
         merged = AppSettings(**db_data).dict()
         _update_caches(merged)
-        return merged
+        return _redact_sensitive(merged)
 
     # 2. Fallback to settings.json — and migrate into DB
     if os.path.exists(SETTINGS_FILE):
@@ -193,10 +237,10 @@ async def get_settings():
         await _save_settings_to_db(merged)
         _update_caches(merged)
         logger.info("Migrated settings from settings.json into SQLite")
-        return merged
+        return _redact_sensitive(merged)
 
     # 3. Defaults
-    return AppSettings().dict()
+    return _redact_sensitive(AppSettings().dict())
 
 
 @router.put("")
@@ -206,6 +250,11 @@ async def save_settings(settings: AppSettings):
     _cached_default_worker_model = settings.models.default_worker_model
     data = settings.dict()
 
+    # If the frontend sent '***' for api_key fields, preserve the existing values
+    existing = await _load_settings_from_db()
+    if existing:
+        data = _merge_sensitive_on_save(data, existing)
+
     # Write to DB
     await _save_settings_to_db(data)
 
@@ -213,6 +262,13 @@ async def save_settings(settings: AppSettings):
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w") as f:
         json.dump(data, f, indent=2)
+
+    # Clear provider cache so new settings take effect
+    try:
+        from app.services.llm.provider_factory import clear_provider_cache
+        clear_provider_cache()
+    except Exception:
+        pass
 
     # Hot-reload ClaudeService model config
     try:

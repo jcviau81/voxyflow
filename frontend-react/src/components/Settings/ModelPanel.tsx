@@ -123,7 +123,7 @@ const LISTABLE_PROVIDERS = new Set(['ollama', 'openai', 'groq', 'mistral', 'lmst
 const LOCAL_PROVIDER_TYPES = new Set(['ollama', 'lmstudio', 'openai']);
 
 function newId() {
-  return Math.random().toString(36).slice(2, 10);
+  return crypto.randomUUID();
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -794,7 +794,8 @@ export function ModelPanel() {
   // Save mutation
   const saveMutation = useMutation({
     mutationFn: async (modelsData: ModelsSettings) => {
-      const current = await apiFetch<AppSettings>('/api/settings');
+      // Use cached settings from queryClient instead of re-fetching (avoids race condition)
+      const current = queryClient.getQueryData<AppSettings>(['settings']) ?? {};
       return apiFetch<AppSettings>('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

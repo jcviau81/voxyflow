@@ -38,6 +38,16 @@ class CompletionRequest:
     stream: bool = False
 
 
+@dataclass
+class CompletionResponse:
+    """Normalised completion response — provider-agnostic."""
+
+    content: str                                    # Full text content
+    tool_calls: list[dict] | None = None            # Tool calls (OpenAI format)
+    stop_reason: str = ""                           # Why the model stopped
+    usage: dict | None = None                       # Token usage info
+
+
 class LLMProvider(ABC):
     """Abstract base class — implement one subclass per provider.
 
@@ -55,8 +65,8 @@ class LLMProvider(ABC):
     provider_type: str = "unknown"
 
     @abstractmethod
-    async def complete(self, request: CompletionRequest) -> str:
-        """Execute a completion and return the full response text."""
+    async def complete(self, request: CompletionRequest) -> CompletionResponse:
+        """Execute a completion and return a structured response."""
 
     @abstractmethod
     async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:

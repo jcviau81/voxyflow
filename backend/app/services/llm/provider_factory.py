@@ -20,7 +20,9 @@ Supported provider_type values:
 
 from __future__ import annotations
 
+import hashlib
 import logging
+from urllib.parse import urlparse
 
 from app.services.llm.providers.base import LLMProvider
 
@@ -49,6 +51,15 @@ _LABELS: dict[str, str] = {
 }
 
 
+# Provider instance cache — keyed by (type, url, api_key_hash)
+_provider_cache: dict[tuple, LLMProvider] = {}
+
+
+def clear_provider_cache() -> None:
+    """Invalidate all cached provider instances (call when settings change)."""
+    _provider_cache.clear()
+
+
 def get_provider(
     provider_type: str,
     url: str = "",
@@ -75,11 +86,21 @@ def get_provider(
     resolved_url = url.strip() or _DEFAULT_URLS.get(ptype, "")
     label = _LABELS.get(ptype)
 
+    # Cache lookup
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:8] if api_key else "nokey"
+    cache_key = (ptype, resolved_url, key_hash)
+    if cache_key in _provider_cache:
+        return _provider_cache[cache_key]
+
+    def _cache(provider: LLMProvider) -> LLMProvider:
+        _provider_cache[cache_key] = provider
+        return provider
+
     if ptype == "ollama":
-        return OllamaProvider(base_url=resolved_url or "http://localhost:11434", api_key=api_key)
+        return _cache(OllamaProvider(base_url=resolved_url or "http://localhost:11434", api_key=api_key))
 
     if ptype == "anthropic":
-        return AnthropicProvider(api_key=api_key)
+        return _cache(AnthropicProvider(api_key=api_key))
 
     if ptype == "cli":
         # CLI mode is handled by the existing ClaudeCliBackend — return a sentinel
@@ -93,11 +114,11 @@ def get_provider(
     if ptype in ("openai", "groq", "mistral", "gemini", "lmstudio", "openai_compat"):
         if not resolved_url:
             raise ValueError(f"No URL configured for provider '{ptype}'")
-        return OpenAICompatProvider(
+        return _cache(OpenAICompatProvider(
             provider_url=resolved_url,
             api_key=api_key,
             label=label,
-        )
+        ))
 
     # Fallback: treat unknown provider_type as generic OpenAI-compat if a URL is given
     if resolved_url:
@@ -105,7 +126,7 @@ def get_provider(
             "[ProviderFactory] Unknown provider type '%s' — treating as OpenAI-compatible at %s",
             ptype, resolved_url,
         )
-        return OpenAICompatProvider(provider_url=resolved_url, api_key=api_key, label=ptype)
+        return _cache(OpenAICompatProvider(provider_url=resolved_url, api_key=api_key, label=ptype))
 
     raise ValueError(
         f"Unknown provider type '{provider_type}'. "
@@ -121,9 +142,12 @@ def infer_provider_type(url: str, model: str = "") -> str:
     lower_url = url.lower()
     lower_model = model.lower()
 
-    if "11434" in lower_url or "ollama" in lower_url:
+    parsed = urlparse(url) if url else None
+    port = parsed.port if parsed else None
+
+    if port == 11434 or "ollama" in lower_url:
         return "ollama"
-    if "1234" in lower_url and "lmstudio" in lower_url:
+    if port == 1234:
         return "lmstudio"
     if "groq.com" in lower_url:
         return "groq"
@@ -135,7 +159,7 @@ def infer_provider_type(url: str, model: str = "") -> str:
         return "openai"
     if "anthropic.com" in lower_url or "claude" in lower_model:
         return "anthropic"
-    if "3457" in lower_url:
+    if port == 3457:
         return "openai"   # legacy claude-max-api proxy
     return "openai"       # conservative fallback
 

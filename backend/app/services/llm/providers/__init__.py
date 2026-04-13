@@ -12,6 +12,6 @@ Usage:
     result = await provider.complete(messages, system=..., model="llama3.2")
 """
 
-from app.services.llm.providers.base import LLMProvider, ProviderCapabilities, CompletionRequest
+from app.services.llm.providers.base import LLMProvider, ProviderCapabilities, CompletionRequest, CompletionResponse
 
-__all__ = ["LLMProvider", "ProviderCapabilities", "CompletionRequest"]
+__all__ = ["LLMProvider", "ProviderCapabilities", "CompletionRequest", "CompletionResponse"]
