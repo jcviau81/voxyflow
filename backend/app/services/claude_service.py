@@ -315,12 +315,13 @@ class ClaudeService(ApiCallerMixin):
             # Store provider instance for future direct calls (capability checks, etc.)
             setattr(self, f"{attr_prefix}_provider", provider)
 
-        logger.info(
-            f"ClaudeService reloaded — "
-            f"fast={self.fast_model}({self.fast_client_type}) | "
-            f"deep={self.deep_model}({self.deep_client_type}) | "
-            f"haiku={self.haiku_model}({self.haiku_client_type})"
-        )
+        # Log effective URLs for layers that use a non-default provider
+        layer_details = []
+        for lbl, attr_prefix in [("fast", "fast"), ("deep", "deep"), ("haiku", "haiku")]:
+            m = getattr(self, f"{attr_prefix}_model")
+            ct = getattr(self, f"{attr_prefix}_client_type")
+            layer_details.append(f"{lbl}={m}({ct})")
+        logger.info(f"ClaudeService reloaded — {' | '.join(layer_details)}")
 
     def _infer_layer(self, model: str) -> str:
         """Map a model name to a conceptual layer for token logging."""

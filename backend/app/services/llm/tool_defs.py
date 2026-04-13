@@ -649,19 +649,49 @@ async def _call_mcp_tool(tool_mcp_name: str, arguments: dict) -> dict:
 
 
 def _load_model_overrides() -> dict:
-    """Load model layer overrides from settings.json if it exists."""
+    """Load model layer overrides from settings.json.  Resolves endpoint_id references."""
     from app.config import SETTINGS_FILE
     if not SETTINGS_FILE.exists():
         return {}
     try:
         with open(SETTINGS_FILE) as f:
             data = json.load(f)
-        return data.get("models", {})
+        models = data.get("models", {})
+        _resolve_endpoint_refs(models)
+        return models
     except Exception as e:
         logger.warning(f"Failed to load model overrides from settings.json: {e}")
         return {}
 
 
+def _resolve_endpoint_refs(models: dict) -> None:
+    """In-place: for any layer that has an endpoint_id, overwrite provider_url/
+    provider_type/api_key with the values from the saved endpoints list.
+    This ensures the layer always uses the current endpoint config, even if
+    the endpoint was edited after the layer was assigned."""
+    endpoints = {ep.get("id"): ep for ep in models.get("endpoints", []) if ep.get("id")}
+    for layer_key in ("fast", "deep", "haiku"):
+        layer = models.get(layer_key)
+        if not isinstance(layer, dict):
+            continue
+        ep_id = layer.get("endpoint_id", "").strip()
+        if not ep_id:
+            continue
+        ep = endpoints.get(ep_id)
+        if ep:
+            layer["provider_url"] = ep.get("url", layer.get("provider_url", ""))
+            layer["provider_type"] = ep.get("provider_type", layer.get("provider_type", ""))
+            # Only copy api_key if the endpoint has one — don't overwrite with empty
+            if ep.get("api_key"):
+                layer["api_key"] = ep["api_key"]
+        else:
+            logger.warning(
+                "[model_overrides] endpoint_id '%s' in layer '%s' not found in endpoints list",
+                ep_id, layer_key,
+            )
+
+
 def _get_api_key_from_settings(layer_cfg: dict) -> str:
     """Extract api_key from a settings.json layer config block."""
-    return (layer_cfg.get("api_key") or "").strip()
+    key = (layer_cfg.get("api_key") or "").strip()
+    return key if key != "***" else ""  # never use the redacted sentinel
