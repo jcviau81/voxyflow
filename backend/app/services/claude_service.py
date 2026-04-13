@@ -226,7 +226,16 @@ class ClaudeService(ApiCallerMixin):
         )
 
     def reload_models(self) -> None:
-        """Hot-reload model/provider config from settings.json without restarting."""
+        """Hot-reload model/provider config from settings.json without restarting.
+
+        Supports the new multi-provider architecture: when a layer config contains
+        an explicit ``provider_type`` (e.g. "ollama", "groq", "openai"), the
+        matching LLMProvider is instantiated and the raw SDK client is configured
+        to point at the right endpoint.  The existing ``client_type`` attribute
+        is kept for backward compatibility with api_caller.py dispatch logic.
+        """
+        from app.services.llm.provider_factory import get_provider, infer_provider_type
+
         config = get_settings()
         overrides = _load_model_overrides()
         default_api_key = config.claude_api_key
@@ -242,29 +251,77 @@ class ClaudeService(ApiCallerMixin):
             key = _get_api_key_from_settings(cfg) or default_api_key
             purl = cfg.get("provider_url", "")
 
-            if self.use_cli:
+            # Explicit provider_type in settings takes precedence over env-var flags
+            explicit_ptype = cfg.get("provider_type", "").strip().lower()
+
+            if explicit_ptype == "cli" or (self.use_cli and not explicit_ptype):
+                # CLI mode — explicit "cli" type or env flag with no override
                 client = None
                 client_type = "cli"
+                provider = None
+
+            elif explicit_ptype and explicit_ptype != "cli":
+                # New multi-provider path — use provider_factory
+                try:
+                    provider = get_provider(
+                        provider_type=explicit_ptype,
+                        url=purl,
+                        api_key=key,
+                    )
+                    # For OpenAI-compatible providers (ollama, groq, mistral, etc.)
+                    # we reuse the existing openai client_type so api_caller.py
+                    # dispatches via _call_api_openai() without any changes.
+                    if explicit_ptype == "anthropic":
+                        client = _make_anthropic_client(key, purl or config.claude_api_base)
+                        client_type = "anthropic"
+                    else:
+                        # All OpenAI-compat providers: set up client pointing at their URL
+                        from app.services.llm.client_factory import _make_openai_client as _mkoa
+                        effective_url = purl or getattr(provider, "_url", config.claude_proxy_url)
+                        client = _mkoa(effective_url, key or "not-needed")
+                        client_type = "openai"
+                except Exception as exc:
+                    logger.warning(
+                        "[ClaudeService] Failed to init provider '%s' for %s layer: %s — falling back to proxy",
+                        explicit_ptype, layer, exc,
+                    )
+                    client = _make_openai_client(purl or config.claude_proxy_url, key or default_api_key)
+                    client_type = "openai"
+                    provider = None
+
             elif self.use_native and key and ("claude" in model.lower() or "anthropic" in purl.lower()):
+                # Native Anthropic SDK
                 client = _make_anthropic_client(key, purl or config.claude_api_base)
                 client_type = "anthropic"
+                provider = None
+
             else:
-                client = _make_openai_client(
-                    purl or config.claude_proxy_url,
-                    cfg.get("api_key") or default_api_key,
-                )
+                # Auto-detect from URL/model for backward compat
+                auto_ptype = infer_provider_type(purl, model)
+                try:
+                    provider = get_provider(
+                        provider_type=auto_ptype,
+                        url=purl or config.claude_proxy_url,
+                        api_key=key or default_api_key,
+                    )
+                except Exception:
+                    provider = None
+                client = _make_openai_client(purl or config.claude_proxy_url, key or default_api_key)
                 client_type = "openai"
 
             setattr(self, f"{attr_prefix}_model", model)
             setattr(self, f"{attr_prefix}_client", client)
             setattr(self, f"{attr_prefix}_client_type", client_type)
+            # Store provider instance for future direct calls (capability checks, etc.)
+            setattr(self, f"{attr_prefix}_provider", provider)
 
-        logger.info(
-            f"ClaudeService reloaded — "
-            f"fast={self.fast_model}({self.fast_client_type}) | "
-            f"deep={self.deep_model}({self.deep_client_type}) | "
-            f"haiku={self.haiku_model}({self.haiku_client_type})"
-        )
+        # Log effective URLs for layers that use a non-default provider
+        layer_details = []
+        for lbl, attr_prefix in [("fast", "fast"), ("deep", "deep"), ("haiku", "haiku")]:
+            m = getattr(self, f"{attr_prefix}_model")
+            ct = getattr(self, f"{attr_prefix}_client_type")
+            layer_details.append(f"{lbl}={m}({ct})")
+        logger.info(f"ClaudeService reloaded — {' | '.join(layer_details)}")
 
     def _infer_layer(self, model: str) -> str:
         """Map a model name to a conceptual layer for token logging."""
