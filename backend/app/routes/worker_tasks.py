@@ -4,11 +4,13 @@ GET  /api/worker-tasks              → list recent worker tasks (filterable)
 GET  /api/worker-tasks/{task_id}    → get full details of a specific task
 GET  /api/worker-tasks/{task_id}/peek   → live peek (running) or DB fallback (finished)
 POST /api/worker-tasks/{task_id}/cancel → cancel a running worker task
+POST /api/worker-tasks/{task_id}/steer  → inject a steering message into a running worker task
 """
 
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -97,6 +99,22 @@ async def peek_worker_task(
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "source": "db",
     }
+
+
+class SteerRequest(BaseModel):
+    message: str
+
+
+@router.post("/{task_id}/steer")
+async def steer_worker_task(task_id: str, body: SteerRequest):
+    """Inject a steering message into a running worker task."""
+    from app.main import _orchestrator
+
+    if not body.message:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    steered = await _orchestrator.steer_worker_task("", task_id, body.message)
+    return {"queued": steered, "task_id": task_id}
 
 
 @router.post("/{task_id}/cancel")

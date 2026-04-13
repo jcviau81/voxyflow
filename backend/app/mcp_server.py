@@ -1914,7 +1914,6 @@ def _get_system_handler(name: str):
 
         async def task_steer(params: dict) -> dict:
             """Inject a steering message into a running worker task."""
-            from app.services.llm.cli_backend import ClaudeCliBackend
             task_id = params.get("task_id", "").strip()
             message = params.get("message", "").strip()
             if not task_id:
@@ -1922,9 +1921,15 @@ def _get_system_handler(name: str):
             if not message:
                 return {"error": "message is required"}
             try:
-                backend = ClaudeCliBackend()
-                steered = await backend.steer_worker(task_id, message)
-                if steered:
+                client = _get_http_client()
+                resp = await client.post(
+                    f"/api/worker-tasks/{task_id}/steer",
+                    json={"message": message},
+                    timeout=10.0,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if data.get("queued"):
                     return {"success": True, "message": f"Steering message sent to task {task_id}"}
                 return {"success": False, "error": f"No active worker found for task {task_id}. Task may have already completed."}
             except Exception as e:
