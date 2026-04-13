@@ -13,7 +13,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Clock, Play, Trash2, Plus, Loader2, X } from 'lucide-react';
+import { Clock, Play, Trash2, Plus, Loader2, X, Pencil } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToastStore } from '../../stores/useToastStore';
 import { cn } from '../../lib/utils';
@@ -23,7 +23,7 @@ import { cn } from '../../lib/utils';
 interface Job {
   id: string;
   name: string;
-  type: 'reminder' | 'github_sync' | 'rag_index' | 'custom';
+  type: 'reminder' | 'github_sync' | 'rag_index' | 'custom' | 'board_run';
   schedule: string;
   enabled: boolean;
   payload: Record<string, unknown>;
@@ -103,11 +103,12 @@ async function runJob(id: string): Promise<void> {
 
 // ── JobItem ────────────────────────────────────────────────────────────────
 
-function JobItem({ job, onToggle, onRun, onDelete }: {
+function JobItem({ job, onToggle, onRun, onDelete, onEdit }: {
   job: Job;
   onToggle: (id: string, enabled: boolean) => void;
   onRun: (id: string) => void;
   onDelete: (id: string, name: string) => void;
+  onEdit: (job: Job) => void;
 }) {
   const lastRunText = job.last_run
     ? `Last: ${new Date(job.last_run).toLocaleString()}`
@@ -140,6 +141,14 @@ function JobItem({ job, onToggle, onRun, onDelete }: {
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={() => onEdit(job)}
+          title="Edit"
+          className="h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+        >
+          <Pencil size={13} />
+        </button>
         <button
           type="button"
           onClick={() => onRun(job.id)}
@@ -235,6 +244,7 @@ function AddJobForm({ onCancel, onSubmit }: {
           <option value="reminder">reminder</option>
           <option value="github_sync">github_sync</option>
           <option value="rag_index">rag_index</option>
+          <option value="board_run">board_run</option>
           <option value="custom">custom</option>
         </select>
 
@@ -294,12 +304,150 @@ function AddJobForm({ onCancel, onSubmit }: {
   );
 }
 
+// ── EditJobForm ───────────────────────────────────────────────────────────
+
+function EditJobForm({ job, onCancel, onSubmit }: {
+  job: Job;
+  onCancel: () => void;
+  onSubmit: (id: string, data: Partial<Job>) => void;
+}) {
+  const [form, setForm] = useState({
+    name: job.name,
+    type: job.type,
+    schedule: job.schedule,
+    enabled: job.enabled,
+  });
+  const [error, setError] = useState('');
+  const [scheduleError, setScheduleError] = useState('');
+  const [scheduleDesc, setScheduleDesc] = useState(() => {
+    const r = validateCronOrShorthand(job.schedule);
+    return r.valid ? r.description : '';
+  });
+
+  const validateSchedule = (value: string) => {
+    if (!value.trim()) {
+      setScheduleError('');
+      setScheduleDesc('');
+      return;
+    }
+    const result = validateCronOrShorthand(value);
+    if (result.valid) {
+      setScheduleError('');
+      setScheduleDesc(result.description);
+    } else {
+      setScheduleError(result.description);
+      setScheduleDesc('');
+    }
+  };
+
+  const handleScheduleChange = (value: string) => {
+    setForm((f) => ({ ...f, schedule: value }));
+    validateSchedule(value);
+  };
+
+  const handleSubmit = () => {
+    if (!form.name.trim()) { setError('Name is required'); return; }
+    if (!form.schedule.trim()) { setError('Schedule is required'); return; }
+    const result = validateCronOrShorthand(form.schedule);
+    if (!result.valid) { setError(result.description); return; }
+    setError('');
+    onSubmit(job.id, form);
+  };
+
+  return (
+    <div className="job-edit-form rounded-md border border-primary/30 bg-muted/20 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">Edit Job</div>
+        <button type="button" onClick={onCancel} className="text-muted-foreground hover:text-foreground">
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2.5 text-sm">
+        <label className="text-muted-foreground text-right">Name</label>
+        <input
+          type="text"
+          value={form.name}
+          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          className="h-7 px-2.5 text-sm rounded-md border border-input bg-background"
+        />
+
+        <label className="text-muted-foreground text-right">Type</label>
+        <select
+          value={form.type}
+          onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as JobType }))}
+          className="h-7 px-2 text-sm rounded-md border border-input bg-background"
+        >
+          <option value="reminder">reminder</option>
+          <option value="github_sync">github_sync</option>
+          <option value="rag_index">rag_index</option>
+          <option value="board_run">board_run</option>
+          <option value="custom">custom</option>
+        </select>
+
+        <label className="text-muted-foreground text-right">Schedule</label>
+        <div className="space-y-0.5">
+          <input
+            type="text"
+            value={form.schedule}
+            onChange={(e) => handleScheduleChange(e.target.value)}
+            onBlur={() => validateSchedule(form.schedule)}
+            placeholder="0 9 * * 1-5"
+            className={cn(
+              "h-7 w-full px-2.5 text-sm rounded-md border bg-background",
+              scheduleError ? "border-red-400" : scheduleDesc ? "border-emerald-400" : "border-input"
+            )}
+          />
+          {scheduleDesc && (
+            <div className="text-emerald-400 text-[11px]">{scheduleDesc}</div>
+          )}
+          {scheduleError && (
+            <div className="text-red-400 text-[11px]">{scheduleError}</div>
+          )}
+          {!scheduleDesc && !scheduleError && (
+            <div className="text-xs text-muted-foreground">
+              Cron or: every_30min, every_hour, every_day
+            </div>
+          )}
+        </div>
+
+        <label className="text-muted-foreground text-right">Enabled</label>
+        <input
+          type="checkbox"
+          checked={form.enabled}
+          onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
+          className="h-4 w-4 rounded border-input accent-primary"
+        />
+      </div>
+
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          className="btn-primary h-7 px-3 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          Save Changes
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="btn-ghost h-7 px-3 text-xs rounded-md hover:bg-accent"
+        >
+          Cancel
+        </button>
+        {error && <span className="text-xs text-destructive">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
 // ── JobsPanel ──────────────────────────────────────────────────────────────
 
 export function JobsPanel() {
   const { showToast } = useToastStore();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [_runningIds, setRunningIds] = useState<Set<string>>(new Set());
 
   const { data: jobs = [], isLoading } = useQuery<Job[]>({
@@ -330,6 +478,16 @@ export function JobsPanel() {
       showToast(`Job "${job.name}" created!`, 'success', 2000);
     },
     onError: (e) => showToast(`Failed to create job: ${e}`, 'error', 3000),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Job> }) => updateJob(id, patch),
+    onSuccess: (job) => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      setEditingJob(null);
+      showToast(`Job "${job.name}" updated!`, 'success', 2000);
+    },
+    onError: (e) => showToast(`Failed to update job: ${e}`, 'error', 3000),
   });
 
   const handleRun = useCallback(async (id: string) => {
@@ -372,15 +530,25 @@ export function JobsPanel() {
         </p>
       ) : (
         <div className="space-y-1">
-          {jobs.map((job) => (
-            <JobItem
-              key={job.id}
-              job={job}
-              onToggle={(id, enabled) => toggleMutation.mutate({ id, enabled })}
-              onRun={handleRun}
-              onDelete={handleDelete}
-            />
-          ))}
+          {jobs.map((job) =>
+            editingJob?.id === job.id ? (
+              <EditJobForm
+                key={job.id}
+                job={job}
+                onCancel={() => setEditingJob(null)}
+                onSubmit={(id, patch) => editMutation.mutate({ id, patch })}
+              />
+            ) : (
+              <JobItem
+                key={job.id}
+                job={job}
+                onToggle={(id, enabled) => toggleMutation.mutate({ id, enabled })}
+                onRun={handleRun}
+                onDelete={handleDelete}
+                onEdit={(j) => setEditingJob(j)}
+              />
+            )
+          )}
         </div>
       )}
 
