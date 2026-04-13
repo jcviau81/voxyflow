@@ -440,6 +440,8 @@ async def _execute_inline_tool(name: str, params: dict) -> dict:
             project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
             if project_id and project_id != "system-main":
                 collection = _project_collection(project_id)
+            elif project_id == "system-main":
+                collection = _project_collection("system-main")
             else:
                 collection = GLOBAL_COLLECTION
             from datetime import datetime, timezone

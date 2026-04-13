@@ -350,12 +350,74 @@ class MemoryService:
     # ------------------------------------------------------------------
 
     def _get_or_create_collection(self, name: str):
-        """Get or create a ChromaDB collection with the default embedding function."""
-        return self._client.get_or_create_collection(
+        """Get or create a ChromaDB collection with the default embedding function.
+
+        If the collection exists but was created with a different embedding
+        function (e.g. ChromaDB's built-in default), automatically migrate it
+        to the current sentence-transformer EF so callers never see the
+        conflict error.
+        """
+        try:
+            return self._client.get_or_create_collection(
+                name=name,
+                embedding_function=self._ef,
+                metadata={"hnsw:space": "cosine"},
+            )
+        except Exception as e:
+            if "Embedding function conflict" not in str(e):
+                raise
+            logger.warning(f"[migrate] {name}: embedding function conflict — migrating collection")
+            return self._migrate_collection_ef(name)
+
+    def _migrate_collection_ef(self, name: str):
+        """Re-create a collection under the current embedding function.
+
+        Reads all documents (without embeddings — they'll be re-generated),
+        drops the collection, recreates with the correct EF, and re-inserts.
+        """
+        # Open with no EF override so ChromaDB uses the persisted default
+        old_col = self._client.get_collection(name=name)
+        count = old_col.count()
+        logger.info(f"[migrate] {name}: reading {count} docs from old collection")
+
+        all_ids: list[str] = []
+        all_docs: list[str] = []
+        all_metas: list[dict] = []
+        batch_size = 500
+        for offset in range(0, count, batch_size):
+            batch = old_col.get(
+                include=["documents", "metadatas"],
+                limit=batch_size,
+                offset=offset,
+            )
+            all_ids.extend(batch["ids"])
+            all_docs.extend(batch["documents"])
+            all_metas.extend(batch["metadatas"])
+
+        # Drop and recreate with the correct EF + metadata
+        self._client.delete_collection(name)
+        new_col = self._client.get_or_create_collection(
             name=name,
             embedding_function=self._ef,
             metadata={"hnsw:space": "cosine"},
         )
+
+        # Re-insert in batches (ChromaDB re-embeds with sentence_transformer)
+        inserted = 0
+        for i in range(0, len(all_ids), batch_size):
+            end = min(i + batch_size, len(all_ids))
+            try:
+                new_col.add(
+                    ids=all_ids[i:end],
+                    documents=all_docs[i:end],
+                    metadatas=all_metas[i:end],
+                )
+                inserted += end - i
+            except Exception as batch_err:
+                logger.error(f"[migrate] {name}: batch {i}-{end} failed: {batch_err}")
+
+        logger.info(f"[migrate] {name}: done — {inserted}/{count} docs migrated")
+        return new_col
 
     # ------------------------------------------------------------------
     # Store / Delete / Search / List (new ChromaDB methods)
