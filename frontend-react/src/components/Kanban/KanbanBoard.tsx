@@ -7,7 +7,7 @@ import {
 import {
   DndContext,
   DragOverlay,
-  closestCorners,
+  pointerWithin,
   PointerSensor,
   useSensor,
   useSensors,
@@ -895,7 +895,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       {/* Board columns with DnD */}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={pointerWithin}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
