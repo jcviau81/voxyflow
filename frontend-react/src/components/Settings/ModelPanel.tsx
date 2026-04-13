@@ -1,15 +1,12 @@
 /**
  * ModelPanel — Models & Providers settings panel.
  *
- * Features:
- *  - Named endpoints: add any machine/URL as a reusable endpoint with a friendly name
- *  - Two model layers: Fast ⚡, Deep 🧠
- *  - Per-layer: choose from named endpoints OR generic cloud provider
- *  - Dynamic model listing per endpoint/provider
- *  - Capability badges per model (tools, vision, context window)
- *  - Test button per layer with latency feedback
- *  - Provider status indicators (reachable / unreachable)
- *  - Save button (PUT /api/settings)
+ * Redesigned UX:
+ *  - Section 1: "Mes machines" — card grid showing each endpoint as a machine card
+ *    with real-time status dot, provider type, short URL, available models, edit/delete
+ *  - Section 2: Layer configuration — Fast / Deep rows with source dropdown
+ *    combining machines + cloud providers, model picker, test button
+ *  - Inline form for adding/editing machines (no modal)
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -35,7 +32,7 @@ interface ModelLayerConfig {
   provider_url: string;
   api_key: string;
   model: string;
-  endpoint_id: string;    // if set, use the saved endpoint with this id
+  endpoint_id: string;
 }
 
 interface ModelsSettings {
@@ -108,18 +105,14 @@ const DEFAULT_MODELS: ModelsSettings = {
   endpoints: [],
 };
 
-const LAYER_META: Record<LayerKey, { label: string; placeholder: string; showEnabled: boolean }> = {
-  fast: { label: '⚡ Fast',  placeholder: 'claude-sonnet-4', showEnabled: false },
-  deep: { label: '🧠 Deep',  placeholder: 'claude-opus-4',  showEnabled: true  },
+const LAYER_META: Record<LayerKey, { label: string; icon: string; placeholder: string; showEnabled: boolean }> = {
+  fast: { label: 'Fast', icon: '\u26A1', placeholder: 'claude-sonnet-4', showEnabled: false },
+  deep: { label: 'Deep', icon: '\uD83E\uDDE0', placeholder: 'claude-opus-4',  showEnabled: true  },
 };
 
-// Cloud providers that don't need a URL field
 const NO_URL_PROVIDERS = new Set(['cli', 'anthropic']);
-// Local providers that don't need an API key
 const NO_KEY_PROVIDERS = new Set(['cli', 'ollama', 'lmstudio']);
-// Providers that support dynamic model listing
 const LISTABLE_PROVIDERS = new Set(['ollama', 'openai', 'groq', 'mistral', 'lmstudio', 'gemini']);
-// Local provider types (shown in endpoint type picker)
 const LOCAL_PROVIDER_TYPES = new Set(['ollama', 'lmstudio', 'openai']);
 
 function newId() {
@@ -139,6 +132,31 @@ function formatContext(tokens: number): string {
   return `${tokens} ctx`;
 }
 
+/** Extract host:port from a full URL */
+function shortUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.host;
+  } catch {
+    return url;
+  }
+}
+
+/** Capitalize first letter of provider type for display */
+function providerLabel(type: string): string {
+  const labels: Record<string, string> = {
+    ollama: 'Ollama',
+    lmstudio: 'LM Studio',
+    openai: 'OpenAI-compat',
+    cli: 'Claude CLI',
+    anthropic: 'Anthropic',
+    groq: 'Groq',
+    mistral: 'Mistral',
+    gemini: 'Gemini',
+  };
+  return labels[type] || type;
+}
+
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options);
   if (!res.ok) {
@@ -146,6 +164,20 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(detail.detail ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
+}
+
+// ── StatusDot ──────────────────────────────────────────────────────────────
+
+function StatusDot({ reachable, size = 'sm' }: { reachable: boolean | null; size?: 'sm' | 'md' }) {
+  const dim = size === 'md' ? 'w-2.5 h-2.5' : 'w-2 h-2';
+  if (reachable === null) return <span className={`${dim} rounded-full bg-gray-500 inline-block shrink-0`} />;
+  return (
+    <span
+      className={`${dim} rounded-full inline-block shrink-0`}
+      style={{ background: reachable ? '#22c55e' : '#ef4444' }}
+      title={reachable ? 'En ligne' : 'Hors ligne'}
+    />
+  );
 }
 
 // ── CapabilityBadges ───────────────────────────────────────────────────────
@@ -169,12 +201,12 @@ function CapabilityBadges({ model }: { model: string }) {
     <div className="flex gap-1 flex-wrap mt-0.5">
       {caps.supports_tools && (
         <span className="text-xs px-1 rounded" style={{ background: 'var(--color-accent)', color: '#fff', opacity: 0.85 }}>
-          🔧 tools
+          tools
         </span>
       )}
       {caps.supports_vision && (
         <span className="text-xs px-1 rounded" style={{ background: 'var(--color-accent)', color: '#fff', opacity: 0.85 }}>
-          👁 vision
+          vision
         </span>
       )}
       {caps.context_window > 0 && (
@@ -184,221 +216,49 @@ function CapabilityBadges({ model }: { model: string }) {
       )}
       {!caps.supports_tools && (
         <span className="text-xs px-1 rounded bg-muted text-yellow-400">
-          ⚠ no tools
+          no tools
         </span>
       )}
     </div>
   );
 }
 
-// ── StatusDot ──────────────────────────────────────────────────────────────
+// ── MachineForm ───────────────────────────────────────────────────────────
 
-function StatusDot({ reachable }: { reachable: boolean | null }) {
-  if (reachable === null) return <span className="w-2 h-2 rounded-full bg-muted inline-block" />;
-  return (
-    <span
-      className="w-2 h-2 rounded-full inline-block shrink-0"
-      style={{ background: reachable ? '#22c55e' : '#ef4444' }}
-      title={reachable ? 'Reachable' : 'Unreachable'}
-    />
-  );
-}
-
-// ── EndpointsManager ───────────────────────────────────────────────────────
-
-interface EndpointsManagerProps {
-  endpoints: ProviderEndpoint[];
-  onChange: (endpoints: ProviderEndpoint[]) => void;
-  providers: ProviderMeta[];
-  endpointStatuses: EndpointStatus[];
-}
-
-function EndpointsManager({ endpoints, onChange, providers, endpointStatuses }: EndpointsManagerProps) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<ProviderEndpoint | null>(null);
-  const [pingState, setPingState] = useState<Record<string, 'idle' | 'testing' | 'ok' | 'fail'>>({});
-
-  const localProviders = providers.filter(p => LOCAL_PROVIDER_TYPES.has(p.type));
-
-  function startAdd() {
-    const ep: ProviderEndpoint = {
-      id: newId(),
-      name: '',
-      provider_type: 'ollama',
-      url: 'http://192.168.1.x:11434',
-      api_key: '',
-    };
-    setDraft(ep);
-    setEditingId(ep.id);
-  }
-
-  function startEdit(ep: ProviderEndpoint) {
-    setDraft({ ...ep });
-    setEditingId(ep.id);
-  }
-
-  function cancelEdit() {
-    setDraft(null);
-    setEditingId(null);
-  }
-
-  function saveEdit() {
-    if (!draft) return;
-    const existing = endpoints.find(e => e.id === draft.id);
-    if (existing) {
-      onChange(endpoints.map(e => e.id === draft.id ? draft : e));
-    } else {
-      onChange([...endpoints, draft]);
-    }
-    setDraft(null);
-    setEditingId(null);
-  }
-
-  function removeEndpoint(id: string) {
-    onChange(endpoints.filter(e => e.id !== id));
-  }
-
-  async function pingEndpoint(ep: ProviderEndpoint) {
-    setPingState(s => ({ ...s, [ep.id]: 'testing' }));
-    try {
-      const result = await apiFetch<TestResult>('/api/models/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider_type: ep.provider_type,
-          provider_url: ep.url,
-          api_key: ep.api_key,
-          model: '',  // just reachability check — backend will return error on empty model but we only care about success/error type
-        }),
-      });
-      // A "model is required" error still means the server is up
-      const up = result.success || (result.error ?? '').toLowerCase().includes('model');
-      setPingState(s => ({ ...s, [ep.id]: up ? 'ok' : 'fail' }));
-    } catch {
-      setPingState(s => ({ ...s, [ep.id]: 'fail' }));
-    } finally {
-      setTimeout(() => setPingState(s => ({ ...s, [ep.id]: 'idle' })), 5000);
-    }
-  }
-
-  const statusById = Object.fromEntries(endpointStatuses.map(s => [s.id, s]));
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">My Endpoints</span>
-        <button
-          type="button"
-          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent"
-          onClick={startAdd}
-        >
-          + Add endpoint
-        </button>
-      </div>
-
-      {endpoints.length === 0 && editingId === null && (
-        <p className="text-xs text-muted-foreground italic">
-          No endpoints yet. Add a machine running Ollama, LM Studio, or any OpenAI-compatible server.
-        </p>
-      )}
-
-      {/* Existing endpoints list */}
-      {endpoints.map(ep => {
-        const isEditing = editingId === ep.id;
-        const status = statusById[ep.id];
-        const ping = pingState[ep.id] ?? 'idle';
-
-        if (isEditing && draft) {
-          return (
-            <EndpointEditor
-              key={ep.id}
-              draft={draft}
-              localProviders={localProviders}
-              onChange={setDraft}
-              onSave={saveEdit}
-              onCancel={cancelEdit}
-            />
-          );
-        }
-
-        return (
-          <div key={ep.id} className="flex items-center gap-2 text-sm px-2 py-1.5 rounded border border-border bg-background/50">
-            <StatusDot reachable={status ? status.reachable : null} />
-            <span className="font-medium min-w-0 truncate flex-1">{ep.name || ep.url}</span>
-            <span className="text-xs text-muted-foreground shrink-0">{ep.provider_type}</span>
-            <span className="text-xs text-muted-foreground shrink-0 truncate max-w-[160px]">{ep.url}</span>
-
-            {/* Ping button */}
-            <button
-              type="button"
-              className="text-xs px-1.5 py-0.5 rounded border border-border hover:bg-accent shrink-0"
-              onClick={() => pingEndpoint(ep)}
-              disabled={ping === 'testing'}
-              title="Test reachability"
-            >
-              {ping === 'testing' ? '…' : ping === 'ok' ? '✓' : ping === 'fail' ? '✗' : '⚡'}
-            </button>
-
-            <button
-              type="button"
-              className="text-xs px-1.5 py-0.5 rounded border border-border hover:bg-accent shrink-0"
-              onClick={() => startEdit(ep)}
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              className="text-xs px-1.5 py-0.5 rounded border border-border hover:bg-accent text-red-400 shrink-0"
-              onClick={() => removeEndpoint(ep.id)}
-            >
-              ✕
-            </button>
-          </div>
-        );
-      })}
-
-      {/* New endpoint form (no existing id) */}
-      {editingId !== null && draft && !endpoints.find(e => e.id === editingId) && (
-        <EndpointEditor
-          draft={draft}
-          localProviders={localProviders}
-          onChange={setDraft}
-          onSave={saveEdit}
-          onCancel={cancelEdit}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── EndpointEditor ─────────────────────────────────────────────────────────
-
-interface EndpointEditorProps {
+interface MachineFormProps {
   draft: ProviderEndpoint;
   localProviders: ProviderMeta[];
   onChange: (ep: ProviderEndpoint) => void;
   onSave: () => void;
   onCancel: () => void;
+  isNew?: boolean;
 }
 
-function EndpointEditor({ draft, localProviders, onChange, onSave, onCancel }: EndpointEditorProps) {
+function MachineForm({ draft, localProviders, onChange, onSave, onCancel, isNew }: MachineFormProps) {
   const set = (key: keyof ProviderEndpoint, value: string) => onChange({ ...draft, [key]: value });
 
   return (
-    <div className="flex flex-col gap-1.5 p-2.5 rounded border border-border bg-background shadow-sm">
-      <div className="flex gap-2 flex-wrap">
-        {/* Name */}
+    <div className="rounded-lg border border-border bg-background p-4 flex flex-col gap-3">
+      <div className="text-sm font-medium text-foreground">
+        {isNew ? 'Ajouter une machine' : 'Modifier la machine'}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label className="text-xs text-muted-foreground">Nom de la machine</label>
         <input
           type="text"
-          className="setting-input text-sm rounded border border-input bg-background px-2 py-1 flex-1 min-w-32"
-          placeholder='Name, e.g. "Mac Studio — Ollama"'
+          className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
+          placeholder='Ex: "Mac Studio"'
           value={draft.name}
           onChange={e => set('name', e.target.value)}
           autoFocus
         />
-        {/* Provider type */}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label className="text-xs text-muted-foreground">Type de serveur</label>
         <select
-          className="setting-input text-sm rounded border border-input bg-background px-2 py-1 w-36 shrink-0"
+          className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
           value={draft.provider_type}
           onChange={e => {
             const pt = e.target.value;
@@ -411,46 +271,296 @@ function EndpointEditor({ draft, localProviders, onChange, onSave, onCancel }: E
         </select>
       </div>
 
-      {/* URL */}
-      <input
-        type="text"
-        className="setting-input text-sm rounded border border-input bg-background px-2 py-1 w-full"
-        placeholder="http://192.168.1.x:11434"
-        value={draft.url}
-        onChange={e => set('url', e.target.value)}
-      />
-
-      {/* API key (only for openai-compat that needs it) */}
-      {!NO_KEY_PROVIDERS.has(draft.provider_type) && (
+      <div className="flex flex-col gap-2">
+        <label className="text-xs text-muted-foreground">Adresse</label>
         <input
-          type="password"
-          className="setting-input text-sm rounded border border-input bg-background px-2 py-1 w-full"
-          placeholder="API key (optional)"
-          value={draft.api_key}
-          onChange={e => set('api_key', e.target.value)}
+          type="text"
+          className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
+          placeholder="http://192.168.1.10:11434"
+          value={draft.url}
+          onChange={e => set('url', e.target.value)}
         />
+      </div>
+
+      {!NO_KEY_PROVIDERS.has(draft.provider_type) && (
+        <div className="flex flex-col gap-2">
+          <label className="text-xs text-muted-foreground">Cle API (optionnel)</label>
+          <input
+            type="password"
+            className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
+            placeholder="sk-..."
+            value={draft.api_key}
+            onChange={e => set('api_key', e.target.value)}
+          />
+        </div>
       )}
 
-      <div className="flex gap-2 justify-end mt-0.5">
-        <button type="button" className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent" onClick={onCancel}>
-          Cancel
+      <div className="flex gap-2 justify-end pt-1">
+        <button
+          type="button"
+          className="text-xs px-3 py-1 rounded border border-border hover:bg-accent text-muted-foreground"
+          onClick={onCancel}
+        >
+          Annuler
         </button>
         <button
           type="button"
-          className="text-xs px-3 py-0.5 rounded border border-border hover:bg-accent font-medium"
+          className="text-xs px-4 py-1 rounded border border-border hover:bg-accent font-medium"
           onClick={onSave}
-          disabled={!draft.url.trim()}
+          disabled={!draft.url.trim() || !draft.name.trim()}
         >
-          Save endpoint
+          Enregistrer
         </button>
       </div>
     </div>
   );
 }
 
-// ── ModelLayerRow ──────────────────────────────────────────────────────────
+// ── MachineCard ───────────────────────────────────────────────────────────
 
-interface ModelLayerRowProps {
+interface MachineCardProps {
+  endpoint: ProviderEndpoint;
+  status: EndpointStatus | undefined;
+  models: string[];
+  modelsLoading: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function MachineCard({ endpoint, status, models, modelsLoading, onEdit, onDelete }: MachineCardProps) {
+  const reachable = status ? status.reachable : null;
+  const isOnline = reachable === true;
+
+  return (
+    <div className="rounded-lg border border-border bg-background p-4 flex flex-col gap-2 min-h-[140px]">
+      {/* Header: status dot + name */}
+      <div className="flex items-center gap-2">
+        <StatusDot reachable={reachable} size="md" />
+        <span className="text-sm font-semibold truncate flex-1">
+          {endpoint.name || shortUrl(endpoint.url)}
+        </span>
+      </div>
+
+      {/* Provider type + short URL */}
+      <div className="text-xs text-muted-foreground">
+        {providerLabel(endpoint.provider_type)}
+      </div>
+      <div className="text-xs text-muted-foreground font-mono truncate">
+        {shortUrl(endpoint.url)}
+      </div>
+
+      {/* Models or offline */}
+      <div className="flex-1 mt-1">
+        {modelsLoading ? (
+          <div className="text-xs text-muted-foreground italic">Chargement...</div>
+        ) : isOnline && models.length > 0 ? (
+          <div className="flex flex-col gap-0.5">
+            {models.slice(0, 4).map(m => (
+              <span key={m} className="text-xs text-muted-foreground truncate">{m}</span>
+            ))}
+            {models.length > 4 && (
+              <span className="text-xs text-muted-foreground italic">
+                +{models.length - 4} autres
+              </span>
+            )}
+          </div>
+        ) : reachable === false ? (
+          <span className="text-xs font-medium" style={{ color: '#ef4444' }}>Hors ligne</span>
+        ) : null}
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex gap-2 mt-auto pt-1 border-t border-border">
+        <button
+          type="button"
+          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent flex-1"
+          onClick={onEdit}
+        >
+          Editer
+        </button>
+        <button
+          type="button"
+          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent text-red-400"
+          onClick={onDelete}
+        >
+          Supprimer
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── AddMachineCard ────────────────────────────────────────────────────────
+
+function AddMachineCard({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="rounded-lg border border-dashed border-border bg-background/50 p-4 flex flex-col items-center justify-center gap-2 min-h-[140px] hover:bg-accent/30 transition-colors cursor-pointer"
+      onClick={onClick}
+    >
+      <span className="text-2xl text-muted-foreground">+</span>
+      <span className="text-xs text-muted-foreground">Ajouter une machine</span>
+    </button>
+  );
+}
+
+// ── MachinesGrid ──────────────────────────────────────────────────────────
+
+interface MachinesGridProps {
+  endpoints: ProviderEndpoint[];
+  onChange: (endpoints: ProviderEndpoint[]) => void;
+  providers: ProviderMeta[];
+  endpointStatuses: EndpointStatus[];
+}
+
+function MachinesGrid({ endpoints, onChange, providers, endpointStatuses }: MachinesGridProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ProviderEndpoint | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+
+  // Per-endpoint model lists
+  const [modelsByEndpoint, setModelsByEndpoint] = useState<Record<string, string[]>>({});
+  const [loadingByEndpoint, setLoadingByEndpoint] = useState<Record<string, boolean>>({});
+
+  const localProviders = providers.filter(p => LOCAL_PROVIDER_TYPES.has(p.type));
+  const statusById = Object.fromEntries(endpointStatuses.map(s => [s.id, s]));
+
+  // Auto-fetch models for reachable endpoints
+  useEffect(() => {
+    endpoints.forEach(ep => {
+      const status = statusById[ep.id];
+      if (status?.reachable && LISTABLE_PROVIDERS.has(ep.provider_type)) {
+        // Only fetch if we haven't loaded yet
+        if (!(ep.id in modelsByEndpoint) && !loadingByEndpoint[ep.id]) {
+          setLoadingByEndpoint(prev => ({ ...prev, [ep.id]: true }));
+          apiFetch<string[]>(`/api/models/list?endpoint_id=${encodeURIComponent(ep.id)}`)
+            .then(models => {
+              setModelsByEndpoint(prev => ({ ...prev, [ep.id]: models }));
+            })
+            .catch(() => {
+              setModelsByEndpoint(prev => ({ ...prev, [ep.id]: [] }));
+            })
+            .finally(() => {
+              setLoadingByEndpoint(prev => ({ ...prev, [ep.id]: false }));
+            });
+        }
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endpoints, endpointStatuses]);
+
+  function startAdd() {
+    const ep: ProviderEndpoint = {
+      id: newId(),
+      name: '',
+      provider_type: 'ollama',
+      url: 'http://192.168.1.x:11434',
+      api_key: '',
+    };
+    setDraft(ep);
+    setIsAdding(true);
+    setEditingId(ep.id);
+  }
+
+  function startEdit(ep: ProviderEndpoint) {
+    setDraft({ ...ep });
+    setIsAdding(false);
+    setEditingId(ep.id);
+  }
+
+  function cancelEdit() {
+    setDraft(null);
+    setEditingId(null);
+    setIsAdding(false);
+  }
+
+  function saveEdit() {
+    if (!draft) return;
+    const existing = endpoints.find(e => e.id === draft.id);
+    if (existing) {
+      onChange(endpoints.map(e => e.id === draft.id ? draft : e));
+    } else {
+      onChange([...endpoints, draft]);
+    }
+    // Clear cached models for this endpoint so they get re-fetched
+    setModelsByEndpoint(prev => {
+      const next = { ...prev };
+      delete next[draft.id];
+      return next;
+    });
+    setDraft(null);
+    setEditingId(null);
+    setIsAdding(false);
+  }
+
+  function removeEndpoint(id: string) {
+    onChange(endpoints.filter(e => e.id !== id));
+    setModelsByEndpoint(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold">Mes machines</span>
+        <span className="text-xs text-muted-foreground">
+          Serveurs locaux ou distants executant un LLM
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {endpoints.map(ep => {
+          if (editingId === ep.id && draft && !isAdding) {
+            return (
+              <MachineForm
+                key={ep.id}
+                draft={draft}
+                localProviders={localProviders}
+                onChange={setDraft}
+                onSave={saveEdit}
+                onCancel={cancelEdit}
+              />
+            );
+          }
+
+          return (
+            <MachineCard
+              key={ep.id}
+              endpoint={ep}
+              status={statusById[ep.id]}
+              models={modelsByEndpoint[ep.id] ?? []}
+              modelsLoading={loadingByEndpoint[ep.id] ?? false}
+              onEdit={() => startEdit(ep)}
+              onDelete={() => removeEndpoint(ep.id)}
+            />
+          );
+        })}
+
+        {/* Add form or add button */}
+        {isAdding && draft ? (
+          <MachineForm
+            draft={draft}
+            localProviders={localProviders}
+            onChange={setDraft}
+            onSave={saveEdit}
+            onCancel={cancelEdit}
+            isNew
+          />
+        ) : (
+          <AddMachineCard onClick={startAdd} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── LayerRow ─────────────────────────────────────────────────────────────
+
+interface LayerRowProps {
   layerKey: LayerKey;
   control: ReturnType<typeof useForm<ModelsSettings>>['control'];
   watch: ReturnType<typeof useForm<ModelsSettings>>['watch'];
@@ -460,7 +570,7 @@ interface ModelLayerRowProps {
   endpointStatuses: EndpointStatus[];
 }
 
-function ModelLayerRow({ layerKey, control, watch, setValue, providers, endpoints, endpointStatuses }: ModelLayerRowProps) {
+function LayerRow({ layerKey, control, watch, setValue, providers, endpoints, endpointStatuses }: LayerRowProps) {
   const meta = LAYER_META[layerKey];
   const prefix = layerKey;
 
@@ -469,14 +579,12 @@ function ModelLayerRow({ layerKey, control, watch, setValue, providers, endpoint
   const endpointId   = useWatch({ control, name: `${prefix}.endpoint_id`   as const });
   const modelValue   = useWatch({ control, name: `${prefix}.model`         as const });
 
-  // Resolve effective provider type and URL (from endpoint or direct config)
   const activeEndpoint = endpoints.find(e => e.id === endpointId);
   const effectiveType  = activeEndpoint ? activeEndpoint.provider_type : providerType;
   const effectiveUrl   = activeEndpoint ? activeEndpoint.url : providerUrl;
 
-  const providerMeta  = providers.find(p => p.type === effectiveType);
   const showUrl       = !endpointId && !NO_URL_PROVIDERS.has(providerType);
-  const showKey       = !endpointId && !NO_KEY_PROVIDERS.has(providerType) && providerMeta?.requires_key !== false;
+  const showKey       = !endpointId && !NO_KEY_PROVIDERS.has(providerType);
   const canListModels = LISTABLE_PROVIDERS.has(effectiveType);
   const thinking      = isThinkingModel(modelValue ?? '');
 
@@ -487,10 +595,12 @@ function ModelLayerRow({ layerKey, control, watch, setValue, providers, endpoint
   const [testError, setTestError]             = useState<string>('');
   const prevSelection = useRef('');
 
-  // The "selection key" — either endpoint id or provider type
   const selectionValue = endpointId ? `ep:${endpointId}` : `pt:${providerType}`;
 
-  // Handle selection dropdown change
+  // Endpoint reachability for warning
+  const endpointStatus = endpointStatuses.find(s => s.id === endpointId);
+  const isEndpointOffline = endpointId && endpointStatus && !endpointStatus.reachable;
+
   function handleSelectionChange(value: string) {
     if (value.startsWith('ep:')) {
       const id = value.slice(3);
@@ -515,7 +625,6 @@ function ModelLayerRow({ layerKey, control, watch, setValue, providers, endpoint
     }
   }
 
-  // Auto-fetch models when selection changes
   useEffect(() => {
     if (selectionValue === prevSelection.current) return;
     prevSelection.current = selectionValue;
@@ -577,126 +686,136 @@ function ModelLayerRow({ layerKey, control, watch, setValue, providers, endpoint
 
   const showModelDropdown = canListModels && availableModels.length > 0;
 
-  // Reachability for active endpoint
-  const endpointStatus = endpointStatuses.find(s => s.id === endpointId);
-
   return (
-    <div className="py-3 border-b border-border last:border-0 flex flex-col gap-2" data-layer={layerKey}>
-      {/* Row header */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {/* Layer label + enabled toggle */}
-        <div className="flex items-center gap-1.5 w-16 shrink-0">
-          {meta.showEnabled && (
-            <Controller
-              control={control}
-              name={`${prefix}.enabled`}
-              render={({ field }) => (
+    <div className="rounded-lg border border-border bg-background p-4 flex flex-col gap-3" data-layer={layerKey}>
+      {/* Layer header */}
+      <div className="flex items-center gap-2">
+        <span className="text-lg">{meta.icon}</span>
+        <span className="text-sm font-semibold">{meta.label}</span>
+        {meta.showEnabled && (
+          <Controller
+            control={control}
+            name={`${prefix}.enabled`}
+            render={({ field }) => (
+              <label className="flex items-center gap-1 ml-2 text-xs text-muted-foreground cursor-pointer">
                 <input type="checkbox" className="setting-checkbox" checked={field.value} onChange={field.onChange} />
-              )}
-            />
-          )}
-          <span className="text-sm font-medium">{meta.label}</span>
-        </div>
+                actif
+              </label>
+            )}
+          />
+        )}
+      </div>
 
-        {/* Provider / endpoint select */}
-        <div className="flex items-center gap-1 shrink-0">
-          {endpointId && endpointStatus && (
-            <StatusDot reachable={endpointStatus.reachable} />
-          )}
-          <select
-            className="setting-input text-sm rounded border border-input bg-background px-2 py-1 w-52"
-            value={selectionValue}
-            onChange={e => handleSelectionChange(e.target.value)}
-          >
-            {/* Named endpoints */}
-            {endpoints.length > 0 && (
-              <optgroup label="My Endpoints">
-                {endpoints.map(ep => (
-                  <option key={ep.id} value={`ep:${ep.id}`}>
-                    {ep.name || ep.url} ({ep.provider_type})
-                  </option>
+      {/* Source + Model + Test in one row */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {/* Source dropdown */}
+        <div className="flex flex-col gap-1 min-w-[200px]">
+          <label className="text-xs text-muted-foreground">Source</label>
+          <div className="flex items-center gap-1.5">
+            {endpointId && endpointStatus && (
+              <StatusDot reachable={endpointStatus.reachable} />
+            )}
+            <select
+              className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1"
+              value={selectionValue}
+              onChange={e => handleSelectionChange(e.target.value)}
+            >
+              {endpoints.length > 0 && (
+                <optgroup label="Mes machines">
+                  {endpoints.map(ep => {
+                    const st = endpointStatuses.find(s => s.id === ep.id);
+                    const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
+                    return (
+                      <option key={ep.id} value={`ep:${ep.id}`}>
+                        {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              )}
+              <optgroup label="Providers cloud">
+                {providers.map(p => (
+                  <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
                 ))}
               </optgroup>
+            </select>
+          </div>
+        </div>
+
+        {/* Model picker */}
+        <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+          <label className="text-xs text-muted-foreground">Modele</label>
+          <div className="flex items-center gap-1.5">
+            {showModelDropdown ? (
+              <Controller
+                control={control}
+                name={`${prefix}.model`}
+                render={({ field }) => (
+                  <select
+                    className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1"
+                    value={field.value}
+                    onChange={field.onChange}
+                  >
+                    <option value="">Choisir un modele...</option>
+                    {availableModels.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                )}
+              />
+            ) : (
+              <Controller
+                control={control}
+                name={`${prefix}.model`}
+                render={({ field }) => (
+                  <input
+                    type="text"
+                    className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1"
+                    placeholder={meta.placeholder}
+                    value={field.value}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
             )}
-            {/* Generic provider types */}
-            <optgroup label="Providers">
-              {providers.map(p => (
-                <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
-              ))}
-            </optgroup>
-          </select>
+            {canListModels && (
+              <button
+                type="button"
+                className="text-xs px-2 py-1.5 rounded border border-border hover:bg-accent shrink-0"
+                disabled={modelsLoading}
+                onClick={fetchModels}
+                title="Rafraichir la liste des modeles"
+              >
+                {modelsLoading ? '...' : '\u21BB'}
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Model field */}
-        <div className="flex-1 min-w-36">
-          {showModelDropdown ? (
-            <Controller
-              control={control}
-              name={`${prefix}.model`}
-              render={({ field }) => (
-                <select
-                  className="setting-input text-sm rounded border border-input bg-background px-2 py-1 w-full"
-                  value={field.value}
-                  onChange={field.onChange}
-                >
-                  <option value="">Select model…</option>
-                  {availableModels.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              )}
-            />
-          ) : (
-            <Controller
-              control={control}
-              name={`${prefix}.model`}
-              render={({ field }) => (
-                <input
-                  type="text"
-                  className="setting-input text-sm rounded border border-input bg-background px-2 py-1 w-full"
-                  placeholder={meta.placeholder}
-                  value={field.value}
-                  onChange={field.onChange}
-                />
-              )}
-            />
-          )}
-        </div>
-
-        {/* Refresh models button */}
-        {canListModels && (
-          <button
-            type="button"
-            className="btn-secondary text-xs px-2 py-1 rounded border border-border hover:bg-accent shrink-0"
-            disabled={modelsLoading}
-            onClick={fetchModels}
-            title="Refresh model list"
-          >
-            {modelsLoading ? '…' : '↻'}
-          </button>
-        )}
-
-        {/* Test button */}
-        <button
-          type="button"
-          className="btn-secondary text-xs px-2 py-1 rounded border border-border hover:bg-accent shrink-0"
-          disabled={testState === 'testing'}
-          onClick={handleTest}
-        >
-          {testState === 'testing' ? 'Testing…' : 'Test'}
-        </button>
-
-        {/* Test result */}
-        <div className="text-xs w-20 shrink-0">
-          {testState === 'ok'      && <span className="text-green-400">{testLatency != null ? `✓ ${testLatency}ms` : '✓ OK'}</span>}
-          {testState === 'fail'    && <span className="text-red-400" title={testError}>✗ Failed</span>}
-          {testState === 'testing' && <span className="text-muted-foreground">…</span>}
+        {/* Test button + result */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-muted-foreground">&nbsp;</label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="btn-secondary text-xs px-3 py-1.5 rounded border border-border hover:bg-accent shrink-0"
+              disabled={testState === 'testing'}
+              onClick={handleTest}
+            >
+              {testState === 'testing' ? '...' : 'Test'}
+            </button>
+            <div className="text-xs w-20 shrink-0">
+              {testState === 'ok'      && <span className="text-green-400">{testLatency != null ? `\u2713 ${testLatency}ms` : '\u2713 OK'}</span>}
+              {testState === 'fail'    && <span className="text-red-400" title={testError}>\u2717 Erreur</span>}
+              {testState === 'testing' && <span className="text-muted-foreground">...</span>}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Secondary fields: URL + API key (only when using direct provider, not endpoint) */}
+      {/* Secondary: URL + API key when using direct provider */}
       {(showUrl || showKey) && (
-        <div className="ml-20 flex flex-col gap-1">
+        <div className="flex gap-2 flex-wrap">
           {showUrl && (
             <Controller
               control={control}
@@ -704,7 +823,7 @@ function ModelLayerRow({ layerKey, control, watch, setValue, providers, endpoint
               render={({ field }) => (
                 <input
                   type="text"
-                  className="setting-input text-sm rounded border border-input bg-background px-2 py-1"
+                  className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1 min-w-[200px]"
                   placeholder="https://api.example.com/v1"
                   value={field.value}
                   onChange={field.onChange}
@@ -719,8 +838,8 @@ function ModelLayerRow({ layerKey, control, watch, setValue, providers, endpoint
               render={({ field }) => (
                 <input
                   type="password"
-                  className="setting-input text-sm rounded border border-input bg-background px-2 py-1"
-                  placeholder="API key"
+                  className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1 min-w-[200px]"
+                  placeholder="Cle API"
                   value={field.value}
                   onChange={field.onChange}
                 />
@@ -730,12 +849,18 @@ function ModelLayerRow({ layerKey, control, watch, setValue, providers, endpoint
         </div>
       )}
 
-      {/* Capability badges + thinking model note */}
-      <div className="ml-20 flex flex-col gap-0.5">
+      {/* Warnings and badges */}
+      {isEndpointOffline && (
+        <div className="text-xs px-2 py-1 rounded bg-red-500/10 text-red-400 border border-red-500/20">
+          Cette machine est hors ligne. Le layer ne fonctionnera pas tant qu'elle n'est pas accessible.
+        </div>
+      )}
+
+      <div className="flex flex-col gap-0.5">
         <CapabilityBadges model={modelValue ?? ''} />
         {thinking && (
           <div className="text-xs" style={{ color: 'var(--color-accent)' }}>
-            ⚡ Thinking model — /no_think applied automatically
+            Thinking model -- /no_think applied automatically
           </div>
         )}
         {testState === 'fail' && testError && (
@@ -752,14 +877,12 @@ export function ModelPanel() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const queryClient = useQueryClient();
 
-  // Fetch provider list from backend
   const { data: providers = [] } = useQuery<ProviderMeta[]>({
     queryKey: ['providers'],
     queryFn: () => apiFetch<ProviderMeta[]>('/api/models/providers'),
     staleTime: 60_000,
   });
 
-  // Fetch provider reachability + endpoint statuses
   const { data: availableData } = useQuery<AvailableData>({
     queryKey: ['models-available'],
     queryFn: () => apiFetch<AvailableData>('/api/models/available'),
@@ -767,7 +890,6 @@ export function ModelPanel() {
     refetchInterval: 30_000,
   });
 
-  // Load settings
   const { data: rawSettings } = useQuery<AppSettings>({
     queryKey: ['settings'],
     queryFn: () => apiFetch<AppSettings>('/api/settings'),
@@ -777,7 +899,6 @@ export function ModelPanel() {
     defaultValues: DEFAULT_MODELS,
   });
 
-  // Populate form once settings loaded
   useEffect(() => {
     if (!rawSettings) return;
     const dm = DEFAULT_MODELS;
@@ -791,10 +912,8 @@ export function ModelPanel() {
     reset(merged);
   }, [rawSettings, reset]);
 
-  // Save mutation
   const saveMutation = useMutation({
     mutationFn: async (modelsData: ModelsSettings) => {
-      // Use cached settings from queryClient instead of re-fetching (avoids race condition)
       const current = queryClient.getQueryData<AppSettings>(['settings']) ?? {};
       return apiFetch<AppSettings>('/api/settings', {
         method: 'PUT',
@@ -816,10 +935,7 @@ export function ModelPanel() {
 
   const onSubmit = (data: ModelsSettings) => saveMutation.mutate(data);
 
-  const reachabilityMap = availableData?.providers ?? {};
   const endpointStatuses: EndpointStatus[] = availableData?.endpoints ?? [];
-
-  // Watch endpoints to pass to layer rows
   const endpoints = useWatch({ control, name: 'endpoints' }) ?? [];
 
   return (
@@ -827,48 +943,38 @@ export function ModelPanel() {
 
       {/* ── Header ── */}
       <div>
-        <h3 className="text-base font-semibold mb-1">Models & Providers</h3>
+        <h3 className="text-base font-semibold mb-1">Modeles & Machines</h3>
         <p className="text-xs text-muted-foreground">
-          Save named endpoints for each machine running a local LLM, then assign any model to each layer.
-          Supports Claude (CLI or API), Ollama, OpenAI, Groq, Mistral, Gemini, LM Studio, and any OpenAI-compatible endpoint.
+          Ajoutez vos machines locales ou distantes (Mac Studio, MacBook, serveur...) puis assignez-les aux layers Fast et Deep.
+          Chaque layer peut utiliser une machine differente ou un provider cloud.
         </p>
       </div>
 
-      {/* ── Provider status overview ── */}
-      {providers.filter(p => p.type !== 'cli').length > 0 && (
-        <div className="flex flex-wrap gap-3">
-          {providers.filter(p => p.type !== 'cli').map((p) => {
-            const status = reachabilityMap[p.type];
-            return (
-              <div key={p.type} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <StatusDot reachable={status?.reachable ?? null} />
-                <span>{p.label}</span>
-              </div>
-            );
-          })}
+      {/* ── Section 1: Machines Grid ── */}
+      <Controller
+        control={control}
+        name="endpoints"
+        render={({ field }) => (
+          <MachinesGrid
+            endpoints={field.value ?? []}
+            onChange={field.onChange}
+            providers={providers}
+            endpointStatuses={endpointStatuses}
+          />
+        )}
+      />
+
+      {/* ── Section 2: Layers ── */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">Layers</span>
+          <span className="text-xs text-muted-foreground">
+            Assignez une source et un modele a chaque layer
+          </span>
         </div>
-      )}
 
-      {/* ── Named Endpoints ── */}
-      <div className="flex flex-col gap-2 p-3 rounded border border-border bg-muted/30">
-        <Controller
-          control={control}
-          name="endpoints"
-          render={({ field }) => (
-            <EndpointsManager
-              endpoints={field.value ?? []}
-              onChange={field.onChange}
-              providers={providers}
-              endpointStatuses={endpointStatuses}
-            />
-          )}
-        />
-      </div>
-
-      {/* ── Layer rows ── */}
-      <div className="flex flex-col">
         {(['fast', 'deep'] as LayerKey[]).map((key) => (
-          <ModelLayerRow
+          <LayerRow
             key={key}
             layerKey={key}
             control={control}
@@ -882,25 +988,25 @@ export function ModelPanel() {
       </div>
 
       {/* ── Default worker model ── */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <label className="text-xs font-medium whitespace-nowrap">Default worker model:</label>
+      <div className="rounded-lg border border-border bg-background p-4 flex items-center gap-3 flex-wrap">
+        <label className="text-xs font-medium whitespace-nowrap">Modele worker par defaut :</label>
         <Controller
           control={control}
           name="default_worker_model"
           render={({ field }) => (
             <select
-              className="setting-input text-sm rounded border border-input bg-background px-2 py-1"
+              className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5"
               value={field.value}
               onChange={field.onChange}
             >
-              <option value="haiku">Haiku (fast / cheap)</option>
-              <option value="sonnet">Sonnet (balanced)</option>
-              <option value="opus">Opus (powerful)</option>
+              <option value="haiku">Haiku (rapide / economique)</option>
+              <option value="sonnet">Sonnet (equilibre)</option>
+              <option value="opus">Opus (puissant)</option>
             </select>
           )}
         />
         <span className="text-xs text-muted-foreground">
-          Model used for background workers and card execution
+          Utilise pour les workers en arriere-plan et l'execution des cartes
         </span>
       </div>
 
@@ -908,13 +1014,13 @@ export function ModelPanel() {
       <div className="flex items-center gap-3 pt-2">
         <button
           type="submit"
-          className="btn-primary text-sm px-4 py-1.5 rounded"
+          className="btn-primary text-sm px-5 py-2 rounded"
           disabled={saveStatus === 'saving'}
         >
-          {saveStatus === 'saving' ? 'Saving…' : 'Save'}
+          {saveStatus === 'saving' ? 'Enregistrement...' : 'Enregistrer'}
         </button>
-        {saveStatus === 'saved' && <span className="text-xs text-green-400">✓ Saved</span>}
-        {saveStatus === 'error' && <span className="text-xs text-red-400">✗ Save failed</span>}
+        {saveStatus === 'saved' && <span className="text-xs text-green-400">{'\u2713'} Enregistre</span>}
+        {saveStatus === 'error' && <span className="text-xs text-red-400">{'\u2717'} Erreur</span>}
       </div>
 
     </form>
