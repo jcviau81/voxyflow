@@ -33,7 +33,7 @@ backend/
     └── services/
         ├── agent_personas.py    # 7 specialist personas
         ├── agent_router.py      # Intent → agent routing
-        ├── analyzer_service.py  # Message analysis
+        ├── agent_router.py      # Agent routing
         ├── chat_service.py      # Chat orchestration
         ├── claude_service.py    # Claude API client
         ├── memory_service.py    # Conversation memory

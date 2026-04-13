@@ -26,17 +26,11 @@ PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
 
 _cached_default_worker_model: str = "sonnet"
-_cached_analyzer_enabled: bool = False
 
 
 def get_default_worker_model() -> str:
     """Return the cached default worker model (haiku/sonnet/opus). Updated on settings save."""
     return _cached_default_worker_model
-
-
-def get_analyzer_enabled() -> bool:
-    """Return the cached analyzer enabled state. Updated on settings load/save."""
-    return _cached_analyzer_enabled
 
 
 async def _load_settings_from_db() -> dict | None:
@@ -103,12 +97,6 @@ class ModelsSettings(BaseModel):
         model="claude-opus-4",
         enabled=True,
     )
-    analyzer: ModelLayerConfig = ModelLayerConfig(
-        provider_url="http://localhost:3457/v1",
-        api_key="",
-        model="claude-haiku-4",
-        enabled=False,
-    )
     default_worker_model: str = "sonnet"  # "haiku" | "sonnet" | "opus"
 
 
@@ -166,12 +154,11 @@ async def get_settings():
 
     If DB is empty but settings.json exists, migrate into DB automatically.
     """
-    global _cached_default_worker_model, _cached_analyzer_enabled
+    global _cached_default_worker_model
 
     def _update_caches(merged: dict) -> None:
-        global _cached_default_worker_model, _cached_analyzer_enabled
+        global _cached_default_worker_model
         _cached_default_worker_model = merged.get("models", {}).get("default_worker_model", "sonnet")
-        _cached_analyzer_enabled = merged.get("models", {}).get("analyzer", {}).get("enabled", False)
 
     # 1. Try DB (source of truth)
     db_data = await _load_settings_from_db()
@@ -198,9 +185,8 @@ async def get_settings():
 @router.put("")
 async def save_settings(settings: AppSettings):
     """Save settings to DB (source of truth) and settings.json (backup)."""
-    global _cached_default_worker_model, _cached_analyzer_enabled
+    global _cached_default_worker_model
     _cached_default_worker_model = settings.models.default_worker_model
-    _cached_analyzer_enabled = settings.models.analyzer.enabled
     data = settings.dict()
 
     # Write to DB

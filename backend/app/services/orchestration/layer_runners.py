@@ -24,7 +24,7 @@ logger = logging.getLogger("voxyflow.orchestration")
 
 
 class LayerRunnersMixin:
-    """Mixin providing _run_fast_layer, _run_deep_chat_layer, _run_analyzer_layer."""
+    """Mixin providing _run_fast_layer, _run_deep_chat_layer."""
 
     async def _run_fast_layer(
         self,
@@ -293,43 +293,3 @@ class LayerRunnersMixin:
             except Exception:
                 logger.debug("[Layer-Deep-Chat] Could not send final idle status (WS likely closed)")
 
-    async def _run_analyzer_layer(
-        self,
-        websocket: WebSocket,
-        analyzer_enabled: bool,
-        analyzer_task: asyncio.Task | None,
-        project_id: str | None,
-        session_id: str | None,
-        send_model_status,
-    ) -> None:
-        """Await the analyzer result and send card suggestions if any."""
-        if not analyzer_enabled or analyzer_task is None:
-            logger.debug("[Layer3-Analyzer] skipped (disabled by user)")
-            return
-
-        try:
-            cards = await asyncio.wait_for(analyzer_task, timeout=15.0)
-            if cards:
-                for card in cards:
-                    logger.info(f"[Layer3-Analyzer] card suggestion: {card['title']}")
-                    await websocket.send_json({
-                        "type": "card:suggestion",
-                        "payload": {
-                            "title": card["title"],
-                            "description": card.get("description", ""),
-                            "agentType": card.get("agent_type", "general"),
-                            "agentName": card.get("agent_name", "Ember"),
-                            "projectId": project_id or "",
-                            "sessionId": session_id,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    })
-            await send_model_status("analyzer", "idle")
-        except asyncio.TimeoutError:
-            logger.warning("[Layer3-Analyzer] timed out after 15s, skipping")
-            await send_model_status("analyzer", "idle")
-        except asyncio.CancelledError:
-            await send_model_status("analyzer", "idle")
-        except Exception as e:
-            logger.error(f"[Layer3-Analyzer] error: {e}")
-            await send_model_status("analyzer", "error")

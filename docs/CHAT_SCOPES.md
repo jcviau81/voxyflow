@@ -271,7 +271,7 @@ The backend receives `chatLevel` in the WebSocket `chat:message` payload:
     "cardId": "string|null",
     "sessionId": "string",
     "messageId": "string",
-    "layers": { "fast": true, "deep": true, "analyzer": true }
+    "layers": { "fast": true, "deep": true }
   }
 }
 ```

@@ -120,7 +120,6 @@ Chaque niveau a son propre historique isolé. Changer de contexte ne supprime pa
 - **SessionTabBar** — onglets de sessions (jusqu'à 5 par contexte), visible sous le header
 - **ModePill** — bascule entre les modes d'analyse :
   - **Deep** — active le modèle de raisonnement approfondi
-  - **Analyzer** — active l'analyse IA en parallèle (opportunités, suggestions)
 - **SmartSuggestions** — chips de suggestions rapides, contextuelles (changent selon le niveau chat)
 - **VoiceInput** — saisie vocale push-to-talk (`Alt+V` maintenu)
 
@@ -331,7 +330,7 @@ Cliquer sur n'importe quelle carte (Kanban ou Backlog) ouvre la Card Detail Moda
 
 **Accès** : badge dans la TabBar (nombre de suggestions en attente), ou via le bouton dédié.
 
-**Ce qu'il montre** : suggestions de cartes générées automatiquement par l'Analyzer IA. L'Analyzer analyse le contexte du projet et propose des tâches manquantes, des risques, ou des actions à prendre.
+**Ce qu'il montre** : suggestions de cartes générées automatiquement par l'IA. Le système analyse le contexte du projet et propose des tâches manquantes, des risques, ou des actions à prendre.
 
 **Actions** :
 - **Create Card** — crée directement la carte suggérée dans le projet
@@ -403,7 +402,7 @@ Page de configuration complète, avec une sidebar de navigation interne à gauch
 |---------|---------|
 | **Appearance** | Thème (clair/sombre), taille de police (small/medium/large) |
 | **Personality** | Nom de l'assistant, ton, chaleur, langue préférée. Éditeur de fichiers : SOUL.md, USER.md, AGENTS.md, IDENTITY.md |
-| **Models** | Configuration des 3 couches IA : Fast (réponses rapides), Deep (raisonnement), Analyzer (analyse parallèle). Pour chaque couche : URL du provider, clé API, modèle |
+| **Models** | Configuration des 2 couches IA : Fast (réponses rapides), Deep (raisonnement). Pour chaque couche : URL du provider, clé API, modèle |
 | **Voice & STT** | Configuration de la reconnaissance vocale (moteur STT) |
 | **GitHub** | Intégration GitHub : token, repo par défaut |
 | **Workspace** | Paramètres de l'espace de travail |

@@ -98,7 +98,7 @@ async def get_available_models():
 
     # Build layers info
     layers: dict[str, LayerInfo] = {}
-    for layer_name in ("fast", "deep", "analyzer"):
+    for layer_name in ("fast", "deep"):
         cfg = models_cfg.get(layer_name, {})
         purl = cfg.get("provider_url", "")
         mdl = cfg.get("model", "")

@@ -82,7 +82,7 @@ voxyflow/
 │   ├── AGENTS.md                    # 7 agent persona definitions
 │   ├── DISPATCHER.md                # Dispatcher behavior and delegate rules
 │   ├── WORKER.md                    # Worker instructions
-│   └── ANALYZER.md                  # Analyzer behavior (passive observer)
+│   └── MEMORY.md                    # Memory service instructions
 ├── docs/                            # Reference documentation
 │   ├── SETUP.md                     # Full dev setup guide
 │   ├── ARCHITECTURE.md              # System architecture overview

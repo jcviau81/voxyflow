@@ -46,7 +46,7 @@ class ToolPromptBuilder:
         Result is cached per (layer, chat_level) — tool definitions are static at runtime.
 
         Args:
-            layer: "fast", "analyzer", or "deep"
+            layer: "fast" or "deep"
             chat_level: "general", "project", or "card"
 
         Returns:

@@ -26,7 +26,6 @@ IDENTITY_FILE = PERSONALITY_DIR / "IDENTITY.md"
 AGENTS_FILE = PERSONALITY_DIR / "AGENTS.md"
 DISPATCHER_FILE = PERSONALITY_DIR / "DISPATCHER.md"
 WORKER_FILE = PERSONALITY_DIR / "WORKER.md"
-ANALYZER_FILE = PERSONALITY_DIR / "ANALYZER.md"
 ARCHITECTURE_FILE = PERSONALITY_DIR / "ARCHITECTURE.md"
 PROACTIVE_FILE = PERSONALITY_DIR / "PROACTIVE.md"
 
@@ -164,9 +163,6 @@ class PersonalityService:
 
     def load_worker(self) -> str:
         return self._read_if_changed(WORKER_FILE)
-
-    def load_analyzer(self) -> str:
-        return self._read_if_changed(ANALYZER_FILE)
 
     def load_architecture(self) -> str:
         return self._read_if_changed(ARCHITECTURE_FILE)
@@ -848,52 +844,6 @@ class PersonalityService:
             f"CWD is set to {ws_dir} — use relative paths for workspace files.\n"
             "Voxyflow app codebase: ~/voxyflow/ (do NOT write project files here)."
         )
-
-    def build_analyzer_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project_names: Optional[list] = None, delegation: Optional[dict] = None) -> str:
-        analyzer_rules = self.load_analyzer()
-
-        context_note = ""
-        if chat_level == "general":
-            projs = ", ".join(project_names or []) or "none"
-            context_note = (
-                f"\n\nCurrent context: HOME PROJECT (default workspace, project_id=system-main).\n"
-                f"User's projects: {projs}\n"
-                "In the Home project, suggest CARDS for quick reminders and thoughts.\n"
-                "If the user mentions something that belongs in another project, suggest a CARD with the project name.\n"
-                "If the project doesn't exist yet, suggest creating it.\n"
-            )
-        elif chat_level == "project":
-            context_note = "\n\nCurrent context: PROJECT CHAT. Suggest CARDS for this project.\n"
-
-        mode_label = "Home Project" if chat_level == "general" else "Project Chat"
-
-        # Delegation mode: Analyzer received a simple CRUD action to suggest-then-execute
-        if delegation:
-            base = (
-                f"{analyzer_rules}\n\n"
-                f"## Active Mode: Delegated Action\n"
-                f"Context: {mode_label}\n"
-                "The Fast layer delegated a simple action to you.\n\n"
-                f"## Delegated Intent\n"
-                f"Intent: {delegation.get('intent', 'unknown')}\n"
-                f"Summary: {delegation.get('summary', '')}\n"
-            )
-            # Add available CRUD tools
-            from app.tools.registry import TOOLS_VOXYFLOW_CRUD
-            tool_list_text = self._build_tool_section(TOOLS_VOXYFLOW_CRUD, chat_level)
-            if tool_list_text:
-                base += f"\n## Available CRUD Tools\n{tool_list_text}\n"
-            base += context_note
-            return self.build_system_prompt(base_prompt=base, include_user=True, include_memory_context=memory_context)
-
-        # Standard mode: Analyzer runs in parallel to detect actionable items
-        base = (
-            f"{analyzer_rules}\n\n"
-            f"## Active Mode: Action Item Extraction\n"
-            f"Context: {mode_label}\n"
-            + context_note
-        )
-        return self.build_system_prompt(base_prompt=base, include_user=True, include_memory_context=memory_context)
 
     def build_agent_prompt(self, agent_persona: str, task_context: str, memory_context: Optional[str] = None) -> str:
         return self.build_system_prompt(base_prompt=task_context, include_memory_context=memory_context, agent_persona=agent_persona)

@@ -231,7 +231,7 @@ class Message(Base):
     role        = Column(String, nullable=False)      # user|assistant|system
     content     = Column(Text, nullable=False)
     audio_url   = Column(String, nullable=True)
-    model_used  = Column(String, nullable=True)       # fast|deep|analyzer
+    model_used  = Column(String, nullable=True)       # fast|deep
     tokens_used = Column(Integer, nullable=True)
     latency_ms  = Column(Integer, nullable=True)
     created_at  = Column(DateTime, default=utcnow)

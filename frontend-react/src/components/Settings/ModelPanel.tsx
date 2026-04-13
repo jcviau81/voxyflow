@@ -5,7 +5,7 @@
  * from frontend/src/components/Settings/SettingsPage.ts (lines 562–1815).
  *
  * Features:
- *  - Three model layers: Fast, Deep, Analyzer
+ *  - Two model layers: Fast, Deep
  *  - Per-layer: provider type (Claude / Ollama / OpenAI-compatible), URL, API key, model
  *  - Global Ollama URL with health-check / model-fetch button
  *  - Dynamic dropdown when Ollama models are fetched
@@ -21,7 +21,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type ProviderType = 'claude' | 'ollama' | 'openai_compatible';
-type LayerKey = 'fast' | 'deep' | 'analyzer';
+type LayerKey = 'fast' | 'deep';
 
 interface ModelLayerConfig {
   enabled: boolean;
@@ -34,7 +34,6 @@ interface ModelLayerConfig {
 interface ModelsSettings {
   fast: ModelLayerConfig;
   deep: ModelLayerConfig;
-  analyzer: ModelLayerConfig;
   default_worker_model: string;
 }
 
@@ -68,14 +67,12 @@ const DEFAULT_LAYER: ModelLayerConfig = {
 const DEFAULT_MODELS: ModelsSettings = {
   fast:     { ...DEFAULT_LAYER, model: 'claude-sonnet-4' },
   deep:     { ...DEFAULT_LAYER, model: 'claude-opus-4' },
-  analyzer: { ...DEFAULT_LAYER, model: 'claude-haiku-4' },
   default_worker_model: 'sonnet',
 };
 
 const LAYER_META: Record<LayerKey, { label: string; placeholder: string; showEnabled: boolean }> = {
   fast:     { label: '⚡ Fast',     placeholder: 'claude-sonnet-4',  showEnabled: false },
   deep:     { label: '🧠 Deep',     placeholder: 'claude-opus-4',    showEnabled: true  },
-  analyzer: { label: '🔍 Analyzer', placeholder: 'claude-haiku-4',   showEnabled: true  },
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -341,13 +338,12 @@ export function ModelPanel() {
     const merged: ModelsSettings = {
       fast:     { ...dm.fast,     ...(sm.fast     || {}) },
       deep:     { ...dm.deep,     ...(sm.deep     || {}) },
-      analyzer: { ...dm.analyzer, ...(sm.analyzer || {}) },
       default_worker_model: sm.default_worker_model ?? dm.default_worker_model,
     };
     reset(merged);
 
     // Detect Ollama URL from existing settings
-    for (const k of ['fast', 'deep', 'analyzer'] as LayerKey[]) {
+    for (const k of ['fast', 'deep'] as LayerKey[]) {
       const purl = merged[k]?.provider_url || '';
       if (purl.includes('11434') || purl.toLowerCase().includes('ollama')) {
         const base = purl.replace('/v1', '').replace(/\/$/, '');
@@ -361,7 +357,7 @@ export function ModelPanel() {
   useEffect(() => {
     if (!rawSettings) return;
     const sm = (rawSettings.models || {}) as Partial<ModelsSettings>;
-    const hasOllama = (['fast', 'deep', 'analyzer'] as LayerKey[]).some((l) => {
+    const hasOllama = (['fast', 'deep'] as LayerKey[]).some((l) => {
       const m = sm[l];
       return m && detectProviderType(m.provider_url, m.model) === 'ollama';
     });
@@ -462,7 +458,7 @@ export function ModelPanel() {
 
       {/* ── Layer rows ── */}
       <div className="flex flex-col">
-        {(['fast', 'deep', 'analyzer'] as LayerKey[]).map((key) => (
+        {(['fast', 'deep'] as LayerKey[]).map((key) => (
           <ModelLayerRow
             key={key}
             layerKey={key}

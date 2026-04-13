@@ -25,7 +25,6 @@ function getModelBadge(model: string): [string, string] {
   switch (m) {
     case 'fast':     return ['sonnet', 'bg-blue-500/15 text-blue-400'];
     case 'deep':     return ['opus', 'bg-purple-500/15 text-purple-400'];
-    case 'analyzer': return ['haiku', 'bg-green-500/15 text-green-400'];
     case 'worker':   return ['worker', 'bg-amber-500/15 text-amber-400'];
     default:         return [model, 'bg-muted'];
   }
@@ -88,6 +87,16 @@ function CodeBlock({ language, code }: CodeBlockProps) {
 // Markdown content renderer
 // ---------------------------------------------------------------------------
 
+/** Close unclosed code fences so ReactMarkdown renders truncated blocks properly. */
+function closeFences(text: string): string {
+  // Count triple-backtick fences (opening and closing use the same marker)
+  const fences = text.match(/^```/gm);
+  if (fences && fences.length % 2 !== 0) {
+    return text + '\n```';
+  }
+  return text;
+}
+
 interface MessageContentProps {
   content: string;
   streaming?: boolean;
@@ -99,11 +108,13 @@ function MessageContent({ content, streaming }: MessageContentProps) {
   const processed = replaceEmojiShortcodes(safeContent);
 
   // Hide delegate/tool_call blocks from rendered output
-  const cleaned = processed
-    .replace(/<delegate[\s\S]*?<\/delegate>/gi, '')
-    .replace(/<delegate[\s\S]*$/gi, '')
-    .replace(/<tool_call[\s\S]*?<\/tool_call>/gi, '')
-    .replace(/<tool_result[\s\S]*?<\/tool_result>/gi, '');
+  const cleaned = closeFences(
+    processed
+      .replace(/<delegate[\s\S]*?<\/delegate>/gi, '')
+      .replace(/<delegate[\s\S]*$/gi, '')
+      .replace(/<tool_call[\s\S]*?<\/tool_call>/gi, '')
+      .replace(/<tool_result[\s\S]*?<\/tool_result>/gi, ''),
+  );
 
   const isEmpty = !cleaned.trim() && !streaming;
 
@@ -115,11 +126,29 @@ function MessageContent({ content, streaming }: MessageContentProps) {
         <>
           <ReactMarkdown
             components={{
+              // Detect ALL code blocks via <pre> wrapper (react-markdown v10
+              // only adds className for language-annotated fences, so bare
+              // ``` blocks need detection at the <pre> level).
+              pre({ children }) {
+                const child = children as React.ReactElement<{
+                  className?: string;
+                  children?: React.ReactNode;
+                }>;
+                if (child?.props) {
+                  const cls = child.props.className || '';
+                  const match = /language-(\w+)/.exec(cls);
+                  const code = String(child.props.children).replace(/\n$/, '');
+                  return <CodeBlock language={match?.[1] ?? ''} code={code} />;
+                }
+                return <pre>{children}</pre>;
+              },
+              // Inline code only — block code is handled by the pre component above
               code({ className, children, ...props }) {
-                const match = /language-(\w+)/.exec(className || '');
                 const isBlock = className?.includes('language-');
-                const code = String(children).replace(/\n$/, '');
                 if (isBlock) {
+                  // Fallback: if pre component didn't catch it
+                  const match = /language-(\w+)/.exec(className || '');
+                  const code = String(children).replace(/\n$/, '');
                   return <CodeBlock language={match?.[1] ?? ''} code={code} />;
                 }
                 return (

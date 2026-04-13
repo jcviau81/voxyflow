@@ -13,8 +13,6 @@ Mode Deep (deep_enabled=True):
 Key constraint: Fast and Deep are MUTUALLY EXCLUSIVE for chat output.
 Only one model streams to chat per message — never two simultaneous responses.
 
-Analyzer (background, both modes): Detects actionable items → card suggestions.
-
 Event Bus Architecture:
   Chat response (Fast or Deep) emits ActionIntent events (parsed from <delegate> blocks).
   Deep workers listen on the per-session bus and execute actions in background.
@@ -32,7 +30,6 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
 from app.services.claude_service import ClaudeService
-from app.services.analyzer_service import AnalyzerService
 from app.services.session_store import session_store
 from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_registry
 from app.services.pending_results import pending_store
@@ -48,15 +45,15 @@ from app.services.orchestration.session_timeline import get_timeline
 logger = logging.getLogger("voxyflow.orchestration")
 
 # _format_result_for_card, DeepWorkerPool → app.services.orchestration.worker_pool
-# _run_fast_layer, _run_deep_chat_layer, _run_analyzer_layer → app.services.orchestration.layer_runners
+# _run_fast_layer, _run_deep_chat_layer → app.services.orchestration.layer_runners
 
 
 class ChatOrchestrator(LayerRunnersMixin):
-    """Orchestrates the 3-layer AI chat pipeline over a WebSocket connection.
+    """Orchestrates the multi-layer AI chat pipeline over a WebSocket connection.
 
     This class owns the *flow* — which layers to call, how to combine results,
     and what WebSocket events to emit.  The actual AI calls are delegated to
-    ClaudeService and AnalyzerService.
+    ClaudeService.
 
     Event Bus: After the Fast layer streams, any <delegate> blocks are parsed
     and emitted onto the session's event bus. Deep workers pick them up and
@@ -66,10 +63,8 @@ class ChatOrchestrator(LayerRunnersMixin):
     def __init__(
         self,
         claude_service: ClaudeService,
-        analyzer_service: AnalyzerService,
     ):
         self._claude = claude_service
-        self._analyzer = analyzer_service
         self._worker_pools: dict[str, DeepWorkerPool] = {}
         # Pending confirmations for destructive direct actions (taskId → delegate data)
         self._pending_confirms: dict[str, dict] = {}
@@ -150,12 +145,6 @@ class ChatOrchestrator(LayerRunnersMixin):
         if layers is None:
             layers = {}
         deep_enabled = layers.get("deep", layers.get("opus", False))
-        # Global gate: backend setting is the single source of truth.
-        # The frontend layers['analyzer'] key is intentionally ignored — it can be
-        # absent or stale from old localStorage, which would silently disable the
-        # analyzer even when the backend setting is ON.
-        from app.routes.settings import get_analyzer_enabled
-        analyzer_enabled = get_analyzer_enabled()
 
         # Helper to send model status updates
         async def send_model_status(model: str, state: str) -> None:
@@ -164,18 +153,6 @@ class ChatOrchestrator(LayerRunnersMixin):
                 "payload": {"model": model, "state": state, "sessionId": session_id},
                 "timestamp": int(time.time() * 1000),
             })
-
-        # Launch Analyzer in background (both modes)
-        # Skip analyzer for callbacks — worker results don't need card suggestions
-        analyzer_task = None
-        if analyzer_enabled and not is_callback:
-            await send_model_status("analyzer", "thinking")
-            analyzer_task = asyncio.create_task(
-                self._analyzer.analyze_for_cards(
-                    chat_id=chat_id, message=content, project_context=""
-                )
-            )
-            _bg_tasks.append(analyzer_task)
 
         # Build active workers context for dispatcher awareness
         active_workers_context = self.get_active_workers_context(session_id)
@@ -218,8 +195,6 @@ class ChatOrchestrator(LayerRunnersMixin):
             )
 
         if not chat_success:
-            if analyzer_task:
-                analyzer_task.cancel()
             return _bg_tasks
 
         # --- Parse delegates and emit to event bus (BACKGROUND — non-blocking) ---
@@ -274,19 +249,6 @@ class ChatOrchestrator(LayerRunnersMixin):
                     )
                     _bg_tasks.append(_t)
 
-        # --- Layer 3: Analyzer card suggestions (BACKGROUND — non-blocking) ---
-        if analyzer_enabled and analyzer_task is not None:
-            _t = asyncio.create_task(
-                self._run_analyzer_layer_safe(
-                    websocket=websocket,
-                    analyzer_task=analyzer_task,
-                    project_id=project_id,
-                    session_id=session_id,
-                    send_model_status=send_model_status,
-                )
-            )
-            _bg_tasks.append(_t)
-
         # --- Memory auto-extraction (BACKGROUND — non-blocking) ---
         # Skip for callbacks — worker results aren't user conversation
         if not is_callback:
@@ -301,7 +263,7 @@ class ChatOrchestrator(LayerRunnersMixin):
             _bg_tasks.append(_t)
 
         # handle_message returns HERE — WS handler is free for next message
-        logger.debug("[Orchestrator] handle_message returning (delegates + analyzer in background)")
+        logger.debug("[Orchestrator] handle_message returning (delegates in background)")
         return _bg_tasks
 
     # ------------------------------------------------------------------
@@ -554,32 +516,6 @@ class ChatOrchestrator(LayerRunnersMixin):
                 logger.info(f"[Orchestrator] Auto-extracted {len(stored)} memories from chat {chat_id}")
         except Exception as e:
             logger.error(f"[Orchestrator] Memory auto-extraction failed: {e}", exc_info=True)
-
-    async def _run_analyzer_layer_safe(
-        self,
-        websocket: WebSocket,
-        analyzer_task: asyncio.Task,
-        project_id: str | None,
-        session_id: str | None,
-        send_model_status,
-    ) -> None:
-        """Wrapper for analyzer that catches errors in background.
-
-        Note: this method is only called when analyzer_enabled=True has already
-        been verified by the caller (see _handle_message_inner). The
-        analyzer_enabled=True passed here is therefore always correct.
-        """
-        try:
-            await self._run_analyzer_layer(
-                websocket=websocket,
-                analyzer_enabled=True,  # Verified by caller before scheduling this task
-                analyzer_task=analyzer_task,
-                project_id=project_id,
-                session_id=session_id,
-                send_model_status=send_model_status,
-            )
-        except Exception as e:
-            logger.error(f"[Orchestrator] Background analyzer failed: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
     # Deduplication helper (shared by native + XML paths)

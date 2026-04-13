@@ -31,18 +31,18 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 │  │  Inline tools (card CRUD, memory, knowledge) │ │
 │  │  Fast mode (Haiku) / Deep mode (Opus)        │ │
 │  └──┬───────────────────────────────┬──────────┘ │
-│     │ <delegate> blocks             │ observes   │
-│  ┌──▼──────────────────────┐  ┌────▼─────────┐  │
-│  │   Background Workers    │  │   Analyzer    │  │
-│  │  ┌───────┐ ┌─────────┐ │  │  Passive      │  │
-│  │  │ Haiku │ │ Sonnet  │ │  │  observer     │  │
-│  │  │ CRUD  │ │Research │ │  │  Card detect  │  │
-│  │  └───────┘ └─────────┘ │  │  Patterns     │  │
-│  │  ┌───────┐             │  │  Suggestions  │  │
-│  │  │ Opus  │ ALL MCP     │  └──────────────┘  │
-│  │  │Complex│ tools here  │                     │
-│  │  └───────┘             │                     │
-│  └─────────────────────────┘                     │
+│     │ <delegate> blocks                              │
+│  ┌──▼──────────────────────┐                         │
+│  │   Background Workers    │                         │
+│  │  ┌───────┐ ┌─────────┐ │                         │
+│  │  │ Haiku │ │ Sonnet  │ │                         │
+│  │  │ CRUD  │ │Research │ │                         │
+│  │  └───────┘ └─────────┘ │                         │
+│  │  ┌───────┐             │                         │
+│  │  │ Opus  │ ALL MCP     │                         │
+│  │  │Complex│ tools here  │                         │
+│  │  └───────┘             │                         │
+│  └─────────────────────────┘                         │
 │                                                   │
 │  ┌─────────────┐ ┌──────────┐ ┌──────────────┐  │
 │  │ CLI Backend │ │ Memory   │ │ Personality  │  │
@@ -57,7 +57,6 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 
 - The **Chat Agent (Dispatcher)** has inline tools (card CRUD, memory, knowledge search) for fast operations, and emits `<delegate>` blocks for complex tasks.
 - **Workers** run in the background via `claude -p` subprocesses with full MCP tool access (~60 tools), and report results via WebSocket.
-- The **Analyzer** passively observes conversations and surfaces opportunities (card suggestions, patterns) without interrupting.
 
 ## Key Design Decisions
 
@@ -101,7 +100,7 @@ When any card is mutated via REST (create/update/move/delete), the backend broad
 Cards can be **executed**: "Execute" button → `POST /api/cards/{id}/execute` → backend builds a `[CARD EXECUTION]` prompt → sent through the 3-layer pipeline → Fast/Deep layer responds + workers execute with full tools → worker result auto-appended to card description → card moved to "done" → `cards:changed` broadcast → frontend modal updates in real-time via ReactiveCardStore.
 
 ### Agent Routing (Keyword-Based)
-Every card is auto-routed to a specialized agent type via two-pass keyword scoring (no LLM call). Pass 1: pattern + persona-keyword scoring (`analyzer_service.py:suggest_agent_type()`). Pass 2: weighted routing (`agent_router.py:AgentRouter.route()`). Resolution: high-confidence router wins, else pattern scorer, else fallback to general.
+Every card is auto-routed to a specialized agent type via two-pass keyword scoring (no LLM call). Pass 1: pattern + persona-keyword scoring (`agent_router.py:suggest_agent_type()`). Pass 2: weighted routing (`agent_router.py:AgentRouter.route()`). Resolution: high-confidence router wins, else pattern scorer, else fallback to general.
 
 ### Memory & Context
 - Conversation history persisted in SQLite
@@ -115,8 +114,7 @@ Every card is auto-routed to a specialized agent type via two-pass keyword scori
 2. **Chat Agent** → Responds conversationally + emits `<delegate>` blocks for actions
 3. **Dispatcher** → Routes delegate to background Worker (Haiku/Sonnet/Opus based on task)
 4. **Worker** → Executes task with tools → Reports result via WebSocket
-5. **Analyzer** → Passively observes conversation → Emits card suggestions
-6. **Response** → TTS (optional) + Chat Display + Worker results + Card suggestions
+5. **Response** → TTS (optional) + Chat Display + Worker results + Card suggestions
 7. **Cards** → Kanban Board (auto-categorized by status)
 
 ## Deployment
@@ -139,7 +137,6 @@ voxyflow/
 │   ├── USER.md                  # User context
 │   ├── DISPATCHER.md            # Dispatch protocol (inline tools, delegate rules)
 │   ├── WORKER.md                # Worker instructions
-│   ├── ANALYZER.md              # Analyzer behavior
 │   ├── AGENTS.md                # 7 agent personas
 │   └── MEMORY.md                # Memory service instructions
 ├── docs/                        # Reference documentation

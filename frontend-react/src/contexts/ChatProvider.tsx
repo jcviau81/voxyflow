@@ -46,7 +46,6 @@ export interface ChatCallbacks {
   onBoardExecuteComplete?: ChatEventCallback;
   onBoardExecuteCancelled?: ChatEventCallback;
   onBoardExecuteError?: ChatEventCallback;
-  onCardSuggestion?: (suggestion: CardSuggestion) => void;
   onVoiceFillInput?: (data: { text: string }) => void;
   onVoiceBufferUpdate?: (data: { text: string }) => void;
   onVoiceRecordingStop?: () => void;
@@ -58,15 +57,6 @@ export interface ChatCallbacks {
   }) => Promise<boolean>;
 }
 
-export interface CardSuggestion {
-  id: string;
-  title: string;
-  description: string;
-  agentType: string;
-  agentName: string;
-  agentEmoji: string;
-  timestamp: number;
-}
 
 // ---------------------------------------------------------------------------
 // Context value
@@ -216,7 +206,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const stored = localStorage.getItem('voxyflow_layer_toggles');
       if (stored) return JSON.parse(stored);
     } catch { /* ignore */ }
-    return { deep: true, analyzer: false };
+    return { deep: true };
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -643,31 +633,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           'error',
           5000,
         );
-      }),
-    );
-
-    // --- card:suggestion ---
-    unsubs.push(
-      subscribe('card:suggestion', (payload) => {
-        const { title, description, agentType, agentName } = payload as {
-          title: string;
-          description: string;
-          projectId: string;
-          agentType: string;
-          agentName: string;
-        };
-
-        const suggestion: CardSuggestion = {
-          id: generateId(),
-          title,
-          description,
-          agentType,
-          agentName,
-          agentEmoji: getAgentEmoji(agentType),
-          timestamp: Date.now(),
-        };
-        emitCallbacks('onCardSuggestion', suggestion);
-        showToast(`\u{1F4A1} New suggestion: "${title}"`, 'info', 3000);
       }),
     );
 

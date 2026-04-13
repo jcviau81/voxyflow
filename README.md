@@ -81,7 +81,7 @@ You never wait. You keep talking, thinking, planning — and results show up whe
 │  FastAPI Backend :8000          │
 │  ├─ Chat Agent (Dispatcher)     │
 │  ├─ Workers (background exec)   │
-│  ├─ Analyzer (passive observer) │
+│  ├─ MCP Server (SSE + stdio)    │
 │  ├─ MCP Server (SSE + stdio)    │
 │  ├─ RAG (ChromaDB)              │
 │  ├─ APScheduler                 │
@@ -107,7 +107,6 @@ You never wait. You keep talking, thinking, planning — and results show up whe
 - **Chat Agent (Dispatcher)** — Pure conversation. No tools. Always responsive. Dispatches work to Workers.
 - **Workers** — Background agents that execute real tasks (CRUD, research, code, file ops).
   - Routed by model: Haiku (simple CRUD), Sonnet (research), Opus (complex multi-step)
-- **Analyzer** — Passive background observer that auto-detects card opportunities from conversation
 - Results arrive in conversation when ready — no polling, no waiting, no frozen UI
 
 ### 📋 Project Management

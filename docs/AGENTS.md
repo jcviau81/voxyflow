@@ -20,7 +20,7 @@ Voxyflow uses a lightweight agent system inspired by BMAD (but simpler). Instead
 
 ### Automatic (on card creation)
 
-When a card is created (manually or from the analyzer), the **AgentRouter** scores it:
+When a card is created (manually or via AI suggestion), the **AgentRouter** scores it:
 
 ```
 Card: "Refactor the authentication API"
@@ -49,9 +49,9 @@ POST /api/cards/{card_id}/assign
 }
 ```
 
-### LLM-Assisted (when analyzer uses Claude)
+### LLM-Assisted
 
-The analyzer can ask Claude to determine the agent type as part of card extraction. The keyword router cross-validates: if they disagree and the router has high confidence (>0.7), the router wins.
+Claude can determine the agent type as part of card extraction. The keyword router cross-validates: if they disagree and the router has high confidence (>0.7), the router wins.
 
 ## Agent Prompt Architecture
 
@@ -142,7 +142,7 @@ class Card:
 3. Opus analyzes (background):
    Suggests splitting into phases, identifies dependencies
    │
-4. Analyzer detects actionable item:
+4. AI detects actionable item:
    ├── title: "Refactor API backend"
    ├── confidence: 0.75
    ├── agent_type: "architect" (design-heavy task)

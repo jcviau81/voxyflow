@@ -83,7 +83,6 @@
 |-------|-------|------|-------------|
 | **Fast** | Sonnet (`claude-sonnet-4-20250514`) | Chat responses, dispatching | Read-only |
 | **Deep** | Opus (`claude-opus-4-20250514`) | Background workers, complex tasks | Full |
-| **Analyzer** | Haiku (`claude-haiku-4-20250514`) | Card detection, suggestions | CRUD |
 
 ---
 

@@ -2,14 +2,14 @@
 
 **AI-powered voice project assistant.** Talk to your projects. Get things done.
 
-Voxyflow is a voice-first project management assistant that lives locally. You speak (or type), it understands the context of your current project or task card, and responds instantly via the Chat Agent (Dispatcher). Background Workers handle real execution (CRUD, research, code) without ever blocking the conversation. A passive Analyzer watches the conversation and silently detects actionable items, turning them into Kanban card suggestions.
+Voxyflow is a voice-first project management assistant that lives locally. You speak (or type), it understands the context of your current project or task card, and responds instantly via the Chat Agent (Dispatcher). Background Workers handle real execution (CRUD, research, code) without ever blocking the conversation.
 
 ---
 
 ## Key Features
 
 - **Voice input** — Push-to-Talk via Web Speech API (fr-CA or en-US)
-- **Dispatcher + Workers** — Chat Agent (Dispatcher) responds instantly, Workers execute in background, Analyzer detects opportunities passively
+- **Dispatcher + Workers** — Chat Agent (Dispatcher) responds instantly, Workers execute in background
 - **Project management** — Create projects with GitHub integration, tech stack auto-detection, and Kanban boards
 - **Kanban boards** — Per-project boards with drag & drop, 4 columns, agent assignment
 - **6 specialized agents** — Researcher, Coder, Designer, Architect, Writer, QA (+ default general mode)
@@ -40,18 +40,18 @@ Voxyflow is a voice-first project management assistant that lives locally. You s
 │  │  Chat Agent (Dispatcher) — zero tools             │   │
 │  │  Converses + emits <delegate> blocks              │   │
 │  │  Fast mode (Sonnet) / Deep mode (Opus)            │   │
-│  └───────┬──────────────────────────┬───────────────┘   │
-│          │ dispatches               │ observes          │
-│  ┌───────▼──────────────────┐ ┌────▼────────────────┐  │
-│  │  Background Workers      │ │  Analyzer            │  │
-│  │  Haiku (CRUD)            │ │  Passive observer    │  │
-│  │  Sonnet (research)       │ │  Card suggestions    │  │
-│  │  Opus (complex)          │ │  Pattern detection   │  │
-│  │  ALL tools live here     │ └─────────────────────┘  │
+│  └───────┬──────────────────────────────────────────┘   │
+│          │ dispatches                                   │
+│  ┌───────▼──────────────────┐                           │
+│  │  Background Workers      │                           │
+│  │  Haiku (CRUD)            │                           │
+│  │  Sonnet (research)       │                           │
+│  │  Opus (complex)          │                           │
+│  │  ALL tools live here     │                           │
 │  └───────┬──────────────────┘                           │
 │          │                                              │
 │  ┌───────▼──────────────────────────────────────────┐   │
-│  │  ClaudeService / AnalyzerService / RAGService     │   │
+│  │  ClaudeService / RAGService                        │   │
 │  └───────────────────────────┬───────────────────────┘   │
 │                              │                           │
 │  ┌───────────────────────────▼───────────────────────┐   │

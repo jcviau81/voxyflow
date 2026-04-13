@@ -44,8 +44,7 @@ test.describe('Model Indicators UI', () => {
     // Should contain a model identifier
     expect(
       badgeText?.includes('haiku') ||
-      badgeText?.includes('opus') ||
-      badgeText?.includes('analyzer')
+      badgeText?.includes('opus')
     ).toBeTruthy();
   });
 

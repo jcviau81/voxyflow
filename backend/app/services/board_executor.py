@@ -236,20 +236,20 @@ async def execute_board(
 
             # Send through chat orchestration pipeline.
             # handle_message awaits the full streaming response, then returns
-            # background tasks (delegates, analyzer, memory extraction).
+            # background tasks (delegates, memory extraction).
             bg_tasks = await orchestrator.handle_message(
                 websocket=websocket,
                 content=prompt,
                 message_id=message_id,
                 chat_id=chat_id,
                 project_id=project_id,
-                layers={"deep": False, "analyzer": False},
+                layers={"deep": False},
                 chat_level="project",
                 card_id=card_plan.id,
                 session_id=session_id,
             )
 
-            # Await background work (delegates, analyzer) before moving to the
+            # Await background work (delegates) before moving to the
             # next card — ensures delegate workers from card N finish before
             # card N+1 starts, and prevents interleaved WS messages.
             if bg_tasks:

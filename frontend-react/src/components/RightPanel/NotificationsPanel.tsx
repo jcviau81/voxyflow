@@ -11,7 +11,6 @@ function NotifIcon({ type }: { type: string }) {
     case 'card_created':     return <CheckCircle2 size={13} className="text-green-500" />;
     case 'card_deleted':     return <Trash2 size={13} className="text-red-400" />;
     case 'card_enriched':    return <Sparkles size={13} className="text-yellow-400" />;
-    case 'opportunity':      return <Bell size={13} />;
     case 'service_down':     return <AlertTriangle size={13} className="text-orange-400" />;
     case 'document_indexed': return <FileText size={13} />;
     case 'focus_completed':  return <Target size={13} className="text-blue-400" />;
@@ -32,11 +31,10 @@ function formatRelativeTime(timestamp: number): string {
 
 interface NotificationItemProps {
   notif: NotificationEntry;
-  onOpenOpportunities: () => void;
   selectCard: (id: string | null) => void;
 }
 
-function NotificationItem({ notif, onOpenOpportunities, selectCard }: NotificationItemProps) {
+function NotificationItem({ notif, selectCard }: NotificationItemProps) {
   const type = notif.type as NotificationType;
 
   return (
@@ -52,18 +50,6 @@ function NotificationItem({ notif, onOpenOpportunities, selectCard }: Notificati
         <span className="text-[10px] text-muted-foreground mt-0.5 block">
           {formatRelativeTime(notif.timestamp)}
         </span>
-
-        {/* Actions */}
-        {type === 'opportunity' && (
-          <div className="flex gap-1.5 mt-1.5">
-            <button
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-              onClick={(e) => { e.stopPropagation(); onOpenOpportunities(); }}
-            >
-              <Lightbulb size={11} /> View in Opportunities
-            </button>
-          </div>
-        )}
 
         {(type === 'card_created' || type === 'card_moved' || type === 'card_enriched') && notif.link && (
           <div className="flex gap-1.5 mt-1.5">
@@ -82,10 +68,9 @@ function NotificationItem({ notif, onOpenOpportunities, selectCard }: Notificati
 
 export interface NotificationsPanelProps {
   onClose: () => void;
-  onOpenOpportunities: () => void;
 }
 
-export function NotificationsPanel({ onClose, onOpenOpportunities }: NotificationsPanelProps) {
+export function NotificationsPanel({ onClose }: NotificationsPanelProps) {
   const notifications = useNotificationStore((s) => s.notifications);
   const markAllNotificationsRead = useNotificationStore((s) => s.markAllNotificationsRead);
   const clearNotifications = useNotificationStore((s) => s.clearNotifications);
@@ -137,7 +122,6 @@ export function NotificationsPanel({ onClose, onOpenOpportunities }: Notificatio
             <NotificationItem
               key={notif.id}
               notif={notif}
-              onOpenOpportunities={() => { onClose(); onOpenOpportunities(); }}
               selectCard={selectCard}
             />
           ))

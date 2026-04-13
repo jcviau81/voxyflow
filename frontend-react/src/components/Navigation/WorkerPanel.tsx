@@ -5,8 +5,7 @@
  *   SESSIONS
  *   └── Project Name
  *       ├── Project Chat - 🔵 Fast Session
- *       │   ├── 🔵 sonnet — action — 45s… [steer][cancel]
- *       │   └── 🟡 Analyzer
+ *       │   └── 🔵 sonnet — action — 45s… [steer][cancel]
  *       ├── Project Chat - 🟣 Deep Session
  *       │   └── 🟣 opus — action — 2m… [steer][cancel]
  *       └── Card: Title

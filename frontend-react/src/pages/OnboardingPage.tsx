@@ -89,12 +89,6 @@ export function OnboardingPage() {
           model: data.deep_model,
           enabled: true,
         },
-        analyzer: {
-          provider_url: data.api_url,
-          api_key: data.api_key,
-          model: 'claude-haiku-4',
-          enabled: true,
-        },
       },
       voice: {
         stt_engine: 'native',

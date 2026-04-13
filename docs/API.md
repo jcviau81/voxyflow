@@ -49,7 +49,7 @@ Primary real-time channel. One connection per browser session.
   "cardId": "string | null",
   "chatLevel": "general | project | card",
   "sessionId": "string",
-  "mode": { "deep": true, "analyzer": true }
+  "mode": { "deep": true }
 }
 ```
 
@@ -60,7 +60,7 @@ Primary real-time channel. One connection per browser session.
 | `pong` | Response to ping |
 | `chat:response` | Token chunk or stream-done signal from Chat Agent (Dispatcher) |
 | `chat:enrichment` | Deep mode enrichment/correction |
-| `card:suggestion` | Analyzer detected a card opportunity |
+| `card:suggestion` | AI detected a card opportunity |
 | `model:status` | Component state change (thinking/active/idle/error) |
 | `tool:result` | Result of an AI-triggered tool call |
 | `session:reset_ack` | Confirms session was cleared |
@@ -175,7 +175,7 @@ Add a message to a chat.
 **Request:**
 ```json
 {
-  "role": "user | assistant | system | analyzer",
+  "role": "user | assistant | system",
   "content": "message text",
   "audio_url": "optional URL"
 }
@@ -988,8 +988,7 @@ Get current settings (from `settings.json`).
       "model": "claude-sonnet-4",
       "enabled": true
     },
-    "deep": { ... },
-    "analyzer": { ... }
+    "deep": { ... }
   }
 }
 ```

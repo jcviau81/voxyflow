@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { Lightbulb, Bell, X, Home, Folder, Menu } from 'lucide-react';
+import { Bell, X, Home, Folder, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
@@ -9,12 +9,11 @@ import { useWS } from '../../providers/WebSocketProvider';
 import type { Tab } from '../../types';
 
 interface TabBarProps {
-  opportunityCount?: number;
-  onPanelToggle?: (tab: 'opportunities' | 'notifications') => void;
+  onPanelToggle?: (tab: 'notifications') => void;
   onSidebarToggle?: () => void;
 }
 
-export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }: TabBarProps) {
+export function TabBar({ onPanelToggle, onSidebarToggle }: TabBarProps) {
   const navigate = useNavigate();
   const openTabs = useTabStore((s) => s.openTabs);
   const activeTab = useTabStore((s) => s.activeTab);
@@ -117,12 +116,6 @@ export function TabBar({ opportunityCount = 0, onPanelToggle, onSidebarToggle }:
 
       {/* Right-side panel triggers */}
       <div className="ml-auto flex items-center gap-0.5 pl-2 flex-shrink-0">
-        <PanelTrigger
-          icon={<Lightbulb size={15} />}
-          count={opportunityCount}
-          title="Opportunities"
-          onClick={() => onPanelToggle?.('opportunities')}
-        />
         <PanelTrigger
           icon={<Bell size={15} />}
           count={notificationUnreadCount}

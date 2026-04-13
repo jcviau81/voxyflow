@@ -40,7 +40,7 @@ Every Claude API call builds a layered system prompt:
 │ Layer 4: Specialized Role        │  ← Agent persona (if applicable)
 │   Researcher/Coder/etc. prompt   │
 ├──────────────────────────────────┤
-│ Layer 5: Current Task            │  ← Haiku/Opus/Analyzer instructions
+│ Layer 5: Current Task            │  ← Haiku/Opus instructions
 │   What to do right now           │
 └──────────────────────────────────┘
 ```
@@ -51,7 +51,6 @@ Every Claude API call builds a layered system prompt:
 |-------|-------------|--------|----------------|
 | **Haiku** (voice) | Full SOUL + IDENTITY | Daily logs only | ⚡ Fast |
 | **Opus** (deep) | Full SOUL + IDENTITY | Full MEMORY + daily | 🧠 Thorough |
-| **Analyzer** (cards) | Light (structural) | Daily logs | ⚡ Fast |
 | **Agent** (specialized) | Full + persona overlay | Full MEMORY + daily | 🧠 Thorough |
 
 ### Memory Integration
@@ -103,9 +102,6 @@ The Voxyflow workspace files ARE the database. They're version-controlled (git),
 
 ### Why different memory depth per layer?
 Speed vs. context tradeoff. Haiku needs to respond in <1s — loading 30KB of MEMORY.md kills that. Opus runs async, so it can afford the fuller picture. This mirrors how humans think: quick responses use recent memory, deep analysis draws on everything.
-
-### Why personality in the Analyzer?
-Even the analyzer benefits from knowing the user. If USER.md says "JC works on web apps in Python," the analyzer can better determine if "deploy the thing" means code deployment vs. something else.
 
 ## Example: Before vs. After Personality
 

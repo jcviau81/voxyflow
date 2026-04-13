@@ -27,7 +27,7 @@ TOOLS_READ_ONLY = {
     "memory.search", "knowledge.search",
 }
 
-# CRUD tools: Analyzer (Haiku) can do trivial dashboard actions
+# CRUD tools: workers can do dashboard read + write actions
 TOOLS_VOXYFLOW_CRUD = TOOLS_READ_ONLY | {
     "memory.save",
     "voxyflow.card.create_unassigned",
@@ -57,7 +57,6 @@ TOOLS_FULL = TOOLS_VOXYFLOW_CRUD | {
 
 _LAYER_TOOL_SETS = {
     "fast": TOOLS_READ_ONLY,
-    "analyzer": TOOLS_VOXYFLOW_CRUD,
     "deep": TOOLS_FULL,
 }
 
@@ -91,7 +90,7 @@ class ToolRegistry:
         return [t for t in self._tools.values() if t.category in categories]
 
     def get_by_layer(self, layer: str) -> list[ToolDefinition]:
-        """Return tools allowed for a given layer (fast/analyzer/deep)."""
+        """Return tools allowed for a given layer (fast/deep)."""
         allowed_names = _LAYER_TOOL_SETS.get(layer, TOOLS_READ_ONLY)
         return [t for name, t in self._tools.items() if name in allowed_names]
 

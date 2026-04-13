@@ -200,24 +200,6 @@ class ClaudeService(ApiCallerMixin):
             )
             self.haiku_client_type = "openai"
 
-        # --- Analyzer layer ---
-        analyzer_cfg = overrides.get("analyzer", {})
-        analyzer_model_raw = analyzer_cfg.get("model", "").strip()
-        self.analyzer_model = _resolve_model(analyzer_model_raw or config.claude_analyzer_model)
-        analyzer_key = _get_api_key_from_settings(analyzer_cfg) or default_api_key
-        if self.use_cli:
-            self.analyzer_client = None
-            self.analyzer_client_type = "cli"
-        elif self.use_native and analyzer_key:
-            self.analyzer_client = _make_anthropic_client(analyzer_key, analyzer_cfg.get("provider_url", config.claude_api_base))
-            self.analyzer_client_type = "anthropic"
-        else:
-            self.analyzer_client = _make_openai_client(
-                analyzer_cfg.get("provider_url", config.claude_proxy_url),
-                analyzer_cfg.get("api_key") or default_api_key,
-            )
-            self.analyzer_client_type = "openai"
-
         # Legacy single client (backward compat, always OpenAI-compat proxy)
         if not self.use_cli:
             from openai import OpenAI as _OAI
@@ -253,7 +235,6 @@ class ClaudeService(ApiCallerMixin):
             ("fast", "fast", config.claude_sonnet_model),
             ("deep", "deep", config.claude_deep_model),
             ("haiku", "haiku", "claude-haiku-4"),
-            ("analyzer", "analyzer", config.claude_analyzer_model),
         ]:
             cfg = overrides.get(layer, {})
             model_raw = cfg.get("model", "").strip()
@@ -282,8 +263,7 @@ class ClaudeService(ApiCallerMixin):
             f"ClaudeService reloaded — "
             f"fast={self.fast_model}({self.fast_client_type}) | "
             f"deep={self.deep_model}({self.deep_client_type}) | "
-            f"haiku={self.haiku_model}({self.haiku_client_type}) | "
-            f"analyzer={self.analyzer_model}({self.analyzer_client_type})"
+            f"haiku={self.haiku_model}({self.haiku_client_type})"
         )
 
     def _infer_layer(self, model: str) -> str:
@@ -294,8 +274,6 @@ class ClaudeService(ApiCallerMixin):
             return "deep"
         if model == self.haiku_model:
             return "haiku"
-        if model == self.analyzer_model:
-            return "analyzer"
         return "unknown"
 
     # ------------------------------------------------------------------
@@ -305,7 +283,7 @@ class ClaudeService(ApiCallerMixin):
     def get_history(self, chat_id: str) -> list[dict]:
         """Return conversation history for *chat_id*, loading from the session
         store on first access.  Because ClaudeService is a singleton, this
-        history is shared across all layers (fast, deep, analyzer).
+        history is shared across all layers (fast, deep, haiku).
 
         NOTE: Callers that mutate the history (append) should use
         _append_and_persist() under the per-chat lock instead of
@@ -398,7 +376,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.haiku_client,
                 client_type=self.haiku_client_type,
                 use_tools=False,
-                layer="analyzer",
+                layer="haiku",
                 chat_level="general",
             )
             return (summary or "").strip()
@@ -1092,7 +1070,7 @@ class ClaudeService(ApiCallerMixin):
             client_type=client_type,
             use_tools=True,
             tool_callback=tool_callback,
-            layer="analyzer",
+            layer="haiku",
             chat_id=chat_id,
             cancel_event=cancel_event,
             message_queue=message_queue,

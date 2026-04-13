@@ -29,7 +29,7 @@ Direct API calls via `anthropic` Python SDK. Requires API key.
 Proxy at `localhost:3457`. Being deprecated (Anthropic cutting third-party harness access).
 
 ## Key Files
-- `backend/app/services/claude_service.py` — ClaudeService singleton, 4 layers (fast/deep/haiku/analyzer)
+- `backend/app/services/claude_service.py` — ClaudeService singleton, 3 layers (fast/deep/haiku)
 - `backend/app/services/llm/api_caller.py` — ApiCallerMixin, dispatch hub (`_call_api`, `_call_api_stream`)
 - `backend/app/services/llm/cli_backend.py` — ClaudeCliBackend (subprocess management)
 - `backend/app/services/llm/client_factory.py` — SDK client creation

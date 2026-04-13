@@ -20,7 +20,6 @@ from app.database import init_db, SYSTEM_MAIN_PROJECT_ID
 from app.routes import projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers, models, worker_tasks, cli_sessions, backup
 from app.routes.health import metrics_router
 from app.services.claude_service import ClaudeService
-from app.services.analyzer_service import AnalyzerService
 from app.services.chat_orchestration import ChatOrchestrator
 from app.services.rag_service import get_rag_service
 from app.services.scheduler_service import get_scheduler_service
@@ -104,10 +103,6 @@ async def lifespan(app: FastAPI):
         if _db_settings:
             import app.routes.settings as _settings_mod
             _settings_mod._cached_default_worker_model = _db_settings.get("models", {}).get("default_worker_model", "sonnet")
-            # Also restore analyzer_enabled from DB so the gate is correct before
-            # any GET /api/settings call is made (prevents analyzer running on first
-            # message after a server restart when it was disabled in settings).
-            _settings_mod._cached_analyzer_enabled = _db_settings.get("models", {}).get("analyzer", {}).get("enabled", False)
             # Write DB settings to settings.json so _load_model_overrides() finds them
             _merged = AppSettings(**_db_settings).dict()
             os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
@@ -392,8 +387,7 @@ app.include_router(mcp_routes.router)  # MCP server (SSE + stdio, no /api prefix
 
 
 _claude_service = ClaudeService()
-_analyzer_service = AnalyzerService()
-_orchestrator = ChatOrchestrator(_claude_service, _analyzer_service)
+_orchestrator = ChatOrchestrator(_claude_service)
 
 
 
@@ -478,7 +472,7 @@ async def general_websocket(websocket: WebSocket):
                     project_id = payload.get("projectId")
                     card_id = payload.get("cardId")
                     chat_level = payload.get("chatLevel", "general")
-                    msg_layers = payload.get("layers")  # {deep: bool, analyzer: bool}
+                    msg_layers = payload.get("layers")  # {deep: bool}
 
                     session_id = payload.get("sessionId") or str(uuid4())
 
@@ -537,7 +531,7 @@ async def general_websocket(websocket: WebSocket):
                         },
                     })
 
-                    # 3-Layer orchestration (Fast + Deep + Analyzer in parallel)
+                    # Multi-layer orchestration (Fast XOR Deep + delegates in background)
                     # Fix 3: collect returned background tasks for cleanup on disconnect
                     try:
                         new_tasks = await _orchestrator.handle_message(
@@ -800,7 +794,7 @@ async def general_websocket(websocket: WebSocket):
     finally:
         # Unregister from broadcast
         ws_broadcast.unregister(websocket)
-        # Cancel WS-bound background tasks (analyzer streams, kanban exec, …).
+        # Cancel WS-bound background tasks (kanban exec, delegate streams, …).
         # Delegate emission tasks are shielded internally so in-flight worker
         # spawns complete even if the parent task is cancelled here.
         # Worker pools are INTENTIONALLY left alive: a page refresh or device

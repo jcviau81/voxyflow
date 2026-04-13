@@ -304,7 +304,7 @@ class Message(Base):
 
     id = Column(String, primary_key=True, default=new_uuid)
     chat_id = Column(String, ForeignKey("chats.id"), nullable=False)
-    role = Column(String, nullable=False)  # user | assistant | system | analyzer
+    role = Column(String, nullable=False)  # user | assistant | system
     content = Column(Text, nullable=False)
     audio_url = Column(String, nullable=True)
     model_used = Column(String, nullable=True)

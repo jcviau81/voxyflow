@@ -325,8 +325,7 @@ def _make_orchestrator():
     from app.services.chat_orchestration import ChatOrchestrator
 
     claude_service = MagicMock()
-    analyzer_service = MagicMock()
-    return ChatOrchestrator(claude_service, analyzer_service)
+    return ChatOrchestrator(claude_service)
 
 
 def _mock_ws():

@@ -103,7 +103,7 @@ class CardResponse(BaseModel):
 
 
 class CardSuggestion(BaseModel):
-    """Pushed to client via WebSocket when analyzer detects a potential card."""
+    """Card suggestion model for potential card creation."""
     title: str
     description: str
     priority: int = 0

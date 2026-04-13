@@ -31,7 +31,6 @@ Every chat message flows through the Dispatcher + Workers architecture:
 |-----------|------|-------|----------|
 | **Chat Agent (Dispatcher)** | Conversational interface, zero tools | Fast mode: Haiku / Deep mode: Opus | Streams response, dispatches work via `<delegate>` blocks |
 | **Workers** | Background task execution with full tool access | Haiku (CRUD), Sonnet (research), Opus (complex) | Launched by Dispatcher, never blocks conversation |
-| **Analyzer** | Passive background observer | Configurable (default: Haiku) | Detects card opportunities, patterns, suggestions |
 
 **Flow:**
 1. User sends message
@@ -39,10 +38,9 @@ Every chat message flows through the Dispatcher + Workers architecture:
 3. If action is needed, Dispatcher includes `<delegate>` blocks in the response
 4. Delegate blocks are parsed and routed to background Workers (Haiku/Sonnet/Opus)
 5. Workers execute with full tool access and report results via WebSocket
-6. Analyzer passively observes and emits `card:suggestion` events
-7. **The conversation is never blocked** — Workers and Analyzer run in the background
+6. **The conversation is never blocked** — Workers run in the background
 
-**Layer toggles:** Deep mode and Analyzer can each be disabled per-message via the ModelStatusBar toggle buttons. Fast mode is always on.
+**Layer toggles:** Deep mode can be disabled per-message via the ModelStatusBar toggle button. Fast mode is always on.
 
 ---
 
@@ -58,7 +56,7 @@ Chat responses stream token-by-token over WebSocket (`/ws`). The client appends 
 | `chat:response` | Stream complete signal (`streaming: true, done: true`) |
 | `task:started` | Background Worker launched (includes task ID, model) |
 | `task:completed` | Worker finished executing (includes result) |
-| `card:suggestion` | Analyzer detected an actionable card |
+| `card:suggestion` | AI detected an actionable card |
 | `model:status` | Model state change (thinking/active/idle/error) |
 | `tool:result` | Worker executed a tool (navigation, card creation, etc.) |
 | `session:reset_ack` | Session cleared |
@@ -121,10 +119,10 @@ Type `/` in the chat input to trigger the slash command menu with keyboard navig
 
 ### Layer Toggles
 
-The Model Status Bar (below the input area) shows live status for each component. Deep mode and Analyzer have checkbox toggles:
+The Model Status Bar (below the input area) shows live status for each component. Deep mode has a checkbox toggle:
 
 - Toggle state is persisted in `localStorage` (`voxyflow_layer_toggles`)
-- Each message includes the current `layers` object: `{ deep: bool, analyzer: bool }`
+- Each message includes the current `layers` object: `{ deep: bool }`
 - Backend respects the toggle — skips the component entirely if disabled
 - Fast mode = Chat Agent uses Haiku; Deep mode = Chat Agent uses Opus
 - Workers are independent of mode toggles — they select their own model based on task complexity
@@ -173,7 +171,7 @@ A dedicated `/ws/voice/{chat_id}` WebSocket handles voice sessions (legacy, pre-
 - Accepts `WSTranscript` frames (text transcripts from client)
 - Runs the same Dispatcher + Workers pipeline
 - Returns `WSAssistantText` + `WSAssistantAudio` (TTS via remote XTTS service)
-- Workers and Analyzer run as fire-and-forget background tasks
+- Workers run as fire-and-forget background tasks
 
 **Note:** Primary UI uses the general `/ws` endpoint. The voice WS is an alternate pipeline for dedicated voice clients.
 
@@ -270,7 +268,7 @@ A card-based scratchpad for brainstorming:
 - Quick-add form
 - 6 pastel colors
 - Grid layout with delete and promote actions
-- AI-suggested cards (via background Analyzer)
+- AI-suggested cards
 
 ---
 
@@ -539,7 +537,7 @@ One-click AI enrichment of a card:
 
 The Opportunities panel appears in each project view and collects AI-suggested cards:
 
-- **Source:** Background Analyzer passively observes and emits `card:suggestion` WebSocket events
+- **Source:** AI passively observes and emits `card:suggestion` WebSocket events
 - **Display:** Suggestions queue in the panel with title, description, and suggested agent
 - **Actions:** "Create Card" → calls `POST /api/projects/{id}/cards` with `auto_generated: true`; "Dismiss" removes from panel
 - **Notification:** Tab gets a notification dot when a new suggestion arrives
@@ -726,9 +724,9 @@ The card form renders all 7 agents as clickable chips. Clicking a chip selects t
 
 `/agent coder` — Switches the active agent persona for the current chat session. Emits `AGENT_SWITCH` event which the frontend uses to prefix future messages with the selected agent's system prompt.
 
-### Analyzer Auto-Suggests Agent
+### Auto-Suggests Agent
 
-When the Analyzer detects a card suggestion, it also suggests an appropriate agent type based on the card content. This is included in the `card:suggestion` WebSocket event's `agentType` field.
+When a card suggestion is detected, an appropriate agent type is also suggested based on the card content. This is included in the `card:suggestion` WebSocket event's `agentType` field.
 
 ### Auto-Routing
 
@@ -798,7 +796,6 @@ Configure each model role independently:
 |------|----------------|---------------|---------|
 | Fast | CLI subprocess (`claude -p`) | `claude-haiku-4-5` | Chat Agent (Dispatcher) — Fast mode |
 | Deep | CLI subprocess (`claude -p`) | `claude-opus-4` | Chat Agent (Dispatcher) — Deep mode |
-| Analyzer | CLI subprocess (`claude -p`) | `claude-haiku-4-5` | Background Analyzer (passive observer) |
 
 **Recommended backend:** `CLAUDE_USE_CLI=true` in `backend/.env` — spawns `claude -p` subprocesses using your Claude Max subscription. No API key required, no proxy. The OpenAI-compatible proxy at `:3457` is deprecated.
 
@@ -1004,7 +1001,7 @@ Persistent bar below the chat input showing the state of each model layer:
 | `active` | "responding" | Green dot |
 | `error` | "error" | Red dot |
 
-Toggles for Deep and Analyzer rendered as checkboxes.
+Toggle for Deep rendered as a checkbox.
 
 ### Toast Notifications
 

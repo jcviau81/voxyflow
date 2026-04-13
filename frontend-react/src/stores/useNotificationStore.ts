@@ -14,9 +14,6 @@ export interface NotificationState {
   // Activity feed (per project)
   activities: Record<string, ActivityEntry[]>;
 
-  // Unread opportunity badge
-  opportunityBadgeCount: number;
-
   // --- Notifications ---
   addNotification: (entry: Omit<NotificationEntry, 'id' | 'timestamp' | 'read'>) => NotificationEntry;
   markAllNotificationsRead: () => void;
@@ -28,11 +25,6 @@ export interface NotificationState {
   addActivity: (projectId: string, type: ActivityType, message: string) => ActivityEntry;
   getActivities: (projectId: string, limit?: number) => ActivityEntry[];
   clearActivities: (projectId: string) => void;
-
-  // --- Opportunity Badge ---
-  incrementOpportunityBadge: () => void;
-  clearOpportunityBadge: () => void;
-  getOpportunityBadgeCount: () => number;
 }
 
 export const useNotificationStore = create<NotificationState>()(
@@ -41,7 +33,6 @@ export const useNotificationStore = create<NotificationState>()(
       notifications: [],
       notificationUnreadCount: 0,
       activities: {},
-      opportunityBadgeCount: 0,
 
       // --- Notifications ---
 
@@ -109,20 +100,6 @@ export const useNotificationStore = create<NotificationState>()(
           delete activities[projectId];
           return { activities };
         });
-      },
-
-      // --- Opportunity Badge ---
-
-      incrementOpportunityBadge() {
-        set((s) => ({ opportunityBadgeCount: s.opportunityBadgeCount + 1 }));
-      },
-
-      clearOpportunityBadge() {
-        set({ opportunityBadgeCount: 0 });
-      },
-
-      getOpportunityBadgeCount() {
-        return get().opportunityBadgeCount;
       },
     }),
     {

@@ -100,7 +100,6 @@ class Settings(BaseSettings):
     claude_fast_model: str = "claude-haiku-4-6"
     claude_sonnet_model: str = "claude-sonnet-4-6"
     claude_deep_model: str = "claude-opus-4-6"
-    claude_analyzer_model: str = "claude-sonnet-4-6"
     claude_max_tokens: int = 1024           # Legacy fallback — prefer model-specific below
     claude_max_tokens_haiku: int = 8192
     claude_max_tokens_sonnet: int = 16000
@@ -110,7 +109,6 @@ class Settings(BaseSettings):
     fast_context_messages: int = 20
     deep_context_messages: int = 100
     chat_window_size: int = 6  # sliding window: keep N recent messages verbatim, summarize older
-    analyzer_enabled: bool = False
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

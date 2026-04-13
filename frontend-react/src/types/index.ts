@@ -12,7 +12,7 @@ export type ViewMode =
   | 'knowledge';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'coder' | 'architect' | 'designer' | 'devops' | 'analyst' | 'tester' | 'writer';
-export type ModelName = 'fast' | 'deep' | 'analyzer';
+export type ModelName = 'fast' | 'deep';
 export type ModelState = 'active' | 'thinking' | 'idle' | 'error';
 
 export interface ModelStatusEvent {
@@ -221,7 +221,6 @@ export type NotificationType =
   | 'card_created'
   | 'card_deleted'
   | 'card_enriched'
-  | 'opportunity'
   | 'service_down'
   | 'document_indexed'
   | 'focus_completed'

@@ -8,7 +8,7 @@
  *         .tab-bar-container         ← TabBar (session tabs + panel triggers)
  *         .project-header-container  ← ProjectHeader (view tabs: kanban/chat/stats…)
  *         main.main-content          ← <Outlet /> (routed page)
- *     OpportunitiesPanel / NotificationsPanel drawers (fixed, toggled from TabBar)
+ *     NotificationsPanel drawer (fixed, toggled from TabBar)
  */
 import { Outlet, useLocation } from 'react-router-dom';
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -21,24 +21,19 @@ import { CardDetailModal } from '../CardDetail';
 import { Sidebar } from '../Navigation/Sidebar';
 import { TabBar } from '../Navigation/TabBar';
 import { ProjectHeader, ProjectForm } from '../Projects';
-import { OpportunitiesPanel } from '../RightPanel/OpportunitiesPanel';
 import { NotificationsPanel } from '../RightPanel/NotificationsPanel';
-import { useChatService } from '../../contexts/useChatService';
 import { useProjects } from '../../hooks/api/useProjects';
 import { useWorkerSync } from '../../hooks/useWorkerSync';
-import type { CardSuggestion } from '../../contexts/ChatProvider';
 
-type OpenPanel = 'opportunities' | 'notifications' | null;
+type OpenPanel = 'notifications' | null;
 
 export function AppShell() {
   const location = useLocation();
   const isFullPage = ['/settings', '/jobs', '/projects'].includes(location.pathname);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
-  const [opportunities, setOpportunities] = useState<CardSuggestion[]>([]);
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
   const [editProjectId, setEditProjectId] = useState<string | null>(null);
   const theme = useThemeStore((s) => s.theme);
-  const { registerCallbacks } = useChatService();
 
   // Wire WS → worker store (must be inside WebSocketProvider)
   useWorkerSync();
@@ -86,20 +81,9 @@ export function AppShell() {
     }
   }, [location.pathname]);
 
-  // Subscribe to card suggestion events from ChatProvider
-  useEffect(() => {
-    return registerCallbacks({
-      onCardSuggestion: (suggestion) => {
-        setOpportunities((prev) => [...prev, suggestion]);
-      },
-    });
-    // registerCallbacks is stable (useCallback with [])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const toggleSidebar = useCallback(() => setSidebarOpen((o) => !o), []);
 
-  const handlePanelToggle = useCallback((panel: 'opportunities' | 'notifications') => {
+  const handlePanelToggle = useCallback((panel: 'notifications') => {
     setOpenPanel((prev) => (prev === panel ? null : panel));
   }, []);
 
@@ -122,14 +106,6 @@ export function AppShell() {
     document.addEventListener('keydown', handleKeydown);
     return () => document.removeEventListener('keydown', handleKeydown);
   }, [toggleSidebar]);
-
-  const handleOpportunityAccepted = useCallback((id: string) => {
-    setOpportunities((prev) => prev.filter((o) => o.id !== id));
-  }, []);
-
-  const handleOpportunityDismissed = useCallback((id: string) => {
-    setOpportunities((prev) => prev.filter((o) => o.id !== id));
-  }, []);
 
   const closePanel = useCallback(() => setOpenPanel(null), []);
 
@@ -154,7 +130,6 @@ export function AppShell() {
           {!isFullPage && (
             <>
               <TabBar
-                opportunityCount={opportunities.length}
                 onPanelToggle={handlePanelToggle}
                 onSidebarToggle={toggleSidebar}
               />
@@ -173,23 +148,6 @@ export function AppShell() {
         <div className="fixed inset-0 z-40" onClick={closePanel} />
       )}
 
-      {/* ── Opportunities drawer ── */}
-      <aside
-        className={cn(
-          'fixed top-0 right-0 bottom-0 z-50 w-72 flex flex-col',
-          'bg-secondary border-l border-border shadow-2xl',
-          'transition-transform duration-200',
-          openPanel === 'opportunities' ? 'translate-x-0' : 'translate-x-full',
-        )}
-      >
-        <OpportunitiesPanel
-          opportunities={opportunities}
-          onAccepted={handleOpportunityAccepted}
-          onDismissed={handleOpportunityDismissed}
-          onClose={closePanel}
-        />
-      </aside>
-
       {/* ── Notifications drawer ── */}
       <aside
         className={cn(
@@ -199,10 +157,7 @@ export function AppShell() {
           openPanel === 'notifications' ? 'translate-x-0' : 'translate-x-full',
         )}
       >
-        <NotificationsPanel
-          onClose={closePanel}
-          onOpenOpportunities={() => setOpenPanel('opportunities')}
-        />
+        <NotificationsPanel onClose={closePanel} />
       </aside>
 
       {/* Global card detail modal */}

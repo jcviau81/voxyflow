@@ -5,8 +5,7 @@ Comprehensive test suite verifying:
 2. Chat Init content correctness per level
 3. Context isolation — no data leaks between levels
 4. Tool call fallback parsing (regex extraction)
-5. Analyzer output format expectations
-6. Deep layer prompt (chat responder mode)
+5. Deep layer prompt (chat responder mode)
 7. Integration tests against the running backend API
 
 Unit tests run standalone (no server needed).
@@ -471,52 +470,6 @@ class TestToolNameConversion:
             assert roundtripped == mcp_name, (
                 f"Roundtrip failed: {mcp_name} → {claude_name} → {roundtripped}"
             )
-
-
-class TestAnalyzerPrompt:
-    """Test 6: Verify the analyzer prompt structure and content."""
-
-    def _ps(self):
-        from app.services.personality_service import PersonalityService
-        return PersonalityService()
-
-    def test_analyzer_requests_json(self):
-        ps = self._ps()
-        prompt = ps.build_analyzer_prompt(chat_level="general", project_names=["Test"])
-        assert "JSON" in prompt
-
-    def test_analyzer_has_suggestion_types(self):
-        ps = self._ps()
-        prompt = ps.build_analyzer_prompt(chat_level="general", project_names=["Test"])
-        assert "card-mainboard|card|project" in prompt
-
-    def test_analyzer_requires_verb_titles(self):
-        ps = self._ps()
-        prompt = ps.build_analyzer_prompt(chat_level="general")
-        assert "Verb" in prompt or "VERB" in prompt
-        assert "Fix" in prompt or "Add" in prompt or "Create" in prompt
-
-    def test_analyzer_general_context_mentions_main_project(self):
-        ps = self._ps()
-        prompt = ps.build_analyzer_prompt(chat_level="general", project_names=["Voxyflow"])
-        assert "Main" in prompt
-        assert "MAIN PROJECT" in prompt or "Main Project" in prompt or "main project" in prompt.lower()
-
-    def test_analyzer_project_context(self):
-        ps = self._ps()
-        prompt = ps.build_analyzer_prompt(chat_level="project")
-        assert "PROJECT CHAT" in prompt or "Project Chat" in prompt
-
-    def test_analyzer_has_bad_examples(self):
-        ps = self._ps()
-        prompt = ps.build_analyzer_prompt(chat_level="general")
-        assert "BAD Example" in prompt or "too vague" in prompt or "too broad" in prompt, \
-            "Analyzer prompt should have bad examples"
-
-    def test_analyzer_has_good_examples(self):
-        ps = self._ps()
-        prompt = ps.build_analyzer_prompt(chat_level="general")
-        assert "✅" in prompt, "Analyzer prompt should have good examples"
 
 
 class TestDeepPrompt:
