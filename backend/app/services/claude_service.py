@@ -577,6 +577,19 @@ class ClaudeService(ApiCallerMixin):
         return self._pending_delegates.pop(chat_id, [])
 
     # ------------------------------------------------------------------
+    # Worker class context for dispatcher
+    # ------------------------------------------------------------------
+
+    async def _load_worker_classes_context(self) -> list[dict]:
+        """Load worker classes for injection into dispatcher context."""
+        from app.services.llm.worker_class_resolver import _load_worker_classes
+        try:
+            return await _load_worker_classes()
+        except Exception as e:
+            logger.warning(f"Failed to load worker classes for context: {e}")
+            return []
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -614,11 +627,13 @@ class ClaudeService(ApiCallerMixin):
 
         # Dynamic context (per-call, not cached)
         dynamic_parts: list[str] = []
+        wc_list = await self._load_worker_classes_context()
         dynamic_context = self.personality.build_dynamic_context_block(
             chat_level=chat_level,
             project=project_context,
             card=card_context,
             memory_context=memory_context,
+            worker_classes=wc_list,
         )
         if dynamic_context:
             dynamic_parts.append(dynamic_context)
@@ -699,6 +714,7 @@ class ClaudeService(ApiCallerMixin):
 
         # Collect dynamic context (changes per-call — injected OUTSIDE the cached block)
         dynamic_parts: list[str] = []
+        wc_list = await self._load_worker_classes_context()
 
         # Project/card context + memory — dynamic, must NOT be in base_prompt
         dynamic_context = self.personality.build_dynamic_context_block(
@@ -707,6 +723,7 @@ class ClaudeService(ApiCallerMixin):
             card=card_context,
             project_names=project_names,
             memory_context=memory_context,
+            worker_classes=wc_list,
         )
         if dynamic_context:
             dynamic_parts.append(dynamic_context)
@@ -904,6 +921,7 @@ class ClaudeService(ApiCallerMixin):
 
         # Collect dynamic context (changes per-call — injected OUTSIDE the cached block)
         dynamic_parts: list[str] = []
+        wc_list = await self._load_worker_classes_context()
 
         # Project/card context + memory — dynamic, must NOT be in base_prompt
         dynamic_context = self.personality.build_dynamic_context_block(
@@ -912,6 +930,7 @@ class ClaudeService(ApiCallerMixin):
             card=card_context,
             project_names=project_names,
             memory_context=memory_context,
+            worker_classes=wc_list,
         )
         if dynamic_context:
             dynamic_parts.append(dynamic_context)

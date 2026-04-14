@@ -1510,12 +1510,14 @@ class ChatOrchestrator(LayerRunnersMixin):
             project=project_context,
             card=card_context,
         )
+        _wc_list = await self._claude._load_worker_classes_context()
         _dynamic_ctx = self._claude.personality.build_dynamic_context_block(
             chat_level=chat_level,
             project=project_context,
             card=card_context,
             project_names=project_names,
             memory_context=memory_context,
+            worker_classes=_wc_list,
         )
         _dynamic_parts = [_dynamic_ctx] if _dynamic_ctx else []
         from app.services.claude_service import _make_cached_system

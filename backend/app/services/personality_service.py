@@ -246,6 +246,7 @@ class PersonalityService:
         project_names: Optional[list] = None,
         memory_context: Optional[str] = None,
         active_workers_context: Optional[str] = None,
+        worker_classes: Optional[list[dict]] = None,
     ) -> str:
         """Build the DYNAMIC context block — injected into messages[], NOT the system prompt.
 
@@ -348,6 +349,18 @@ class PersonalityService:
 
         if active_workers_context:
             parts.append(f"## Background Workers Status\n{active_workers_context}")
+
+        if worker_classes:
+            wc_lines = []
+            for wc in worker_classes:
+                name = wc.get("name", "?")
+                model = wc.get("model", "?")
+                provider = wc.get("provider_type", "cli")
+                desc = wc.get("description", "")
+                patterns = ", ".join(wc.get("intent_patterns", []))
+                wc_lines.append(f"- **{name}** → {provider}:{model} — {desc} (patterns: {patterns})")
+            parts.append("## Available Worker Classes\n" + "\n".join(wc_lines)
+                         + "\n\nCards with a `preferred_model` set will override default model routing to use the specified Worker Class.")
 
         return "\n\n".join(parts)
 
