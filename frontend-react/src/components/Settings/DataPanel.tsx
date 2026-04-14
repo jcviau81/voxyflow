@@ -65,7 +65,8 @@ export function DataPanel() {
   // Save mutation
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const current = settings ?? {};
+      // Always fetch fresh settings to avoid overwriting changes from other panels
+      const current = await fetch('/api/settings').then((r) => r.json());
       const response = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

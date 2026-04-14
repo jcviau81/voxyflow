@@ -323,6 +323,88 @@ class ClaudeService(ApiCallerMixin):
             layer_details.append(f"{lbl}={m}({ct})")
         logger.info(f"ClaudeService reloaded — {' | '.join(layer_details)}")
 
+    async def call_with_worker_class(
+        self,
+        worker_class_id: str,
+        messages: list[dict],
+        system: str = "",
+        **kwargs,
+    ) -> str:
+        """Call an LLM using a named worker class configuration.
+
+        Resolves the worker class by id, looks up its endpoint/provider/model,
+        and dispatches the call through the provider abstraction layer.
+        Falls back to the deep layer if the worker class is not found.
+        """
+        from app.services.llm.worker_class_resolver import resolve_by_id, resolve_endpoint_for_class
+        from app.services.llm.provider_factory import get_provider
+        from app.services.llm.providers.base import CompletionRequest
+
+        wc = await resolve_by_id(worker_class_id)
+        if not wc:
+            logger.warning(
+                "[ClaudeService] Worker class %r not found — falling back to deep layer",
+                worker_class_id,
+            )
+            # Fall back to deep layer
+            return await self._call_api(
+                self.deep_client,
+                self.deep_client_type,
+                self.deep_model,
+                messages,
+                system=system,
+                **kwargs,
+            )
+
+        resolved = await resolve_endpoint_for_class(wc)
+        provider_type = resolved["provider_type"]
+        model = resolved["model"]
+        url = resolved["url"]
+        api_key = resolved["api_key"]
+
+        if not provider_type or provider_type == "cli":
+            # CLI mode — route through the existing CLI backend via deep layer
+            logger.info(
+                "[ClaudeService] Worker class %r uses CLI — routing via deep layer with model %s",
+                wc.get("name"), model or self.deep_model,
+            )
+            return await self._call_api(
+                self.deep_client,
+                self.deep_client_type,
+                model or self.deep_model,
+                messages,
+                system=system,
+                **kwargs,
+            )
+
+        try:
+            provider = get_provider(provider_type=provider_type, url=url, api_key=api_key)
+            req = CompletionRequest(
+                messages=messages,
+                model=model,
+                system=system,
+                max_tokens=kwargs.get("max_tokens", self.max_tokens),
+            )
+            result = await provider.complete(req)
+            logger.info(
+                "[ClaudeService] Worker class %r completed via %s/%s",
+                wc.get("name"), provider_type, model,
+            )
+            return result.content
+        except Exception as exc:
+            logger.warning(
+                "[ClaudeService] Worker class %r failed (%s) — falling back to deep layer",
+                wc.get("name"), exc,
+            )
+            return await self._call_api(
+                self.deep_client,
+                self.deep_client_type,
+                self.deep_model,
+                messages,
+                system=system,
+                **kwargs,
+            )
+
     def _infer_layer(self, model: str) -> str:
         """Map a model name to a conceptual layer for token logging."""
         if model == self.fast_model:

@@ -21,7 +21,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useForm, Controller } from 'react-hook-form';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '../../lib/utils';
 import { eventBus } from '../../utils/eventBus';
 import { STT_EVENTS } from '../../utils/voiceEvents';
@@ -264,6 +264,7 @@ function useWhisperModelStatus(engine: SttEngine): { status: ModelStatus; messag
 // ── VoicePanel ─────────────────────────────────────────────────────────────
 
 export function VoicePanel() {
+  const queryClient = useQueryClient();
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [ttsTestStatus, setTtsTestStatus] = useState('');
   const [whisperLocalFile, setWhisperLocalFile] = useState<File | null>(null);
@@ -412,6 +413,7 @@ export function VoicePanel() {
         localStorage.setItem('voxyflow_settings', JSON.stringify(stored));
       } catch { /* ignore */ }
       eventBus.emit('settings:changed');
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 3000);
     },

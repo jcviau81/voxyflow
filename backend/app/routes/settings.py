@@ -106,6 +106,17 @@ class ModelLayerConfig(BaseModel):
     endpoint_id: str = ""
 
 
+class WorkerClass(BaseModel):
+    """A named worker class — routes specific task types to a dedicated LLM."""
+    id: str = ""                       # client-assigned UUID
+    name: str = ""                     # display name, e.g. "Coding", "Research"
+    description: str = ""
+    endpoint_id: str = ""              # references a ProviderEndpoint by id (empty = use provider_type directly)
+    provider_type: str = ""            # e.g. "cli", "ollama", "anthropic"
+    model: str = ""                    # e.g. "qwen2.5:32b"
+    intent_patterns: list[str] = []    # simple keyword patterns for auto-routing
+
+
 class ModelsSettings(BaseModel):
     fast: ModelLayerConfig = ModelLayerConfig(
         provider_url="http://localhost:3457/v1",
@@ -122,6 +133,8 @@ class ModelsSettings(BaseModel):
     default_worker_model: str = "sonnet"  # "haiku" | "sonnet" | "opus"
     # Named provider endpoints (user's machines / remote instances)
     endpoints: list[ProviderEndpoint] = []
+    # Named worker classes — route task types to specific LLMs
+    worker_classes: list[WorkerClass] = []
 
 
 class SchedulerSettings(BaseModel):

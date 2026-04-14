@@ -446,9 +446,57 @@ class DeepWorkerPool:
             except RuntimeError:
                 _cleanup_tool_events()
 
-    async def _execute_event(self, event: ActionIntent) -> None:
-        """Execute a single ActionIntent via model-routed worker (haiku/sonnet/opus)."""
+    async def _resolve_worker_class(self, event: ActionIntent) -> dict | None:
+        """Try to resolve a worker class for this event.
+
+        Checks event.data["worker_class_id"] first, then tries intent-based matching.
+        Returns the resolved worker class dict, or None for default behavior.
+        """
         try:
+            from app.services.llm.worker_class_resolver import resolve_by_id, resolve_by_intent
+
+            # Explicit worker_class_id takes priority
+            wc_id = event.data.get("worker_class_id", "")
+            if wc_id:
+                wc = await resolve_by_id(wc_id)
+                if wc:
+                    logger.info(
+                        "[DeepWorkerPool] Task %s routed to worker class %r (explicit id)",
+                        event.task_id, wc.get("name"),
+                    )
+                    return wc
+
+            # Try intent-based keyword matching
+            wc = await resolve_by_intent(event.intent or "")
+            if wc:
+                logger.info(
+                    "[DeepWorkerPool] Task %s routed to worker class %r (intent match: %r)",
+                    event.task_id, wc.get("name"), event.intent,
+                )
+                return wc
+        except Exception as e:
+            logger.warning("[DeepWorkerPool] Worker class resolution failed: %s", e)
+
+        return None
+
+    async def _execute_event(self, event: ActionIntent) -> None:
+        """Execute a single ActionIntent via model-routed worker (haiku/sonnet/opus).
+
+        If a matching WorkerClass is found (by explicit id or intent pattern),
+        the worker class model/provider is used instead of the default layer.
+        """
+        try:
+            # Resolve worker class (if any) before registering, so we log the right model
+            _worker_class = await self._resolve_worker_class(event)
+            _effective_model = event.model or get_default_worker_model()
+            if _worker_class:
+                _effective_model = _worker_class.get("model") or _effective_model
+                # Store worker_class_id in event data for downstream use
+                event.data["_resolved_worker_class"] = _worker_class
+                # Update task_meta so get_active_tasks reflects the actual model
+                if event.task_id in self._task_meta:
+                    self._task_meta[event.task_id]["model"] = _effective_model
+
             _wss = get_worker_session_store()
             _task_card_id = event.data.get("card_id")
             _wss.register(
@@ -457,7 +505,7 @@ class DeepWorkerPool:
                 chat_id=event.data.get("dispatcher_chat_id"),
                 project_id=event.data.get("project_id"),
                 card_id=_task_card_id,
-                model=event.model or get_default_worker_model(),
+                model=_effective_model,
                 intent=event.intent or "unknown",
                 summary=event.summary or "",
             )
@@ -469,14 +517,14 @@ class DeepWorkerPool:
                 card_id=_task_card_id,
                 action=event.intent or "unknown",
                 description=(event.summary or "")[:500],
-                model=event.model or get_default_worker_model(),
+                model=_effective_model,
             )
 
             await self._send_task_event("task:started", event.task_id, {
                 "intent": event.intent,
                 "summary": event.summary,
                 "complexity": event.complexity,
-                "model": event.model,
+                "model": _effective_model,
                 "sessionId": event.session_id,
                 "chatId": event.data.get("dispatcher_chat_id"),
                 "cardId": _task_card_id,
@@ -689,7 +737,7 @@ class DeepWorkerPool:
                     result_content = await self._claude.execute_lightweight_task(
                         chat_id=event.data.get("dispatcher_chat_id") or task_chat_id,
                         prompt=execution_prompt,
-                        model=event.model,
+                        model=_effective_model,
                         project_id=event.data.get("project_id"),
                         card_context=event.data.get("card_context"),
                         tool_callback=tool_callback,
@@ -702,7 +750,7 @@ class DeepWorkerPool:
                     result_content = await self._claude.execute_worker_task(
                         chat_id=event.data.get("dispatcher_chat_id") or task_chat_id,
                         prompt=execution_prompt,
-                        model=event.model,
+                        model=_effective_model,
                         chat_level=chat_level,
                         project_context=event.data.get("project_context"),
                         card_context=event.data.get("card_context"),

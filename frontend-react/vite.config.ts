@@ -29,9 +29,19 @@ export default defineConfig(({ mode }) => {
           ]
         },
         workbox: {
-          // Exclude large WASM/ML model files from precache (they are too large and not suitable for SW caching)
+          // Exclude large WASM/ML model files from precache
           globIgnores: ['**/*.wasm', '**/whisper.worker*.js'],
-          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4 MiB to cover the main JS bundle
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+          // Always fetch fresh JS/CSS — network first, fall back to cache
+          runtimeCaching: [
+            {
+              urlPattern: /\.(?:js|css)$/,
+              handler: 'NetworkFirst',
+              options: { cacheName: 'assets', networkTimeoutSeconds: 5 },
+            },
+          ],
+          skipWaiting: true,
+          clientsClaim: true,
         }
       })
     ],

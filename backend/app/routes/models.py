@@ -1,5 +1,7 @@
 """Model discovery and provider detection endpoints."""
 
+import asyncio
+import json
 import logging
 import time
 
@@ -87,6 +89,13 @@ _REACHABILITY_TTL = 30.0
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@router.get("/worker-classes")
+async def list_worker_classes():
+    """Return saved worker classes."""
+    models_cfg = await _load_models_cfg()
+    return models_cfg.get("worker_classes", [])
+
 
 @router.get("/providers")
 async def list_providers():
@@ -323,3 +332,275 @@ async def test_model_layer(body: dict):
     except Exception as e:
         elapsed_ms = round((time.monotonic() - start) * 1000)
         return {"success": False, "error": str(e), "latency_ms": elapsed_ms}
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: Worker Class LLM comparison with LLM-as-judge evaluation
+# ---------------------------------------------------------------------------
+
+class BenchmarkRequest(BaseModel):
+    worker_class_id: str = ""
+    worker_class_name: str = ""
+    worker_class_description: str = ""
+    intent_patterns: list[str] = []
+    model_a: dict  # { provider_type, provider_url, model, endpoint_id? }
+    model_b: dict  # { provider_type, provider_url, model, endpoint_id? }
+    custom_prompt: str = ""  # if empty, auto-generate from worker class
+
+
+def _generate_test_prompt(name: str, description: str, intent_patterns: list[str]) -> str:
+    """Generate a test prompt based on worker class metadata."""
+    name_lower = name.lower()
+    if "cod" in name_lower or "code" in name_lower or "debug" in name_lower:
+        return "Write a Python function that parses a markdown table into a list of dicts. Handle missing values gracefully. Include type hints and a brief docstring."
+    elif "research" in name_lower or "analyz" in name_lower or "investigat" in name_lower:
+        return "Compare the trade-offs between PostgreSQL and MongoDB for a real-time collaborative document editing application. Structure your answer with pros/cons and a recommendation."
+    elif "creat" in name_lower or "writ" in name_lower or "story" in name_lower:
+        return "Write the opening scene of a short story where a software engineer discovers their AI assistant has been secretly learning to paint. Make it vivid and surprising."
+    elif "quick" in name_lower or "fast" in name_lower or "summar" in name_lower:
+        return "Summarize this in exactly 3 bullet points, each under 15 words: 'Large language models have revolutionized NLP by enabling few-shot learning, but they require significant compute resources and careful prompt engineering to perform reliably across diverse tasks.'"
+    else:
+        task_hint = description or (", ".join(intent_patterns[:3]) if intent_patterns else name)
+        return f"You are a {name} assistant. Demonstrate your capabilities by completing this task: {task_hint}. Provide a clear, well-structured response."
+
+
+def _build_judge_prompt(worker_class_name: str, task_prompt: str, reply_a: str, reply_b: str) -> str:
+    """Build the LLM-as-judge evaluation prompt."""
+    return f"""You are an expert evaluator comparing two AI responses for a "{worker_class_name}" task.
+
+TASK GIVEN TO BOTH MODELS:
+{task_prompt}
+
+MODEL A RESPONSE:
+{reply_a[:2000]}
+
+MODEL B RESPONSE:
+{reply_b[:2000]}
+
+Evaluate both responses on these criteria (score each 1-10):
+1. Relevance — Does it directly address the task?
+2. Quality — Is it accurate, well-structured, complete?
+3. Clarity — Is it easy to understand?
+4. Conciseness — Does it avoid unnecessary verbosity?
+
+Respond in this exact JSON format (no markdown, no explanation outside the JSON):
+{{
+  "score_a": <total 1-40>,
+  "score_b": <total 1-40>,
+  "criteria": [
+    {{"name": "Relevance", "score_a": <1-10>, "score_b": <1-10>}},
+    {{"name": "Quality", "score_a": <1-10>, "score_b": <1-10>}},
+    {{"name": "Clarity", "score_a": <1-10>, "score_b": <1-10>}},
+    {{"name": "Conciseness", "score_a": <1-10>, "score_b": <1-10>}}
+  ],
+  "winner": "<a|b|tie>",
+  "summary": "<2-3 sentences explaining the key differences>",
+  "recommendation": "<one sentence: which model to use for this worker class and why>"
+}}"""
+
+
+async def _run_model(slot: dict, prompt: str, models_cfg: dict) -> dict:
+    """Run a single model slot and return result dict."""
+    from app.services.llm.provider_factory import get_provider
+    from app.services.llm.providers.base import CompletionRequest
+
+    provider_type = slot.get("provider_type", "").strip()
+    provider_url = slot.get("provider_url", "").strip()
+    model = slot.get("model", "").strip()
+    endpoint_id = slot.get("endpoint_id", "").strip()
+    api_key = ""
+
+    # Resolve endpoint
+    if endpoint_id:
+        for ep in models_cfg.get("endpoints", []):
+            if ep.get("id") == endpoint_id:
+                provider_type = ep.get("provider_type", provider_type)
+                provider_url = ep.get("url", provider_url)
+                api_key = ep.get("api_key", "")
+                break
+
+    if not provider_type:
+        provider_type = infer_provider_type(provider_url, model)
+
+    if not model:
+        return {"success": False, "error": "model is required", "reply": "", "latency_ms": 0, "model": "", "provider_type": provider_type}
+
+    start = time.monotonic()
+    try:
+        # CLI is managed by ClaudeCliBackend, not LLMProvider
+        if provider_type == "cli":
+            from app.services.llm.cli_backend import ClaudeCliBackend
+            cli = ClaudeCliBackend()
+            reply, _usage = await cli.call(
+                model=model,
+                system="You are a helpful assistant.",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            return {"success": True, "reply": reply, "latency_ms": elapsed_ms, "model": model, "provider_type": provider_type}
+
+        provider = get_provider(provider_type=provider_type, url=provider_url, api_key=api_key)
+        req = CompletionRequest(
+            messages=[{"role": "user", "content": prompt}],
+            model=model,
+            max_tokens=1024,
+        )
+        result = await provider.complete(req)
+        elapsed_ms = round((time.monotonic() - start) * 1000)
+        return {
+            "success": True,
+            "reply": result.content,
+            "latency_ms": elapsed_ms,
+            "model": model,
+            "provider_type": provider_type,
+        }
+    except Exception as e:
+        elapsed_ms = round((time.monotonic() - start) * 1000)
+        return {
+            "success": False,
+            "error": str(e),
+            "reply": "",
+            "latency_ms": elapsed_ms,
+            "model": model,
+            "provider_type": provider_type,
+        }
+
+
+@router.post("/benchmark")
+async def benchmark_models(body: BenchmarkRequest):
+    """Run a Worker Class benchmark: test two models on the same prompt, then evaluate with LLM-as-judge."""
+    models_cfg = await _load_models_cfg()
+
+    # Step 1: Generate or use custom prompt
+    prompt_used = body.custom_prompt.strip()
+    if not prompt_used:
+        prompt_used = _generate_test_prompt(
+            body.worker_class_name,
+            body.worker_class_description,
+            body.intent_patterns,
+        )
+
+    # Step 2: Run both models in parallel
+    result_a, result_b = await asyncio.gather(
+        _run_model(body.model_a, prompt_used, models_cfg),
+        _run_model(body.model_b, prompt_used, models_cfg),
+    )
+
+    # Step 3: LLM-as-judge evaluation
+    evaluation = await _run_judge_evaluation(
+        body.worker_class_name or "General",
+        prompt_used,
+        result_a,
+        result_b,
+        models_cfg,
+    )
+
+    return {
+        "prompt_used": prompt_used,
+        "result_a": result_a,
+        "result_b": result_b,
+        "evaluation": evaluation,
+    }
+
+
+async def _run_judge_evaluation(
+    worker_class_name: str,
+    task_prompt: str,
+    result_a: dict,
+    result_b: dict,
+    models_cfg: dict,
+) -> dict:
+    """Call the fast layer as LLM-as-judge to evaluate both results."""
+    reply_a = result_a.get("reply", "") if result_a.get("success") else f"[MODEL FAILED: {result_a.get('error', 'unknown error')}]"
+    reply_b = result_b.get("reply", "") if result_b.get("success") else f"[MODEL FAILED: {result_b.get('error', 'unknown error')}]"
+
+    judge_prompt = _build_judge_prompt(worker_class_name, task_prompt, reply_a, reply_b)
+
+    # Use the fast layer provider to evaluate
+    try:
+        from app.services.llm.provider_factory import get_provider
+        from app.services.llm.providers.base import CompletionRequest
+
+        fast_cfg = models_cfg.get("fast", {})
+        fast_provider_type = fast_cfg.get("provider_type", "cli")
+        fast_provider_url = fast_cfg.get("provider_url", "")
+        fast_model = fast_cfg.get("model", "claude-sonnet-4")
+        fast_api_key = ""
+
+        # Resolve endpoint if fast layer uses one
+        fast_endpoint_id = fast_cfg.get("endpoint_id", "")
+        if fast_endpoint_id:
+            for ep in models_cfg.get("endpoints", []):
+                if ep.get("id") == fast_endpoint_id:
+                    fast_provider_type = ep.get("provider_type", fast_provider_type)
+                    fast_provider_url = ep.get("url", fast_provider_url)
+                    fast_api_key = ep.get("api_key", "")
+                    break
+
+        if fast_provider_type == "cli":
+            from app.services.llm.cli_backend import ClaudeCliBackend
+            cli = ClaudeCliBackend()
+            judge_text, _usage = await cli.call(
+                model=fast_model,
+                system="You are a precise AI evaluator. Always respond with valid JSON only.",
+                messages=[{"role": "user", "content": judge_prompt}],
+            )
+            judge_text = judge_text.strip()
+        else:
+            provider = get_provider(
+                provider_type=fast_provider_type,
+                url=fast_provider_url,
+                api_key=fast_api_key,
+            )
+            req = CompletionRequest(
+                messages=[{"role": "user", "content": judge_prompt}],
+                model=fast_model,
+                max_tokens=1024,
+                system="You are a precise AI evaluator. Always respond with valid JSON only.",
+            )
+            judge_result = await provider.complete(req)
+            judge_text = judge_result.content.strip()
+
+        # Try to extract JSON from the response (handle markdown code blocks)
+        if "```" in judge_text:
+            # Extract from code block
+            import re
+            match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", judge_text, re.DOTALL)
+            if match:
+                judge_text = match.group(1).strip()
+
+        evaluation = json.loads(judge_text)
+        return evaluation
+
+    except Exception as e:
+        logger.warning("[benchmark] Judge evaluation failed: %s", e)
+        # Fallback: latency-only evaluation
+        lat_a = result_a.get("latency_ms", 99999)
+        lat_b = result_b.get("latency_ms", 99999)
+        ok_a = result_a.get("success", False)
+        ok_b = result_b.get("success", False)
+
+        if ok_a and not ok_b:
+            winner = "a"
+        elif ok_b and not ok_a:
+            winner = "b"
+        elif lat_a < lat_b:
+            winner = "a"
+        elif lat_b < lat_a:
+            winner = "b"
+        else:
+            winner = "tie"
+
+        return {
+            "winner": winner,
+            "score_a": 20 if ok_a else 0,
+            "score_b": 20 if ok_b else 0,
+            "criteria": [
+                {"name": "Relevance", "score_a": 5, "score_b": 5},
+                {"name": "Quality", "score_a": 5, "score_b": 5},
+                {"name": "Clarity", "score_a": 5, "score_b": 5},
+                {"name": "Conciseness", "score_a": 5, "score_b": 5},
+            ],
+            "summary": f"LLM judge unavailable — fallback to latency comparison. A: {lat_a}ms, B: {lat_b}ms.",
+            "recommendation": f"Evaluation based on latency only (judge error: {e}).",
+        }

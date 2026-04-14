@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     # Claude Code CLI — spawn `claude -p` subprocesses (uses Max subscription)
     claude_use_cli: bool = False     # True = CLI subprocess path (takes precedence over native/proxy)
     claude_cli_path: str = "claude"  # Path to claude CLI binary
+    cli_max_concurrent: int = 10     # Max parallel CLI subprocesses (CliRateGate)
+    cli_min_spacing_ms: int = 0      # Min ms between CLI calls (CliRateGate)
 
     # Claude API — native Anthropic SDK (preferred)
     claude_use_native: bool = False   # False = OpenAI-compatible proxy (claude-max-api). True requires direct API access.

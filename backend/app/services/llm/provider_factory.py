@@ -16,6 +16,7 @@ Supported provider_type values:
     "mistral"     — Mistral AI (OpenAI-compat, api.mistral.ai/v1)
     "gemini"      — Google Gemini (OpenAI-compat, generativelanguage.googleapis.com)
     "lmstudio"    — LM Studio (OpenAI-compat, localhost:1234/v1)
+    "openrouter"  — OpenRouter (OpenAI-compat, openrouter.ai/api/v1)
 """
 
 from __future__ import annotations
@@ -31,9 +32,10 @@ logger = logging.getLogger("voxyflow.provider_factory")
 # Well-known provider URLs — used when provider_type is given but URL is empty
 _DEFAULT_URLS: dict[str, str] = {
     "openai":   "https://api.openai.com/v1",
-    "groq":     "https://api.groq.com/openai/v1",
-    "mistral":  "https://api.mistral.ai/v1",
-    "gemini":   "https://generativelanguage.googleapis.com/v1beta/openai",
+    "groq":       "https://api.groq.com/openai/v1",
+    "mistral":    "https://api.mistral.ai/v1",
+    "gemini":     "https://generativelanguage.googleapis.com/v1beta/openai",
+    "openrouter": "https://openrouter.ai/api/v1",
     "lmstudio": "http://localhost:1234/v1",
     "ollama":   "http://localhost:11434",
 }
@@ -44,6 +46,7 @@ _LABELS: dict[str, str] = {
     "groq":       "Groq",
     "mistral":    "Mistral AI",
     "gemini":     "Google Gemini",
+    "openrouter": "OpenRouter",
     "lmstudio":   "LM Studio",
     "ollama":     "Ollama",
     "anthropic":  "Anthropic (Claude)",
@@ -111,7 +114,7 @@ def get_provider(
             "Check provider_type != 'cli' before calling get_provider()."
         )
 
-    if ptype in ("openai", "groq", "mistral", "gemini", "lmstudio", "openai_compat"):
+    if ptype in ("openai", "groq", "mistral", "gemini", "lmstudio", "openrouter", "openai_compat"):
         if not resolved_url:
             raise ValueError(f"No URL configured for provider '{ptype}'")
         return _cache(OpenAICompatProvider(
@@ -155,6 +158,8 @@ def infer_provider_type(url: str, model: str = "") -> str:
         return "mistral"
     if "generativelanguage.googleapis" in lower_url or "gemini" in lower_url:
         return "gemini"
+    if "openrouter.ai" in lower_url:
+        return "openrouter"
     if "openai.com" in lower_url:
         return "openai"
     if "anthropic.com" in lower_url or "claude" in lower_model:
@@ -175,4 +180,5 @@ def list_known_providers() -> list[dict]:
         {"type": "mistral",    "label": "Mistral AI",         "requires_key": True,  "local": False, "default_url": "https://api.mistral.ai/v1"},
         {"type": "gemini",     "label": "Google Gemini",      "requires_key": True,  "local": False, "default_url": "https://generativelanguage.googleapis.com/v1beta/openai"},
         {"type": "lmstudio",   "label": "LM Studio",          "requires_key": False, "local": True,  "default_url": "http://localhost:1234/v1"},
+        {"type": "openrouter", "label": "OpenRouter",          "requires_key": True,  "local": False, "default_url": "https://openrouter.ai/api/v1"},
     ]
