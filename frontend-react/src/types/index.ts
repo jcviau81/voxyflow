@@ -177,7 +177,7 @@ export interface Card {
   assignee?: string | null;
   watchers?: string;
   votes?: number;
-  preferredModel?: 'haiku' | 'sonnet' | 'opus' | null;
+  preferredModel?: string | null;  // null = Auto, otherwise a worker class id
   recurring?: boolean;
   recurrence?: 'daily' | 'weekly' | 'monthly' | null;
   recurrenceNext?: string | null;

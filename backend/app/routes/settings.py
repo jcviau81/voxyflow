@@ -25,12 +25,9 @@ SETTINGS_FILE = str(VOXYFLOW_DATA_DIR / "settings.json")
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
 
-_cached_default_worker_model: str = "sonnet"
-
-
 def get_default_worker_model() -> str:
-    """Return the cached default worker model (haiku/sonnet/opus). Updated on settings save."""
-    return _cached_default_worker_model
+    """Return the default worker model (always sonnet)."""
+    return "sonnet"
 
 
 async def _load_settings_from_db() -> dict | None:
@@ -130,7 +127,7 @@ class ModelsSettings(BaseModel):
         model="claude-opus-4",
         enabled=True,
     )
-    default_worker_model: str = "sonnet"  # "haiku" | "sonnet" | "opus"
+
     # Named provider endpoints (user's machines / remote instances)
     endpoints: list[ProviderEndpoint] = []
     # Named worker classes — route task types to specific LLMs
@@ -228,18 +225,11 @@ async def get_settings():
 
     If DB is empty but settings.json exists, migrate into DB automatically.
     """
-    global _cached_default_worker_model
-
-    def _update_caches(merged: dict) -> None:
-        global _cached_default_worker_model
-        _cached_default_worker_model = merged.get("models", {}).get("default_worker_model", "sonnet")
-
     # 1. Try DB (source of truth)
     db_data = await _load_settings_from_db()
     if db_data is not None:
         # Merge with Pydantic defaults so new fields are always present
         merged = AppSettings(**db_data).dict()
-        _update_caches(merged)
         return _redact_sensitive(merged)
 
     # 2. Fallback to settings.json — and migrate into DB
@@ -248,7 +238,6 @@ async def get_settings():
             file_data = json.load(f)
         merged = AppSettings(**file_data).dict()
         await _save_settings_to_db(merged)
-        _update_caches(merged)
         logger.info("Migrated settings from settings.json into SQLite")
         return _redact_sensitive(merged)
 
@@ -259,8 +248,6 @@ async def get_settings():
 @router.put("")
 async def save_settings(settings: AppSettings):
     """Save settings to DB (source of truth) and settings.json (backup)."""
-    global _cached_default_worker_model
-    _cached_default_worker_model = settings.models.default_worker_model
     data = settings.dict()
 
     # If the frontend sent '***' for api_key fields, preserve the existing values

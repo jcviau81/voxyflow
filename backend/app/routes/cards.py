@@ -772,6 +772,7 @@ def _card_to_response(card: Card) -> CardResponse:
         assignee=card.assignee,
         watchers=card.watchers or "",
         votes=card.votes or 0,
+        preferred_model=card.preferred_model,
         recurring=card.recurring or False,
         recurrence=card.recurrence,
         recurrence_next=card.recurrence_next,

@@ -16,6 +16,50 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
+# ---------------------------------------------------------------------------
+# Default worker classes — returned when nothing is saved in DB yet.
+# Must stay in sync with frontend defaults in Settings → Models.
+# ---------------------------------------------------------------------------
+
+DEFAULT_WORKER_CLASSES = [
+    {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "name": "Quick",
+        "description": "Fast, lightweight tasks — summaries, simple Q&A, formatting",
+        "endpoint_id": "",
+        "provider_type": "cli",
+        "model": "claude-haiku-4-5-20251001",
+        "intent_patterns": ["summarize", "format", "quick", "simple", "short"],
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "name": "Coding",
+        "description": "Code writing, debugging, refactoring, code review",
+        "endpoint_id": "",
+        "provider_type": "cli",
+        "model": "claude-sonnet-4-6",
+        "intent_patterns": ["code", "debug", "refactor", "implement", "fix", "test"],
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000003",
+        "name": "Research",
+        "description": "Deep research, analysis, multi-step investigation",
+        "endpoint_id": "",
+        "provider_type": "cli",
+        "model": "claude-opus-4-6",
+        "intent_patterns": ["research", "analyze", "investigate", "compare", "explain"],
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000004",
+        "name": "Creative",
+        "description": "Writing, brainstorming, ideation, narrative",
+        "endpoint_id": "",
+        "provider_type": "cli",
+        "model": "claude-sonnet-4-6",
+        "intent_patterns": ["write", "brainstorm", "creative", "story", "draft"],
+    },
+]
+
 
 # ---------------------------------------------------------------------------
 # Pydantic response models
@@ -94,7 +138,8 @@ _REACHABILITY_TTL = 30.0
 async def list_worker_classes():
     """Return saved worker classes."""
     models_cfg = await _load_models_cfg()
-    return models_cfg.get("worker_classes", [])
+    classes = models_cfg.get("worker_classes", [])
+    return classes if classes else DEFAULT_WORKER_CLASSES
 
 
 @router.get("/providers")

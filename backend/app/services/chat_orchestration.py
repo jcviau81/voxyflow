@@ -634,15 +634,22 @@ class ChatOrchestrator(LayerRunnersMixin):
                     model = "sonnet"
 
                 # Card-level model override (preferred_model set in card modal)
+                # preferred_model is either a legacy name (haiku/sonnet/opus) or a worker class UUID
                 card_preferred = card_context.get("preferred_model") if card_context else None
-                if card_preferred and card_preferred in ("haiku", "sonnet", "opus"):
-                    logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
-                    model = card_preferred
+                _worker_class_id_override: str | None = None
+                if card_preferred:
+                    if card_preferred in ("haiku", "sonnet", "opus"):
+                        logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
+                        model = card_preferred
+                    else:
+                        # Treat as worker class UUID — let worker_pool resolve it
+                        _worker_class_id_override = card_preferred
+                        logger.info(f"[ModelOverride] Card preferred_model is worker class id={card_preferred}")
 
-                # Auto-upgrade model for coding tasks
+                # Auto-upgrade model for coding tasks (skip if worker class override is set)
                 _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
                 description_lower = (data.get("description") or "").lower()
-                if any(kw in description_lower for kw in _CODING_KEYWORDS):
+                if not _worker_class_id_override and any(kw in description_lower for kw in _CODING_KEYWORDS):
                     if model == "haiku":
                         original_model = model
                         model = "sonnet"
@@ -653,7 +660,7 @@ class ChatOrchestrator(LayerRunnersMixin):
                 # sonnet — Haiku is not reliable enough to pick the right MCP tool
                 # and would end up writing files named after shell commands
                 # (see GitHub issue #4).
-                if model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
+                if not _worker_class_id_override and model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
                     logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (intent '{intent}' not in LIGHTWEIGHT_INTENTS)")
                     model = "sonnet"
 
@@ -669,22 +676,26 @@ class ChatOrchestrator(LayerRunnersMixin):
 
                 card_id = card_context.get("id") if card_context else None
 
+                event_data = {
+                    "project_name": project_name,
+                    "chat_level": chat_level,
+                    "project_context": project_context,
+                    "card_context": card_context,
+                    "card_id": card_id,
+                    "dispatcher_chat_id": chat_id,
+                    **data,  # Include all fields from delegate_action
+                    # Fallback chain: delegate.data['project_id'] → session project_id → None
+                    "project_id": data.get("project_id") or project_id,
+                }
+                if _worker_class_id_override:
+                    event_data["worker_class_id"] = _worker_class_id_override
+
                 event = ActionIntent(
                     task_id=task_id,
                     intent_type=intent_type,
                     intent=intent,
                     summary=summary,
-                    data={
-                        "project_name": project_name,
-                        "chat_level": chat_level,
-                        "project_context": project_context,
-                        "card_context": card_context,
-                        "card_id": card_id,
-                        "dispatcher_chat_id": chat_id,
-                        **data,  # Include all fields from delegate_action
-                        # Fallback chain: delegate.data['project_id'] → session project_id → None
-                        "project_id": data.get("project_id") or project_id,
-                    },
+                    data=event_data,
                     session_id=session_id,
                     complexity=complexity,
                     model=model,
@@ -781,15 +792,22 @@ class ChatOrchestrator(LayerRunnersMixin):
                         model = "sonnet"
 
                     # Card-level model override
+                    # preferred_model is either a legacy name (haiku/sonnet/opus) or a worker class UUID
                     card_preferred = card_context.get("preferred_model") if card_context else None
-                    if card_preferred and card_preferred in ("haiku", "sonnet", "opus"):
-                        logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
-                        model = card_preferred
+                    _worker_class_id_override: str | None = None
+                    if card_preferred:
+                        if card_preferred in ("haiku", "sonnet", "opus"):
+                            logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
+                            model = card_preferred
+                        else:
+                            # Treat as worker class UUID — let worker_pool resolve it
+                            _worker_class_id_override = card_preferred
+                            logger.info(f"[ModelOverride] Card preferred_model is worker class id={card_preferred}")
 
-                    # Auto-upgrade model for coding tasks (XML path)
+                    # Auto-upgrade model for coding tasks (XML path, skip if worker class override)
                     _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
                     description_lower = (data.get("description") or "").lower()
-                    if any(kw in description_lower for kw in _CODING_KEYWORDS):
+                    if not _worker_class_id_override and any(kw in description_lower for kw in _CODING_KEYWORDS):
                         if model == "haiku":
                             original_model = model
                             model = "sonnet"
@@ -797,7 +815,7 @@ class ChatOrchestrator(LayerRunnersMixin):
 
                     # Haiku restricted to lightweight intents — see native path
                     # above for rationale (GitHub issue #4).
-                    if model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
+                    if not _worker_class_id_override and model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
                         logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (intent '{intent}' not in LIGHTWEIGHT_INTENTS)")
                         model = "sonnet"
 
@@ -814,22 +832,26 @@ class ChatOrchestrator(LayerRunnersMixin):
                     # Extract card_id from card_context for direct access
                     card_id = card_context.get("id") if card_context else None
 
+                    event_data = {
+                        "project_name": project_name,
+                        "chat_level": chat_level,
+                        "project_context": project_context,
+                        "card_context": card_context,
+                        "card_id": card_id,
+                        "dispatcher_chat_id": chat_id,
+                        **data,  # Include original delegate data
+                        # Fallback chain: delegate.data['project_id'] → session project_id → None
+                        "project_id": data.get("project_id") or project_id,
+                    }
+                    if _worker_class_id_override:
+                        event_data["worker_class_id"] = _worker_class_id_override
+
                     event = ActionIntent(
                         task_id=task_id,
                         intent_type=intent_type,
                         intent=intent,
                         summary=summary,
-                        data={
-                            "project_name": project_name,
-                            "chat_level": chat_level,
-                            "project_context": project_context,
-                            "card_context": card_context,
-                            "card_id": card_id,
-                            "dispatcher_chat_id": chat_id,
-                            **data,  # Include original delegate data
-                            # Fallback chain: delegate.data['project_id'] → session project_id → None
-                            "project_id": data.get("project_id") or project_id,
-                        },
+                        data=event_data,
                         session_id=session_id,
                         complexity=complexity,
                         model=model,

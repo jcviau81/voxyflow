@@ -8,12 +8,15 @@ logger = logging.getLogger(__name__)
 
 
 async def _load_worker_classes() -> list[dict]:
-    """Load worker classes from settings DB."""
+    """Load worker classes from settings DB, falling back to defaults."""
     from app.routes.settings import _load_settings_from_db
+    from app.routes.models import DEFAULT_WORKER_CLASSES
     data = await _load_settings_from_db()
     if data:
-        return data.get("models", {}).get("worker_classes", [])
-    return []
+        classes = data.get("models", {}).get("worker_classes", [])
+        if classes:
+            return classes
+    return list(DEFAULT_WORKER_CLASSES)
 
 
 async def resolve_by_id(worker_class_id: str) -> Optional[dict]:
