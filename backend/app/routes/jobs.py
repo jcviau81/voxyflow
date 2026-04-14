@@ -42,6 +42,7 @@ JOBS_FILE = VOXYFLOW_DIR / "jobs.json"
 JobType = Literal[
     "reminder", "github_sync", "rag_index", "custom",
     "board_run", "execute_board", "execute_card", "agent_task",
+    "heartbeat", "recurrence", "session_cleanup", "chromadb_backup",
 ]
 
 
@@ -132,7 +133,10 @@ async def list_jobs():
     except Exception as _e:
         logger.debug(f"[Jobs] Could not fetch next_run from scheduler: {_e}")
 
-    return {"jobs": jobs, "total": len(jobs)}
+    # Built-in jobs first, then user jobs (preserving order within each group)
+    builtin = [j for j in jobs if j.get("builtin")]
+    user = [j for j in jobs if not j.get("builtin")]
+    return {"jobs": builtin + user, "total": len(jobs)}
 
 
 @router.post("", status_code=201)
@@ -279,6 +283,8 @@ async def _execute_job(job: dict) -> dict:
             return await _run_execute_card(job, payload)
         elif job_type == "agent_task":
             return await _run_agent_task(job, payload)
+        elif job_type in ("heartbeat", "recurrence", "session_cleanup", "chromadb_backup"):
+            return await _run_builtin(job, job_type)
         elif job_type == "custom":
             return await _run_custom(job, payload)
         else:
@@ -286,6 +292,21 @@ async def _execute_job(job: dict) -> dict:
     except Exception as e:
         logger.error(f"[Jobs] Job '{job['name']}' (type={job_type}) failed: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}
+
+
+def _emit_job_session(job: dict, chat_id: str, project_id: str | None = None) -> None:
+    """Broadcast job:session:started so the frontend can label scheduler sessions."""
+    try:
+        from app.services.ws_broadcast import ws_broadcast
+        ws_broadcast.emit_sync("job:session:started", {
+            "chatId": chat_id,
+            "jobId": job.get("id"),
+            "jobName": job.get("name"),
+            "jobType": job.get("type"),
+            "projectId": project_id,
+        })
+    except Exception as e:
+        logger.debug(f"[Jobs] Could not emit job:session:started: {e}")
 
 
 async def _run_rag_index(job: dict, payload: dict) -> dict:
@@ -297,6 +318,24 @@ async def _run_rag_index(job: dict, payload: dict) -> dict:
     svc = get_scheduler_service()
     await svc._rag_index_job()
     return {"status": "ok", "message": f"RAG index triggered (project_id={project_id or 'all active'})"}
+
+
+async def _run_builtin(job: dict, job_type: str) -> dict:
+    """Route built-in job types to their scheduler handlers."""
+    from app.services.scheduler_service import get_scheduler_service
+
+    svc = get_scheduler_service()
+    handler_map = {
+        "heartbeat": svc._heartbeat_job,
+        "recurrence": svc._recurrence_job,
+        "session_cleanup": svc._session_cleanup_job,
+        "chromadb_backup": svc._chromadb_backup_job,
+    }
+    handler = handler_map.get(job_type)
+    if not handler:
+        return {"status": "error", "message": f"No handler for built-in type: {job_type}"}
+    await handler()
+    return {"status": "ok", "message": f"{job_type} completed"}
 
 
 async def _run_reminder(job: dict, payload: dict) -> dict:
@@ -342,6 +381,8 @@ async def _run_execute_board(job: dict, payload: dict) -> dict:
     session_id = f"job-{job.get('id', str(uuid4()))}"
     chat_id = f"job:{plan.execution_id}"
 
+    _emit_job_session(job, chat_id, project_id)
+
     await execute_board(
         execution_id=plan.execution_id,
         project_id=project_id,
@@ -374,6 +415,8 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
     chat_id = f"job:{job.get('id')}-{uuid4().hex[:8]}"
     message_id = f"exec-card-{uuid4().hex[:8]}"
 
+    _emit_job_session(job, chat_id, project_id)
+
     bg_tasks = await _orchestrator.handle_message(
         websocket=_BroadcastWS(),
         content=prompt,
@@ -405,7 +448,8 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
         instruction = "\n".join(instruction)
 
     project_id = payload.get("project_id")
-    logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (project={project_id or 'none'})")
+    use_deep = payload.get("deep", True)  # agent_tasks default to deep model
+    logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (project={project_id or 'none'}, deep={use_deep})")
 
     from app.main import _orchestrator
     from uuid import uuid4
@@ -414,13 +458,15 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
     chat_id = f"job:{job.get('id')}-{uuid4().hex[:8]}"
     message_id = f"agent-task-{uuid4().hex[:8]}"
 
+    _emit_job_session(job, chat_id, project_id)
+
     bg_tasks = await _orchestrator.handle_message(
         websocket=_BroadcastWS(),
         content=instruction,
         message_id=message_id,
         chat_id=chat_id,
         project_id=project_id,
-        layers={"deep": False},
+        layers={"deep": use_deep},
         chat_level="project" if project_id else "general",
         session_id=session_id,
     )

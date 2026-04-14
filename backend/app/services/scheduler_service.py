@@ -1,10 +1,13 @@
 """
 SchedulerService — Background task scheduler for Voxyflow.
 
-Provides:
-- Heartbeat job (every 2 min): checks backend, XTTS, Claude proxy, ChromaDB
-- RAG index job (every 15 min): re-indexes active project workspaces in ChromaDB
-- Health status dict with timestamps exposed via /api/health
+All jobs (built-in and user-defined) are stored in ~/.voxyflow/jobs.json and
+loaded on startup via load_user_jobs(). Built-in defaults are seeded on first
+run and can be enabled/disabled/rescheduled like any other job.
+
+Built-in job types: heartbeat, rag_index, recurrence, session_cleanup,
+chromadb_backup. User job types: agent_task, execute_board, execute_card,
+reminder, custom.
 """
 
 import asyncio
@@ -90,8 +93,108 @@ class SchedulerService:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self, heartbeat_interval_minutes: int = 2, rag_index_interval_minutes: int = 15) -> None:
-        """Start all scheduled jobs. Safe to call multiple times (no-op if already running)."""
+    # ------------------------------------------------------------------
+    # Default jobs — seeded into jobs.json on first run
+    # ------------------------------------------------------------------
+
+    _DEFAULT_JOBS: list[dict] = [
+        {
+            "id": "builtin-agent-heartbeat",
+            "name": "Agent Heartbeat",
+            "type": "agent_task",
+            "schedule": "every_5min",
+            "enabled": True,
+            "builtin": True,
+            "payload": {
+                "instruction": (
+                    "Read the file ~/.voxyflow/workspace/heartbeat.md. "
+                    "If it contains instructions, follow them. "
+                    "If it is empty or contains no actionable instructions, do nothing — "
+                    "do not create cards, do not respond, just exit silently."
+                ),
+            },
+        },
+        {
+            "id": "builtin-rag-index",
+            "name": "RAG Workspace Indexer",
+            "type": "rag_index",
+            "schedule": "every_15min",
+            "enabled": True,
+            "builtin": True,
+            "payload": {},
+        },
+        {
+            "id": "builtin-session-cleanup",
+            "name": "Session Cleanup",
+            "type": "session_cleanup",
+            "schedule": "0 3 * * *",
+            "enabled": True,
+            "builtin": True,
+            "payload": {},
+        },
+        {
+            "id": "builtin-chromadb-backup",
+            "name": "ChromaDB Backup",
+            "type": "chromadb_backup",
+            "schedule": "30 3 * * *",
+            "enabled": True,
+            "builtin": True,
+            "payload": {},
+        },
+    ]
+
+    def _seed_default_jobs(self, jobs_file: Path) -> None:
+        """Add default built-in jobs to jobs.json if they haven't been seeded yet."""
+        marker = jobs_file.parent / ".jobs_defaults_seeded"
+        if marker.exists():
+            return
+
+        import json as _json
+
+        existing: list[dict] = []
+        if jobs_file.exists():
+            try:
+                with open(jobs_file, "r", encoding="utf-8") as f:
+                    existing = _json.load(f)
+                if not isinstance(existing, list):
+                    existing = []
+            except Exception:
+                existing = []
+
+        existing_ids = {j.get("id") for j in existing}
+        added = 0
+        for default in self._DEFAULT_JOBS:
+            if default["id"] not in existing_ids:
+                existing.append(dict(default))
+                added += 1
+
+        if added:
+            jobs_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(jobs_file, "w", encoding="utf-8") as f:
+                _json.dump(existing, f, indent=2)
+            logger.info(f"[Jobs] Seeded {added} default job(s) into {jobs_file}")
+
+        # Seed default heartbeat.md if missing
+        heartbeat_file = jobs_file.parent / "workspace" / "heartbeat.md"
+        if not heartbeat_file.exists():
+            heartbeat_file.parent.mkdir(parents=True, exist_ok=True)
+            heartbeat_file.write_text(
+                "# Heartbeat\n\n"
+                "You are an autonomous agent running on a 5-minute heartbeat cycle.\n"
+                "Read the instructions below. If there are any, follow them.\n"
+                "If there are none, exit immediately without taking any action.\n\n"
+                "After completing instructions, clear them from this file so they\n"
+                "are not repeated on the next cycle.\n\n"
+                "---\n\n"
+                "<!-- Drop instructions below this line -->\n",
+                encoding="utf-8",
+            )
+            logger.info(f"[Jobs] Created default heartbeat file at {heartbeat_file}")
+
+        marker.touch()
+
+    def start(self) -> None:
+        """Start the scheduler. All jobs (built-in + user) are loaded from jobs.json."""
         if not self._enabled:
             logger.warning("SchedulerService: APScheduler not available — skipping start")
             return
@@ -105,79 +208,18 @@ class SchedulerService:
         # Attach job error listener for better observability
         self._scheduler.add_listener(self._on_job_event, EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-        # Heartbeat job
-        self._scheduler.add_job(
-            self._heartbeat_job,
-            trigger="interval",
-            minutes=heartbeat_interval_minutes,
-            id="heartbeat",
-            name="Service Heartbeat",
-            replace_existing=True,
-            misfire_grace_time=60,
-        )
-
-        # RAG index job
-        self._scheduler.add_job(
-            self._rag_index_job,
-            trigger="interval",
-            minutes=rag_index_interval_minutes,
-            id="rag_index",
-            name="RAG Workspace Indexer",
-            replace_existing=True,
-            misfire_grace_time=300,
-        )
-
-        # Recurrence job — runs every 5 minutes (supports 15min card intervals)
-        self._scheduler.add_job(
-            self._recurrence_job,
-            trigger="interval",
-            minutes=5,
-            id="recurrence",
-            name="Recurring Card Generator",
-            replace_existing=True,
-            misfire_grace_time=300,
-        )
-
-        # Session cleanup job — runs once per day at 03:00 UTC
-        self._scheduler.add_job(
-            self._session_cleanup_job,
-            trigger="cron",
-            hour=3,
-            minute=0,
-            id="session_cleanup",
-            name="Session File Cleanup (30-day TTL)",
-            replace_existing=True,
-            misfire_grace_time=3600,
-        )
-
-        # ChromaDB daily backup (checks settings internally; no-ops if disabled)
-        backup_hour = self._backup_hour
-        self._scheduler.add_job(
-            self._chromadb_backup_job,
-            trigger="cron",
-            hour=backup_hour,
-            minute=30,
-            id="chromadb_backup",
-            name="ChromaDB Daily Backup",
-            replace_existing=True,
-            misfire_grace_time=3600,
-        )
-
         self._scheduler.start()
-        # Run heartbeat immediately at startup (so ChromaDB status is known right away)
-        asyncio.ensure_future(self._heartbeat_job())
-        logger.info(
-            f"✅ SchedulerService started "
-            f"(heartbeat every {heartbeat_interval_minutes}m, "
-            f"RAG index every {rag_index_interval_minutes}m, "
-            f"recurrence check every 1h, "
-            f"session cleanup daily at 03:00 UTC)"
-        )
 
-        # Load user-defined jobs from ~/.voxyflow/jobs.json
+        # Seed default jobs into jobs.json on first run, then load all jobs
         import os as _os
         _jobs_file = Path(_os.environ.get("VOXYFLOW_DATA_DIR", _os.path.expanduser("~/.voxyflow"))) / "jobs.json"
+        self._seed_default_jobs(_jobs_file)
         self.load_user_jobs(_jobs_file)
+
+        # Run heartbeat immediately at startup (so health status is known right away)
+        asyncio.ensure_future(self._heartbeat_job())
+
+        logger.info("SchedulerService started — all jobs loaded from jobs.json")
 
     def stop(self) -> None:
         """Clean shutdown. Waits for running jobs to finish (wait=True)."""
@@ -358,14 +400,18 @@ class SchedulerService:
             result = {"status": "error", "message": str(e)}
             logger.error(f"[Jobs] Scheduled job '{name}' failed: {e}", exc_info=True)
 
-        # Broadcast completion to notification panel
-        self._emit_job_event(
-            job_id,
-            name,
-            result.get("status", "ok"),
-            result.get("message", ""),
-            result,
-        )
+        # Broadcast completion to notification panel.
+        # Built-in handlers (heartbeat, rag_index, etc.) emit their own
+        # detailed events, so skip the generic emit for those.
+        _builtin_types = {"heartbeat", "recurrence", "session_cleanup", "chromadb_backup", "rag_index"}
+        if job.get("type") not in _builtin_types:
+            self._emit_job_event(
+                job_id,
+                name,
+                result.get("status", "ok"),
+                result.get("message", ""),
+                result,
+            )
 
         # Update last_run in jobs.json (best-effort)
         try:

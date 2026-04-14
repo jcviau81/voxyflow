@@ -187,10 +187,7 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to load scheduler settings: {_e} — using defaults")
 
     if _sched_enabled:
-        scheduler.start(
-            heartbeat_interval_minutes=_heartbeat_interval,
-            rag_index_interval_minutes=_rag_interval,
-        )
+        scheduler.start()
     else:
         logger.info("⏸️  Scheduler disabled via settings")
 

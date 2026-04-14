@@ -25,6 +25,7 @@ export function useWorkerSync(): void {
     handleToolExecuted,
     handleCliSessionStarted,
     handleCliSessionEnded,
+    handleJobSessionStarted,
     purgeExpired,
   } = useWorkerStore();
 
@@ -53,6 +54,7 @@ export function useWorkerSync(): void {
       subscribe('tool:executed', handleToolExecuted),
       subscribe('cli:session:started', handleCliSessionStarted),
       subscribe('cli:session:ended', handleCliSessionEnded),
+      subscribe('job:session:started', handleJobSessionStarted),
       // Re-fetch snapshot on WS reconnect
       subscribe('ws:connected', () => {
         void loadSnapshot(null);
@@ -69,6 +71,7 @@ export function useWorkerSync(): void {
     handleToolExecuted,
     handleCliSessionStarted,
     handleCliSessionEnded,
+    handleJobSessionStarted,
   ]);
 
   // ── Visibility re-sync ────────────────────────────────────────────────

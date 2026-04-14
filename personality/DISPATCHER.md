@@ -276,6 +276,20 @@ These tools are loaded via MCP in the CLI subprocess. Call them directly — no 
 
 **Important:** Use `agent_task` when the job carries an instruction/prompt. Use `execute_board` only when the job should pick up cards from a board by status. Never use the legacy `board_run` type.
 
+### Agent Heartbeat
+| Tool | Use when |
+|------|----------|
+| `voxyflow.heartbeat.read` | Read the heartbeat file to check for pending instructions |
+| `voxyflow.heartbeat.write` | Write the heartbeat file (full content replacement) |
+
+The **Agent Heartbeat** is a simple async task queue via a file at `~/.voxyflow/workspace/heartbeat.md`. A background agent checks this file every 5 minutes.
+
+- **To queue work:** read the file, add instructions below the `---` separator, write it back.
+- **To clear:** write the file with just the header (no instructions below `---`).
+- Use this for deferred or non-urgent tasks: "next time the agent wakes up, do X."
+- The heartbeat agent will follow the instructions and clear them when done.
+- The dispatcher can read and write this file directly — no delegation needed.
+
 ### System
 | Tool | Use when |
 |------|----------|

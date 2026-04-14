@@ -63,8 +63,27 @@ async def worker_snapshot(
     else:
         raw_sessions = store.get_sessions()
 
+    # Build job name lookup for scheduler sessions
+    job_names: dict[str, str] = {}
+    job_types: dict[str, str] = {}
+    try:
+        from app.routes.jobs import _load_jobs
+        for j in _load_jobs():
+            jid = j.get("id", "")
+            if jid:
+                job_names[jid] = j.get("name", "")
+                job_types[jid] = j.get("type", "")
+    except Exception:
+        pass
+
     workers = []
     for s in raw_sessions:
+        # Resolve job metadata from session_id pattern "job-{job_id}"
+        session_id = s.get("session_id", "")
+        job_id = session_id[4:] if session_id.startswith("job-") else None
+        job_name = job_names.get(job_id, "") if job_id else None
+        job_type = job_types.get(job_id, "") if job_id else None
+
         workers.append({
             "taskId": s["task_id"],
             "projectId": s.get("project_id"),
@@ -79,6 +98,9 @@ async def worker_snapshot(
             "toolCount": 0,
             "lastTool": None,
             "resultSummary": s.get("result_summary"),
+            "jobId": job_id,
+            "jobName": job_name,
+            "jobType": job_type,
         })
 
     # CLI sessions from CliSessionRegistry

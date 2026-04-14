@@ -14,6 +14,7 @@ Transport modes:
 import json
 import logging
 import os
+from pathlib import Path
 from datetime import datetime
 from typing import Any
 
@@ -966,6 +967,38 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_http": ("DELETE", "/api/jobs/{job_id}", None),
+    },
+
+    # ======================================================================
+    # HEARTBEAT — read/write ~/.voxyflow/workspace/heartbeat.md
+    # ======================================================================
+
+    {
+        "name": "voxyflow.heartbeat.read",
+        "description": "Read the Agent Heartbeat file (~/.voxyflow/workspace/heartbeat.md). Use this to check if there are pending heartbeat instructions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+        "_handler": "heartbeat_read",
+    },
+    {
+        "name": "voxyflow.heartbeat.write",
+        "description": (
+            "Write to the Agent Heartbeat file (~/.voxyflow/workspace/heartbeat.md). "
+            "The agent checks this file every 5 minutes and follows any instructions found. "
+            "Pass the full file content (header + instructions). "
+            "To queue work: add instructions below the --- separator. "
+            "To clear: write the file with just the header and no instructions."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["content"],
+            "properties": {
+                "content": {"type": "string", "description": "Full file content to write"},
+            },
+        },
+        "_handler": "heartbeat_write",
     },
 
     # ======================================================================
@@ -2234,7 +2267,30 @@ def _get_system_handler(name: str):
                 logger.error(f"[mcp.kg.stats] failed: {e}")
                 return {"error": str(e)}
 
+        _heartbeat_path = Path(
+            os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
+        ) / "workspace" / "heartbeat.md"
+
+        async def heartbeat_read(params: dict) -> dict:
+            try:
+                if not _heartbeat_path.exists():
+                    return {"content": "", "exists": False}
+                return {"content": _heartbeat_path.read_text(encoding="utf-8"), "exists": True}
+            except Exception as e:
+                return {"error": str(e)}
+
+        async def heartbeat_write(params: dict) -> dict:
+            content = params.get("content", "")
+            try:
+                _heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+                _heartbeat_path.write_text(content, encoding="utf-8")
+                return {"status": "ok", "bytes": len(content)}
+            except Exception as e:
+                return {"error": str(e)}
+
         _SYSTEM_HANDLERS.update({
+            "heartbeat_read": heartbeat_read,
+            "heartbeat_write": heartbeat_write,
             "tools_load": tools_load,
             "system_exec": system_exec,
             "web_search": web_search,

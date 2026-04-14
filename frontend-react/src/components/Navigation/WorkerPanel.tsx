@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useCardStore } from '../../stores/useCardStore';
-import { useWorkerStore, type WorkerInfo, type CliSessionInfo } from '../../stores/useWorkerStore';
+import { useWorkerStore, type WorkerInfo, type CliSessionInfo, type JobMeta } from '../../stores/useWorkerStore';
 import { SYSTEM_PROJECT_ID } from '../../lib/constants';
 
 // ── Peek types ─────────────────────────────────────────────────────────────
@@ -72,10 +72,13 @@ function formatAction(action: string): string {
 }
 
 /** Parse a chatId like "project:uuid" or "project:card-uuid" into a session label. */
-function parseSessionLabel(chatId: string | null, cardTitles: Record<string, string>): string {
+function parseSessionLabel(chatId: string | null, cardTitles: Record<string, string>, jobMeta: Record<string, JobMeta>): string {
   if (!chatId) return 'Direct';
-  // Scheduled background session: "job:<execution_id>"
-  if (chatId.startsWith('job:')) return 'Board Run';
+  // Scheduled background session: "job:<id>-<hash>"
+  if (chatId.startsWith('job:')) {
+    const meta = jobMeta[chatId];
+    return meta?.jobName || 'Scheduled Job';
+  }
   // Card session: "project:card-<uuid>"
   const cardMatch = chatId.match(/^project:card-(.+)$/);
   if (cardMatch) {
@@ -106,11 +109,14 @@ interface ProjectNode {
 
 // ── Build hierarchy ─────────────────────────────────────────────────────────
 
+const SCHEDULER_GROUP_ID = '_scheduler';
+
 function buildTree(
   allCli: CliSessionInfo[],
   allWorkers: WorkerInfo[],
   projectNames: Record<string, string>,
   cardTitles: Record<string, string>,
+  jobMeta: Record<string, JobMeta>,
 ): ProjectNode[] {
   // Index workers by chatId (skip workers with no chatId)
   const workersByChatId: Record<string, WorkerInfo[]> = {};
@@ -131,9 +137,13 @@ function buildTree(
   for (const cs of allCli) if (cs.chatId) allChatIds.add(cs.chatId);
   for (const w of allWorkers) if (w.chatId) allChatIds.add(w.chatId);
 
-  // Group chatIds by project
+  // Group chatIds by project — scheduler sessions go under _scheduler
   const chatIdsByProject: Record<string, Set<string>> = {};
   for (const chatId of allChatIds) {
+    if (chatId.startsWith('job:')) {
+      (chatIdsByProject[SCHEDULER_GROUP_ID] ??= new Set()).add(chatId);
+      continue;
+    }
     const cli = cliByChatId[chatId];
     const ws = workersByChatId[chatId];
     const pid = cli?.projectId || ws?.[0]?.projectId || '_general';
@@ -147,7 +157,7 @@ function buildTree(
     for (const chatId of chatIds) {
       const cli = cliByChatId[chatId];
       const ws = workersByChatId[chatId] || [];
-      const label = parseSessionLabel(chatId, cardTitles);
+      const label = parseSessionLabel(chatId, cardTitles, jobMeta);
       const sessionLabel = cli
         ? `${label} - ${modelEmoji(cli.model)} ${modelLabel(cli.model)}`
         : label;
@@ -174,13 +184,15 @@ function buildTree(
 
     projects.push({
       projectId: pid,
-      projectName: pid === '_general' ? 'General' : pid === SYSTEM_PROJECT_ID ? 'Home' : (projectNames[pid] || pid.slice(0, 12)),
+      projectName: pid === SCHEDULER_GROUP_ID ? 'Scheduler' : pid === '_general' ? 'General' : pid === SYSTEM_PROJECT_ID ? 'Home' : (projectNames[pid] || pid.slice(0, 12)),
       sessions,
     });
   }
 
-  // Sort: projects with active sessions first
+  // Sort: _scheduler always first, then active sessions, then inactive
   projects.sort((a, b) => {
+    if (a.projectId === SCHEDULER_GROUP_ID) return -1;
+    if (b.projectId === SCHEDULER_GROUP_ID) return 1;
     const aActive = a.sessions.some((s) => s.cliSession || s.workers.some((w) => !TERMINAL_STATUSES.has(w.status))) ? 0 : 1;
     const bActive = b.sessions.some((s) => s.cliSession || s.workers.some((w) => !TERMINAL_STATUSES.has(w.status))) ? 0 : 1;
     return aActive - bActive;
@@ -475,6 +487,7 @@ export function WorkerPanel() {
   const { send } = useWS();
   const workers = useWorkerStore((s) => s.workers);
   const cliSessions = useWorkerStore((s) => s.cliSessions);
+  const jobMeta = useWorkerStore((s) => s.jobMeta);
   const clearTerminal = useWorkerStore((s) => s.clearTerminal);
   const projects = useProjectStore((s) => s.projects);
   const cards = useCardStore((s) => s.cardsById);
@@ -540,7 +553,7 @@ export function WorkerPanel() {
   // Build tree
   const allCli = useMemo(() => Object.values(cliSessions), [cliSessions]);
   const allWorkers = useMemo(() => Object.values(workers), [workers]);
-  const tree = useMemo(() => buildTree(allCli, allWorkers, projectNames, cardTitles), [allCli, allWorkers, projectNames, cardTitles]);
+  const tree = useMemo(() => buildTree(allCli, allWorkers, projectNames, cardTitles, jobMeta), [allCli, allWorkers, projectNames, cardTitles, jobMeta]);
 
   const activeCount = allCli.length + allWorkers.filter((w) => !TERMINAL_STATUSES.has(w.status)).length;
   const terminalCount = allWorkers.filter((w) => TERMINAL_STATUSES.has(w.status)).length;
@@ -596,9 +609,11 @@ function ProjectGroup({ project, onCancel, onSteer, peekData, expandedPeek, onTo
   const [open, setOpen] = useState(true);
   const navigate = useNavigate();
 
+  const isScheduler = project.projectId === SCHEDULER_GROUP_ID;
+
   const handleProjectClick = () => {
-    // Navigate to project on click (but not for _general)
-    if (project.projectId !== '_general') {
+    // Navigate to project on click (but not for _general or _scheduler)
+    if (project.projectId !== '_general' && !isScheduler) {
       navigate(project.projectId === SYSTEM_PROJECT_ID ? '/' : `/project/${project.projectId}`);
     }
     setOpen((o) => !o);
@@ -611,6 +626,7 @@ function ProjectGroup({ project, onCancel, onSteer, peekData, expandedPeek, onTo
         onClick={handleProjectClick}
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        {isScheduler && <Clock size={10} className="shrink-0 text-muted-foreground" />}
         {project.projectName}
       </button>
       {open && (

@@ -14,6 +14,7 @@ import {
   Clock, Play, Trash2, Plus, Loader2, X, Pencil,
   Bell, GitBranch, Database, LayoutGrid, Cog, Bot, Square,
   ChevronDown, ChevronUp, Calendar, Info, Eye, EyeOff,
+  HeartPulse, RefreshCw, FileX, HardDrive,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToastStore } from '../../stores/useToastStore';
@@ -24,7 +25,7 @@ import { cn } from '../../lib/utils';
 interface Job {
   id: string;
   name: string;
-  type: 'reminder' | 'github_sync' | 'rag_index' | 'custom' | 'board_run' | 'execute_board' | 'execute_card' | 'agent_task';
+  type: 'reminder' | 'github_sync' | 'rag_index' | 'custom' | 'board_run' | 'execute_board' | 'execute_card' | 'agent_task' | 'heartbeat' | 'recurrence' | 'session_cleanup' | 'chromadb_backup';
   schedule: string;
   enabled: boolean;
   payload: Record<string, unknown>;
@@ -94,6 +95,30 @@ const JOB_TYPE_META: Record<JobType, {
     description: 'Synchronize with a GitHub repository',
     icon: GitBranch,
     color: 'text-purple-400',
+  },
+  heartbeat: {
+    label: 'Heartbeat',
+    description: 'System health checks (backend, ChromaDB, XTTS, resources)',
+    icon: HeartPulse,
+    color: 'text-rose-400',
+  },
+  recurrence: {
+    label: 'Recurrence',
+    description: 'Generate recurring cards based on card schedules',
+    icon: RefreshCw,
+    color: 'text-teal-400',
+  },
+  session_cleanup: {
+    label: 'Session Cleanup',
+    description: 'Remove stale session files older than 30 days',
+    icon: FileX,
+    color: 'text-orange-400',
+  },
+  chromadb_backup: {
+    label: 'ChromaDB Backup',
+    description: 'Daily backup of all ChromaDB collections',
+    icon: HardDrive,
+    color: 'text-slate-400',
   },
   custom: {
     label: 'Custom',

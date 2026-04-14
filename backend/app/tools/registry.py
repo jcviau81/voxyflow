@@ -35,6 +35,7 @@ TOOLS_DISPATCHER = {
     "voxyflow.wiki.list", "voxyflow.wiki.get",
     "voxyflow.doc.list",
     "voxyflow.jobs.list", "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
+    "voxyflow.heartbeat.read", "voxyflow.heartbeat.write",
     "memory.search", "knowledge.search",
     # Basic CRUD (instant, non-blocking)
     "memory.save",

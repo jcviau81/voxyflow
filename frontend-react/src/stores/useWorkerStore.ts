@@ -27,6 +27,12 @@ export interface WorkerInfo {
   lastTool?: string;
 }
 
+export interface JobMeta {
+  jobId: string;
+  jobName: string;
+  jobType: string;
+}
+
 export interface CliSessionInfo {
   id: string;
   pid: number;
@@ -47,6 +53,8 @@ const TTL_ERROR_MS = 5 * 60_000;  // 5 minutes
 export interface WorkerState {
   workers: Record<string, WorkerInfo>;
   cliSessions: Record<string, CliSessionInfo>;
+  /** chatId → job metadata for scheduler-originated sessions */
+  jobMeta: Record<string, JobMeta>;
   /** Task IDs the user has manually dismissed (object-as-set to avoid immer's MapSet plugin requirement) */
   _dismissed: Record<string, true>;
 
@@ -61,6 +69,7 @@ export interface WorkerState {
   handleToolExecuted: (payload: Record<string, unknown>) => void;
   handleCliSessionStarted: (payload: Record<string, unknown>) => void;
   handleCliSessionEnded: (payload: Record<string, unknown>) => void;
+  handleJobSessionStarted: (payload: Record<string, unknown>) => void;
 
   // Actions
   dismissTask: (taskId: string) => void;
@@ -103,6 +112,7 @@ export const useWorkerStore = create<WorkerState>()(
   immer((set, get) => ({
     workers: {},
     cliSessions: {},
+    jobMeta: {},
     _dismissed: {},
 
     // ── Snapshot ──────────────────────────────────────────────────────────
@@ -141,6 +151,17 @@ export const useWorkerStore = create<WorkerState>()(
             };
           }
           state.workers = nextWorkers;
+
+          // Extract job metadata from snapshot workers
+          for (const w of data.workers ?? []) {
+            if (w.jobId && w.jobName && w.chatId) {
+              state.jobMeta[w.chatId] = {
+                jobId: w.jobId,
+                jobName: w.jobName,
+                jobType: w.jobType ?? '',
+              };
+            }
+          }
 
           // Replace CLI sessions entirely from snapshot
           const nextCli: Record<string, CliSessionInfo> = {};
@@ -262,6 +283,20 @@ export const useWorkerStore = create<WorkerState>()(
       if (!id) return;
       set((state) => {
         delete state.cliSessions[id];
+      });
+    },
+
+    handleJobSessionStarted(payload) {
+      const chatId = payload.chatId as string;
+      const jobId = payload.jobId as string;
+      const jobName = payload.jobName as string;
+      if (!chatId || !jobId || !jobName) return;
+      set((state) => {
+        state.jobMeta[chatId] = {
+          jobId,
+          jobName,
+          jobType: (payload.jobType as string) ?? '',
+        };
       });
     },
 
