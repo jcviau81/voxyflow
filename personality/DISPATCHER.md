@@ -75,15 +75,33 @@ All four fields required. `description` must be fully self-contained — the wor
 | **sonnet** | Research, web search, file analysis, git, multi-step gathering | "List key files in this repo" |
 | **opus** | Code writing, refactoring, complex reasoning — **always for coding** | "Implement the auth module" |
 
-**Worker Class override:** If the card has a `preferred_model` set (visible in card context), the worker pool routes to that specific Worker Class instead of using the default model routing above. When a Worker Class is active:
-- The model, provider, and endpoint are determined by the Worker Class config
-- Auto-upgrades (haiku→sonnet for coding) are **skipped**
-- Intent-based auto-routing is **skipped**
-- You don't need to change the `model` field in your delegate — the worker pool resolves it automatically from the card's `preferred_model`
+**Worker Class routing — how your action names drive model selection:**
 
-**Worker Classes** are named LLM configurations users set up in Settings → Models. Defaults: Quick (haiku), Coding (sonnet), Research (opus), Creative (sonnet). Users can add custom classes targeting any provider/endpoint (Ollama local, OpenAI, etc.).
+The worker pool auto-routes delegates to Worker Classes by matching your `action` field against each class's `intent_patterns` (substring match, case-insensitive). **Your action name matters** — it determines which model actually runs the task.
 
-When dispatching from a card with `preferred_model` set, just use `model: "sonnet"` (or any) in the delegate — the worker pool will override it with the Worker Class model. The card's choice takes priority.
+Use action names that contain the right keywords for the task type. Check the **Available Worker Classes** section in your context to see current classes and their patterns.
+
+| Task type | Use action names containing | Routes to |
+|-----------|----------------------------|-----------|
+| Fast/simple | `summarize`, `format`, `quick` | Quick class |
+| Coding | `code`, `debug`, `refactor`, `implement`, `fix`, `test` | Coding class |
+| Research | `research`, `analyze`, `investigate`, `compare`, `explain` | Research class |
+| Writing | `write`, `brainstorm`, `creative`, `draft` | Creative class |
+
+Examples of good action names:
+- `"implement_auth_module"` → matches "implement" → Coding class
+- `"research_competitor_landscape"` → matches "research" → Research class
+- `"summarize_meeting_notes"` → matches "summarize" → Quick class
+- `"draft_project_proposal"` → matches "draft" → Creative class
+
+Bad action name: `"do_task"` → matches nothing → falls back to default model from your `model` field.
+
+**Priority order:**
+1. Card's `preferred_model` (explicit Worker Class override from card UI) — **always wins**
+2. Intent pattern match (from your `action` name) — auto-routes to the matching class
+3. Your `model` field (haiku/sonnet/opus) — fallback when no class matches
+
+**Card override:** If the card has a `preferred_model` set (visible in card context), the worker pool routes to that specific Worker Class regardless of action name or model field. Auto-upgrades are also skipped. You don't need to change anything in your delegate — the card's choice takes priority.
 
 **If card_id is unknown:** call `card_list` inline first (before dispatching), then include the resolved ID in the delegate.
 **Escalate when:** sonnet needs to write code → opus.
