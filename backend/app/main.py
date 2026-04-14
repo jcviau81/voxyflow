@@ -97,12 +97,10 @@ async def lifespan(app: FastAPI):
     logger.info("✅ Database initialized")
 
     # Sync settings from DB → settings.json so ClaudeService picks them up
-    from app.routes.settings import _load_settings_from_db, get_default_worker_model, AppSettings, SETTINGS_FILE
+    from app.routes.settings import _load_settings_from_db, AppSettings, SETTINGS_FILE
     try:
         _db_settings = await _load_settings_from_db()
         if _db_settings:
-            import app.routes.settings as _settings_mod
-            _settings_mod._cached_default_worker_model = _db_settings.get("models", {}).get("default_worker_model", "sonnet")
             # Write DB settings to settings.json so _load_model_overrides() finds them
             _merged = AppSettings(**_db_settings).dict()
             os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
@@ -111,7 +109,6 @@ async def lifespan(app: FastAPI):
             logger.info("✅ Settings synced from DB → settings.json")
         # Reload ClaudeService models after DB sync (it was initialized before sync)
         _claude_service.reload_models()
-        logger.info("✅ Default worker model: %s", get_default_worker_model())
     except Exception as _e:
         logger.warning("Failed to load settings from DB: %s — using defaults", _e)
 

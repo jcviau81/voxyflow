@@ -11,6 +11,7 @@
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -22,6 +23,17 @@ import { useProjectStore } from '../../stores/useProjectStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useChatService } from '../../contexts/useChatService';
+
+/** A named worker class from Settings > Models. */
+interface WorkerClass {
+  id: string;
+  name: string;
+  description: string;
+  endpoint_id: string;
+  provider_type: string;
+  model: string;
+  intent_patterns: string[];
+}
 
 import {
   usePatchCard,
@@ -67,6 +79,23 @@ const COLOR_RING: Record<string, string> = {
 
 type MobileTab = 'description' | 'chat' | 'details';
 
+// ── Provider display names ──────────────────────────────────────────────────
+
+const PROVIDER_LABELS: Record<string, string> = {
+  cli: 'Claude CLI',
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  ollama: 'Ollama',
+  groq: 'Groq',
+  mistral: 'Mistral',
+  gemini: 'Gemini',
+  lmstudio: 'LM Studio',
+};
+
+function providerLabel(providerType: string): string {
+  return PROVIDER_LABELS[providerType] ?? providerType.charAt(0).toUpperCase() + providerType.slice(1);
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function computeRecurrenceNext(value: string | null): string | null {
@@ -107,6 +136,17 @@ export function CardDetailModal() {
   const archiveCard = useArchiveCard();
   const executeCard = useExecuteCard();
   const { executeCard: executeCardWS } = useChatService();
+
+  // Worker classes from settings
+  const { data: workerClasses = [] } = useQuery<WorkerClass[]>({
+    queryKey: ['worker-classes'],
+    queryFn: async () => {
+      const res = await fetch('/api/models/worker-classes');
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
 
   // Resolve current card from store (must be before useWorkerStatus which references card)
   const card: Card | undefined = selectedCardId ? cardsById[selectedCardId] : undefined;
@@ -458,23 +498,43 @@ export function CardDetailModal() {
                   <AgentSelector current={card.agentType ?? 'general'} onChange={handleAgentChange} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground cursor-pointer">Worker Model</label>
-                  <div className="flex gap-1.5">
-                    {([null, 'haiku', 'sonnet', 'opus'] as const).map((m) => (
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground cursor-pointer">Worker Class</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {/* Auto button — always present */}
+                    <button
+                      type="button"
+                      onClick={() => save({ preferred_model: null })}
+                      className={cn(
+                        'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer',
+                        !card.preferredModel || !workerClasses.some((wc) => wc.id === card.preferredModel)
+                          ? 'bg-primary/20 text-primary border-primary/40'
+                          : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted/60',
+                      )}
+                    >
+                      Auto
+                    </button>
+                    {/* One button per saved Worker Class */}
+                    {workerClasses.map((wc) => (
                       <button
-                        key={m ?? 'auto'}
+                        key={wc.id}
                         type="button"
-                        onClick={() => save({ preferred_model: m })}
+                        onClick={() => save({ preferred_model: wc.id })}
+                        title={`${wc.description || wc.name} — ${providerLabel(wc.provider_type)}: ${wc.model}`}
                         className={cn(
                           'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer',
-                          (card.preferredModel ?? null) === m
+                          card.preferredModel === wc.id
                             ? 'bg-primary/20 text-primary border-primary/40'
                             : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted/60',
                         )}
                       >
-                        {m === null ? 'Auto' : m === 'haiku' ? 'Haiku' : m === 'sonnet' ? 'Sonnet' : 'Opus'}
+                        {wc.name}
                       </button>
                     ))}
+                    {workerClasses.length === 0 && (
+                      <span className="text-[10px] text-muted-foreground/60 self-center ml-1">
+                        No worker classes configured — go to Settings &rarr; Models
+                      </span>
+                    )}
                   </div>
                 </div>
               </section>

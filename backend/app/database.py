@@ -378,7 +378,7 @@ class Card(Base):
     recurring = Column(Boolean, default=False, nullable=False)  # reset to todo after board run
     recurrence = Column(String, nullable=True)  # "daily" | "weekly" | "monthly" | None
     recurrence_next = Column(DateTime, nullable=True)  # next occurrence datetime
-    preferred_model = Column(String, nullable=True)  # haiku | sonnet | opus — override worker model for this card
+    preferred_model = Column(String, nullable=True)  # worker class UUID or legacy name — override worker model for this card
     files = Column(Text, nullable=False, default="[]")  # JSON array of relative file paths
     archived_at = Column(DateTime, nullable=True)  # set when archived, NULL = active
     created_at = Column(DateTime, default=utcnow)

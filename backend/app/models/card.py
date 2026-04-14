@@ -46,6 +46,7 @@ class CardUpdate(BaseModel):
     agent_context: Optional[str] = None
     assignee: Optional[str] = None
     watchers: Optional[str] = None
+    preferred_model: Optional[str] = None  # worker class UUID, or null for Auto
     recurring: Optional[bool] = None
     recurrence: RecurrenceType = None
     recurrence_next: Optional[datetime] = None
@@ -93,6 +94,7 @@ class CardResponse(BaseModel):
     assignee: Optional[str] = None
     watchers: str = ""
     votes: int = 0
+    preferred_model: Optional[str] = None
     recurring: bool = False
     recurrence: RecurrenceType = None
     recurrence_next: Optional[datetime] = None

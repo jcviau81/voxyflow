@@ -49,7 +49,7 @@ interface WorkerClass {
 interface ModelsSettings {
   fast: ModelLayerConfig;
   deep: ModelLayerConfig;
-  default_worker_model: string;
+
   endpoints: ProviderEndpoint[];
   worker_classes: WorkerClass[];
 }
@@ -152,7 +152,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
 const DEFAULT_MODELS: ModelsSettings = {
   fast: { ...DEFAULT_LAYER, model: 'claude-sonnet-4' },
   deep: { ...DEFAULT_LAYER, model: 'claude-opus-4' },
-  default_worker_model: 'sonnet',
+
   endpoints: [],
   worker_classes: DEFAULT_WORKER_CLASSES,
 };
@@ -1825,7 +1825,7 @@ export function ModelPanel() {
     const merged: ModelsSettings = {
       fast: { ...dm.fast, ...(sm.fast || {}) },
       deep: { ...dm.deep, ...(sm.deep || {}) },
-      default_worker_model: sm.default_worker_model ?? dm.default_worker_model,
+
       endpoints: sm.endpoints ?? [],
       worker_classes: sm.worker_classes?.length ? sm.worker_classes : DEFAULT_WORKER_CLASSES,
     };
@@ -1938,28 +1938,6 @@ export function ModelPanel() {
         }}
       />
 
-      {/* ── Default worker model ── */}
-      <div className="rounded-lg border border-border bg-background p-4 flex items-center gap-3 flex-wrap">
-        <label className="text-xs font-medium whitespace-nowrap">Default worker model:</label>
-        <Controller
-          control={control}
-          name="default_worker_model"
-          render={({ field }) => (
-            <select
-              className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5"
-              value={field.value}
-              onChange={field.onChange}
-            >
-              <option value="haiku">Haiku (fast / cheap)</option>
-              <option value="sonnet">Sonnet (balanced)</option>
-              <option value="opus">Opus (powerful)</option>
-            </select>
-          )}
-        />
-        <span className="text-xs text-muted-foreground">
-          Model used for background workers and card execution
-        </span>
-      </div>
 
       {/* ── Save button ── */}
       <div className="flex items-center gap-3 pt-2">
