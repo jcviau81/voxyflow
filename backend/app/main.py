@@ -771,10 +771,10 @@ async def general_websocket(websocket: WebSocket):
                     sync_session_id = payload.get("sessionId") or ""
                     if sync_session_id:
                         logger.info(f"[WS] session:sync → delivering pending for {sync_session_id}")
-                        await _deliver_pending(sync_session_id)
                         # Update WebSocket reference on any surviving worker pool
-                        # so in-flight workers can stream to the reconnected client.
+                        # FIRST so in-flight workers can stream to the reconnected client.
                         _orchestrator.update_pool_websocket(sync_session_id, websocket)
+                        await _deliver_pending(sync_session_id)
                         active_session_ids.add(sync_session_id)
 
                 else:

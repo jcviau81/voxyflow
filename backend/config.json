@@ -2,7 +2,14 @@
   "tools": {
     "brave_api_key": "",
     "allowed_paths": ["~", "/tmp"],
-    "denied_write_paths": [],
+    "denied_write_paths": [
+      "~/.ssh",
+      "~/.gnupg",
+      "~/.bashrc",
+      "~/.zshrc",
+      "~/.aws",
+      "~/voxyflow"
+    ],
     "exec_blocklist": [
       "rm -rf /",
       "rm -rf /*",
