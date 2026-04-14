@@ -734,7 +734,7 @@ When creating a card without an agent selection, `AgentRouter.route()` runs keyw
 
 1. Checks card title + description + context against each agent's keyword list
 2. Returns the best match with a confidence score
-3. Falls back to `ember` if no keywords match
+3. Falls back to `general` if no keywords match
 
 `GET /api/cards/{card_id}/routing` — Get routing suggestion without applying it.
 

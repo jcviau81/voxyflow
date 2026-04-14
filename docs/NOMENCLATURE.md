@@ -90,7 +90,7 @@
 
 | Type | Name | Emoji | Specialty |
 |------|------|-------|-----------|
-| `ember` | Ember | 🔥 | Default generalist — no specialization |
+| `general` | General | ⚡ | Default — no specialization |
 | `researcher` | Researcher | 🔍 | Deep analysis, fact-checking, literature review |
 | `coder` | Coder | 💻 | Code generation, debugging, implementation |
 | `designer` | Designer | 🎨 | UI/UX design, visual design, user experience |

@@ -184,7 +184,7 @@ If you want the tool available to the Dispatcher (not just Workers), remove or s
 
 ### Adding or Modifying an Agent Persona
 
-Voxyflow has 7 specialist agents (Ember, Researcher, Coder, Designer, Architect, Writer, QA). They're defined in two places:
+Voxyflow has 6 specialist agents (Researcher, Coder, Designer, Architect, Writer, QA) plus a General default. They're defined in two places:
 
 1. **`backend/app/services/agent_personas.py`** — Python definitions (name, keywords, routing weight, model preference). This drives the automatic agent routing logic.
 2. **`personality/AGENTS.md`** — Natural language descriptions injected into the system prompt. This is what Claude actually reads to adopt a persona.

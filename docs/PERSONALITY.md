@@ -1,8 +1,8 @@
-# Personality Layer — How Ember Lives in Voxyflow
+# Personality Layer — How Voxy Lives in Voxyflow
 
 ## Overview
 
-Voxyflow doesn't just use Claude — it uses Claude *as Ember*. Every API call carries the personality defined in the Voxyflow workspace files. The result: a voice assistant that sounds like the same person whether she's answering a quick question (Haiku) or doing deep analysis (Opus).
+Voxyflow doesn't just use Claude — it uses Claude *with a personality*. Every API call carries the personality defined in the Voxyflow workspace files. The result: a voice assistant that sounds like the same person whether answering a quick question (Haiku) or doing deep analysis (Opus).
 
 ## How It Works
 
@@ -20,7 +20,7 @@ Voxyflow doesn't just use Claude — it uses Claude *as Ember*. Every API call c
         └── <name>.md   → Project-specific notes
 ```
 
-These files are the **single source of truth**. Ember in Mattermost, Ember in Voxyflow, Ember anywhere — all read from the same soul.
+These files are the **single source of truth**. The assistant personality is consistent across all interfaces — all read from the same soul.
 
 ### System Prompt Construction
 
@@ -111,10 +111,10 @@ User: "Je veux refactor l'API"
 Claude: "I can help with that. What specific aspects of the API would you like to refactor?"
 ```
 
-**With personality (Ember):**
+**With personality (Voxy):**
 ```
 User: "Je veux refactor l'API"
-Ember: "Cool, l'API commence à être cluttered. Tu veux attaquer quoi en premier — le routing ou les modèles?"
+Voxy: "Cool, l'API commence à être cluttered. Tu veux attaquer quoi en premier — le routing ou les modèles?"
 ```
 
 Same model, same capability — but the personality makes it *hers*.

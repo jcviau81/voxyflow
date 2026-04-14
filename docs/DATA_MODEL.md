@@ -47,7 +47,7 @@ class CardTask(Base):
     priority        = Column(Integer, default=0)        # 0=none, 1=low, 2=medium, 3=high, 4=critical
     color           = Column(String, nullable=True)     # yellow|blue|green|pink|purple|orange
     position        = Column(Integer, default=0)        # Sort order within column
-    agent_type      = Column(String, nullable=True)     # ember|researcher|coder|designer|architect|writer|qa
+    agent_type      = Column(String, nullable=True)     # general|researcher|coder|designer|architect|writer|qa
     agent_assigned  = Column(String, nullable=True)     # Display name of assigned agent
     agent_context   = Column(Text, nullable=True)       # Context for agent execution
     assignee        = Column(String, nullable=True)     # Human assignee name

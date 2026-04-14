@@ -79,7 +79,7 @@ Create a card in a project.
 | description | string | no | Card description |
 | status | string | no | card, todo, in-progress, done (default: card) |
 | priority | integer | no | 0=none, 1=low, 2=medium, 3=high, 4=critical |
-| agent_type | string | no | ember, researcher, coder, designer, architect, writer, qa |
+| agent_type | string | no | general, researcher, coder, designer, architect, writer, qa |
 
 #### voxyflow.card.list
 List all cards for a project.

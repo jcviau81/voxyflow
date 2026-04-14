@@ -42,7 +42,7 @@ PERSONAS: dict[AgentType, AgentPersona] = {
             "No special role — just be helpful, direct, and yourself."
         ),
         strengths=["general conversation", "quick tasks", "coordination", "memory"],
-        keywords=[],  # Ember is the fallback, not triggered by keywords
+        keywords=[],  # General is the fallback, not triggered by keywords
     ),
 
     AgentType.RESEARCHER: AgentPersona(

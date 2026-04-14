@@ -57,7 +57,7 @@ class AgentRouter:
     - Analyzes card content (title + description + context)
     - Scores each agent type based on keyword matching
     - Returns best match with confidence score
-    - Falls back to Ember (default) if no strong match
+    - Falls back to General (default) if no strong match
     """
 
     def __init__(self, min_confidence: float = 0.3):
@@ -73,7 +73,7 @@ class AgentRouter:
         Determine the best agent type for a card.
 
         Returns (agent_type, confidence_score).
-        Confidence 0.0-1.0: below min_confidence returns Ember.
+        Confidence 0.0-1.0: below min_confidence returns General.
         """
         text = f"{title} {description} {context}".lower()
         scores: dict[AgentType, float] = {}

@@ -18,7 +18,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     name: '/agent',
     args: '[name]',
-    description: 'Switch agent persona: ember, coder, architect, researcher, designer, writer, qa',
+    description: 'Switch agent persona: general, coder, architect, researcher, designer, writer, qa',
   },
   { name: '/meeting', description: 'Import meeting notes and extract action items as cards' },
 ];

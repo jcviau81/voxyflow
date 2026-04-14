@@ -152,7 +152,7 @@ Cards are the core unit of everything:
 
 Untracked sticky-note cards outside any project. Color-coded (6 colors). Same card model — unified data.
 
-### 🤖 Agent Personas (7)
+### 🤖 Agent Personas (6 Specialists)
 
 | Agent | Role |
 |-------|------|

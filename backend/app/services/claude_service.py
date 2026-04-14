@@ -1197,7 +1197,7 @@ class ClaudeService(ApiCallerMixin):
             '  "cards": an array of objects with keys: title (str), description (str), priority (int 0-3), agent_type (str)\n'
             '  "summary": a brief 1-2 sentence summary of the meeting.\n'
             "Priority scale: 0=low, 1=medium, 2=high, 3=critical.\n"
-            "agent_type must be one of: ember, researcher, coder, designer, architect, writer, qa.\n"
+            "agent_type must be one of: general, researcher, coder, designer, architect, writer, qa.\n"
             "Auto-detect the most appropriate agent_type based on the action item content."
         )
         prompt = (

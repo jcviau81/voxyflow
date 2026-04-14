@@ -174,7 +174,7 @@ Tableau à 4 colonnes représentant le cycle de vie des cartes :
 
 | Colonne | Description |
 |---------|-------------|
-| **Idea** | Idées brutes, non planifiées |
+| **Backlog** | Cartes en attente, non planifiées |
 | **Todo** | Tâches planifiées, prêtes à démarrer |
 | **In Progress** | Tâches en cours |
 | **Done** | Tâches terminées |
@@ -268,7 +268,7 @@ Tableau de bord analytique du projet, organisé en sections :
 | Section | Contenu |
 |---------|---------|
 | **Progress ring** | Anneau de progression global (% cartes terminées) |
-| **Distribution** | Répartition des cartes par colonne (Idea / Todo / In Progress / Done) |
+| **Distribution** | Répartition des cartes par colonne (Backlog / Todo / In Progress / Done) |
 | **Velocity** | Graphiques de vélocité sur les dernières périodes |
 | **Standup** | Résumé quotidien auto-généré. Bouton "Generate" pour lancer l'IA |
 | **Brief** | Résumé exécutif du projet généré par l'IA |

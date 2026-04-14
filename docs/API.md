@@ -644,8 +644,8 @@ Get the agent routing suggestion for a card without applying it.
   "suggested_agent": "coder",
   "confidence": 0.85,
   "matched_keywords": ["code", "implement"],
-  "current_agent_type": "ember",
-  "current_agent_assigned": "🔥 Ember"
+  "current_agent_type": "general",
+  "current_agent_assigned": "⚡ General"
 }
 ```
 

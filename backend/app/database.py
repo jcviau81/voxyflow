@@ -369,7 +369,7 @@ class Card(Base):
     source_message_id = Column(String, ForeignKey("messages.id"), nullable=True)
     auto_generated = Column(Boolean, default=False)
     agent_assigned = Column(String, nullable=True)
-    agent_type = Column(String, nullable=True)  # ember|researcher|coder|designer|architect|writer|qa
+    agent_type = Column(String, nullable=True)  # general|researcher|coder|designer|architect|writer|qa
     agent_context = Column(Text, nullable=True)  # relevant docs/requirements for the agent
     assignee = Column(String, nullable=True)  # display name of assigned person
     watchers = Column(String, nullable=False, default="")  # comma-separated watcher names

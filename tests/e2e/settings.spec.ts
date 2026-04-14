@@ -116,7 +116,7 @@ test.describe('Settings - Personality Configuration', () => {
     const personalitySection = page.locator('[data-testid="settings-personality"]');
     await expect(personalitySection).toBeVisible({ timeout: 5000 });
 
-    await expect(page.locator('[data-field="bot_name"]')).toHaveValue('Ember');
+    await expect(page.locator('[data-field="bot_name"]')).toHaveValue('Voxy');
     await expect(page.locator('[data-field="tone"]')).toHaveValue('casual');
     await expect(page.locator('[data-field="warmth"]')).toHaveValue('warm');
   });

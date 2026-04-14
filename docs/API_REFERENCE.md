@@ -22,7 +22,7 @@
   "status": "card|todo|in-progress|done (default: card)",
   "priority": "0-4 (default: 0)",
   "color": "yellow|blue|green|pink|purple|orange",
-  "agent_type": "ember|researcher|coder|designer|architect|writer|qa",
+  "agent_type": "general|researcher|coder|designer|architect|writer|qa",
   "agent_context": "string",
   "recurrence": "daily|weekly|monthly",
   "recurrence_next": "ISO date string",

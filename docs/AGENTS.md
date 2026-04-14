@@ -8,7 +8,7 @@ Voxyflow uses a lightweight agent system inspired by BMAD (but simpler). Instead
 
 | Type | Name | Emoji | When It's Used |
 |------|------|-------|----------------|
-| `ember` | Ember | 🔥 | Default. General tasks, conversation, coordination |
+| `general` | General | ⚡ | Default. General tasks, conversation, coordination |
 | `researcher` | Recherchiste | 🔍 | Deep analysis, fact-checking, market research |
 | `coder` | Codeuse | 💻 | Code generation, debugging, refactoring |
 | `designer` | Designer | 🎨 | UI/UX, wireframes, visual design guidance |
@@ -69,7 +69,7 @@ Agent Persona                    ← DIFFERENT per agent
 Task instructions                ← DIFFERENT per card
 ```
 
-The personality is **always present**. An Architect agent still sounds like Ember — she's just wearing her architecture hat.
+The personality is **always present**. An Architect agent still sounds like Voxy — just wearing an architecture hat.
 
 ## Example System Prompts
 
@@ -116,7 +116,7 @@ Cards now include agent fields:
 ```python
 class Card:
     # ... existing fields ...
-    agent_type: str       # ember|researcher|coder|designer|architect|writer|qa
+    agent_type: str       # general|researcher|coder|designer|architect|writer|qa
     agent_assigned: str   # Display: "💻 Codeuse"
     agent_context: str    # Relevant docs/requirements for the agent
 ```
@@ -161,7 +161,7 @@ class Card:
    ├── Architect persona prompt
    └── Card context + conversation history
    │
-9. Ember (as Architecte): "J'ai analysé ton API. Voici ma proposition..."
+9. Voxy (as Architecte): "J'ai analysé ton API. Voici ma proposition..."
    │
 10. Decision logged to memory/YYYY-MM-DD.md
     Next session remembers what was decided.
@@ -175,8 +175,8 @@ Complexity. Sub-agents need orchestration, state management, and error handling.
 ### Why keyword routing instead of always-LLM?
 Speed + cost. Keyword routing is instant and free. LLM routing is smarter but costs tokens and adds latency. We use keywords as the fast path and LLM as the quality path, with cross-validation when both run.
 
-### Why Ember as the default?
-Most tasks don't need a specialist. General conversation, quick questions, coordination — these are all Ember territory. The specialization only kicks in when the task clearly benefits from focused expertise.
+### Why a General default?
+Most tasks don't need a specialist. General conversation, quick questions, coordination — these don't require specialization. The specialist personas only kick in when the task clearly benefits from focused expertise.
 
 ### Why bilingual persona names?
 JC works in French and English. Persona names reflect that: Recherchiste, Codeuse, Architecte, Rédactrice. It's a small detail, but it makes the agents feel native to the user's world.

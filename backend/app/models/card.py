@@ -19,7 +19,7 @@ class CardCreate(BaseModel):
     # Agent assignment
     agent_type: Optional[str] = Field(
         None,
-        pattern="^(ember|researcher|coder|designer|architect|writer|qa)$",
+        pattern="^(general|researcher|coder|designer|architect|writer|qa)$",
         description="Specialized agent type assigned to this card",
     )
     agent_context: Optional[str] = Field(
@@ -41,7 +41,7 @@ class CardUpdate(BaseModel):
     agent_assigned: Optional[str] = None
     agent_type: Optional[str] = Field(
         None,
-        pattern="^(ember|researcher|coder|designer|architect|writer|qa)$",
+        pattern="^(general|researcher|coder|designer|architect|writer|qa)$",
     )
     agent_context: Optional[str] = None
     assignee: Optional[str] = None
@@ -112,14 +112,14 @@ class CardSuggestion(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     # Agent routing
     agent_type: str = "general"
-    agent_name: str = "🔥 Ember"
+    agent_name: str = "⚡ General"
 
 
 class AgentAssignment(BaseModel):
     """Request to assign/reassign a card to a specific agent."""
     agent_type: str = Field(
         ...,
-        pattern="^(ember|researcher|coder|designer|architect|writer|qa)$",
+        pattern="^(general|researcher|coder|designer|architect|writer|qa)$",
     )
     agent_context: Optional[str] = None
 
