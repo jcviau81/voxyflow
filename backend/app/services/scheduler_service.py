@@ -316,6 +316,16 @@ class SchedulerService:
                 self.register_user_job(job)
                 if job.get("enabled", True):
                     count += 1
+                # Warn about board_run jobs that look like agent_task
+                if job.get("type") == "board_run":
+                    p = job.get("payload", {})
+                    has_instruction = "instruction" in p or "instructions" in p
+                    if has_instruction:
+                        logger.warning(
+                            "[Jobs] Job '%s' is type 'board_run' but has an instruction payload. "
+                            "Consider changing its type to 'agent_task'.",
+                            job.get("name"),
+                        )
             logger.info(f"[Jobs] Loaded {len(jobs)} user job(s) from disk ({count} enabled)")
         except Exception as e:
             logger.error(f"[Jobs] Failed to load user jobs from {jobs_file}: {e}", exc_info=True)

@@ -11,6 +11,7 @@ Jobs are persisted to ~/.voxyflow/jobs.json.
 APScheduler is kept in sync on every CRUD operation.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -38,7 +39,10 @@ JOBS_FILE = VOXYFLOW_DIR / "jobs.json"
 # Schema
 # ---------------------------------------------------------------------------
 
-JobType = Literal["reminder", "github_sync", "rag_index", "custom", "board_run"]
+JobType = Literal[
+    "reminder", "github_sync", "rag_index", "custom",
+    "board_run", "execute_board", "execute_card", "agent_task",
+]
 
 
 class JobModel(BaseModel):
@@ -236,6 +240,19 @@ async def trigger_job(job_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Shared broadcast WebSocket adapter
+# ---------------------------------------------------------------------------
+
+
+class _BroadcastWS:
+    """WebSocket adapter that broadcasts to all connected clients."""
+
+    async def send_json(self, data):
+        from app.services.ws_broadcast import ws_broadcast
+        ws_broadcast.emit_sync(data.get("type", "job:event"), data.get("payload", data))
+
+
+# ---------------------------------------------------------------------------
 # Job execution dispatcher
 # ---------------------------------------------------------------------------
 
@@ -252,8 +269,12 @@ async def _execute_job(job: dict) -> dict:
             return await _run_reminder(job, payload)
         elif job_type == "github_sync":
             return await _run_github_sync(job, payload)
-        elif job_type == "board_run":
-            return await _run_board_run(job, payload)
+        elif job_type in ("board_run", "execute_board"):
+            return await _run_execute_board(job, payload)
+        elif job_type == "execute_card":
+            return await _run_execute_card(job, payload)
+        elif job_type == "agent_task":
+            return await _run_agent_task(job, payload)
         elif job_type == "custom":
             return await _run_custom(job, payload)
         else:
@@ -296,29 +317,22 @@ async def _run_github_sync(job: dict, payload: dict) -> dict:
     return {"status": "ok", "message": f"GitHub sync placeholder (repo={repo})"}
 
 
-async def _run_board_run(job: dict, payload: dict) -> dict:
-    """Execute a board run for a project (scheduled via cron)."""
+async def _run_execute_board(job: dict, payload: dict) -> dict:
+    """Execute all matching cards from a project board."""
     project_id = payload.get("project_id")
     if not project_id:
         return {"status": "error", "message": "Missing project_id in payload"}
 
     statuses = payload.get("statuses", ["todo"])
-    logger.info(f"[Jobs][BoardRun] Starting board run for project={project_id}, statuses={statuses}")
+    logger.info(f"[Jobs][ExecuteBoard] Starting board run for project={project_id}, statuses={statuses}")
 
     from app.services.board_executor import build_execution_plan, execute_board
-    from app.services.ws_broadcast import ws_broadcast
     from uuid import uuid4
 
     plan = await build_execution_plan(project_id, statuses)
     if not plan.cards:
         return {"status": "ok", "message": "No cards to execute"}
 
-    # Broadcast WebSocket adapter — sends events to all connected clients
-    class _BroadcastWS:
-        async def send_json(self, data):
-            ws_broadcast.emit_sync(data.get("type", "job:event"), data.get("payload", data))
-
-    # Get the orchestrator singleton from main
     from app.main import _orchestrator
 
     session_id = f"job-{job.get('id', str(uuid4()))}"
@@ -335,6 +349,85 @@ async def _run_board_run(job: dict, payload: dict) -> dict:
     )
 
     return {"status": "ok", "message": f"Board run completed: {plan.total} cards executed"}
+
+
+async def _run_execute_card(job: dict, payload: dict) -> dict:
+    """Execute a single card through the chat pipeline."""
+    card_id = payload.get("card_id")
+    if not card_id:
+        return {"status": "error", "message": "Missing card_id in payload"}
+
+    project_id = payload.get("project_id")
+    logger.info(f"[Jobs][ExecuteCard] Executing card={card_id}, project={project_id or 'none'}")
+
+    from app.services.board_executor import _build_card_prompt
+    from app.main import _orchestrator
+    from uuid import uuid4
+
+    prompt, _project_name = await _build_card_prompt(card_id)
+
+    session_id = f"job-{job.get('id', str(uuid4()))}"
+    chat_id = f"job:{job.get('id')}-{uuid4().hex[:8]}"
+    message_id = f"exec-card-{uuid4().hex[:8]}"
+
+    bg_tasks = await _orchestrator.handle_message(
+        websocket=_BroadcastWS(),
+        content=prompt,
+        message_id=message_id,
+        chat_id=chat_id,
+        project_id=project_id,
+        layers={"deep": False},
+        chat_level="project" if project_id else "general",
+        card_id=card_id,
+        session_id=session_id,
+    )
+
+    if bg_tasks:
+        results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"[Jobs][ExecuteCard] Background task failed: {r}")
+
+    return {"status": "ok", "message": f"Card {card_id} executed"}
+
+
+async def _run_agent_task(job: dict, payload: dict) -> dict:
+    """Execute a freeform instruction through the chat pipeline."""
+    instruction = payload.get("instruction") or payload.get("instructions")
+    if not instruction:
+        return {"status": "error", "message": "Missing instruction in payload"}
+
+    if isinstance(instruction, list):
+        instruction = "\n".join(instruction)
+
+    project_id = payload.get("project_id")
+    logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (project={project_id or 'none'})")
+
+    from app.main import _orchestrator
+    from uuid import uuid4
+
+    session_id = f"job-{job.get('id', str(uuid4()))}"
+    chat_id = f"job:{job.get('id')}-{uuid4().hex[:8]}"
+    message_id = f"agent-task-{uuid4().hex[:8]}"
+
+    bg_tasks = await _orchestrator.handle_message(
+        websocket=_BroadcastWS(),
+        content=instruction,
+        message_id=message_id,
+        chat_id=chat_id,
+        project_id=project_id,
+        layers={"deep": False},
+        chat_level="project" if project_id else "general",
+        session_id=session_id,
+    )
+
+    if bg_tasks:
+        results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"[Jobs][AgentTask] Background task failed: {r}")
+
+    return {"status": "ok", "message": f"Agent task completed: {job.get('name')}"}
 
 
 async def _run_custom(job: dict, payload: dict) -> dict:

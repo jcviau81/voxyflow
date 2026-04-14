@@ -12,8 +12,8 @@
 import { useState, useCallback, useMemo } from 'react';
 import {
   Clock, Play, Trash2, Plus, Loader2, X, Pencil,
-  Bell, GitBranch, Database, LayoutGrid, Cog,
-  ChevronDown, ChevronUp, Calendar, Info,
+  Bell, GitBranch, Database, LayoutGrid, Cog, Bot, Square,
+  ChevronDown, ChevronUp, Calendar, Info, Eye, EyeOff,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToastStore } from '../../stores/useToastStore';
@@ -24,7 +24,7 @@ import { cn } from '../../lib/utils';
 interface Job {
   id: string;
   name: string;
-  type: 'reminder' | 'github_sync' | 'rag_index' | 'custom' | 'board_run';
+  type: 'reminder' | 'github_sync' | 'rag_index' | 'custom' | 'board_run' | 'execute_board' | 'execute_card' | 'agent_task';
   schedule: string;
   enabled: boolean;
   payload: Record<string, unknown>;
@@ -41,15 +41,39 @@ interface SimpleProject {
 
 // ── Job type metadata ─────────────────────────────────────────────────────
 
+// Job types shown in the create/edit type selector (ordered)
+const JOB_TYPE_CREATE_ORDER: JobType[] = [
+  'agent_task', 'execute_card', 'execute_board',
+  'reminder', 'rag_index', 'github_sync', 'custom',
+];
+
 const JOB_TYPE_META: Record<JobType, {
   label: string;
   description: string;
   icon: typeof Clock;
   color: string;
 }> = {
+  agent_task: {
+    label: 'Agent Task',
+    description: 'Send a freeform instruction to the AI agent',
+    icon: Bot,
+    color: 'text-cyan-400',
+  },
+  execute_card: {
+    label: 'Execute Card',
+    description: 'Run a specific card through the AI pipeline',
+    icon: Square,
+    color: 'text-indigo-400',
+  },
+  execute_board: {
+    label: 'Execute Board',
+    description: 'Execute all matching cards from a project board',
+    icon: LayoutGrid,
+    color: 'text-blue-400',
+  },
   board_run: {
-    label: 'Board Run',
-    description: 'Execute cards from a project board automatically',
+    label: 'Execute Board',
+    description: 'Execute all matching cards from a project board',
     icon: LayoutGrid,
     color: 'text-blue-400',
   },
@@ -235,10 +259,21 @@ function getPayloadSummary(
 ): string | null {
   const p = job.payload;
   switch (job.type) {
-    case 'board_run': {
+    case 'board_run':
+    case 'execute_board': {
       const projName = p.project_id ? (projectsMap.get(p.project_id as string) ?? 'Unknown project') : 'No project';
       const statuses = Array.isArray(p.statuses) ? p.statuses.join(', ') : 'todo';
       return `${projName} — statuses: ${statuses}`;
+    }
+    case 'execute_card': {
+      const projName = p.project_id ? (projectsMap.get(p.project_id as string) ?? 'Unknown') : '';
+      const cardLabel = p.card_title ? (p.card_title as string) : (p.card_id ? `Card ${(p.card_id as string).slice(0, 8)}…` : 'No card');
+      return projName ? `${projName} — ${cardLabel}` : cardLabel;
+    }
+    case 'agent_task': {
+      const instr = ((p.instruction ?? p.instructions) as string | undefined) ?? '';
+      if (!instr) return null;
+      return instr.length > 80 ? instr.slice(0, 77) + '…' : instr;
     }
     case 'reminder': {
       const msg = p.message as string | undefined;
@@ -474,6 +509,125 @@ function GithubSyncPayload({ payload, onChange }: {
   );
 }
 
+function AgentTaskPayload({ payload, onChange, projects }: {
+  payload: Record<string, unknown>;
+  onChange: (p: Record<string, unknown>) => void;
+  projects: SimpleProject[];
+}) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="text-xs font-medium text-muted-foreground mb-1 block">Instruction</label>
+        <textarea
+          value={(payload.instruction as string) ?? ''}
+          onChange={(e) => onChange({ ...payload, instruction: e.target.value || undefined })}
+          placeholder="Describe what the agent should do…"
+          rows={5}
+          className="w-full px-2.5 py-1.5 text-sm rounded-md border border-input bg-background resize-y font-mono"
+        />
+        {!payload.instruction && (
+          <p className="text-[11px] text-amber-400 mt-1">An instruction is required for agent tasks</p>
+        )}
+      </div>
+      <div>
+        <label className="text-xs font-medium text-muted-foreground mb-1 block">Project scope (optional)</label>
+        <select
+          value={(payload.project_id as string) ?? ''}
+          onChange={(e) => onChange({ ...payload, project_id: e.target.value || undefined })}
+          className="h-8 w-full px-2 text-sm rounded-md border border-input bg-background"
+        >
+          <option value="">No project (general context)</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Selecting a project gives the agent access to project context and memories
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ExecuteCardPayload({ payload, onChange, projects }: {
+  payload: Record<string, unknown>;
+  onChange: (p: Record<string, unknown>) => void;
+  projects: SimpleProject[];
+}) {
+  const [cards, setCards] = useState<{ id: string; title: string }[]>([]);
+  const [loadingCards, setLoadingCards] = useState(false);
+  const selectedProjectId = (payload.project_id as string) ?? '';
+
+  // Fetch cards when project changes
+  const fetchCards = useCallback(async (projectId: string) => {
+    if (!projectId) { setCards([]); return; }
+    setLoadingCards(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/cards`);
+      if (!res.ok) { setCards([]); return; }
+      const data = await res.json();
+      const list = (Array.isArray(data) ? data : [])
+        .filter((c: Record<string, unknown>) => c.status !== 'done' && c.status !== 'archived')
+        .map((c: Record<string, unknown>) => ({ id: c.id as string, title: (c.title ?? 'Untitled') as string }));
+      setCards(list);
+    } catch { setCards([]); }
+    finally { setLoadingCards(false); }
+  }, []);
+
+  // Re-fetch when project changes
+  useState(() => { if (selectedProjectId) fetchCards(selectedProjectId); });
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="text-xs font-medium text-muted-foreground mb-1 block">Project</label>
+        <select
+          value={selectedProjectId}
+          onChange={(e) => {
+            const pid = e.target.value || undefined;
+            onChange({ ...payload, project_id: pid, card_id: undefined, card_title: undefined });
+            if (pid) fetchCards(pid);
+            else setCards([]);
+          }}
+          className="h-8 w-full px-2 text-sm rounded-md border border-input bg-background"
+        >
+          <option value="">Select a project…</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="text-xs font-medium text-muted-foreground mb-1 block">Card</label>
+        {loadingCards ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+            <Loader2 size={12} className="animate-spin" /> Loading cards…
+          </div>
+        ) : (
+          <select
+            value={(payload.card_id as string) ?? ''}
+            onChange={(e) => {
+              const cid = e.target.value || undefined;
+              const card = cards.find(c => c.id === cid);
+              onChange({ ...payload, card_id: cid, card_title: card?.title });
+            }}
+            className="h-8 w-full px-2 text-sm rounded-md border border-input bg-background"
+            disabled={!selectedProjectId}
+          >
+            <option value="">{selectedProjectId ? 'Select a card…' : 'Select a project first'}</option>
+            {cards.map((c) => (
+              <option key={c.id} value={c.id}>{c.title}</option>
+            ))}
+          </select>
+        )}
+        {selectedProjectId && !payload.card_id && (
+          <p className="text-[11px] text-amber-400 mt-1">A card is required</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PayloadEditor({ type, payload, onChange, projects }: {
   type: JobType;
   payload: Record<string, unknown>;
@@ -482,7 +636,12 @@ function PayloadEditor({ type, payload, onChange, projects }: {
 }) {
   switch (type) {
     case 'board_run':
+    case 'execute_board':
       return <BoardRunPayload payload={payload} onChange={onChange} projects={projects} />;
+    case 'execute_card':
+      return <ExecuteCardPayload payload={payload} onChange={onChange} projects={projects} />;
+    case 'agent_task':
+      return <AgentTaskPayload payload={payload} onChange={onChange} projects={projects} />;
     case 'reminder':
       return <ReminderPayload payload={payload} onChange={onChange} />;
     case 'rag_index':
@@ -504,100 +663,126 @@ function JobItem({ job, projectsMap, onToggle, onRun, onDelete, onEdit }: {
   onDelete: (id: string, name: string) => void;
   onEdit: (job: Job) => void;
 }) {
+  const [showPayload, setShowPayload] = useState(false);
   const meta = JOB_TYPE_META[job.type] ?? JOB_TYPE_META.custom;
   const Icon = meta.icon;
   const scheduleResult = validateCronOrShorthand(job.schedule);
   const payloadSummary = getPayloadSummary(job, projectsMap);
+  const hasPayload = Object.keys(job.payload).length > 0;
 
   const lastRunText = job.last_run ? relativeTime(job.last_run) : 'never';
   const nextRunText = job.next_run && job.enabled ? relativeTime(job.next_run) : null;
 
   return (
     <div className={cn(
-      "group flex items-start gap-3 py-3 px-3.5 rounded-lg border transition-colors",
+      "group rounded-lg border transition-colors",
       job.enabled
         ? "border-border/50 hover:border-border hover:bg-muted/30"
         : "border-border/30 bg-muted/10 opacity-60"
     )}>
-      {/* Enable toggle */}
-      <div className="pt-0.5">
-        <input
-          type="checkbox"
-          checked={job.enabled}
-          onChange={(e) => onToggle(job.id, e.target.checked)}
-          className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
-          title={job.enabled ? 'Disable job' : 'Enable job'}
-        />
-      </div>
-
-      {/* Type icon */}
-      <div className={cn("pt-0.5 shrink-0", meta.color)}>
-        <Icon size={16} />
-      </div>
-
-      {/* Main content */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{job.name}</span>
-          <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", meta.color, "bg-muted")}>
-            {meta.label}
-          </span>
+      <div className="flex items-start gap-3 py-3 px-3.5">
+        {/* Enable toggle */}
+        <div className="pt-0.5">
+          <input
+            type="checkbox"
+            checked={job.enabled}
+            onChange={(e) => onToggle(job.id, e.target.checked)}
+            className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
+            title={job.enabled ? 'Disable job' : 'Enable job'}
+          />
         </div>
 
-        {/* Schedule description */}
-        <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
-          <Clock size={10} className="shrink-0" />
-          <span>{scheduleResult.valid ? scheduleResult.description : job.schedule}</span>
-          <span className="font-mono text-[10px] opacity-60">({job.schedule})</span>
+        {/* Type icon */}
+        <div className={cn("pt-0.5 shrink-0", meta.color)}>
+          <Icon size={16} />
         </div>
 
-        {/* Payload summary */}
-        {payloadSummary && (
-          <div className="mt-1 text-xs text-muted-foreground/80 truncate">
-            {payloadSummary}
-          </div>
-        )}
-
-        {/* Timing info */}
-        <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground/60">
-          <span title={job.last_run ? new Date(job.last_run).toLocaleString() : undefined}>
-            Last run: {lastRunText}
-          </span>
-          {nextRunText && (
-            <span title={job.next_run ? new Date(job.next_run).toLocaleString() : undefined}>
-              Next: {nextRunText}
+        {/* Main content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium truncate">{job.name}</span>
+            <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", meta.color, "bg-muted")}>
+              {meta.label}
             </span>
+          </div>
+
+          {/* Schedule description */}
+          <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
+            <Clock size={10} className="shrink-0" />
+            <span>{scheduleResult.valid ? scheduleResult.description : job.schedule}</span>
+            <span className="font-mono text-[10px] opacity-60">({job.schedule})</span>
+          </div>
+
+          {/* Payload summary */}
+          {payloadSummary && (
+            <div className="mt-1 text-xs text-muted-foreground/80 truncate">
+              {payloadSummary}
+            </div>
           )}
+
+          {/* Timing info */}
+          <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground/60">
+            <span title={job.last_run ? new Date(job.last_run).toLocaleString() : undefined}>
+              Last run: {lastRunText}
+            </span>
+            {nextRunText && (
+              <span title={job.next_run ? new Date(job.next_run).toLocaleString() : undefined}>
+                Next: {nextRunText}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          {hasPayload && (
+            <button
+              type="button"
+              onClick={() => setShowPayload(!showPayload)}
+              title={showPayload ? 'Hide payload' : 'Show payload'}
+              className={cn(
+                "h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors",
+                showPayload ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {showPayload ? <EyeOff size={13} /> : <Eye size={13} />}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onEdit(job)}
+            title="Edit job"
+            className="h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+          >
+            <Pencil size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onRun(job.id)}
+            title="Run now"
+            className="h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+          >
+            <Play size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(job.id, job.name)}
+            title="Delete job"
+            className="h-7 w-7 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 size={13} />
+          </button>
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={() => onEdit(job)}
-          title="Edit job"
-          className="h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-        >
-          <Pencil size={13} />
-        </button>
-        <button
-          type="button"
-          onClick={() => onRun(job.id)}
-          title="Run now"
-          className="h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-        >
-          <Play size={13} />
-        </button>
-        <button
-          type="button"
-          onClick={() => onDelete(job.id, job.name)}
-          title="Delete job"
-          className="h-7 w-7 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 size={13} />
-        </button>
-      </div>
+      {/* Expandable payload */}
+      {showPayload && hasPayload && (
+        <div className="px-3.5 pb-3 pt-0">
+          <pre className="text-[11px] font-mono text-muted-foreground bg-muted/40 rounded-md p-2.5 overflow-x-auto whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+            {JSON.stringify(job.payload, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
@@ -658,7 +843,9 @@ function JobForm({ mode, initial, projects, onCancel, onSubmit }: {
     if (!schedule.trim()) { setError('Schedule is required'); return; }
     const result = validateCronOrShorthand(schedule);
     if (!result.valid) { setError(result.description); return; }
-    if (type === 'board_run' && !payload.project_id) { setError('Project is required for Board Run jobs'); return; }
+    if ((type === 'board_run' || type === 'execute_board') && !payload.project_id) { setError('Project is required for Execute Board jobs'); return; }
+    if (type === 'execute_card' && !payload.card_id) { setError('Card is required for Execute Card jobs'); return; }
+    if (type === 'agent_task' && !payload.instruction) { setError('Instruction is required for Agent Task jobs'); return; }
     setError('');
     onSubmit({ name: name.trim(), type, schedule: schedule.trim(), enabled, payload });
   };
@@ -697,7 +884,8 @@ function JobForm({ mode, initial, projects, onCancel, onSubmit }: {
       <div>
         <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Job Type</label>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-          {(Object.entries(JOB_TYPE_META) as [JobType, typeof meta][]).map(([key, m]) => {
+          {JOB_TYPE_CREATE_ORDER.map((key) => {
+            const m = JOB_TYPE_META[key];
             const TypeIcon = m.icon;
             return (
               <button

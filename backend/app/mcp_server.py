@@ -914,7 +914,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "name": {"type": "string", "description": "Job name"},
                 "type": {
                     "type": "string",
-                    "enum": ["reminder", "github_sync", "rag_index", "custom", "board_run"],
+                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "github_sync", "custom", "board_run"],
                     "description": "Job type",
                 },
                 "schedule": {"type": "string", "description": "Cron expression (e.g. '0 9 * * 1-5') or interval ('every_5min', 'every_1h')"},
@@ -935,7 +935,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "name": {"type": "string", "description": "New job name"},
                 "type": {
                     "type": "string",
-                    "enum": ["reminder", "github_sync", "rag_index", "custom", "board_run"],
+                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "github_sync", "custom", "board_run"],
                     "description": "New job type",
                 },
                 "schedule": {"type": "string", "description": "New cron expression or interval"},

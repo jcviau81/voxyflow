@@ -1,183 +1,181 @@
 # Voxyflow — Context & Workflow Guide
 
-> Comment Voxyflow sait toujours _de quoi_ tu parles, et comment en tirer parti.
+> How Voxyflow always knows _what_ you're talking about, and how to make the most of it.
 
 ---
 
-## Le concept de contexte
+## The concept of context
 
-Quand tu parles à Voxy, elle n'est jamais dans le vide. Elle sait toujours où tu te trouves dans l'interface — et elle adapte ce qu'elle peut faire, ce qu'elle voit, et comment elle répond.
+When you talk to Voxy, she is never in a vacuum. She always knows where you are in the interface — and she adapts what she can do, what she sees, and how she responds.
 
-Il y a trois niveaux de contexte. Le niveau actif se détermine automatiquement selon ce que tu as ouvert dans l'interface :
+There are three levels of context. The active level is determined automatically based on what you have open in the interface:
 
 ```
-Tu es sur l'onglet Home (🏠 onglet principal)
-→ CONTEXTE GÉNÉRAL — Voxy voit tous tes projets et les cartes Home, rien de spécifique.
+You are on the Home tab (main tab)
+→ GENERAL CONTEXT — Voxy sees all your projects and Home cards, nothing specific.
 
-Tu as ouvert un projet
-→ CONTEXTE PROJET — Voxy voit toutes les cartes du projet, le wiki, l'historique.
+You have opened a project
+→ PROJECT CONTEXT — Voxy sees all the project's cards, the wiki, the history.
 
-Tu as ouvert une carte
-→ CONTEXTE CARTE — Voxy est focalisée sur cette tâche précise, son contenu, son agent.
+You have opened a card
+→ CARD CONTEXT — Voxy is focused on that specific task, its content, its agent.
 ```
 
-**Tu ne configures rien.** Tu navigues dans l'interface, et le contexte suit.
+**You don't configure anything.** You navigate the interface, and the context follows.
 
 ---
 
-## Ce que le contexte change concrètement
+## What context changes in practice
 
-### Contexte général — vue d'ensemble
+### General context — overview
 
-Quand aucun projet n'est sélectionné (tu es sur l'onglet **Home**) :
+When no project is selected (you are on the **Home** tab):
 
-- Voxy peut créer des projets, lister tes projets existants, gérer les cartes Home
-- Elle peut faire des recherches web, exécuter des commandes système
-- Elle planifie des tâches (jobs cron, rappels)
-- Elle ne "voit" pas l'intérieur d'un projet spécifique — si tu lui demandes des infos sur un projet, elle doit d'abord l'ouvrir
+- Voxy can create projects, list your existing projects, manage Home cards
+- She can run web searches, execute system commands
+- She schedules tasks (cron jobs, reminders)
+- She doesn't "see" the inside of a specific project — if you ask her for info about a project, she has to open it first
 
-**Bon pour :** Démarrer un nouveau projet, avoir une vue d'ensemble, les tâches qui ne sont pas liées à un projet précis.
+**Good for:** Starting a new project, getting a high-level overview, tasks that aren't tied to a specific project.
 
-### Contexte projet — travail sur un projet
+### Project context — working on a project
 
-Quand tu es dans l'onglet d'un projet :
+When you are in a project's tab:
 
-- Voxy voit toutes les cartes du projet (titre, statut, priorité, agent assigné)
-- Elle a accès au wiki du projet et aux documents indexés dans RAG
-- Elle peut créer, modifier, déplacer des cartes directement
-- Elle peut générer un standup, un brief, ou une analyse de santé du projet
-- La description et le contexte du projet sont injectés dans son prompt système
+- Voxy sees all the project's cards (title, status, priority, assigned agent)
+- She has access to the project's wiki and documents indexed in RAG
+- She can create, edit, and move cards directly
+- She can generate a standup, a brief, or a project health analysis
+- The project description and context are injected into her system prompt
 
-**Bon pour :** Gérer les tâches du projet, brainstormer, créer des cartes, avoir un rapport de statut.
+**Good for:** Managing project tasks, brainstorming, creating cards, getting a status report.
 
-### Contexte carte — exécution d'une tâche
+### Card context — executing a task
 
-Quand tu ouvres une carte spécifique :
+When you open a specific card:
 
-- Voxy voit le titre, la description, le statut, la priorité, la checklist, les commentaires
-- Elle adapte sa personnalité selon l'agent assigné à la carte (Coder, Researcher, Writer, etc.)
-- Elle peut modifier la checklist, logger du temps, ajouter des commentaires
-- Elle a accès à tous les outils — c'est le niveau le plus puissant
+- Voxy sees the title, description, status, priority, checklist, and comments
+- She adapts her personality based on the agent assigned to the card (Coder, Researcher, Writer, etc.)
+- She can update the checklist, log time, add comments
+- She has access to all tools — this is the most powerful level
 
-**Bon pour :** Travailler sur une tâche précise, demander de l'aide pour l'implémenter, enrichir les détails, faire du pair programming.
-
----
-
-## La mémoire est isolée par contexte
-
-Chaque contexte a sa propre histoire de conversation :
-
-- La conversation dans le **projet A** n'est pas visible dans le **projet B**
-- La conversation sur la **carte "Refactor auth"** n'est pas mélangée avec celle du projet
-- L'onglet **Home** a sa propre conversation séparée de tout autre projet
-
-Tu peux avoir 5 sessions parallèles par contexte (onglets dans le panneau chat). Les historiques persistent entre les sessions — tu peux fermer l'app et retrouver ta conversation là où tu l'avais laissée.
+**Good for:** Working on a specific task, asking for implementation help, enriching details, pair programming.
 
 ---
 
-## Exemple concret : créer un projet DailyOps
+## Memory is isolated by context
 
-DailyOps est un cas d'usage typique : un projet pour gérer les tâches récurrentes du quotidien — standup, review de la semaine, inbox d'idées. Voici comment le mettre en place de A à Z.
+Each context has its own conversation history:
 
----
+- The conversation in **project A** is not visible in **project B**
+- The conversation on the **"Refactor auth" card** is not mixed with the project's conversation
+- The **Home** tab has its own conversation, separate from any project
 
-### Étape 1 — Créer le projet (contexte général)
-
-Depuis l'onglet **Home**, dis à Voxy :
-
-> "Crée un projet qui s'appelle DailyOps. C'est pour gérer mes tâches quotidiennes récurrentes — standup du matin, revue hebdomadaire, capture d'idées."
-
-Voxy va créer le projet et t'y emmener. Tu peux aussi le créer manuellement via le bouton **+** dans la sidebar.
+You can have 5 parallel sessions per context (tabs in the chat panel). Histories persist between sessions — you can close the app and pick up your conversation right where you left off.
 
 ---
 
-### Étape 2 — Configurer le contexte du projet (contexte projet)
+## Practical example: creating a DailyOps project
 
-Une fois dans DailyOps, prends un moment pour décrire le projet à Voxy. Cette description est injectée dans son prompt système à chaque message :
-
-> "Mets à jour la description du projet : DailyOps est mon système de routines quotidiennes. L'objectif est d'avoir des tâches récurrentes qui se régénèrent automatiquement, et un espace pour capturer les idées en vrac sans interrompre mon flux."
-
-Tu peux aussi le faire via **l'icône d'édition du projet** dans l'interface.
+DailyOps is a typical use case: a project for managing recurring daily tasks — morning standup, weekly review, idea inbox. Here's how to set it up from start to finish.
 
 ---
 
-### Étape 3 — Créer les cartes récurrentes
+### Step 1 — Create the project (general context)
 
-#### Carte 1 : Standup du matin
+From the **Home** tab, tell Voxy:
 
-Depuis le contexte projet, dis :
+> "Create a project called DailyOps. It's for managing my recurring daily tasks — morning standup, weekly review, idea capture."
 
-> "Crée une carte 'Morning Standup' avec l'agent Researcher. Description : faire le point sur ce qui est prévu aujourd'hui — regarder les cartes en cours, les blocages, les priorités. Checklist : Quoi était prévu hier ? Quoi est prévu aujourd'hui ? Blocages ? Rend la carte récurrente tous les jours (weekdays)."
+Voxy will create the project and take you there. You can also create it manually via the **+** button in the sidebar.
 
-Ou crée la carte manuellement, puis configure la récurrence dans le détail de la carte (**champ Recurrence**).
+---
 
-**Récurrences disponibles :**
+### Step 2 — Configure the project context (project context)
 
-| Valeur | Fréquence |
+Once inside DailyOps, take a moment to describe the project to Voxy. This description is injected into her system prompt with every message:
+
+> "Update the project description: DailyOps is my daily routine system. The goal is to have recurring tasks that regenerate automatically, and a space to capture random ideas without interrupting my flow."
+
+You can also do this via the **project edit icon** in the interface.
+
+---
+
+### Step 3 — Create recurring cards
+
+#### Card 1: Morning Standup
+
+From the project context, say:
+
+> "Create a card 'Morning Standup' with the Researcher agent. Description: review what's planned for today — check cards in progress, blockers, priorities. Checklist: What was planned yesterday? What's planned today? Blockers? Make the card recurring every day (weekdays)."
+
+Or create the card manually, then configure the recurrence in the card detail (**Recurrence** field).
+
+**Available recurrences:**
+
+| Value | Frequency |
 |--------|-----------|
-| `daily` | Chaque jour |
-| `weekdays` | Lundi–Vendredi (weekends ignorés) |
-| `weekly` | Chaque semaine |
-| `biweekly` | Toutes les deux semaines |
-| `monthly` | Chaque mois |
-| `hourly` | Chaque heure |
-| `6hours` | Toutes les 6 heures |
+| `daily` | Every day |
+| `weekdays` | Monday–Friday (weekends skipped) |
+| `weekly` | Every week |
+| `biweekly` | Every two weeks |
+| `monthly` | Every month |
+| `hourly` | Every hour |
+| `6hours` | Every 6 hours |
 
-Quand la date de prochaine occurrence est atteinte, le scheduler crée automatiquement une copie fraîche de la carte (statut `todo`, titre et description préservés) et replanifie la prochaine occurrence.
+When the next occurrence date is reached, the scheduler automatically creates a fresh copy of the card (status `todo`, title and description preserved) and reschedules the next occurrence.
 
-#### Carte 2 : Weekly Review
+#### Card 2: Weekly Review
 
-> "Crée une carte 'Weekly Review' avec l'agent Architect. Description : revue complète de la semaine — cartes terminées, en attente, décisions prises. Récurrence hebdomadaire, tous les vendredis."
+> "Create a card 'Weekly Review' with the Architect agent. Description: full review of the week — completed cards, pending items, decisions made. Weekly recurrence, every Friday."
 
-#### Carte 3 : Inbox
+#### Card 3: Inbox
 
-> "Crée une carte 'Inbox — idées et captures' en statut Todo, aucun agent. Description : dépôt temporaire pour toutes les idées qui arrivent pendant la semaine. À trier chaque vendredi lors de la Weekly Review."
+> "Create a card 'Inbox — ideas and captures' with status Todo, no agent. Description: temporary drop for all ideas that come up during the week. To be sorted every Friday during the Weekly Review."
 
-L'inbox n'est pas récurrente — c'est une carte persistante que tu vides manuellement lors de la revue.
-
----
-
-### Étape 4 — Travailler sur une carte (contexte carte)
-
-Le lundi matin, tu ouvres la carte **Morning Standup** (générée automatiquement). Voxy est maintenant focalisée sur cette carte.
-
-Tu peux dire :
-
-> "Lance le standup."
-
-Voxy va :
-1. Regarder les cartes en cours dans le projet
-2. Identifier les blocages potentiels
-3. Te donner un résumé structuré
-4. Cocher les items de la checklist au fur et à mesure
-
-Ou plus simplement :
-
-> "Qu'est-ce que j'avais prévu hier ?"
-
-Elle va consulter l'historique de la conversation sur cette carte (sessions précédentes) et les commentaires enregistrés.
+The inbox is not recurring — it's a persistent card that you clear manually during the review.
 
 ---
 
-### Étape 5 — Automatiser avec un Board Run (optionnel)
+### Step 4 — Work on a card (card context)
 
-Un **Board Run** est un job planifié qui exécute automatiquement toutes les cartes d'un projet dans un statut donné — sans intervention manuelle.
+On Monday morning, you open the **Morning Standup** card (generated automatically). Voxy is now focused on this card.
 
-Pour DailyOps, tu peux configurer un Board Run qui lance automatiquement les cartes `todo` chaque matin :
+You can say:
 
-Depuis le contexte général ou projet, dis :
+> "Run the standup."
 
-> "Crée un job Board Run pour le projet DailyOps, chaque jour à 8h, qui exécute les cartes en statut 'todo'."
+Voxy will:
+1. Look at the cards in progress in the project
+2. Identify potential blockers
+3. Give you a structured summary
+4. Check off checklist items as she goes
 
-Ou via l'API :
+Or more simply:
+
+> "What was planned yesterday?"
+
+She will check the conversation history on this card (previous sessions) and saved comments.
+
+---
+
+### Step 5 — Automate with scheduled jobs (optional)
+
+Voxyflow offers several types of scheduled jobs. Here are the three main ones:
+
+#### Execute Board — run an entire board
+
+An **Execute Board** automatically executes all cards in a project with a given status — no manual intervention needed.
+
+> "Create an Execute Board job for the DailyOps project, every day at 8am, that executes cards with status 'todo'."
 
 ```bash
 curl -X POST http://localhost:8000/api/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "name": "DailyOps — Morning Run",
-    "type": "board_run",
-    "cron": "0 8 * * 1-5",
+    "type": "execute_board",
+    "schedule": "0 8 * * 1-5",
     "enabled": true,
     "payload": {
       "project_id": "TON_PROJECT_ID",
@@ -186,91 +184,119 @@ curl -X POST http://localhost:8000/api/jobs \
   }'
 ```
 
-Le Board Run va spawner des workers pour chaque carte éligible, les exécuter en parallèle, et envoyer les résultats via WebSocket.
+#### Execute Card — run a specific card
+
+An **Execute Card** runs a single card through the AI pipeline on a schedule.
+
+```bash
+curl -X POST http://localhost:8000/api/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Daily health check card",
+    "type": "execute_card",
+    "schedule": "0 9 * * *",
+    "payload": { "card_id": "TON_CARD_ID", "project_id": "TON_PROJECT_ID" }
+  }'
+```
+
+#### Agent Task — free-form instruction
+
+An **Agent Task** sends a free-form instruction to the AI agent — the most flexible option.
+
+```bash
+curl -X POST http://localhost:8000/api/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Daily email check",
+    "type": "agent_task",
+    "schedule": "0 8 * * *",
+    "payload": { "instruction": "Check for new emails and create cards for each one." }
+  }'
+```
 
 ---
 
-### Étape 6 — Utiliser le wiki du projet
+### Step 6 — Use the project wiki
 
-Depuis le contexte projet, le wiki de DailyOps peut servir de référence permanente — checklist de review, templates de standup, notes de contexte.
+From the project context, the DailyOps wiki can serve as a permanent reference — review checklists, standup templates, context notes.
 
-> "Crée une page wiki 'Templates' avec un template de standup et un template de weekly review."
+> "Create a wiki page 'Templates' with a standup template and a weekly review template."
 
-Voxy va créer la page. Elle est ensuite disponible comme contexte pour les workers.
-
----
-
-## Patterns de workflow utiles
-
-### Capturer une idée sans perdre le fil
-
-Tu es en train de travailler sur une carte (contexte carte). Une idée arrive.
-
-**Ne change pas de contexte.** Dis simplement :
-
-> "Note quelque chose pour moi en dehors de cette carte : explorer la migration vers PostgreSQL pour les performances."
-
-Voxy va créer une carte dans l'inbox du projet (ou dans Home si précisé) sans te sortir de ton contexte actuel.
+Voxy will create the page. It is then available as context for workers.
 
 ---
 
-### Déléguer sans attendre
+## Useful workflow patterns
 
-Le Dispatcher (Voxy en mode conversation) ne bloque jamais. Si tu demandes quelque chose qui prend du temps :
+### Capture an idea without losing your train of thought
 
-> "Fais une analyse de toutes les cartes en cours et dis-moi lesquelles sont les plus à risque."
+You're working on a card (card context). An idea comes up.
 
-Voxy va répondre immédiatement ("Je lance l'analyse...") et envoyer un **worker** en arrière-plan. Tu peux continuer à parler pendant qu'il travaille. Le résultat arrive dans le chat quand le worker a fini.
+**Don't switch context.** Just say:
 
----
+> "Note something for me outside this card: explore migrating to PostgreSQL for performance."
 
-### Enrichir une carte rapidement
-
-Ouvre une carte avec juste un titre. Dis :
-
-> "Enrichis cette carte."
-
-Voxy va générer une description détaillée, des critères d'acceptation, et des suggestions de checklist basés sur le titre et le contexte du projet.
+Voxy will create a card in the project's inbox (or in Home if specified) without pulling you out of your current context.
 
 ---
 
-### Standup rapide en contexte projet
+### Delegate without waiting
 
-Sans ouvrir de carte, depuis le contexte projet :
+The Dispatcher (Voxy in conversation mode) never blocks. If you ask for something that takes time:
 
-> "Donne-moi le standup du projet."
+> "Analyze all cards in progress and tell me which ones are most at risk."
 
-Voxy appelle `voxyflow.ai.standup` et génère un résumé structuré : ce qui est terminé, en cours, bloqué.
-
----
-
-### Changer de session
-
-Chaque contexte (projet ou carte) peut avoir jusqu'à 5 sessions parallèles — des conversations séparées sur le même sujet.
-
-- **Session 1** — conversation de planification
-- **Session 2** — conversation d'implémentation technique
-- **Session 3** — brainstorm libre
-
-Les sessions s'affichent sous forme d'onglets dans le panneau chat. Tape `/new` pour démarrer une nouvelle session dans le contexte actuel.
+Voxy will respond immediately ("Running the analysis...") and send a **worker** in the background. You can keep talking while it works. The result arrives in the chat when the worker is done.
 
 ---
 
-## Référence rapide
+### Quickly enrich a card
 
-| Situation | Contexte à utiliser | Ce que tu peux demander |
-|-----------|---------------------|-------------------------|
-| Créer un nouveau projet | Général (Home) | "Crée un projet X" |
-| Voir l'état de tous mes projets | Général | "Montre-moi mes projets" |
-| Créer une carte | Projet | "Crée une carte pour Y" |
-| Voir le standup | Projet | "Standup du projet" |
-| Travailler sur une tâche | Carte | "Lance-toi sur cette tâche" |
-| Enrichir les détails | Carte | "Enrichis cette carte" |
-| Logger du temps | Carte | "J'ai passé 2h sur ça" |
-| Cocher un item de checklist | Carte | "Marque 'Tests unitaires' comme fait" |
-| Lancer un job planifié | Général | "Crée un job qui s'exécute chaque lundi à 9h" |
-| Capturer une idée vite | N'importe lequel | "Note pour plus tard : ..." |
+Open a card with just a title. Say:
+
+> "Enrich this card."
+
+Voxy will generate a detailed description, acceptance criteria, and checklist suggestions based on the title and project context.
 
 ---
 
-_Pour la référence technique des scopes (format de chat ID, outils disponibles par niveau, routing backend), voir [CHAT_SCOPES.md](CHAT_SCOPES.md)._
+### Quick standup from project context
+
+Without opening a card, from the project context:
+
+> "Give me the project standup."
+
+Voxy calls `voxyflow.ai.standup` and generates a structured summary: what's done, in progress, and blocked.
+
+---
+
+### Switch sessions
+
+Each context (project or card) can have up to 5 parallel sessions — separate conversations on the same topic.
+
+- **Session 1** — planning conversation
+- **Session 2** — technical implementation conversation
+- **Session 3** — free brainstorm
+
+Sessions appear as tabs in the chat panel. Type `/new` to start a new session in the current context.
+
+---
+
+## Quick reference
+
+| Situation | Context to use | What you can ask |
+|-----------|----------------|------------------|
+| Create a new project | General (Home) | "Create a project X" |
+| See the status of all my projects | General | "Show me my projects" |
+| Create a card | Project | "Create a card for Y" |
+| See the standup | Project | "Project standup" |
+| Work on a task | Card | "Get started on this task" |
+| Enrich details | Card | "Enrich this card" |
+| Log time | Card | "I spent 2h on this" |
+| Check a checklist item | Card | "Mark 'Unit tests' as done" |
+| Create a scheduled job | General | "Create a job that runs every Monday at 9am" |
+| Quickly capture an idea | Any | "Note for later: ..." |
+
+---
+
+_For the technical reference on scopes (chat ID format, available tools per level, backend routing), see [CHAT_SCOPES.md](CHAT_SCOPES.md)._

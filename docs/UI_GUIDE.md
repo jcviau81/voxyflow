@@ -1,497 +1,500 @@
-# Voxyflow — Guide de l'interface utilisateur
+# Voxyflow — User Interface Guide
 
-> Ce guide décrit chaque vue de Voxyflow : ce qu'elle montre, comment y accéder, et les actions disponibles. Il est conçu pour les nouveaux utilisateurs, les contributeurs, et l'IA intégrée (Voxy) qui s'en sert pour répondre à des questions du type "comment faire X ?".
+> This guide describes each view in Voxyflow: what it shows, how to access it, and the available actions. It is designed for new users, contributors, and the built-in AI assistant (Voxy), which uses it to answer questions like "how do I do X?".
 
 ---
 
-## Table des matières
+## Table of Contents
 
-1. [Navigation et structure générale](#1-navigation-et-structure-générale)
-2. [Vue Chat](#2-vue-chat)
-3. [Vue Kanban](#3-vue-kanban)
-4. [Vue Backlog](#4-vue-backlog)
-5. [Vue Knowledge (Documents, Wiki, RAG)](#5-vue-knowledge-documents-wiki-rag)
-6. [Vue Stats (projets uniquement)](#6-vue-stats-projets-uniquement)
+1. [Navigation and Overall Structure](#1-navigation-and-overall-structure)
+2. [Chat View](#2-chat-view)
+3. [Kanban View](#3-kanban-view)
+4. [Backlog View](#4-backlog-view)
+5. [Knowledge View (Documents, Wiki, RAG)](#5-knowledge-view-documents-wiki-rag)
+6. [Stats View (projects only)](#6-stats-view-projects-only)
 7. [Card Detail Modal](#7-card-detail-modal)
-8. [Opportunities et Notifications](#8-opportunities-et-notifications)
-9. [WorkerPanel — Suivi des workers](#9-workerpanel--suivi-des-workers)
+8. [Opportunities and Notifications](#8-opportunities-and-notifications)
+9. [WorkerPanel — Worker Monitoring](#9-workerpanel--worker-monitoring)
 10. [Settings](#10-settings)
 11. [Onboarding](#11-onboarding)
-12. [Jobs et Scheduler](#12-jobs-et-scheduler)
-13. [Raccourcis clavier — Référence complète](#13-raccourcis-clavier--référence-complète)
+12. [Jobs and Scheduler](#12-jobs-and-scheduler)
+13. [Keyboard Shortcuts — Full Reference](#13-keyboard-shortcuts--full-reference)
 
 ---
 
-## 1. Navigation et structure générale
+## 1. Navigation and Overall Structure
 
-### Structure globale (AppShell)
+### Overall Structure (AppShell)
 
-L'interface se compose de quatre zones fixes :
+The interface is made up of four fixed areas:
 
-- **Sidebar** — colonne gauche, navigation principale
-- **TabBar** — barre horizontale en haut, onglets ouverts
-- **ProjectHeader** — sous la TabBar, titre du projet et onglets de vue
-- **Contenu principal** — zone centrale, change selon la vue active
-- **Drawers droits** — panneaux glissants (Opportunities, Notifications)
+- **Sidebar** — left column, main navigation
+- **TabBar** — horizontal bar at the top, open tabs
+- **ProjectHeader** — below the TabBar, project title and view tabs
+- **Main content** — central area, changes depending on the active view
+- **Right drawers** — sliding panels (Opportunities, Notifications)
 
 ### Sidebar
 
-La sidebar est la colonne de navigation principale, accessible via `Ctrl+B` pour l'afficher ou la masquer. Sur mobile, elle s'affiche en overlay et se ferme automatiquement après un clic.
+The sidebar is the main navigation column, toggled with `Ctrl+B` to show or hide it. On mobile, it appears as an overlay and closes automatically after a tap.
 
-**Sections de haut en bas :**
+**Sections from top to bottom:**
 
 | Section | Description |
 |---------|-------------|
-| Logo | Voxyflow — identifiant de l'application |
-| Home | Lien vers l'onglet principal (🏠 vue générale, projet système) |
-| Jobs | Lien vers la page de gestion des tâches planifiées |
-| Projects | Lien vers la liste complète des projets |
-| Favoris | Projets marqués comme favoris, avec un point de progression coloré |
-| New Project | Bouton de création rapide de projet |
-| WorkerPanel | Arbre des sessions et workers actifs (voir section 9) |
-| Statut de connexion | Point coloré : vert = connecté, jaune = reconnexion, rouge = déconnecté |
-| Footer | Cloche notifications, bascule thème, Settings, Documentation, Aide |
+| Logo | Voxyflow — application identifier |
+| Home | Link to the main tab (🏠 general view, system project) |
+| Jobs | Link to the scheduled tasks management page |
+| Projects | Link to the full project list |
+| Favorites | Projects marked as favorites, with a colored progress dot |
+| New Project | Quick project creation button |
+| WorkerPanel | Tree of active sessions and workers (see section 9) |
+| Connection status | Colored dot: green = connected, yellow = reconnecting, red = disconnected |
+| Footer | Notification bell, theme toggle, Settings, Documentation, Help |
 
-**Points de progression (favoris) :**
+**Progress dots (favorites):**
 
-Chaque projet favori affiche un point coloré qui indique l'avancement global :
-- Vert : 100 % des cartes terminées
-- Jaune : 50 % ou plus terminées
-- Bleu : au moins une carte terminée
-- Gris : aucune carte terminée
+Each favorite project displays a colored dot indicating overall progress:
+- Green: 100% of cards completed
+- Yellow: 50% or more completed
+- Blue: at least one card completed
+- Gray: no cards completed
 
-Au survol, une info-bulle affiche le détail : nombre de cartes, done, in progress, pourcentage.
+On hover, a tooltip shows the details: number of cards, done, in progress, percentage.
 
-**Footer de la sidebar :**
-- Cloche avec badge rouge = notifications non lues (clic → drawer Notifications)
-- Soleil/Lune = bascule thème clair/sombre
-- Engrenage = Settings
-- Livre = Documentation
-- Point d'interrogation = Aide
+**Sidebar footer:**
+- Bell with red badge = unread notifications (click → Notifications drawer)
+- Sun/Moon = light/dark theme toggle
+- Gear = Settings
+- Book = Documentation
+- Question mark = Help
 
 ### TabBar
 
-La TabBar est la barre horizontale en haut de l'écran. Elle gère les onglets ouverts.
+The TabBar is the horizontal bar at the top of the screen. It manages open tabs.
 
-- **Onglet Home** (🏠) — toujours présent, non fermable, donne accès aux vues générales du projet système
-- **Onglets projet** — s'ouvrent en cliquant sur un projet (sidebar ou liste), fermables avec `×` ou `Ctrl+W`
-- **Bouton "+"** — ouvre la liste des projets pour en ajouter un onglet
-- **Badge opportunités** — indique le nombre de suggestions IA en attente
-- **Cloche** — accès rapide aux notifications
+- **Home tab** (🏠) — always present, cannot be closed, gives access to the system project's general views
+- **Project tabs** — open when clicking on a project (sidebar or list), closable with `×` or `Ctrl+W`
+- **"+" button** — opens the project list to add a tab
+- **Opportunities badge** — shows the number of pending AI suggestions
+- **Bell** — quick access to notifications
 
-Naviguer entre les onglets : `Ctrl+Tab`
+Navigate between tabs: `Ctrl+Tab`
 
 ### ProjectHeader
 
-Affiché sous la TabBar quand un projet ou Home est actif. Contient :
-- Emoji et nom du projet (ou "Home" pour l'onglet principal)
-- Onglets de vue selon le contexte :
-  - **Home** : Chat, Kanban, Board, Knowledge
-  - **Projet** : Chat, Kanban, Board, Knowledge, Stats
+Displayed below the TabBar when a project or Home is active. Contains:
+- Emoji and project name (or "Home" for the main tab)
+- View tabs depending on context:
+  - **Home**: Chat, Kanban, Board, Knowledge
+  - **Project**: Chat, Kanban, Board, Knowledge, Stats
 
-Cliquer sur un onglet de vue change le contenu principal sans changer d'onglet.
+Clicking a view tab changes the main content without switching tabs.
 
 ---
 
-## 2. Vue Chat
+## 2. Chat View
 
-### Accès
+### Access
 
-- **Chat général** : onglet Home → onglet "Chat" dans le ProjectHeader
-- **Chat projet** : onglet d'un projet → onglet "Chat"
-- **Chat carte** : depuis la Card Detail Modal (colonne centrale)
+- **General chat**: Home tab → "Chat" tab in the ProjectHeader
+- **Project chat**: a project tab → "Chat" tab
+- **Card chat**: from the Card Detail Modal (center column)
 
-### Contextes du chat — les 3 niveaux
+### Chat Contexts — The 3 Levels
 
-Le contexte du chat change automatiquement selon ce qui est sélectionné dans l'interface. Il n'y a rien à configurer manuellement.
+The chat context changes automatically based on what is selected in the interface. There is nothing to configure manually.
 
-| Niveau | Déclencheur | Ce que Voxy peut faire |
-|--------|-------------|------------------------|
-| **Général** | Onglet Home actif, aucune carte sélectionnée | Gérer les cartes Home, créer des projets, recherche web, commandes système, planifier des jobs |
-| **Projet** | Onglet d'un projet actif, aucune carte sélectionnée | Tout ce que le niveau général fait + gérer les cartes du projet, wiki, documents, opérations IA (standup, brief, health, prioritize) |
-| **Carte** | Une carte est ouverte dans la Card Detail Modal | Tout ce que le niveau projet fait + assistance ciblée sur la tâche, gestion checklist, implémentation |
+| Level | Trigger | What Voxy can do |
+|-------|---------|------------------|
+| **General** | Home tab active, no card selected | Manage Home cards, create projects, web search, system commands, schedule jobs |
+| **Project** | A project tab active, no card selected | Everything the general level does + manage project cards, wiki, documents, AI operations (standup, brief, health, prioritize) |
+| **Card** | A card is open in the Card Detail Modal | Everything the project level does + targeted task assistance, checklist management, implementation |
 
-Chaque niveau a son propre historique isolé. Changer de contexte ne supprime pas l'historique précédent.
+Each level has its own isolated history. Switching contexts does not delete the previous history.
 
-### Composants du chat
+### Chat Components
 
-- **MessageList** — liste des messages du fil actif, avec rendu markdown
-- **ChatInput** — zone de saisie en bas, supporte le texte et les commandes slash
-- **SessionTabBar** — onglets de sessions (jusqu'à 5 par contexte), visible sous le header
-- **ModePill** — bascule entre les modes d'analyse :
-  - **Deep** — active le modèle de raisonnement approfondi
-- **SmartSuggestions** — chips de suggestions rapides, contextuelles (changent selon le niveau chat)
-- **VoiceInput** — saisie vocale push-to-talk (`Alt+V` maintenu)
+- **MessageList** — list of messages in the active thread, with markdown rendering
+- **ChatInput** — input area at the bottom, supports text and slash commands
+- **SessionTabBar** — session tabs (up to 5 per context), visible below the header
+- **ModePill** — toggle between analysis modes:
+  - **Deep** — activates the deep reasoning model
+- **SmartSuggestions** — quick suggestion chips, contextual (change depending on the chat level)
+- **VoiceInput** — push-to-talk voice input (`Alt+V` held)
 
-### Message de bienvenue (WelcomePrompt)
+### Welcome Message (WelcomePrompt)
 
-Chaque contexte affiche un message de bienvenue adapté avec des boutons d'action rapide :
+Each context displays a tailored welcome message with quick action buttons:
 
-- **Général** : "Hey ! Qu'est-ce qu'on fait ?" + 4 options (Just chatting, Work on a project, Brainstorm, Review tasks)
-- **Projet** : nom du projet + statut (X in progress, Y todo) + boutons de reprise des cartes en cours
-- **Carte** : titre de la carte + agent assigné + statut + priorité + actions ciblées (Start working, Enrich, Research, Edit, Discuss)
+- **General**: "Hey! What are we doing?" + 4 options (Just chatting, Work on a project, Brainstorm, Review tasks)
+- **Project**: project name + status (X in progress, Y todo) + resume buttons for in-progress cards
+- **Card**: card title + assigned agent + status + priority + targeted actions (Start working, Enrich, Research, Edit, Discuss)
 
 ### Sessions
 
-Chaque contexte (général, projet, carte) supporte plusieurs sessions indépendantes, accessibles via la SessionTabBar. Une session = un fil de conversation séparé. Limite : 5 sessions par contexte.
+Each context (general, project, card) supports multiple independent sessions, accessible via the SessionTabBar. A session = a separate conversation thread. Limit: 5 sessions per context.
 
-Actions sur les sessions :
-- Créer une nouvelle session : `/new` ou bouton "+" dans la SessionTabBar
-- Vider l'historique de la session courante : `/clear`
+Session actions:
+- Create a new session: `/new` or "+" button in the SessionTabBar
+- Clear the current session history: `/clear`
 
-### Slash commands
+### Slash Commands
 
-Tapez `/` dans le champ de saisie pour déclencher une commande :
+Type `/` in the input field to trigger a command:
 
-| Commande | Action |
+| Command | Action |
+|---------|--------|
+| `/new` | Creates a new session in the current context |
+| `/clear` | Clears the current session history |
+| `/help` | Shows help for available commands |
+| `/agent [name]` | Changes the active AI agent for the session |
+| `/meeting` | Launches a meeting note-taking assistant |
+| `/standup` | Generates a standup from the active project's cards |
+
+### Keyboard Shortcuts (Chat View)
+
+| Shortcut | Action |
 |----------|--------|
-| `/new` | Crée une nouvelle session dans le contexte actuel |
-| `/clear` | Vide l'historique de la session courante |
-| `/help` | Affiche l'aide des commandes disponibles |
-| `/agent [nom]` | Change l'agent IA actif pour la session |
-| `/meeting` | Lance un assistant de prise de notes de réunion |
-| `/standup` | Génère un standup à partir des cartes du projet actif |
-
-### Raccourcis clavier (vue Chat)
-
-| Raccourci | Action |
-|-----------|--------|
-| `Alt+V` (maintenu) | Push-to-Talk — saisie vocale |
-| `Ctrl+Shift+F` | Recherche dans l'historique du chat |
+| `Alt+V` (held) | Push-to-Talk — voice input |
+| `Ctrl+Shift+F` | Search in chat history |
 
 ---
 
-## 3. Vue Kanban
+## 3. Kanban View
 
-### Accès
+### Access
 
-- Onglet Home → "Kanban" dans le ProjectHeader
-- Onglet d'un projet → "Kanban"
+- Home tab → "Kanban" in the ProjectHeader
+- A project tab → "Kanban"
 
-### Ce qu'elle montre
+### What It Shows
 
-Tableau à 4 colonnes représentant le cycle de vie des cartes :
+A 4-column board representing the card lifecycle:
 
-| Colonne | Description |
-|---------|-------------|
-| **Backlog** | Cartes en attente, non planifiées |
-| **Todo** | Tâches planifiées, prêtes à démarrer |
-| **In Progress** | Tâches en cours |
-| **Done** | Tâches terminées |
+| Column | Description |
+|--------|-------------|
+| **Backlog** | Cards on hold, not yet planned |
+| **Todo** | Planned tasks, ready to start |
+| **In Progress** | Tasks in progress |
+| **Done** | Completed tasks |
 
-Chaque carte affiche : titre, priorité, agent assigné, tags, et indicateurs visuels (couleur de fond, badge récurrence, progression checklist).
+Each card displays: title, priority, assigned agent, tags, and visual indicators (background color, recurrence badge, checklist progress).
 
-### Actions principales
+### Main Actions
 
-- **Déplacer une carte** — drag & drop entre colonnes, ou via les boutons de statut dans la Card Detail Modal
-- **Ouvrir une carte** — clic sur une carte → Card Detail Modal
-- **Créer une carte** — bouton "+" dans l'en-tête d'une colonne
-- **Filtrer les cartes** — barre de filtres en haut : recherche texte, priorité, agent assigné, tags
-- **Actions groupées (bulk)** — sélectionner plusieurs cartes (case à cocher) → déplacer, supprimer, assigner un agent en lot
-- **En-tête Kanban** — boutons d'actions rapides : créer une carte, lancer une analyse IA, trier
-
----
-
-## 4. Vue Backlog
-
-### Accès
-
-- Onglet Home → "Backlog" dans le ProjectHeader
-- Onglet d'un projet → "Backlog"
-
-### Ce qu'elle montre
-
-Un espace de type tableau blanc avec des sticky notes colorées. Chaque note est indépendante du Kanban. C'est un espace de brainstorming rapide, sans workflow imposé.
-
-**6 couleurs disponibles** : jaune, bleu, vert, rose, violet, orange.
-
-### Actions principales
-
-- **Créer une note** — formulaire de saisie rapide en haut (titre + couleur + clic "Add")
-- **Supprimer une note** — bouton de suppression sur la note
-- **Promouvoir une note en carte Kanban** — bouton "Promote" sur la note → transforme la sticky note en carte Kanban complète dans la colonne "Idea"
-- **Filtrer les notes** — même barre de filtres que le Kanban (recherche, priorité, agent, tags)
+- **Move a card** — drag & drop between columns, or via status buttons in the Card Detail Modal
+- **Open a card** — click a card → Card Detail Modal
+- **Create a card** — "+" button in a column header
+- **Filter cards** — filter bar at the top: text search, priority, assigned agent, tags
+- **Bulk actions** — select multiple cards (checkbox) → move, delete, or assign an agent in bulk
+- **Kanban header** — quick action buttons: create a card, launch an AI analysis, sort
 
 ---
 
-## 5. Vue Knowledge (Documents, Wiki, RAG)
+## 4. Backlog View
 
-### Accès
+### Access
 
-- Onglet Home → "Knowledge" dans le ProjectHeader
-- Onglet d'un projet → "Knowledge"
+- Home tab → "Backlog" in the ProjectHeader
+- A project tab → "Backlog"
 
-### Ce qu'elle montre
+### What It Shows
 
-Trois onglets pour gérer la base de connaissances :
+A whiteboard-style space with colored sticky notes. Each note is independent from the Kanban. It is a quick brainstorming space with no imposed workflow.
+
+**6 available colors**: yellow, blue, green, pink, purple, orange.
+
+### Main Actions
+
+- **Create a note** — quick input form at the top (title + color + click "Add")
+- **Delete a note** — delete button on the note
+- **Promote a note to a Kanban card** — "Promote" button on the note → transforms the sticky note into a full Kanban card in the "Idea" column
+- **Filter notes** — same filter bar as the Kanban (search, priority, agent, tags)
+
+---
+
+## 5. Knowledge View (Documents, Wiki, RAG)
+
+### Access
+
+- Home tab → "Knowledge" in the ProjectHeader
+- A project tab → "Knowledge"
+
+### What It Shows
+
+Three tabs for managing the knowledge base:
 
 #### Documents
 
-Upload et gestion de fichiers. Formats supportés : `.txt`, `.md`, `.pdf`, `.docx`, `.xlsx`.
+File upload and management. Supported formats: `.txt`, `.md`, `.pdf`, `.docx`, `.xlsx`.
 
-Actions :
-- Glisser-déposer un fichier dans la zone d'upload, ou cliquer pour sélectionner
-- Voir la liste des documents indexés avec leur statut
-- Supprimer un document
+Actions:
+- Drag and drop a file into the upload area, or click to select
+- View the list of indexed documents with their status
+- Delete a document
 
-Les documents uploadés sont automatiquement indexés dans la collection RAG du contexte (général ou projet), ce qui permet à Voxy de les citer en réponse à des questions.
+Uploaded documents are automatically indexed into the RAG collection for the current context (general or project), allowing Voxy to cite them when answering questions.
 
 #### Wiki
 
-Pages markdown éditables, organisées par projet. Chaque projet a son propre wiki.
+Editable markdown pages, organized by project. Each project has its own wiki.
 
-Actions :
-- Créer une nouvelle page
-- Éditer une page existante (éditeur markdown intégré)
-- Naviguer entre les pages
+Actions:
+- Create a new page
+- Edit an existing page (built-in markdown editor)
+- Navigate between pages
 
 #### RAG Status
 
-Tableau de bord de la collection vectorielle :
-- Nombre de documents indexés
-- Nombre de chunks
-- Statut de la collection (active, vide, en cours d'indexation)
-- Statistiques d'utilisation
+Vector collection dashboard:
+- Number of indexed documents
+- Number of chunks
+- Collection status (active, empty, indexing)
+- Usage statistics
 
 ---
 
-## 6. Vue Stats (projets uniquement)
+## 6. Stats View (projects only)
 
-### Accès
+### Access
 
-Onglet d'un projet → "Stats" dans le ProjectHeader. Cette vue n'est pas disponible dans l'onglet Home.
+A project tab → "Stats" in the ProjectHeader. This view is not available in the Home tab.
 
-### Ce qu'elle montre
+### What It Shows
 
-Tableau de bord analytique du projet, organisé en sections :
+An analytics dashboard for the project, organized into sections:
 
-| Section | Contenu |
+| Section | Content |
 |---------|---------|
-| **Progress ring** | Anneau de progression global (% cartes terminées) |
-| **Distribution** | Répartition des cartes par colonne (Backlog / Todo / In Progress / Done) |
-| **Velocity** | Graphiques de vélocité sur les dernières périodes |
-| **Standup** | Résumé quotidien auto-généré. Bouton "Generate" pour lancer l'IA |
-| **Brief** | Résumé exécutif du projet généré par l'IA |
-| **Health** | Score de santé du projet + recommandations priorisées |
-| **Priority** | Backlog priorisé par l'IA — les cartes à traiter en premier selon les dépendances et la valeur |
-| **Focus** | Statistiques Pomodoro — temps de concentration, sessions complétées |
+| **Progress ring** | Overall progress ring (% of cards completed) |
+| **Distribution** | Card distribution by column (Backlog / Todo / In Progress / Done) |
+| **Velocity** | Velocity charts over recent periods |
+| **Standup** | Auto-generated daily summary. "Generate" button to launch the AI |
+| **Brief** | AI-generated executive summary of the project |
+| **Health** | Project health score + prioritized recommendations |
+| **Priority** | AI-prioritized backlog — cards to tackle first based on dependencies and value |
+| **Focus** | Pomodoro statistics — focus time, completed sessions |
 
-Le Standup, le Brief, le Health score et la priorisation du backlog sont générés à la demande via les boutons correspondants.
+The Standup, Brief, Health score, and backlog prioritization are generated on demand via their respective buttons.
 
 ---
 
 ## 7. Card Detail Modal
 
-### Accès
+### Access
 
-Cliquer sur n'importe quelle carte (Kanban ou Backlog) ouvre la Card Detail Modal.
+Clicking on any card (Kanban or Backlog) opens the Card Detail Modal.
 
-### Ce qu'elle montre
+### What It Shows
 
-**Sur desktop : 3 colonnes côte à côte**
+**On desktop: 3 side-by-side columns**
 
-| Colonne | Contenu |
-|---------|---------|
-| **Gauche — Description** | Éditeur de description (CodeMirror), markdown complet |
-| **Centre — Chat carte** | Chat intégré, scoped à cette carte uniquement. Voxy voit le contenu de la carte |
-| **Droite — Métadonnées** | Sidebar de configuration de la carte |
+| Column | Content |
+|--------|---------|
+| **Left — Description** | Description editor (CodeMirror), full markdown |
+| **Center — Card chat** | Built-in chat, scoped to this card only. Voxy can see the card content |
+| **Right — Metadata** | Card configuration sidebar |
 
-**Sur mobile : 3 onglets** (Description / Chat / Details) pour naviguer entre les mêmes contenus.
+**On mobile: 3 tabs** (Description / Chat / Details) to navigate between the same content.
 
-### Sidebar de métadonnées (colonne droite)
+### Metadata Sidebar (right column)
 
-| Élément | Description |
+| Element | Description |
 |---------|-------------|
-| **Titre** | Champ texte éditable inline |
-| **StatusButtons** | Boutons de statut : Idea → Todo → In Progress → Done |
-| **AgentSelector** | Choisir quel agent IA est assigné à la carte |
-| **Tags** | Ajouter/supprimer des tags libres |
-| **Couleur** | 6 couleurs de fond pour la carte |
-| **ProjectPicker** | Déplacer la carte vers un autre projet |
-| **RecurrenceSection** | Programmer la récurrence : 15min, 30min, hourly, 6hours, daily, weekdays, weekly, biweekly, monthly, ou cron personnalisé |
-| **ChecklistSection** | Liste de tâches internes à la carte, avec barre de progression |
-| **AttachmentsSection** | Pièces jointes par glisser-déposer |
-| **LinkedFiles** | Fichiers liés (référencés, pas uploadés) |
-| **DependenciesSection** | Dépendances entre cartes |
-| **RelationsSection** | Relations typées : blocks, blocked_by, relates_to, duplicates |
-| **HistorySection** | Journal d'audit — toutes les modifications horodatées |
+| **Title** | Inline editable text field |
+| **StatusButtons** | Status buttons: Idea → Todo → In Progress → Done |
+| **AgentSelector** | Choose which AI agent is assigned to the card |
+| **Tags** | Add/remove free-form tags |
+| **Color** | 6 background colors for the card |
+| **ProjectPicker** | Move the card to another project |
+| **RecurrenceSection** | Set up recurrence: 15min, 30min, hourly, 6hours, daily, weekdays, weekly, biweekly, monthly, or custom cron |
+| **ChecklistSection** | Internal task list for the card, with a progress bar |
+| **AttachmentsSection** | Drag-and-drop attachments |
+| **LinkedFiles** | Linked files (referenced, not uploaded) |
+| **DependenciesSection** | Dependencies between cards |
+| **RelationsSection** | Typed relations: blocks, blocked_by, relates_to, duplicates |
+| **HistorySection** | Audit log — all timestamped modifications |
 
-### Actions dans la modal
+### Actions in the Modal
 
-- **Archiver** — bouton Archive (icône) → retire la carte du Kanban sans supprimer
-- **Exécuter** — bouton Play → lance un worker IA sur la carte
-- **Fermer** — touche `Échap` ou clic en dehors de la modal
-
----
-
-## 8. Opportunities et Notifications
-
-### Drawer Opportunities
-
-**Accès** : badge dans la TabBar (nombre de suggestions en attente), ou via le bouton dédié.
-
-**Ce qu'il montre** : suggestions de cartes générées automatiquement par l'IA. Le système analyse le contexte du projet et propose des tâches manquantes, des risques, ou des actions à prendre.
-
-**Actions** :
-- **Create Card** — crée directement la carte suggérée dans le projet
-- **Dismiss** — ignore la suggestion
-
-### Drawer Notifications
-
-**Accès** : cloche dans le footer de la sidebar (avec badge rouge si non lues) ou cloche dans la TabBar.
-
-**Ce qu'il montre** : liste des événements récents :
-- Carte créée, déplacée, enrichie
-- Document indexé
-- Session Focus terminée
-- Résultat de worker
-
-**Actions** :
-- **Open Card** — ouvre directement la carte concernée
-- **View in Opportunities** — bascule vers le drawer Opportunities
-- **Mark all read** — marque toutes les notifications comme lues
-- **Clear all** — efface toutes les notifications
+- **Archive** — Archive button (icon) → removes the card from the Kanban without deleting it
+- **Execute** — Play button → launches an AI worker on the card
+- **Close** — `Escape` key or click outside the modal
 
 ---
 
-## 9. WorkerPanel — Suivi des workers
+## 8. Opportunities and Notifications
 
-### Accès
+### Opportunities Drawer
 
-Le WorkerPanel est intégré dans la sidebar, sous la section de navigation principale. Il est toujours visible quand la sidebar est ouverte.
+**Access**: badge in the TabBar (number of pending suggestions), or via the dedicated button.
 
-### Ce qu'il montre
+**What it shows**: card suggestions automatically generated by the AI. The system analyzes the project context and proposes missing tasks, risks, or actions to take.
 
-Arbre hiérarchique des activités en cours :
+**Actions**:
+- **Create Card** — directly creates the suggested card in the project
+- **Dismiss** — ignores the suggestion
+
+### Notifications Drawer
+
+**Access**: bell in the sidebar footer (with red badge if unread) or bell in the TabBar.
+
+**What it shows**: list of recent events:
+- Card created, moved, enriched
+- Document indexed
+- Focus session completed
+- Worker result
+
+**Actions**:
+- **Open Card** — directly opens the relevant card
+- **View in Opportunities** — switches to the Opportunities drawer
+- **Mark all read** — marks all notifications as read
+- **Clear all** — clears all notifications
+
+---
+
+## 9. WorkerPanel — Worker Monitoring
+
+### Access
+
+The WorkerPanel is built into the sidebar, below the main navigation section. It is always visible when the sidebar is open.
+
+### What It Shows
+
+A hierarchical tree of ongoing activities:
 
 ```
-Projet A
+Project A
   └── Session #1
         ├── Worker: [claude] Enriching card "Build auth module"  [2m 14s]  running
         └── Worker: [haiku] Indexing document                   [0m 45s]  done
-Projet B
+Project B
   └── Session #2
         └── Worker: [opus] Deep analysis                        [5m 02s]  running
 ```
 
-Par worker, on voit :
-- Emoji indiquant le modèle utilisé
-- Type d'action (enrichissement, indexation, analyse, exécution...)
-- Temps écoulé depuis le démarrage
-- Statut : `running` (en cours), `done` (terminé), `failed` (erreur)
+For each worker, you can see:
+- Emoji indicating the model used
+- Action type (enrichment, indexing, analysis, execution...)
+- Elapsed time since start
+- Status: `running` (in progress), `done` (completed), `failed` (error)
 
-### Actions sur les workers
+### Worker Actions
 
-- **Steer** — envoyer une instruction au worker en cours pour guider ou corriger son travail
-- **Cancel** — annuler un worker en cours d'exécution
+- **Steer** — send an instruction to a running worker to guide or correct its work
+- **Cancel** — cancel a running worker
 
 ---
 
 ## 10. Settings
 
-### Accès
+### Access
 
-- Icône engrenage dans le footer de la sidebar
+- Gear icon in the sidebar footer
 - Route `/settings`
 
-### Ce qu'il montre
+### What It Shows
 
-Page de configuration complète, avec une sidebar de navigation interne à gauche et 9 panneaux :
+Full configuration page, with an internal navigation sidebar on the left and 9 panels:
 
-| Panneau | Contenu |
-|---------|---------|
-| **Appearance** | Thème (clair/sombre), taille de police (small/medium/large) |
-| **Personality** | Nom de l'assistant, ton, chaleur, langue préférée. Éditeur de fichiers : SOUL.md, USER.md, AGENTS.md, IDENTITY.md |
-| **Models** | Configuration des 2 couches IA : Fast (réponses rapides), Deep (raisonnement). Pour chaque couche : URL du provider, clé API, modèle |
-| **Voice & STT** | Configuration de la reconnaissance vocale (moteur STT) |
-| **GitHub** | Intégration GitHub : token, repo par défaut |
-| **Workspace** | Paramètres de l'espace de travail |
-| **Data** | Export et import des données (projets, cartes, historique) |
-| **Jobs** | Scheduler de tâches planifiées (alias du panneau Jobs) |
-| **About** | Version, informations système, licences |
+| Panel | Content |
+|-------|---------|
+| **Appearance** | Theme (light/dark), font size (small/medium/large) |
+| **Personality** | Assistant name, tone, warmth, preferred language. File editor: SOUL.md, USER.md, AGENTS.md, IDENTITY.md |
+| **Models** | Configuration of the 2 AI layers: Fast (quick responses), Deep (reasoning). For each layer: provider URL, API key, model |
+| **Voice & STT** | Voice recognition configuration (STT engine) |
+| **GitHub** | GitHub integration: token, default repo |
+| **Workspace** | Workspace settings |
+| **Data** | Data export and import (projects, cards, history) |
+| **Jobs** | Scheduled task scheduler (alias for the Jobs panel) |
+| **About** | Version, system information, licenses |
 
-**Panneau Personality — fichiers éditables** :
+**Personality panel — editable files**:
 
-| Fichier | Rôle |
-|---------|------|
-| `SOUL.md` | Personnalité centrale de l'assistant |
-| `USER.md` | Informations sur l'utilisateur (préférences, contexte) |
-| `AGENTS.md` | Définition des agents IA disponibles |
-| `IDENTITY.md` | Identité et comportements de l'assistant |
+| File | Role |
+|------|------|
+| `SOUL.md` | Core personality of the assistant |
+| `USER.md` | Information about the user (preferences, context) |
+| `AGENTS.md` | Definition of available AI agents |
+| `IDENTITY.md` | Identity and behaviors of the assistant |
 
 ---
 
 ## 11. Onboarding
 
-### Accès
+### Access
 
-Automatique au premier lancement de l'application, avant l'accès à l'interface principale. Non accessible manuellement depuis l'UI une fois complété (les réglages sont ensuite modifiables depuis Settings).
+Automatic on first application launch, before access to the main interface. Not manually accessible from the UI once completed (settings can then be changed from Settings).
 
-### Ce qu'il montre
+### What It Shows
 
-Formulaire de configuration initiale en une seule page scrollable :
+Initial configuration form on a single scrollable page:
 
-| Champ | Description |
+| Field | Description |
 |-------|-------------|
-| **Votre nom** | Utilisé par l'assistant pour vous appeler |
-| **Nom de l'assistant** | Nom de Voxy (défaut : "Voxy") |
-| **API URL** | URL du backend LLM (défaut : proxy local) |
-| **API Key** | Clé d'accès à l'API |
-| **Fast model** | Modèle rapide pour les réponses courtes |
-| **Deep model** | Modèle de raisonnement pour les tâches complexes |
-| **Thème** | Clair ou sombre |
-| **Taille de police** | Small, Medium, Large |
+| **Your name** | Used by the assistant to address you |
+| **Assistant name** | Name of Voxy (default: "Voxy") |
+| **API URL** | LLM backend URL (default: local proxy) |
+| **API Key** | API access key |
+| **Fast model** | Fast model for short responses |
+| **Deep model** | Reasoning model for complex tasks |
+| **Theme** | Light or dark |
+| **Font size** | Small, Medium, Large |
 
-Une fois le formulaire validé, l'application démarre et redirige vers la vue principale.
+Once the form is submitted, the application starts and redirects to the main view.
 
 ---
 
-## 12. Jobs et Scheduler
+## 12. Jobs and Scheduler
 
-### Accès
+### Access
 
-- Lien "Jobs" dans la sidebar
+- "Jobs" link in the sidebar
 - Route `/jobs`
-- Panneau "Jobs" dans les Settings
+- "Jobs" panel in Settings
 
-### Ce qu'il montre
+### What It Shows
 
-Liste de toutes les tâches planifiées (jobs). Chaque job peut être déclenché manuellement ou s'exécuter selon une planification cron.
+List of all scheduled tasks (jobs). Each job can be triggered manually or run on a cron schedule.
 
-### Types de jobs
+### Job Types
 
 | Type | Description |
 |------|-------------|
-| `reminder` | Rappel à une heure donnée |
-| `rag_index` | Réindexation automatique des documents |
-| `board_run` | Exécution automatique de cartes marquées récurrentes |
-| `github_sync` | Synchronisation avec un dépôt GitHub |
-| `custom` | Job personnalisé avec commande arbitraire |
+| `agent_task` | Free-form instruction sent to the AI agent (the most flexible) |
+| `execute_card` | Execution of a specific card via the AI pipeline |
+| `execute_board` | Sequential execution of all cards on a board based on selected statuses |
+| `reminder` | Reminder at a given time |
+| `rag_index` | Automatic document reindexing |
+| `github_sync` | Synchronization with a GitHub repository |
+| `custom` | Custom job with an arbitrary command |
+| `board_run` | Legacy alias for `execute_board` |
 
 ### Actions
 
-- **Créer** — bouton "New Job" → formulaire : nom, type, planification cron, paramètres
-- **Éditer** — modifier un job existant
-- **Supprimer** — supprimer définitivement un job
-- **Lancer manuellement** — bouton "Run" sur un job → exécution immédiate sans attendre la prochaine occurrence
+- **Create** — "New Job" button → form: name, type, cron schedule, parameters
+- **Edit** — modify an existing job
+- **Delete** — permanently delete a job
+- **Run manually** — "Run" button on a job → immediate execution without waiting for the next occurrence
 
 ---
 
-## 13. Raccourcis clavier — Référence complète
+## 13. Keyboard Shortcuts — Full Reference
 
-| Raccourci | Action |
-|-----------|--------|
-| `Ctrl+B` | Afficher / masquer la sidebar |
-| `Ctrl+K` | Ouvrir la command palette |
-| `Ctrl+W` | Fermer l'onglet projet actif (non applicable à l'onglet Home) |
-| `Ctrl+Tab` | Naviguer vers l'onglet suivant |
-| `Alt+V` (maintenu) | Push-to-Talk — saisie vocale dans le chat |
-| `Ctrl+Shift+F` | Recherche dans l'historique du chat actif |
-| `?` | Ouvrir la modal des raccourcis clavier (liste complète) |
-| `Échap` | Fermer la modal ou le drawer actif |
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+B` | Show / hide the sidebar |
+| `Ctrl+K` | Open the command palette |
+| `Ctrl+W` | Close the active project tab (not applicable to the Home tab) |
+| `Ctrl+Tab` | Navigate to the next tab |
+| `Alt+V` (held) | Push-to-Talk — voice input in chat |
+| `Ctrl+Shift+F` | Search in the active chat history |
+| `?` | Open the keyboard shortcuts modal (full list) |
+| `Escape` | Close the active modal or drawer |
 
-> Appuyez sur `?` depuis n'importe quelle vue pour afficher la liste complète des raccourcis disponibles dans le contexte courant.
+> Press `?` from any view to display the full list of shortcuts available in the current context.
 
 ---
 
-_Guide généré pour Voxyflow — avril 2026._
+_Guide generated for Voxyflow — April 2026._

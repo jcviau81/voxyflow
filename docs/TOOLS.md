@@ -317,7 +317,7 @@ Create a new scheduled job.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | name | string | yes | Job name |
-| type | string | yes | reminder, github_sync, rag_index, custom, board_run |
+| type | string | yes | agent_task, execute_card, execute_board, reminder, rag_index, github_sync, custom (board_run is a legacy alias for execute_board) |
 | schedule | string | yes | Cron expression (e.g. '0 9 * * 1-5') or interval ('every_5min', 'every_1h') |
 | enabled | boolean | no | Whether enabled (default: true) |
 | payload | object | no | Job-specific configuration |

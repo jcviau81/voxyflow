@@ -806,21 +806,43 @@ Workers select their own model (Haiku/Sonnet/Opus) based on task complexity — 
 Schedule recurring background tasks via the Settings → Jobs panel:
 
 - **Types:**
+  - `agent_task` — send a freeform instruction to the AI agent (most flexible)
+  - `execute_card` — run a specific card through the AI pipeline
+  - `execute_board` — execute all matching cards from a project board on a schedule
   - `reminder` — broadcast a notification message via WebSocket
   - `rag_index` — re-index project documents in ChromaDB
   - `github_sync` — GitHub sync (placeholder)
-  - `board_run` — execute a project's kanban board on a schedule (see below)
   - `custom` — extensible placeholder
+  - `board_run` — legacy alias for `execute_board` (backwards compatible)
 - **Schedule:** Cron expression (`0 9 * * 1-5`) or shorthand (`every_5min`, `every_1h`, `every_day`)
 - **Enable/disable** individual jobs without deleting them
-- **Manual trigger:** Run any job immediately via the "▶ Run" button
+- **Manual trigger:** Run any job immediately via the "Run" button
+- **Payload visibility:** Click the eye icon on any job to inspect its full payload
 - Jobs persisted to `~/.voxyflow/jobs.json`
 
 **API:** `GET/POST /api/jobs` · `PUT/DELETE /api/jobs/{id}` · `POST /api/jobs/{id}/run`
 
-#### Autonomous Board Runs (`board_run`)
+#### Agent Task (`agent_task`)
 
-The `board_run` job type enables fully autonomous, scheduled execution of a project's kanban board:
+The most flexible job type — sends a freeform instruction through the chat pipeline as a one-shot agent task:
+
+- **`instruction`** (required) — the prompt/instruction for the agent
+- **`project_id`** (optional) — scope the agent to a specific project's context and memories
+
+Use this for autonomous tasks that don't map to a single card: SSH checks, pipeline runs, outreach campaigns, etc.
+
+#### Execute Card (`execute_card`)
+
+Run a specific card through the AI pipeline on a schedule:
+
+- **`card_id`** (required) — the card to execute
+- **`project_id`** (optional) — project scope for context resolution
+
+The card's title, description, checklist, and linked files are assembled into a prompt. If the card has a `preferred_model` (Worker Class), it is respected.
+
+#### Execute Board (`execute_board`)
+
+Execute all matching cards from a project board sequentially:
 
 - **`project_id`** (required) — which project's board to execute
 - **`statuses`** (optional, default `["todo"]`) — which card statuses to pick up
@@ -828,8 +850,8 @@ The `board_run` job type enables fully autonomous, scheduled execution of a proj
 **Typical setup:**
 1. Create a dedicated project (e.g. "Daily Ops", "Autonomous")
 2. Add cards describing tasks to run — mark them **Recurring** if they should re-execute every run
-3. Create a `board_run` job with the project ID and a cron schedule
-4. Each run picks up all `todo` cards, executes them sequentially, and resets recurring cards back to `todo` when done
+3. Create an `execute_board` job with the project ID and a cron schedule
+4. Each run picks up all matching cards, executes them sequentially, and resets recurring cards back to `todo` when done
 
 Board run events (`kanban:execute:card:start`, `kanban:execute:complete`, etc.) are broadcast via WebSocket to all connected clients, so the UI reflects progress in real time even for scheduled runs.
 
