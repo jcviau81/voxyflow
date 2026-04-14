@@ -303,7 +303,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports, features, and PRs are welco
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+AGPL-3.0 — see [LICENSE](LICENSE)
+
+Commercial licensing available for SaaS deployments and proprietary use. Contact the author for details.
 
 ---
 
