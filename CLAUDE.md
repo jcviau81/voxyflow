@@ -66,7 +66,7 @@ Users can save named LLM endpoints (local or remote machines) in Settings.
 - API keys are never sent in GET query params — resolved server-side from saved endpoints
 
 ## Key Files
-- `backend/app/services/claude_service.py` — ClaudeService singleton, 3 layers (fast/deep/haiku), `reload_models()` uses provider_factory
+- `backend/app/services/claude_service.py` — ClaudeService singleton, 3 model tiers (fast/deep/haiku), `reload_models()` uses provider_factory
 - `backend/app/services/llm/api_caller.py` — ApiCallerMixin, dispatch hub (`_call_api`, `_call_api_stream`)
 - `backend/app/services/llm/cli_backend.py` — ClaudeCliBackend (subprocess management)
 - `backend/app/services/llm/client_factory.py` — SDK client creation
@@ -80,7 +80,8 @@ Users can save named LLM endpoints (local or remote machines) in Settings.
 - `backend/app/services/chat_orchestration.py` — Orchestrator, delegate parsing
 - `backend/app/routes/models.py` — Model discovery API (`/providers`, `/list`, `/capabilities`, `/available`, `/test`)
 - `backend/app/routes/settings.py` — Settings CRUD, `ProviderEndpoint` model, API key redaction
-- `backend/app/mcp_server.py` — MCP tool definitions (86 individual, consolidated to 40 via MCP)
+- `backend/app/mcp_server.py` — MCP tool definitions (92 tools; dispatcher sees ~20, workers see all)
+- `backend/app/tools/registry.py` — `TOOLS_DISPATCHER` / `TOOLS_WORKER` sets, role-based filtering
 - `backend/app/services/knowledge_graph_service.py` — Temporal KG (entities, triples, attributes)
 - `backend/mcp_stdio.py` — MCP stdio transport entry point
 - `backend/app/config.py` — Settings (env vars + keyring)
@@ -106,12 +107,47 @@ Memory context injection uses three tiers with token budgets:
 - **L1** — high-importance ChromaDB memories
 - **L2** — full semantic search (current behavior)
 
+## Tool Access Architecture — Dispatcher vs Worker
+
+**This is a hard boundary.** Tool access is determined by role (dispatcher vs worker),
+NOT by model. Fast and deep dispatchers get the SAME tools — the only difference is
+which model handles the chat (Haiku vs Opus). Workers run in background subprocesses
+and get full MCP tool access.
+
+### Dispatcher (fast + deep chat) — `TOOLS_DISPATCHER`
+Lightweight, non-blocking tools only. The dispatcher streams responses to the user
+and must never block on heavy operations.
+
+**Allowed:** read ops (`project.list/get`, `card.list/get`, `wiki.list/get`, `doc.list`,
+`jobs.list`, `health`), basic CRUD (`card.create/update/move/archive`,
+`card.create_unassigned`, `project.create`), memory (`memory.search/save`,
+`knowledge.search`).
+
+**NOT allowed:** `system.exec`, `file.*`, `git.*`, `tmux.*`, `web.*`, `kg.*`,
+`voxyflow.ai.*`, destructive ops (`*.delete`, `*.export`), worker management tools.
+These are worker-only.
+
+### Worker — `TOOLS_WORKER`
+Full MCP tool access. Workers run as background subprocesses spawned via
+`delegate_action`. They can exec commands, read/write files, search the web,
+manage git, use tmux, call AI features, and perform destructive operations.
+
+### Key files
+- `backend/app/tools/registry.py` — `TOOLS_DISPATCHER` and `TOOLS_WORKER` sets, `_ROLE_TOOL_SETS`
+- `backend/app/services/llm/tool_defs.py` — `get_claude_tools(role=...)` for native SDK path
+- `backend/app/tools/prompt_builder.py` — `build_tool_prompt(role=...)` for CLI path
+
+### Invariant
+When adding new tools: add to `TOOLS_WORKER` in `registry.py`. Only add to
+`TOOLS_DISPATCHER` if the tool is instant, non-blocking, and safe for inline chat.
+Never gate tools on model tier (fast/deep) — that is purely a model selection.
+
 ## Dispatcher Flow
-1. User message → `chat_fast_stream()` or `chat_deep_stream()`
+1. User message → `chat_fast_stream()` or `chat_deep_stream()` (model selection only)
 2. System prompt built (personality + dispatcher + delegate instructions)
-3. CLI spawns `claude -p` with MCP tools + system prompt
-4. Model responds conversationally + calls MCP tools inline + emits `<delegate>` for complex tasks
-5. Orchestrator parses `<delegate>` blocks → spawns workers
+3. CLI spawns `claude -p` with dispatcher tools + system prompt
+4. Model responds conversationally + calls dispatcher tools inline + emits `<delegate>` for complex tasks
+5. Orchestrator parses `<delegate>` blocks → spawns workers (with full `TOOLS_WORKER` access)
 
 ## Dev Restart
 Backend runs via systemd (uvicorn on port 8000), frontend built with Vite and served via a reverse proxy.
@@ -155,7 +191,7 @@ Invariants to preserve when touching memory, MCP tools, or chat routing. Regress
 ### 1a. STRICT: project chats never query `memory-global`
 - `memory_service._build_chromadb_context` Project Chat & Card Chat modes query the per-project collection ONLY. Do not add `GLOBAL_COLLECTION` to those branches.
 - `mcp_server.memory_search` handler: when `VOXYFLOW_PROJECT_ID` is a real project UUID → `collections=[_project_collection(pid)]`. Global is added **only** when env is empty / `system-main`.
-- `tool_defs._execute_inline_tool` memory_search branch mirrors the same rule.
+- `mcp_server.memory_search` handler mirrors the same rule (single implementation, no duplication).
 - **Why:** `memory-global` holds cross-bot imports / user-globals that the user explicitly wants kept out of project work. A clean project must show zero knowledge from other contexts.
 - **Regression guard:** `backend/scripts/smoke_test_isolation.py` test `_build_chromadb_context — Project Chat mode never queries memory-global` will fail if this is broken.
 

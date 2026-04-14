@@ -814,20 +814,20 @@ _TOOL_DEFINITIONS: list[dict] = [
             "type": "object",
             "properties": {
                 "session_id": {"type": "string", "description": "Filter by session ID"},
-                "project_id": {"type": "string", "description": "Filter by project ID"},
                 "status": {
                     "type": "string",
-                    "enum": ["pending", "running", "done", "failed", "cancelled"],
+                    "enum": ["running", "done", "failed", "timed_out", "cancelled"],
                     "description": "Filter by status",
                 },
                 "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
             },
         },
-        "_http": ("GET", "/api/worker-tasks", None),
+        "_handler": "workers_list",
+        "_scope": "voxyflow",
     },
     {
         "name": "voxyflow.workers.get_result",
-        "description": "Get the full details and result of a specific worker task by task_id.",
+        "description": "Get the full details and result of a specific worker task by task_id. Returns metadata + the worker's full result text from the database.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],
@@ -835,7 +835,8 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "task_id": {"type": "string", "description": "Worker task ID"},
             },
         },
-        "_http": ("GET", "/api/worker-tasks/{task_id}", None),
+        "_handler": "workers_get_result",
+        "_scope": "voxyflow",
     },
     {
         "name": "voxyflow.workers.read_artifact",
@@ -1935,6 +1936,74 @@ def _get_system_handler(name: str):
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
+        async def workers_list(params: dict) -> dict:
+            """List active and recent worker tasks from the session store + DB."""
+            from app.services.worker_session_store import get_worker_session_store
+            try:
+                store = get_worker_session_store()
+                session_id = params.get("session_id")
+                sessions = store.get_sessions(session_id=session_id)
+                status_filter = params.get("status")
+                if status_filter:
+                    sessions = [s for s in sessions if s.get("status") == status_filter]
+                limit = params.get("limit", 10)
+                sessions = sessions[:limit]
+                if not sessions:
+                    return {"success": True, "result": "No active or recent workers found.", "workers": [], "count": 0}
+                return {"success": True, "workers": sessions, "count": len(sessions)}
+            except Exception as e:
+                logger.error(f"[mcp.workers.list] failed: {e}")
+                return {"success": False, "error": str(e)}
+
+        async def workers_get_result(params: dict) -> dict:
+            """Get full details and result of a worker task, reading from DB for full output."""
+            from app.services.worker_session_store import get_worker_session_store
+            task_id = (params.get("task_id") or "").strip()
+            if not task_id:
+                return {"success": False, "error": "task_id is required"}
+            try:
+                store = get_worker_session_store()
+                session = store.get_session(task_id)
+
+                # The session JSON only carries a 500-char preview of the result.
+                # The full untruncated result lives in worker_tasks.result_summary
+                # (Text column) — read it from the DB so the caller gets the
+                # complete output, not the UI preview.
+                full_result = None
+                try:
+                    from app.database import async_session, WorkerTask
+                    from sqlalchemy import select
+                    async with async_session() as db:
+                        row = (await db.execute(
+                            select(WorkerTask).where(WorkerTask.id == task_id)
+                        )).scalar_one_or_none()
+                        if row is not None:
+                            full_result = row.result_summary
+                            if session is None:
+                                session = {
+                                    "task_id": row.id,
+                                    "session_id": row.session_id,
+                                    "project_id": row.project_id,
+                                    "card_id": row.card_id,
+                                    "intent": row.action,
+                                    "model": row.model,
+                                    "status": row.status,
+                                    "summary": row.description,
+                                }
+                except Exception as db_err:
+                    logger.warning(f"[mcp.workers.get_result] DB read failed: {db_err}")
+
+                if session is None:
+                    return {"success": False, "error": f"Worker task not found: {task_id}"}
+
+                if full_result is not None:
+                    session = {**session, "result_summary": full_result}
+
+                return {"success": True, **session}
+            except Exception as e:
+                logger.error(f"[mcp.workers.get_result] failed: {e}")
+                return {"success": False, "error": str(e)}
+
         async def workers_read_artifact(params: dict) -> dict:
             """Read a slice of a finished worker's full raw output (.md artifact).
 
@@ -2183,6 +2252,8 @@ def _get_system_handler(name: str):
             "memory_get": memory_get,
             "knowledge_search": knowledge_search,
             "task_steer": task_steer,
+            "workers_list": workers_list,
+            "workers_get_result": workers_get_result,
             "workers_read_artifact": workers_read_artifact,
             "kg_add": kg_add,
             "kg_query": kg_query,

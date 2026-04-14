@@ -2,6 +2,9 @@
 
 Builds the text that tells the LLM how to call tools via <tool_call> blocks
 and lists the available tools with their parameters.
+
+Tool access is role-based (dispatcher vs worker), NOT model-based.
+Fast vs deep is purely a model selection — both get the same dispatcher tools.
 """
 
 import functools
@@ -13,21 +16,19 @@ from app.tools.registry import ToolRegistry, ToolDefinition, get_registry
 logger = logging.getLogger(__name__)
 
 
-# Context-based secondary filter (mirrors get_claude_tools logic)
-# "general" context = Main project (system-main) — gets both unassigned aliases AND project card tools
+# Context-based secondary filter — narrows the role-based set by chat level.
+# "general" context = Main project (system-main) — gets both unassigned aliases AND project card tools.
+# NOTE: worker-only tools (system.exec, file.*, git.*, tmux.*, etc.) are NOT
+# listed here — they are gated by the role set in the registry, not by context.
 _GENERAL_CONTEXT_TOOLS = {
     "voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned",
     "voxyflow.card.create", "voxyflow.card.list", "voxyflow.card.get",
-    "voxyflow.card.update", "voxyflow.card.move",
+    "voxyflow.card.update", "voxyflow.card.move", "voxyflow.card.archive",
     "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
     "voxyflow.health",
-    "system.exec", "web.search", "web.fetch",
-    "file.read", "file.write", "file.list",
-    "git.status", "git.log", "git.diff", "git.branches", "git.commit",
-    "tmux.list", "tmux.capture", "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
-    "voxyflow.jobs.list", "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
-    "voxyflow.doc.list", "voxyflow.doc.delete",
-    "memory.search", "knowledge.search",
+    "voxyflow.jobs.list",
+    "voxyflow.doc.list",
+    "memory.search", "knowledge.search", "memory.save",
 }
 
 _PROJECT_EXCLUDED_TOOLS: set[str] = set()  # No longer excluding unassigned tools — they're aliases
@@ -40,20 +41,20 @@ class ToolPromptBuilder:
         self._registry = registry or get_registry()
 
     @functools.lru_cache(maxsize=32)
-    def build_tool_prompt(self, layer: str, chat_level: str = "general") -> str:
+    def build_tool_prompt(self, role: str = "dispatcher", chat_level: str = "general") -> str:
         """Generate tool definitions + usage instructions for the system prompt.
 
-        Result is cached per (layer, chat_level) — tool definitions are static at runtime.
+        Result is cached per (role, chat_level) — tool definitions are static at runtime.
 
         Args:
-            layer: "fast" or "deep"
+            role: "dispatcher" or "worker" (legacy "fast"/"deep" both map to dispatcher)
             chat_level: "general", "project", or "card"
 
         Returns:
             Formatted tool instruction block, or empty string if no tools.
         """
-        # Get layer-allowed tools
-        layer_tools = self._registry.get_by_layer(layer)
+        # Get role-allowed tools
+        layer_tools = self._registry.get_by_role(role)
 
         # Apply context filter
         filtered = self._filter_by_context(layer_tools, chat_level)

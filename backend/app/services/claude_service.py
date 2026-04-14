@@ -30,7 +30,7 @@ from app.services.agent_personas import AgentType, get_persona_prompt
 from app.services.session_store import session_store
 from app.services.rag_service import get_rag_service
 from app.tools.registry import (
-    TOOLS_READ_ONLY, TOOLS_VOXYFLOW_CRUD, TOOLS_FULL, _LAYER_TOOL_SETS,
+    TOOLS_DISPATCHER, TOOLS_WORKER, _ROLE_TOOL_SETS,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,14 +84,10 @@ def _make_cached_system(
 
 # _LRUDict, _MODEL_MAP, _resolve_model → app.services.llm.model_utils
 
-# DELEGATE_ACTION_TOOL, INLINE_TOOLS, _INLINE_TOOL_NAMES, _execute_inline_tool,
-# get_claude_tools, _mcp_tool_name_from_claude, _call_mcp_tool,
+# DELEGATE_ACTION_TOOL, get_claude_tools, _mcp_tool_name_from_claude, _call_mcp_tool,
 # _load_model_overrides, _get_api_key_from_settings → app.services.llm.tool_defs
 from app.services.llm.tool_defs import (
     DELEGATE_ACTION_TOOL,
-    INLINE_TOOLS,
-    _INLINE_TOOL_NAMES,
-    _execute_inline_tool,
     get_claude_tools,
     _mcp_tool_name_from_claude,
     _call_mcp_tool,
@@ -515,7 +511,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.haiku_client,
                 client_type=self.haiku_client_type,
                 use_tools=False,
-                layer="haiku",
+                layer="dispatcher",
                 chat_level="general",
             )
             return (summary or "").strip()
@@ -1097,7 +1093,7 @@ class ClaudeService(ApiCallerMixin):
             client, client_type, model_name = (
                 self.fast_client, self.fast_client_type, self.fast_model
             )
-        layer = "deep"  # All workers get TOOLS_FULL regardless of model
+        role = "worker"  # Workers get full MCP tool access
 
         # Workers always use the native Anthropic async SDK (tool_use blocks) to avoid
         # XML <tool_call> truncation issues with the OpenAI-compat proxy path.
@@ -1162,7 +1158,7 @@ class ClaudeService(ApiCallerMixin):
             client_type=client_type,
             use_tools=True,
             tool_callback=tool_callback,
-            layer=layer,
+            layer=role,
             chat_level=chat_level,
             chat_id=chat_id,
             cancel_event=cancel_event,
@@ -1228,7 +1224,7 @@ class ClaudeService(ApiCallerMixin):
             client_type=client_type,
             use_tools=True,
             tool_callback=tool_callback,
-            layer="haiku",
+            layer="worker",
             chat_id=chat_id,
             cancel_event=cancel_event,
             message_queue=message_queue,

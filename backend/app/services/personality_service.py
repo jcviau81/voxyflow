@@ -807,8 +807,8 @@ class PersonalityService:
         All workers get the same tools and prompt structure regardless of model.
         The model only affects speed/capability, not the role or tool access.
         """
-        from app.tools.registry import TOOLS_FULL
-        tool_list = self._build_tool_section(TOOLS_FULL, chat_level)
+        from app.tools.registry import TOOLS_WORKER
+        tool_list = self._build_tool_section(TOOLS_WORKER, chat_level)
         context = self._build_worker_context_section(chat_level, project, card)
         worker_rules = self.load_worker()
 

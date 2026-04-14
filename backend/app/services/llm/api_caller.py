@@ -26,9 +26,6 @@ from app.services.llm.model_utils import (
 )
 from app.services.llm.tool_defs import (
     DELEGATE_ACTION_TOOL,
-    INLINE_TOOLS,
-    _INLINE_TOOL_NAMES,
-    _execute_inline_tool,
     _mcp_tool_name_from_claude,
     _call_mcp_tool,
     get_claude_tools,
@@ -295,13 +292,19 @@ class ApiCallerMixin:
         if not clean_messages:
             clean_messages = [{"role": "user", "content": "(empty)"}]
 
+        # Build dispatcher tool schemas from the registry (single source of truth)
+        dispatcher_tools = get_claude_tools(role="dispatcher")
+
         kwargs = {
             "model": model,
             "max_tokens": self.max_tokens,
             "system": system,
             "messages": clean_messages,
-            "tools": [DELEGATE_ACTION_TOOL] + INLINE_TOOLS,
+            "tools": [DELEGATE_ACTION_TOOL] + dispatcher_tools,
         }
+
+        # Build set of dispatcher tool names for routing (underscore format from get_claude_tools)
+        dispatcher_tool_names = {t["name"] for t in dispatcher_tools}
 
         max_inline_rounds = 3  # Prevent infinite inline tool loops
 
@@ -355,10 +358,10 @@ class ApiCallerMixin:
                     # No tool calls — done
                     return
 
-                # Separate inline tools from delegate tool calls
-                inline_blocks = [b for b in tool_use_blocks if b.name in _INLINE_TOOL_NAMES]
+                # Separate dispatcher tools from delegate tool calls
+                tool_blocks = [b for b in tool_use_blocks if b.name in dispatcher_tool_names]
                 delegate_blocks = [b for b in tool_use_blocks if b.name == "delegate_action"]
-                unknown_blocks = [b for b in tool_use_blocks if b.name not in _INLINE_TOOL_NAMES and b.name != "delegate_action"]
+                unknown_blocks = [b for b in tool_use_blocks if b.name not in dispatcher_tool_names and b.name != "delegate_action"]
 
                 for b in unknown_blocks:
                     logger.warning(f"[NativeDelegate] Unexpected tool_use: {b.name} — ignoring")
@@ -371,16 +374,24 @@ class ApiCallerMixin:
                         f"action={block.input.get('action')}, summary={block.input.get('summary', '')!r}"
                     )
 
-                # Execute inline tools
-                inline_results: dict[str, str] = {}
-                for block in inline_blocks:
-                    logger.info(f"[InlineTool] Executing {block.name} with {block.input}")
-                    result = await _execute_inline_tool(block.name, block.input or {})
-                    inline_results[block.id] = json.dumps(result, default=str, ensure_ascii=False)
-                    logger.info(f"[InlineTool] {block.name} result: {len(inline_results[block.id])} chars")
+                # Execute dispatcher tools via the registry
+                from app.tools.registry import get_registry
+                _registry = get_registry()
+                tool_results_map: dict[str, str] = {}
+                for block in tool_blocks:
+                    # Convert underscore name back to dot notation for registry lookup
+                    mcp_name = _mcp_tool_name_from_claude(block.name)
+                    logger.info(f"[DispatcherTool] Executing {block.name} → {mcp_name} with {block.input}")
+                    tool_def = _registry.get(mcp_name)
+                    if tool_def:
+                        result = await tool_def.handler(block.input or {})
+                    else:
+                        result = {"error": f"Unknown tool: {mcp_name}"}
+                    tool_results_map[block.id] = json.dumps(result, default=str, ensure_ascii=False)
+                    logger.info(f"[DispatcherTool] {mcp_name} result: {len(tool_results_map[block.id])} chars")
 
-                # If we have inline tools that need results fed back, continue the loop
-                if inline_blocks and stop_reason == "tool_use":
+                # If we have dispatcher tools that need results fed back, continue the loop
+                if tool_blocks and stop_reason == "tool_use":
                     # Build continuation with tool results
                     assistant_content = []
                     if streamed_text_parts:
@@ -395,11 +406,11 @@ class ApiCallerMixin:
 
                     tool_results_content = []
                     for block in tool_use_blocks:
-                        if block.id in inline_results:
+                        if block.id in tool_results_map:
                             tool_results_content.append({
                                 "type": "tool_result",
                                 "tool_use_id": block.id,
-                                "content": inline_results[block.id],
+                                "content": tool_results_map[block.id],
                             })
                         else:
                             # Delegate or unknown — acknowledge
@@ -415,9 +426,9 @@ class ApiCallerMixin:
                     ]
                     # Reset streamed text for next round
                     streamed_text_parts = []
-                    continue  # Next round of the inline loop
+                    continue  # Next round of the tool loop
 
-                # No inline tools or not stopped for tool_use — handle delegate continuation
+                # No dispatcher tools or not stopped for tool_use — handle delegate continuation
                 if stop_reason == "tool_use" and delegate_blocks:
                     # Build the continuation: acknowledge the delegate(s)
                     assistant_content = []
