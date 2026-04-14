@@ -907,7 +907,16 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.jobs.create",
-        "description": "Create a new scheduled job in Voxyflow.",
+        "description": (
+            "Create a new scheduled job. "
+            "Job types and required payload fields:\n"
+            "• agent_task — freeform AI instruction. payload: {instruction: string, project_id?: uuid}\n"
+            "• execute_board — run all cards matching statuses on a board. payload: {project_id: uuid, statuses?: [\"todo\"]}\n"
+            "• execute_card — run a single card. payload: {card_id: uuid, project_id?: uuid}\n"
+            "• reminder — broadcast a message. payload: {message: string}\n"
+            "• rag_index — re-index documents. payload: {project_id?: uuid, path?: string}\n"
+            "Schedule: cron expression ('0 9 * * 1-5') or shorthand ('every_5min', 'every_30min', 'every_1h', 'every_2h', 'every_day')."
+        ),
         "inputSchema": {
             "type": "object",
             "required": ["name", "type", "schedule"],
@@ -915,12 +924,12 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "name": {"type": "string", "description": "Job name"},
                 "type": {
                     "type": "string",
-                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "github_sync", "custom", "board_run"],
-                    "description": "Job type",
+                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "custom"],
+                    "description": "Job type — use agent_task for freeform instructions, execute_board for running board cards",
                 },
-                "schedule": {"type": "string", "description": "Cron expression (e.g. '0 9 * * 1-5') or interval ('every_5min', 'every_1h')"},
+                "schedule": {"type": "string", "description": "Cron expression (e.g. '0 9 * * 1-5') or shorthand ('every_5min', 'every_1h', 'every_day')"},
                 "enabled": {"type": "boolean", "description": "Whether the job is enabled (default: true)"},
-                "payload": {"type": "object", "description": "Job-specific configuration / payload"},
+                "payload": {"type": "object", "description": "Job-specific payload — see tool description for required fields per type"},
             },
         },
         "_http": ("POST", "/api/jobs", None),
@@ -936,8 +945,8 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "name": {"type": "string", "description": "New job name"},
                 "type": {
                     "type": "string",
-                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "github_sync", "custom", "board_run"],
-                    "description": "New job type",
+                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "custom"],
+                    "description": "New job type — use agent_task for freeform instructions",
                 },
                 "schedule": {"type": "string", "description": "New cron expression or interval"},
                 "enabled": {"type": "boolean", "description": "Enable or disable the job"},

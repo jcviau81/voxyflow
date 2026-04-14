@@ -34,7 +34,7 @@ TOOLS_DISPATCHER = {
     "voxyflow.card.list", "voxyflow.card.get",
     "voxyflow.wiki.list", "voxyflow.wiki.get",
     "voxyflow.doc.list",
-    "voxyflow.jobs.list",
+    "voxyflow.jobs.list", "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
     "memory.search", "knowledge.search",
     # Basic CRUD (instant, non-blocking)
     "memory.save",
@@ -59,7 +59,6 @@ TOOLS_WORKER = TOOLS_DISPATCHER | {
     "voxyflow.doc.delete",
     "voxyflow.ai.standup", "voxyflow.ai.brief", "voxyflow.ai.health",
     "voxyflow.ai.prioritize", "voxyflow.ai.review_code",
-    "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
     "git.status", "git.log", "git.diff", "git.branches", "git.commit",
     "tmux.list", "tmux.capture", "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
     "web.search", "web.fetch",

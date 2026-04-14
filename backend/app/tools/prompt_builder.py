@@ -26,7 +26,7 @@ _GENERAL_CONTEXT_TOOLS = {
     "voxyflow.card.update", "voxyflow.card.move", "voxyflow.card.archive",
     "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
     "voxyflow.health",
-    "voxyflow.jobs.list",
+    "voxyflow.jobs.list", "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
     "voxyflow.doc.list",
     "memory.search", "knowledge.search", "memory.save",
 }

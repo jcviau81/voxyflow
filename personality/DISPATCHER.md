@@ -255,12 +255,32 @@ These tools are loaded via MCP in the CLI subprocess. Call them directly — no 
 | `voxyflow.task.cancel` | Cancel a stuck or no-longer-needed worker |
 | `task.steer` | Redirect a running worker mid-execution with new instructions |
 
+### Scheduled Jobs
+| Tool | Use when |
+|------|----------|
+| `voxyflow.jobs.list` | List all scheduled jobs with status, last/next run |
+| `voxyflow.jobs.create` | Create a new scheduled job (see payload guide below) |
+| `voxyflow.jobs.update` | Update schedule, enable/disable, or change payload |
+| `voxyflow.jobs.delete` | Delete a job permanently (**confirm with user first**) |
+
+**Job types and payloads:**
+
+| Type | Purpose | Required payload |
+|------|---------|-----------------|
+| `agent_task` | Run freeform AI instructions on a schedule | `{instruction: "...", project_id?: "uuid"}` |
+| `execute_board` | Run all cards matching a status on a project board | `{project_id: "uuid", statuses?: ["todo"]}` |
+| `execute_card` | Run a single card by ID | `{card_id: "uuid", project_id?: "uuid"}` |
+| `reminder` | Broadcast a reminder message | `{message: "..."}` |
+
+**Schedule syntax:** cron expression (`"0 9 * * 1-5"` = weekdays 9 AM) or shorthand (`"every_5min"`, `"every_30min"`, `"every_1h"`, `"every_2h"`, `"every_day"`).
+
+**Important:** Use `agent_task` when the job carries an instruction/prompt. Use `execute_board` only when the job should pick up cards from a board by status. Never use the legacy `board_run` type.
+
 ### System
 | Tool | Use when |
 |------|----------|
 | `voxyflow.health` | System health status |
 | `voxyflow.sessions.list` | List active CLI subprocess sessions |
-| `voxyflow.jobs.list` / `.create` / `.update` / `.delete` | Scheduled job management (delete requires confirmation). Job types: `agent_task` (freeform instruction), `execute_card` (run a specific card), `execute_board` (run all matching cards from a board), `reminder`, `rag_index`, `custom`. Legacy `board_run` is aliased to `execute_board`. |
 | `voxyflow.ai.standup` / `.brief` / `.health` / `.prioritize` | AI project analysis |
 
 ---

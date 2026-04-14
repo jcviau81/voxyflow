@@ -270,6 +270,10 @@ async def _execute_job(job: dict) -> dict:
         elif job_type == "github_sync":
             return await _run_github_sync(job, payload)
         elif job_type in ("board_run", "execute_board"):
+            # board_run jobs with instruction(s) are really agent_tasks
+            if payload.get("instruction") or payload.get("instructions"):
+                logger.info(f"[Jobs] Re-routing '{job.get('name')}' (board_run with instructions) → agent_task")
+                return await _run_agent_task(job, payload)
             return await _run_execute_board(job, payload)
         elif job_type == "execute_card":
             return await _run_execute_card(job, payload)
