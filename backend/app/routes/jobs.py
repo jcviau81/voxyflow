@@ -294,6 +294,17 @@ async def _execute_job(job: dict) -> dict:
         return {"status": "error", "message": str(e)}
 
 
+async def _cleanup_job_session(chat_id: str, session_id: str) -> None:
+    """Kill persistent CLI process, stop worker pool, and free session resources."""
+    try:
+        from app.main import _orchestrator
+        _orchestrator.reset_session(chat_id, session_id)
+        await _orchestrator.stop_worker_pool(session_id)
+        logger.info(f"[Jobs] Cleaned up session chat_id={chat_id} session_id={session_id}")
+    except Exception as e:
+        logger.warning(f"[Jobs] Session cleanup failed: {e}")
+
+
 def _emit_job_session(job: dict, chat_id: str, project_id: str | None = None) -> None:
     """Broadcast job:session:started so the frontend can label scheduler sessions."""
     try:
@@ -383,15 +394,18 @@ async def _run_execute_board(job: dict, payload: dict) -> dict:
 
     _emit_job_session(job, chat_id, project_id)
 
-    await execute_board(
-        execution_id=plan.execution_id,
-        project_id=project_id,
-        cards=plan.cards,
-        websocket=_BroadcastWS(),
-        orchestrator=_orchestrator,
-        session_id=session_id,
-        chat_id=chat_id,
-    )
+    try:
+        await execute_board(
+            execution_id=plan.execution_id,
+            project_id=project_id,
+            cards=plan.cards,
+            websocket=_BroadcastWS(),
+            orchestrator=_orchestrator,
+            session_id=session_id,
+            chat_id=chat_id,
+        )
+    finally:
+        await _cleanup_job_session(chat_id, session_id)
 
     return {"status": "ok", "message": f"Board run completed: {plan.total} cards executed"}
 
@@ -417,22 +431,25 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
 
     _emit_job_session(job, chat_id, project_id)
 
-    bg_tasks = await _orchestrator.handle_message(
-        websocket=_BroadcastWS(),
-        content=prompt,
-        message_id=message_id,
-        chat_id=chat_id,
-        project_id=project_id,
-        chat_level="project" if project_id else "general",
-        card_id=card_id,
-        session_id=session_id,
-    )
+    try:
+        bg_tasks = await _orchestrator.handle_message(
+            websocket=_BroadcastWS(),
+            content=prompt,
+            message_id=message_id,
+            chat_id=chat_id,
+            project_id=project_id,
+            chat_level="project" if project_id else "general",
+            card_id=card_id,
+            session_id=session_id,
+        )
 
-    if bg_tasks:
-        results = await asyncio.gather(*bg_tasks, return_exceptions=True)
-        for r in results:
-            if isinstance(r, Exception):
-                logger.warning(f"[Jobs][ExecuteCard] Background task failed: {r}")
+        if bg_tasks:
+            results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+            for r in results:
+                if isinstance(r, Exception):
+                    logger.warning(f"[Jobs][ExecuteCard] Background task failed: {r}")
+    finally:
+        await _cleanup_job_session(chat_id, session_id)
 
     return {"status": "ok", "message": f"Card {card_id} executed"}
 
@@ -458,21 +475,24 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
 
     _emit_job_session(job, chat_id, project_id)
 
-    bg_tasks = await _orchestrator.handle_message(
-        websocket=_BroadcastWS(),
-        content=instruction,
-        message_id=message_id,
-        chat_id=chat_id,
-        project_id=project_id,
-        chat_level="project" if project_id else "general",
-        session_id=session_id,
-    )
+    try:
+        bg_tasks = await _orchestrator.handle_message(
+            websocket=_BroadcastWS(),
+            content=instruction,
+            message_id=message_id,
+            chat_id=chat_id,
+            project_id=project_id,
+            chat_level="project" if project_id else "general",
+            session_id=session_id,
+        )
 
-    if bg_tasks:
-        results = await asyncio.gather(*bg_tasks, return_exceptions=True)
-        for r in results:
-            if isinstance(r, Exception):
-                logger.warning(f"[Jobs][AgentTask] Background task failed: {r}")
+        if bg_tasks:
+            results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+            for r in results:
+                if isinstance(r, Exception):
+                    logger.warning(f"[Jobs][AgentTask] Background task failed: {r}")
+    finally:
+        await _cleanup_job_session(chat_id, session_id)
 
     return {"status": "ok", "message": f"Agent task completed: {job.get('name')}"}
 
