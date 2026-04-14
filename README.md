@@ -82,7 +82,6 @@ You never wait. You keep talking, thinking, planning — and results show up whe
 │  ├─ Chat Agent (Dispatcher)     │
 │  ├─ Workers (background exec)   │
 │  ├─ MCP Server (SSE + stdio)    │
-│  ├─ MCP Server (SSE + stdio)    │
 │  ├─ RAG (ChromaDB)              │
 │  ├─ APScheduler                 │
 │  └─ SQLite (aiosqlite)          │
