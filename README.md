@@ -86,9 +86,15 @@ You never wait. You keep talking, thinking, planning — and results show up whe
 │  ├─ APScheduler                 │
 │  └─ SQLite (aiosqlite)          │
 └────────────┬────────────────────┘
-             │ CLI subprocess (claude -p)
+             │ Multi-Provider LLM
 ┌────────────▼────────────────────┐
-│  Claude Max (Haiku/Sonnet/Opus) │
+│  LLM Providers (per-layer)      │
+│  ├─ Claude CLI (claude -p)      │
+│  ├─ Anthropic API (native SDK)  │
+│  ├─ OpenAI / Groq / Mistral     │
+│  ├─ Google Gemini                │
+│  ├─ Ollama / LM Studio (local)  │
+│  └─ Any OpenAI-compatible API   │
 └────────────┬────────────────────┘
              │ optional
 ┌────────────▼────────────────────┐
@@ -105,12 +111,20 @@ You never wait. You keep talking, thinking, planning — and results show up whe
 
 - **Chat Agent (Dispatcher)** — Pure conversation. No tools. Always responsive. Dispatches work to Workers.
 - **Workers** — Background agents that execute real tasks (CRUD, research, code, file ops).
-  - Routed by model: Haiku (simple CRUD), Sonnet (research), Opus (complex multi-step)
+  - Routed by model: fast layer (simple CRUD), deep layer (complex multi-step)
 - Results arrive in conversation when ready — no polling, no waiting, no frozen UI
+
+### 🔌 Multi-Provider LLM
+
+- **8 providers supported**: Claude CLI, Anthropic API, OpenAI, Ollama, Groq, Mistral, Gemini, LM Studio
+- **Per-layer configuration** — Use a different provider/model for each layer (Fast/Deep)
+- **Named Endpoints ("My Machines")** — Save and manage local or remote LLM servers
+- **Capability registry** — 80+ models with tool-use, vision, and context window flags
+- **Model discovery API** — Live reachability probes, dynamic model listing per provider
 
 ### 📋 Project Management
 
-- **Kanban Board** — Drag-and-drop columns: Idea → Todo → In Progress → Done
+- **Kanban Board** — Drag-and-drop columns: Backlog → Todo → In Progress → Done
 - **Stats Dashboard** — Progress charts, velocity metrics, AI standup, health score
 - **Wiki** — Markdown documentation pages per project
 - **Knowledge / RAG** — Upload documents (txt, md, pdf, docx, xlsx) for AI context injection
@@ -270,7 +284,7 @@ voxyflow/
 | **Frontend** | React 19, TypeScript, Vite, Zustand, TanStack Query, Tailwind CSS |
 | **Backend** | Python 3.12+, FastAPI, SQLAlchemy (async), Pydantic |
 | **Database** | SQLite (aiosqlite) |
-| **AI** | Claude Haiku + Sonnet + Opus via `claude` CLI subprocess (Claude Max) |
+| **AI** | Multi-provider: Claude CLI, Anthropic API, OpenAI, Ollama, Groq, Mistral, Gemini, LM Studio |
 | **RAG** | ChromaDB + sentence-transformers (intfloat/multilingual-e5-large) |
 | **TTS** | XTTS v2 (GPU, optional) with browser speechSynthesis fallback |
 | **STT** | Web Speech API (browser) / Whisper WASM (local, no server) |
