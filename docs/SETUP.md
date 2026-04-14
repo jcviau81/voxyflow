@@ -1,19 +1,20 @@
 # Voxyflow — Setup Guide
 
-> ⚠️ **AVERTISSEMENT DE SÉCURITÉ**
-> Voxyflow n'a **pas de système d'authentification** (pas de login/password). Il doit être utilisé derrière des portes closes.
-> **Configurations recommandées :**
-> - 🔒 **Tunnel Tailscale** (recommandé) — accès sécurisé via réseau privé
-> - 🏠 **Réseau local uniquement** — non exposé sur internet
-> - 💻 **Machine personnelle uniquement** — usage solo local
+> **SECURITY WARNING**
+> Voxyflow has **no authentication system** (no login/password). It must be run behind closed doors.
+> **Recommended configurations:**
+> - **Docker** (recommended for first-time users) — sandboxed, isolated from the host
+> - **Tailscale tunnel** — secure access via private network
+> - **Local network only** — not exposed to the internet
+> - **Personal machine only** — single-user local setup
 >
-> **Ne PAS exposer Voxyflow directement sur internet sans protection supplémentaire.**
+> **Do NOT expose Voxyflow directly to the internet without additional protection.**
 
 ---
 
 ## Path Conventions
 
-All paths in this documentation and in Voxyflow docs use the **default install locations**. Both can be overridden via environment variables:
+All paths in this documentation use **default install locations**. Both can be overridden via environment variables:
 
 | Variable | Default | What it controls |
 |----------|---------|-----------------|
@@ -38,32 +39,69 @@ uvicorn app.main:app ...
 |-------------|---------|-------|
 | Node.js | 18+ | Frontend build & dev server |
 | Python | 3.12+ | Backend (`asyncio`, type hints, `match` statements) |
-| Claude CLI (`claude`) | any | For CLI backend (`CLAUDE_USE_CLI=true`, recommended) |
 | Git | any | |
-| `gh` CLI | any | Optional — for GitHub repo integration |
+| Docker | 24+ | Optional — recommended for sandboxed deployments |
+
+**LLM backend (at least one):**
+- Claude CLI (`claude`) — for CLI backend (recommended with Claude Max subscription)
+- Anthropic API key — for native Anthropic SDK
+- Any OpenAI-compatible endpoint — Ollama, LM Studio, Groq, Mistral, OpenAI, Gemini, OpenRouter
 
 **Optional (for RAG/knowledge base):**
 - `chromadb` + `sentence-transformers` — installed by default via `requirements.txt`
 - Downloads ~2.2GB model on first run (`intfloat/multilingual-e5-large`), cached in `~/.cache/huggingface/`
 
 **Optional (for high-quality TTS):**
-- XTTS v2 server — separate GPU machine or container (see [§7 TTS Setup](#7-optional-tts-setup))
+- XTTS v2 server — separate GPU machine or container (see [TTS Setup](#7-optional-tts-setup))
 - Without it, TTS falls back to browser `speechSynthesis` (works out of the box)
 
 ---
 
-## 1. Clone the Repo
+## Quick Start with Docker (Recommended)
+
+Docker is the safest way to run Voxyflow — the backend is sandboxed and isolated from the host.
+
+### 1. Clone and build
+
+```bash
+git clone https://github.com/your-org/voxyflow.git
+cd voxyflow
+docker compose up --build
+```
+
+### 2. Access
+
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:8000`
+- Health check: `curl http://localhost:8000/health`
+
+### 3. Configure LLM providers
+
+After the first launch, go to **Settings > Models** in the UI to configure your LLM providers (see [LLM Provider Setup](#4-llm-provider-setup) below).
+
+### Docker volumes
+
+| Volume | Container path | Purpose |
+|--------|---------------|---------|
+| `voxyflow-data` | `/data/.voxyflow` | Database, ChromaDB, sessions |
+| `voxyflow-personality` | `/app/personality` | Personality files |
+
+> **Note:** If using the Claude CLI backend inside Docker, you need to mount your Claude credentials (`~/.claude/`) into the container and ensure the `claude` binary is available.
+
+---
+
+## Manual Setup
+
+### 1. Clone the Repo
 
 ```bash
 git clone https://github.com/your-org/voxyflow.git
 cd voxyflow
 ```
 
----
+### 2. Backend Setup
 
-## 2. Backend Setup
-
-### Create and activate virtual environment
+#### Create and activate virtual environment
 
 ```bash
 cd backend
@@ -72,7 +110,7 @@ source venv/bin/activate  # Linux/macOS
 # or: venv\Scripts\activate  # Windows
 ```
 
-### Install dependencies
+#### Install dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -87,24 +125,19 @@ pip install -r requirements.txt
 - `chromadb` + `sentence-transformers` — RAG (optional but installed by default)
 - `pypdf` + `python-docx` + `openpyxl` — document parsing (PDF, DOCX, XLSX)
 
-### Configure environment
+#### Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` as needed. Minimal recommended config:
+Edit `.env` as needed. Minimal config (CLI backend):
 
 ```env
-# LLM Backend — CLI subprocess (recommended, uses Claude Max subscription)
 CLAUDE_USE_CLI=true
 CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
 CLAUDE_SONNET_MODEL=claude-sonnet-4-6
 CLAUDE_DEEP_MODEL=claude-opus-4-6
-
-# CLI rate limiter (prevents 529 rate limit errors on Max subscription)
-CLI_MAX_CONCURRENT=2    # Max simultaneous CLI API calls (default: 2)
-CLI_MIN_SPACING_MS=500  # Min delay between calls in ms (default: 500)
 ```
 
 > **Config ownership rules:**
@@ -112,13 +145,13 @@ CLI_MIN_SPACING_MS=500  # Min delay between calls in ms (default: 500)
 > | What | Where | Examples |
 > |------|-------|---------|
 > | Infrastructure | `.env` (or env vars) | `DATABASE_URL`, `HOST`, `PORT`, API keys |
-> | App preferences | Settings UI → DB (`app_settings` table) | Models, TTS config, personality, UI prefs |
+> | App preferences | Settings UI (stored in DB) | Models, TTS config, personality, UI prefs |
 > | Defaults | `config.py` | Sensible XDG-compliant fallbacks (never instance-specific) |
 >
 > **Database location:** `~/.voxyflow/voxyflow.db` (created automatically on first run).
 > ChromaDB data is stored at `~/.voxyflow/chroma/`.
 
-### Run the backend
+#### Run the backend
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -126,29 +159,27 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 Expected output:
 ```
-INFO  🚀 Voxyflow starting up...
-INFO  ✅ Database initialized
-INFO  ✅ RAGService initialized (ChromaDB + intfloat/multilingual-e5-large)
+INFO  Voxyflow starting up...
+INFO  Database initialized
+INFO  RAGService initialized (ChromaDB + intfloat/multilingual-e5-large)
 INFO  Application startup complete.
 INFO  Uvicorn running on http://0.0.0.0:8000
 ```
 
 If ChromaDB is not installed:
 ```
-WARNING ⚠️  RAGService disabled (chromadb not installed)
+WARNING  RAGService disabled (chromadb not installed)
 ```
 Chat still works — RAG context injection is simply skipped.
 
----
-
-## 3. Frontend Setup
+### 3. Frontend Setup
 
 ```bash
 cd ../frontend-react
 npm install
 ```
 
-### Configure environment (optional)
+#### Configure environment (optional)
 
 ```bash
 cp .env.example .env
@@ -162,7 +193,7 @@ cp .env.example .env
 
 By default, the frontend proxies API and WebSocket requests to `localhost:8000` via Vite dev server config.
 
-### Run the dev server
+#### Run the dev server
 
 ```bash
 npm run dev
@@ -170,7 +201,7 @@ npm run dev
 
 Opens at `http://localhost:3000`. Hot module replacement enabled.
 
-### Production build
+#### Production build
 
 ```bash
 npm run build
@@ -180,9 +211,25 @@ Output in `dist/` — static files ready to serve via any web server (Nginx, Cad
 
 ---
 
-## 4. LLM Backend Setup
+## 4. LLM Provider Setup
 
-### CLI Subprocess — Recommended (`CLAUDE_USE_CLI=true`)
+Voxyflow supports multiple LLM providers through a provider abstraction layer. Each chat layer (Fast and Deep) can independently use any provider. Providers are configured via the **Settings > Models** UI or via environment variables.
+
+### Supported Providers
+
+| Provider | Type | API Key | Local | Default URL |
+|----------|------|---------|-------|-------------|
+| Claude CLI | `cli` | No (uses Max subscription) | Yes | — |
+| Anthropic (Claude) | `anthropic` | Yes | No | `https://api.anthropic.com` |
+| OpenAI | `openai` | Yes | No | `https://api.openai.com/v1` |
+| Ollama | `ollama` | No | Yes | `http://localhost:11434` |
+| Groq | `groq` | Yes | No | `https://api.groq.com/openai/v1` |
+| Mistral AI | `mistral` | Yes | No | `https://api.mistral.ai/v1` |
+| Google Gemini | `gemini` | Yes | No | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| LM Studio | `lmstudio` | No | Yes | `http://localhost:1234/v1` |
+| OpenRouter | `openrouter` | Yes | No | `https://openrouter.ai/api/v1` |
+
+### Option A: Claude CLI (recommended for Claude Max subscribers)
 
 Uses your Claude Max subscription by spawning `claude -p` subprocesses. No API key needed.
 
@@ -196,16 +243,16 @@ Uses your Claude Max subscription by spawning `claude -p` subprocesses. No API k
    CLAUDE_DEEP_MODEL=claude-opus-4-6
    ```
 
-**Rate limiting:** The CLI backend includes a built-in rate gate (`CliRateGate`) that prevents 529 "overloaded" errors from the Max subscription. It limits concurrent API calls and enforces minimum spacing between requests. Configure via environment variables:
+**Rate limiting:** The CLI backend includes a built-in rate gate (`CliRateGate`) that prevents 529 "overloaded" errors. Configure via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CLI_MAX_CONCURRENT` | `2` | Maximum simultaneous CLI API calls across all layers and workers |
-| `CLI_MIN_SPACING_MS` | `500` | Minimum delay (ms) between consecutive API calls to prevent bursts |
+| `CLI_MIN_SPACING_MS` | `500` | Minimum delay (ms) between consecutive API calls |
 
-Increase `CLI_MAX_CONCURRENT` if you have headroom on your subscription and want faster parallel worker execution. Decrease it if you share your Max subscription across multiple machines or sessions.
+Increase `CLI_MAX_CONCURRENT` if you have headroom on your subscription. Decrease it if you share your Max subscription across multiple machines.
 
-### Native Anthropic SDK (`CLAUDE_USE_NATIVE=true`)
+### Option B: Anthropic API (direct SDK)
 
 Direct API calls via the `anthropic` Python SDK. Requires an API key.
 
@@ -216,18 +263,55 @@ Direct API calls via the `anthropic` Python SDK. Requires an API key.
    ```
 
 Or store the key in the system keyring:
-
 ```bash
 python setup_keys.py
 ```
 
-### OpenAI-Compatible Proxy (deprecated fallback)
+### Option C: Settings UI (any provider)
 
-Legacy path using a proxy at `localhost:3457`. Being deprecated — avoid for new installs.
+The most flexible approach — configure providers entirely through the web UI. No `.env` changes needed beyond the basic app config.
 
-```env
-CLAUDE_PROXY_URL=http://localhost:3457/v1
+1. Start Voxyflow with default settings
+2. Go to **Settings > Models**
+3. **Add a Machine** — save a named endpoint (e.g. "My Ollama", "Groq Cloud"):
+   - Pick a provider type (Ollama, OpenAI, Groq, etc.)
+   - Enter the base URL (auto-filled for known providers)
+   - Add an API key if required
+4. **Configure layers** — assign a provider and model to each layer (Fast / Deep):
+   - Select a saved machine or enter provider details directly
+   - Pick a model from the auto-discovered list
+5. **Configure worker classes** (optional) — route specific task types to dedicated LLMs (e.g. "Coding" tasks to a powerful model, "Research" tasks to a fast model)
+
+The UI shows live reachability status for each configured endpoint and displays model capabilities (tool use, vision, context window).
+
+### Examples: Local Models
+
+**Ollama:**
+```bash
+# Install Ollama (https://ollama.com)
+ollama pull qwen2.5:14b
+# Ollama serves at http://localhost:11434 by default
 ```
+Then in Settings > Models, add a machine with type "Ollama" and assign the model to a layer.
+
+**LM Studio:**
+```bash
+# Install LM Studio (https://lmstudio.ai)
+# Download a model and start the local server
+# LM Studio serves at http://localhost:1234 by default
+```
+
+### Examples: Cloud Providers
+
+**Groq:**
+1. Get an API key from https://console.groq.com
+2. In Settings > Models, add a machine with type "Groq", paste your API key
+3. Select a model (e.g. `llama-3.3-70b-versatile`) for the Fast layer
+
+**OpenRouter:**
+1. Get an API key from https://openrouter.ai/keys
+2. In Settings > Models, add a machine with type "OpenRouter", paste your API key
+3. Access hundreds of models from various providers through a single endpoint
 
 ---
 
@@ -270,7 +354,7 @@ Voxyflow supports two TTS backends. No configuration is required for basic voice
 
 Works out of the box in Chrome, Edge, Firefox, and Safari. Uses the operating system's built-in voice engine. Quality varies by platform.
 
-No configuration needed — TTS is enabled by default in Settings → Voice.
+No configuration needed — TTS is enabled by default in Settings > Voice.
 
 ### Backend 2: XTTS v2 Server (high-quality, GPU recommended)
 
@@ -324,7 +408,7 @@ On first run, XTTS v2 downloads its model (~2GB), cached in `~/.local/share/tts/
 
 #### Connect Voxyflow to the server
 
-In Voxyflow, go to **Settings → Voice** and set the **TTS Server URL** to the address of your XTTS server:
+In Voxyflow, go to **Settings > Voice** and set the **TTS Server URL** to the address of your XTTS server:
 
 ```
 http://localhost:5500
@@ -338,14 +422,14 @@ The backend proxies TTS requests to avoid CORS and mixed-content issues — the 
 
 ### STT (Speech-to-Text)
 
-STT is also configured via **Settings → Voice**:
+STT is also configured via **Settings > Voice**:
 
 | Engine | Setup | Privacy | Quality |
 |--------|-------|---------|---------|
 | Web Speech API (default) | None — works in Chrome/Edge | Audio sent to Google | Good, real-time |
-| Whisper WASM | Select model in Settings → Voice | 100% local, no server | Excellent, slight delay |
+| Whisper WASM | Select model in Settings > Voice | 100% local, no server | Excellent, slight delay |
 
-**Whisper WASM:** Runs in a browser WebWorker. Select a HuggingFace model ID in Settings → Voice (e.g. `onnx-community/whisper-small`). The model downloads to browser cache (~150MB–750MB depending on size). No server or GPU needed.
+**Whisper WASM:** Runs in a browser WebWorker. Select a HuggingFace model ID in Settings > Voice (e.g. `onnx-community/whisper-small`). The model downloads to browser cache (~150MB-750MB depending on size). No server or GPU needed.
 
 ---
 
@@ -369,7 +453,7 @@ Open `http://localhost:3000`.
 
 ```bash
 curl http://localhost:8000/health
-# → {"status":"ok","service":"voxyflow"}
+# {"status":"ok","service":"voxyflow"}
 ```
 
 ### Onboarding checklist
@@ -379,16 +463,17 @@ curl http://localhost:8000/health
 - [ ] Frontend running at `http://localhost:3000`
 - [ ] WebSocket connects (browser console shows `[ApiClient] WebSocket connected`)
 - [ ] LLM backend responds to a test message in chat
-- [ ] **Settings → General** — set your name and the assistant's name
-- [ ] **Settings → Personality** — review or edit `IDENTITY.md` and `USER.md`
-- [ ] **Settings → Voice** — choose STT engine, configure TTS server URL if using XTTS
+- [ ] **Settings > General** — set your name and the assistant's name
+- [ ] **Settings > Models** — configure at least one LLM provider
+- [ ] **Settings > Personality** — review or edit `IDENTITY.md` and `USER.md`
+- [ ] **Settings > Voice** — choose STT engine, configure TTS server URL if using XTTS
 
 ### Personality files
 
 On first run, `IDENTITY.md` and `USER.md` are generated automatically in `voxyflow/personality/` using your name and the assistant name from Settings. `SOUL.md` and `AGENTS.md` must exist in the repo (they are checked in).
 
 To regenerate `USER.md` or `IDENTITY.md` from the default template:
-**Settings → Personality → Reset to Default**
+**Settings > Personality > Reset to Default**
 
 Files you can edit via the Settings UI:
 - `USER.md` — information about you (language, preferences, timezone)
@@ -418,6 +503,7 @@ cd frontend-react && npm run build
 voxyflow.example.com {
   handle /api/* { reverse_proxy localhost:8000 }
   handle /ws    { reverse_proxy localhost:8000 }
+  handle /ws/*  { reverse_proxy localhost:8000 }
   handle        { root * /path/to/frontend-react/dist; file_server }
 }
 ```
@@ -429,6 +515,7 @@ voxyflow.local {
   tls internal
   handle /api/* { reverse_proxy localhost:8000 }
   handle /ws    { reverse_proxy localhost:8000 }
+  handle /ws/*  { reverse_proxy localhost:8000 }
   handle        { root * /path/to/frontend-react/dist; file_server }
 }
 ```
@@ -476,11 +563,12 @@ journalctl --user -u voxyflow-backend -f
 | `chromadb not found` | `pip install chromadb sentence-transformers` |
 | `RAGService init failed` | Check `~/.voxyflow/chroma/` permissions |
 | `GitHub: gh not installed` | Install `gh` CLI or configure PAT in Settings |
-| No LLM response | Check `CLAUDE_USE_CLI=true` in `.env` and `claude` CLI is installed and authenticated |
+| No LLM response | Check provider configuration in Settings > Models; verify API keys and endpoint reachability |
 | `529 rate_limit` / chat hangs | Too many concurrent CLI calls — lower `CLI_MAX_CONCURRENT` or close other Claude sessions |
+| Provider unreachable | Use Settings > Models to test endpoint connectivity; check firewall/network |
 | STT not working | Chrome/Edge required for Web Speech API; check microphone permissions; HTTPS required in production |
-| TTS silent | Check TTS Server URL in Settings → Voice is reachable; check backend logs for proxy errors |
-| Whisper WASM won't load | Set a valid HuggingFace model ID in Settings → Voice (e.g. `onnx-community/whisper-small`) |
-| Personality files missing | Auto-generated on startup — check `voxyflow/personality/`; or use Settings → Personality → Reset |
+| TTS silent | Check TTS Server URL in Settings > Voice is reachable; check backend logs for proxy errors |
+| Whisper WASM won't load | Set a valid HuggingFace model ID in Settings > Voice (e.g. `onnx-community/whisper-small`) |
+| Personality files missing | Auto-generated on startup — check `voxyflow/personality/`; or use Settings > Personality > Reset |
 | Scheduler not running | `GET /api/health` should show `scheduler_running: true`; check `apscheduler` is installed |
 | Jobs not executing | Check `~/.voxyflow/jobs.json` is writable; trigger manually via `POST /api/jobs/{id}/run` |
