@@ -423,7 +423,6 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
         message_id=message_id,
         chat_id=chat_id,
         project_id=project_id,
-        layers={"deep": False},
         chat_level="project" if project_id else "general",
         card_id=card_id,
         session_id=session_id,
@@ -448,8 +447,7 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
         instruction = "\n".join(instruction)
 
     project_id = payload.get("project_id")
-    use_deep = payload.get("deep", True)  # agent_tasks default to deep model
-    logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (project={project_id or 'none'}, deep={use_deep})")
+    logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (project={project_id or 'none'})")
 
     from app.main import _orchestrator
     from uuid import uuid4
@@ -466,7 +464,6 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
         message_id=message_id,
         chat_id=chat_id,
         project_id=project_id,
-        layers={"deep": use_deep},
         chat_level="project" if project_id else "general",
         session_id=session_id,
     )
