@@ -324,10 +324,21 @@ class SchedulerService:
         """APScheduler callback: execute a user job and update last_run in jobs.json."""
         job_id = job.get("id", "")
         name = job.get("name", "")
-        logger.info(f"[Jobs] Executing scheduled job '{name}' (id={job_id})")
 
         # Lazy import to avoid circular dependency at module load time
         from app.routes.jobs import _execute_job, _load_jobs, _save_jobs, _find_job
+
+        # Re-check enabled flag from disk — APScheduler may fire after the
+        # job was disabled but before remove_job() took effect.
+        try:
+            _, current = _find_job(_load_jobs(), job_id)
+            if current is not None and not current.get("enabled", True):
+                logger.info(f"[Jobs] Job '{name}' is disabled — skipping execution")
+                return
+        except Exception:
+            pass  # If we can't read disk, proceed with the snapshot we have
+
+        logger.info(f"[Jobs] Executing scheduled job '{name}' (id={job_id})")
 
         result = {"status": "error", "message": "unknown"}
         try:
