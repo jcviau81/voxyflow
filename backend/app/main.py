@@ -463,6 +463,13 @@ async def general_websocket(websocket: WebSocket):
                 elif msg_type == "chat:message":
                     content = payload.get("content", "")
                     message_id = payload.get("messageId", msg_id)
+
+                    # Acknowledge receipt immediately — lets client know message arrived before processing
+                    await websocket.send_json({
+                        "type": "message:ack",
+                        "payload": {"messageId": message_id},
+                        "timestamp": int(time.time() * 1000),
+                    })
                     project_id = payload.get("projectId")
                     card_id = payload.get("cardId")
                     chat_level = payload.get("chatLevel", "general")
