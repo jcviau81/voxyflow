@@ -309,65 +309,47 @@ async def system_exec(params: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 async def web_search(params: dict) -> dict:
-    """Search the web via DuckDuckGo (no API key required)."""
-    import re as _re
-    import urllib.parse as _urlparse
+    """Search the web via SearXNG (self-hosted, aggregates Brave + DDG + Startpage)."""
+    from app.config import get_settings
 
-    query = params.get("query", "").strip()
+    query = (params.get("query") or "").strip()
+    if not query:
+        # Some models send {"queries": [...]} instead of {"query": "..."}
+        queries = params.get("queries")
+        if isinstance(queries, list):
+            query = " ".join(str(q) for q in queries).strip()
+        elif isinstance(queries, str):
+            query = queries.strip()
     if not query:
         return {"success": False, "error": "No search query provided"}
 
     count = min(max(params.get("count", 5), 1), 20)
-    region = params.get("region", "wt-wt")
+    language = params.get("language", "auto")
 
-    logger.info(f"[web.search] DuckDuckGo: {query} (count={count})")
+    searxng_url = get_settings().searxng_url.rstrip("/")
+    logger.info(f"[web.search] SearXNG: {query} (count={count})")
 
     try:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             resp = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": query, "kl": region},
-                headers={
-                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml",
-                    "Accept-Language": "en-US,en;q=0.9",
-                },
+                f"{searxng_url}/search",
+                params={"q": query, "format": "json", "language": language},
             )
             resp.raise_for_status()
-            html = resp.text
+            data = resp.json()
 
         results = []
-        # Parse result titles + URLs
-        title_url_pairs = _re.findall(
-            r'<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
-            html, _re.DOTALL
-        )
-        # Parse snippets
-        raw_snippets = _re.findall(
-            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
-            html, _re.DOTALL
-        )
-
-        for i, (raw_url, raw_title) in enumerate(title_url_pairs[:count]):
-            # Decode DDG redirect
-            url = raw_url
-            if "duckduckgo.com/l/" in url or url.startswith("//"):
-                m = _re.search(r"uddg=([^&]+)", url)
-                if m:
-                    url = _urlparse.unquote(m.group(1))
-
-            title = _re.sub(r"<[^>]+>", "", raw_title).strip()
-            snippet = ""
-            if i < len(raw_snippets):
-                snippet = _re.sub(r"<[^>]+>", "", raw_snippets[i]).strip()[:300]
-
+        for r in data.get("results", [])[:count]:
+            title = r.get("title", "").strip()
+            url = r.get("url", "").strip()
+            snippet = r.get("content", "").strip()[:300]
             if title and url:
                 results.append({"title": title, "url": url, "snippet": snippet})
 
         return {"success": True, "results": results, "count": len(results)}
 
     except httpx.HTTPStatusError as e:
-        return {"success": False, "error": f"DuckDuckGo error: HTTP {e.response.status_code}"}
+        return {"success": False, "error": f"SearXNG error: HTTP {e.response.status_code}"}
     except Exception as e:
         return {"success": False, "error": f"Search failed: {str(e)}"}
 

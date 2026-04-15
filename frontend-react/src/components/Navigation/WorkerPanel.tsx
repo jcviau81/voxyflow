@@ -60,13 +60,6 @@ function modelEmoji(model?: string): string {
   }
 }
 
-function modelLabel(model?: string): string {
-  switch (model) {
-    case 'haiku': return 'Fast';
-    case 'opus': return 'Deep';
-    default: return model ?? 'unknown';
-  }
-}
 
 function formatAction(action: string): string {
   return action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -159,9 +152,7 @@ function buildTree(
       const cli = cliByChatId[chatId];
       const ws = workersByChatId[chatId] || [];
       const label = parseSessionLabel(chatId, cardTitles, jobMeta);
-      const sessionLabel = cli
-        ? `${label} - ${modelEmoji(cli.model)} ${modelLabel(cli.model)}`
-        : label;
+      const sessionLabel = label;
 
       sessions.push({
         chatId,

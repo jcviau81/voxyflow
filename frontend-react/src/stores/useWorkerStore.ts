@@ -17,7 +17,7 @@ export interface WorkerInfo {
   chatId: string | null;
   action: string;
   description: string;
-  model: 'haiku' | 'sonnet' | 'opus';
+  model: string;
   status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
   startedAt: number;
   completedAt?: number;
@@ -102,8 +102,7 @@ function normalizeStatus(status: string): WorkerInfo['status'] {
 }
 
 function normalizeModel(model?: string): WorkerInfo['model'] {
-  if (model === 'haiku' || model === 'sonnet' || model === 'opus') return model;
-  return 'sonnet';
+  return model || 'sonnet';
 }
 
 // ── Store ────────────────────────────────────────────────────────────────────

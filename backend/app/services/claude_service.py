@@ -1275,7 +1275,11 @@ class ClaudeService(ApiCallerMixin):
 
         system_prompt = (
             "You are a task worker. Execute the task below using the available MCP tools. "
-            "Be precise and concise. When done, call task.complete with the FULL RAW OUTPUT "
+            "Be precise and concise. Execute the task immediately and directly using the "
+            "tools available to you. Do NOT create scheduled jobs or delegate to other "
+            "systems. Do NOT use voxyflow.jobs.create. Use web search tools directly "
+            "(e.g. voxyflow.web.search or web.search) when asked to search the web. "
+            "When done, call task.complete with the FULL RAW OUTPUT "
             "in the summary field (not just 'Done'). Do NOT summarize or truncate — include "
             "the complete verbatim content: file contents, command stdout/stderr, data values."
         )

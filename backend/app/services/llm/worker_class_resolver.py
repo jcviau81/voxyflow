@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ async def resolve_by_intent(intent: str) -> Optional[dict]:
     intent_lower = intent.lower()
     for wc in classes:
         for pattern in wc.get("intent_patterns", []):
-            if pattern.lower() in intent_lower:
+            if re.search(r'\b' + re.escape(pattern.lower()) + r'\b', intent_lower):
                 logger.info(
                     "[WorkerClassResolver] Matched intent %r to worker class %r (pattern=%r)",
                     intent, wc.get("name"), pattern,

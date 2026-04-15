@@ -102,6 +102,7 @@ class Settings(BaseSettings):
 
     # Claude API via proxy (OpenAI-compatible, fallback when claude_use_native=False)
     claude_proxy_url: str = "http://localhost:3457/v1"
+    searxng_url: str = "http://localhost:8888"
     claude_fast_model: str = "claude-haiku-4-6"
     claude_sonnet_model: str = "claude-sonnet-4-6"
     claude_deep_model: str = "claude-opus-4-6"

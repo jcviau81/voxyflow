@@ -491,6 +491,7 @@ class DeepWorkerPool:
             _explicit_model = event.model  # what the dispatcher explicitly requested
             _effective_model = _explicit_model or get_default_worker_model()
             _endpoint_config: dict | None = None  # resolved endpoint for worker class
+            _wc_name = _worker_class.get("name") if _worker_class else None
             if _worker_class:
                 # Worker class with endpoint_id ALWAYS takes precedence — the whole
                 # point of a worker class is to route matching intents to a specific
@@ -509,9 +510,13 @@ class DeepWorkerPool:
 
                 # Store worker_class_id in event data for downstream use
                 event.data["_resolved_worker_class"] = _worker_class
-                # Update task_meta so get_active_tasks reflects the actual model
-                if event.task_id in self._task_meta:
-                    self._task_meta[event.task_id]["model"] = _effective_model
+
+            # Update task_meta so get_active_tasks/peek reflect the actual
+            # resolved model, not the raw "sonnet" the dispatcher emitted.
+            if event.task_id in self._task_meta:
+                self._task_meta[event.task_id]["model"] = _effective_model
+
+            if _worker_class:
 
                 # Resolve endpoint so we can route to the correct provider/URL
                 if _wc_has_endpoint and _explicit_model != "opus":
@@ -577,7 +582,7 @@ class DeepWorkerPool:
                 "projectId": event.data.get("project_id"),
             })
 
-            logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent} (model={event.model})")
+            logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent} (model={event.model}) [effective={_effective_model}]")
 
             intent_lower = (event.intent or "unknown").lower()
             is_move_or_update = any(kw in intent_lower for kw in [
