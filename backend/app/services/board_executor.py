@@ -194,9 +194,9 @@ async def execute_board(
     session_id: str,
     chat_id: str | None = None,
 ) -> None:
-    """Execute all cards sequentially through the chat pipeline.
+    """Execute all cards concurrently through the chat pipeline.
 
-    Sends WS events for progress and chains context between cards.
+    Sends WS events for progress. All cards run in parallel via asyncio.gather().
     """
     execution = BoardExecution(
         execution_id=execution_id,
@@ -207,107 +207,110 @@ async def execute_board(
     chat_id = chat_id or f"project:{project_id}"
     done_card_ids: list[str] = []
 
+    async def _run_card(card_plan: CardPlan, index: int) -> None:
+        """Execute a single card. Exceptions are caught and logged per-card."""
+        if execution.cancelled:
+            logger.info(f"[BoardExecutor] Execution {execution_id} cancelled, skipping card {index}")
+            return
+
+        # Emit card start
+        await websocket.send_json({
+            "type": "kanban:execute:card:start",
+            "payload": {
+                "executionId": execution_id,
+                "cardId": card_plan.id,
+                "cardTitle": card_plan.title,
+                "index": index,
+                "total": len(cards),
+            },
+            "timestamp": int(time.time() * 1000),
+        })
+
+        # Move card to in-progress (system-managed lifecycle)
+        await _move_card_status(card_plan.id, CardStatus.IN_PROGRESS)
+
+        # Build prompt (no chain context in parallel mode)
+        prompt, _project_name = await _build_card_prompt(card_plan.id)
+
+        # Generate a unique message ID for this card execution
+        message_id = f"exec-{execution_id}-{card_plan.id}"
+
+        # Send through chat orchestration pipeline.
+        bg_tasks = await orchestrator.handle_message(
+            websocket=websocket,
+            content=prompt,
+            message_id=message_id,
+            chat_id=chat_id,
+            project_id=project_id,
+            layers={"deep": False},
+            chat_level="project",
+            card_id=card_plan.id,
+            session_id=session_id,
+        )
+
+        # Await background work (delegates) for this card
+        if bg_tasks:
+            results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+            for r in results:
+                if isinstance(r, Exception):
+                    logger.warning(
+                        f"[BoardExecutor] Background task failed for card "
+                        f"'{card_plan.title}': {r}"
+                    )
+
+        # Move card to done (system-managed lifecycle)
+        await _move_card_status(card_plan.id, CardStatus.DONE)
+        done_card_ids.append(card_plan.id)
+
+        # Emit card done
+        await websocket.send_json({
+            "type": "kanban:execute:card:done",
+            "payload": {
+                "executionId": execution_id,
+                "cardId": card_plan.id,
+                "cardTitle": card_plan.title,
+                "index": index,
+                "total": len(cards),
+                "newStatus": "done",
+            },
+            "timestamp": int(time.time() * 1000),
+        })
+
     try:
-        for i, card_plan in enumerate(cards):
-            if execution.cancelled:
-                logger.info(f"[BoardExecutor] Execution {execution_id} cancelled at card {i}")
-                await websocket.send_json({
-                    "type": "kanban:execute:cancelled",
-                    "payload": {
-                        "executionId": execution_id,
-                        "cancelledAt": i,
-                        "total": len(cards),
-                    },
-                    "timestamp": int(time.time() * 1000),
-                })
-                return
+        # Run all cards concurrently
+        results = await asyncio.gather(
+            *[_run_card(card, i) for i, card in enumerate(cards)],
+            return_exceptions=True,
+        )
 
-            execution.current_index = i
+        # Log any per-card exceptions (they don't crash the whole board)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(
+                    f"[BoardExecutor] Card '{cards[i].title}' failed: {result}",
+                    exc_info=result,
+                )
 
-            # Emit card start
+        if execution.cancelled:
             await websocket.send_json({
-                "type": "kanban:execute:card:start",
+                "type": "kanban:execute:cancelled",
                 "payload": {
                     "executionId": execution_id,
-                    "cardId": card_plan.id,
-                    "cardTitle": card_plan.title,
-                    "index": i,
+                    "cancelledAt": 0,
                     "total": len(cards),
                 },
                 "timestamp": int(time.time() * 1000),
             })
-
-            # Move card to in-progress (system-managed lifecycle)
-            await _move_card_status(card_plan.id, CardStatus.IN_PROGRESS)
-
-            # Build prompt with chain context
-            prompt, _project_name = await _build_card_prompt(card_plan.id)
-
-            if execution.chain_context:
-                context_block = "[PREVIOUS CARDS CONTEXT]\n"
-                context_block += "\n".join(execution.chain_context)
-                context_block += "\n[/PREVIOUS CARDS CONTEXT]\n\n"
-                prompt = context_block + prompt
-
-            # Generate a unique message ID for this card execution
-            message_id = f"exec-{execution_id}-{card_plan.id}"
-
-            # Send through chat orchestration pipeline.
-            # handle_message awaits the full streaming response, then returns
-            # background tasks (delegates, memory extraction).
-            bg_tasks = await orchestrator.handle_message(
-                websocket=websocket,
-                content=prompt,
-                message_id=message_id,
-                chat_id=chat_id,
-                project_id=project_id,
-                layers={"deep": False},
-                chat_level="project",
-                card_id=card_plan.id,
-                session_id=session_id,
-            )
-
-            # Await background work (delegates) before moving to the
-            # next card — ensures delegate workers from card N finish before
-            # card N+1 starts, and prevents interleaved WS messages.
-            if bg_tasks:
-                results = await asyncio.gather(*bg_tasks, return_exceptions=True)
-                for r in results:
-                    if isinstance(r, Exception):
-                        logger.warning(
-                            f"[BoardExecutor] Background task failed for card "
-                            f"'{card_plan.title}': {r}"
-                        )
-
-            # Build chain context summary for next card
-            summary = f"Card '{card_plan.title}': Executed successfully."
-            execution.chain_context.append(summary)
-
-            # Move card to done (system-managed lifecycle)
-            await _move_card_status(card_plan.id, CardStatus.DONE)
-            done_card_ids.append(card_plan.id)
-
-            # Emit card done
-            await websocket.send_json({
-                "type": "kanban:execute:card:done",
-                "payload": {
-                    "executionId": execution_id,
-                    "cardId": card_plan.id,
-                    "cardTitle": card_plan.title,
-                    "index": i,
-                    "total": len(cards),
-                    "newStatus": "done",
-                },
-                "timestamp": int(time.time() * 1000),
-            })
+            return
 
         # All cards done
+        completed_count = sum(1 for r in results if not isinstance(r, Exception))
         await websocket.send_json({
             "type": "kanban:execute:complete",
             "payload": {
                 "executionId": execution_id,
                 "total": len(cards),
-                "completed": len(cards),
+                "completed": completed_count,
             },
             "timestamp": int(time.time() * 1000),
         })

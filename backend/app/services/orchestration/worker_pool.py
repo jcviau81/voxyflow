@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from typing import TYPE_CHECKING
@@ -112,7 +113,7 @@ class DeepWorkerPool:
     Each session gets its own pool. Max workers controls concurrency.
     """
 
-    MAX_WORKERS = 3
+    MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "15"))
     # No hard task timeout — stall detector handles idle workers (30min idle = cancel)
 
     COMPLETED_TASK_TTL = 300  # seconds to keep completed tasks visible (5 min)
@@ -135,7 +136,6 @@ class DeepWorkerPool:
         self._cleanup_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
         self._result_contents: dict[str, str] = {}  # task_id → actual result content
-        self._callback_lock = asyncio.Lock()  # Serialize worker→dispatcher callbacks
         self._task_tool_events: dict[str, list[dict]] = {}  # task_id → bounded tool event buffer
         self._MAX_TOOL_EVENTS = 50
         self._task_message_queues: dict[str, asyncio.Queue] = {}  # task_id → steer queue
@@ -987,44 +987,43 @@ class DeepWorkerPool:
                     from starlette.websockets import WebSocketState
                     _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
                     if _ws_state == WebSocketState.CONNECTED:
-                        async with self._callback_lock:
-                            summarized = result_content or "(no output)"
-                            if result_content:
-                                summarized = await self._summarize_result(result_content, event.intent or "")
+                        summarized = result_content or "(no output)"
+                        if result_content:
+                            summarized = await self._summarize_result(result_content, event.intent or "")
 
-                            # Always advertise the artifact when the result
-                            # was truncated or is large enough to warrant
-                            # paged access.
-                            artifact_hint = ""
-                            raw_len = len(result_content or "")
-                            if artifact_path and raw_len > len(summarized):
-                                artifact_hint = (
-                                    f"\n[Full raw output ({raw_len:,} chars) available — "
-                                    f"call voxyflow.workers.read_artifact(task_id=\"{event.task_id}\") "
-                                    f"to retrieve verbatim. Use offset/length for paging.]"
-                                )
-
-                            callback_msg = (
-                                f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) completed successfully.]\n\n"
-                                f"--- Worker Result ---\n"
-                                f"{summarized}\n"
-                                f"--- End Result ---{artifact_hint}\n\n"
-                                f"Present this result to the user naturally and decide if follow-up actions are needed."
+                        # Always advertise the artifact when the result
+                        # was truncated or is large enough to warrant
+                        # paged access.
+                        artifact_hint = ""
+                        raw_len = len(result_content or "")
+                        if artifact_path and raw_len > len(summarized):
+                            artifact_hint = (
+                                f"\n[Full raw output ({raw_len:,} chars) available — "
+                                f"call voxyflow.workers.read_artifact(task_id=\"{event.task_id}\") "
+                                f"to retrieve verbatim. Use offset/length for paging.]"
                             )
-                            callback_message_id = f"worker-cb-{uuid4().hex[:8]}"
-                            logger.info(f"[DeepWorker] Re-triggering dispatcher after {event.intent}")
 
-                            await self._orchestrator.handle_message(
-                                websocket=self._ws,
-                                content=callback_msg,
-                                message_id=callback_message_id,
-                                chat_id=dispatcher_chat_id,
-                                project_id=event.data.get("project_id"),
-                                chat_level="project" if event.data.get("project_id") else "general",
-                                session_id=event.session_id,
-                                is_callback=True,
-                                callback_depth=1,
-                            )
+                        callback_msg = (
+                            f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) completed successfully.]\n\n"
+                            f"--- Worker Result ---\n"
+                            f"{summarized}\n"
+                            f"--- End Result ---{artifact_hint}\n\n"
+                            f"Present this result to the user naturally and decide if follow-up actions are needed."
+                        )
+                        callback_message_id = f"worker-cb-{uuid4().hex[:8]}"
+                        logger.info(f"[DeepWorker] Re-triggering dispatcher after {event.intent}")
+
+                        await self._orchestrator.handle_message(
+                            websocket=self._ws,
+                            content=callback_msg,
+                            message_id=callback_message_id,
+                            chat_id=dispatcher_chat_id,
+                            project_id=event.data.get("project_id"),
+                            chat_level="project" if event.data.get("project_id") else "general",
+                            session_id=event.session_id,
+                            is_callback=True,
+                            callback_depth=1,
+                        )
                 except Exception as cb_err:
                     logger.warning(f"[DeepWorker] Dispatcher callback failed: {cb_err}", exc_info=True)
 
@@ -1092,27 +1091,26 @@ class DeepWorkerPool:
                     from starlette.websockets import WebSocketState
                     _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
                     if _ws_state == WebSocketState.CONNECTED:
-                        async with self._callback_lock:
-                            error_msg = str(e)[:500]
-                            callback_msg = (
-                                f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) FAILED.]\n\n"
-                                f"Error: {error_msg}\n\n"
-                                f"Inform the user about the failure and suggest alternatives if appropriate."
-                            )
-                            callback_message_id = f"worker-err-{uuid4().hex[:8]}"
-                            logger.info(f"[DeepWorker] Notifying dispatcher about failed task {event.task_id}")
+                        error_msg = str(e)[:500]
+                        callback_msg = (
+                            f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) FAILED.]\n\n"
+                            f"Error: {error_msg}\n\n"
+                            f"Inform the user about the failure and suggest alternatives if appropriate."
+                        )
+                        callback_message_id = f"worker-err-{uuid4().hex[:8]}"
+                        logger.info(f"[DeepWorker] Notifying dispatcher about failed task {event.task_id}")
 
-                            await self._orchestrator.handle_message(
-                                websocket=self._ws,
-                                content=callback_msg,
-                                message_id=callback_message_id,
-                                chat_id=dispatcher_chat_id,
-                                project_id=event.data.get("project_id"),
-                                chat_level="project" if event.data.get("project_id") else "general",
-                                session_id=event.session_id,
-                                is_callback=True,
-                                callback_depth=1,
-                            )
+                        await self._orchestrator.handle_message(
+                            websocket=self._ws,
+                            content=callback_msg,
+                            message_id=callback_message_id,
+                            chat_id=dispatcher_chat_id,
+                            project_id=event.data.get("project_id"),
+                            chat_level="project" if event.data.get("project_id") else "general",
+                            session_id=event.session_id,
+                            is_callback=True,
+                            callback_depth=1,
+                        )
                 except Exception as cb_err:
                     logger.warning(f"[DeepWorker] Failed to notify dispatcher about error: {cb_err}")
         finally:
