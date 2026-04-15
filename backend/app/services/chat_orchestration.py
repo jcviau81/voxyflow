@@ -629,9 +629,19 @@ class ChatOrchestrator(LayerRunnersMixin):
                 intent = data.get("action") or "unknown"
                 summary = data.get("summary") or data.get("description") or ""
                 complexity = data.get("complexity") or "simple"
-                model = data.get("model") or "sonnet"
-                if model not in ("haiku", "sonnet", "opus"):
-                    model = "sonnet"
+                # Keep None if delegate didn't specify a model — lets worker_pool apply
+                # the worker class default. Only normalize when explicitly set.
+                model = data.get("model") or None
+                if model:
+                    _lower_model = model.lower()
+                    if "opus" in _lower_model:
+                        model = "opus"
+                    elif "haiku" in _lower_model:
+                        model = "haiku"
+                    elif "sonnet" in _lower_model:
+                        model = "sonnet"
+                    elif model not in ("haiku", "sonnet", "opus"):
+                        model = None  # unrecognised → let worker class decide
 
                 # Card-level model override (preferred_model set in card modal)
                 # preferred_model is either a legacy name (haiku/sonnet/opus) or a worker class UUID
@@ -786,10 +796,20 @@ class ChatOrchestrator(LayerRunnersMixin):
                     summary = data.get("summary") or data.get("description") or ""
                     complexity = data.get("complexity") or "simple"
 
-                    # Extract model from delegate JSON (haiku/sonnet/opus)
-                    model = data.get("model") or "sonnet"
-                    if model not in ("haiku", "sonnet", "opus"):
-                        model = "sonnet"
+                    # Extract model from delegate JSON — normalize full names to aliases.
+                    # Preserve None when no model was specified so worker_pool can apply
+                    # the worker class default instead of forcing "sonnet".
+                    model = data.get("model") or None
+                    if model:
+                        _lower_model = model.lower()
+                        if "opus" in _lower_model:
+                            model = "opus"
+                        elif "haiku" in _lower_model:
+                            model = "haiku"
+                        elif "sonnet" in _lower_model:
+                            model = "sonnet"
+                        elif model not in ("haiku", "sonnet", "opus"):
+                            model = None
 
                     # Card-level model override
                     # preferred_model is either a legacy name (haiku/sonnet/opus) or a worker class UUID
