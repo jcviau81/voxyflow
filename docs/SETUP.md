@@ -243,14 +243,16 @@ Uses your Claude Max subscription by spawning `claude -p` subprocesses. No API k
    CLAUDE_DEEP_MODEL=claude-opus-4-6
    ```
 
-**Rate limiting:** The CLI backend includes a built-in rate gate (`CliRateGate`) that prevents 529 "overloaded" errors. Configure via environment variables:
+**Rate limiting:** The CLI backend uses a dual-semaphore rate gate (`CliRateGate`) that gives session (dispatcher/chat) and worker CLI calls independent concurrency pools, so background workers never starve interactive chat. Configure via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLI_MAX_CONCURRENT` | `2` | Maximum simultaneous CLI API calls across all layers and workers |
-| `CLI_MIN_SPACING_MS` | `500` | Minimum delay (ms) between consecutive API calls |
+| `CLI_SESSION_CONCURRENT` | `5` | Maximum simultaneous CLI calls for dispatcher/chat sessions |
+| `CLI_WORKER_CONCURRENT` | `15` | Maximum simultaneous CLI calls for background workers |
+| `CLI_MIN_SPACING_MS` | `0` | Minimum delay (ms) between consecutive API calls |
+| `MAX_WORKERS` | `15` | Maximum parallel workers in DeepWorkerPool (per session) |
 
-Increase `CLI_MAX_CONCURRENT` if you have headroom on your subscription. Decrease it if you share your Max subscription across multiple machines.
+Increase `CLI_WORKER_CONCURRENT` and `MAX_WORKERS` if you have headroom on your subscription. Decrease them if you share your Max subscription across multiple machines.
 
 ### Option B: Anthropic API (direct SDK)
 
@@ -564,7 +566,7 @@ journalctl --user -u voxyflow-backend -f
 | `RAGService init failed` | Check `~/.voxyflow/chroma/` permissions |
 | `GitHub: gh not installed` | Install `gh` CLI or configure PAT in Settings |
 | No LLM response | Check provider configuration in Settings > Models; verify API keys and endpoint reachability |
-| `529 rate_limit` / chat hangs | Too many concurrent CLI calls — lower `CLI_MAX_CONCURRENT` or close other Claude sessions |
+| `529 rate_limit` / chat hangs | Too many concurrent CLI calls — lower `CLI_SESSION_CONCURRENT` / `CLI_WORKER_CONCURRENT` or close other Claude sessions |
 | Provider unreachable | Use Settings > Models to test endpoint connectivity; check firewall/network |
 | STT not working | Chrome/Edge required for Web Speech API; check microphone permissions; HTTPS required in production |
 | TTS silent | Check TTS Server URL in Settings > Voice is reachable; check backend logs for proxy errors |
