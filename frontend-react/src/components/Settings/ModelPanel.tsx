@@ -1046,17 +1046,17 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
     setEditingId(null);
     setIsAdding(false);
     setAvailableModels([]);
-    // Auto-save to backend after react-hook-form state update propagates
-    if (onAutoSave) {
-      setTimeout(onAutoSave, 0);
-    }
+    // field.onChange updates react-hook-form's _formValues synchronously,
+    // so we can call onAutoSave immediately — no setTimeout needed.
+    // Using setTimeout(0) introduced a race: the useEffect that calls
+    // reset(merged) could overwrite _formValues between field.onChange
+    // and the deferred handleSubmit read, losing endpoint_id and other fields.
+    onAutoSave?.();
   }
 
   function removeClass(id: string) {
     onChange(workerClasses.filter(c => c.id !== id));
-    if (onAutoSave) {
-      setTimeout(onAutoSave, 0);
-    }
+    onAutoSave?.();
   }
 
   async function fetchModelsForSource(endpointId: string, providerType: string) {
@@ -1953,7 +1953,7 @@ export function ModelPanel() {
           setValue('worker_classes', current.map(wc =>
             wc.id === classId ? { ...wc, ...config } : wc
           ));
-          setTimeout(triggerSave, 0);
+          triggerSave();
         }}
       />
 
