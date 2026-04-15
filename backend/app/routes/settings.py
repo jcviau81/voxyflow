@@ -662,7 +662,16 @@ async def list_endpoints():
     if data is None:
         return {"endpoints": []}
     endpoints = data.get("models", {}).get("endpoints", [])
-    return {"endpoints": [_redact_sensitive({"models": {"endpoints": [ep]}})["models"]["endpoints"][0] for ep in endpoints]}
+    # Redact api_key inline — avoids N deep-copies via _redact_sensitive
+    redacted = []
+    for ep in endpoints:
+        if not isinstance(ep, dict):
+            continue
+        out = dict(ep)
+        if out.get("api_key"):
+            out["api_key"] = "***"
+        redacted.append(out)
+    return {"endpoints": redacted}
 
 
 @router.post("/endpoints")
@@ -676,16 +685,31 @@ async def add_endpoint(endpoint: ProviderEndpoint):
     if not endpoint.id:
         endpoint.id = str(_uuid.uuid4())
 
-    endpoints: list = data.setdefault("models", {}).setdefault("endpoints", [])
+    models = data.setdefault("models", {})
+    endpoints: list = models.setdefault("endpoints", [])
+
+    ep_dict = endpoint.dict()
+
+    # If api_key is the redacted sentinel "***", preserve the existing real key
+    # (mirrors _merge_sensitive_on_save logic for the main PUT /api/settings route).
+    if ep_dict.get("api_key") == "***":
+        for existing_ep in endpoints:
+            if isinstance(existing_ep, dict) and existing_ep.get("id") == endpoint.id:
+                ep_dict["api_key"] = existing_ep.get("api_key", "")
+                break
+        else:
+            # No existing endpoint to merge from — clear the sentinel
+            ep_dict["api_key"] = ""
+
     # Replace if id already exists, else append
     replaced = False
     for i, ep in enumerate(endpoints):
         if isinstance(ep, dict) and ep.get("id") == endpoint.id:
-            endpoints[i] = endpoint.dict()
+            endpoints[i] = ep_dict
             replaced = True
             break
     if not replaced:
-        endpoints.append(endpoint.dict())
+        endpoints.append(ep_dict)
 
     await _save_settings_to_db(data)
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
@@ -703,11 +727,16 @@ async def remove_endpoint(endpoint_id: str):
     if data is None:
         return {"success": False, "error": "No settings found"}
 
-    endpoints: list = data.get("models", {}).get("endpoints", [])
-    before = len(endpoints)
-    data["models"]["endpoints"] = [ep for ep in endpoints if not (isinstance(ep, dict) and ep.get("id") == endpoint_id)]
-    if len(data["models"]["endpoints"]) == before:
+    models = data.get("models")
+    if not isinstance(models, dict):
         return {"success": False, "error": f"Endpoint {endpoint_id!r} not found"}
+
+    endpoints: list = models.get("endpoints", [])
+    filtered = [ep for ep in endpoints if not (isinstance(ep, dict) and ep.get("id") == endpoint_id)]
+    if len(filtered) == len(endpoints):
+        return {"success": False, "error": f"Endpoint {endpoint_id!r} not found"}
+
+    models["endpoints"] = filtered
 
     await _save_settings_to_db(data)
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
