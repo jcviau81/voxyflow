@@ -230,6 +230,13 @@ async def get_settings():
     if db_data is not None:
         # Merge with Pydantic defaults so new fields are always present
         merged = AppSettings(**db_data).dict()
+        # If worker_classes is empty (never configured), inject the backend defaults
+        # so the frontend always receives a usable starting point
+        if not merged.get("models", {}).get("worker_classes"):
+            from app.routes.models import DEFAULT_WORKER_CLASSES
+            merged.setdefault("models", {})["worker_classes"] = [
+                dict(wc) for wc in DEFAULT_WORKER_CLASSES
+            ]
         return _redact_sensitive(merged)
 
     # 2. Fallback to settings.json — and migrate into DB

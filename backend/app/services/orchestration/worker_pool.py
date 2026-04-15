@@ -488,9 +488,13 @@ class DeepWorkerPool:
         try:
             # Resolve worker class (if any) before registering, so we log the right model
             _worker_class = await self._resolve_worker_class(event)
-            _effective_model = event.model or get_default_worker_model()
+            _explicit_model = event.model  # what the dispatcher explicitly requested
+            _effective_model = _explicit_model or get_default_worker_model()
             if _worker_class:
-                _effective_model = _worker_class.get("model") or _effective_model
+                # Worker class model is a default — never override an explicit dispatcher request.
+                # e.g. <delegate model="opus"> must stay opus even if the matched worker class uses sonnet.
+                if not _explicit_model:
+                    _effective_model = _worker_class.get("model") or _effective_model
                 # Store worker_class_id in event data for downstream use
                 event.data["_resolved_worker_class"] = _worker_class
                 # Update task_meta so get_active_tasks reflects the actual model
