@@ -318,6 +318,8 @@ export const useWorkerStore = create<WorkerState>()(
           }
         }
       });
+      // Also clear from backend so they don't reappear on refresh
+      fetch('/api/workers/sessions/terminal', { method: 'DELETE' }).catch(() => {});
     },
 
     purgeExpired() {

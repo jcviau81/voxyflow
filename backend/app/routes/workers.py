@@ -46,6 +46,15 @@ async def get_worker_session(
     return session
 
 
+@router.delete("/sessions/terminal")
+async def clear_terminal_sessions(
+    store: WorkerSessionStore = Depends(get_worker_session_store),
+):
+    """Remove all non-running (terminal) sessions from the store."""
+    removed = store.clear_terminal()
+    return {"removed": removed}
+
+
 @router.get("/snapshot")
 async def worker_snapshot(
     project_id: Optional[str] = None,

@@ -18,8 +18,10 @@ logger = logging.getLogger("voxyflow.worker_sessions")
 
 # Timeout: mark workers as timed_out if running > 10 minutes
 RUNNING_TIMEOUT_SECONDS = 1800  # 30 minutes
-# Only return sessions from the last hour
+# Only return sessions from the last hour (running sessions always included)
 RECENT_WINDOW_SECONDS = 3600
+# Terminal sessions (done/failed/cancelled) expire faster
+TERMINAL_WINDOW_SECONDS = 120  # 2 minutes
 
 
 class WorkerSession:
@@ -214,6 +216,21 @@ class WorkerSessionStore:
                 timed_out.append(task_id)
         return timed_out
 
+    def _is_visible(self, session: "WorkerSession", now: float, include_old: bool) -> bool:
+        """Check if a session should be visible in listings.
+
+        Running sessions are always visible. Terminal sessions (completed,
+        failed, cancelled, timed_out) expire after TERMINAL_WINDOW_SECONDS.
+        """
+        if include_old:
+            return True
+        if session.status == "running":
+            return True
+        # Terminal sessions use the shorter window
+        effective_time = session.end_time or session.start_time
+        terminal_cutoff = now - TERMINAL_WINDOW_SECONDS
+        return effective_time >= terminal_cutoff
+
     def get_sessions_by_project(
         self,
         project_id: str,
@@ -222,12 +239,11 @@ class WorkerSessionStore:
         """Get sessions filtered by project_id (stable across WS reconnects)."""
         self.check_timeouts()
         now = time.time()
-        cutoff = now - RECENT_WINDOW_SECONDS
         results = []
         for session in self._sessions.values():
             if session.project_id != project_id:
                 continue
-            if not include_old and session.status != "running" and session.start_time < cutoff:
+            if not self._is_visible(session, now, include_old):
                 continue
             results.append(session.to_dict())
         results.sort(key=lambda s: (0 if s["status"] == "running" else 1, -s["start_time"]))
@@ -240,24 +256,20 @@ class WorkerSessionStore:
     ) -> list[dict]:
         """Get active + recent sessions, optionally filtered by session_id.
 
-        Returns sessions from the last hour by default. Running sessions
-        are always included regardless of age.
+        Running sessions are always included. Terminal sessions expire
+        after TERMINAL_WINDOW_SECONDS (2 min).
         """
         self.check_timeouts()
         now = time.time()
-        cutoff = now - RECENT_WINDOW_SECONDS
         results = []
 
         for session in self._sessions.values():
-            # Filter by session_id if provided
             if session_id and session.session_id != session_id:
                 continue
-            # Include running sessions always, others only if recent
-            if not include_old and session.status != "running" and session.start_time < cutoff:
+            if not self._is_visible(session, now, include_old):
                 continue
             results.append(session.to_dict())
 
-        # Sort: running first, then by start_time descending
         results.sort(key=lambda s: (0 if s["status"] == "running" else 1, -s["start_time"]))
         return results
 
@@ -310,6 +322,22 @@ class WorkerSessionStore:
             delete_artifact(tid)
         if to_remove:
             logger.info(f"[WorkerSessionStore] Cleaned up {len(to_remove)} old sessions")
+        return len(to_remove)
+
+    def clear_terminal(self) -> int:
+        """Remove all non-running sessions immediately. Returns count removed."""
+        from app.services.worker_artifact_store import delete_artifact
+
+        to_remove = [
+            tid for tid, s in self._sessions.items()
+            if s.status != "running"
+        ]
+        for tid in to_remove:
+            del self._sessions[tid]
+            self._cleanup_file(tid)
+            delete_artifact(tid)
+        if to_remove:
+            logger.info(f"[WorkerSessionStore] Cleared {len(to_remove)} terminal sessions")
         return len(to_remove)
 
 
