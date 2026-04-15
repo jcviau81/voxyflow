@@ -1062,6 +1062,56 @@ class ClaudeService(ApiCallerMixin):
         if full_response:
             await self._append_and_persist_async(chat_id, "assistant", full_response, model="deep")
 
+    # ------------------------------------------------------------------
+    # Endpoint-based client helper (for WorkerClass with endpoint_id)
+    # ------------------------------------------------------------------
+
+    def _make_endpoint_client(
+        self,
+        endpoint_config: dict,
+        model_hint: str,
+    ) -> tuple:
+        """Create a (client, client_type, model_name) tuple from a resolved endpoint config.
+
+        ``endpoint_config`` comes from ``resolve_endpoint_for_class()`` and contains:
+          - provider_type (e.g. "ollama", "openai", "groq", ...)
+          - url           (e.g. "http://10.0.0.4:11434")
+          - api_key       (may be empty for local providers)
+          - model         (model id from the worker class, e.g. "gemma3:27b")
+
+        For Anthropic endpoints, creates an AsyncAnthropic client.
+        For all other providers, creates an AsyncOpenAI client pointed at the endpoint URL.
+        CLI provider type is never reached here (CLI has no endpoint_id).
+        """
+        from openai import OpenAI
+
+        provider_type = endpoint_config.get("provider_type", "openai")
+        url = endpoint_config.get("url", "")
+        api_key = endpoint_config.get("api_key", "")
+        model_name = endpoint_config.get("model", "") or model_hint
+
+        # Ollama needs /v1 appended for OpenAI-compat
+        base_url = url.rstrip("/")
+        if provider_type == "ollama" and not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+
+        if provider_type == "anthropic":
+            client = _make_async_anthropic_client(api_key or "not-needed", base_url)
+            client_type = "anthropic"
+        else:
+            # Use sync OpenAI client — _call_api_openai and _call_api_server_tools
+            # wrap calls in asyncio.to_thread and expect a synchronous client.
+            client = OpenAI(
+                base_url=base_url,
+                api_key=api_key or "local",
+            )
+            client_type = "openai"
+
+        logger.info(
+            "[ClaudeService] Created endpoint client: provider=%s url=%s model=%s client_type=%s",
+            provider_type, base_url, model_name, client_type,
+        )
+        return client, client_type, model_name
 
     async def execute_worker_task(
         self,
@@ -1077,11 +1127,23 @@ class ClaudeService(ApiCallerMixin):
         message_queue: Optional[asyncio.Queue] = None,
         session_id: str = "",
         task_id: str = "",
+        endpoint_config: Optional[dict] = None,
     ) -> str:
-        """Execute a delegated task with the specified worker model (haiku/sonnet/opus)."""
+        """Execute a delegated task with the specified worker model (haiku/sonnet/opus).
+
+        If endpoint_config is provided (from a WorkerClass with endpoint_id),
+        a provider-specific client is created for that endpoint instead of using
+        the default haiku/sonnet/opus clients.
+        """
         card_id = card_context.get("id", "") if card_context else ""
+
+        # If a resolved endpoint config is provided, use its provider directly
+        if endpoint_config and endpoint_config.get("url"):
+            client, client_type, model_name = self._make_endpoint_client(
+                endpoint_config, model,
+            )
         # Select client/model based on model param — all workers get full tools
-        if model == "haiku":
+        elif model == "haiku":
             client, client_type, model_name = (
                 self.haiku_client, self.haiku_client_type, self.haiku_model
             )
@@ -1100,7 +1162,9 @@ class ClaudeService(ApiCallerMixin):
         # Using AsyncAnthropic avoids "Streaming required for long requests" errors.
         # The client is pointed at CLIProxyAPI which supports /v1/messages.
         # CLI path: no upgrade needed — Claude CLI handles tools via MCP.
-        if client_type == "openai":
+        # Endpoint config path: skip upgrade — the client is intentionally pointed
+        # at a non-Anthropic provider (Ollama, Groq, etc.).
+        if client_type == "openai" and not endpoint_config:
             _cfg = get_settings()
             worker_api_url = _cfg.claude_proxy_url  # e.g. http://localhost:3457/v1
             worker_api_key = _cfg.claude_api_key or "not-needed"
@@ -1182,6 +1246,7 @@ class ClaudeService(ApiCallerMixin):
         message_queue: Optional[asyncio.Queue] = None,
         session_id: str = "",
         task_id: str = "",
+        endpoint_config: Optional[dict] = None,
     ) -> str:
         """Lightweight worker — minimal prompt, no personality, no project context.
 
@@ -1189,7 +1254,13 @@ class ClaudeService(ApiCallerMixin):
         research). Saves ~80% tokens vs execute_worker_task.
         """
         card_id = card_context.get("id", "") if card_context else ""
-        if model == "haiku":
+
+        # If a resolved endpoint config is provided, use its provider directly
+        if endpoint_config and endpoint_config.get("url"):
+            client, client_type, model_name = self._make_endpoint_client(
+                endpoint_config, model,
+            )
+        elif model == "haiku":
             client, client_type, model_name = (
                 self.haiku_client, self.haiku_client_type, self.haiku_model
             )

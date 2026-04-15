@@ -490,6 +490,7 @@ class DeepWorkerPool:
             _worker_class = await self._resolve_worker_class(event)
             _explicit_model = event.model  # what the dispatcher explicitly requested
             _effective_model = _explicit_model or get_default_worker_model()
+            _endpoint_config: dict | None = None  # resolved endpoint for worker class
             if _worker_class:
                 # Worker class model is a default — never override an explicit dispatcher request.
                 # e.g. <delegate model="opus"> must stay opus even if the matched worker class uses sonnet.
@@ -500,6 +501,19 @@ class DeepWorkerPool:
                 # Update task_meta so get_active_tasks reflects the actual model
                 if event.task_id in self._task_meta:
                     self._task_meta[event.task_id]["model"] = _effective_model
+
+                # Resolve endpoint so we can route to the correct provider/URL
+                if _worker_class.get("endpoint_id") and not _explicit_model:
+                    from app.services.llm.worker_class_resolver import resolve_endpoint_for_class
+                    _endpoint_config = await resolve_endpoint_for_class(_worker_class)
+                    if _endpoint_config and _endpoint_config.get("url"):
+                        logger.info(
+                            "[DeepWorkerPool] Task %s using endpoint %r (%s @ %s, model=%s)",
+                            event.task_id, _worker_class.get("endpoint_id"),
+                            _endpoint_config.get("provider_type"),
+                            _endpoint_config.get("url"),
+                            _effective_model,
+                        )
 
             _wss = get_worker_session_store()
             _task_card_id = event.data.get("card_id")
@@ -766,6 +780,7 @@ class DeepWorkerPool:
                         message_queue=message_queue,
                         session_id=event.session_id or "",
                         task_id=event.task_id,
+                        endpoint_config=_endpoint_config,
                     )
                 else:
                     result_content = await self._claude.execute_worker_task(
@@ -781,6 +796,7 @@ class DeepWorkerPool:
                         message_queue=message_queue,
                         session_id=event.session_id or "",
                         task_id=event.task_id,
+                        endpoint_config=_endpoint_config,
                     )
             except asyncio.CancelledError:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")
