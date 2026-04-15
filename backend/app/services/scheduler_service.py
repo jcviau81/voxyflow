@@ -141,6 +141,15 @@ class SchedulerService:
             "builtin": True,
             "payload": {},
         },
+        {
+            "id": "builtin-recurrence",
+            "name": "Recurring Card Reset",
+            "type": "recurrence",
+            "schedule": "every_1h",
+            "enabled": True,
+            "builtin": True,
+            "payload": {},
+        },
     ]
 
     def _seed_default_jobs(self, jobs_file: Path) -> None:
@@ -583,18 +592,18 @@ class SchedulerService:
 
     async def _recurrence_job(self) -> None:
         """
-        Recurring card generator — runs every hour.
+        Recurring card reset — runs every hour.
 
-        Finds all cards with a recurrence schedule whose recurrence_next is in the past,
-        creates a fresh copy (status=todo, title/description/agent_type preserved),
-        and advances recurrence_next to the next occurrence.
+        Finds all recurring cards whose recurrence_next is in the past,
+        resets them to todo, and advances recurrence_next.
+        No copies — the same card is reused each cycle.
         """
         try:
             from datetime import timedelta
 
             from sqlalchemy import select
 
-            from app.database import Card, async_session, new_uuid, utcnow
+            from app.database import Card, CardHistory, async_session, new_uuid, utcnow
 
             now = datetime.now(timezone.utc)
 
@@ -609,21 +618,25 @@ class SchedulerService:
 
                 for card in due_cards:
                     try:
-                        # Create a copy with status="todo"
-                        new_card = Card(
-                            id=new_uuid(),
-                            project_id=card.project_id,
-                            title=card.title,
-                            description=card.description,
-                            status="todo",
-                            priority=card.priority,
-                            auto_generated=True,
-                            agent_type=card.agent_type,
-                            agent_assigned=card.agent_assigned,
-                            recurrence=card.recurrence,
-                        )
+                        old_status = card.status
 
-                        # Compute next recurrence_next for the new card
+                        # Reset card to todo for next execution cycle
+                        card.status = "todo"
+                        card.updated_at = utcnow()
+
+                        # Track status change in history
+                        if old_status != "todo":
+                            db.add(CardHistory(
+                                id=new_uuid(),
+                                card_id=card.id,
+                                field_changed="status",
+                                old_value=old_status,
+                                new_value="todo",
+                                changed_at=utcnow(),
+                                changed_by="Recurrence",
+                            ))
+
+                        # Advance recurrence_next
                         base = card.recurrence_next or now
                         RECURRENCE_DELTAS = {
                             "15min": timedelta(minutes=15),
@@ -637,7 +650,6 @@ class SchedulerService:
                             "monthly": timedelta(days=30),
                         }
                         if card.recurrence and card.recurrence.startswith("cron:"):
-                            # Custom cron — compute next from APScheduler CronTrigger
                             try:
                                 from apscheduler.triggers.cron import CronTrigger
                                 cron_expr = card.recurrence.replace("cron:", "").strip()
@@ -653,17 +665,11 @@ class SchedulerService:
                             while new_next.weekday() >= 5:  # Sat=5, Sun=6
                                 new_next += timedelta(days=1)
 
-                        new_card.recurrence_next = new_next
-
-                        # Advance the original card's recurrence_next so it won't re-fire
                         card.recurrence_next = new_next
-                        card.updated_at = utcnow()
 
-                        db.add(new_card)
                         logger.info(
-                            f"[Recurrence] Created card '{new_card.title}' "
-                            f"(id={new_card.id}) from template card={card.id}, "
-                            f"recurrence={card.recurrence}, next={new_next}"
+                            f"[Recurrence] Reset card '{card.title}' (id={card.id}) "
+                            f"to todo, recurrence={card.recurrence}, next={new_next}"
                         )
 
                     except Exception as e:
@@ -675,12 +681,18 @@ class SchedulerService:
                 await db.commit()
 
             if due_cards:
+                from app.services.ws_broadcast import ws_broadcast
+                for card in due_cards:
+                    ws_broadcast.emit_sync("cards:changed", {
+                        "projectId": card.project_id,
+                        "cardId": card.id,
+                    })
                 titles = [c.title for c in due_cards[:5]]
                 self._emit_job_event(
                     "recurrence",
-                    "Recurring Card Generator",
+                    "Recurring Card Reset",
                     "ok",
-                    f"Created {len(due_cards)} recurring card(s): {', '.join(titles)}",
+                    f"Reset {len(due_cards)} recurring card(s): {', '.join(titles)}",
                 )
 
         except Exception as e:

@@ -124,10 +124,8 @@ async def _build_card_prompt(card_id: str) -> tuple[str, str | None]:
             project = await db.get(Project, card.project_id)
             if project:
                 project_name = project.title
-            # Move to in-progress
-            if card.status in (CardStatus.CARD, CardStatus.TODO):
-                card.status = CardStatus.IN_PROGRESS
-                await db.commit()
+            # Note: card status transition to in-progress is handled by
+            # _execute_event() in worker_pool.py (system-managed lifecycle)
 
         # Build structured prompt
         parts = ["[CARD EXECUTION]"]
@@ -148,13 +146,30 @@ async def _build_card_prompt(card_id: str) -> tuple[str, str | None]:
         return "\n".join(parts), project_name
 
 
-async def _move_card_to_done(card_id: str) -> None:
-    """Move a card to done status."""
+async def _move_card_status(card_id: str, new_status: CardStatus) -> None:
+    """Move a card to a new status with CardHistory tracking (system-managed)."""
+    from app.database import CardHistory, new_uuid, utcnow
     async with async_session() as db:
         card = await db.get(Card, card_id)
-        if card:
-            card.status = CardStatus.DONE
-            await db.commit()
+        if not card:
+            return
+        old_status = card.status
+        if old_status == new_status.value:
+            return
+        if old_status in ("done", "archived"):
+            return
+        card.status = new_status
+        card.updated_at = utcnow()
+        db.add(CardHistory(
+            id=new_uuid(),
+            card_id=card_id,
+            field_changed="status",
+            old_value=old_status,
+            new_value=new_status.value,
+            changed_at=utcnow(),
+            changed_by="System",
+        ))
+        await db.commit()
 
 
 async def _reset_recurring_cards(card_ids: list[str]) -> None:
@@ -222,6 +237,9 @@ async def execute_board(
                 "timestamp": int(time.time() * 1000),
             })
 
+            # Move card to in-progress (system-managed lifecycle)
+            await _move_card_status(card_plan.id, CardStatus.IN_PROGRESS)
+
             # Build prompt with chain context
             prompt, _project_name = await _build_card_prompt(card_plan.id)
 
@@ -265,8 +283,8 @@ async def execute_board(
             summary = f"Card '{card_plan.title}': Executed successfully."
             execution.chain_context.append(summary)
 
-            # Move card to done
-            await _move_card_to_done(card_plan.id)
+            # Move card to done (system-managed lifecycle)
+            await _move_card_status(card_plan.id, CardStatus.DONE)
             done_card_ids.append(card_plan.id)
 
             # Emit card done

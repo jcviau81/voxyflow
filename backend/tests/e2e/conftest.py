@@ -166,3 +166,107 @@ async def ws_collect_chat_response(ws, timeout: float = LLM_TIMEOUT) -> str:
         except asyncio.TimeoutError:
             await ws_send(ws, "ping", {})
     raise TimeoutError(f"Chat response not completed within {timeout}s")
+
+
+# ---------------------------------------------------------------------------
+# Enhanced WS helpers
+# ---------------------------------------------------------------------------
+
+async def ws_collect_events(
+    ws, target_types: set[str],
+    stop_on: str | None = None,
+    timeout: float = LLM_TIMEOUT,
+) -> list[dict]:
+    """Collect all WS events matching target_types until stop_on or timeout."""
+    events = []
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=3)
+            data = json.loads(raw)
+            msg_type = data.get("type")
+            if msg_type == "pong":
+                continue
+            if msg_type in target_types:
+                events.append(data)
+            if stop_on and msg_type == stop_on:
+                return events
+        except asyncio.TimeoutError:
+            await ws_send(ws, "ping", {})
+    return events
+
+
+# ---------------------------------------------------------------------------
+# Card assertion helpers
+# ---------------------------------------------------------------------------
+
+async def assert_card_status(client, card_id: str, expected: str):
+    """Assert a card has a specific status via REST."""
+    r = await client.get(f"/api/cards/{card_id}")
+    assert r.status_code == 200, f"Card {card_id} not found"
+    actual = r.json()["status"]
+    assert actual == expected, f"Card {card_id}: expected status={expected}, got {actual}"
+
+
+async def assert_card_history_contains(
+    client, card_id: str,
+    field_changed: str, new_value: str, changed_by: str,
+) -> dict:
+    """Assert card history contains a specific entry. Returns matched entry."""
+    r = await client.get(f"/api/cards/{card_id}/history")
+    assert r.status_code == 200
+    entries = r.json()
+    match = [
+        e for e in entries
+        if e.get("field_changed") == field_changed
+        and e.get("new_value") == new_value
+        and e.get("changed_by") == changed_by
+    ]
+    assert len(match) >= 1, (
+        f"Expected history ({field_changed}→{new_value} by {changed_by}) "
+        f"not found in {len(entries)} entries: {entries}"
+    )
+    return match[0]
+
+
+async def count_project_cards(client, project_id: str) -> int:
+    """Return count of cards in a project."""
+    r = await client.get(f"/api/projects/{project_id}/cards")
+    assert r.status_code == 200
+    data = r.json()
+    cards = data.get("cards", data) if isinstance(data, dict) else data
+    return len(cards) if isinstance(cards, list) else 0
+
+
+def chat_payload(content: str, **kwargs) -> dict:
+    """Build a chat:message payload with defaults."""
+    return {
+        "content": content,
+        "messageId": f"e2e-{uuid.uuid4().hex[:8]}",
+        "chatLevel": kwargs.get("chatLevel", "general"),
+        "projectId": kwargs.get("projectId"),
+        "cardId": kwargs.get("cardId"),
+        "sessionId": kwargs.get("sessionId", f"e2e-{uuid.uuid4().hex[:6]}"),
+        "chatId": kwargs.get("chatId"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Additional fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+async def test_card_done(client: httpx.AsyncClient, test_project: dict):
+    """Create a card with status='done' in the test project."""
+    pid = test_project["_id"]
+    tag = uuid.uuid4().hex[:8]
+    r = await client.post(f"/api/projects/{pid}/cards", json={
+        "title": f"Done Card {tag}",
+        "description": "Card already done",
+        "status": "done",
+    })
+    assert r.status_code in (200, 201)
+    card = r.json()
+    card["_id"] = card.get("id")
+    card["_project_id"] = pid
+    return card

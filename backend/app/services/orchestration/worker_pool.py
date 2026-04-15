@@ -499,6 +499,23 @@ class DeepWorkerPool:
 
             _wss = get_worker_session_store()
             _task_card_id = event.data.get("card_id")
+
+            # --- Card lifecycle: auto-create if missing, move to in-progress ---
+            if not _task_card_id:
+                _task_card_id = await self._auto_create_card(
+                    project_id=event.data.get("project_id"),
+                    intent=event.intent or "unknown",
+                    summary=event.summary or "",
+                )
+                if _task_card_id:
+                    event.data["card_id"] = _task_card_id
+
+            if _task_card_id:
+                await self._update_card_status(
+                    _task_card_id, "in-progress",
+                    project_id=event.data.get("project_id"),
+                )
+
             _wss.register(
                 task_id=event.task_id,
                 session_id=event.session_id or self._bus.session_id,
@@ -838,22 +855,40 @@ class DeepWorkerPool:
                 pass  # Not JSON, no follow_up
 
             card_id = event.data.get("card_id")
-            if card_id and result_content:
+            if card_id:
                 try:
-                    from app.database import async_session, Card
+                    from app.database import async_session, Card, CardHistory, new_uuid, utcnow
                     from sqlalchemy import select
                     from datetime import datetime, timezone
                     async with async_session() as db:
                         result = await db.execute(select(Card).where(Card.id == card_id))
                         card = result.scalar_one_or_none()
                         if card:
-                            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-                            separator = "\n\n---\n"
-                            clean_result = _format_result_for_card(result_content)
-                            result_block = f"📋 **Execution Result** ({timestamp})\n{clean_result}"
-                            card.description = (card.description or "") + separator + result_block
+                            # Append result to card description
+                            if result_content:
+                                timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+                                separator = "\n\n---\n"
+                                clean_result = _format_result_for_card(result_content)
+                                result_block = f"📋 **Execution Result** ({timestamp})\n{clean_result}"
+                                card.description = (card.description or "") + separator + result_block
+
+                            # Move card to done (system-managed lifecycle)
+                            old_status = card.status
+                            if old_status not in ("done", "archived"):
+                                card.status = "done"
+                                card.updated_at = utcnow()
+                                db.add(CardHistory(
+                                    id=new_uuid(),
+                                    card_id=card_id,
+                                    field_changed="status",
+                                    old_value=old_status,
+                                    new_value="done",
+                                    changed_at=utcnow(),
+                                    changed_by="System",
+                                ))
+
                             await db.commit()
-                            logger.info(f"[DeepWorker] Auto-appended result to card {card_id}")
+                            logger.info(f"[CardLifecycle] Card {card_id}: result appended + status -> done")
                             await self._send_task_event("tool:executed", event.task_id, {
                                 "tool": "voxyflow.card.update",
                                 "args": {"card_id": card_id, "project_id": event.data.get("project_id")},
@@ -867,7 +902,7 @@ class DeepWorkerPool:
                                 "cardId": card_id,
                             })
                 except Exception as append_err:
-                    logger.warning(f"[DeepWorker] Failed to auto-append result to card: {append_err}")
+                    logger.warning(f"[CardLifecycle] Failed card completion update for {card_id}: {append_err}")
 
             if result_content:
                 self._result_contents[event.task_id] = result_content or ""
@@ -1115,6 +1150,126 @@ class DeepWorkerPool:
                         logger.info(f"[DeepWorkerPool] Stored pending result for task {task_id}")
                     except Exception as store_err:
                         logger.error(f"[DeepWorkerPool] Failed to store pending result: {store_err}")
+
+    # ------------------------------------------------------------------
+    # Card Lifecycle helpers (system-managed)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _auto_create_card(
+        project_id: str | None,
+        intent: str,
+        summary: str,
+    ) -> str | None:
+        """Auto-create a card for a worker task when no card_id was provided.
+
+        Returns the new card_id, or None if creation fails.
+        """
+        try:
+            from app.database import async_session, Card, CardHistory, new_uuid, utcnow, SYSTEM_MAIN_PROJECT_ID
+            from app.services.agent_router import get_agent_router
+            from app.services.agent_personas import AgentType, get_persona
+            from app.services.ws_broadcast import ws_broadcast
+
+            effective_project_id = project_id or SYSTEM_MAIN_PROJECT_ID
+
+            # Auto-route agent type from intent/summary
+            router = get_agent_router()
+            detected_type, _confidence = router.route(title=intent, description=summary)
+            agent_type = detected_type.value
+            persona = get_persona(AgentType(agent_type))
+            agent_display = f"{persona.emoji} {persona.name}"
+
+            card_id = new_uuid()
+            async with async_session() as db:
+                card = Card(
+                    id=card_id,
+                    project_id=effective_project_id,
+                    title=intent[:200],
+                    description=(summary or "")[:500],
+                    status="todo",
+                    auto_generated=True,
+                    agent_type=agent_type,
+                    agent_assigned=agent_display,
+                )
+                db.add(card)
+                db.add(CardHistory(
+                    id=new_uuid(),
+                    card_id=card_id,
+                    field_changed="status",
+                    old_value=None,
+                    new_value="todo",
+                    changed_at=utcnow(),
+                    changed_by="System",
+                ))
+                await db.commit()
+
+            ws_broadcast.emit_sync("cards:changed", {
+                "projectId": effective_project_id,
+                "cardId": card_id,
+            })
+            logger.info(f"[CardLifecycle] Auto-created card {card_id} for \"{intent[:60]}\"")
+            return card_id
+        except Exception as e:
+            logger.warning(f"[CardLifecycle] Failed to auto-create card: {e}")
+            return None
+
+    @staticmethod
+    async def _update_card_status(
+        card_id: str,
+        new_status: str,
+        project_id: str | None = None,
+    ) -> None:
+        """Move a card to a new status with CardHistory tracking.
+
+        Guards against backward transitions from 'done' or 'archived'.
+        No-ops if the card is already at the target status.
+        """
+        try:
+            from app.database import async_session, Card, CardHistory, new_uuid, utcnow
+            from sqlalchemy import select
+            from app.services.ws_broadcast import ws_broadcast
+
+            async with async_session() as db:
+                result = await db.execute(select(Card).where(Card.id == card_id))
+                card = result.scalar_one_or_none()
+                if not card:
+                    logger.warning(f"[CardLifecycle] Card {card_id} not found for status update")
+                    return
+
+                old_status = card.status
+                logger.info(f"[CardLifecycle] Card {card_id}: current={old_status}, target={new_status}")
+                if old_status == new_status:
+                    logger.info(f"[CardLifecycle] Card {card_id}: already at {new_status}, skipping")
+                    return
+                if old_status in ("done", "archived"):
+                    logger.info(
+                        f"[CardLifecycle] Skipping {old_status} -> {new_status} "
+                        f"for card {card_id} (no backward transitions)"
+                    )
+                    return
+
+                card.status = new_status
+                card.updated_at = utcnow()
+                db.add(CardHistory(
+                    id=new_uuid(),
+                    card_id=card_id,
+                    field_changed="status",
+                    old_value=old_status,
+                    new_value=new_status,
+                    changed_at=utcnow(),
+                    changed_by="System",
+                ))
+                await db.commit()
+
+            _effective_pid = project_id or "system-main"
+            ws_broadcast.emit_sync("cards:changed", {
+                "projectId": _effective_pid,
+                "cardId": card_id,
+            })
+            logger.info(f"[CardLifecycle] Card {card_id}: {old_status} -> {new_status}")
+        except Exception as e:
+            logger.warning(f"[CardLifecycle] Failed to update card {card_id} status: {e}")
 
     # ------------------------------------------------------------------
     # Worker Ledger DB helpers
