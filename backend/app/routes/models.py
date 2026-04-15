@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import random
 import time
 
 import httpx
@@ -391,26 +392,112 @@ class BenchmarkRequest(BaseModel):
     model_a: dict  # { provider_type, provider_url, model, endpoint_id? }
     model_b: dict  # { provider_type, provider_url, model, endpoint_id? }
     custom_prompt: str = ""  # if empty, auto-generate from worker class
+    prompt_index: int = -1  # -1 = random, 0+ = specific prompt from pool
 
 
-def _generate_test_prompt(name: str, description: str, intent_patterns: list[str]) -> str:
-    """Generate a test prompt based on worker class metadata."""
+PROMPT_POOLS = {
+    "coding": [
+        "Write a Python function that parses a markdown table into a list of dicts. Handle missing values gracefully. Include type hints and a brief docstring.",
+        "Debug this Python code and explain what's wrong:\n```python\ndef flatten(lst):\n    result = []\n    for i in lst:\n        if type(i) == list:\n            result.extend(flatten(i))\n        result.append(i)\n    return result\n```",
+        "Write a TypeScript function that deep-merges two objects, where arrays are concatenated and nested objects are merged recursively.",
+        "Implement a rate limiter class in Python using the token bucket algorithm. It should support multiple keys and be thread-safe.",
+        "Review this code and identify all issues:\n```python\ndef get_user(db, id):\n    query = f\"SELECT * FROM users WHERE id = {id}\"\n    return db.execute(query).fetchone()\n```",
+    ],
+    "research": [
+        "Compare the trade-offs between PostgreSQL and MongoDB for a real-time collaborative document editing application. Structure your answer with pros/cons and a recommendation.",
+        "What are the main differences between RAG and fine-tuning for adapting LLMs to domain-specific knowledge? When should you use each?",
+        "Explain the CAP theorem and give a concrete example of how it affects the design of a distributed system like a chat application.",
+        "What are the current limitations of local LLMs compared to cloud models, and what use cases are they already good enough for in 2025?",
+        "Compare React Server Components vs traditional SSR (Next.js pages router). What problems do RSC solve and what new trade-offs do they introduce?",
+    ],
+    "creative": [
+        "Write the opening scene of a short story where a software engineer discovers their AI assistant has been secretly learning to paint. Make it vivid and surprising.",
+        "Write a product announcement email for a fictional developer tool called 'GhostDB' — a database that automatically archives and retrieves old data. Tone: casual and witty.",
+        "Write a haiku about debugging at 2am. Then write a limerick on the same topic.",
+        "Write a one-paragraph pitch for an app that lets users track their mood using only emoji. Audience: tech-savvy investors.",
+        "Describe a futuristic city in 3 sentences from the perspective of someone who lived there before it was futuristic.",
+    ],
+    "summary": [
+        "Summarize this in exactly 3 bullet points, each under 15 words: 'Large language models have revolutionized NLP by enabling few-shot learning, but they require significant compute resources and careful prompt engineering to perform reliably across diverse tasks.'",
+        "Extract the 3 most important action items from this meeting notes excerpt: 'We discussed the Q3 roadmap. Alice will handle the auth refactor by end of month. Bob mentioned the DB migration is blocked on infra. Sarah will send the updated designs by Friday. We agreed to move the sprint review to Thursday.'",
+        "Summarize the following in one sentence suitable for a non-technical executive: 'The service experienced elevated error rates due to a misconfigured Nginx reverse proxy that caused upstream timeouts when the connection pool was exhausted under peak load.'",
+        "Convert this paragraph into a structured FAQ with 3 questions and answers: 'Our API uses OAuth2 for authentication. You need to obtain a token first by posting to /auth/token with your client_id and client_secret. Tokens expire after 1 hour. You can refresh them using the refresh_token returned in the initial response.'",
+        "Give me the TL;DR of this in under 30 words: 'Microservices architecture decomposes an application into small, independently deployable services that communicate over APIs. While this improves scalability and team autonomy, it introduces operational complexity around service discovery, distributed tracing, and data consistency.'",
+    ],
+}
+
+
+def _get_prompt_pool_key(name: str) -> str:
+    """Map a worker class name to a prompt pool key."""
     name_lower = name.lower()
-    if "cod" in name_lower or "code" in name_lower or "debug" in name_lower:
-        return "Write a Python function that parses a markdown table into a list of dicts. Handle missing values gracefully. Include type hints and a brief docstring."
-    elif "research" in name_lower or "analyz" in name_lower or "investigat" in name_lower:
-        return "Compare the trade-offs between PostgreSQL and MongoDB for a real-time collaborative document editing application. Structure your answer with pros/cons and a recommendation."
-    elif "creat" in name_lower or "writ" in name_lower or "story" in name_lower:
-        return "Write the opening scene of a short story where a software engineer discovers their AI assistant has been secretly learning to paint. Make it vivid and surprising."
-    elif "quick" in name_lower or "fast" in name_lower or "summar" in name_lower:
-        return "Summarize this in exactly 3 bullet points, each under 15 words: 'Large language models have revolutionized NLP by enabling few-shot learning, but they require significant compute resources and careful prompt engineering to perform reliably across diverse tasks.'"
-    else:
-        task_hint = description or (", ".join(intent_patterns[:3]) if intent_patterns else name)
-        return f"You are a {name} assistant. Demonstrate your capabilities by completing this task: {task_hint}. Provide a clear, well-structured response."
+    if any(k in name_lower for k in ["cod", "code", "debug", "develop", "program"]):
+        return "coding"
+    elif any(k in name_lower for k in ["research", "analyz", "investigat", "search"]):
+        return "research"
+    elif any(k in name_lower for k in ["creat", "writ", "story", "content"]):
+        return "creative"
+    elif any(k in name_lower for k in ["quick", "fast", "summar", "brief", "tldr"]):
+        return "summary"
+    return ""
+
+
+def _generate_test_prompt(name: str, description: str, intent_patterns: list[str], prompt_index: int = -1) -> str:
+    """Generate a test prompt based on worker class metadata. prompt_index=-1 means random."""
+    pool_key = _get_prompt_pool_key(name)
+    if pool_key:
+        pool = PROMPT_POOLS[pool_key]
+        idx = prompt_index % len(pool) if prompt_index >= 0 else random.randint(0, len(pool) - 1)
+        return pool[idx]
+    # Generic fallback
+    task_hint = description or (", ".join(intent_patterns[:3]) if intent_patterns else name)
+    return f"You are a {name} assistant. Demonstrate your capabilities by completing this task: {task_hint}. Provide a clear, well-structured response."
 
 
 def _build_judge_prompt(worker_class_name: str, task_prompt: str, reply_a: str, reply_b: str) -> str:
     """Build the LLM-as-judge evaluation prompt."""
+    name_lower = worker_class_name.lower()
+    if any(k in name_lower for k in ["cod", "code", "debug", "develop", "program"]):
+        criteria_list = [
+            {"name": "Correctness", "desc": "Is the code/logic correct and would it work?"},
+            {"name": "Code Quality", "desc": "Is it readable, well-structured, following best practices?"},
+            {"name": "Edge Cases", "desc": "Does it handle errors, edge cases, and invalid inputs?"},
+            {"name": "Explanation", "desc": "Is the explanation clear and educational?"},
+        ]
+    elif any(k in name_lower for k in ["research", "analyz", "investigat", "search"]):
+        criteria_list = [
+            {"name": "Accuracy", "desc": "Is the information factually correct and not hallucinated?"},
+            {"name": "Completeness", "desc": "Does it cover the important aspects of the topic?"},
+            {"name": "Structure", "desc": "Is the answer well-organized and easy to follow?"},
+            {"name": "Actionability", "desc": "Does it give concrete, useful conclusions or recommendations?"},
+        ]
+    elif any(k in name_lower for k in ["creat", "writ", "story", "content"]):
+        criteria_list = [
+            {"name": "Creativity", "desc": "Is it original, surprising, and engaging?"},
+            {"name": "Tone", "desc": "Is the tone appropriate for the request?"},
+            {"name": "Structure", "desc": "Is it well-paced and coherent?"},
+            {"name": "Quality", "desc": "Is the writing vivid, precise, and well-crafted?"},
+        ]
+    elif any(k in name_lower for k in ["quick", "fast", "summar", "brief"]):
+        criteria_list = [
+            {"name": "Accuracy", "desc": "Does it faithfully represent the source content?"},
+            {"name": "Conciseness", "desc": "Is it appropriately brief without losing key info?"},
+            {"name": "Format", "desc": "Does it follow the requested format exactly?"},
+            {"name": "Clarity", "desc": "Is it easy to understand at a glance?"},
+        ]
+    else:
+        criteria_list = [
+            {"name": "Relevance", "desc": "Does it directly address the task?"},
+            {"name": "Quality", "desc": "Is it accurate, well-structured, complete?"},
+            {"name": "Clarity", "desc": "Is it easy to understand?"},
+            {"name": "Conciseness", "desc": "Does it avoid unnecessary verbosity?"},
+        ]
+
+    criteria_text = "\n".join(
+        f"{i+1}. {c['name']} — {c['desc']}"
+        for i, c in enumerate(criteria_list)
+    )
+    criteria_json = json.dumps([{"name": c["name"], "score_a": 0, "score_b": 0} for c in criteria_list])
+
     return f"""You are an expert evaluator comparing two AI responses for a "{worker_class_name}" task.
 
 TASK GIVEN TO BOTH MODELS:
@@ -423,21 +510,13 @@ MODEL B RESPONSE:
 {reply_b[:2000]}
 
 Evaluate both responses on these criteria (score each 1-10):
-1. Relevance — Does it directly address the task?
-2. Quality — Is it accurate, well-structured, complete?
-3. Clarity — Is it easy to understand?
-4. Conciseness — Does it avoid unnecessary verbosity?
+{criteria_text}
 
 Respond in this exact JSON format (no markdown, no explanation outside the JSON):
 {{
   "score_a": <total 1-40>,
   "score_b": <total 1-40>,
-  "criteria": [
-    {{"name": "Relevance", "score_a": <1-10>, "score_b": <1-10>}},
-    {{"name": "Quality", "score_a": <1-10>, "score_b": <1-10>}},
-    {{"name": "Clarity", "score_a": <1-10>, "score_b": <1-10>}},
-    {{"name": "Conciseness", "score_a": <1-10>, "score_b": <1-10>}}
-  ],
+  "criteria": {criteria_json},
   "winner": "<a|b|tie>",
   "summary": "<2-3 sentences explaining the key differences>",
   "recommendation": "<one sentence: which model to use for this worker class and why>"
@@ -511,6 +590,19 @@ async def _run_model(slot: dict, prompt: str, models_cfg: dict) -> dict:
         }
 
 
+@router.get("/benchmark/prompt")
+async def get_benchmark_prompt(
+    worker_class_name: str = Query(default=""),
+    worker_class_description: str = Query(default=""),
+    intent_patterns: str = Query(default=""),
+    prompt_index: int = Query(default=-1),
+):
+    """Return a test prompt for the given worker class without running the full benchmark."""
+    patterns = [p.strip() for p in intent_patterns.split(",") if p.strip()] if intent_patterns else []
+    prompt = _generate_test_prompt(worker_class_name, worker_class_description, patterns, prompt_index)
+    return {"prompt": prompt}
+
+
 @router.post("/benchmark")
 async def benchmark_models(body: BenchmarkRequest):
     """Run a Worker Class benchmark: test two models on the same prompt, then evaluate with LLM-as-judge."""
@@ -523,6 +615,7 @@ async def benchmark_models(body: BenchmarkRequest):
             body.worker_class_name,
             body.worker_class_description,
             body.intent_patterns,
+            body.prompt_index,
         )
 
     # Step 2: Run both models in parallel

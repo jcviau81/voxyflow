@@ -1390,6 +1390,7 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
   const [selectedClassId, setSelectedClassId] = useState('');
   const [prompt, setPrompt] = useState('');
   const [promptEdited, setPromptEdited] = useState(false);
+  const [promptIndex, setPromptIndex] = useState(-1);
   const [slotA, setSlotA] = useState<ComparisonSlot>(emptySlot());
   const [slotB, setSlotB] = useState<ComparisonSlot>(() => ({ ...emptySlot(), sourceValue: 'pt:anthropic', providerType: 'anthropic' }));
   const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResponse | null>(null);
@@ -1407,25 +1408,48 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
   function handleClassChange(classId: string) {
     setSelectedClassId(classId);
     setPromptEdited(false);
+    setPromptIndex(-1);
     setBenchmarkResult(null);
     const wc = workerClasses.find(c => c.id === classId);
     if (wc) {
-      // Generate a preview prompt client-side (server will re-generate if custom_prompt is empty)
-      const name = wc.name.toLowerCase();
-      if (name.includes('cod') || name.includes('code') || name.includes('debug')) {
-        setPrompt('Write a Python function that parses a markdown table into a list of dicts. Handle missing values gracefully. Include type hints and a brief docstring.');
-      } else if (name.includes('research') || name.includes('analyz') || name.includes('investigat')) {
-        setPrompt('Compare the trade-offs between PostgreSQL and MongoDB for a real-time collaborative document editing application. Structure your answer with pros/cons and a recommendation.');
-      } else if (name.includes('creat') || name.includes('writ') || name.includes('story')) {
-        setPrompt('Write the opening scene of a short story where a software engineer discovers their AI assistant has been secretly learning to paint. Make it vivid and surprising.');
-      } else if (name.includes('quick') || name.includes('fast') || name.includes('summar')) {
-        setPrompt('Summarize this in exactly 3 bullet points, each under 15 words: \'Large language models have revolutionized NLP by enabling few-shot learning, but they require significant compute resources and careful prompt engineering to perform reliably across diverse tasks.\'');
-      } else {
-        const hint = wc.description || (wc.intent_patterns.slice(0, 3).join(', ') || wc.name);
-        setPrompt(`You are a ${wc.name} assistant. Demonstrate your capabilities by completing this task: ${hint}. Provide a clear, well-structured response.`);
-      }
+      // Fetch a random prompt from the backend pool
+      const params = new URLSearchParams({
+        worker_class_name: wc.name,
+        worker_class_description: wc.description,
+        intent_patterns: wc.intent_patterns.join(','),
+        prompt_index: '-1',
+      });
+      apiFetch<{ prompt: string }>(`/api/models/benchmark/prompt?${params}`)
+        .then(data => {
+          if (!promptEdited) setPrompt(data.prompt);
+        })
+        .catch(() => {
+          // Fallback: generic prompt
+          const hint = wc.description || (wc.intent_patterns.slice(0, 3).join(', ') || wc.name);
+          setPrompt(`You are a ${wc.name} assistant. Demonstrate your capabilities by completing this task: ${hint}. Provide a clear, well-structured response.`);
+        });
     } else {
       setPrompt('');
+    }
+  }
+
+  async function handleShufflePrompt() {
+    const wc = workerClasses.find(c => c.id === selectedClassId);
+    if (!wc) return;
+    const nextIndex = promptIndex + 1;
+    setPromptIndex(nextIndex);
+    try {
+      const params = new URLSearchParams({
+        worker_class_name: wc.name,
+        worker_class_description: wc.description,
+        intent_patterns: wc.intent_patterns.join(','),
+        prompt_index: String(nextIndex),
+      });
+      const data = await apiFetch<{ prompt: string }>(`/api/models/benchmark/prompt?${params}`);
+      setPrompt(data.prompt);
+      setPromptEdited(false);
+    } catch {
+      // Silently ignore — keep current prompt
     }
   }
 
@@ -1635,6 +1659,16 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
           <label className="text-xs text-muted-foreground">Test Prompt</label>
           {!promptEdited && prompt && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Auto-generated</span>
+          )}
+          {!promptEdited && prompt && selectedClassId && (
+            <button
+              type="button"
+              title="Try a different prompt"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-accent text-muted-foreground transition-colors"
+              onClick={handleShufflePrompt}
+            >
+              🎲 Try another
+            </button>
           )}
         </div>
         <textarea
