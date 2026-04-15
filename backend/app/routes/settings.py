@@ -257,6 +257,15 @@ async def save_settings(settings: AppSettings):
     """Save settings to DB (source of truth) and settings.json (backup)."""
     data = settings.dict()
 
+    # Debug: log worker_classes being saved
+    _wcs = data.get("models", {}).get("worker_classes", [])
+    for _wc in _wcs:
+        if _wc.get("endpoint_id") or _wc.get("provider_type") != "cli":
+            logger.info(
+                "[settings save] worker_class %s: endpoint_id=%r, provider_type=%r, model=%r",
+                _wc.get("name"), _wc.get("endpoint_id"), _wc.get("provider_type"), _wc.get("model"),
+            )
+
     # If the frontend sent '***' for api_key fields, preserve the existing values
     existing = await _load_settings_from_db()
     if existing:

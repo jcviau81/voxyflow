@@ -990,12 +990,13 @@ const EMPTY_WORKER_CLASS: WorkerClass = {
 interface WorkerClassesPanelProps {
   workerClasses: WorkerClass[];
   onChange: (classes: WorkerClass[]) => void;
+  onAutoSave?: () => void;  // trigger parent form submission after inline edit
   providers: ProviderMeta[];
   endpoints: ProviderEndpoint[];
   endpointStatuses: EndpointStatus[];
 }
 
-function WorkerClassesPanel({ workerClasses, onChange, providers, endpoints, endpointStatuses }: WorkerClassesPanelProps) {
+function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, endpoints, endpointStatuses }: WorkerClassesPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<WorkerClass | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -1045,10 +1046,17 @@ function WorkerClassesPanel({ workerClasses, onChange, providers, endpoints, end
     setEditingId(null);
     setIsAdding(false);
     setAvailableModels([]);
+    // Auto-save to backend after react-hook-form state update propagates
+    if (onAutoSave) {
+      setTimeout(onAutoSave, 0);
+    }
   }
 
   function removeClass(id: string) {
     onChange(workerClasses.filter(c => c.id !== id));
+    if (onAutoSave) {
+      setTimeout(onAutoSave, 0);
+    }
   }
 
   async function fetchModelsForSource(endpointId: string, providerType: string) {
@@ -1855,7 +1863,16 @@ export function ModelPanel() {
     },
   });
 
-  const onSubmit = (data: ModelsSettings) => saveMutation.mutate(data);
+  const { mutate: doSave } = saveMutation;
+  const onSubmit = useCallback(
+    (data: ModelsSettings) => doSave(data),
+    [doSave],
+  );
+
+  // Programmatic form submission — used by WorkerClassesPanel auto-save
+  const triggerSave = useCallback(() => {
+    handleSubmit(onSubmit)();
+  }, [handleSubmit, onSubmit]);
 
   const endpointStatuses: EndpointStatus[] = availableData?.endpoints ?? [];
   const endpoints = useWatch({ control, name: 'endpoints' }) ?? [];
@@ -1917,6 +1934,7 @@ export function ModelPanel() {
           <WorkerClassesPanel
             workerClasses={field.value ?? []}
             onChange={field.onChange}
+            onAutoSave={triggerSave}
             providers={providers}
             endpoints={endpoints}
             endpointStatuses={endpointStatuses}
@@ -1935,6 +1953,7 @@ export function ModelPanel() {
           setValue('worker_classes', current.map(wc =>
             wc.id === classId ? { ...wc, ...config } : wc
           ));
+          setTimeout(triggerSave, 0);
         }}
       />
 
