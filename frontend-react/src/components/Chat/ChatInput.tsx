@@ -373,12 +373,20 @@ export function ChatInput({
       localStorage.setItem('voxyflow_settings', JSON.stringify(settings));
       if (key === 'stt_auto_send') setSttAutoSend(newValue);
       else setTtsAutoPlay(newValue);
-      // Sync to backend
-      fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      }).catch(() => {});
+      // Sync to backend — fetch fresh settings first to avoid overwriting
+      // other fields (e.g. worker_classes) with stale localStorage data
+      fetch('/api/settings')
+        .then(r => r.json())
+        .then(current => {
+          if (!current.voice) current.voice = {};
+          current.voice[key] = newValue;
+          return fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(current),
+          });
+        })
+        .catch(() => {});
     } catch { /* ignore */ }
   }, []);
 

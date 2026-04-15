@@ -492,10 +492,21 @@ class DeepWorkerPool:
             _effective_model = _explicit_model or get_default_worker_model()
             _endpoint_config: dict | None = None  # resolved endpoint for worker class
             if _worker_class:
-                # Worker class model is a default — never override an explicit dispatcher request.
-                # e.g. <delegate model="opus"> must stay opus even if the matched worker class uses sonnet.
-                if not _explicit_model:
+                # Worker class with endpoint_id ALWAYS takes precedence — the whole
+                # point of a worker class is to route matching intents to a specific
+                # endpoint+model.  The dispatcher prompt tells the LLM to always
+                # include model="sonnet" in delegates, so _explicit_model is almost
+                # never None; guarding on `not _explicit_model` caused endpoint
+                # resolution to be skipped every time.
+                #
+                # Exception: an explicit "opus" request signals the user/dispatcher
+                # wants maximum reasoning power — honour that over the worker class.
+                _wc_has_endpoint = bool(_worker_class.get("endpoint_id"))
+                _honour_worker_class = _wc_has_endpoint and _explicit_model != "opus"
+
+                if _honour_worker_class or not _explicit_model:
                     _effective_model = _worker_class.get("model") or _effective_model
+
                 # Store worker_class_id in event data for downstream use
                 event.data["_resolved_worker_class"] = _worker_class
                 # Update task_meta so get_active_tasks reflects the actual model
@@ -503,7 +514,7 @@ class DeepWorkerPool:
                     self._task_meta[event.task_id]["model"] = _effective_model
 
                 # Resolve endpoint so we can route to the correct provider/URL
-                if _worker_class.get("endpoint_id") and not _explicit_model:
+                if _wc_has_endpoint and _explicit_model != "opus":
                     from app.services.llm.worker_class_resolver import resolve_endpoint_for_class
                     _endpoint_config = await resolve_endpoint_for_class(_worker_class)
                     if _endpoint_config and _endpoint_config.get("url"):
