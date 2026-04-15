@@ -47,7 +47,7 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-opus-4-6",
-        "intent_patterns": ["research", "analyze", "investigate", "compare", "explain"],
+        "intent_patterns": ["research", "analyze", "investigate", "compare", "explain", "search", "web", "find", "look", "fetch", "cherche", "recherche"],
     },
     {
         "id": "00000000-0000-0000-0000-000000000004",
