@@ -1535,6 +1535,51 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_handler": "task_steer",
         "_scope": "voxyflow",
     },
+    # ── Endpoint / My Machines management ────────────────────────────────────
+    {
+        "name": "voxyflow.endpoint.list",
+        "description": "List all saved LLM endpoints (My Machines) configured in Voxyflow settings.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+        "_http": ("GET", "/api/settings/endpoints", None),
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "voxyflow.endpoint.add",
+        "description": "Add or update a named LLM endpoint (My Machines). If the id already exists it is replaced. Use provider_type 'ollama' for Ollama instances.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["name", "provider_type", "url"],
+            "properties": {
+                "id": {"type": "string", "description": "Optional UUID — auto-generated if omitted"},
+                "name": {"type": "string", "description": "Display name, e.g. 'Brain', 'M5Max'"},
+                "provider_type": {
+                    "type": "string",
+                    "enum": ["ollama", "openai", "lmstudio", "groq", "mistral", "gemini", "anthropic"],
+                    "description": "LLM provider type",
+                },
+                "url": {"type": "string", "description": "Base URL, e.g. 'http://10.0.0.1:11434'"},
+                "api_key": {"type": "string", "description": "API key — leave empty for local providers like Ollama"},
+            },
+        },
+        "_http": ("POST", "/api/settings/endpoints", None),
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "voxyflow.endpoint.remove",
+        "description": "Remove a saved LLM endpoint (My Machines) by its id.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["endpoint_id"],
+            "properties": {
+                "endpoint_id": {"type": "string", "description": "UUID of the endpoint to remove"},
+            },
+        },
+        "_http": ("DELETE", "/api/settings/endpoints/{endpoint_id}", None),
+        "_scope": "voxyflow",
+    },
 ]
 
 

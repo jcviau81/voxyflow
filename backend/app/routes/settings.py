@@ -651,3 +651,68 @@ async def tts_speak_stream(request: Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ── Endpoint (My Machines) CRUD ───────────────────────────────────────────────
+
+@router.get("/endpoints")
+async def list_endpoints():
+    """Return all saved LLM endpoints (My Machines)."""
+    data = await _load_settings_from_db()
+    if data is None:
+        return {"endpoints": []}
+    endpoints = data.get("models", {}).get("endpoints", [])
+    return {"endpoints": [_redact_sensitive({"models": {"endpoints": [ep]}})["models"]["endpoints"][0] for ep in endpoints]}
+
+
+@router.post("/endpoints")
+async def add_endpoint(endpoint: ProviderEndpoint):
+    """Add or update a named LLM endpoint. If id already exists, it is replaced."""
+    import uuid as _uuid
+    data = await _load_settings_from_db()
+    if data is None:
+        data = AppSettings().dict()
+
+    if not endpoint.id:
+        endpoint.id = str(_uuid.uuid4())
+
+    endpoints: list = data.setdefault("models", {}).setdefault("endpoints", [])
+    # Replace if id already exists, else append
+    replaced = False
+    for i, ep in enumerate(endpoints):
+        if isinstance(ep, dict) and ep.get("id") == endpoint.id:
+            endpoints[i] = endpoint.dict()
+            replaced = True
+            break
+    if not replaced:
+        endpoints.append(endpoint.dict())
+
+    await _save_settings_to_db(data)
+    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+    logger.info("Endpoint %s (%s) %s", endpoint.name, endpoint.id, "updated" if replaced else "added")
+    return {"success": True, "id": endpoint.id, "action": "updated" if replaced else "added"}
+
+
+@router.delete("/endpoints/{endpoint_id}")
+async def remove_endpoint(endpoint_id: str):
+    """Remove a saved LLM endpoint by id."""
+    data = await _load_settings_from_db()
+    if data is None:
+        return {"success": False, "error": "No settings found"}
+
+    endpoints: list = data.get("models", {}).get("endpoints", [])
+    before = len(endpoints)
+    data["models"]["endpoints"] = [ep for ep in endpoints if not (isinstance(ep, dict) and ep.get("id") == endpoint_id)]
+    if len(data["models"]["endpoints"]) == before:
+        return {"success": False, "error": f"Endpoint {endpoint_id!r} not found"}
+
+    await _save_settings_to_db(data)
+    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+    logger.info("Endpoint %s removed", endpoint_id)
+    return {"success": True, "id": endpoint_id}
