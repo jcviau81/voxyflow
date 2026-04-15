@@ -7,6 +7,8 @@ const RECONNECT_MAX_ATTEMPTS = 10;
 const RECONNECT_BASE_DELAY = 1000; // ms
 const RECONNECT_MAX_DELAY = 30000; // ms
 const HEARTBEAT_INTERVAL = 30000; // 30s
+const PENDING_ACKS_STORAGE_KEY = 'voxyflow_pending_acks';
+const ACK_TIMEOUT_MS = 15000; // 15s
 
 function getWsUrl(): string {
   if (typeof window === 'undefined') return 'ws://localhost:8000/ws';
@@ -16,6 +18,23 @@ function getWsUrl(): string {
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function loadPendingAcks(): Map<string, QueuedMessage> {
+  try {
+    const stored = localStorage.getItem(PENDING_ACKS_STORAGE_KEY);
+    if (stored) {
+      const arr = JSON.parse(stored) as [string, QueuedMessage][];
+      return new Map(arr);
+    }
+  } catch { /* ignore */ }
+  return new Map();
+}
+
+function savePendingAcks(map: Map<string, QueuedMessage>): void {
+  try {
+    localStorage.setItem(PENDING_ACKS_STORAGE_KEY, JSON.stringify([...map.entries()]));
+  } catch { /* ignore */ }
 }
 
 export type MessageHandler = (payload: Record<string, unknown>) => void;
@@ -56,6 +75,10 @@ export function useWebSocket(): UseWebSocketReturn {
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isClosingRef = useRef(false);
   const handlersRef = useRef<Map<string, Set<MessageHandler>>>(new Map());
+
+  // Pending ACK tracking — messages sent but not yet confirmed by backend
+  const pendingAcksRef = useRef<Map<string, QueuedMessage>>(loadPendingAcks());
+  const pendingAckTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // --- Heartbeat ---
 
@@ -156,6 +179,16 @@ export function useWebSocket(): UseWebSocketReturn {
         startHeartbeat();
         dispatchMessage({ type: 'ws:connected', payload: {} });
 
+        // Resend messages that were sent but never ACK'd
+        if (pendingAcksRef.current.size > 0) {
+          console.log(`[useWebSocket] Resending ${pendingAcksRef.current.size} unACK'd messages`);
+          for (const [, msg] of pendingAcksRef.current) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: msg.type, payload: msg.payload, id: msg.id, timestamp: msg.timestamp }));
+            }
+          }
+        }
+
         // Flush any messages queued while offline
         flush((msg: QueuedMessage) => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -174,6 +207,19 @@ export function useWebSocket(): UseWebSocketReturn {
       ws.onmessage = (event: MessageEvent) => {
         try {
           const message: WebSocketMessage = JSON.parse(event.data);
+
+          // Handle ACK internally — don't dispatch to subscribers
+          if (message.type === 'message:ack') {
+            const messageId = (message.payload as Record<string, unknown>)?.messageId as string;
+            if (messageId && pendingAcksRef.current.has(messageId)) {
+              const timer = pendingAckTimersRef.current.get(messageId);
+              if (timer) { clearTimeout(timer); pendingAckTimersRef.current.delete(messageId); }
+              pendingAcksRef.current.delete(messageId);
+              savePendingAcks(pendingAcksRef.current);
+            }
+            return;
+          }
+
           dispatchMessage(message);
         } catch (error) {
           console.error('[useWebSocket] Failed to parse message:', error);
@@ -212,6 +258,11 @@ export function useWebSocket(): UseWebSocketReturn {
       isClosingRef.current = true;
       stopHeartbeat();
       clearReconnectTimer();
+      // Clear all pending ACK timers
+      for (const timer of pendingAckTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      pendingAckTimersRef.current.clear();
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -231,6 +282,29 @@ export function useWebSocket(): UseWebSocketReturn {
     } else {
       // Queue for offline delivery
       enqueue({ type, payload, id, timestamp });
+    }
+
+    // Track chat:message for ACK — covers both sent and enqueued messages
+    if (type === 'chat:message') {
+      const messageId = payload.messageId as string | undefined;
+      if (messageId) {
+        const queued: QueuedMessage = { type, payload, id, timestamp };
+        pendingAcksRef.current.set(messageId, queued);
+        savePendingAcks(pendingAcksRef.current);
+
+        // Timeout: if no ACK within 15s, move to offline queue for retry
+        const timer = setTimeout(() => {
+          pendingAckTimersRef.current.delete(messageId);
+          if (pendingAcksRef.current.has(messageId)) {
+            const msg = pendingAcksRef.current.get(messageId)!;
+            pendingAcksRef.current.delete(messageId);
+            savePendingAcks(pendingAcksRef.current);
+            console.warn(`[useWebSocket] No ACK for message ${messageId} after ${ACK_TIMEOUT_MS}ms, re-queuing`);
+            enqueue(msg);
+          }
+        }, ACK_TIMEOUT_MS);
+        pendingAckTimersRef.current.set(messageId, timer);
+      }
     }
 
     return id;
