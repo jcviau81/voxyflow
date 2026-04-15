@@ -1156,6 +1156,30 @@ class DeepWorkerPool:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _make_short_title(intent: str, summary: str) -> str:
+        """Derive a concise card title (≤80 chars) from intent and summary.
+
+        Uses the first sentence of summary if available, otherwise shortens intent.
+        """
+        # If intent is a short action keyword, use it as prefix
+        source = summary or intent
+        if not source:
+            return "Worker task"
+
+        # Take the first sentence, clause, or line
+        for sep in (".", "\n", ":", "—", " - ", ","):
+            idx = source.find(sep)
+            if 10 < idx < 80:
+                source = source[:idx]
+                break
+
+        # Truncate to 80 chars at a word boundary
+        if len(source) > 80:
+            source = source[:77].rsplit(" ", 1)[0] + "…"
+
+        return source.strip() or "Worker task"
+
+    @staticmethod
     async def _auto_create_card(
         project_id: str | None,
         intent: str,
@@ -1180,13 +1204,18 @@ class DeepWorkerPool:
             persona = get_persona(AgentType(agent_type))
             agent_display = f"{persona.emoji} {persona.name}"
 
+            # Build a short title and a full description.
+            # intent = action name or full directive; summary = description/instruction
+            full_text = summary or intent
+            short_title = _make_short_title(intent, summary)
+
             card_id = new_uuid()
             async with async_session() as db:
                 card = Card(
                     id=card_id,
                     project_id=effective_project_id,
-                    title=intent[:200],
-                    description=(summary or "")[:500],
+                    title=short_title,
+                    description=full_text[:2000] if full_text else "",
                     status="todo",
                     auto_generated=True,
                     agent_type=agent_type,
