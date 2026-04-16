@@ -50,6 +50,7 @@ interface ModelsSettings {
   fast: ModelLayerConfig;
   deep: ModelLayerConfig;
 
+  default_worker_model: string;
   endpoints: ProviderEndpoint[];
   worker_classes: WorkerClass[];
 }
@@ -153,6 +154,7 @@ const DEFAULT_MODELS: ModelsSettings = {
   fast: { ...DEFAULT_LAYER, model: 'claude-sonnet-4' },
   deep: { ...DEFAULT_LAYER, model: 'claude-opus-4' },
 
+  default_worker_model: 'sonnet',
   endpoints: [],
   worker_classes: DEFAULT_WORKER_CLASSES,
 };
@@ -1826,6 +1828,7 @@ export function ModelPanel() {
       fast: { ...dm.fast, ...(sm.fast || {}) },
       deep: { ...dm.deep, ...(sm.deep || {}) },
 
+      default_worker_model: sm.default_worker_model ?? dm.default_worker_model,
       endpoints: sm.endpoints ?? [],
       worker_classes: sm.worker_classes?.length ? sm.worker_classes : DEFAULT_WORKER_CLASSES,
     };
@@ -1907,6 +1910,29 @@ export function ModelPanel() {
             endpointStatuses={endpointStatuses}
           />
         ))}
+      </div>
+
+      {/* ── Default Worker Model ── */}
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-semibold whitespace-nowrap">Default Worker Model</span>
+        <Controller
+          control={control}
+          name="default_worker_model"
+          render={({ field }) => (
+            <select
+              className="input-field text-sm py-1.5 px-2 rounded w-40"
+              value={field.value ?? 'sonnet'}
+              onChange={field.onChange}
+            >
+              <option value="haiku">Haiku</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="opus">Opus</option>
+            </select>
+          )}
+        />
+        <span className="text-xs text-muted-foreground">
+          Model used by workers unless overridden by a worker class
+        </span>
       </div>
 
       {/* ── Section 3: Worker Classes ── */}

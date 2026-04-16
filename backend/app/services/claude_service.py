@@ -236,6 +236,12 @@ class ClaudeService(ApiCallerMixin):
         overrides = _load_model_overrides()
         default_api_key = config.claude_api_key
 
+        # Update default worker model from settings
+        from app.routes.settings import set_default_worker_model
+        dwm = overrides.get("default_worker_model", "")
+        if dwm:
+            set_default_worker_model(dwm)
+
         for layer, attr_prefix, default_model in [
             ("fast", "fast", config.claude_sonnet_model),
             ("deep", "deep", config.claude_deep_model),
