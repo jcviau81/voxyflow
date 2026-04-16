@@ -33,6 +33,7 @@ interface ModelLayerConfig {
   api_key: string;
   model: string;
   endpoint_id: string;
+  context_1m: boolean;
 }
 
 /** A named worker class — routes task types to a specific LLM. */
@@ -109,6 +110,7 @@ const DEFAULT_LAYER: ModelLayerConfig = {
   api_key: '',
   model: '',
   endpoint_id: '',
+  context_1m: false,
 };
 
 const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
@@ -703,6 +705,12 @@ function LayerRow({ layerKey, control, watch, setValue, providers, endpoints, en
   const endpointStatus = endpointStatuses.find(s => s.id === endpointId);
   const isEndpointOffline = endpointId && endpointStatus && !endpointStatus.reachable;
 
+  // 1M context beta — only offered for Sonnet 4+ models.
+  // Takes effect via Anthropic SDK (provider_type="anthropic"); no-op for CLI
+  // since Claude Code negotiates its own context via the Max subscription.
+  const is_sonnet_4 = (modelValue ?? '').toLowerCase().includes('sonnet-4');
+  const is_cli_layer = effectiveType === 'cli';
+
   function handleSelectionChange(value: string) {
     if (value.startsWith('ep:')) {
       const id = value.slice(3);
@@ -968,6 +976,28 @@ function LayerRow({ layerKey, control, watch, setValue, providers, endpoints, en
           <div className="text-xs" style={{ color: 'var(--color-accent)' }}>
             Thinking model -- /no_think applied automatically
           </div>
+        )}
+        {is_sonnet_4 && (
+          <Controller
+            control={control}
+            name={`${prefix}.context_1m`}
+            render={({ field }) => (
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer mt-1">
+                <input
+                  type="checkbox"
+                  className="setting-checkbox"
+                  checked={!!field.value}
+                  onChange={(e) => field.onChange(e.target.checked)}
+                />
+                <span>1M context (Sonnet 4 beta)</span>
+                {is_cli_layer && (
+                  <span className="text-[10px] opacity-70">
+                    — CLI mode: managed by Anthropic, toggle is a no-op
+                  </span>
+                )}
+              </label>
+            )}
+          />
         )}
         {testState === 'fail' && testError && (
           <div className="text-xs text-red-400 truncate max-w-md">{testError}</div>

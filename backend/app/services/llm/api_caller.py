@@ -72,8 +72,37 @@ def _flatten_system(system: str | list[dict]) -> str:
     return "\n\n".join(block["text"] for block in system if block.get("text"))
 
 
+# Anthropic beta header for Sonnet 4 1M context.
+# See: https://docs.anthropic.com/en/docs/build-with-claude/context-windows#1m-context
+_CONTEXT_1M_HEADER = {"anthropic-beta": "context-1m-2025-08-07"}
+
+
+def _supports_1m_context(model: str) -> bool:
+    """Return True if *model* is eligible for the 1M context beta."""
+    # The beta is currently gated to Sonnet 4+; Opus and Haiku stay at 200K.
+    return "sonnet-4" in (model or "").lower()
+
+
 class ApiCallerMixin:
     """Mixin providing all _call_api_* methods for ClaudeService."""
+
+    def _anthropic_extra_headers(self, model: str) -> dict:
+        """Return extra headers for an Anthropic SDK call for *model*.
+
+        Picks the per-layer ``context_1m`` flag (fast/deep/haiku) by matching
+        *model* against the layer's configured model name. Returns an empty
+        dict when the flag is off or the model doesn't support the beta.
+        """
+        if not _supports_1m_context(model):
+            return {}
+        flag = False
+        if model == getattr(self, "fast_model", None):
+            flag = bool(getattr(self, "fast_context_1m", False))
+        elif model == getattr(self, "deep_model", None):
+            flag = bool(getattr(self, "deep_context_1m", False))
+        elif model == getattr(self, "haiku_model", None):
+            flag = bool(getattr(self, "haiku_context_1m", False))
+        return dict(_CONTEXT_1M_HEADER) if flag else {}
 
     async def _call_api_anthropic(
         self,
@@ -171,12 +200,14 @@ class ApiCallerMixin:
                 # Use async streaming for AsyncAnthropic clients (detected by isinstance).
                 # Sync Anthropic clients fall back to asyncio.to_thread.
                 import anthropic as _anthropic
+                extra_headers = self._anthropic_extra_headers(model)
+                call_kwargs = {**kwargs, "extra_headers": extra_headers} if extra_headers else kwargs
                 if isinstance(client, _anthropic.AsyncAnthropic):
-                    async with client.messages.stream(**kwargs) as stream:
+                    async with client.messages.stream(**call_kwargs) as stream:
                         response = await stream.get_final_message()
                 else:
                     response = await asyncio.to_thread(
-                        lambda kw=kwargs: client.messages.create(**kw)
+                        lambda kw=call_kwargs: client.messages.create(**kw)
                     )
 
                 # After first turn: remove tool_choice so model can freely emit text
@@ -302,6 +333,9 @@ class ApiCallerMixin:
             "messages": clean_messages,
             "tools": [DELEGATE_ACTION_TOOL] + dispatcher_tools,
         }
+        extra_headers = self._anthropic_extra_headers(model)
+        if extra_headers:
+            kwargs["extra_headers"] = extra_headers
 
         # Build set of dispatcher tool names for routing (underscore format from get_claude_tools)
         dispatcher_tool_names = {t["name"] for t in dispatcher_tools}
@@ -461,6 +495,8 @@ class ApiCallerMixin:
                         "system": system,
                         "messages": continuation_messages,
                     }
+                    if extra_headers:
+                        final_kwargs["extra_headers"] = extra_headers
                     final_response = await asyncio.to_thread(
                         lambda kw=final_kwargs: client.messages.create(**kw)
                     )
@@ -509,6 +545,9 @@ class ApiCallerMixin:
         }
         if claude_tools:
             kwargs["tools"] = claude_tools
+        extra_headers = self._anthropic_extra_headers(model)
+        if extra_headers:
+            kwargs["extra_headers"] = extra_headers
 
         try:
             # Collect streamed content and tool_use blocks

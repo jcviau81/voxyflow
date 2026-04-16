@@ -147,6 +147,7 @@ class ClaudeService(ApiCallerMixin):
         fast_model_raw = fast_cfg.get("model", "").strip()
         self.fast_model = _resolve_model(fast_model_raw or config.claude_sonnet_model)
         fast_key = _get_api_key_from_settings(fast_cfg) or default_api_key
+        self.fast_context_1m = bool(fast_cfg.get("context_1m", False))
         if self.use_cli:
             self.fast_client = None
             self.fast_client_type = "cli"
@@ -165,6 +166,7 @@ class ClaudeService(ApiCallerMixin):
         deep_model_raw = deep_cfg.get("model", "").strip()
         self.deep_model = _resolve_model(deep_model_raw or config.claude_deep_model)
         deep_key = _get_api_key_from_settings(deep_cfg) or default_api_key
+        self.deep_context_1m = bool(deep_cfg.get("context_1m", False))
         if self.use_cli:
             self.deep_client = None
             self.deep_client_type = "cli"
@@ -183,6 +185,7 @@ class ClaudeService(ApiCallerMixin):
         haiku_model_raw = haiku_cfg.get("model", "").strip()
         self.haiku_model = _resolve_model(haiku_model_raw or "claude-haiku-4")
         haiku_key = _get_api_key_from_settings(haiku_cfg) or default_api_key
+        self.haiku_context_1m = bool(haiku_cfg.get("context_1m", False))
         if self.use_cli:
             self.haiku_client = None
             self.haiku_client_type = "cli"
@@ -316,6 +319,7 @@ class ClaudeService(ApiCallerMixin):
             setattr(self, f"{attr_prefix}_client_type", client_type)
             # Store provider instance for future direct calls (capability checks, etc.)
             setattr(self, f"{attr_prefix}_provider", provider)
+            setattr(self, f"{attr_prefix}_context_1m", bool(cfg.get("context_1m", False)))
 
         # Log effective URLs for layers that use a non-default provider
         layer_details = []

@@ -140,6 +140,10 @@ class ModelLayerConfig(BaseModel):
     provider_type: str = ""
     # If set, this layer uses a saved endpoint (by id) from ModelsSettings.endpoints
     endpoint_id: str = ""
+    # Opt-in 1M context for Sonnet 4 via Anthropic beta header.
+    # Only takes effect on provider_type="anthropic" with a Sonnet 4 model.
+    # No-op for CLI (Anthropic Max negotiates context) and for non-Sonnet models.
+    context_1m: bool = False
 
 
 class WorkerClass(BaseModel):
