@@ -89,8 +89,10 @@ def get_provider(
     resolved_url = url.strip() or _DEFAULT_URLS.get(ptype, "")
     label = _LABELS.get(ptype)
 
-    # Cache lookup
-    key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:8] if api_key else "nokey"
+    # Cache lookup. Full SHA-256 to make collisions between differing keys
+    # effectively impossible (the 8-char prefix earlier had a birthday
+    # collision space of ~4B — non-trivial for long-lived processes).
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest() if api_key else "nokey"
     cache_key = (ptype, resolved_url, key_hash)
     if cache_key in _provider_cache:
         return _provider_cache[cache_key]

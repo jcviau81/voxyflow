@@ -34,6 +34,10 @@ function roleIcon(role: MessageRole): string {
   }
 }
 
+// XSS-safe by construction: the snippet is HTML-escaped before the highlight
+// regex injects <mark> tags, so user-supplied content can only appear as
+// entities in the output. The query is also regex-escaped so it can't break
+// out of the capture group.
 function highlightMatch(text: string, query: string): string {
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const regex = new RegExp(`(${escaped})`, 'gi');

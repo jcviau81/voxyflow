@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { ClipboardList, Sparkles, Loader2, Clock, Clipboard, Check } from 'lucide-react';
 
+// XSS-safe by construction: the first replace chain escapes all &, <, > before
+// any tag-injecting regex runs, so user-supplied angle brackets can only appear
+// as &lt;/&gt; entities in the final HTML. Do NOT remove the leading escape
+// line or reorder replacements.
 function renderMarkdown(text: string): string {
   return text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
