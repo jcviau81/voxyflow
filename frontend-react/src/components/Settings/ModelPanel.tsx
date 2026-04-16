@@ -1824,16 +1824,27 @@ export function ModelPanel() {
     if (!rawSettings) return;
     const dm = DEFAULT_MODELS;
     const sm = (rawSettings.models || {}) as Partial<ModelsSettings>;
+    // Backfill empty provider_type from /api/models/available so layers
+    // stored with provider_type="" (pre-inference installs) still render a
+    // Source selection and a model dropdown. The backend inference already
+    // reflects CLAUDE_USE_CLI → "cli" and URL-based detection.
+    const liveLayers = (availableData?.layers ?? {}) as Record<string, { provider_type?: string }>;
+    const applyLive = (layer: ModelLayerConfig, key: 'fast' | 'deep'): ModelLayerConfig => {
+      const saved = (layer.provider_type || '').trim();
+      if (saved) return layer;
+      const inferred = (liveLayers[key]?.provider_type || '').trim();
+      return inferred ? { ...layer, provider_type: inferred } : layer;
+    };
     const merged: ModelsSettings = {
-      fast: { ...dm.fast, ...(sm.fast || {}) },
-      deep: { ...dm.deep, ...(sm.deep || {}) },
+      fast: applyLive({ ...dm.fast, ...(sm.fast || {}) }, 'fast'),
+      deep: applyLive({ ...dm.deep, ...(sm.deep || {}) }, 'deep'),
 
       default_worker_model: sm.default_worker_model ?? dm.default_worker_model,
       endpoints: sm.endpoints ?? [],
       worker_classes: sm.worker_classes?.length ? sm.worker_classes : DEFAULT_WORKER_CLASSES,
     };
     reset(merged);
-  }, [rawSettings, reset]);
+  }, [rawSettings, availableData, reset]);
 
   const saveMutation = useMutation({
     mutationFn: async (modelsData: ModelsSettings) => {
