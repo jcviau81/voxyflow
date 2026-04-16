@@ -320,6 +320,10 @@ class ClaudeCliBackend:
         # Workers: keep native tools (Bash, Read, Edit, etc.) + add MCP for Voxyflow ops
         if not native_tools:
             args.extend(["--tools", ""])
+        else:
+            # Hard-block built-in WebSearch for workers — they must use voxyflow.web.search
+            # (SearXNG) instead. This is a CLI-level block, not just a prompt instruction.
+            args.extend(["--disallowedTools", "WebSearch"])
 
         if use_tools:
             args.extend([
