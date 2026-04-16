@@ -886,6 +886,38 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_http": ("POST", "/api/worker-tasks/{task_id}/cancel", None),
     },
+    {
+        "name": "voxyflow.session.read",
+        "description": (
+            "Read the current chat session history and return a condensed timeline of key events. "
+            "Use this when you need to recall what happened earlier in the session — decisions made, "
+            "tasks delegated, plans agreed, go signals given. Returns user instructions, delegate blocks, "
+            "worker completions, and key assistant decisions in chronological order. "
+            "Much more reliable than relying on context window alone for long sessions."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "string",
+                    "description": "Chat session ID (e.g. 'project:uuid'). Defaults to current session if omitted.",
+                },
+                "last_n_messages": {
+                    "type": "integer",
+                    "description": "How many recent messages to scan (default 200, max 500). Increase if session is very long.",
+                    "default": 200,
+                },
+                "focus": {
+                    "type": "string",
+                    "enum": ["decisions", "delegates", "all"],
+                    "description": "What to focus on: 'decisions' (user instructions + go signals), 'delegates' (spawned workers), 'all' (everything notable). Default: 'all'",
+                    "default": "all",
+                },
+            },
+        },
+        "_handler": "session_read",
+        "_scope": "voxyflow",
+    },
 
     # ---- System ------------------------------------------------------------
     {
@@ -2324,6 +2356,146 @@ def _get_system_handler(name: str):
             except Exception as e:
                 return {"error": str(e)}
 
+        async def session_read(params: dict) -> dict:
+            """Read session history and return a condensed timeline of key events."""
+            try:
+                from app.services.session_store import session_store as store
+
+                chat_id = params.get("chat_id", "").strip()
+                # Fall back to env var if no chat_id provided
+                if not chat_id:
+                    project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "")
+                    chat_id = f"project:{project_id}" if project_id else ""
+                if not chat_id:
+                    return {"success": False, "error": "chat_id required (or set VOXYFLOW_PROJECT_ID env var)"}
+
+                last_n = min(max(params.get("last_n_messages", 200), 10), 500)
+                focus = params.get("focus", "all")
+
+                # Load messages
+                all_messages = store.load_session(chat_id)
+                if not all_messages:
+                    return {"success": True, "chat_id": chat_id, "total_messages": 0, "timeline": [], "summary": "No messages found."}
+
+                total = len(all_messages)
+                messages = all_messages[-last_n:]
+
+                # Also check for a session summary file (covers older messages)
+                summary_text = ""
+                summarized_count = 0
+                try:
+                    safe_id = chat_id.replace(":", "/").replace("..", "")
+                    import os as _os
+                    data_dir = _os.environ.get("VOXYFLOW_DATA", _os.path.expanduser("~/.voxyflow"))
+                    summary_path = Path(data_dir) / "sessions" / f"{safe_id}.summary.json"
+                    if summary_path.exists():
+                        summary_data = json.loads(summary_path.read_text())
+                        summary_text = summary_data.get("summary_text", "")
+                        summarized_count = summary_data.get("summarized_count", 0)
+                except Exception:
+                    summarized_count = 0
+
+                # Build timeline — extract key events
+                timeline = []
+                for msg in messages:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    ts = msg.get("timestamp", msg.get("created_at", ""))[:19] if msg.get("timestamp") or msg.get("created_at") else ""
+
+                    if isinstance(content, list):
+                        content = " ".join(
+                            c.get("text", "") if isinstance(c, dict) else str(c)
+                            for c in content
+                        ).strip()
+
+                    if not content:
+                        continue
+
+                    content_lower = content.lower()
+
+                    # User messages — always include short ones, include long ones if they have decisions
+                    if role == "user":
+                        # Skip pure system worker-completion notifications (very long SYSTEM: blocks)
+                        if content.startswith("[SYSTEM:") and len(content) > 500:
+                            # Extract just the completion status
+                            first_line = content.split("\n")[0][:200]
+                            if focus != "decisions":
+                                timeline.append({"ts": ts, "role": "system", "event": "worker_event", "text": first_line})
+                            continue
+
+                        # Key user signals
+                        is_go = content.strip().lower() in ("go", "ok", "oui", "yes", "go!", "go ?", "go?")
+                        has_instruction = len(content) > 5
+
+                        if is_go:
+                            timeline.append({"ts": ts, "role": "user", "event": "go_signal", "text": "✅ GO"})
+                        elif has_instruction:
+                            timeline.append({"ts": ts, "role": "user", "event": "instruction", "text": content[:300]})
+
+                    # Assistant messages — extract delegate blocks and key decisions
+                    elif role == "assistant":
+                        if "<delegate>" in content or "<delegate" in content:
+                            # Extract delegate summary
+                            import re as _re
+                            delegate_matches = _re.findall(r'<delegate>(.*?)</delegate>', content, _re.DOTALL)
+                            for dm in delegate_matches:
+                                try:
+                                    dm_data = json.loads(dm.strip())
+                                    action = dm_data.get("action", dm_data.get("description", ""))[:200]
+                                    model = dm_data.get("model", "")
+                                    timeline.append({
+                                        "ts": ts,
+                                        "role": "assistant",
+                                        "event": "delegate",
+                                        "text": f"🚀 DELEGATE → {action}" + (f" [model={model}]" if model else ""),
+                                    })
+                                except Exception:
+                                    timeline.append({"ts": ts, "role": "assistant", "event": "delegate", "text": f"🚀 DELEGATE → {dm[:200]}"})
+                            if focus == "delegates":
+                                continue
+
+                        # Key assistant decisions (non-delegate, notable content)
+                        if focus != "delegates" and "<delegate>" not in content:
+                            # Skip very short filler responses
+                            if len(content) < 20:
+                                continue
+                            # Include decisions, plans, summaries
+                            keywords = ["plan", "go?", "install", "deploy", "ssh", "playwright", "brain", "m5max",
+                                        "dashboard", "fix", "repair", "script", "worker", "je vais", "on va",
+                                        "je relis", "j'ai relu", "voici", "résumé", "confirmé", "annulé"]
+                            if any(kw in content_lower for kw in keywords) or len(content) < 400:
+                                timeline.append({"ts": ts, "role": "assistant", "event": "decision", "text": content[:300]})
+
+                # Format output
+                lines = []
+                if summary_text and summarized_count > 0:
+                    covered_end = messages[0].get("timestamp", "")[:19] if messages else ""
+                    lines.append(f"=== SUMMARY (first {summarized_count} messages, before {covered_end}) ===")
+                    lines.append(summary_text[:1500])
+                    lines.append("")
+
+                lines.append(f"=== TIMELINE (last {len(messages)} of {total} messages) ===")
+                for event in timeline:
+                    ts_str = event.get("ts", "")[-8:] if event.get("ts") else "??:??:??"  # HH:MM:SS only
+                    role_icon = "👤" if event["role"] == "user" else ("🤖" if event["role"] == "assistant" else "⚙️")
+                    lines.append(f"[{ts_str}] {role_icon} {event['text']}")
+
+                if not timeline:
+                    lines.append("(no notable events found in scanned range)")
+
+                return {
+                    "success": True,
+                    "chat_id": chat_id,
+                    "total_messages": total,
+                    "scanned": len(messages),
+                    "events_found": len(timeline),
+                    "timeline": "\n".join(lines),
+                }
+
+            except Exception as e:
+                logger.error(f"[mcp.session.read] failed: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
         async def heartbeat_write(params: dict) -> dict:
             content = params.get("content", "")
             try:
@@ -2336,6 +2508,7 @@ def _get_system_handler(name: str):
         _SYSTEM_HANDLERS.update({
             "heartbeat_read": heartbeat_read,
             "heartbeat_write": heartbeat_write,
+            "session_read": session_read,
             "tools_load": tools_load,
             "system_exec": system_exec,
             "web_search": web_search,
