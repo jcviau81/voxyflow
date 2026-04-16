@@ -503,7 +503,10 @@ class DeepWorkerPool:
                 # Exception: an explicit "opus" request signals the user/dispatcher
                 # wants maximum reasoning power — honour that over the worker class.
                 _wc_has_endpoint = bool(_worker_class.get("endpoint_id"))
-                _honour_worker_class = _wc_has_endpoint and _explicit_model != "opus"
+                _wc_has_model = bool(_worker_class.get("model"))
+                # Honour the worker class if it has an endpoint OR a model configured,
+                # unless the dispatcher explicitly requested "opus" (max reasoning override).
+                _honour_worker_class = (_wc_has_endpoint or _wc_has_model) and _explicit_model != "opus"
 
                 if _honour_worker_class or not _explicit_model:
                     _effective_model = _worker_class.get("model") or _effective_model
