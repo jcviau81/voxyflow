@@ -136,7 +136,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     description: 'Deep research, analysis, multi-step investigation',
     endpoint_id: '',
     provider_type: 'cli',
-    model: 'claude-opus-4-6',
+    model: 'claude-opus-4-7',
     intent_patterns: ['research', 'analyze', 'investigate', 'compare', 'explain'],
   },
   {
@@ -171,8 +171,8 @@ const LOCAL_PROVIDER_TYPES = new Set(['ollama', 'lmstudio']);
 
 // Static fallback model lists for cloud providers (shown when API listing is unavailable)
 const STATIC_MODELS: Record<string, string[]> = {
-  cli: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'],
-  anthropic: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-sonnet-4-5', 'claude-opus-4-5'],
+  cli: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7'],
+  anthropic: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-5', 'claude-opus-4-5'],
   groq: [
     'llama-3.3-70b-versatile', 'llama-3.1-70b-versatile', 'llama-3.1-8b-instant',
     'mixtral-8x7b-32768', 'gemma2-9b-it', 'gemma-7b-it',

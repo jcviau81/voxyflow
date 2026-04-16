@@ -9,6 +9,7 @@ Uses the official `anthropic` Python SDK directly. Supports:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import AsyncIterator
@@ -25,6 +26,7 @@ logger = logging.getLogger("voxyflow.providers.anthropic")
 
 # Anthropic models that are always available (no dynamic listing endpoint)
 _KNOWN_MODELS = [
+    "claude-opus-4-7",
     "claude-opus-4-6",
     "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001",
@@ -114,7 +116,6 @@ class AnthropicProvider(LLMProvider):
         if not self._api_key:
             return False
         try:
-            import asyncio
             await asyncio.wait_for(
                 self._client.models.list(),
                 timeout=5.0

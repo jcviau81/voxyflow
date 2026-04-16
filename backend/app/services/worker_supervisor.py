@@ -16,11 +16,41 @@ logger = logging.getLogger("voxyflow.worker_supervisor")
 class WorkerSupervisor:
     """Tracks worker task lifecycle: tool calls, repetition, stalls, completion."""
 
+    # Completed/problem tasks older than this are garbage-collected on the next
+    # register_task. Keeps long-running servers from holding stale history forever.
+    _RETENTION_SECONDS = 3600  # 1 hour
+    _HARD_CAP = 2000  # absolute ceiling; evicts oldest regardless of status
+
     def __init__(self):
         self._tasks: dict[str, dict] = {}
 
+    def _gc_old_tasks(self) -> None:
+        """Drop terminal tasks past the retention window, then enforce a hard cap."""
+        now = time.time()
+        expired = [
+            tid for tid, t in self._tasks.items()
+            if t.get("status") != "active"
+            and (now - t.get("last_activity", now)) > self._RETENTION_SECONDS
+        ]
+        for tid in expired:
+            self._tasks.pop(tid, None)
+
+        if len(self._tasks) > self._HARD_CAP:
+            # Sort by last_activity asc, drop oldest until at cap.
+            overflow = len(self._tasks) - self._HARD_CAP
+            oldest = sorted(
+                self._tasks.items(),
+                key=lambda kv: kv[1].get("last_activity", 0.0),
+            )[:overflow]
+            for tid, _ in oldest:
+                self._tasks.pop(tid, None)
+            logger.warning(
+                f"[Supervisor] Hard cap reached — evicted {overflow} oldest tasks"
+            )
+
     def register_task(self, task_id: str) -> None:
         """Start tracking a new task."""
+        self._gc_old_tasks()
         self._tasks[task_id] = {
             "last_activity": time.time(),
             "tool_calls": [],

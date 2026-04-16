@@ -90,8 +90,8 @@ export interface ChatContextValue {
   getHistory: (projectId?: string, sessionId?: string) => Message[];
   /** Clear all local messages */
   clearHistory: () => void;
-  /** Simulate character-by-character streaming for a message */
-  simulateStreaming: (messageId: string, fullContent: string) => Promise<void>;
+  /** Simulate character-by-character streaming for a message. Pass an AbortSignal to stop early. */
+  simulateStreaming: (messageId: string, fullContent: string, signal?: AbortSignal) => Promise<void>;
   /** Set the active session ID (called by ChatWindow) */
   setActiveSessionId: (sessionId: string | undefined) => void;
   /** Register event callbacks (returns unsubscribe fn) */
@@ -938,9 +938,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const simulateStreaming = useCallback(
-    async (messageId: string, fullContent: string): Promise<void> => {
+    async (messageId: string, fullContent: string, signal?: AbortSignal): Promise<void> => {
       let displayed = '';
       for (const char of fullContent) {
+        if (signal?.aborted) {
+          // Flush whatever was rendered so the message isn't left in a streaming state.
+          messageStoreRef.current.updateMessage(messageId, {
+            content: displayed,
+            streaming: false,
+          });
+          emitCallbacks('onMessageStreamEnd', { messageId, content: displayed });
+          return;
+        }
         displayed += char;
         messageStoreRef.current.updateMessage(messageId, {
           content: displayed,

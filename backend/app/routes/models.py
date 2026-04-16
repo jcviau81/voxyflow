@@ -47,7 +47,7 @@ DEFAULT_WORKER_CLASSES = [
         "description": "Deep research, analysis, multi-step investigation",
         "endpoint_id": "",
         "provider_type": "cli",
-        "model": "claude-opus-4-6",
+        "model": "claude-opus-4-7",
         "intent_patterns": ["research", "analyze", "investigate", "compare", "explain", "search", "web", "find", "look", "fetch", "cherche", "recherche"],
     },
     {
@@ -200,7 +200,7 @@ async def list_models_for_provider(
         return []
 
     if provider_type == "cli":
-        return ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6"]
+        return ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7"]
 
     if provider_type == "anthropic":
         from app.services.llm.providers.anthropic_provider import _KNOWN_MODELS

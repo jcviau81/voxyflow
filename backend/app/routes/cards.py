@@ -722,26 +722,45 @@ async def get_card_history(
 
 @router.post("/cards/{card_id}/vote", response_model=dict)
 async def vote_card(card_id: str, db: AsyncSession = Depends(get_db)):
-    """Increment vote count on a card. Returns {"votes": <new_count>}."""
-    card = await db.get(Card, card_id)
-    if not card:
+    """Increment vote count on a card. Returns {"votes": <new_count>}.
+
+    Atomic: a single UPDATE ... RETURNING avoids the read-modify-write race
+    where two concurrent taps both read N and both write N+1.
+    """
+    stmt = (
+        update(Card)
+        .where(Card.id == card_id)
+        .values(votes=func.coalesce(Card.votes, 0) + 1, updated_at=utcnow())
+        .returning(Card.votes)
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+    if row is None:
         raise HTTPException(404, "Card not found.")
-    card.votes = (card.votes or 0) + 1
-    card.updated_at = utcnow()
     await db.commit()
-    return {"votes": card.votes}
+    return {"votes": row[0]}
 
 
 @router.delete("/cards/{card_id}/vote", response_model=dict)
 async def unvote_card(card_id: str, db: AsyncSession = Depends(get_db)):
     """Decrement vote count on a card (min 0). Returns {"votes": <new_count>}."""
-    card = await db.get(Card, card_id)
-    if not card:
+    from sqlalchemy import case
+    current = func.coalesce(Card.votes, 0)
+    stmt = (
+        update(Card)
+        .where(Card.id == card_id)
+        .values(
+            votes=case((current > 0, current - 1), else_=0),
+            updated_at=utcnow(),
+        )
+        .returning(Card.votes)
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+    if row is None:
         raise HTTPException(404, "Card not found.")
-    card.votes = max(0, (card.votes or 0) - 1)
-    card.updated_at = utcnow()
     await db.commit()
-    return {"votes": card.votes}
+    return {"votes": row[0]}
 
 
 def _card_to_response(card: Card) -> CardResponse:
@@ -1129,11 +1148,22 @@ async def download_attachment(
         raise HTTPException(404, "Attachment not found.")
 
     storage_path = Path(attachment.storage_path)
-    if not storage_path.exists():
+    # Defence in depth: reject any stored path that escapes ATTACHMENTS_BASE.
+    # The upload path controls this, but a compromised DB row must not let
+    # FileResponse serve arbitrary files.
+    try:
+        resolved = storage_path.resolve()
+        resolved.relative_to(ATTACHMENTS_BASE.resolve())
+    except (OSError, ValueError):
+        logger.warning(
+            f"download_attachment: refused path outside ATTACHMENTS_BASE: {storage_path}"
+        )
+        raise HTTPException(404, "Attachment not found.")
+    if not resolved.exists():
         raise HTTPException(404, "Attachment file not found on disk.")
 
     return FileResponse(
-        path=str(storage_path),
+        path=str(resolved),
         media_type=attachment.mime_type,
         filename=attachment.filename,
     )
@@ -1159,13 +1189,23 @@ async def delete_attachment(
     if not attachment:
         raise HTTPException(404, "Attachment not found.")
 
-    # Remove file from disk (non-fatal if missing)
+    # Remove file from disk (non-fatal if missing). Canonicalise first so a
+    # compromised DB row can't coax unlink into clobbering files outside
+    # ATTACHMENTS_BASE.
     storage_path = Path(attachment.storage_path)
-    if storage_path.exists():
+    try:
+        resolved = storage_path.resolve()
+        resolved.relative_to(ATTACHMENTS_BASE.resolve())
+    except (OSError, ValueError):
+        logger.warning(
+            f"delete_attachment: refusing to unlink path outside ATTACHMENTS_BASE: {storage_path}"
+        )
+        resolved = None
+    if resolved and resolved.exists():
         try:
-            storage_path.unlink()
+            resolved.unlink()
         except OSError as e:
-            logger.warning(f"delete_attachment: could not remove file {storage_path}: {e}")
+            logger.warning(f"delete_attachment: could not remove file {resolved}: {e}")
 
     await db.delete(attachment)
     await db.commit()
@@ -1440,15 +1480,21 @@ async def list_card_files(card_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/cards/{card_id}/files")
 async def add_card_file(card_id: str, body: FileRefRequest, db: AsyncSession = Depends(get_db)):
     """Add a file reference to a card."""
-    # Reject path traversal
-    if ".." in body.path:
+    raw = (body.path or "").strip()
+    if not raw:
+        raise HTTPException(400, "Path is required.")
+    candidate = Path(raw)
+    if candidate.is_absolute() or ".." in candidate.parts:
         raise HTTPException(400, "Path traversal not allowed.")
+    # Normalise ("./foo" → "foo", collapse "a//b" → "a/b") so duplicates
+    # don't slip in under different string forms.
+    normalised = candidate.as_posix().lstrip("./")
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found.")
     files = json.loads(card.files) if card.files else []
-    if body.path not in files:
-        files.append(body.path)
+    if normalised not in files:
+        files.append(normalised)
         card.files = json.dumps(files)
         card.updated_at = utcnow()
         await db.commit()

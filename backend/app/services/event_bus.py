@@ -33,21 +33,36 @@ class SessionEventBus:
     # Sentinel object to signal the listener to stop
     _POISON = object()
 
+    # Hard cap per-session queue so a runaway emitter (or a dead consumer)
+    # cannot grow memory without bound. Overflow drops the oldest event.
+    _QUEUE_MAXSIZE = 1000
+
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self.queue: asyncio.Queue = asyncio.Queue()
+        self.queue: asyncio.Queue = asyncio.Queue(maxsize=self._QUEUE_MAXSIZE)
         self._closed = False
         self.last_activity: float = time.monotonic()
         logger.debug(f"[EventBus] Created bus for session {session_id}")
 
     async def emit(self, event: ActionIntent) -> None:
-        """Emit an event onto the bus."""
+        """Emit an event onto the bus. Drops the oldest event if full."""
         if self._closed:
             logger.warning(f"[EventBus] Attempted emit on closed bus {self.session_id}")
             return
         self.last_activity = time.monotonic()
         logger.info(f"[EventBus] Emit: task_id={event.task_id} intent={event.intent} complexity={event.complexity}")
-        await self.queue.put(event)
+        try:
+            self.queue.put_nowait(event)
+        except asyncio.QueueFull:
+            try:
+                dropped = self.queue.get_nowait()
+                logger.warning(
+                    f"[EventBus] Queue full for {self.session_id} — "
+                    f"dropped oldest event task_id={getattr(dropped, 'task_id', '?')}"
+                )
+            except asyncio.QueueEmpty:
+                pass
+            await self.queue.put(event)
 
     async def listen(self) -> AsyncIterator[ActionIntent]:
         """Async generator that yields events as they arrive."""

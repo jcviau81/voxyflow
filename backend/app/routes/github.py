@@ -1,5 +1,6 @@
 """GitHub integration endpoints."""
 
+import asyncio
 import json
 import logging
 import os
@@ -76,9 +77,10 @@ def _github_headers() -> dict[str, str]:
 async def _gh_get(path: str) -> dict:
     """Perform a GET to the GitHub REST API. Raises HTTPException on errors."""
     url = f"{GITHUB_API}{path}"
+    headers = await asyncio.to_thread(_github_headers)
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers=_github_headers())
+            resp = await client.get(url, headers=headers)
     except httpx.TimeoutException:
         raise HTTPException(504, "GitHub API timeout.")
     except Exception as e:
@@ -226,9 +228,8 @@ def _run_gh(args: list[str], timeout: int = 10) -> subprocess.CompletedProcess:
     )
 
 
-@router.get("/status")
-async def github_status():
-    """Check if GitHub is configured and accessible."""
+def _github_status_sync() -> dict:
+    """Blocking gh-CLI probe, safe to run inside asyncio.to_thread."""
     result = {
         "gh_installed": False,
         "gh_authenticated": False,
@@ -236,8 +237,6 @@ async def github_status():
         "token_configured": False,
         "method": None,
     }
-
-    # Check gh CLI
     try:
         version = subprocess.run(
             ["gh", "--version"], capture_output=True, text=True, timeout=5
@@ -252,10 +251,7 @@ async def github_status():
 
             auth = subprocess.run(
                 ["gh", "auth", "status"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                env=env,
+                capture_output=True, text=True, timeout=5, env=env,
             )
             if auth.returncode == 0:
                 result["gh_authenticated"] = True
@@ -263,15 +259,12 @@ async def github_status():
 
                 user = subprocess.run(
                     ["gh", "api", "/user", "--jq", ".login"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    env=env,
+                    capture_output=True, text=True, timeout=5, env=env,
                 )
                 if user.returncode == 0:
                     result["username"] = user.stdout.strip()
     except FileNotFoundError:
-        pass  # git not installed
+        pass
     except Exception as e:
         logger.debug("Failed to detect git username: %s", e)
 
@@ -283,6 +276,12 @@ async def github_status():
     return result
 
 
+@router.get("/status")
+async def github_status():
+    """Check if GitHub is configured and accessible."""
+    return await asyncio.to_thread(_github_status_sync)
+
+
 class CreateRepoPayload(BaseModel):
     name: str
     description: str = ""
@@ -292,11 +291,11 @@ class CreateRepoPayload(BaseModel):
 @router.post("/create-repo")
 async def create_repo(payload: CreateRepoPayload):
     """Create a new GitHub repository for the authenticated user."""
-    pat = _load_pat()
+    pat = await asyncio.to_thread(_load_pat)
     if not pat:
         raise HTTPException(401, "GitHub token not configured. Go to Settings → GitHub.")
 
-    headers = _github_headers()
+    headers = await asyncio.to_thread(_github_headers)
     body = {
         "name": payload.name,
         "description": payload.description,
@@ -341,14 +340,9 @@ class TokenPayload(BaseModel):
     token: str
 
 
-@router.post("/token")
-async def save_github_token(payload: TokenPayload):
-    """Save a GitHub PAT to settings."""
-    token = payload.token.strip()
-    if not token.startswith(("ghp_", "github_pat_")):
-        raise HTTPException(400, "Token must start with ghp_ or github_pat_.")
-
-    settings = {}
+def _save_github_token_sync(token: str) -> None:
+    """Blocking file I/O for token save — runs in asyncio.to_thread."""
+    settings: dict = {}
     try:
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE) as f:
@@ -361,26 +355,46 @@ async def save_github_token(payload: TokenPayload):
     settings["github"]["token"] = token
 
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-    with open(SETTINGS_FILE, "w") as f:
+    tmp = SETTINGS_FILE + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(settings, f, indent=2)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, SETTINGS_FILE)
 
+
+def _delete_github_token_sync() -> None:
+    """Blocking file I/O for token delete — runs in asyncio.to_thread."""
+    try:
+        if not os.path.exists(SETTINGS_FILE):
+            return
+        with open(SETTINGS_FILE) as f:
+            settings = json.load(f)
+        if "github" in settings:
+            settings["github"].pop("token", None)
+            settings["github"].pop("pat", None)
+            tmp = SETTINGS_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(settings, f, indent=2)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, SETTINGS_FILE)
+    except Exception as e:
+        logger.warning("Failed to delete GitHub token from settings.json: %s", e)
+
+
+@router.post("/token")
+async def save_github_token(payload: TokenPayload):
+    """Save a GitHub PAT to settings."""
+    token = payload.token.strip()
+    if not token.startswith(("ghp_", "github_pat_")):
+        raise HTTPException(400, "Token must start with ghp_ or github_pat_.")
+    await asyncio.to_thread(_save_github_token_sync, token)
     return {"saved": True}
 
 
 @router.delete("/token")
 async def delete_github_token():
     """Remove saved GitHub PAT."""
-    try:
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE) as f:
-                settings = json.load(f)
-            if "github" in settings:
-                settings["github"].pop("token", None)
-                settings["github"].pop("pat", None)
-                with open(SETTINGS_FILE, "w") as f:
-                    json.dump(settings, f, indent=2)
-    except Exception as e:
-        logger.warning("Failed to delete GitHub token from settings.json: %s", e)
+    await asyncio.to_thread(_delete_github_token_sync)
     return {"deleted": True}
 
 
@@ -416,12 +430,12 @@ async def clone_repo(payload: ClonePayload):
     target_dir = payload.target_dir or os.path.expanduser(f"~/projects/{repo}")
     target_dir = os.path.expanduser(target_dir)
 
-    if os.path.exists(target_dir):
+    if await asyncio.to_thread(os.path.exists, target_dir):
         return {"status": "already_exists", "path": target_dir}
 
     try:
-        result = _run_gh(
-            ["repo", "clone", f"{owner}/{repo}", target_dir], timeout=120
+        result = await asyncio.to_thread(
+            _run_gh, ["repo", "clone", f"{owner}/{repo}", target_dir], 120
         )
         if result.returncode != 0:
             raise HTTPException(500, f"Clone failed: {result.stderr}")
@@ -444,7 +458,7 @@ async def mkdir(payload: MkdirPayload):
     """Create a local directory (and parents) for a project workspace."""
     expanded = os.path.expanduser(payload.path)
     try:
-        os.makedirs(expanded, exist_ok=True)
+        await asyncio.to_thread(os.makedirs, expanded, exist_ok=True)
         return {"status": "created", "path": expanded}
     except Exception as e:
         raise HTTPException(500, f"Failed to create directory: {e}")

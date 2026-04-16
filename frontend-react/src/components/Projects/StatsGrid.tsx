@@ -190,8 +190,8 @@ function VelocityCard({ activities }: { activities: ActivityEntry[] }) {
         {doneRecently.length === 1 ? 'card completed' : 'cards completed'}
       </div>
       <div className="flex items-end gap-1.5 h-14 pt-2">
-        {days.map((day, i) => (
-          <div key={i} className="flex flex-col items-center flex-1 gap-1">
+        {days.map((day) => (
+          <div key={day.label} className="flex flex-col items-center flex-1 gap-1">
             <div
               className="w-full rounded-t-[3px] min-h-[2px] transition-all duration-500"
               style={{

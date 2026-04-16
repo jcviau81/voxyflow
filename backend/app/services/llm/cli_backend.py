@@ -673,7 +673,7 @@ class ClaudeCliBackend:
                                     if asyncio.iscoroutine(ret):
                                         await ret
                                 except Exception as e:
-                                    logger.debug(f"[CLI-events] tool_callback error: {e}")
+                                    logger.warning(f"[CLI-events] tool_callback error: {e}")
 
                 elif event_type == "result":
                     result_text = event.get("result", "")
@@ -882,19 +882,22 @@ class ClaudeCliBackend:
         """
         pcp = self._persistent_chats.get(chat_id)
 
-        # Guard-rail: detect project_id drift on reused persistent processes.
-        # The MCP subprocess env is fixed at spawn time, so if a chat_id is
-        # reused with a different project_id the memory/knowledge handlers
-        # will leak across project scopes. Canary for bug #6 (unchecked
-        # chat_id on the frontend).
+        # Guard-rail: enforce project_id consistency on reused persistent
+        # processes. The MCP subprocess env is fixed at spawn time, so a
+        # chat_id reused with a different project_id would leak across project
+        # scopes via memory/knowledge handlers. We kill the stale subprocess
+        # and fall through to respawn with the correct env.
         if pcp and project_id:
             sess = get_cli_session_registry().get_by_chat_id(chat_id)
             if sess and sess.project_id and sess.project_id != project_id:
                 logger.error(
                     f"[CLI-persistent] PROJECT_ID DRIFT: chat_id={chat_id} "
                     f"was spawned with project_id={sess.project_id!r} "
-                    f"but called with project_id={project_id!r} — context bleed!"
+                    f"but called with project_id={project_id!r} — "
+                    f"killing stale subprocess to prevent context bleed"
                 )
+                await self.kill_persistent_chat(chat_id)
+                pcp = None
 
         # Check if process is alive
         if pcp and pcp.proc.returncode is not None:
@@ -1214,7 +1217,7 @@ class ClaudeCliBackend:
                                     if asyncio.iscoroutine(ret):
                                         await ret
                                 except Exception as e:
-                                    logger.debug(f"[CLI-steer] tool_callback error: {e}")
+                                    logger.warning(f"[CLI-steer] tool_callback error: {e}")
 
                 elif event_type == "result":
                     result_text = event.get("result", "")

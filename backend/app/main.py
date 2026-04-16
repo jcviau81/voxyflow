@@ -441,13 +441,52 @@ async def general_websocket(websocket: WebSocket):
         except Exception as e:
             logger.warning(f"[WS] Error checking pending results: {e}")
 
+    # Hard cap on inbound WebSocket payload size. The chat path already caps
+    # content server-side via Pydantic models; this is the outer envelope.
+    # 2 MiB is comfortably above any legitimate frontend message.
+    WS_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024
+
     try:
         while True:
             raw = await websocket.receive_text()
+            if len(raw) > WS_MAX_PAYLOAD_BYTES:
+                logger.warning(
+                    f"[WS] Rejected oversized payload: {len(raw)} bytes "
+                    f"(cap={WS_MAX_PAYLOAD_BYTES})"
+                )
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "payload": {"error": "payload_too_large", "limit": WS_MAX_PAYLOAD_BYTES},
+                        "timestamp": int(time.time() * 1000),
+                    })
+                except Exception:
+                    pass
+                continue
+
             try:
                 data = json.loads(raw)
+            except json.JSONDecodeError as e:
+                logger.warning(f"[WS] Malformed JSON payload: {e}")
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "payload": {"error": "invalid_json", "detail": str(e)[:200]},
+                        "timestamp": int(time.time() * 1000),
+                    })
+                except Exception:
+                    pass
+                continue
+
+            if not isinstance(data, dict):
+                logger.warning(f"[WS] Rejected non-object payload: {type(data).__name__}")
+                continue
+
+            try:
                 msg_type = data.get("type")
                 payload = data.get("payload", {})
+                if not isinstance(payload, dict):
+                    payload = {}
                 msg_id = data.get("id", "")
 
                 if msg_type != "ping":

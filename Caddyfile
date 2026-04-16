@@ -1,27 +1,42 @@
 {$CADDY_HOSTNAME:localhost} {
-    tls {$CADDY_TLS_CERT:internal} {$CADDY_TLS_KEY:}
+	tls {$CADDY_TLS_CERT:internal} {$CADDY_TLS_KEY:}
 
-    # Service worker et manifest — no cache
-    @nocache path /sw.js /manifest.webmanifest
-    header @nocache Cache-Control "no-cache, no-store, must-revalidate"
+	# Security headers — applied globally.
+	# - HSTS: force HTTPS for 1 year (includeSubDomains safe for single-host deploys).
+	# - X-Content-Type-Options: disable MIME sniffing.
+	# - X-Frame-Options: block clickjacking (Voxyflow is never embedded).
+	# - Referrer-Policy: don't leak paths to third parties.
+	# - Permissions-Policy: opt out of powerful APIs we don't use.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(self)"
+		-Server
+	}
 
-    # API backend
-    handle /api/* {
-        reverse_proxy localhost:8000
-    }
+	# Service worker et manifest — no cache
+	@nocache path /sw.js /manifest.webmanifest
+	header @nocache Cache-Control "no-cache, no-store, must-revalidate"
 
-    # WebSocket
-    handle /ws {
-        reverse_proxy localhost:8000
-    }
-    handle /ws/* {
-        reverse_proxy localhost:8000
-    }
+	# API backend
+	handle /api/* {
+		reverse_proxy localhost:8000
+	}
 
-    # Frontend static
-    handle {
-        root * {$CADDY_FRONTEND_ROOT:./frontend-react/dist}
-        try_files {path} /index.html
-        file_server
-    }
+	# WebSocket
+	handle /ws {
+		reverse_proxy localhost:8000
+	}
+	handle /ws/* {
+		reverse_proxy localhost:8000
+	}
+
+	# Frontend static
+	handle {
+		root * {$CADDY_FRONTEND_ROOT:./frontend-react/dist}
+		try_files {path} /index.html
+		file_server
+	}
 }

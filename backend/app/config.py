@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     searxng_url: str = "http://localhost:8888"
     claude_fast_model: str = "claude-haiku-4-6"
     claude_sonnet_model: str = "claude-sonnet-4-6"
-    claude_deep_model: str = "claude-opus-4-6"
+    claude_deep_model: str = "claude-opus-4-7"
     claude_max_tokens: int = 1024           # Legacy fallback — prefer model-specific below
     claude_max_tokens_haiku: int = 8192
     claude_max_tokens_sonnet: int = 16000

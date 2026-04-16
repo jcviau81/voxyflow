@@ -59,7 +59,7 @@ class WorkspaceService:
         return slug or 'unnamed'
 
     def _validate_path(self, relative_path: str) -> None:
-        """Reject paths with '..' components."""
+        """Reject paths with '..' components or absolute paths (fast syntactic check)."""
         parts = Path(relative_path).parts
         if ".." in parts:
             raise ValueError(f"Path traversal not allowed: {relative_path}")
@@ -67,9 +67,20 @@ class WorkspaceService:
             raise ValueError(f"Absolute paths not allowed: {relative_path}")
 
     def resolve_path(self, relative_path: str) -> Path:
-        """Resolve a relative path against the workspace root."""
+        """Resolve a relative path against the workspace root.
+
+        Uses ``Path.resolve()`` to collapse symlinks and dot segments, then asserts
+        the result is inside the workspace root. Defends against symlink-based
+        escapes that syntactic checks alone would miss.
+        """
         self._validate_path(relative_path)
-        return self._workspace_root / relative_path
+        root = self._workspace_root.resolve()
+        candidate = (self._workspace_root / relative_path).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            raise ValueError(f"Path escapes workspace root: {relative_path}")
+        return candidate
 
     async def list_files(self, subdir: str = "") -> list[dict]:
         """List files and directories in workspace (or subdirectory)."""
