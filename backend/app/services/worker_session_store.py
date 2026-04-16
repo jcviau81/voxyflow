@@ -135,6 +135,39 @@ class WorkerSessionStore:
             if s.status == "timed_out":
                 self._persist(s)
 
+    def _refresh_from_disk(self) -> None:
+        """Re-scan disk for new or updated sessions written by other processes.
+
+        - New files (not in self._sessions) are loaded
+        - Known files with status "running" are re-read to pick up status changes
+        - Known terminal sessions are skipped (already final)
+        """
+        _TERMINAL = {"done", "failed", "cancelled", "timed_out"}
+        try:
+            on_disk = list(self._data_dir.glob("*.json"))
+        except Exception as e:
+            logger.debug("[WorkerSessionStore] _refresh_from_disk scan failed: %s", e)
+            return
+
+        for filepath in on_disk:
+            task_id = filepath.stem
+            try:
+                existing = self._sessions.get(task_id)
+                # Skip terminal sessions we already know about
+                if existing and existing.status in _TERMINAL:
+                    continue
+                data = json.loads(filepath.read_text())
+                session = WorkerSession.from_dict(data)
+                # Apply timeout check for running sessions
+                if session.status == "running":
+                    elapsed = time.time() - session.start_time
+                    if elapsed > RUNNING_TIMEOUT_SECONDS:
+                        session.status = "timed_out"
+                        session.end_time = session.start_time + RUNNING_TIMEOUT_SECONDS
+                self._sessions[task_id] = session
+            except Exception as e:
+                logger.debug("[WorkerSessionStore] _refresh_from_disk skip %s: %s", filepath.name, e)
+
     def _persist(self, session: WorkerSession) -> None:
         """Write a single session to disk."""
         filepath = self._data_dir / f"{session.task_id}.json"
@@ -259,6 +292,7 @@ class WorkerSessionStore:
         Running sessions are always included. Terminal sessions expire
         after TERMINAL_WINDOW_SECONDS (2 min).
         """
+        self._refresh_from_disk()
         self.check_timeouts()
         now = time.time()
         results = []
@@ -275,6 +309,7 @@ class WorkerSessionStore:
 
     def get_session(self, task_id: str) -> Optional[dict]:
         """Get a single session by task_id."""
+        self._refresh_from_disk()
         session = self._sessions.get(task_id)
         if session:
             # Check timeout before returning
