@@ -296,11 +296,20 @@ async def get_available_models():
     providers: dict[str, ProviderInfo] = {}
     known = list_known_providers()
 
+    # CLI is a local subprocess, not a network endpoint — include it in the
+    # response as "reachable" iff the `claude` binary is on PATH so the UI
+    # can offer it as a selectable Source. We don't probe it.
+    from shutil import which as _which
+    cli_available = bool(_which(get_settings().claude_cli_path or "claude"))
+    providers["cli"] = ProviderInfo(
+        type="cli", label="Claude CLI", reachable=cli_available, url="",
+    )
+
     urls_to_probe: dict[str, tuple[str, str]] = {}  # type → (label, url)
     for p in known:
         ptype = p["type"]
         if ptype == "cli":
-            continue
+            continue  # handled above — CLI is local, no HTTP probe
         custom_url = ""
         for layer_cfg in models_cfg.values():
             if isinstance(layer_cfg, dict):
