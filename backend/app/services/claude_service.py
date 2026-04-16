@@ -1084,14 +1084,19 @@ class ClaudeService(ApiCallerMixin):
         session_id: str = "",
         task_id: str = "",
     ) -> str:
-        """Execute a delegated task with the specified worker model (haiku/sonnet/opus)."""
+        """Execute a delegated task with the specified worker model (haiku/sonnet/opus).
+
+        Model can be a short name ('opus') or full ID ('claude-opus-4-6').
+        """
         card_id = card_context.get("id", "") if card_context else ""
         # Select client/model based on model param — all workers get full tools
-        if model == "haiku":
+        # Match both short names (haiku/sonnet/opus) and full IDs (claude-opus-4-6)
+        model_lower = model.lower()
+        if "haiku" in model_lower:
             client, client_type, model_name = (
                 self.haiku_client, self.haiku_client_type, self.haiku_model
             )
-        elif model == "opus":
+        elif "opus" in model_lower:
             client, client_type, model_name = (
                 self.deep_client, self.deep_client_type, self.deep_model
             )
