@@ -6,10 +6,13 @@ Personality files are stored in voxyflow/personality/ (NOT OpenClaw workspace).
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
+import asyncio
+import ipaddress
 import json
 import os
 import logging
 from pathlib import Path
+from urllib.parse import urlparse
 from sqlalchemy import text
 
 from app.database import async_session
@@ -70,6 +73,31 @@ async def _save_settings_to_db(data: dict):
             await session.commit()
     except Exception as e:
         logger.warning("Failed to save settings to DB: %s", e)
+
+
+def _read_settings_file() -> dict | None:
+    """Blocking read of settings.json (run in asyncio.to_thread)."""
+    if not os.path.exists(SETTINGS_FILE):
+        return None
+    with open(SETTINGS_FILE) as f:
+        return json.load(f)
+
+
+def _write_settings_file_redacted(data: dict) -> None:
+    """Blocking redacted write + chmod 0600 (run in asyncio.to_thread).
+
+    Writes via tmp + atomic rename so a crash mid-write can't leave a
+    world-readable file.
+    """
+    try:
+        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+        tmp_path = SETTINGS_FILE + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(_redact_sensitive(data), f, indent=2)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, SETTINGS_FILE)
+    except OSError as e:
+        logger.warning("Failed to write settings.json backup: %s", e)
 
 
 class PersonalitySettings(BaseModel):
@@ -247,12 +275,13 @@ async def get_settings():
         return _redact_sensitive(merged)
 
     # 2. Fallback to settings.json — and migrate into DB
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE) as f:
-            file_data = json.load(f)
+    file_data = await asyncio.to_thread(_read_settings_file)
+    if file_data is not None:
         merged = AppSettings(**file_data).dict()
         await _save_settings_to_db(merged)
         logger.info("Migrated settings from settings.json into SQLite")
+        # Rewrite the file redacted so plaintext keys no longer live on disk.
+        await asyncio.to_thread(_write_settings_file_redacted, merged)
         return _redact_sensitive(merged)
 
     # 3. Defaults
@@ -261,7 +290,11 @@ async def get_settings():
 
 @router.put("")
 async def save_settings(settings: AppSettings):
-    """Save settings to DB (source of truth) and settings.json (backup)."""
+    """Save settings to DB (source of truth).
+
+    DB has the real secrets. settings.json is written as a redacted backup only —
+    never plaintext api_keys on disk. File is chmodded 0600 as defense-in-depth.
+    """
     data = settings.dict()
 
     # If the frontend sent '***' for api_key fields, preserve the existing values
@@ -269,13 +302,12 @@ async def save_settings(settings: AppSettings):
     if existing:
         data = _merge_sensitive_on_save(data, existing)
 
-    # Write to DB
+    # Write to DB (source of truth — has real secrets)
     await _save_settings_to_db(data)
 
-    # Dual-write to settings.json for backward compat
-    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    # Backup to settings.json with secrets REDACTED. The DB is authoritative;
+    # the file is a visibility aid only. Never write plaintext keys to disk.
+    await asyncio.to_thread(_write_settings_file_redacted, data)
 
     # Clear provider cache so new settings take effect
     try:
@@ -320,9 +352,8 @@ async def save_settings(settings: AppSettings):
 async def preview_personality():
     """Preview current personality files content."""
     data = await _load_settings_from_db()
-    if data is None and os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE) as f:
-            data = json.load(f)
+    if data is None:
+        data = await asyncio.to_thread(_read_settings_file)
     settings = AppSettings(**data) if data else AppSettings()
 
     previews = {}
@@ -515,6 +546,44 @@ async def init_personality_files() -> None:
             logger.info("Generated %s from template (bot_name=%s, user_name=%s)", filename, bot_name, user_name)
 
 
+def _validate_tts_url(tts_url: str) -> str:
+    """Validate and normalise a configured TTS URL.
+
+    Returns the trimmed URL on success. Raises HTTPException(400) for anything
+    that looks like an SSRF vector:
+      - non-http(s) schemes (file://, gopher://, data://, …)
+      - the IMDS / link-local address 169.254.169.254 and its IPv6 equivalents
+      - broadcast / multicast / unspecified hosts
+    Private (RFC1918) and loopback addresses ARE allowed — XTTS normally runs
+    locally or on the user's LAN.
+    """
+    if not tts_url or not isinstance(tts_url, str):
+        raise HTTPException(400, "No TTS server configured.")
+    url = tts_url.strip()
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        raise HTTPException(400, "TTS URL is not a valid URL.")
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(400, f"TTS URL must use http or https (got {parsed.scheme!r}).")
+    host = parsed.hostname
+    if not host:
+        raise HTTPException(400, "TTS URL has no host component.")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        if (
+            ip.is_link_local
+            or ip.is_multicast
+            or ip.is_unspecified
+            or ip.is_reserved
+        ):
+            raise HTTPException(400, f"TTS URL host {host!r} is not routable.")
+    return url
+
+
 @router.post("/tts/speak")
 async def tts_speak(request: Request):
     """Proxy TTS requests to the configured XTTS server.
@@ -541,6 +610,14 @@ async def tts_speak(request: Request):
         return Response(
             content=json.dumps({"error": "No TTS server configured"}).encode(),
             status_code=400,
+            media_type="application/json",
+        )
+    try:
+        tts_url = _validate_tts_url(tts_url)
+    except HTTPException as e:
+        return Response(
+            content=json.dumps({"error": e.detail}).encode(),
+            status_code=e.status_code,
             media_type="application/json",
         )
 
@@ -595,6 +672,14 @@ async def tts_speak_stream(request: Request):
         return Response(
             content=json.dumps({"error": "No TTS server configured"}).encode(),
             status_code=400,
+            media_type="application/json",
+        )
+    try:
+        tts_url = _validate_tts_url(tts_url)
+    except HTTPException as e:
+        return Response(
+            content=json.dumps({"error": e.detail}).encode(),
+            status_code=e.status_code,
             media_type="application/json",
         )
 

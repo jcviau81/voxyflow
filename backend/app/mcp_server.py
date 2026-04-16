@@ -1344,9 +1344,11 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
 
     # ---- Memory Save (write to long-term memory) ----------------------------
+    # Scope is enforced by VOXYFLOW_PROJECT_ID env var at runtime. The LLM
+    # cannot override it — project_id is deliberately NOT in the schema.
     {
         "name": "memory.save",
-        "description": "Save an important fact, decision, preference, or lesson to Voxy's long-term memory. Use when the user shares something worth remembering across sessions.",
+        "description": "Save an important fact, decision, preference, or lesson to Voxy's long-term memory. Auto-scoped to the current project — use when the user shares something worth remembering across sessions.",
         "inputSchema": {
             "type": "object",
             "required": ["text"],
@@ -1362,7 +1364,6 @@ _TOOL_DEFINITIONS: list[dict] = [
                     "enum": ["high", "medium", "low"],
                     "description": "Importance level (default: medium)",
                 },
-                "project_id": {"type": "string", "description": "Override project scope. Omit to auto-scope to the current project. Only use to explicitly save into a different project."},
             },
         },
         "_handler": "memory_save",
@@ -1370,14 +1371,14 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
 
     # ---- Knowledge Base (on-demand RAG) ------------------------------------
+    # Scope is enforced by VOXYFLOW_PROJECT_ID env var at runtime.
     {
         "name": "knowledge.search",
-        "description": "Search the project knowledge base (RAG) for relevant context. Use when you need background information about the project that isn't in the task description.",
+        "description": "Search the current project's knowledge base (RAG) for relevant context. Use when you need background information about the project that isn't in the task description.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id", "query"],
+            "required": ["query"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID to search within"},
                 "query": {"type": "string", "description": "Search query — describe what you're looking for"},
             },
         },
@@ -1856,14 +1857,13 @@ def _get_system_handler(name: str):
         async def knowledge_search(params: dict) -> dict:
             """RAG search on project knowledge base — on-demand tool.
 
-            Scope precedence: env var (VOXYFLOW_PROJECT_ID) → tool param
-            → ``"system-main"``. The env var takes priority so the model
-            cannot accidentally leak context from other projects by
-            passing the wrong project_id in tool params.
+            Scope is enforced by VOXYFLOW_PROJECT_ID env var. The LLM
+            cannot override it; params.project_id is ignored if present
+            (it was removed from the schema but defensive-coded here).
             """
             from app.services.rag_service import get_rag_service
             env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
-            project_id = env_project_id or params.get("project_id", "system-main")
+            project_id = env_project_id or "system-main"
             query = params.get("query", "")
             if not query:
                 return {"error": "query is required"}
@@ -1877,9 +1877,9 @@ def _get_system_handler(name: str):
         async def memory_save(params: dict) -> dict:
             """Store a memory entry in Voxy's long-term memory (ChromaDB or file fallback).
 
-            Auto-scoped to the current project via VOXYFLOW_PROJECT_ID env var.
-            Explicit project_id param overrides for intentional cross-project saves.
-            Fallback: global collection when no project context exists.
+            STRICT ISOLATION: scope is enforced by VOXYFLOW_PROJECT_ID env var.
+            The LLM cannot cross-save into another project — project_id is not
+            in the schema and any param value is ignored.
             """
             from app.services.memory_service import (
                 get_memory_service,
@@ -1893,10 +1893,7 @@ def _get_system_handler(name: str):
             importance = params.get("importance", "medium")
 
             env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
-            param_project_id = (params.get("project_id") or "").strip()
-            # Auto-scope: env var is the default; explicit param overrides it
-            # (allows intentional cross-project saves when needed)
-            project_id = param_project_id or env_project_id
+            project_id = env_project_id
 
             if project_id and project_id != "system-main":
                 collection = _project_collection(project_id)
