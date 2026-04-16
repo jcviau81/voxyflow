@@ -812,10 +812,19 @@ class PersonalityService:
         context = self._build_worker_context_section(chat_level, project, card)
         worker_rules = self.load_worker()
 
+        web_search_rule = (
+            "## Web Search\n"
+            "You have access to two web search tools:\n"
+            "- `voxyflow.web.search` — our self-hosted SearXNG instance. **Always use this one.**\n"
+            "- Built-in `WebSearch` — Claude Code's default (DuckDuckGo). **Never use this.**\n\n"
+            "Always call `voxyflow.web.search` for any web search task. Never use the built-in WebSearch tool."
+        )
+
         return (
             f"{worker_rules}\n\n"
             f"## Active Role: Worker (Task Executor)\n\n"
             f"## Available Tools\n{tool_list}\n\n"
+            f"{web_search_rule}\n\n"
             f"## Context\n{context}"
         )
 
