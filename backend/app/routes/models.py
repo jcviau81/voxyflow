@@ -37,7 +37,7 @@ DEFAULT_WORKER_CLASSES = [
         "description": "Code writing, debugging, refactoring, code review",
         "endpoint_id": "",
         "provider_type": "cli",
-        "model": "claude-sonnet-4-6",
+        "model": "claude-opus-4-7",
         "intent_patterns": ["code", "debug", "refactor", "implement", "fix", "test"],
     },
     {
