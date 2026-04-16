@@ -603,6 +603,116 @@ async def get_benchmark_prompt(
     return {"prompt": prompt}
 
 
+@router.post("/websearch-compare")
+async def compare_web_search(body: dict):
+    """Compare SearXNG vs DuckDuckGo for the same query — returns results side-by-side."""
+    import asyncio
+    import time
+    import httpx
+    from app.config import get_settings
+
+    query = (body.get("query") or "").strip()
+    if not query:
+        return {"success": False, "error": "query is required"}
+    count = min(max(body.get("count", 5), 1), 10)
+
+    async def search_searxng() -> dict:
+        start = time.monotonic()
+        try:
+            searxng_url = get_settings().searxng_url.rstrip("/")
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"{searxng_url}/search",
+                    params={"q": query, "format": "json", "language": "auto"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            results = []
+            for r in data.get("results", [])[:count]:
+                title = r.get("title", "").strip()
+                url = r.get("url", "").strip()
+                snippet = r.get("content", "").strip()[:300]
+                if title and url:
+                    results.append({"title": title, "url": url, "snippet": snippet})
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            return {"success": True, "results": results, "count": len(results), "latency_ms": elapsed_ms, "engine": "SearXNG"}
+        except Exception as e:
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            return {"success": False, "error": str(e), "results": [], "count": 0, "latency_ms": elapsed_ms, "engine": "SearXNG"}
+
+    async def search_duckduckgo() -> dict:
+        start = time.monotonic()
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+            }
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    "https://lite.duckduckgo.com/lite",
+                    params={"q": query},
+                    headers=headers,
+                )
+                if resp.status_code == 202:
+                    elapsed_ms = round((time.monotonic() - start) * 1000)
+                    return {"success": False, "error": "DuckDuckGo blocked the request (HTTP 202 — bot detection)", "results": [], "count": 0, "latency_ms": elapsed_ms, "engine": "DuckDuckGo"}
+                resp.raise_for_status()
+                # Parse lite HTML — results are in <a class="result-link"> and <td class="result-snippet">
+                from html.parser import HTMLParser
+
+                class DDGParser(HTMLParser):
+                    def __init__(self):
+                        super().__init__()
+                        self.results = []
+                        self._current_url = None
+                        self._current_title = None
+                        self._in_link = False
+                        self._in_snippet = False
+                        self._current_snippet = ""
+
+                    def handle_starttag(self, tag, attrs):
+                        attrs_dict = dict(attrs)
+                        if tag == "a" and "result-link" in attrs_dict.get("class", ""):
+                            self._in_link = True
+                            self._current_url = attrs_dict.get("href", "")
+                            self._current_title = ""
+                        if tag == "td" and "result-snippet" in attrs_dict.get("class", ""):
+                            self._in_snippet = True
+                            self._current_snippet = ""
+
+                    def handle_endtag(self, tag):
+                        if tag == "a" and self._in_link:
+                            self._in_link = False
+                        if tag == "td" and self._in_snippet:
+                            self._in_snippet = False
+                            if self._current_url and self._current_title:
+                                self.results.append({
+                                    "title": self._current_title.strip(),
+                                    "url": self._current_url,
+                                    "snippet": self._current_snippet.strip()[:300],
+                                })
+                            self._current_url = None
+                            self._current_title = None
+
+                    def handle_data(self, data):
+                        if self._in_link:
+                            self._current_title = (self._current_title or "") + data
+                        if self._in_snippet:
+                            self._current_snippet += data
+
+                parser = DDGParser()
+                parser.feed(resp.text)
+                results = parser.results[:count]
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            return {"success": True, "results": results, "count": len(results), "latency_ms": elapsed_ms, "engine": "DuckDuckGo"}
+        except Exception as e:
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            return {"success": False, "error": str(e), "results": [], "count": 0, "latency_ms": elapsed_ms, "engine": "DuckDuckGo"}
+
+    searxng_result, ddg_result = await asyncio.gather(search_searxng(), search_duckduckgo())
+    return {"query": query, "searxng": searxng_result, "duckduckgo": ddg_result}
+
+
 @router.post("/benchmark")
 async def benchmark_models(body: BenchmarkRequest):
     """Run a Worker Class benchmark: test two models on the same prompt, then evaluate with LLM-as-judge."""
