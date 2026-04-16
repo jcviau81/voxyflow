@@ -236,6 +236,12 @@ class ClaudeService(ApiCallerMixin):
         overrides = _load_model_overrides()
         default_api_key = config.claude_api_key
 
+        # Update default worker model from settings
+        from app.routes.settings import set_default_worker_model
+        dwm = overrides.get("default_worker_model", "")
+        if dwm:
+            set_default_worker_model(dwm)
+
         for layer, attr_prefix, default_model in [
             ("fast", "fast", config.claude_sonnet_model),
             ("deep", "deep", config.claude_deep_model),
@@ -1134,6 +1140,7 @@ class ClaudeService(ApiCallerMixin):
         If endpoint_config is provided (from a WorkerClass with endpoint_id),
         a provider-specific client is created for that endpoint instead of using
         the default haiku/sonnet/opus clients.
+        Model can be a short name ('opus') or full ID ('claude-opus-4-6').
         """
         card_id = card_context.get("id", "") if card_context else ""
 
@@ -1143,11 +1150,13 @@ class ClaudeService(ApiCallerMixin):
                 endpoint_config, model,
             )
         # Select client/model based on model param — all workers get full tools
-        elif model == "haiku":
+        # Match both short names (haiku/sonnet/opus) and full IDs (claude-opus-4-6)
+        model_lower = model.lower()
+        if "haiku" in model_lower:
             client, client_type, model_name = (
                 self.haiku_client, self.haiku_client_type, self.haiku_model
             )
-        elif model == "opus":
+        elif "opus" in model_lower:
             client, client_type, model_name = (
                 self.deep_client, self.deep_client_type, self.deep_model
             )

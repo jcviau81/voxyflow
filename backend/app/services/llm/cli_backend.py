@@ -32,37 +32,54 @@ logger = logging.getLogger(__name__)
 # Rate gate — prevents hitting Claude Max subscription rate limits (529)
 # ---------------------------------------------------------------------------
 
-_CLI_MAX_CONCURRENT = int(os.environ.get("CLI_MAX_CONCURRENT", "2"))
-_CLI_MIN_SPACING_MS = int(os.environ.get("CLI_MIN_SPACING_MS", "500"))
+_CLI_SESSION_CONCURRENT = int(os.environ.get("CLI_SESSION_CONCURRENT", "5"))
+_CLI_WORKER_CONCURRENT = int(os.environ.get("CLI_WORKER_CONCURRENT", "15"))
+_CLI_MIN_SPACING_MS = int(os.environ.get("CLI_MIN_SPACING_MS", "0"))
 
 
 class CliRateGate:
-    """Global concurrency + spacing limiter for CLI API calls.
+    """Dual-semaphore concurrency limiter for CLI API calls.
 
-    - Semaphore caps concurrent in-flight API calls.
+    Two independent semaphores ensure dispatcher (interactive chat) and
+    workers never starve each other:
+    - Session semaphore: caps concurrent dispatcher/chat CLI calls.
+    - Worker semaphore: caps concurrent worker CLI calls.
     - Minimum spacing prevents burst-spawning multiple calls at once.
     """
 
     def __init__(
         self,
-        max_concurrent: int = _CLI_MAX_CONCURRENT,
+        session_concurrent: int = _CLI_SESSION_CONCURRENT,
+        worker_concurrent: int = _CLI_WORKER_CONCURRENT,
         min_spacing_ms: int = _CLI_MIN_SPACING_MS,
     ):
-        self._sem = asyncio.Semaphore(max_concurrent)
+        self._session_sem = asyncio.Semaphore(session_concurrent)
+        self._worker_sem = asyncio.Semaphore(worker_concurrent)
         self._min_spacing = min_spacing_ms / 1000.0
         self._last_call: float = 0.0
         self._spacing_lock = asyncio.Lock()
         self._active: int = 0
-        self.max_concurrent = max_concurrent
+        self._active_workers: int = 0
+        self.session_concurrent = session_concurrent
+        self.worker_concurrent = worker_concurrent
         self.min_spacing_ms = min_spacing_ms
         logger.info(
-            f"[RateGate] Initialized: max_concurrent={max_concurrent}, "
+            f"[RateGate] Initialized: session_concurrent={session_concurrent}, "
+            f"worker_concurrent={worker_concurrent}, "
             f"min_spacing={min_spacing_ms}ms"
         )
 
-    async def acquire(self) -> None:
-        """Acquire a slot — blocks if at capacity or too soon after last call."""
-        await self._sem.acquire()
+    async def acquire(self, is_worker: bool = False) -> None:
+        """Acquire a slot — blocks if at capacity or too soon after last call.
+
+        Workers acquire the worker semaphore; dispatchers acquire the session
+        semaphore. The two pools are independent so they never starve each other.
+        """
+        if is_worker:
+            await self._worker_sem.acquire()
+            self._active_workers += 1
+        else:
+            await self._session_sem.acquire()
         self._active += 1
         # Enforce minimum spacing
         async with self._spacing_lock:
@@ -73,15 +90,29 @@ class CliRateGate:
                 await asyncio.sleep(wait)
             self._last_call = time.monotonic()
 
-    def release(self) -> None:
+    def release(self, is_worker: bool = False) -> None:
         """Release a slot after the API call completes."""
         self._active -= 1
-        self._sem.release()
+        if is_worker:
+            self._active_workers -= 1
+            self._worker_sem.release()
+        else:
+            self._session_sem.release()
 
     @property
     def active(self) -> int:
         """Number of currently in-flight calls."""
         return self._active
+
+    @property
+    def active_workers(self) -> int:
+        """Number of currently in-flight worker calls."""
+        return self._active_workers
+
+    @property
+    def max_concurrent(self) -> int:
+        """Total max concurrent (session + worker) for log compatibility."""
+        return self.session_concurrent + self.worker_concurrent
 
 
 # Module-level singleton — shared across all ClaudeCliBackend instances
@@ -397,13 +428,15 @@ class ClaudeCliBackend:
         )
 
         gate = get_rate_gate()
+        _is_worker = session_type == "worker"
         logger.info(
             f"[CLI] Spawning: {self.cli_path} -p --model {_model_flag(model)} "
             f"tools={use_tools} prompt_len={len(prompt)} "
-            f"(gate: {gate.active}/{gate.max_concurrent} active)"
+            f"(gate: {gate.active}/{gate.max_concurrent} active, "
+            f"workers: {gate.active_workers}/{gate.worker_concurrent})"
         )
 
-        await gate.acquire()
+        await gate.acquire(is_worker=_is_worker)
         try:
             proc = await asyncio.create_subprocess_exec(
                 self.cli_path, *args,
@@ -451,7 +484,7 @@ class ClaudeCliBackend:
                     except asyncio.CancelledError:
                         pass
         finally:
-            gate.release()
+            gate.release(is_worker=_is_worker)
 
         if cancel_event and cancel_event.is_set():
             return "[Task cancelled by supervisor]", {}
@@ -528,13 +561,15 @@ class ClaudeCliBackend:
         )
 
         gate = get_rate_gate()
+        _is_worker = session_type == "worker"
         logger.info(
             f"[CLI-events] Spawning: {self.cli_path} -p --model {_model_flag(model)} "
             f"tools={use_tools} prompt_len={len(prompt)} "
-            f"(gate: {gate.active}/{gate.max_concurrent} active)"
+            f"(gate: {gate.active}/{gate.max_concurrent} active, "
+            f"workers: {gate.active_workers}/{gate.worker_concurrent})"
         )
 
-        await gate.acquire()
+        await gate.acquire(is_worker=_is_worker)
         # NOTE: gate.release() is called in the finally block at the end of
         # _call_with_tool_events — the slot is held for the full API call duration.
         proc = await asyncio.create_subprocess_exec(
@@ -646,7 +681,7 @@ class ClaudeCliBackend:
                     self._last_usage = usage
 
         finally:
-            gate.release()
+            gate.release(is_worker=_is_worker)
             _registry.deregister(_reg_id)
             if cancel_task:
                 cancel_task.cancel()
@@ -868,7 +903,8 @@ class ClaudeCliBackend:
             pcp = None
 
         gate = get_rate_gate()
-        await gate.acquire()
+        _is_worker = session_type == "worker"
+        await gate.acquire(is_worker=_is_worker)
         try:
             if not pcp:
                 # First message — spawn with full history + system prompt
@@ -911,7 +947,7 @@ class ClaudeCliBackend:
             logger.warning(f"[CLI-persistent] Error for {chat_id}, falling back to one-shot: {e}")
             await self.kill_persistent_chat(chat_id)
             # Fallback to one-shot stream (stream() has its own gate.acquire)
-            gate.release()
+            gate.release(is_worker=_is_worker)
             gate = None  # prevent double-release in finally
             async for token in self.stream(
                 model=model, system=system, messages=messages,
@@ -922,7 +958,7 @@ class ClaudeCliBackend:
                 yield token
         finally:
             if gate is not None:
-                gate.release()
+                gate.release(is_worker=_is_worker)
 
     async def kill_persistent_chat(self, chat_id: str) -> None:
         """Kill a persistent chat process and clean up."""
@@ -1035,13 +1071,15 @@ class ClaudeCliBackend:
         )
 
         gate = get_rate_gate()
+        _is_worker = session_type == "worker"
         logger.info(
             f"[CLI-steer] Spawning: {self.cli_path} -p --model {_model_flag(model)} "
             f"tools={use_tools} task_id={task_id!r} prompt_len={len(prompt)} "
-            f"(gate: {gate.active}/{gate.max_concurrent} active)"
+            f"(gate: {gate.active}/{gate.max_concurrent} active, "
+            f"workers: {gate.active_workers}/{gate.worker_concurrent})"
         )
 
-        await gate.acquire()
+        await gate.acquire(is_worker=_is_worker)
         # gate.release() in the finally block below
         proc = await asyncio.create_subprocess_exec(
             self.cli_path, *args,
@@ -1191,7 +1229,7 @@ class ClaudeCliBackend:
                         pass
 
         finally:
-            gate.release()
+            gate.release(is_worker=_is_worker)
             get_cli_session_registry().deregister(_reg_id)
             if steer_task:
                 steer_task.cancel()
@@ -1274,13 +1312,15 @@ class ClaudeCliBackend:
         )
 
         gate = get_rate_gate()
+        _is_worker = session_type == "worker"
         logger.info(
             f"[CLI-stream] Spawning: {self.cli_path} -p --model {_model_flag(model)} "
             f"tools={use_tools} prompt_len={len(prompt)} "
-            f"(gate: {gate.active}/{gate.max_concurrent} active)"
+            f"(gate: {gate.active}/{gate.max_concurrent} active, "
+            f"workers: {gate.active_workers}/{gate.worker_concurrent})"
         )
 
-        await gate.acquire()
+        await gate.acquire(is_worker=_is_worker)
         try:
             proc = await asyncio.create_subprocess_exec(
                 self.cli_path, *args,
@@ -1291,7 +1331,7 @@ class ClaudeCliBackend:
                 cwd=cwd or None,
             )
         except Exception:
-            gate.release()
+            gate.release(is_worker=_is_worker)
             raise
 
         _reg_id = new_cli_session_id()
@@ -1357,7 +1397,7 @@ class ClaudeCliBackend:
                     if result_text and len(result_text) > yielded_length:
                         yield result_text[yielded_length:]
         finally:
-            gate.release()
+            gate.release(is_worker=_is_worker)
 
         await proc.wait()
         get_cli_session_registry().deregister(_reg_id)

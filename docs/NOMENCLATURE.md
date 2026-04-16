@@ -139,7 +139,7 @@
 | **ChatOrchestrator** | Orchestrates the 3-layer pipeline |
 | **ClaudeService** | Manages Claude API calls across all layers |
 | **SessionEventBus** | Per-session async queue for dispatcher→worker communication |
-| **DeepWorkerPool** | Per-session async worker pool (max 3 workers) |
+| **DeepWorkerPool** | Per-session async worker pool (configurable via `MAX_WORKERS`, default 15) |
 | **ToolRegistry** | Central registry of all tool definitions and handlers |
 | **ToolPromptBuilder** | Generates tool blocks for system prompts |
 | **ToolResponseParser** | Extracts `<tool_call>` blocks from LLM text |

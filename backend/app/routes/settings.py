@@ -25,9 +25,20 @@ SETTINGS_FILE = str(VOXYFLOW_DATA_DIR / "settings.json")
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
 
+_default_worker_model: str = "sonnet"
+
+
 def get_default_worker_model() -> str:
-    """Return the default worker model (always sonnet)."""
-    return "sonnet"
+    """Return the default worker model (from settings or 'sonnet' fallback)."""
+    return _default_worker_model
+
+
+def set_default_worker_model(model: str) -> None:
+    """Update the cached default worker model (called when settings are loaded)."""
+    global _default_worker_model
+    if model:
+        _default_worker_model = model
+        logger.info(f"[Settings] Default worker model set to: {model}")
 
 
 async def _load_settings_from_db() -> dict | None:
@@ -127,6 +138,9 @@ class ModelsSettings(BaseModel):
         model="claude-opus-4",
         enabled=True,
     )
+
+    # Default model for workers (haiku/sonnet/opus)
+    default_worker_model: str = "sonnet"
 
     # Named provider endpoints (user's machines / remote instances)
     endpoints: list[ProviderEndpoint] = []

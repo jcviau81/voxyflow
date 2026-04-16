@@ -25,7 +25,7 @@ Spawns `claude -p` subprocesses. Uses Claude Max subscription directly.
 - Personality mode: `native_tools="cli_mcp"` in personality_service.py
 - Permissions: `--permission-mode bypassPermissions` (MCP tools are our own REST API)
 - `--strict-mcp-config` prevents Claude Code's own MCP servers from polluting context
-- **Rate gate**: `CliRateGate` in cli_backend.py — global semaphore (max concurrent) + min spacing between calls. Prevents 529 rate limit errors on Max subscription. Configured via `CLI_MAX_CONCURRENT` (default 2) and `CLI_MIN_SPACING_MS` (default 500). Applied to all 5 CLI entry points: `call()`, `_call_with_tool_events()`, `stream_persistent()`, `call_steerable()`, `stream()`
+- **Rate gate**: `CliRateGate` in cli_backend.py — dual-semaphore concurrency limiter. Session (dispatcher/chat) and worker CLI calls have independent semaphores so workers never starve interactive chat. Configured via `CLI_SESSION_CONCURRENT` (default 5), `CLI_WORKER_CONCURRENT` (default 15), and `CLI_MIN_SPACING_MS` (default 0). Applied to all 5 CLI entry points: `call()`, `_call_with_tool_events()`, `stream_persistent()`, `call_steerable()`, `stream()`
 
 ### 2. Native Anthropic SDK (`provider_type: "anthropic"` or `CLAUDE_USE_NATIVE=true`)
 Direct API calls via `anthropic` Python SDK. Requires API key.
@@ -171,8 +171,10 @@ CLAUDE_USE_CLI=true
 CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
 CLAUDE_SONNET_MODEL=claude-sonnet-4-6
 CLAUDE_DEEP_MODEL=claude-opus-4-6
-CLI_MAX_CONCURRENT=2
-CLI_MIN_SPACING_MS=500
+CLI_SESSION_CONCURRENT=5
+CLI_WORKER_CONCURRENT=15
+CLI_MIN_SPACING_MS=0
+MAX_WORKERS=15
 ```
 
 ---
