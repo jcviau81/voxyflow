@@ -101,25 +101,7 @@ voxyflow.example.com {
 }
 ```
 
-### 2. Docker
-
-```dockerfile
-# Build stage
-FROM node:18-alpine AS build
-WORKDIR /app
-COPY frontend-react/package*.json ./
-RUN npm ci
-COPY frontend-react/ .
-RUN npm run build
-
-# Serve stage
-FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
-```
-
-### 3. GitHub Pages / Vercel / Netlify
+### 2. GitHub Pages / Vercel / Netlify
 
 ```bash
 # Vercel

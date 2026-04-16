@@ -3,7 +3,6 @@
 > **SECURITY WARNING**
 > Voxyflow has **no authentication system** (no login/password). It must be run behind closed doors.
 > **Recommended configurations:**
-> - **Docker** (recommended for first-time users) — sandboxed, isolated from the host
 > - **Tailscale tunnel** — secure access via private network
 > - **Local network only** — not exposed to the internet
 > - **Personal machine only** — single-user local setup
@@ -40,7 +39,6 @@ uvicorn app.main:app ...
 | Node.js | 18+ | Frontend build & dev server |
 | Python | 3.12+ | Backend (`asyncio`, type hints, `match` statements) |
 | Git | any | |
-| Docker | 24+ | Optional — recommended for sandboxed deployments |
 
 **LLM backend (at least one):**
 - Claude CLI (`claude`) — for CLI backend (recommended with Claude Max subscription)
@@ -54,39 +52,6 @@ uvicorn app.main:app ...
 **Optional (for high-quality TTS):**
 - XTTS v2 server — separate GPU machine or container (see [TTS Setup](#7-optional-tts-setup))
 - Without it, TTS falls back to browser `speechSynthesis` (works out of the box)
-
----
-
-## Quick Start with Docker (Recommended)
-
-Docker is the safest way to run Voxyflow — the backend is sandboxed and isolated from the host.
-
-### 1. Clone and build
-
-```bash
-git clone https://github.com/your-org/voxyflow.git
-cd voxyflow
-docker compose up --build
-```
-
-### 2. Access
-
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:8000`
-- Health check: `curl http://localhost:8000/health`
-
-### 3. Configure LLM providers
-
-After the first launch, go to **Settings > Models** in the UI to configure your LLM providers (see [LLM Provider Setup](#4-llm-provider-setup) below).
-
-### Docker volumes
-
-| Volume | Container path | Purpose |
-|--------|---------------|---------|
-| `voxyflow-data` | `/data/.voxyflow` | Database, ChromaDB, sessions |
-| `voxyflow-personality` | `/app/personality` | Personality files |
-
-> **Note:** If using the Claude CLI backend inside Docker, you need to mount your Claude credentials (`~/.claude/`) into the container and ensure the `claude` binary is available.
 
 ---
 
@@ -137,7 +102,7 @@ Edit `.env` as needed. Minimal config (CLI backend):
 CLAUDE_USE_CLI=true
 CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
 CLAUDE_SONNET_MODEL=claude-sonnet-4-6
-CLAUDE_DEEP_MODEL=claude-opus-4-6
+CLAUDE_DEEP_MODEL=claude-opus-4-7
 ```
 
 > **Config ownership rules:**
@@ -240,7 +205,7 @@ Uses your Claude Max subscription by spawning `claude -p` subprocesses. No API k
    CLAUDE_USE_CLI=true
    CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
    CLAUDE_SONNET_MODEL=claude-sonnet-4-6
-   CLAUDE_DEEP_MODEL=claude-opus-4-6
+   CLAUDE_DEEP_MODEL=claude-opus-4-7
    ```
 
 **Rate limiting:** The CLI backend uses a dual-semaphore rate gate (`CliRateGate`) that gives session (dispatcher/chat) and worker CLI calls independent concurrency pools, so background workers never starve interactive chat. Configure via environment variables:
