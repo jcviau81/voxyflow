@@ -24,6 +24,7 @@ import json
 import logging
 import re
 import time
+from collections import OrderedDict
 from uuid import uuid4
 
 from fastapi import WebSocket
@@ -68,16 +69,30 @@ class ChatOrchestrator(LayerRunnersMixin):
         self._worker_pools: dict[str, DeepWorkerPool] = {}
         # Pending confirmations for destructive direct actions (taskId → delegate data)
         self._pending_confirms: dict[str, dict] = {}
-        # Per-chat lock to serialize user messages and worker callbacks
-        self._chat_locks: dict[str, asyncio.Lock] = {}
+        # Per-chat lock to serialize user messages and worker callbacks.
+        # Bounded LRU — oldest idle chats get evicted once we're over the cap so
+        # long-lived servers don't grow this dict without bound.
+        self._chat_locks: "OrderedDict[str, asyncio.Lock]" = OrderedDict()
 
     MAX_CALLBACK_DEPTH = 2  # Prevent infinite dispatcher↔worker re-trigger loops
+    _CHAT_LOCKS_CAP = 512  # evict oldest unlocked entries past this
 
     def _get_chat_lock(self, chat_id: str) -> asyncio.Lock:
         """Get or create a per-chat asyncio.Lock to serialize responses."""
-        if chat_id not in self._chat_locks:
-            self._chat_locks[chat_id] = asyncio.Lock()
-        return self._chat_locks[chat_id]
+        lock = self._chat_locks.get(chat_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._chat_locks[chat_id] = lock
+            # Evict oldest *unlocked* entries if we're over cap. Never evict a
+            # locked entry — that would create a second lock for the same chat.
+            while len(self._chat_locks) > self._CHAT_LOCKS_CAP:
+                oldest_id, oldest_lock = next(iter(self._chat_locks.items()))
+                if oldest_lock.locked():
+                    break
+                self._chat_locks.pop(oldest_id, None)
+        else:
+            self._chat_locks.move_to_end(chat_id)
+        return lock
 
     # ------------------------------------------------------------------
     # Main entry point

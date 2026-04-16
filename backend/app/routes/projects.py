@@ -1,5 +1,6 @@
 """Project endpoints."""
 
+import asyncio
 import json
 import os
 import uuid
@@ -44,8 +45,10 @@ def _load_jobs() -> list[dict]:
 
 def _save_jobs(jobs: list[dict]) -> None:
     VOXYFLOW_DIR.mkdir(parents=True, exist_ok=True)
-    with open(JOBS_FILE, "w", encoding="utf-8") as f:
+    tmp_path = str(JOBS_FILE) + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(jobs, f, indent=2)
+    os.replace(tmp_path, JOBS_FILE)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -1017,7 +1020,7 @@ async def generate_standup(project_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/{project_id}/standup/schedule", response_model=StandupScheduleResponse | None)
 async def get_standup_schedule(project_id: str):
     """Get the current standup schedule for a project, or null if not configured."""
-    jobs = _load_jobs()
+    jobs = await asyncio.to_thread(_load_jobs)
     for job in jobs:
         if (
             job.get("type") == "standup"
@@ -1046,7 +1049,7 @@ async def set_standup_schedule(
 
     schedule = f"0 {body.minute} {body.hour} * * *"  # cron: daily at HH:MM
 
-    jobs = _load_jobs()
+    jobs = await asyncio.to_thread(_load_jobs)
 
     # Remove existing standup job for this project if any
     jobs = [
@@ -1069,7 +1072,7 @@ async def set_standup_schedule(
         },
     }
     jobs.append(new_job)
-    _save_jobs(jobs)
+    await asyncio.to_thread(_save_jobs, jobs)
 
     return StandupScheduleResponse(
         job_id=job_id,

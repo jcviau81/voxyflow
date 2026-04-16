@@ -2,6 +2,7 @@
 
 import logging
 import re
+import threading
 from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
@@ -16,12 +17,18 @@ class _LRUDict(OrderedDict):
 
     Usage: drop-in replacement for plain dict / defaultdict in cases where
     the key space is theoretically unbounded (e.g. chat_id per user session).
+
+    Thread-safety: ``__missing__`` holds an internal lock so two concurrent
+    readers cannot both create a fresh entry for the same key — important when
+    the default factory returns a synchronisation primitive (asyncio.Lock,
+    threading.Lock) whose identity matters.
     """
 
     def __init__(self, maxsize: int = 500, default_factory=None):
         super().__init__()
         self._maxsize = maxsize
         self._default_factory = default_factory
+        self._lock = threading.Lock()
 
     def __getitem__(self, key):
         value = super().__getitem__(key)
@@ -40,9 +47,14 @@ class _LRUDict(OrderedDict):
     def __missing__(self, key):
         if self._default_factory is None:
             raise KeyError(key)
-        value = self._default_factory()
-        self[key] = value
-        return value
+        with self._lock:
+            # Double-check under the lock — another thread may have created
+            # the entry between the miss and acquiring the lock.
+            if super().__contains__(key):
+                return super().__getitem__(key)
+            value = self._default_factory()
+            self[key] = value
+            return value
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +64,7 @@ class _LRUDict(OrderedDict):
 _MODEL_MAP = {
     "claude-haiku-4":   "claude-haiku-4-5-20251001",
     "claude-sonnet-4":  "claude-sonnet-4-6",
-    "claude-opus-4":    "claude-opus-4-6",
+    "claude-opus-4":    "claude-opus-4-7",
     "claude-haiku-3":   "claude-3-haiku-20240307",
     "claude-sonnet-3":  "claude-3-5-sonnet-20241022",
     "claude-opus-3":    "claude-3-opus-20240229",

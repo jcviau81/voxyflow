@@ -95,8 +95,10 @@ def _save_jobs(jobs: list[dict]) -> None:
     """Persist jobs to ~/.voxyflow/jobs.json. Creates dir if needed."""
     try:
         VOXYFLOW_DIR.mkdir(parents=True, exist_ok=True)
-        with open(JOBS_FILE, "w", encoding="utf-8") as f:
+        tmp_path = str(JOBS_FILE) + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(jobs, f, indent=2)
+        os.replace(tmp_path, JOBS_FILE)
     except Exception as e:
         logger.error(f"Failed to save jobs: {e}")
         raise HTTPException(500, f"Failed to persist jobs: {e}")
@@ -118,7 +120,7 @@ def _find_job(jobs: list[dict], job_id: str) -> tuple[int, dict] | tuple[None, N
 @router.get("")
 async def list_jobs():
     """List all configured jobs (enriched with live next_run from APScheduler)."""
-    jobs = _load_jobs()
+    jobs = await asyncio.to_thread(_load_jobs)
 
     # Enrich with live next_run from APScheduler (best-effort)
     try:
@@ -142,7 +144,7 @@ async def list_jobs():
 @router.post("", status_code=201)
 async def create_job(req: JobCreateRequest):
     """Create a new job and register it with APScheduler."""
-    jobs = _load_jobs()
+    jobs = await asyncio.to_thread(_load_jobs)
     new_job = JobModel(
         name=req.name,
         type=req.type,
@@ -152,7 +154,7 @@ async def create_job(req: JobCreateRequest):
     )
     job_dict = new_job.dict()
     jobs.append(job_dict)
-    _save_jobs(jobs)
+    await asyncio.to_thread(_save_jobs, jobs)
     logger.info(f"[Jobs] Created job '{new_job.name}' (id={new_job.id}, schedule={new_job.schedule})")
 
     # Register with live APScheduler
@@ -167,7 +169,7 @@ async def create_job(req: JobCreateRequest):
 
 async def _do_update_job(job_id: str, req: JobUpdateRequest):
     """Shared logic for PUT and PATCH update."""
-    jobs = _load_jobs()
+    jobs = await asyncio.to_thread(_load_jobs)
     idx, job = _find_job(jobs, job_id)
     if job is None:
         raise HTTPException(404, f"Job not found: {job_id}")
@@ -184,7 +186,7 @@ async def _do_update_job(job_id: str, req: JobUpdateRequest):
         job["payload"] = req.payload
 
     jobs[idx] = job
-    _save_jobs(jobs)
+    await asyncio.to_thread(_save_jobs, jobs)
     logger.info(f"[Jobs] Updated job '{job['name']}' (id={job_id})")
 
     # Sync with live APScheduler (re-register to pick up schedule/enabled changes)
@@ -212,13 +214,13 @@ async def patch_job(job_id: str, req: JobUpdateRequest):
 @router.delete("/{job_id}", status_code=204)
 async def delete_job(job_id: str):
     """Delete a job and unregister it from APScheduler."""
-    jobs = _load_jobs()
+    jobs = await asyncio.to_thread(_load_jobs)
     idx, job = _find_job(jobs, job_id)
     if job is None:
         raise HTTPException(404, f"Job not found: {job_id}")
 
     jobs.pop(idx)
-    _save_jobs(jobs)
+    await asyncio.to_thread(_save_jobs, jobs)
     logger.info(f"[Jobs] Deleted job '{job['name']}' (id={job_id})")
 
     # Unregister from APScheduler
@@ -234,7 +236,7 @@ async def delete_job(job_id: str):
 @router.post("/{job_id}/run")
 async def trigger_job(job_id: str):
     """Trigger a job immediately (fire-and-forget)."""
-    jobs = _load_jobs()
+    jobs = await asyncio.to_thread(_load_jobs)
     _, job = _find_job(jobs, job_id)
     if job is None:
         raise HTTPException(404, f"Job not found: {job_id}")
