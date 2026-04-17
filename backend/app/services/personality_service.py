@@ -261,20 +261,9 @@ class PersonalityService:
         """
         parts: list[str] = []
 
-        if chat_level == "general" or not project:
-            # Main/general chat: inject compact project names roll (only when short).
-            # For larger workspaces the dispatcher calls `voxyflow.project.list` on demand.
-            if project_names:
-                if len(project_names) <= 12:
-                    parts.append("## Projects\n" + " · ".join(project_names))
-                else:
-                    head = " · ".join(project_names[:12])
-                    parts.append(
-                        f"## Projects ({len(project_names)} total — call voxyflow.project.list for full set)\n{head} …"
-                    )
-
-        elif chat_level in ("project", "general") and project:
-            # Project chat: inject full project state
+        if chat_level in ("project", "general") and project:
+            # Project chat: inject full project state.
+            # Main/general chat with no project pulls the list via voxyflow.project.list on demand.
             name = project.get("title", "Untitled")
             description = project.get("description") or "No description"
             tech_stack = project.get("tech_stack") or "Not specified"

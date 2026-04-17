@@ -1243,9 +1243,11 @@ class ChatOrchestrator(LayerRunnersMixin):
         card_id: str | None,
         chat_level: str,
     ) -> tuple[dict | None, dict | None, list[str]]:
-        """Resolve project context, card context, and project name list from the database.
+        """Resolve project context and card context from the database.
 
         Returns (project_context, card_context, project_names).
+        project_names is always an empty list — the dispatcher calls
+        voxyflow.project.list on demand instead of receiving the full roll.
         """
         project_context = None
         card_context = None
@@ -1310,19 +1312,6 @@ class ChatOrchestrator(LayerRunnersMixin):
                             }
             except Exception as e:
                 logger.warning(f"Failed to resolve project/card context: {e}")
-
-        # For general/main chat: fetch all project names for the Chat Init block
-        if chat_level == "general" or not project_id:
-            try:
-                from app.database import async_session, Project
-                from sqlalchemy import select
-                async with async_session() as db:
-                    all_proj_result = await db.execute(
-                        select(Project.title).where(Project.status != "archived")
-                    )
-                    project_names = [row[0] for row in all_proj_result.fetchall()]
-            except Exception as e:
-                logger.warning(f"Failed to fetch project names for main chat init: {e}")
 
         return project_context, card_context, project_names
 
