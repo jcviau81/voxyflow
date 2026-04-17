@@ -1289,7 +1289,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Worker Supervision ------------------------------------------------
     {
         "name": "task.complete",
-        "description": "Signal that your assigned task is finished. You MUST call this when done.",
+        "description": "Legacy completion signal. Prefer voxyflow.worker.complete.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id", "summary"],
@@ -1305,6 +1305,87 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "task_complete",
+        "_role": "worker",
+        "_scope": "core",
+    },
+
+    # ---- Strict Worker Lifecycle: claim + complete -------------------------
+    {
+        "name": "voxyflow.worker.claim",
+        "description": (
+            "Claim your assigned task and declare a plan. You MUST call this "
+            "as your first action before any other tool use."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["task_id", "plan"],
+            "properties": {
+                "task_id": {"type": "string", "description": "Your assigned task ID"},
+                "plan": {
+                    "type": "string",
+                    "description": (
+                        "One or two sentences: what you understand the task to be "
+                        "and how you intend to approach it."
+                    ),
+                },
+            },
+        },
+        "_handler": "worker_claim",
+        "_role": "worker",
+        "_scope": "core",
+    },
+    {
+        "name": "voxyflow.worker.complete",
+        "description": (
+            "Finalize your task and deliver a structured, dispatcher-facing summary. "
+            "This is the ONLY way to return results — no other output reaches the dispatcher. "
+            "Call this exactly once, as your last action."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["task_id", "status", "summary"],
+            "properties": {
+                "task_id": {"type": "string", "description": "Your assigned task ID"},
+                "status": {
+                    "type": "string",
+                    "enum": ["success", "partial", "failed"],
+                    "description": "Outcome",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": (
+                        "What you did and what the dispatcher needs to know, in your own words. "
+                        "Not the raw output — a real summary. Minimum 20 chars."
+                    ),
+                },
+                "findings": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: 3–7 short bullet points highlighting key results.",
+                },
+                "pointers": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["label"],
+                        "properties": {
+                            "label": {"type": "string"},
+                            "offset": {"type": "integer"},
+                            "length": {"type": "integer"},
+                        },
+                    },
+                    "description": (
+                        "Optional: labelled offsets into the full artifact the dispatcher "
+                        "can fetch via voxyflow.workers.read_artifact for detail."
+                    ),
+                },
+                "next_step": {
+                    "type": "string",
+                    "description": "Optional: one-line suggestion of what should happen next.",
+                },
+            },
+        },
+        "_handler": "worker_complete",
         "_role": "worker",
         "_scope": "core",
     },
@@ -1886,7 +1967,11 @@ def _get_system_handler(name: str):
             git_status, git_log, git_diff, git_branches, git_commit,
             tmux_list, tmux_run, tmux_send, tmux_capture, tmux_new, tmux_kill,
         )
-        from app.services.worker_supervisor import handle_task_complete
+        from app.services.worker_supervisor import (
+            handle_task_complete,
+            handle_worker_claim,
+            handle_worker_complete,
+        )
 
         async def memory_search(params: dict) -> dict:
             """Semantic search across Voxy's long-term memory, scoped to the current project."""
@@ -2509,6 +2594,8 @@ def _get_system_handler(name: str):
             "tmux_new": tmux_new,
             "tmux_kill": tmux_kill,
             "task_complete": handle_task_complete,
+            "worker_claim": handle_worker_claim,
+            "worker_complete": handle_worker_complete,
             "memory_search": memory_search,
             "memory_save": memory_save,
             "memory_delete": memory_delete,

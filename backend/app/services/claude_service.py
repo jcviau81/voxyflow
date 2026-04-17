@@ -1162,14 +1162,24 @@ class ClaudeService(ApiCallerMixin):
 
         dynamic_parts: list[str] = []
 
-        # Mandatory task.complete instruction for workers
+        # Mandatory worker lifecycle — strict 3-phase contract.
         dynamic_parts.append(
-            "IMPORTANT: When your task is complete, you MUST call the task.complete tool "
-            "with a status (success/partial/failed) and the FULL RAW OUTPUT in the summary field. "
-            "Put the COMPLETE, VERBATIM content — full file contents, full stdout/stderr, all data. "
-            "Do NOT summarize, paraphrase, or truncate. Never write generic 'Done' or 'Task complete'. "
-            "The dispatcher needs the exact raw content, not a description of what you found. "
-            "This is mandatory — never finish without calling task.complete."
+            "## Worker Lifecycle (MANDATORY)\n"
+            "You operate under a strict 3-phase protocol. The orchestrator enforces it.\n\n"
+            "**Phase 1 — Claim.** As your FIRST action, call voxyflow.worker.claim with "
+            "your task_id and a one-sentence plan describing what you intend to do. "
+            "Do NOT run any other tool before claim.\n\n"
+            "**Phase 2 — Work.** Use any tools needed to complete the task. "
+            "Save full raw output (file contents, stdout/stderr, data) — it will be persisted "
+            "to an artifact that the dispatcher can read on demand.\n\n"
+            "**Phase 3 — Complete.** As your LAST action, call voxyflow.worker.complete "
+            "with: task_id, status (success/partial/failed), summary (2–4 sentences of what you "
+            "did and why it matters — NOT the raw output), findings (3–7 short bullets of the "
+            "key results), pointers (labelled offsets into the artifact for important detail), "
+            "and next_step (optional). Stop immediately after.\n\n"
+            "The summary is the ONLY thing the dispatcher sees directly — write it for a reader "
+            "who has NOT seen the raw output. Do not truncate the artifact itself; the "
+            "dispatcher will fetch specific sections via read_artifact using your pointers."
         )
 
         if project_id:
@@ -1243,10 +1253,12 @@ class ClaudeService(ApiCallerMixin):
             )
 
         system_prompt = (
-            "You are a task worker. Execute the task below using the available MCP tools. "
-            "Be precise and concise. When done, call task.complete with the FULL RAW OUTPUT "
-            "in the summary field (not just 'Done'). Do NOT summarize or truncate — include "
-            "the complete verbatim content: file contents, command stdout/stderr, data values."
+            "You are a lightweight task worker operating under a strict lifecycle.\n\n"
+            "1. FIRST: call voxyflow.worker.claim(task_id, plan) with a one-sentence plan.\n"
+            "2. Then: use MCP tools to execute the task.\n"
+            "3. LAST: call voxyflow.worker.complete(task_id, status, summary, findings, pointers, next_step?) "
+            "with a real 2–4 sentence summary in your own words, not the raw output. "
+            "Stop immediately after. The artifact is persisted automatically — don't inline it."
         )
 
         if client_type in ("anthropic", "cli"):

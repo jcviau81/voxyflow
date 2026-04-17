@@ -50,7 +50,8 @@ TOOLS_DISPATCHER = {
 # Worker tools: full MCP access — exec, files, git, tmux, AI features,
 # destructive ops. Workers run in background subprocesses.
 TOOLS_WORKER = TOOLS_DISPATCHER | {
-    "task.complete",  # Worker supervision — workers signal completion
+    "task.complete",  # Legacy completion signal (kept for back-compat)
+    "voxyflow.worker.claim", "voxyflow.worker.complete",  # Strict lifecycle
     "voxyflow.card.duplicate", "voxyflow.card.enrich",
     "voxyflow.wiki.create", "voxyflow.wiki.update",
     "system.exec",

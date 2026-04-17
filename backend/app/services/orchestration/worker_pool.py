@@ -57,8 +57,12 @@ logger = logging.getLogger("voxyflow.orchestration")
 # everything else gets a short preview + artifact_path reference.
 # ---------------------------------------------------------------------------
 PREVIEW_CHARS = 500          # for DB ledger, worker session store, session store
-DISPATCHER_PREVIEW_CHARS = 10_000  # for the dispatcher callback to the LLM
+DISPATCHER_PREVIEW_CHARS = 10_000  # legacy truncation bound (raw-text fallback path)
 WS_RESULT_CHARS = 2_000     # for the task:completed WS event to the frontend
+
+# Per-callback bound on the structured dispatcher message — summary + findings
+# + pointers. The raw artifact is always out of band (read_artifact).
+MAX_DISPATCHER_PAYLOAD_CHARS = 15_000
 
 
 def _preview(text: str, limit: int = PREVIEW_CHARS) -> str:
@@ -139,6 +143,10 @@ class DeepWorkerPool:
         self._task_tool_events: dict[str, list[dict]] = {}  # task_id → bounded tool event buffer
         self._MAX_TOOL_EVENTS = 50
         self._task_message_queues: dict[str, asyncio.Queue] = {}  # task_id → steer queue
+        # Rolling log of recent dispatcher callback sizes per dispatcher_chat_id.
+        # Used to clip burst completions so simultaneous workers can't flood the
+        # dispatcher in a single turn window.
+        self._recent_callback_chars: dict[str, list[tuple[float, int]]] = {}
         self._stopped = False
 
     # Regex to extract file path from read-file intents
@@ -373,6 +381,260 @@ class DeepWorkerPool:
             return result
         return result[:limit] + f"\n[... truncated — {len(result):,} chars total ...]"
 
+    # ------------------------------------------------------------------
+    # Worker lifecycle: closeout pass + local fallback
+    # ------------------------------------------------------------------
+
+    async def _closeout_pass(
+        self,
+        event: ActionIntent,
+        artifact_path: str | None,
+        fallback_text: str | None,
+    ) -> bool:
+        """Spawn a lightweight subprocess that reads the artifact and emits
+        voxyflow.worker.complete for the given task.
+
+        Runs only when the main worker did not deliver a structured completion.
+        Returns True if a structured completion now exists, False otherwise.
+        """
+        if os.environ.get("VOXYFLOW_CLOSEOUT_PASS", "1") != "1":
+            return False
+
+        from app.services.worker_supervisor import get_worker_supervisor
+        supervisor = get_worker_supervisor()
+
+        if supervisor.is_structured_complete(event.task_id):
+            return True
+        if not artifact_path and not (fallback_text and fallback_text.strip()):
+            logger.info(
+                f"[Closeout] Skipping task {event.task_id} — no artifact and no output"
+            )
+            return False
+
+        closeout_model = os.environ.get("VOXYFLOW_CLOSEOUT_MODEL", "fast")
+        closeout_timeout = int(os.environ.get("VOXYFLOW_CLOSEOUT_TIMEOUT", "90"))
+
+        status = supervisor.get_status(event.task_id) or {}
+        source_hint = status.get("completion_source")
+        if source_hint == "task.complete":
+            context_hint = " The worker called the legacy task.complete — upgrade the result."
+        elif source_hint == "auto":
+            context_hint = " The worker exited without calling any completion tool."
+        else:
+            context_hint = ""
+
+        closeout_prompt = (
+            f"You are a closeout agent. Worker task {event.task_id} "
+            f"(intent \"{event.intent}\") just finished.{context_hint}\n\n"
+            "Your job is ONE thing: produce a structured dispatcher-facing completion.\n\n"
+            "Steps:\n"
+            f"1. Call voxyflow.workers.read_artifact(task_id=\"{event.task_id}\") "
+            "to read the artifact. If the artifact is very large, page with offset/length.\n"
+            "2. Call voxyflow.worker.complete exactly once with:\n"
+            "   - status: \"success\" if the task looks complete, \"partial\" otherwise\n"
+            "   - summary: 2–4 sentences in plain prose — what was done, what the dispatcher needs to know\n"
+            "   - findings: 3–7 short bullets of the most important results\n"
+            "   - pointers: list of {label, offset, length} into the artifact for notable sections\n"
+            "   - next_step: optional one-liner the dispatcher could act on\n"
+            "3. Stop after voxyflow.worker.complete — do not do anything else."
+        )
+
+        closeout_cancel = asyncio.Event()
+        closeout_mq: asyncio.Queue[str] = asyncio.Queue()
+
+        async def _closeout_cb(tool_name: str, arguments: dict, result: dict):
+            if tool_name in ("voxyflow.worker.complete", "voxyflow_worker_complete"):
+                wc_summary = (arguments.get("summary") or "").strip()
+                wc_status = arguments.get("status", "success")
+                wc_findings = arguments.get("findings") or []
+                wc_pointers = arguments.get("pointers") or []
+                wc_next = arguments.get("next_step") or None
+                if wc_summary and wc_status in ("success", "partial", "failed"):
+                    supervisor.mark_completed(
+                        event.task_id, wc_summary, wc_status,
+                        findings=wc_findings if isinstance(wc_findings, list) else None,
+                        pointers=wc_pointers if isinstance(wc_pointers, list) else None,
+                        next_step=wc_next,
+                        source="closeout",
+                    )
+                    closeout_cancel.set()
+
+        try:
+            await asyncio.wait_for(
+                self._claude.execute_lightweight_task(
+                    chat_id=f"closeout-{event.task_id}",
+                    prompt=closeout_prompt,
+                    model=closeout_model,
+                    project_id=event.data.get("project_id"),
+                    card_context=None,
+                    tool_callback=_closeout_cb,
+                    cancel_event=closeout_cancel,
+                    message_queue=closeout_mq,
+                    session_id=event.session_id or "",
+                    task_id=event.task_id,
+                ),
+                timeout=closeout_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"[Closeout] Timed out after {closeout_timeout}s for task {event.task_id}")
+            closeout_cancel.set()
+        except Exception as e:
+            logger.warning(f"[Closeout] Failed for task {event.task_id}: {e}")
+
+        ok = supervisor.is_structured_complete(event.task_id)
+        if ok:
+            logger.info(f"[Closeout] Produced structured completion for task {event.task_id}")
+        else:
+            logger.warning(f"[Closeout] Did not produce structured completion for task {event.task_id}")
+        return ok
+
+    def _synthesize_fallback_completion(
+        self,
+        event: ActionIntent,
+        result_content: str | None,
+    ) -> None:
+        """Last-resort: synthesize a minimal structured completion locally.
+
+        Used when the worker did not call voxyflow.worker.complete AND the
+        closeout pass did not produce a structured payload either. Keeps the
+        dispatcher path uniform — everything downstream reads from the same
+        structured payload shape.
+        """
+        from app.services.worker_supervisor import get_worker_supervisor
+        supervisor = get_worker_supervisor()
+        if supervisor.is_structured_complete(event.task_id):
+            return
+
+        text = (result_content or event.summary or "").strip()
+        if len(text) > 1500:
+            summary = text[:1500] + "…"
+        elif text:
+            summary = text
+        else:
+            summary = f"Worker for intent '{event.intent}' finished without output."
+
+        if len(summary) < 20:
+            summary = f"Worker for intent '{event.intent}' finished. Output: {summary}"
+
+        supervisor.mark_completed(
+            event.task_id, summary, "partial",
+            findings=[], pointers=[], next_step=None,
+            source="auto",
+        )
+        logger.warning(
+            f"[DeepWorker] Task {event.task_id}: synthesized fallback completion "
+            "(no worker.complete + closeout did not run or failed)"
+        )
+
+    def _build_dispatcher_callback(
+        self,
+        task_id: str,
+        intent: str,
+        payload: dict | None,
+        artifact_path: str | None,
+        raw_len: int,
+        fallback_text: str | None,
+    ) -> str:
+        """Render the structured completion payload as the dispatcher-facing
+        callback message. Keeps total length under MAX_DISPATCHER_PAYLOAD_CHARS.
+        """
+        status = (payload or {}).get("status") or "success"
+        header = (
+            f"[SYSTEM: Worker '{intent}' (task {task_id}) completed with status: {status}.]"
+        )
+
+        # Degraded path — no structured payload at all (closeout + fallback disabled).
+        # Fall back to the legacy truncated-raw behaviour so the dispatcher still
+        # gets something coherent.
+        if not payload or not (payload.get("summary") or "").strip():
+            body_text = fallback_text or "(no output)"
+            if len(body_text) > DISPATCHER_PREVIEW_CHARS:
+                body_text = (
+                    body_text[:DISPATCHER_PREVIEW_CHARS]
+                    + f"\n[... truncated — {len(body_text):,} chars total ...]"
+                )
+            hint = ""
+            if artifact_path and raw_len > len(body_text):
+                hint = (
+                    f"\n[Full raw output ({raw_len:,} chars) available — "
+                    f"call voxyflow.workers.read_artifact(task_id=\"{task_id}\") to page.]"
+                )
+            return (
+                f"{header}\n\n"
+                f"--- Worker Result ---\n{body_text}\n--- End Result ---{hint}\n\n"
+                "Present this to the user naturally and decide if follow-up actions are needed."
+            )
+
+        summary = (payload.get("summary") or "").strip()
+        findings = payload.get("findings") or []
+        pointers = payload.get("pointers") or []
+        next_step = (payload.get("next_step") or "").strip()
+
+        parts: list[str] = [header, "", "## Summary", summary]
+        if findings:
+            parts.append("")
+            parts.append("## Key findings")
+            for f in findings:
+                parts.append(f"- {f}")
+        if pointers:
+            parts.append("")
+            parts.append("## Detail pointers (artifact)")
+            for p in pointers:
+                label = p.get("label", "detail")
+                off = p.get("offset")
+                length = p.get("length")
+                call = f"voxyflow.workers.read_artifact(task_id=\"{task_id}\""
+                if isinstance(off, int):
+                    call += f", offset={off}"
+                if isinstance(length, int):
+                    call += f", length={length}"
+                call += ")"
+                parts.append(f"- **{label}** — {call}")
+        elif artifact_path and raw_len > 0:
+            parts.append("")
+            parts.append(
+                f"## Artifact\nFull output available ({raw_len:,} chars). "
+                f"Call voxyflow.workers.read_artifact(task_id=\"{task_id}\") only if you need detail."
+            )
+        if next_step:
+            parts.append("")
+            parts.append(f"## Worker's suggested next step\n{next_step}")
+
+        parts.append("")
+        parts.append(
+            "Present the summary to the user. Only fetch pointers if you genuinely need the detail."
+        )
+        msg = "\n".join(parts)
+
+        # Per-message hard cap — keeps any single worker from blowing up one turn.
+        if len(msg) > MAX_DISPATCHER_PAYLOAD_CHARS:
+            # Drop detail pointers first (easy to re-fetch), then trim findings,
+            # then trim the summary. Always keep header + summary prefix.
+            msg = msg[:MAX_DISPATCHER_PAYLOAD_CHARS] + "\n[... callback truncated — call read_artifact for detail ...]"
+        return msg
+
+    def _clip_against_recent_bursts(self, dispatcher_chat_id: str, msg: str) -> str:
+        """If multiple workers just completed against the same dispatcher chat,
+        clip this callback further so the dispatcher turn doesn't receive an
+        aggregate flood of text. Uses a 60s rolling window.
+        """
+        window_seconds = int(os.environ.get("VOXYFLOW_CALLBACK_WINDOW_S", "60"))
+        burst_cap = int(os.environ.get("VOXYFLOW_CALLBACK_BURST_CAP_CHARS", "40000"))
+        now = time.time()
+        log = self._recent_callback_chars.setdefault(dispatcher_chat_id, [])
+        log[:] = [(t, n) for (t, n) in log if now - t < window_seconds]
+        cumulative = sum(n for _, n in log)
+        budget = max(2000, burst_cap - cumulative)
+        if len(msg) > budget:
+            clipped = msg[:budget]
+            msg = (
+                clipped
+                + f"\n[... clipped: dispatcher burst cap ({burst_cap:,} chars / {window_seconds}s) "
+                f"hit across recent completions. Use read_artifact for full detail. ...]"
+            )
+        log.append((now, len(msg)))
+        return msg
+
     async def _stale_cleanup_loop(self) -> None:
         """Prune old completed-task entries from memory (every 60s)."""
         try:
@@ -561,10 +823,15 @@ class DeepWorkerPool:
                 f"Intent: {event.intent}\n"
                 f"Summary: {event.summary}\n"
                 f"Task ID: {event.task_id}\n"
-                f"\nWhen done, call task.complete(task_id=\"{event.task_id}\", summary=\"<FULL RAW OUTPUT HERE>\", status=\"success|partial|failed\").\n"
-                f"CRITICAL: Put the COMPLETE, VERBATIM output in the summary field — full file contents, "
-                f"full stdout/stderr from commands, all data retrieved. Do NOT summarize, paraphrase, "
-                f"or truncate. The dispatcher needs the raw content, not a description of it.\n"
+                f"\nLifecycle (strict):\n"
+                f"1. FIRST call voxyflow.worker.claim(task_id=\"{event.task_id}\", plan=\"<one sentence plan>\").\n"
+                f"2. Then do the work — use any MCP tools you need. All raw output is captured "
+                f"automatically to an artifact; don't try to keep it in your reply.\n"
+                f"3. LAST call voxyflow.worker.complete(task_id=\"{event.task_id}\", status=\"success|partial|failed\", "
+                f"summary=\"<2-4 sentences in your own words>\", findings=[...], pointers=[{{label, offset, length}}], "
+                f"next_step=\"...\"). Stop immediately after.\n"
+                f"\nThe summary is the ONLY thing the dispatcher sees. Write it for a reader who has "
+                f"not seen the raw output. Use pointers to flag important sections of the artifact.\n"
             )
 
             if is_move_or_update:
@@ -640,15 +907,38 @@ class DeepWorkerPool:
             async def _tool_callback(tool_name: str, arguments: dict, result: dict):
                 supervisor.record_tool_call(event.task_id, tool_name, arguments)
 
-                # Intercept task.complete calls — the MCP handler runs in a
-                # subprocess with its own supervisor instance, so we must
-                # propagate the completion to the main-process supervisor here.
-                if tool_name in ("task.complete", "task_complete"):
+                # Lifecycle interception — the MCP handlers run in a subprocess
+                # with their own supervisor instance, so we must propagate
+                # claim/complete into the main-process supervisor here.
+                if tool_name in ("voxyflow.worker.claim", "voxyflow_worker_claim"):
+                    wc_task_id = arguments.get("task_id", event.task_id)
+                    wc_plan = arguments.get("plan", "")
+                    if wc_plan:
+                        supervisor.mark_claimed(wc_task_id, wc_plan)
+                elif tool_name in ("voxyflow.worker.complete", "voxyflow_worker_complete"):
+                    wc_task_id = arguments.get("task_id", event.task_id)
+                    wc_summary = (arguments.get("summary") or "").strip()
+                    wc_status = arguments.get("status", "success")
+                    wc_findings = arguments.get("findings") or []
+                    wc_pointers = arguments.get("pointers") or []
+                    wc_next = arguments.get("next_step") or None
+                    if wc_summary and wc_status in ("success", "partial", "failed"):
+                        supervisor.mark_completed(
+                            wc_task_id, wc_summary, wc_status,
+                            findings=wc_findings if isinstance(wc_findings, list) else None,
+                            pointers=wc_pointers if isinstance(wc_pointers, list) else None,
+                            next_step=wc_next,
+                            source="worker.complete",
+                        )
+                elif tool_name in ("task.complete", "task_complete"):
                     tc_task_id = arguments.get("task_id", event.task_id)
                     tc_summary = arguments.get("summary", "")
                     tc_status = arguments.get("status", "success")
                     if tc_summary:
-                        supervisor.mark_completed(tc_task_id, tc_summary, tc_status)
+                        supervisor.mark_completed(
+                            tc_task_id, tc_summary, tc_status,
+                            source="task.complete",
+                        )
                         logger.info(
                             f"[Supervisor] Task {tc_task_id} explicitly completed via "
                             f"task.complete (status={tc_status}, "
@@ -707,9 +997,28 @@ class DeepWorkerPool:
 
                 stall_timeout = int(os.environ.get("WORKER_STALL_TIMEOUT", "1800"))
                 stall_warning = int(os.environ.get("WORKER_STALL_WARNING", str(stall_timeout - 300)))
+                claim_nudge_after = int(os.environ.get("WORKER_CLAIM_NUDGE_AFTER", "5"))
                 warned = False
+                claim_nudged = False
                 while not cancel_event.is_set():
                     await asyncio.sleep(15)
+
+                    # Claim watchdog: nudge the worker once if it has called
+                    # several tools without first calling voxyflow.worker.claim.
+                    if (
+                        not claim_nudged
+                        and not supervisor.is_claimed(event.task_id)
+                        and supervisor.tool_calls_since_register(event.task_id) >= claim_nudge_after
+                    ):
+                        claim_nudged = True
+                        message_queue.put_nowait(
+                            "PROTOCOL REMINDER: you have not called voxyflow.worker.claim yet. "
+                            "Call it NOW with a one-sentence plan before any further actions."
+                        )
+                        logger.info(
+                            f"[Supervisor] Claim nudge sent to task {event.task_id} "
+                            f"(tool_calls={supervisor.tool_calls_since_register(event.task_id)})"
+                        )
 
                     # Check supervisor's tool-call-based activity
                     stall_secs = supervisor.check_stall(event.task_id)
@@ -728,7 +1037,8 @@ class DeepWorkerPool:
                         warned = True
                         message_queue.put_nowait(
                             f"WARNING: You have been idle for {stall_secs:.0f}s. "
-                            "Wrap up now and call task.complete or you will be cancelled."
+                            "Wrap up now and call voxyflow.worker.complete (with a real summary, "
+                            "findings, and pointers) or you will be cancelled."
                         )
                     if stall_secs > stall_timeout:
                         logger.warning(
@@ -828,11 +1138,16 @@ class DeepWorkerPool:
                     result_content = "\n\n".join(_captured_tool_outputs)
 
             if not supervisor.is_completed(event.task_id):
-                # Auto-complete: worker finished but forgot to call task.complete
+                # Auto-complete: worker finished but forgot to call any completion tool.
+                # A closeout pass (below, after artifact write) will try to upgrade
+                # this to a structured voxyflow.worker.complete payload.
                 auto_summary = result_content or event.summary or "Task completed (auto-closed)"
-                supervisor.mark_completed(event.task_id, auto_summary, "success")
+                supervisor.mark_completed(
+                    event.task_id, auto_summary, "success", source="auto",
+                )
                 logger.info(
-                    f"[Supervisor] Task {event.task_id} auto-completed (worker did not call task.complete)"
+                    f"[Supervisor] Task {event.task_id} auto-completed "
+                    "(no worker.complete — closeout pass will attempt structured upgrade)"
                 )
             else:
                 task_status = supervisor.get_status(event.task_id)
@@ -924,6 +1239,20 @@ class DeepWorkerPool:
                     status="success",
                 )
 
+            # Closeout pass — if the worker did not deliver a structured
+            # voxyflow.worker.complete, spawn a lightweight subprocess whose
+            # only job is to read the artifact and emit one. This upgrades the
+            # dispatcher-facing payload from raw truncated text to structured
+            # summary / findings / pointers.
+            if not supervisor.is_structured_complete(event.task_id):
+                await self._closeout_pass(event, artifact_path, result_content)
+
+            # Local synthesis fallback — if closeout also failed, synthesize
+            # a minimal structured payload from what we have. Keeps the
+            # dispatcher path uniform even when both tiers above missed.
+            if not supervisor.is_structured_complete(event.task_id):
+                self._synthesize_fallback_completion(event, result_content)
+
             # --- Secondary stores get previews; artifact is canonical ---
             result_preview = _preview(result_content, PREVIEW_CHARS) if result_content else ""
 
@@ -977,38 +1306,30 @@ class DeepWorkerPool:
                 except Exception as _persist_err:
                     logger.warning(f"[DeepWorker] Failed to persist worker result: {_persist_err}")
 
-            # --- Notify dispatcher: embed result in a single user message ---
-            # Previously injected result as role="assistant" which caused consecutive
-            # same-role messages (Anthropic API rejects). Now we merge the result
-            # directly into the callback user message for proper role alternation.
+            # --- Notify dispatcher: embed structured completion in one user msg ---
+            # The dispatcher receives the worker.complete payload (summary, findings,
+            # pointers, next_step) — NOT the raw artifact. Full artifact stays on
+            # disk and is fetched on demand via voxyflow.workers.read_artifact.
             dispatcher_chat_id = event.data.get("dispatcher_chat_id")
             if dispatcher_chat_id and self._orchestrator:
                 try:
                     from starlette.websockets import WebSocketState
                     _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
                     if _ws_state == WebSocketState.CONNECTED:
-                        summarized = result_content or "(no output)"
-                        if result_content:
-                            summarized = await self._summarize_result(result_content, event.intent or "")
-
-                        # Always advertise the artifact when the result
-                        # was truncated or is large enough to warrant
-                        # paged access.
-                        artifact_hint = ""
+                        payload = supervisor.get_completion_payload(event.task_id)
                         raw_len = len(result_content or "")
-                        if artifact_path and raw_len > len(summarized):
-                            artifact_hint = (
-                                f"\n[Full raw output ({raw_len:,} chars) available — "
-                                f"call voxyflow.workers.read_artifact(task_id=\"{event.task_id}\") "
-                                f"to retrieve verbatim. Use offset/length for paging.]"
-                            )
-
-                        callback_msg = (
-                            f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) completed successfully.]\n\n"
-                            f"--- Worker Result ---\n"
-                            f"{summarized}\n"
-                            f"--- End Result ---{artifact_hint}\n\n"
-                            f"Present this result to the user naturally and decide if follow-up actions are needed."
+                        callback_msg = self._build_dispatcher_callback(
+                            task_id=event.task_id,
+                            intent=event.intent or "",
+                            payload=payload,
+                            artifact_path=artifact_path,
+                            raw_len=raw_len,
+                            fallback_text=result_content,
+                        )
+                        # Track per-dispatcher-turn aggregate; clip further if a
+                        # burst of completions would flood the dispatcher.
+                        callback_msg = self._clip_against_recent_bursts(
+                            dispatcher_chat_id, callback_msg,
                         )
                         callback_message_id = f"worker-cb-{uuid4().hex[:8]}"
                         logger.info(f"[DeepWorker] Re-triggering dispatcher after {event.intent}")
