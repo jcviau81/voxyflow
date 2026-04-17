@@ -2549,12 +2549,27 @@ def _build_url_and_payload(
     path = path_template
     remaining_params = dict(params)
 
+    env_pid = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+    pid_hard_scope = bool(env_pid) and env_pid != "system-main"
+
     for var in path_vars:
-        value = remaining_params.pop(var, None)
-        if value is None:
-            # Auto-inject from environment (e.g. project_id → VOXYFLOW_PROJECT_ID)
-            env_key = f"VOXYFLOW_{var.upper()}"
-            value = os.environ.get(env_key, "").strip() or None
+        llm_value = remaining_params.pop(var, None)
+        env_value = os.environ.get(f"VOXYFLOW_{var.upper()}", "").strip() or None
+
+        # Hard boundary: in a project-scoped chat, env-supplied project_id
+        # always wins over whatever the LLM passes. The schema strips it, but
+        # some models re-emit it anyway — this enforces the invariant so a
+        # stray/guessed UUID can't leak cards into the wrong project.
+        if var == "project_id" and pid_hard_scope:
+            if llm_value and llm_value != env_pid:
+                logger.warning(
+                    f"[MCP] Ignoring LLM-supplied project_id={llm_value!r}; "
+                    f"forcing current-project scope {env_pid!r}"
+                )
+            value = env_pid
+        else:
+            value = llm_value if llm_value is not None else env_value
+
         if value is None:
             raise ValueError(f"Missing required path parameter: {var}")
         path = path.replace(f"{{{var}}}", str(value))
