@@ -187,29 +187,50 @@ async def general_websocket(websocket: WebSocket):
     bg_tasks: list[asyncio.Task] = []
 
     async def _deliver_pending(sid: str) -> None:
-        """Deliver any pending worker results for this session.
-
-        Always fetches from store — deduplication is handled by mark_delivered()
-        which deletes the file, so get_pending() won't return already-delivered results.
-        This allows correct re-delivery after client reconnects.
-        """
+        """Deliver any pending worker results for this session."""
         try:
             pending = await pending_store.get_pending(sid)
             for result in pending:
                 try:
-                    # Remove internal tracking key before sending
                     pending_file = result.pop("_pending_file", None)
                     await websocket.send_json(result)
                     logger.info(f"[WS] Delivered pending result: {result.get('type')} task={result.get('payload', {}).get('taskId')}")
-                    # Re-add for cleanup
                     if pending_file:
                         result["_pending_file"] = pending_file
                     await pending_store.mark_delivered(result)
                 except Exception as e:
                     logger.warning(f"[WS] Failed to deliver pending result: {e}")
-                    break  # WS probably closed, stop trying
+                    break
         except Exception as e:
             logger.warning(f"[WS] Error checking pending results: {e}")
+
+    async def _deliver_all_pending() -> None:
+        """Deliver ALL pending results across all sessions on WebSocket connect.
+
+        This ensures workers that completed while the client was on a different
+        project (or disconnected) are delivered immediately, without requiring
+        the user to manually navigate to each project.
+        """
+        try:
+            all_pending = await pending_store.list_all_pending()
+            if not all_pending:
+                return
+            total = sum(len(r) for _, r in all_pending)
+            logger.info(f"[WS] Delivering {total} pending result(s) across {len(all_pending)} session(s)")
+            for _sid, results in all_pending:
+                for result in results:
+                    try:
+                        pending_file = result.pop("_pending_file", None)
+                        await websocket.send_json(result)
+                        logger.info(f"[WS] Delivered pending (all-sessions): {result.get('type')} session={_sid} task={result.get('payload', {}).get('taskId')}")
+                        if pending_file:
+                            result["_pending_file"] = pending_file
+                        await pending_store.mark_delivered(result)
+                    except Exception as e:
+                        logger.warning(f"[WS] Failed to deliver pending result: {e}")
+                        return  # WS probably closed
+        except Exception as e:
+            logger.warning(f"[WS] Error delivering all pending results: {e}")
 
     # Hard cap on inbound WebSocket payload size. The chat path already caps
     # content server-side via Pydantic models; this is the outer envelope.
@@ -308,8 +329,9 @@ async def general_websocket(websocket: WebSocket):
 
                     session_id = payload.get("sessionId") or str(uuid4())
 
-                    # Deliver any pending results from previous connection
-                    await _deliver_pending(session_id)
+                    # Deliver ALL pending results across all sessions on connect
+                    # so results from other projects arrive without manual navigation
+                    await _deliver_all_pending()
 
                     # Derive the canonical chat_id from project_id/card_id (server-side authority).
                     # The frontend may pass a stable chatId for sub-sessions, but we validate
@@ -557,17 +579,15 @@ async def general_websocket(websocket: WebSocket):
                         logger.warning("[WS] action:confirm missing taskId")
 
                 elif msg_type == "session:sync":
-                    # Deliver any pending worker results for the reconnecting session.
-                    # Frontend sends this immediately on WebSocket connect so results
-                    # are delivered without waiting for the next chat:message.
                     sync_session_id = payload.get("sessionId") or ""
                     if sync_session_id:
-                        logger.info(f"[WS] session:sync → delivering pending for {sync_session_id}")
-                        # Update WebSocket reference on any surviving worker pool
-                        # FIRST so in-flight workers can stream to the reconnected client.
+                        logger.info(f"[WS] session:sync → reattaching pool for {sync_session_id}")
+                        # Reattach in-flight workers to this WebSocket FIRST
                         _orchestrator.update_pool_websocket(sync_session_id, websocket)
-                        await _deliver_pending(sync_session_id)
                         active_session_ids.add(sync_session_id)
+                    # Deliver all pending across all sessions (idempotent — files are
+                    # deleted after delivery so already-delivered results won't re-appear)
+                    await _deliver_all_pending()
 
                 else:
                     # Ack unknown message types
