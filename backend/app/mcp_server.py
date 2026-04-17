@@ -799,18 +799,25 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- CLI Sessions ------------------------------------------------------
     {
         "name": "voxyflow.sessions.list",
-        "description": "List active CLI subprocess sessions (chat and worker processes). Shows running processes with model, duration, and session details.",
+        "description": "List active CLI subprocess sessions (chat and worker processes). Auto-scoped to the current project — pass scope='all' for a system-wide view.",
         "inputSchema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                    "description": "Session visibility scope. 'current' (default) shows only this project's sessions; 'all' shows every active CLI subprocess. Ignored in general chat, which always sees all.",
+                },
+            },
         },
-        "_http": ("GET", "/api/cli-sessions/active", None),
+        "_handler": "sessions_list",
+        "_scope": "voxyflow",
     },
 
     # ---- Worker Ledger -----------------------------------------------------
     {
         "name": "voxyflow.workers.list",
-        "description": "List recent worker tasks from the Worker Ledger. Use to check if a similar task is already running before dispatching.",
+        "description": "List recent worker tasks from the Worker Ledger. Auto-scoped to the current project — pass scope='all' for the full system-wide ledger.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -821,6 +828,11 @@ _TOOL_DEFINITIONS: list[dict] = [
                     "description": "Filter by status",
                 },
                 "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                    "description": "Project scope for results. 'current' (default) returns only workers from this project; 'all' returns every worker in the ledger. Ignored in general chat, which always sees all.",
+                },
             },
         },
         "_handler": "workers_list",
@@ -828,12 +840,17 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workers.get_result",
-        "description": "Get the full details and result of a specific worker task by task_id. Returns metadata + the worker's full result text from the database.",
+        "description": "Get the full details and result of a specific worker task by task_id. Strict project scope — tasks from other projects are rejected unless scope='all' is passed.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],
             "properties": {
                 "task_id": {"type": "string", "description": "Worker task ID"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                },
             },
         },
         "_handler": "workers_get_result",
@@ -847,8 +864,9 @@ _TOOL_DEFINITIONS: list[dict] = [
             "you need the EXACT content the worker produced — file contents, command "
             "stdout, search results, logs — rather than the Haiku summary delivered "
             "in the worker callback. Supports pagination via offset/length for "
-            "outputs larger than ~50k chars. Response: content, offset, length, "
-            "total_chars, has_more, path."
+            "outputs larger than ~50k chars. Strict project scope — tasks from other "
+            "projects are rejected unless scope='all'. Response: content, offset, "
+            "length, total_chars, has_more, path."
         ),
         "inputSchema": {
             "type": "object",
@@ -857,6 +875,11 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "task_id": {"type": "string", "description": "Worker task ID whose artifact to read"},
                 "offset": {"type": "integer", "description": "Starting char offset into the artifact body (default 0)"},
                 "length": {"type": "integer", "description": "Max chars to return in this slice (default 50000)"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                },
             },
         },
         "_handler": "workers_read_artifact",
@@ -864,27 +887,39 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.task.peek",
-        "description": "Monitor a running worker task in real time. Returns the recent tools called, tool count, running duration, and current status. Use this when a worker seems stuck or to check its progress before deciding to cancel it. Returns source='live' if the worker is still running, or source='db' for completed tasks.",
+        "description": "Monitor a running worker task in real time. Returns the recent tools called, tool count, running duration, and current status. Strict project scope — pass scope='all' to peek at tasks from other projects.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],
             "properties": {
                 "task_id": {"type": "string", "description": "Worker task ID (full or partial)"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                },
             },
         },
-        "_http": ("GET", "/api/worker-tasks/{task_id}/peek", None),
+        "_handler": "task_peek",
+        "_scope": "voxyflow",
     },
     {
         "name": "voxyflow.task.cancel",
-        "description": "Cancel a running worker task immediately. Use when a worker is stuck, has been running too long, or is no longer needed. The worker subprocess will be terminated and the task marked as cancelled. Returns cancelled=true if the task was found and cancelled.",
+        "description": "Cancel a running worker task immediately. Strict project scope — tasks from other projects cannot be cancelled unless scope='all' is passed.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],
             "properties": {
                 "task_id": {"type": "string", "description": "Worker task ID to cancel"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                },
             },
         },
-        "_http": ("POST", "/api/worker-tasks/{task_id}/cancel", None),
+        "_handler": "task_cancel",
+        "_scope": "voxyflow",
     },
 
     # ---- System ------------------------------------------------------------
@@ -1524,13 +1559,18 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Task Steer -----------------------------------------------------------
     {
         "name": "task.steer",
-        "description": "Inject a steering message into a running worker task. Use this to redirect a worker mid-execution — give it new instructions, corrections, or ask it to focus on something specific. The worker must be actively running (use task.peek to check status first).",
+        "description": "Inject a steering message into a running worker task. Use this to redirect a worker mid-execution. Strict project scope — tasks from other projects are rejected unless scope='all'.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id", "message"],
             "properties": {
                 "task_id": {"type": "string", "description": "Worker task ID to steer"},
                 "message": {"type": "string", "description": "Steering instruction to inject into the worker's conversation"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                },
             },
         },
         "_handler": "task_steer",
@@ -1564,6 +1604,84 @@ def _auto_injectable_params() -> set[str]:
     if cid:
         injectable.add("card_id")
     return injectable
+
+
+# ---------------------------------------------------------------------------
+# Project scoping for ledger / session tools
+# ---------------------------------------------------------------------------
+# Worker ledger, CLI sessions, and task-control tools default to the current
+# project (like memory_search), preventing cross-project leakage. Callers opt
+# out via scope="all" when they really need a system-wide view.
+
+def _current_project_scope() -> tuple[str, bool]:
+    """Resolve the active project scope from VOXYFLOW_PROJECT_ID.
+
+    Returns (project_id, is_project_scoped):
+      - ("<uuid>", True)  → real project chat, should filter by that project
+      - ("", False)       → general chat (empty or "system-main"), no filter
+    """
+    pid = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+    if pid and pid != "system-main":
+        return pid, True
+    return "", False
+
+
+async def _lookup_task_project(task_id: str) -> str | None:
+    """Resolve a worker task's project_id via live session store, then DB.
+
+    Returns the project_id string (possibly empty), or None when the task
+    is unknown in both stores.
+    """
+    try:
+        from app.services.worker_session_store import get_worker_session_store
+        session = get_worker_session_store().get_session(task_id)
+        if session is not None:
+            return (session.get("project_id") or "").strip()
+    except Exception as live_err:
+        logger.debug(f"[mcp._lookup_task_project] live lookup failed: {live_err}")
+
+    try:
+        from app.database import async_session, WorkerTask
+        from sqlalchemy import select
+        async with async_session() as db:
+            row = (await db.execute(
+                select(WorkerTask).where(WorkerTask.id == task_id)
+            )).scalar_one_or_none()
+            if row is None:
+                return None
+            return (row.project_id or "").strip()
+    except Exception as db_err:
+        logger.warning(f"[mcp._lookup_task_project] DB lookup failed for {task_id}: {db_err}")
+        return None
+
+
+async def _enforce_task_scope(task_id: str, scope: str | None) -> dict | None:
+    """Return an error dict if the task falls outside the active project scope.
+
+    scope handling:
+      - "all" (case-insensitive) → bypass the check, return None
+      - otherwise                → strict: task must belong to the current
+                                    project when VOXYFLOW_PROJECT_ID is set
+    In general chat (no project scope active), the check is a no-op.
+    """
+    if (scope or "").lower() == "all":
+        return None
+    current_pid, scoped = _current_project_scope()
+    if not scoped:
+        return None
+    task_pid = await _lookup_task_project(task_id)
+    if task_pid is None:
+        return {"success": False, "error": f"Task {task_id} not found."}
+    if task_pid != current_pid:
+        return {
+            "success": False,
+            "error": (
+                f"Task {task_id} belongs to a different project "
+                f"(project_id={task_pid or '∅'}) and is not visible from the "
+                f"current project scope. Pass scope='all' to override."
+            ),
+        }
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1960,6 +2078,9 @@ def _get_system_handler(name: str):
                 return {"error": "task_id is required"}
             if not message:
                 return {"error": "message is required"}
+            scope_err = await _enforce_task_scope(task_id, params.get("scope"))
+            if scope_err is not None:
+                return scope_err
             try:
                 client = _get_http_client()
                 resp = await client.post(
@@ -1975,21 +2096,124 @@ def _get_system_handler(name: str):
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
+        async def task_peek(params: dict) -> dict:
+            """Live peek into a running worker task, with DB fallback for finished tasks."""
+            task_id = (params.get("task_id") or "").strip()
+            if not task_id:
+                return {"success": False, "error": "task_id is required"}
+            scope_err = await _enforce_task_scope(task_id, params.get("scope"))
+            if scope_err is not None:
+                return scope_err
+            try:
+                client = _get_http_client()
+                resp = await client.get(f"/api/worker-tasks/{task_id}/peek")
+                if resp.status_code == 404:
+                    return {"success": False, "error": f"Worker task not found: {task_id}"}
+                resp.raise_for_status()
+                data = resp.json()
+                if isinstance(data, dict) and "success" not in data:
+                    data["success"] = True
+                return data
+            except Exception as e:
+                logger.error(f"[mcp.task.peek] failed: {e}")
+                return {"success": False, "error": str(e)}
+
+        async def task_cancel(params: dict) -> dict:
+            """Cancel a running worker task across all active pools."""
+            task_id = (params.get("task_id") or "").strip()
+            if not task_id:
+                return {"success": False, "error": "task_id is required"}
+            scope_err = await _enforce_task_scope(task_id, params.get("scope"))
+            if scope_err is not None:
+                return scope_err
+            try:
+                client = _get_http_client()
+                resp = await client.post(f"/api/worker-tasks/{task_id}/cancel")
+                resp.raise_for_status()
+                data = resp.json()
+                if isinstance(data, dict) and "success" not in data:
+                    data["success"] = True
+                return data
+            except Exception as e:
+                logger.error(f"[mcp.task.cancel] failed: {e}")
+                return {"success": False, "error": str(e)}
+
+        async def sessions_list(params: dict) -> dict:
+            """List active CLI subprocess sessions, scoped to the current project by default."""
+            import time
+            from app.services.cli_session_registry import get_cli_session_registry
+            registry = get_cli_session_registry()
+            current_pid, scoped = _current_project_scope()
+            scope = (params.get("scope") or "").lower()
+            now = time.time()
+
+            all_sessions = registry.list_active()
+            if scope == "all" or not scoped:
+                filtered = all_sessions
+                scope_label = "all"
+            else:
+                filtered = [s for s in all_sessions if (s.project_id or "") == current_pid]
+                scope_label = "project"
+
+            return {
+                "success": True,
+                "scope": scope_label,
+                "project_id": current_pid if scope_label == "project" else None,
+                "sessions": [
+                    {
+                        "id": s.id,
+                        "pid": s.pid,
+                        "sessionId": s.session_id,
+                        "chatId": s.chat_id,
+                        "projectId": s.project_id,
+                        "model": s.model,
+                        "type": s.session_type,
+                        "startedAt": s.started_at,
+                        "durationSeconds": round(now - s.started_at, 1),
+                    }
+                    for s in filtered
+                ],
+                "count": len(filtered),
+                "total_active": registry.count(),
+            }
+
         async def workers_list(params: dict) -> dict:
-            """List active and recent worker tasks from the session store + DB."""
+            """List active and recent worker tasks from the session store + DB.
+
+            Defaults to the current project; pass scope='all' for system-wide.
+            """
             from app.services.worker_session_store import get_worker_session_store
             try:
                 store = get_worker_session_store()
                 session_id = params.get("session_id")
+
+                current_pid, scoped = _current_project_scope()
+                scope = (params.get("scope") or "").lower()
+                if scope == "all" or not scoped:
+                    filter_pid: str | None = None
+                    scope_label = "all"
+                else:
+                    filter_pid = current_pid
+                    scope_label = "project"
+
                 sessions = store.get_sessions(session_id=session_id)
+                if filter_pid:
+                    sessions = [s for s in sessions if (s.get("project_id") or "") == filter_pid]
                 status_filter = params.get("status")
                 if status_filter:
                     sessions = [s for s in sessions if s.get("status") == status_filter]
                 limit = params.get("limit", 10)
                 sessions = sessions[:limit]
+
+                base = {
+                    "success": True,
+                    "scope": scope_label,
+                    "project_id": filter_pid,
+                    "count": len(sessions),
+                }
                 if not sessions:
-                    return {"success": True, "result": "No active or recent workers found.", "workers": [], "count": 0}
-                return {"success": True, "workers": sessions, "count": len(sessions)}
+                    return {**base, "result": "No active or recent workers found.", "workers": []}
+                return {**base, "workers": sessions}
             except Exception as e:
                 logger.error(f"[mcp.workers.list] failed: {e}")
                 return {"success": False, "error": str(e)}
@@ -2000,6 +2224,9 @@ def _get_system_handler(name: str):
             task_id = (params.get("task_id") or "").strip()
             if not task_id:
                 return {"success": False, "error": "task_id is required"}
+            scope_err = await _enforce_task_scope(task_id, params.get("scope"))
+            if scope_err is not None:
+                return scope_err
             try:
                 store = get_worker_session_store()
                 session = store.get_session(task_id)
@@ -2056,6 +2283,9 @@ def _get_system_handler(name: str):
             task_id = (params.get("task_id") or "").strip()
             if not task_id:
                 return {"success": False, "error": "task_id is required"}
+            scope_err = await _enforce_task_scope(task_id, params.get("scope"))
+            if scope_err is not None:
+                return scope_err
             try:
                 offset = int(params.get("offset", 0) or 0)
             except (TypeError, ValueError):
@@ -2314,6 +2544,9 @@ def _get_system_handler(name: str):
             "memory_get": memory_get,
             "knowledge_search": knowledge_search,
             "task_steer": task_steer,
+            "task_peek": task_peek,
+            "task_cancel": task_cancel,
+            "sessions_list": sessions_list,
             "workers_list": workers_list,
             "workers_get_result": workers_get_result,
             "workers_read_artifact": workers_read_artifact,

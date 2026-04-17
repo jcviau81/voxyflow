@@ -318,6 +318,187 @@ def test_chat_id_validation():
     assert derive_chat_id(None, None, "project:evil") == "project:system-main"
 
 
+# --- Test 7: workers_list auto-scopes to current project ------------------
+@test("mcp.workers.list auto-scopes to VOXYFLOW_PROJECT_ID; scope='all' opts out")
+def test_workers_list_scoping():
+    import asyncio
+    from app import mcp_server
+    from app.services import worker_session_store as wss_mod
+
+    class FakeSess:
+        def __init__(self, task_id, project_id, status="running"):
+            self.task_id = task_id
+            self.project_id = project_id
+            self.status = status
+
+        def to_dict(self):
+            return {
+                "task_id": self.task_id,
+                "project_id": self.project_id,
+                "status": self.status,
+            }
+
+    class FakeStore:
+        def __init__(self):
+            self._sessions = [
+                FakeSess("t-home-1", "proj-home"),
+                FakeSess("t-armored-1", "proj-armored"),
+                FakeSess("t-home-2", "proj-home", status="done"),
+            ]
+
+        def get_sessions(self, session_id=None, include_old=False):
+            return [s.to_dict() for s in self._sessions]
+
+    original = wss_mod.get_worker_session_store
+    wss_mod.get_worker_session_store = lambda: FakeStore()
+    prev_env = os.environ.get("VOXYFLOW_PROJECT_ID")
+    handler = mcp_server._get_system_handler("workers_list")
+    assert handler is not None, "workers_list handler not registered"
+
+    try:
+        # Project chat — default scope filters to current project
+        os.environ["VOXYFLOW_PROJECT_ID"] = "proj-home"
+        result = asyncio.run(handler({}))
+        assert result["scope"] == "project", f"expected scope=project, got {result!r}"
+        assert result["project_id"] == "proj-home"
+        ids = [w["task_id"] for w in result.get("workers", [])]
+        assert ids == ["t-home-1", "t-home-2"], f"wrong workers: {ids}"
+
+        # scope='all' opt-out returns the full ledger even in a project chat
+        result_all = asyncio.run(handler({"scope": "all"}))
+        assert result_all["scope"] == "all"
+        ids_all = {w["task_id"] for w in result_all.get("workers", [])}
+        assert ids_all == {"t-home-1", "t-armored-1", "t-home-2"}, \
+            f"scope=all should return everything, got {ids_all}"
+
+        # General chat — no scope filter
+        os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+        result_gen = asyncio.run(handler({}))
+        assert result_gen["scope"] == "all"
+        assert len(result_gen.get("workers", [])) == 3
+    finally:
+        wss_mod.get_worker_session_store = original
+        if prev_env is None:
+            os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+        else:
+            os.environ["VOXYFLOW_PROJECT_ID"] = prev_env
+
+
+# --- Test 7b: task-scope enforcement rejects cross-project access ---------
+@test("mcp._enforce_task_scope rejects tasks from other projects")
+def test_enforce_task_scope():
+    import asyncio
+    from app import mcp_server
+    from app.services import worker_session_store as wss_mod
+
+    class FakeSess:
+        def __init__(self, task_id, project_id):
+            self.task_id = task_id
+            self.project_id = project_id
+            self.status = "running"
+
+        def to_dict(self):
+            return {
+                "task_id": self.task_id,
+                "project_id": self.project_id,
+                "status": self.status,
+            }
+
+    class FakeStore:
+        def __init__(self):
+            self._sessions = {
+                "t-home": FakeSess("t-home", "proj-home"),
+                "t-other": FakeSess("t-other", "proj-armored"),
+            }
+
+        def get_session(self, task_id):
+            s = self._sessions.get(task_id)
+            return s.to_dict() if s else None
+
+    original = wss_mod.get_worker_session_store
+    wss_mod.get_worker_session_store = lambda: FakeStore()
+    prev_env = os.environ.get("VOXYFLOW_PROJECT_ID")
+
+    try:
+        # Same project — allowed
+        os.environ["VOXYFLOW_PROJECT_ID"] = "proj-home"
+        assert asyncio.run(mcp_server._enforce_task_scope("t-home", None)) is None
+
+        # Cross-project — rejected
+        err = asyncio.run(mcp_server._enforce_task_scope("t-other", None))
+        assert err is not None and "different project" in err["error"], \
+            f"expected rejection, got {err!r}"
+
+        # scope='all' bypasses the check
+        assert asyncio.run(mcp_server._enforce_task_scope("t-other", "all")) is None
+
+        # General chat — no enforcement
+        os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+        assert asyncio.run(mcp_server._enforce_task_scope("t-other", None)) is None
+    finally:
+        wss_mod.get_worker_session_store = original
+        if prev_env is None:
+            os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+        else:
+            os.environ["VOXYFLOW_PROJECT_ID"] = prev_env
+
+
+# --- Test 7c: sessions_list auto-scopes to current project ----------------
+@test("mcp.sessions.list auto-scopes CLI sessions to the current project")
+def test_sessions_list_scoping():
+    import asyncio
+    from app import mcp_server
+    from app.services import cli_session_registry as reg_mod
+
+    class FakeRegSess:
+        def __init__(self, id_, project_id):
+            self.id = id_
+            self.pid = 1
+            self.session_id = f"sess-{id_}"
+            self.chat_id = "c"
+            self.project_id = project_id
+            self.model = "m"
+            self.session_type = "chat"
+            self.started_at = 0.0
+
+    class FakeRegistry:
+        def __init__(self):
+            self._sessions = [
+                FakeRegSess("x", "proj-home"),
+                FakeRegSess("y", "proj-armored"),
+                FakeRegSess("z", "proj-home"),
+            ]
+
+        def list_active(self):
+            return self._sessions
+
+        def count(self):
+            return len(self._sessions)
+
+    original = reg_mod.get_cli_session_registry
+    reg_mod.get_cli_session_registry = lambda: FakeRegistry()
+    prev_env = os.environ.get("VOXYFLOW_PROJECT_ID")
+    handler = mcp_server._get_system_handler("sessions_list")
+    assert handler is not None
+
+    try:
+        os.environ["VOXYFLOW_PROJECT_ID"] = "proj-home"
+        result = asyncio.run(handler({}))
+        assert result["scope"] == "project"
+        ids = sorted(s["id"] for s in result["sessions"])
+        assert ids == ["x", "z"], f"expected only Home sessions, got {ids}"
+
+        result_all = asyncio.run(handler({"scope": "all"}))
+        assert result_all["scope"] == "all"
+        assert result_all["count"] == 3
+    finally:
+        reg_mod.get_cli_session_registry = original
+        if prev_env is None:
+            os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+        else:
+            os.environ["VOXYFLOW_PROJECT_ID"] = prev_env
+
+
 # --- Runner ----------------------------------------------------------------
 if __name__ == "__main__":
     print("=" * 60)
@@ -334,6 +515,9 @@ if __name__ == "__main__":
         test_build_context_project_no_global,
         test_cli_backend_injects_env,
         test_chat_id_validation,
+        test_workers_list_scoping,
+        test_enforce_task_scope,
+        test_sessions_list_scoping,
     ]
 
     for t in tests:
