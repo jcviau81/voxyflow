@@ -262,12 +262,16 @@ class PersonalityService:
         parts: list[str] = []
 
         if chat_level == "general" or not project:
-            # Main/general chat: inject project names
+            # Main/general chat: inject compact project names roll (only when short).
+            # For larger workspaces the dispatcher calls `voxyflow.project.list` on demand.
             if project_names:
-                projects_list = "\n".join(f"- {name}" for name in project_names)
-            else:
-                projects_list = "  (no projects yet)"
-            parts.append(f"## Your Projects\n{projects_list}")
+                if len(project_names) <= 12:
+                    parts.append("## Projects\n" + " · ".join(project_names))
+                else:
+                    head = " · ".join(project_names[:12])
+                    parts.append(
+                        f"## Projects ({len(project_names)} total — call voxyflow.project.list for full set)\n{head} …"
+                    )
 
         elif chat_level in ("project", "general") and project:
             # Project chat: inject full project state
@@ -351,16 +355,15 @@ class PersonalityService:
             parts.append(f"## Background Workers Status\n{active_workers_context}")
 
         if worker_classes:
+            # Compact one-line-per-class format — names + intent hints only.
+            # Full model/provider details are lazy-loaded via voxyflow.worker_class.list when needed.
             wc_lines = []
             for wc in worker_classes:
                 name = wc.get("name", "?")
-                model = wc.get("model", "?")
-                provider = wc.get("provider_type", "cli")
-                desc = wc.get("description", "")
-                patterns = ", ".join(wc.get("intent_patterns", []))
-                wc_lines.append(f"- **{name}** → {provider}:{model} — {desc} (patterns: {patterns})")
-            parts.append("## Available Worker Classes\n" + "\n".join(wc_lines)
-                         + "\n\nCards with a `preferred_model` set will override default model routing to use the specified Worker Class.")
+                patterns = wc.get("intent_patterns") or []
+                hint = f" ({', '.join(patterns[:3])})" if patterns else ""
+                wc_lines.append(f"{name}{hint}")
+            parts.append("## Worker Classes\n" + " · ".join(wc_lines))
 
         return "\n\n".join(parts)
 
@@ -533,263 +536,173 @@ class PersonalityService:
         except Exception:
             return ""
 
-    def build_fast_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, agent_persona: Optional[dict] = None, project_names: Optional[list] = None, native_tools: bool = False) -> str:
-        """Build the STATIC system prompt for the fast (dispatcher) layer.
+    def build_dispatcher_prompt(
+        self,
+        tier: str = "fast",
+        chat_level: str = "general",
+        project: Optional[dict] = None,
+        card: Optional[dict] = None,
+        agent_persona: Optional[dict] = None,
+        native_tools: bool = False,
+    ) -> str:
+        """Build the STATIC dispatcher system prompt.
 
-        IMPORTANT — Cache stability contract:
-        This method must return an IDENTICAL string for the same
-        (chat_level, project.id, card.id, native_tools) tuple.
-        Dynamic data (memory_context, project description, recent_cards,
-        project_names) must NOT be embedded here — use build_dynamic_context_block()
-        and inject the result into dynamic_parts / messages[] in the caller.
+        Fast and Deep are the SAME layer (the dispatcher). Only the style hint
+        differs (brief vs thoughtful). Keep this single source of truth — any
+        new behaviour belongs here, not in tier-specific copies.
 
-        The memory_context and project_names params are accepted for backward
-        compatibility but are intentionally NOT embedded in the returned prompt.
+        Cache stability contract: returns an IDENTICAL string for the same
+        (tier, chat_level, project.id, card.id, native_tools) tuple. Dynamic
+        data lives in build_dynamic_context_block() / messages[], not here.
         """
-        voice_instructions = (
-            "\n\n## Voice Instructions\n"
-            "You speak naturally and concisely -- this is a voice conversation, not a text chat.\n"
-            "Keep responses short (1-3 sentences for voice). Be helpful, direct, and friendly.\n"
-            "You help manage projects, tasks, and cards through conversation.\n"
-            "Respond in the same language the user speaks (French or English).\n"
-            "Your personality comes through in HOW you say things -- tone, word choice, energy.\n"
-            "Be yourself. Not a corporate bot."
-        )
-
-        # Build context-appropriate base prompt (STATIC — no dynamic data)
-        # "general" is now just the system-main project — use project prompt path
         if chat_level == "card" and card and project:
             base = self.build_card_prompt(project, card, agent_persona)
-        elif project:
-            base = self.build_project_prompt(project)
-        else:
-            # Fallback: no project context available (general/main)
-            base = self.build_general_prompt()
-
-        # Chat layers have ZERO tools — they converse and delegate only.
-        # Architecture self-knowledge — loaded from ARCHITECTURE.md
-        architecture = self.load_architecture()
-        if architecture:
-            voice_instructions += "\n\n" + architecture
-
-        # Dispatcher rules — loaded from DISPATCHER.md, injected LAST (highest priority)
-        dispatcher = self.load_dispatcher()
-        if dispatcher:
-            voice_instructions += "\n\n" + dispatcher
-
-        # Proactive behavior rules — loaded from PROACTIVE.md
-        proactive = self.load_proactive()
-        if proactive:
-            voice_instructions += "\n\n" + proactive
-
-        # Delegate instructions — different for native tool_use vs CLI+MCP vs XML fallback
-        if native_tools == "cli_mcp":
-            voice_instructions += self._build_cli_mcp_delegate_instructions()
-        elif native_tools:
-            voice_instructions += self._build_native_delegate_instructions()
-        else:
-            voice_instructions += self._build_xml_delegate_instructions()
-
-        # Log system prompt length for debugging delegate issues
-        full_prompt = base + voice_instructions
-        logger.info(f"[PersonalityService] Fast prompt built: {len(full_prompt)} chars, chat_level={chat_level}, native_tools={native_tools}")
-
-        return full_prompt
-
-    def _build_native_delegate_instructions(self) -> str:
-        """Delegate instructions when native tool_use is available (Anthropic SDK)."""
-        return (
-            "\n\n## ⚡ Action Dispatch — delegate_action Tool\n"
-            "When the user asks you to DO something (not just chat), you MUST call the "
-            "delegate_action tool. This is the ONLY way to trigger worker execution.\n\n"
-            "Call delegate_action with:\n"
-            "- action: what to do (create_card, search_web, run_command, etc.)\n"
-            "- summary: brief description of the task\n"
-            "- model: haiku (enrich/summarize/research ONLY), sonnet (default — balanced), opus (complex/code)\n"
-            "- complexity: simple or complex\n\n"
-            "### Model Selection Rules\n"
-            "- **haiku** is RESTRICTED to: enrich, summarize, research, web_search, search, code_review, review. "
-            "For anything else (create_card, run_command, file edits, coding, multi-step) pick sonnet or opus — "
-            "haiku requests for other intents are auto-upgraded to sonnet anyway.\n"
-            "- **sonnet** is the default for everything else.\n"
-            "- **opus** for complex reasoning, architecture, or multi-file code changes.\n\n"
-            "WITHOUT calling delegate_action, NO worker will execute. "
-            "Just saying \"I'll do it\" does NOTHING.\n"
-            "When in doubt, call delegate_action.\n\n"
-            "### Worker Output — Reading Verbatim Results\n"
-            "Worker callbacks deliver a **~10K char preview** of the result. "
-            "When the full output is larger, the callback includes an artifact hint. "
-            "Call `workers_read_artifact(task_id=...)` to get the complete raw output — "
-            "file contents, command stdout, search results, logs. "
-            "Use offset/length to page through outputs larger than ~50K chars.\n\n"
-            "## 🚫 ENVIRONMENT CONSTRAINT\n"
-            "You are running INSIDE Voxyflow's chat layer. You are NOT in a terminal. You are NOT Claude Code.\n"
-            "You may notice you have access to CLI tools (Bash, Read, Write, WebSearch, etc.) — DO NOT USE THEM.\n"
-            "Those are the underlying runtime's tools, NOT yours.\n\n"
-            "YOUR tools are: natural language responses + delegate_action. NOTHING ELSE.\n\n"
-            "If the user asks you to search the web → delegate_action(action='web_research', model='sonnet')\n"
-            "If the user asks you to create a card → delegate_action(action='create_card', model='sonnet')\n"
-            "If the user asks you to run a command → delegate_action(action='run_command', model='sonnet')\n"
-            "NEVER use Bash(), WebSearch(), Read(), Write(), or any CLI tool directly.\n"
-            "NEVER say 'I don't have access to tools' — you DO, via delegate_action.\n"
-            "NEVER say 'my knowledge cuts off at...' — delegate a web search instead."
-        )
-
-    def _build_cli_mcp_delegate_instructions(self) -> str:
-        """Delegate instructions for CLI+MCP mode: inline tools via MCP + XML delegates."""
-        return (
-            "\n\n## ⚡ Your Tools — Inline MCP + Delegate\n"
-            "You have TWO ways to act:\n\n"
-            "### 1. Inline MCP Tools (use directly for fast operations)\n"
-            "You can call these tools directly — they execute immediately:\n"
-            "- `memory.search` / `memory.save` / `knowledge.search` — search/save memory and knowledge base\n"
-            "- `voxyflow.card.list` / `voxyflow.card.get` / `voxyflow.card.create` / "
-            "`voxyflow.card.update` / `voxyflow.card.move` / `voxyflow.card.archive` — card operations\n"
-            "- `voxyflow.workers.list` / `voxyflow.workers.get_result` — check worker status\n"
-            "- `voxyflow.workers.read_artifact(task_id, offset?, length?)` — read the FULL "
-            "verbatim output of a finished worker (file dumps, command stdout, logs). Worker "
-            "callbacks carry a ~10K preview; call this for the complete output or to page "
-            "through large results via offset/length.\n"
-            "- `voxyflow.project.list` / `voxyflow.project.get` — project info\n"
-            "- `voxyflow.wiki.list` / `voxyflow.wiki.get` — wiki pages\n\n"
-            "Use these for quick lookups and simple CRUD. No delegation needed.\n\n"
-            "## 🔒 Project Scoping (automatic)\n"
-            "When you're working inside a project, `memory.search`, `memory.save`, and "
-            "`knowledge.search` are AUTOMATICALLY scoped to the current project by the runtime. "
-            "You don't need to (and shouldn't) pass a project_id manually — it's injected via "
-            "the MCP subprocess environment. Just call the tool with your query/text.\n"
-            "For general/Main chat (no specific project), the tools fall back to global memory "
-            "plus the system-main project's memory.\n\n"
-            "### 2. <delegate> Blocks (for complex/long-running tasks)\n"
-            "For tasks that need research, multi-step execution, web access, or code work — "
-            "include a <delegate> block at the END of your response:\n"
-            "<delegate>\n"
-            '{"action": "...", "model": "haiku|sonnet|opus", "description": "..."}\n'
-            "</delegate>\n\n"
-            "Model selection:\n"
-            "- **haiku** ONLY for: enrich, summarize, research, web_search, search, code_review, review. "
-            "Any other intent sent to haiku is auto-upgraded to sonnet.\n"
-            "- **sonnet** default for running commands, creating cards, multi-step tasks.\n"
-            "- **opus** for complex reasoning or multi-file code changes.\n\n"
-            "Examples of when to delegate:\n"
-            "- Web search/research → <delegate> with model=sonnet (or haiku if trivial)\n"
-            "- Running commands or code → <delegate> with model=sonnet or opus\n"
-            "- Complex multi-step tasks → <delegate> with model=opus\n\n"
-            "WITHOUT the <delegate> block, complex tasks will NOT execute.\n"
-            "When in doubt about complexity, DELEGATE.\n\n"
-            "## 🚫 ENVIRONMENT CONSTRAINT\n"
-            "You are running INSIDE Voxyflow's chat layer via Claude Code CLI.\n"
-            "You may see CLI tools (Bash, Read, Write, WebSearch) — DO NOT USE THEM.\n"
-            "Use ONLY: your MCP tools (listed above) + <delegate> blocks + natural language."
-        )
-
-    def _build_xml_delegate_instructions(self) -> str:
-        """Delegate instructions for XML fallback (proxy mode)."""
-        return (
-            "\n\n## ⚠️ CRITICAL REMINDER — DO NOT FORGET ⚠️\n"
-            "When the user asks you to DO something (not just chat), you MUST include a <delegate> block "
-            "at the END of your response. This is the ONLY way to trigger worker execution.\n\n"
-            "Format — include this EXACTLY:\n"
-            "<delegate>\n"
-            '{"action": "...", "model": "haiku|sonnet|opus", "description": "..."}\n'
-            "</delegate>\n\n"
-            "Model selection:\n"
-            "- **haiku** ONLY for: enrich, summarize, research, web_search, search, code_review, review. "
-            "Any other intent sent to haiku is auto-upgraded to sonnet.\n"
-            "- **sonnet** default for everything else (create_card, run_command, file edits).\n"
-            "- **opus** for complex reasoning or multi-file code changes.\n\n"
-            "WITHOUT this block, NO worker will execute. Just saying \"I'll do it\" does NOTHING.\n"
-            "If you said you would do something but didn't include <delegate>, YOU FAILED.\n"
-            "When in doubt, INCLUDE the delegate block.\n\n"
-            "## 🚫 ENVIRONMENT CONSTRAINT — READ THIS CAREFULLY\n"
-            "You are running INSIDE Voxyflow's chat layer. You are NOT in a terminal. You are NOT Claude Code.\n"
-            "You may notice you have access to CLI tools (Bash, Read, Write, WebSearch, etc.) — DO NOT USE THEM.\n"
-            "Those are the underlying runtime's tools, NOT yours. Using them directly bypasses Voxyflow's "
-            "worker architecture and breaks the user experience.\n\n"
-            "YOUR tools are: natural language responses + <delegate> blocks. NOTHING ELSE.\n\n"
-            "If the user asks you to search the web → <delegate> with model=sonnet, action=web_research.\n"
-            "If the user asks you to create a file → <delegate> with model=sonnet.\n"
-            "If the user asks you to run a command → <delegate> with model=sonnet or opus.\n"
-            "NEVER use Bash(), WebSearch(), Read(), Write(), or any CLI tool directly.\n"
-            "NEVER say 'I don't have access to tools' — you DO, via <delegate>.\n"
-            "NEVER say 'my knowledge cuts off at...' — delegate a web search instead."
-        )
-
-    def build_deep_prompt(self, memory_context: Optional[str] = None, chat_level: str = "general", project: Optional[dict] = None, card: Optional[dict] = None, project_names: Optional[list] = None, has_delegation: bool = False, is_chat_responder: bool = False, native_tools: bool = False) -> str:
-        """Build the STATIC system prompt for the deep layer.
-
-        IMPORTANT — Cache stability contract:
-        Same as build_fast_prompt — dynamic data (memory_context, project description,
-        recent_cards, project_names) must NOT be embedded here.
-        Use build_dynamic_context_block() and inject into dynamic_parts / messages[].
-        Params memory_context and project_names are kept for backward compatibility
-        but are intentionally NOT embedded in the returned prompt.
-        """
-        # Build context-appropriate base (STATIC — no dynamic data)
-        # "general" is now the system-main project
-        if chat_level == "card" and card and project:
-            base = self.build_card_prompt(project, card)
         elif project:
             base = self.build_project_prompt(project)
         else:
             base = self.build_general_prompt()
 
         mode_label = f"Project Chat: {project.get('title', 'Home')}" if project else "Home Chat"
+        if tier == "deep":
+            style = "Opus — thoughtful, precise, depth when helpful."
+        else:
+            style = "Haiku — respond briefly (1–3 sentences)."
+        init_block = (
+            f"\n\n## Dispatcher ({tier}) — {mode_label}\n"
+            f"{style} Match the user's language. You SPEAK and READ only — every state change "
+            f"is delegated. About to call a write/execute tool? STOP and delegate instead."
+        )
+        full_prompt = base + init_block + self._build_dispatcher_tail(native_tools)
+        logger.info(
+            f"[PersonalityService] Dispatcher prompt built (tier={tier}): "
+            f"{len(full_prompt)} chars, chat_level={chat_level}, native_tools={native_tools}"
+        )
+        return full_prompt
 
-        # --- Chat responder mode: dispatcher pattern (same as Fast layer) ---
-        if is_chat_responder:
-            voice_instructions = (
-                f"\n\n## Layer Init — Deep (Primary Chat Responder)\n"
-                f"Context: {mode_label}\n"
-                "You are the DEEP layer responding directly to the user in chat.\n"
-                "You are Opus — thoughtful, precise, and thorough.\n"
-                "Respond conversationally with depth and nuance.\n\n"
-                "Keep responses focused but don't shy away from detail when the user needs it.\n"
-                "Match the user's language and energy.\n"
-            )
+    def build_fast_prompt(
+        self,
+        memory_context: Optional[str] = None,
+        chat_level: str = "general",
+        project: Optional[dict] = None,
+        card: Optional[dict] = None,
+        agent_persona: Optional[dict] = None,
+        project_names: Optional[list] = None,
+        native_tools: bool = False,
+    ) -> str:
+        """Compat wrapper — delegates to build_dispatcher_prompt(tier="fast")."""
+        return self.build_dispatcher_prompt(
+            tier="fast",
+            chat_level=chat_level,
+            project=project,
+            card=card,
+            agent_persona=agent_persona,
+            native_tools=native_tools,
+        )
 
-            # Chat layers have ZERO tools — they converse and delegate only.
-            # Architecture self-knowledge
-            architecture = self.load_architecture()
-            if architecture:
-                voice_instructions += "\n\n" + architecture
+    def _build_dispatcher_tail(self, native_tools) -> str:
+        """Shared tail — architecture + dispatcher.md + proactive + delegate instructions."""
+        tail = ""
+        architecture = self.load_architecture()
+        if architecture:
+            tail += "\n\n" + architecture
+        dispatcher = self.load_dispatcher()
+        if dispatcher:
+            tail += "\n\n" + dispatcher
+        proactive = self.load_proactive()
+        if proactive:
+            tail += "\n\n" + proactive
+        if native_tools == "cli_mcp":
+            tail += self._build_cli_mcp_delegate_instructions()
+        elif native_tools:
+            tail += self._build_native_delegate_instructions()
+        else:
+            tail += self._build_xml_delegate_instructions()
+        return tail
 
-            # Proactive behavior rules — loaded from PROACTIVE.md
-            proactive = self.load_proactive()
-            if proactive:
-                voice_instructions += "\n\n" + proactive
+    def _build_native_delegate_instructions(self) -> str:
+        """Delegate instructions when native tool_use is available (Anthropic SDK)."""
+        return (
+            "\n\n## ⚡ delegate_action tool\n"
+            "To DO anything (not just chat), call `delegate_action(action, summary, model, complexity)`.\n"
+            "Model: **haiku** only for enrich/summarize/research/web_search/review "
+            "(others auto-upgrade). **sonnet** default. **opus** for complex reasoning or "
+            "multi-file code. Without delegate_action, nothing executes.\n"
+            "Large worker outputs → `workers_read_artifact(task_id, offset?, length?)` for the full raw "
+            "result (callbacks only carry a ~10K preview).\n\n"
+            "## 🚫 Not your tools\n"
+            "You run inside Voxyflow's chat, not in a terminal. You may see Bash/Read/Write/WebSearch — "
+            "those belong to the runtime. Use ONLY `delegate_action` + natural language. "
+            "Never claim you can't access tools or that your knowledge is cut off — delegate instead."
+        )
 
-            # Dispatcher constraint + delegate instructions
-            voice_instructions += (
-                "\n\n## ⚡ ABSOLUTE RULE — You Are a Dispatcher, Not an Executor\n"
-                "You are the DEEP layer. Your job is to SPEAK and READ. Period.\n\n"
-                "YOU CANNOT:\n"
-                "- Create, update, delete, or move any data\n"
-                "- Execute commands or write files\n"
-                "- Use any tool that modifies state\n\n"
-                "When the user asks you to DO something, you DISPATCH — always.\n"
-                "You NEVER say 'I'll do that' and then do it yourself.\n"
-                "You NEVER execute an action directly, even if you think you can.\n"
-                "If you're about to use a write/execute tool — STOP. Delegate instead.\n\n"
-                "EXCEPTION: If the user is just chatting or asking a question — respond normally, no delegation."
-            )
+    def _build_cli_mcp_delegate_instructions(self) -> str:
+        """Delegate instructions for CLI+MCP mode: inline tools via MCP + XML delegates."""
+        return (
+            "\n\n## ⚡ Two ways to act\n"
+            "**Inline MCP tools** (direct, fast): memory/knowledge search+save, "
+            "voxyflow.card/project/wiki/workers CRUD, workers.read_artifact for full worker output. "
+            "Call them directly for lookups and simple CRUD — no delegation needed.\n\n"
+            "**Project scoping is automatic**: memory/knowledge tools are scoped to the current "
+            "project by the runtime. Don't pass project_id manually. Main/general chat falls back "
+            "to global + system-main memory.\n\n"
+            "**<delegate> block** (end of response) for research, multi-step, web, code, commands:\n"
+            "<delegate>\n"
+            '{"action":"...","model":"haiku|sonnet|opus","description":"..."}\n'
+            "</delegate>\n"
+            "Model: **haiku** only for enrich/summarize/research/web_search/review "
+            "(others auto-upgrade). **sonnet** default. **opus** for complex reasoning or "
+            "multi-file code. Without <delegate>, complex tasks don't execute. When in doubt, delegate.\n\n"
+            "## 🚫 Not your tools\n"
+            "You run inside Voxyflow's chat via Claude Code CLI. You may see Bash/Read/Write/WebSearch — "
+            "those belong to the runtime. Use ONLY inline MCP tools + <delegate> + natural language."
+        )
 
-            # Delegate format instructions — native tool_use vs CLI+MCP vs XML fallback
-            if native_tools == "cli_mcp":
-                voice_instructions += self._build_cli_mcp_delegate_instructions()
-            elif native_tools:
-                voice_instructions += self._build_native_delegate_instructions()
-            else:
-                voice_instructions += self._build_xml_delegate_instructions()
+    def _build_xml_delegate_instructions(self) -> str:
+        """Delegate instructions for XML fallback (proxy mode)."""
+        return (
+            "\n\n## ⚡ <delegate> block\n"
+            "To DO anything (not just chat), include a <delegate> block at the END of your response:\n"
+            "<delegate>\n"
+            '{"action":"...","model":"haiku|sonnet|opus","description":"..."}\n'
+            "</delegate>\n"
+            "Model: **haiku** only for enrich/summarize/research/web_search/review "
+            "(others auto-upgrade). **sonnet** default. **opus** for complex reasoning or "
+            "multi-file code. Without <delegate>, nothing executes.\n\n"
+            "## 🚫 Not your tools\n"
+            "You run inside Voxyflow's chat, not in a terminal. You may see Bash/Read/Write/WebSearch — "
+            "those belong to the runtime. Use ONLY <delegate> + natural language. "
+            "Never claim you can't access tools or that your knowledge is cut off — delegate instead."
+        )
 
-            full_prompt = base + voice_instructions
-            logger.info(f"[PersonalityService] Deep chat prompt built: {len(full_prompt)} chars, chat_level={chat_level}, native_tools={native_tools}")
-            return full_prompt
+    def build_deep_prompt(
+        self,
+        memory_context: Optional[str] = None,
+        chat_level: str = "general",
+        project: Optional[dict] = None,
+        card: Optional[dict] = None,
+        project_names: Optional[list] = None,
+        has_delegation: bool = False,
+        is_chat_responder: bool = False,
+        native_tools: bool = False,
+    ) -> str:
+        """Compat wrapper — delegates to build_dispatcher_prompt(tier="deep").
 
-        # Legacy supervisor/background-executor mode removed — fast/deep are the
-        # same dispatcher layer at different model tiers.  If we reach here it
-        # means is_chat_responder=False was passed; return the base prompt as-is.
-        return base
+        is_chat_responder=False returns the static base only (no dispatcher tail),
+        preserving the legacy supervisor/background-executor escape hatch.
+        """
+        if not is_chat_responder:
+            if chat_level == "card" and card and project:
+                return self.build_card_prompt(project, card)
+            if project:
+                return self.build_project_prompt(project)
+            return self.build_general_prompt()
+        return self.build_dispatcher_prompt(
+            tier="deep",
+            chat_level=chat_level,
+            project=project,
+            card=card,
+            native_tools=native_tools,
+        )
 
     # ------------------------------------------------------------------
     # Worker prompts — function-based (same tools regardless of model)

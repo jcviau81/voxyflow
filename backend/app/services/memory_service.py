@@ -946,17 +946,25 @@ class MemoryService:
             logger.debug("_build_l0_identity failed", exc_info=True)
             return None
 
+    @staticmethod
+    def _normalize_for_dedup(text: str) -> str:
+        return " ".join(text.lower().split())
+
     def _build_l1_essentials(
         self,
         query: str,
         project_id: Optional[str],
         card_id: Optional[str],
         budget: int,
-    ) -> Optional[str]:
-        """L1: High-importance recent memories (essentials). Budget-capped."""
+    ) -> tuple[Optional[str], set[str], set[str]]:
+        """L1: High-importance recent memories (essentials). Budget-capped.
+
+        Returns (rendered_text_or_None, ids_included, normalized_texts_included).
+        The two sets feed L2 dedup so the same fact isn't echoed twice.
+        """
         try:
             if not project_id:
-                return None  # L1 only applies to project/card contexts
+                return None, set(), set()
 
             proj_col = _project_collection(project_id)
             results = self.search_memory(
@@ -966,25 +974,31 @@ class MemoryService:
                 limit=5,
             )
             if not results:
-                return None
+                return None, set(), set()
 
-            display = project_id
-            lines = []
+            lines: list[str] = []
+            ids_used: set[str] = set()
+            texts_used: set[str] = set()
             token_count = 0
             for r in results:
+                norm = self._normalize_for_dedup(r["text"])
+                if norm in texts_used:
+                    continue
                 line = f"- {r['text']}"
                 line_tokens = self._estimate_tokens(line)
                 if token_count + line_tokens > budget:
                     break
                 lines.append(line)
+                ids_used.add(r["id"])
+                texts_used.add(norm)
                 token_count += line_tokens
 
             if not lines:
-                return None
-            return f"**Key facts ({display}):**\n" + "\n".join(lines)
+                return None, set(), set()
+            return f"**Key facts ({project_id}):**\n" + "\n".join(lines), ids_used, texts_used
         except Exception as e:
             logger.debug(f"_build_l1_essentials failed: {e}")
-            return None
+            return None, set(), set()
 
     def _build_l2_ondemand(
         self,
@@ -995,12 +1009,15 @@ class MemoryService:
         include_long_term: bool,
         budget: int,
         l1_ids: set[str] | None = None,
+        l1_texts: set[str] | None = None,
     ) -> Optional[str]:
         """L2: Full semantic search (current behavior, budget-capped). Deduplicates against L1."""
         sections: list[str] = []
         display_label = project_name or project_id or ""
         l1_ids = l1_ids or set()
+        l1_texts = l1_texts or set()
         remaining = budget
+        seen_texts: set[str] = set(l1_texts)
 
         def _cap_results(results: list[dict], cap: int) -> list[str]:
             nonlocal remaining
@@ -1008,11 +1025,15 @@ class MemoryService:
             for r in results:
                 if r["id"] in l1_ids:
                     continue
+                norm = self._normalize_for_dedup(r["text"])
+                if norm in seen_texts:
+                    continue
                 line = r["text"]
                 t = self._estimate_tokens(line)
                 if remaining - t < 0:
                     break
                 texts.append(line)
+                seen_texts.add(norm)
                 remaining -= t
             return texts
 
@@ -1089,6 +1110,7 @@ class MemoryService:
         remaining = budget
         sections: list[str] = []
         l1_ids: set[str] = set()
+        l1_texts: set[str] = set()
 
         try:
             # L0: Project identity from KG pinned cache
@@ -1098,21 +1120,22 @@ class MemoryService:
                     sections.append(l0)
                     remaining -= self._estimate_tokens(l0)
 
-            # L1: High-importance essentials
+            # L1: High-importance essentials (also returns IDs+texts for L2 dedup)
             if 1 in layers and remaining > 50:
-                l1 = self._build_l1_essentials(
+                l1, l1_ids, l1_texts = self._build_l1_essentials(
                     query, project_id, card_id, min(400, remaining),
                 )
                 if l1:
                     sections.append(l1)
                     remaining -= self._estimate_tokens(l1)
 
-            # L2: Full semantic search (current behavior)
+            # L2: Full semantic search — dedup by both ID (exact) and text (near-dup)
             if 2 in layers and remaining > 50:
                 l2 = self._build_l2_ondemand(
                     query, project_name, project_id, card_id,
                     include_long_term, min(remaining, 800),
                     l1_ids=l1_ids,
+                    l1_texts=l1_texts,
                 )
                 if l2:
                     sections.append(l2)

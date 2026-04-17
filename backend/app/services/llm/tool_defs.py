@@ -103,6 +103,11 @@ def get_claude_tools(
                 "description": tool_def.description,
                 "input_schema": tool_def.parameters,
             })
+        # Tag the last tool with cache_control so Anthropic caches the entire
+        # tool block (it's static per-role and cheap to cache). Anthropic caches
+        # up-to-and-including any block tagged with ephemeral cache_control.
+        if tools:
+            tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
         return tools
     except Exception as e:
         logger.warning(f"Could not load tools for Claude: {e}")
