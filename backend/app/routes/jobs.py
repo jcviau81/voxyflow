@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +34,70 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow")))
 JOBS_FILE = VOXYFLOW_DIR / "jobs.json"
+
+
+# ---------------------------------------------------------------------------
+# Gate helpers
+# ---------------------------------------------------------------------------
+
+
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def _file_has_directive(path: str | Path, divider: str = "---") -> bool:
+    """Return True if the file has actionable content below the divider line.
+
+    Finds the first line whose stripped value equals ``divider``, takes everything
+    after it, removes HTML comments, and returns True if any non-whitespace
+    content remains. Returns False if the file is missing, unreadable, or has
+    no divider — the divider is the explicit marker for "directives go here".
+    """
+    try:
+        p = Path(path).expanduser()
+        if not p.is_file():
+            return False
+        text = p.read_text(encoding="utf-8")
+    except Exception:
+        return False
+
+    lines = text.splitlines()
+    below_idx: int | None = None
+    for i, line in enumerate(lines):
+        if line.strip() == divider:
+            below_idx = i + 1
+            break
+    if below_idx is None:
+        return False
+
+    below = "\n".join(lines[below_idx:])
+    below = _HTML_COMMENT_RE.sub("", below)
+    return bool(below.strip())
+
+
+def _check_payload_gate(job: dict, payload: dict) -> dict | None:
+    """If ``payload['gate']`` requests a check and it fails, return a skip result.
+
+    Supported gates:
+      - ``{"type": "file_has_directive", "path": "...", "divider": "---"}``
+        Skip the job unless the file has actionable content below the divider.
+
+    Returns None when the gate passes (or no gate configured).
+    """
+    gate = payload.get("gate")
+    if not isinstance(gate, dict):
+        return None
+
+    gate_type = gate.get("type")
+    if gate_type == "file_has_directive":
+        gate_path = gate.get("path")
+        divider = gate.get("divider") or "---"
+        if not gate_path:
+            return None
+        if not _file_has_directive(gate_path, divider):
+            msg = f"No directive in {gate_path} — skipped"
+            logger.info(f"[Jobs] '{job.get('name')}' ({job.get('id')}) {msg}")
+            return {"status": "skipped", "message": msg}
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -464,6 +529,10 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
 
     if isinstance(instruction, list):
         instruction = "\n".join(instruction)
+
+    gated = _check_payload_gate(job, payload)
+    if gated is not None:
+        return gated
 
     project_id = payload.get("project_id")
     logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (project={project_id or 'none'})")

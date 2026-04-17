@@ -112,6 +112,12 @@ class SchedulerService:
                     "If it is empty or contains no actionable instructions, do nothing — "
                     "do not create cards, do not respond, just exit silently."
                 ),
+                # Skip the LLM entirely when the file has no actionable content
+                # below the "---" divider (see _file_has_directive in routes/jobs.py).
+                "gate": {
+                    "type": "file_has_directive",
+                    "path": "~/.voxyflow/workspace/heartbeat.md",
+                },
             },
         },
         {
@@ -152,12 +158,28 @@ class SchedulerService:
         },
     ]
 
-    def _seed_default_jobs(self, jobs_file: Path) -> None:
-        """Add default built-in jobs to jobs.json if they haven't been seeded yet."""
-        marker = jobs_file.parent / ".jobs_defaults_seeded"
-        if marker.exists():
-            return
+    @staticmethod
+    def _migrate_builtin_jobs(jobs: list[dict]) -> bool:
+        """Apply idempotent migrations to built-in job entries. Returns True if changed.
 
+        Runs every boot (not gated by the seed marker) so live installs pick up
+        new payload fields without needing a re-seed.
+        """
+        changed = False
+        for j in jobs:
+            if j.get("id") == "builtin-agent-heartbeat":
+                payload = j.get("payload") or {}
+                if not isinstance(payload.get("gate"), dict):
+                    payload["gate"] = {
+                        "type": "file_has_directive",
+                        "path": "~/.voxyflow/workspace/heartbeat.md",
+                    }
+                    j["payload"] = payload
+                    changed = True
+        return changed
+
+    def _seed_default_jobs(self, jobs_file: Path) -> None:
+        """Seed default built-in jobs (once) and run migrations (every boot)."""
         import json as _json
 
         existing: list[dict] = []
@@ -170,18 +192,27 @@ class SchedulerService:
             except Exception:
                 existing = []
 
-        existing_ids = {j.get("id") for j in existing}
-        added = 0
-        for default in self._DEFAULT_JOBS:
-            if default["id"] not in existing_ids:
-                existing.append(dict(default))
-                added += 1
+        # Idempotent migrations on existing built-in jobs — runs every boot
+        migrated = self._migrate_builtin_jobs(existing)
 
-        if added:
+        # First-time seeding guarded by marker so we don't re-add deleted jobs
+        marker = jobs_file.parent / ".jobs_defaults_seeded"
+        added = 0
+        if not marker.exists():
+            existing_ids = {j.get("id") for j in existing}
+            for default in self._DEFAULT_JOBS:
+                if default["id"] not in existing_ids:
+                    existing.append(dict(default))
+                    added += 1
+
+        if migrated or added:
             jobs_file.parent.mkdir(parents=True, exist_ok=True)
             with open(jobs_file, "w", encoding="utf-8") as f:
                 _json.dump(existing, f, indent=2)
-            logger.info(f"[Jobs] Seeded {added} default job(s) into {jobs_file}")
+            if added:
+                logger.info(f"[Jobs] Seeded {added} default job(s) into {jobs_file}")
+            if migrated:
+                logger.info(f"[Jobs] Migrated built-in job entries in {jobs_file}")
 
         # Seed default heartbeat.md if missing
         heartbeat_file = jobs_file.parent / "workspace" / "heartbeat.md"
@@ -200,7 +231,8 @@ class SchedulerService:
             )
             logger.info(f"[Jobs] Created default heartbeat file at {heartbeat_file}")
 
-        marker.touch()
+        if not marker.exists():
+            marker.touch()
 
     def start(self) -> None:
         """Start the scheduler. All jobs (built-in + user) are loaded from jobs.json."""
