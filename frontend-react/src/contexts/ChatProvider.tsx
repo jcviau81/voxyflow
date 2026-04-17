@@ -14,6 +14,7 @@ import { useProjectStore } from '../stores/useProjectStore';
 import { useCardStore } from '../stores/useCardStore';
 import { useToastStore } from '../stores/useToastStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
+import { useUsageStore } from '../stores/useUsageStore';
 import { generateId } from '../lib/utils';
 import {
   SYSTEM_PROJECT_ID,
@@ -394,13 +395,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // --- chat:response ---
     unsubs.push(
       subscribe('chat:response', (payload) => {
-        const { messageId, content, streaming, done, sessionId, model } = payload as {
+        const { messageId, content, streaming, done, sessionId, model, usage } = payload as {
           messageId: string;
           content: string;
           streaming: boolean;
           done: boolean;
           sessionId?: string;
           model?: string;
+          usage?: {
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadTokens?: number;
+            cacheCreationTokens?: number;
+            contextWindow: number;
+            model?: string;
+          };
         };
         // Final streaming chunk may arrive without sessionId — allow it
         // through when we already track the messageId in streamingMessagesRef.
@@ -415,6 +424,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           handleStreamComplete(messageId, content);
         } else {
           handleFullResponse(content, sessionId!);
+        }
+
+        if (done && sessionId && usage && typeof usage.contextWindow === 'number') {
+          useUsageStore.getState().setUsage(sessionId, {
+            inputTokens: usage.inputTokens ?? 0,
+            outputTokens: usage.outputTokens ?? 0,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheCreationTokens: usage.cacheCreationTokens,
+            contextWindow: usage.contextWindow,
+            model: usage.model,
+          });
         }
       }),
     );

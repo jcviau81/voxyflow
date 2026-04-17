@@ -387,6 +387,13 @@ class ApiCallerMixin:
                         cache_creation_tokens=getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
                         cache_read_tokens=getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
                     )
+                    if chat_id:
+                        self._last_stream_usage[chat_id] = {
+                            "input_tokens": stream_usage.input_tokens,
+                            "output_tokens": stream_usage.output_tokens,
+                            "cache_creation_input_tokens": getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
+                            "cache_read_input_tokens": getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
+                        }
 
                 if not tool_use_blocks:
                     # No tool calls — done
@@ -595,6 +602,13 @@ class ApiCallerMixin:
                     cache_creation_tokens=getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
                     cache_read_tokens=getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
                 )
+                if chat_id:
+                    self._last_stream_usage[chat_id] = {
+                        "input_tokens": stream_usage.input_tokens,
+                        "output_tokens": stream_usage.output_tokens,
+                        "cache_creation_input_tokens": getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
+                        "cache_read_input_tokens": getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
+                    }
 
             # If tool calls present, execute them and get final response
             if tool_use_blocks or stop_reason == "tool_use":
@@ -1366,6 +1380,8 @@ class ApiCallerMixin:
                 cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
                 cache_read_tokens=usage.get("cache_read_input_tokens", 0),
             )
+            if chat_id:
+                self._last_stream_usage[chat_id] = dict(usage)
 
     # ------------------------------------------------------------------
     # Dispatcher: routes to native, CLI, or fallback based on client_type

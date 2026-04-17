@@ -216,6 +216,9 @@ class ClaudeService(ApiCallerMixin):
         # Native delegate tool_use blocks collected during streaming (keyed by chat_id)
         # Populated by chat_fast_stream / chat_deep_stream, consumed by orchestrator
         self._pending_delegates: dict[str, list[dict]] = {}
+        # Last streaming usage stats (keyed by chat_id). Populated by streaming
+        # helpers in api_caller.py; consumed by layer_runners via consume_last_chat_usage().
+        self._last_stream_usage: dict[str, dict] = {}
 
         logger.info(
             f"ClaudeService initialized — cli={self.use_cli} native={self.use_native} | "
@@ -581,6 +584,28 @@ class ClaudeService(ApiCallerMixin):
         """Return and clear any native delegate_action tool_use blocks
         collected during the last streaming call for this chat_id."""
         return self._pending_delegates.pop(chat_id, [])
+
+    def consume_last_chat_usage(self, chat_id: str, layer: str) -> dict | None:
+        """Return and clear usage stats from the most recent chat stream.
+
+        The returned dict is shaped for the WebSocket payload (camelCase)
+        and augmented with the model's static context window from the
+        capability registry. Returns None if no usage was recorded.
+        """
+        raw = self._last_stream_usage.pop(chat_id, None)
+        if not raw:
+            return None
+        model = self.deep_model if layer == "deep" else self.fast_model
+        from app.services.llm.capability_registry import lookup as _caps_lookup
+        caps = _caps_lookup(model)
+        return {
+            "inputTokens": int(raw.get("input_tokens", 0) or 0),
+            "outputTokens": int(raw.get("output_tokens", 0) or 0),
+            "cacheReadTokens": int(raw.get("cache_read_input_tokens", 0) or 0),
+            "cacheCreationTokens": int(raw.get("cache_creation_input_tokens", 0) or 0),
+            "contextWindow": int(caps.context_window),
+            "model": model,
+        }
 
     # ------------------------------------------------------------------
     # Worker class context for dispatcher

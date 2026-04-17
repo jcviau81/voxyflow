@@ -136,17 +136,21 @@ class LayerRunnersMixin:
             # Send stream-done signal
             latency = int((time.time() - start) * 1000)
             logger.info(f"[Layer1-Fast] stream complete in {latency}ms")
+            done_payload = {
+                "messageId": message_id,
+                "content": "",
+                "model": "fast",
+                "streaming": True,
+                "done": True,
+                "latency_ms": latency,
+                "sessionId": session_id,
+            }
+            usage = self._claude.consume_last_chat_usage(chat_id, layer="fast")
+            if usage:
+                done_payload["usage"] = usage
             await websocket.send_json({
                 "type": "chat:response",
-                "payload": {
-                    "messageId": message_id,
-                    "content": "",
-                    "model": "fast",
-                    "streaming": True,
-                    "done": True,
-                    "latency_ms": latency,
-                    "sessionId": session_id,
-                },
+                "payload": done_payload,
                 "timestamp": int(time.time() * 1000),
             })
             await send_model_status("fast", "idle")
@@ -255,17 +259,21 @@ class LayerRunnersMixin:
             # Send stream-done signal
             latency = int((time.time() - start) * 1000)
             logger.info(f"[Layer-Deep-Chat] stream complete in {latency}ms")
+            done_payload = {
+                "messageId": message_id,
+                "content": "",
+                "model": "deep",
+                "streaming": True,
+                "done": True,
+                "latency_ms": latency,
+                "sessionId": session_id,
+            }
+            usage = self._claude.consume_last_chat_usage(chat_id, layer="deep")
+            if usage:
+                done_payload["usage"] = usage
             await websocket.send_json({
                 "type": "chat:response",
-                "payload": {
-                    "messageId": message_id,
-                    "content": "",
-                    "model": "deep",
-                    "streaming": True,
-                    "done": True,
-                    "latency_ms": latency,
-                    "sessionId": session_id,
-                },
+                "payload": done_payload,
                 "timestamp": int(time.time() * 1000),
             })
             await send_model_status("deep", "idle")

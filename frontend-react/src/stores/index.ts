@@ -28,3 +28,6 @@ export { useNotificationStore } from './useNotificationStore';
 export type { NotificationState } from './useNotificationStore';
 
 export { useViewStore } from './useViewStore';
+
+export { useUsageStore } from './useUsageStore';
+export type { UsageState, ChatUsage } from './useUsageStore';

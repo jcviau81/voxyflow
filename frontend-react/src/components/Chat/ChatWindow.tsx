@@ -9,6 +9,7 @@ import { ChatInput } from './ChatInput';
 import { SessionTabBar } from './SessionTabBar';
 import { ChatSearch } from './ChatSearch';
 import { ModePill } from './ModePill';
+import { ContextUsagePill } from './ContextUsagePill';
 import type { ChatLevel } from './SmartSuggestions';
 import { cn } from '../../lib/utils';
 import { Search, Eraser, RotateCcw } from 'lucide-react';
@@ -275,6 +276,9 @@ export function ChatWindow({
 
           {/* Mode pill */}
           <ModePill />
+
+          {/* Context usage indicator */}
+          <ContextUsagePill sessionId={sessionId} />
 
           <div className="flex-1" />
 
