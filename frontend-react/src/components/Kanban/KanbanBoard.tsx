@@ -30,7 +30,7 @@ import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useCards, useArchivedCards, useRestoreCard, useDeleteCard, usePatchCard, useReorderCards, useCreateCard } from '../../hooks/api/useCards';
 import { useExportProject, useImportProject, useExecuteBoardPlan } from '../../hooks/api/useProjects';
-import { useWebSocket } from '../../hooks/useWebSocket';
+import { useWS } from '../../providers/WebSocketProvider';
 import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 import { KanbanCard } from './KanbanCard';
 import { Button } from '../ui/button';
@@ -450,7 +450,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const importProject = useImportProject();
   const executeBoardPlan = useExecuteBoardPlan();
   const deleteCardMut = useDeleteCard();
-  const { send: wsSend, subscribe } = useWebSocket();
+  const { send: wsSend, subscribe } = useWS();
 
   // Worker execution status — poll every 3s to show per-card activity badges
   const { isCardActive } = useWorkerStatus(projectId ?? '');

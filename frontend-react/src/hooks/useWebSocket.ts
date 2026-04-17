@@ -231,8 +231,10 @@ export function useWebSocket(): UseWebSocketReturn {
         // onclose fires immediately after and handles reconnection.
       };
 
-      ws.onclose = () => {
-        console.log('[useWebSocket] Disconnected');
+      ws.onclose = (event: CloseEvent) => {
+        console.log(
+          `[useWebSocket] Disconnected code=${event.code} reason=${JSON.stringify(event.reason)} wasClean=${event.wasClean} intentional=${isClosingRef.current}`,
+        );
         stopHeartbeat();
         if (!isClosingRef.current) {
           handleDisconnect();
