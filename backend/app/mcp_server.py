@@ -79,18 +79,17 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Main Board Cards (system-main project, backward-compatible aliases) ─
     {
         "name": "voxyflow.card.create_unassigned",
-        "description": "Create a card on the Voxyflow Main Board (system-main project). Status defaults to 'card' internally. Alias for creating a card in the Main project.",
+        "description": "Create a card on the Main Board (system-main project).",
         "inputSchema": {
             "type": "object",
             "required": ["content"],
             "properties": {
-                "content": {"type": "string", "description": "Title / text content of the card"},
+                "content": {"type": "string", "description": "Card title"},
                 "color": {
                     "type": "string",
                     "enum": ["yellow", "blue", "green", "pink", "purple", "orange"],
-                    "description": "Background color of the card",
                 },
-                "description": {"type": "string", "description": "Optional longer description / body"},
+                "description": {"type": "string"},
             },
         },
         "_http": ("POST", "/api/cards/unassigned", lambda p: {
@@ -101,7 +100,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.list_unassigned",
-        "description": "List all cards on the Voxyflow Main Board (system-main project). Alias for listing cards in the Main project.",
+        "description": "List cards on the Main Board (system-main project).",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -112,24 +111,24 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Projects ----------------------------------------------------------
     {
         "name": "voxyflow.project.create",
-        "description": "Create a new project in Voxyflow.",
+        "description": "Create a new project.",
         "inputSchema": {
             "type": "object",
             "required": ["title"],
             "properties": {
-                "title": {"type": "string", "description": "Project name"},
-                "description": {"type": "string", "description": "Project description"},
-                "tech_stack": {"type": "string", "description": "Technology stack (comma-separated)"},
-                "github_url": {"type": "string", "description": "GitHub repository URL"},
-                "github_repo": {"type": "string", "description": "GitHub repo in owner/repo format"},
-                "local_path": {"type": "string", "description": "Local filesystem path to project"},
+                "title": {"type": "string"},
+                "description": {"type": "string"},
+                "tech_stack": {"type": "string", "description": "Comma-separated"},
+                "github_url": {"type": "string"},
+                "github_repo": {"type": "string", "description": "owner/repo format"},
+                "local_path": {"type": "string"},
             },
         },
         "_http": ("POST", "/api/projects", None),
     },
     {
         "name": "voxyflow.project.list",
-        "description": "List all projects in Voxyflow.",
+        "description": "List all projects.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -138,12 +137,12 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.project.get",
-        "description": "Get details of a specific project including its cards.",
+        "description": "Get a project with its cards.",
         "inputSchema": {
             "type": "object",
             "required": ["project_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "project_id": {"type": "string"},
             },
         },
         "_http": ("GET", "/api/projects/{project_id}", None),
@@ -218,29 +217,28 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Cards -------------------------------------------------------------
     {
         "name": "voxyflow.card.create",
-        "description": "Create a new card/task in a project.",
+        "description": "Create a new card in a project.",
         "inputSchema": {
             "type": "object",
             "required": ["project_id", "title"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
-                "title": {"type": "string", "description": "Card title"},
-                "description": {"type": "string", "description": "Card description"},
+                "project_id": {"type": "string"},
+                "title": {"type": "string"},
+                "description": {"type": "string"},
                 "status": {
                     "type": "string",
                     "enum": ["card", "todo", "in-progress", "done"],
-                    "description": "Initial status (default: card)",
+                    "description": "Default: card",
                 },
                 "priority": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 4,
-                    "description": "Priority: 0=none, 1=low, 2=medium, 3=high, 4=critical",
+                    "description": "0=none 1=low 2=medium 3=high 4=critical",
                 },
                 "agent_type": {
                     "type": "string",
                     "enum": ["general", "researcher", "coder", "designer", "architect", "writer", "qa"],
-                    "description": "Agent type to assign (auto-routed if omitted)",
                 },
             },
         },
@@ -248,24 +246,24 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.list",
-        "description": "List all cards for a project.",
+        "description": "List cards for a project.",
         "inputSchema": {
             "type": "object",
             "required": ["project_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "project_id": {"type": "string"},
             },
         },
         "_http": ("GET", "/api/projects/{project_id}/cards", None),
     },
     {
         "name": "voxyflow.card.get",
-        "description": "Get details of a specific card.",
+        "description": "Get a card.",
         "inputSchema": {
             "type": "object",
             "required": ["card_id"],
             "properties": {
-                "card_id": {"type": "string", "description": "Card ID"},
+                "card_id": {"type": "string"},
             },
         },
         "_http": ("GET", "/api/cards/{card_id}", None),
@@ -277,19 +275,17 @@ _TOOL_DEFINITIONS: list[dict] = [
             "type": "object",
             "required": ["card_id"],
             "properties": {
-                "card_id": {"type": "string", "description": "Card ID to update"},
-                "title": {"type": "string", "description": "New title"},
-                "description": {"type": "string", "description": "New description"},
+                "card_id": {"type": "string"},
+                "title": {"type": "string"},
+                "description": {"type": "string"},
                 "priority": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 4,
-                    "description": "New priority (0=none, 1=low, 2=medium, 3=high, 4=critical)",
                 },
                 "status": {
                     "type": "string",
                     "enum": ["card", "todo", "in-progress", "done", "archived"],
-                    "description": "New status",
                 },
             },
         },
@@ -297,16 +293,15 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.move",
-        "description": "Move a card to a different status column on the kanban board.",
+        "description": "Move a card to a different status column.",
         "inputSchema": {
             "type": "object",
             "required": ["card_id", "new_status"],
             "properties": {
-                "card_id": {"type": "string", "description": "Card ID to move"},
+                "card_id": {"type": "string"},
                 "new_status": {
                     "type": "string",
                     "enum": ["card", "todo", "in-progress", "done", "archived"],
-                    "description": "Target status column",
                 },
             },
         },
@@ -314,12 +309,12 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.archive",
-        "description": "Archive a card (soft-delete). Card is hidden but recoverable.",
+        "description": "Archive a card (recoverable soft-delete).",
         "inputSchema": {
             "type": "object",
             "required": ["card_id"],
             "properties": {
-                "card_id": {"type": "string", "description": "Card ID to archive"},
+                "card_id": {"type": "string"},
             },
         },
         "_http": ("POST", "/api/cards/{card_id}/archive", None),
@@ -605,12 +600,12 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Wiki --------------------------------------------------------------
     {
         "name": "voxyflow.wiki.list",
-        "description": "List all wiki pages for a project.",
+        "description": "List wiki pages for a project.",
         "inputSchema": {
             "type": "object",
             "required": ["project_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "project_id": {"type": "string"},
             },
         },
         "_http": ("GET", "/api/projects/{project_id}/wiki", None),
@@ -632,13 +627,13 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.wiki.get",
-        "description": "Get the content of a specific wiki page.",
+        "description": "Get a wiki page.",
         "inputSchema": {
             "type": "object",
             "required": ["project_id", "page_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
-                "page_id": {"type": "string", "description": "Wiki page ID"},
+                "project_id": {"type": "string"},
+                "page_id": {"type": "string"},
             },
         },
         "_http": ("GET", "/api/projects/{project_id}/wiki/{page_id}", None),
@@ -741,12 +736,12 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Documents ---------------------------------------------------------
     {
         "name": "voxyflow.doc.list",
-        "description": "List all documents attached to a project.",
+        "description": "List documents attached to a project.",
         "inputSchema": {
             "type": "object",
             "required": ["project_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "project_id": {"type": "string"},
             },
         },
         "_http": ("GET", "/api/projects/{project_id}/documents", None),
@@ -817,21 +812,19 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Worker Ledger -----------------------------------------------------
     {
         "name": "voxyflow.workers.list",
-        "description": "List recent worker tasks from the Worker Ledger. Auto-scoped to the current project — pass scope='all' for the full system-wide ledger.",
+        "description": "List recent worker tasks (auto-scoped to current project; scope='all' for system-wide).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "session_id": {"type": "string", "description": "Filter by session ID"},
+                "session_id": {"type": "string"},
                 "status": {
                     "type": "string",
                     "enum": ["running", "done", "failed", "timed_out", "cancelled"],
-                    "description": "Filter by status",
                 },
-                "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                "limit": {"type": "integer", "description": "Default 10", "default": 10},
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Project scope for results. 'current' (default) returns only workers from this project; 'all' returns every worker in the ledger. Ignored in general chat, which always sees all.",
                 },
             },
         },
@@ -840,16 +833,15 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workers.get_result",
-        "description": "Get the full details and result of a specific worker task by task_id. Strict project scope — tasks from other projects are rejected unless scope='all' is passed.",
+        "description": "Get full details of a worker task by task_id (project-scoped; scope='all' to bypass).",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],
             "properties": {
-                "task_id": {"type": "string", "description": "Worker task ID"},
+                "task_id": {"type": "string"},
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
                 },
             },
         },
@@ -858,27 +850,17 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workers.read_artifact",
-        "description": (
-            "Read the verbatim raw output of a finished worker from its on-disk "
-            "artifact (.md file under ~/.voxyflow/worker_artifacts/). Use this when "
-            "you need the EXACT content the worker produced — file contents, command "
-            "stdout, search results, logs — rather than the Haiku summary delivered "
-            "in the worker callback. Supports pagination via offset/length for "
-            "outputs larger than ~50k chars. Strict project scope — tasks from other "
-            "projects are rejected unless scope='all'. Response: content, offset, "
-            "length, total_chars, has_more, path."
-        ),
+        "description": "Read the raw on-disk artifact of a finished worker (full verbatim output; paginated via offset/length).",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],
             "properties": {
-                "task_id": {"type": "string", "description": "Worker task ID whose artifact to read"},
-                "offset": {"type": "integer", "description": "Starting char offset into the artifact body (default 0)"},
-                "length": {"type": "integer", "description": "Max chars to return in this slice (default 50000)"},
+                "task_id": {"type": "string"},
+                "offset": {"type": "integer", "description": "Default 0"},
+                "length": {"type": "integer", "description": "Default 50000"},
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
                 },
             },
         },
@@ -925,7 +907,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- System ------------------------------------------------------------
     {
         "name": "voxyflow.health",
-        "description": "Get the overall health status of the Voxyflow system and services.",
+        "description": "System health status.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -934,7 +916,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.jobs.list",
-        "description": "List all scheduled jobs in Voxyflow.",
+        "description": "List scheduled jobs.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -944,61 +926,58 @@ _TOOL_DEFINITIONS: list[dict] = [
     {
         "name": "voxyflow.jobs.create",
         "description": (
-            "Create a new scheduled job. "
-            "Job types and required payload fields:\n"
-            "• agent_task — freeform AI instruction. payload: {instruction: string, project_id?: uuid}\n"
-            "• execute_board — run all cards matching statuses on a board. payload: {project_id: uuid, statuses?: [\"todo\"]}\n"
-            "• execute_card — run a single card. payload: {card_id: uuid, project_id?: uuid}\n"
-            "• reminder — broadcast a message. payload: {message: string}\n"
-            "• rag_index — re-index documents. payload: {project_id?: uuid, path?: string}\n"
-            "Schedule: cron expression ('0 9 * * 1-5') or shorthand ('every_5min', 'every_30min', 'every_1h', 'every_2h', 'every_day')."
+            "Create a scheduled job. Types & payloads: "
+            "agent_task {instruction, project_id?}; "
+            "execute_board {project_id, statuses?}; "
+            "execute_card {card_id, project_id?}; "
+            "reminder {message}; "
+            "rag_index {project_id?, path?}. "
+            "Schedule: cron or shorthand (every_5min, every_1h, every_day)."
         ),
         "inputSchema": {
             "type": "object",
             "required": ["name", "type", "schedule"],
             "properties": {
-                "name": {"type": "string", "description": "Job name"},
+                "name": {"type": "string"},
                 "type": {
                     "type": "string",
                     "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "custom"],
-                    "description": "Job type — use agent_task for freeform instructions, execute_board for running board cards",
                 },
-                "schedule": {"type": "string", "description": "Cron expression (e.g. '0 9 * * 1-5') or shorthand ('every_5min', 'every_1h', 'every_day')"},
-                "enabled": {"type": "boolean", "description": "Whether the job is enabled (default: true)"},
-                "payload": {"type": "object", "description": "Job-specific payload — see tool description for required fields per type"},
+                "schedule": {"type": "string", "description": "cron or shorthand"},
+                "enabled": {"type": "boolean", "description": "Default true"},
+                "payload": {"type": "object", "description": "See description for per-type fields"},
             },
         },
         "_http": ("POST", "/api/jobs", None),
     },
     {
         "name": "voxyflow.jobs.update",
-        "description": "Update an existing scheduled job (name, schedule, enabled, payload). Pass only the fields to change.",
+        "description": "Update a scheduled job (pass only fields to change).",
         "inputSchema": {
             "type": "object",
             "required": ["job_id"],
             "properties": {
-                "job_id": {"type": "string", "description": "ID of the job to update"},
-                "name": {"type": "string", "description": "New job name"},
+                "job_id": {"type": "string"},
+                "name": {"type": "string"},
                 "type": {
                     "type": "string",
                     "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "custom"],
-                    "description": "New job type — use agent_task for freeform instructions",
                 },
-                "schedule": {"type": "string", "description": "New cron expression or interval"},
-                "enabled": {"type": "boolean", "description": "Enable or disable the job"},
-                "payload": {"type": "object", "description": "New job-specific configuration / payload"},
+                "schedule": {"type": "string"},
+                "enabled": {"type": "boolean"},
+                "payload": {"type": "object"},
             },
         },
         "_http": ("PATCH", "/api/jobs/{job_id}", None),
     },
     {
         "name": "voxyflow.jobs.delete",
-        "description": "Delete a scheduled job permanently.",
+        "description": "Delete a scheduled job.",
         "inputSchema": {
             "type": "object",
             "required": ["job_id"],
             "properties": {
-                "job_id": {"type": "string", "description": "ID of the job to delete"},
+                "job_id": {"type": "string"},
             },
         },
         "_http": ("DELETE", "/api/jobs/{job_id}", None),
@@ -1010,7 +989,7 @@ _TOOL_DEFINITIONS: list[dict] = [
 
     {
         "name": "voxyflow.heartbeat.read",
-        "description": "Read the Agent Heartbeat file (~/.voxyflow/workspace/heartbeat.md). Use this to check if there are pending heartbeat instructions.",
+        "description": "Read the Agent Heartbeat file (~/.voxyflow/workspace/heartbeat.md).",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -1019,18 +998,12 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.heartbeat.write",
-        "description": (
-            "Write to the Agent Heartbeat file (~/.voxyflow/workspace/heartbeat.md). "
-            "The agent checks this file every 5 minutes and follows any instructions found. "
-            "Pass the full file content (header + instructions). "
-            "To queue work: add instructions below the --- separator. "
-            "To clear: write the file with just the header and no instructions."
-        ),
+        "description": "Write the full Heartbeat file content. The agent polls every 5 min and follows instructions below the --- separator.",
         "inputSchema": {
             "type": "object",
             "required": ["content"],
             "properties": {
-                "content": {"type": "string", "description": "Full file content to write"},
+                "content": {"type": "string", "description": "Full file content"},
             },
         },
         "_handler": "heartbeat_write",
@@ -1364,14 +1337,14 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Memory (semantic search across all memory) -------------------------
     {
         "name": "memory.search",
-        "description": "Search Voxy's long-term memory for relevant context. Strictly scoped to the current project (or global+main only when in general chat). Project chats never see global memory. Use when you need to recall prior conversations, decisions, or stored facts within this project.",
+        "description": "Search long-term memory (auto-scoped to current project). Use to recall prior conversations, decisions, or facts.",
         "inputSchema": {
             "type": "object",
             "required": ["query"],
             "properties": {
-                "query": {"type": "string", "description": "Natural language search query — describe what you're trying to remember"},
-                "limit": {"type": "integer", "description": "Max results per page (default 10)"},
-                "offset": {"type": "integer", "description": "Skip first N results for pagination (default 0)"},
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "description": "Default 10"},
+                "offset": {"type": "integer", "description": "Default 0"},
             },
         },
         "_handler": "memory_search",
@@ -1383,21 +1356,19 @@ _TOOL_DEFINITIONS: list[dict] = [
     # cannot override it — project_id is deliberately NOT in the schema.
     {
         "name": "memory.save",
-        "description": "Save an important fact, decision, preference, or lesson to Voxy's long-term memory. Auto-scoped to the current project — use when the user shares something worth remembering across sessions.",
+        "description": "Save a fact, decision, preference, or lesson to long-term memory (auto-scoped to current project).",
         "inputSchema": {
             "type": "object",
             "required": ["text"],
             "properties": {
-                "text": {"type": "string", "description": "The information to remember"},
+                "text": {"type": "string"},
                 "type": {
                     "type": "string",
                     "enum": ["decision", "preference", "lesson", "fact", "context"],
-                    "description": "Memory type (default: fact)",
                 },
                 "importance": {
                     "type": "string",
                     "enum": ["high", "medium", "low"],
-                    "description": "Importance level (default: medium)",
                 },
             },
         },
@@ -1409,12 +1380,12 @@ _TOOL_DEFINITIONS: list[dict] = [
     # Scope is enforced by VOXYFLOW_PROJECT_ID env var at runtime.
     {
         "name": "knowledge.search",
-        "description": "Search the current project's knowledge base (RAG) for relevant context. Use when you need background information about the project that isn't in the task description.",
+        "description": "Search the current project's knowledge base (RAG) for background context.",
         "inputSchema": {
             "type": "object",
             "required": ["query"],
             "properties": {
-                "query": {"type": "string", "description": "Search query — describe what you're looking for"},
+                "query": {"type": "string"},
             },
         },
         "_handler": "knowledge_search",

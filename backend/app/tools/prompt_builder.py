@@ -99,29 +99,20 @@ class ToolPromptBuilder:
     def _format_tool_block(self, tools: list[ToolDefinition]) -> str:
         """Format the full tool instruction block with <tool_call> format."""
         parts = [
-            "## Available Tools\n",
-            "You have access to the following tools. To use a tool, include a <tool_call> block in your response.\n",
-            "### Format",
+            "## Tools",
+            "Call with:",
             "<tool_call>",
-            '{"name": "tool.name", "arguments": {"param1": "value1", "param2": "value2"}}',
-            "</tool_call>\n",
-            "### Rules",
-            "- Call ONE tool at a time when the result of one tool is needed by the next (e.g. create a project first, then use its returned ID to create cards)",
-            "- You MAY call multiple independent tools in a single response only if they don't depend on each other's results",
-            "- NEVER invent or guess IDs — always use the exact ID returned in <tool_result>",
-            "- After each tool call, you will receive the result in a <tool_result> block",
-            "- Use the result to continue your response or call another tool",
-            "- Always explain what you're doing before/after tool calls\n",
-            "### CRITICAL: Create vs Move/Update",
-            "- **card.create** = make a NEW card that does NOT exist yet",
-            "- **card.move** = change the STATUS of an EXISTING card (todo→in-progress→done→archived)",
-            "- **card.update** = change the CONTENT of an EXISTING card (title, description, priority)",
-            "- Before using card.move or card.update, ALWAYS call card.list first to get the real card_id",
-            "- NEVER use card.create when the user asks to move, update, complete, start, or change an existing card",
-            "- If the user says 'move X to done', 'mark X as complete', 'start working on X', 'X is finished' → use card.list + card.move",
-            "- If the user says 'update X description', 'change X priority' → use card.list + card.update",
-            "- If cards already exist in the project, do NOT create duplicates — check card.list first\n",
-            "### Tools\n",
+            '{"name": "tool.name", "arguments": {...}}',
+            "</tool_call>",
+            "",
+            "Chain tools when one result feeds the next; call independent tools in parallel. "
+            "Use exact IDs from <tool_result> — never invent.",
+            "",
+            "For an existing card: call card.list, then card.move (status) or card.update (content). "
+            "Use card.create only for genuinely new cards.",
+            "",
+            "### Available",
+            "",
         ]
 
         for t in sorted(tools, key=lambda x: x.name):
@@ -129,13 +120,13 @@ class ToolPromptBuilder:
             props = t.parameters.get("properties", {})
             required = set(t.parameters.get("required", []))
             if props:
-                parts.append("Parameters:")
                 for pname, pschema in props.items():
                     ptype = pschema.get("type", "any")
-                    req_mark = ", required" if pname in required else ""
+                    req_mark = "*" if pname in required else ""
                     desc = pschema.get("description", "")
-                    parts.append(f"  - {pname} ({ptype}{req_mark}): {desc}")
-            parts.append("")  # blank line between tools
+                    suffix = f" — {desc}" if desc else ""
+                    parts.append(f"  - {pname}{req_mark} ({ptype}){suffix}")
+            parts.append("")
 
         return "\n".join(parts)
 
