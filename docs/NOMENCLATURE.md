@@ -79,10 +79,20 @@
 
 ## AI Model Layers
 
-| Layer | Model | Role | Tool Access |
-|-------|-------|------|-------------|
-| **Fast** | Sonnet (`claude-sonnet-4-20250514`) | Chat responses, dispatching | Read-only |
-| **Deep** | Opus (`claude-opus-4-20250514`) | Background workers, complex tasks | Full |
+"Fast" and "Deep" are **dispatcher model slots**, not tool tiers. Both dispatcher
+modes share the same `TOOLS_DISPATCHER` set — switching between them changes
+model only (typically Haiku vs Opus), not tool access.
+
+| Layer | Default model | Role |
+|-------|---------------|------|
+| **Fast** | `claude-haiku-4-6` | Chat dispatcher — quick responses |
+| **Sonnet** | `claude-sonnet-4-6` | Worker research / balanced tasks (worker-side only) |
+| **Deep** | `claude-opus-4-7` | Chat dispatcher — harder reasoning |
+
+Any layer can be redirected to a different provider via Settings → Models or
+via `backend/.env` (`CLAUDE_FAST_MODEL` / `CLAUDE_SONNET_MODEL` /
+`CLAUDE_DEEP_MODEL`). Tool access for the dispatcher layer is governed by
+`TOOLS_DISPATCHER` in `backend/app/tools/registry.py`.
 
 ---
 
