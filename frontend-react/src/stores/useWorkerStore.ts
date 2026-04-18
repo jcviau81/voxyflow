@@ -85,7 +85,7 @@ export interface WorkerState {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const TERMINAL_STATUSES = new Set(['done', 'failed', 'cancelled']);
+const TERMINAL_STATUSES = new Set(['done', 'failed', 'cancelled', 'crashed']);
 
 function normalizeStatus(status: string): WorkerInfo['status'] {
   const map: Record<string, WorkerInfo['status']> = {
@@ -95,6 +95,7 @@ function normalizeStatus(status: string): WorkerInfo['status'] {
     completed: 'done',
     failed: 'failed',
     cancelled: 'cancelled',
+    crashed: 'crashed',
     timed_out: 'failed',
     timeout: 'failed',
   };
