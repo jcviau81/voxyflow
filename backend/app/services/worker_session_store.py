@@ -29,7 +29,7 @@ class WorkerSession:
 
     __slots__ = (
         "task_id", "session_id", "chat_id", "project_id", "card_id", "status", "model", "intent",
-        "summary", "start_time", "end_time", "result_summary", "artifact_path",
+        "summary", "start_time", "end_time", "result_summary", "artifact_path", "worker_class",
     )
 
     def __init__(
@@ -47,6 +47,7 @@ class WorkerSession:
         end_time: Optional[float] = None,
         result_summary: Optional[str] = None,
         artifact_path: Optional[str] = None,
+        worker_class: Optional[str] = None,
     ):
         self.task_id = task_id
         self.session_id = session_id
@@ -61,6 +62,7 @@ class WorkerSession:
         self.end_time = end_time
         self.result_summary = result_summary
         self.artifact_path = artifact_path
+        self.worker_class = worker_class
 
     def to_dict(self) -> dict:
         return {
@@ -77,6 +79,7 @@ class WorkerSession:
             "end_time": self.end_time,
             "result_summary": self.result_summary,
             "artifact_path": self.artifact_path,
+            "worker_class": self.worker_class,
         }
 
     @classmethod
@@ -95,6 +98,7 @@ class WorkerSession:
             end_time=data.get("end_time"),
             result_summary=data.get("result_summary"),
             artifact_path=data.get("artifact_path"),
+            worker_class=data.get("worker_class"),
         )
 
 
@@ -183,6 +187,7 @@ class WorkerSessionStore:
         model: str = "sonnet",
         intent: str = "unknown",
         summary: str = "",
+        worker_class: Optional[str] = None,
     ) -> WorkerSession:
         """Register a new worker session (called when a task starts)."""
         session = WorkerSession(
@@ -195,10 +200,11 @@ class WorkerSessionStore:
             model=model,
             intent=intent,
             summary=summary,
+            worker_class=worker_class,
         )
         self._sessions[task_id] = session
         self._persist(session)
-        logger.info(f"[WorkerSessionStore] Registered task {task_id[:8]} ({intent}, {model})")
+        logger.info(f"[WorkerSessionStore] Registered task {task_id[:8]} ({intent}, {model}, class={worker_class or '-'})")
         return session
 
     def update_status(

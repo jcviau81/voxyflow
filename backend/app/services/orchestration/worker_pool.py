@@ -800,6 +800,7 @@ class DeepWorkerPool:
                 model=_effective_model,
                 intent=event.intent or "unknown",
                 summary=event.summary or "",
+                worker_class=(_worker_class.get("name") if _worker_class else None),
             )
 
             await self._ledger_insert(
@@ -817,6 +818,7 @@ class DeepWorkerPool:
                 "summary": event.summary,
                 "complexity": event.complexity,
                 "model": _effective_model,
+                "workerClass": (_worker_class.get("name") if _worker_class else None),
                 "sessionId": event.session_id,
                 "chatId": event.data.get("dispatcher_chat_id"),
                 "cardId": _task_card_id,

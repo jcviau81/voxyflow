@@ -101,6 +101,7 @@ async def worker_snapshot(
             "action": s.get("intent", "unknown"),
             "description": s.get("summary", ""),
             "model": s.get("model", "sonnet"),
+            "workerClass": s.get("worker_class"),
             "status": s.get("status", "running"),
             "startedAt": int((s.get("start_time") or 0) * 1000),
             "completedAt": int(s["end_time"] * 1000) if s.get("end_time") else None,
