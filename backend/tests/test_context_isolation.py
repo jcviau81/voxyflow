@@ -80,9 +80,9 @@ def _get_claude_tools(chat_level: str = "general") -> list[dict]:
 
 
 def _mcp_tool_name_from_claude(claude_name: str) -> str:
-    """Replicate the name conversion from claude_service.py."""
-    parts = claude_name.split("_", 2)
-    return ".".join(parts)
+    """Replicate the production reverse lookup in tool_defs.py."""
+    from app.services.llm.tool_defs import _mcp_tool_name_from_claude as real
+    return real(claude_name)
 
 
 # ============================================================================
@@ -206,37 +206,19 @@ class TestChatInitContent:
         return PersonalityService()
 
     # -- General Chat Init --
+    # Post-refactor: the static general chat init no longer embeds dynamic
+    # content (project names, etc). It advertises the Home project only.
+    # Dynamic project/memory data lives in build_dynamic_context_block().
 
-    def test_general_chat_init_has_mode(self):
+    def test_general_chat_init_has_home_project(self):
         ps = self._ps()
-        prompt = ps.build_general_chat_init(project_names=["Voxyflow", "Dictoral"])
-        assert "Main project" in prompt
+        prompt = ps.build_general_chat_init()
+        assert "Home project" in prompt
 
-    def test_general_chat_init_lists_projects(self):
-        ps = self._ps()
-        prompt = ps.build_general_chat_init(project_names=["Voxyflow", "Dictoral"])
-        assert "Voxyflow" in prompt
-        assert "Dictoral" in prompt
-
-    def test_general_chat_init_main_project_context(self):
-        ps = self._ps()
-        prompt = ps.build_general_chat_init(project_names=["Voxyflow"])
-        assert "Main project" in prompt
-
-    def test_general_chat_init_mentions_notes(self):
+    def test_general_chat_init_mentions_cards(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init()
         assert "card" in prompt.lower() or "Card" in prompt
-
-    def test_general_chat_init_empty_projects(self):
-        ps = self._ps()
-        prompt = ps.build_general_chat_init(project_names=[])
-        assert "no projects yet" in prompt
-
-    def test_general_chat_init_none_projects(self):
-        ps = self._ps()
-        prompt = ps.build_general_chat_init(project_names=None)
-        assert "no projects yet" in prompt
 
     # -- Project Chat Init --
 
@@ -252,33 +234,14 @@ class TestChatInitContent:
         prompt = ps.build_project_chat_init(project)
         assert "## Project:" in prompt
 
-    def test_project_chat_init_has_tech_stack(self):
-        ps = self._ps()
-        project = {"title": "TestProject", "tech_stack": "Python, FastAPI"}
-        prompt = ps.build_project_chat_init(project)
-        assert "Python, FastAPI" in prompt
-
     def test_project_chat_init_has_stay_focused(self):
         ps = self._ps()
         project = {"title": "TestProject"}
         prompt = ps.build_project_chat_init(project)
         assert "Stay focused here" in prompt
 
-    def test_project_chat_init_has_card_counts(self):
-        ps = self._ps()
-        project = {
-            "title": "TestProject",
-            "cards": [
-                {"status": "done", "title": "Card1", "updated_at": "2026-01-01"},
-                {"status": "todo", "title": "Card2", "updated_at": "2026-01-02"},
-                {"status": "in_progress", "title": "Card3", "updated_at": "2026-01-03"},
-            ],
-        }
-        prompt = ps.build_project_chat_init(project)
-        assert "3 cards" in prompt
-        assert "1 done" in prompt
-        assert "1 in progress" in prompt
-        assert "1 todo" in prompt
+    # Dynamic project fields (tech_stack, card counts) moved to
+    # build_dynamic_context_block — covered by TestDynamicContextBlock below.
 
     # -- Card Chat Init --
 
@@ -303,17 +266,53 @@ class TestChatInitContent:
         prompt = ps.build_card_chat_init(project, card)
         assert "TestProject" in prompt
 
-    def test_card_chat_init_has_status_and_priority(self):
-        ps = self._ps()
-        project = {"title": "TestProject"}
-        card = {"title": "Fix bug", "status": "in_progress", "priority": "high"}
-        prompt = ps.build_card_chat_init(project, card)
-        assert "in_progress" in prompt
-        assert "high" in prompt
+    # Status / priority / checklist moved out of the static card chat init
+    # into build_dynamic_context_block — covered by TestDynamicContextBlock.
 
-    def test_card_chat_init_has_checklist_count(self):
+
+class TestDynamicContextBlock:
+    """Verify dynamic project / card data ends up in build_dynamic_context_block.
+
+    The static chat-init builders are intentionally cache-friendly and omit
+    everything that changes call-to-call. The dynamic block is where the
+    per-call state (tech stack, card counts, checklist, etc.) lives.
+    """
+
+    def _ps(self):
+        from app.services.personality_service import PersonalityService
+        return PersonalityService()
+
+    def test_project_dynamic_has_tech_stack(self):
         ps = self._ps()
-        project = {"title": "TestProject"}
+        project = {"title": "TestProject", "tech_stack": "Python, FastAPI"}
+        block = ps.build_dynamic_context_block(chat_level="project", project=project)
+        assert "Python, FastAPI" in block
+
+    def test_project_dynamic_has_card_counts(self):
+        ps = self._ps()
+        project = {
+            "title": "TestProject",
+            "cards": [
+                {"status": "done", "title": "Card1"},
+                {"status": "todo", "title": "Card2"},
+                {"status": "in_progress", "title": "Card3"},
+            ],
+        }
+        block = ps.build_dynamic_context_block(chat_level="project", project=project)
+        assert "3 cards" in block
+        assert "1 done" in block
+        assert "1 in progress" in block
+        assert "1 todo" in block
+
+    def test_card_dynamic_has_status_and_priority(self):
+        ps = self._ps()
+        card = {"title": "Fix bug", "status": "in_progress", "priority": "high"}
+        block = ps.build_dynamic_context_block(chat_level="card", card=card)
+        assert "in_progress" in block
+        assert "high" in block
+
+    def test_card_dynamic_has_checklist_count(self):
+        ps = self._ps()
         card = {
             "title": "Fix bug",
             "checklist_items": [
@@ -322,8 +321,8 @@ class TestChatInitContent:
                 {"text": "Step 3", "done": True},
             ],
         }
-        prompt = ps.build_card_chat_init(project, card)
-        assert "2/3" in prompt  # 2 completed out of 3
+        block = ps.build_dynamic_context_block(chat_level="card", card=card)
+        assert "2/3" in block  # 2 completed out of 3
 
 
 class TestContextIsolation:
@@ -340,10 +339,10 @@ class TestContextIsolation:
         assert "kanban" not in prompt.lower()
         assert "sprint" not in prompt.lower()
 
-    def test_general_prompt_mentions_main_project(self):
+    def test_general_prompt_mentions_home_project(self):
         ps = self._ps()
-        prompt = ps.build_general_chat_init(project_names=["Voxyflow"])
-        assert "Main project" in prompt
+        prompt = ps.build_general_chat_init()
+        assert "Home project" in prompt
 
     def test_project_prompt_scoped_to_one_project(self):
         ps = self._ps()
@@ -489,7 +488,7 @@ class TestDeepPrompt:
         general_prompt = ps.build_deep_prompt(chat_level="general", is_chat_responder=True)
         project = {"title": "TestProject"}
         project_prompt = ps.build_deep_prompt(chat_level="project", project=project, is_chat_responder=True)
-        assert "Main" in general_prompt
+        assert "Home" in general_prompt
         assert "TestProject" in project_prompt
 
 
@@ -533,33 +532,20 @@ class TestMCPToolDefinitions:
 
 
 class TestFastPromptToolInjection:
-    """Verify the fast prompt includes tool instructions filtered by level."""
+    """Verify the fast prompt wires up the dispatcher delegation mechanism.
+
+    Post-refactor, tool names are exposed to the LLM via the native tool API
+    (Anthropic ``tools`` / OpenAI ``functions``), not as plain text inside the
+    system prompt — so asserting that a specific ``voxyflow.card.create``
+    substring appears no longer matches production behaviour. What does stay
+    stable is the delegate-block contract the dispatcher ends with.
+    """
 
     def _ps(self):
         from app.services.personality_service import PersonalityService
         return PersonalityService()
 
-    def test_fast_prompt_general_has_card_tools_text(self):
-        """Post-refactor: general (Main project) has both unassigned aliases and card tools."""
-        ps = self._ps()
-        prompt = ps.build_fast_prompt(chat_level="general", project_names=["Test"])
-        assert "voxyflow.card.create_unassigned" in prompt or "voxyflow.card.create" in prompt
-
-    def test_fast_prompt_project_has_card_tools_text(self):
-        ps = self._ps()
-        project = {"title": "TestProject"}
-        prompt = ps.build_fast_prompt(chat_level="project", project=project)
-        assert "voxyflow.card.create" in prompt
-
-    def test_fast_prompt_card_has_all_tools_text(self):
-        ps = self._ps()
-        project = {"title": "TestProject"}
-        card = {"title": "Fix bug"}
-        prompt = ps.build_fast_prompt(chat_level="card", project=project, card=card)
-        assert "voxyflow.card.create" in prompt
-        assert "voxyflow.card.create_unassigned" in prompt
-
-    def test_fast_prompt_has_tool_call_xml_instruction(self):
+    def test_fast_prompt_has_delegate_instruction(self):
         ps = self._ps()
         prompt = ps.build_fast_prompt(chat_level="general")
         assert "<delegate>" in prompt, "Fast prompt should instruct on <delegate> XML format"

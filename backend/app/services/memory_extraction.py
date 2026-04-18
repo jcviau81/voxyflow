@@ -24,6 +24,8 @@ from app.services.memory_service_constants import (
     VALID_TYPES,
     _classify_text,
     _format_messages_for_extraction,
+    _MEMORY_EXTRACTION_SYSTEM,
+    _MEMORY_EXTRACTION_USER_TEMPLATE,
     _project_collection,
 )
 

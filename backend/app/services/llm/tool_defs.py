@@ -115,9 +115,23 @@ def get_claude_tools(
 
 
 def _mcp_tool_name_from_claude(claude_name: str) -> str:
-    """Convert Claude tool name back to MCP equivalent.
-    voxyflow_card_create → voxyflow.card.create
+    """Convert a Claude tool name (underscores) back to its MCP equivalent.
+
+    The forward transform is ``name.replace(".", "_")``, which is NOT
+    invertible by naive split — some real tool names contain underscores
+    inside a single segment (``voxyflow.ai.review_code``) while others
+    are deeper than 3 segments (``voxyflow.card.comment.add``). The only
+    reliable inverse is a reverse lookup against the registered tool
+    names; fall back to a naive 2-split for unknown names so callers get
+    a reasonable guess instead of a KeyError.
     """
+    try:
+        from app.mcp_server import _TOOL_DEFINITIONS
+        for tool in _TOOL_DEFINITIONS:
+            if tool["name"].replace(".", "_") == claude_name:
+                return tool["name"]
+    except Exception as e:
+        logger.debug(f"_mcp_tool_name_from_claude reverse lookup failed: {e}")
     parts = claude_name.split("_", 2)
     return ".".join(parts)
 
