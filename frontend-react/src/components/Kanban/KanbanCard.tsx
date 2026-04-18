@@ -348,6 +348,7 @@ export function KanbanCard({
         isBlocked && 'border-orange-500/40 bg-orange-500/5',
       )}
       draggable={!selectMode}
+      data-testid="kanban-card"
       data-card-id={card.id}
       data-card-status={card.status}
       onClick={handleCardClick}
@@ -390,7 +391,10 @@ export function KanbanCard({
           <span className={cn('mt-1.5 flex-shrink-0 w-2 h-2 rounded-full', CARD_COLOR_DOT[card.color])} />
         )}
         <div className="flex-1 min-w-0">
-          <div className="text-[0.8125rem] font-medium text-foreground leading-snug break-words">
+          <div
+            data-testid="kanban-card-title"
+            className="text-[0.8125rem] font-medium text-foreground leading-snug break-words"
+          >
             {query ? highlightText(card.title, query) : card.title}
           </div>
         </div>

@@ -8,10 +8,15 @@ export function Toaster() {
   if (!toasts.length) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+    <div
+      data-testid="toast-container"
+      className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none"
+    >
       {toasts.map((toast) => (
         <div
           key={toast.id}
+          data-testid="toast"
+          data-toast-type={toast.type}
           onClick={() => dismissToast(toast.id)}
           className={cn(
             'flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg',

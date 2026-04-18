@@ -486,6 +486,7 @@ export function ChatInput({
         {/* Textarea */}
         <textarea
           ref={textareaRef}
+          data-testid="chat-input-textarea"
           className="chat-input flex-1 resize-none bg-muted/50 border border-border rounded-lg px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[40px] max-h-[150px]"
           placeholder={isMobile ? 'Message...' : 'Type a message or press Alt+V for voice...'}
           rows={1}
@@ -498,6 +499,7 @@ export function ChatInput({
         {/* Send button */}
         <button
           type="button"
+          data-testid="chat-input-send"
           className={cn(
             'chat-send-btn flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-sm font-medium transition-colors',
             connected
