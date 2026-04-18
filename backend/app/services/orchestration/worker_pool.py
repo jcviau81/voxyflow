@@ -147,6 +147,12 @@ class DeepWorkerPool:
         # Used to clip burst completions so simultaneous workers can't flood the
         # dispatcher in a single turn window.
         self._recent_callback_chars: dict[str, list[tuple[float, int]]] = {}
+        # Dispatcher callbacks that fired while the WS was disconnected. Drained
+        # on update_websocket() so Voxy still gets a turn after the client
+        # reconnects — without this, the user sees the worker's task:completed
+        # (replayed from pending_store) but never gets a chat response.
+        self._deferred_callbacks: list[dict] = []
+        self._MAX_DEFERRED_CALLBACKS = 20
         self._stopped = False
 
     # Regex to extract file path from read-file intents
@@ -190,9 +196,17 @@ class DeepWorkerPool:
         logger.info(f"[DeepWorkerPool] Started for session {self._bus.session_id}")
 
     def update_websocket(self, websocket: WebSocket | None) -> None:
-        """Update the WebSocket reference after a client reconnect."""
+        """Update the WebSocket reference after a client reconnect.
+
+        If dispatcher callbacks were deferred while the WS was down, schedule a
+        drain so Voxy picks up the worker results now that the client is back.
+        """
         self._ws = websocket
         logger.info(f"[DeepWorkerPool] Updated WebSocket for session {self._bus.session_id}")
+        if websocket is not None and self._deferred_callbacks and self._orchestrator:
+            from starlette.websockets import WebSocketState
+            if getattr(websocket, "client_state", WebSocketState.CONNECTED) == WebSocketState.CONNECTED:
+                asyncio.create_task(self._drain_deferred_callbacks())
 
     async def stop(self) -> None:
         """Stop the pool and cancel all active tasks.
@@ -640,6 +654,94 @@ class DeepWorkerPool:
             )
         log.append((now, len(msg)))
         return msg
+
+    # ------------------------------------------------------------------
+    # Dispatcher callback delivery (connected now | deferred until reconnect)
+    # ------------------------------------------------------------------
+
+    async def _dispatch_or_defer_callback(self, spec: dict) -> None:
+        """Invoke the dispatcher callback now, or queue it for reconnect drain.
+
+        `spec` carries everything needed to replay the callback: the prepared
+        message, the chat/session/project identifiers, and a message_id. The
+        burst clip is applied at dispatch time (not enqueue time) so the 60s
+        rolling window tracks actual delivery, not intended delivery.
+        """
+        if not self._orchestrator:
+            return
+        from starlette.websockets import WebSocketState
+        _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
+        if self._ws is not None and _ws_state == WebSocketState.CONNECTED:
+            try:
+                msg = self._clip_against_recent_bursts(
+                    spec["dispatcher_chat_id"], spec["callback_msg"],
+                )
+                await self._orchestrator.handle_message(
+                    websocket=self._ws,
+                    content=msg,
+                    message_id=spec["message_id"],
+                    chat_id=spec["dispatcher_chat_id"],
+                    project_id=spec.get("project_id"),
+                    chat_level=spec.get("chat_level", "general"),
+                    session_id=spec.get("session_id"),
+                    is_callback=True,
+                    callback_depth=1,
+                )
+            except Exception as cb_err:
+                logger.warning(
+                    f"[DeepWorker] Dispatcher callback failed for task "
+                    f"{spec.get('task_id')}: {cb_err}", exc_info=True,
+                )
+            return
+
+        # WS unavailable — queue for drain on reconnect.
+        if len(self._deferred_callbacks) >= self._MAX_DEFERRED_CALLBACKS:
+            dropped = self._deferred_callbacks.pop(0)
+            logger.warning(
+                f"[DeepWorker] Deferred callback queue full — dropping oldest "
+                f"(task {dropped.get('task_id')})"
+            )
+        self._deferred_callbacks.append(spec)
+        logger.info(
+            f"[DeepWorker] Deferred dispatcher callback for task "
+            f"{spec.get('task_id')} — WS not connected (queued={len(self._deferred_callbacks)})"
+        )
+
+    async def _drain_deferred_callbacks(self) -> None:
+        """Replay queued dispatcher callbacks after WS reconnect."""
+        from starlette.websockets import WebSocketState
+        while self._deferred_callbacks and not self._stopped:
+            if self._ws is None or getattr(self._ws, "client_state", WebSocketState.CONNECTED) != WebSocketState.CONNECTED:
+                logger.info(
+                    f"[DeepWorker] Drain paused — WS no longer connected "
+                    f"(remaining={len(self._deferred_callbacks)})"
+                )
+                return
+            spec = self._deferred_callbacks.pop(0)
+            try:
+                msg = self._clip_against_recent_bursts(
+                    spec["dispatcher_chat_id"], spec["callback_msg"],
+                )
+                await self._orchestrator.handle_message(
+                    websocket=self._ws,
+                    content=msg,
+                    message_id=spec["message_id"],
+                    chat_id=spec["dispatcher_chat_id"],
+                    project_id=spec.get("project_id"),
+                    chat_level=spec.get("chat_level", "general"),
+                    session_id=spec.get("session_id"),
+                    is_callback=True,
+                    callback_depth=1,
+                )
+                logger.info(
+                    f"[DeepWorker] Drained deferred callback for task "
+                    f"{spec.get('task_id')}"
+                )
+            except Exception as cb_err:
+                logger.warning(
+                    f"[DeepWorker] Deferred callback drain failed for "
+                    f"{spec.get('task_id')}: {cb_err}", exc_info=True,
+                )
 
     async def _stale_cleanup_loop(self) -> None:
         """Prune old completed-task entries from memory (every 60s)."""
@@ -1339,40 +1441,29 @@ class DeepWorkerPool:
             dispatcher_chat_id = event.data.get("dispatcher_chat_id")
             if dispatcher_chat_id and self._orchestrator:
                 try:
-                    from starlette.websockets import WebSocketState
-                    _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
-                    if _ws_state == WebSocketState.CONNECTED:
-                        payload = supervisor.get_completion_payload(event.task_id)
-                        raw_len = len(result_content or "")
-                        callback_msg = self._build_dispatcher_callback(
-                            task_id=event.task_id,
-                            intent=event.intent or "",
-                            payload=payload,
-                            artifact_path=artifact_path,
-                            raw_len=raw_len,
-                            fallback_text=result_content,
-                        )
-                        # Track per-dispatcher-turn aggregate; clip further if a
-                        # burst of completions would flood the dispatcher.
-                        callback_msg = self._clip_against_recent_bursts(
-                            dispatcher_chat_id, callback_msg,
-                        )
-                        callback_message_id = f"worker-cb-{uuid4().hex[:8]}"
-                        logger.info(f"[DeepWorker] Re-triggering dispatcher after {event.intent}")
-
-                        await self._orchestrator.handle_message(
-                            websocket=self._ws,
-                            content=callback_msg,
-                            message_id=callback_message_id,
-                            chat_id=dispatcher_chat_id,
-                            project_id=event.data.get("project_id"),
-                            chat_level="project" if event.data.get("project_id") else "general",
-                            session_id=event.session_id,
-                            is_callback=True,
-                            callback_depth=1,
-                        )
+                    payload = supervisor.get_completion_payload(event.task_id)
+                    raw_len = len(result_content or "")
+                    callback_msg_raw = self._build_dispatcher_callback(
+                        task_id=event.task_id,
+                        intent=event.intent or "",
+                        payload=payload,
+                        artifact_path=artifact_path,
+                        raw_len=raw_len,
+                        fallback_text=result_content,
+                    )
+                    spec = {
+                        "task_id": event.task_id,
+                        "dispatcher_chat_id": dispatcher_chat_id,
+                        "callback_msg": callback_msg_raw,
+                        "message_id": f"worker-cb-{uuid4().hex[:8]}",
+                        "project_id": event.data.get("project_id"),
+                        "chat_level": "project" if event.data.get("project_id") else "general",
+                        "session_id": event.session_id,
+                    }
+                    logger.info(f"[DeepWorker] Re-triggering dispatcher after {event.intent}")
+                    await self._dispatch_or_defer_callback(spec)
                 except Exception as cb_err:
-                    logger.warning(f"[DeepWorker] Dispatcher callback failed: {cb_err}", exc_info=True)
+                    logger.warning(f"[DeepWorker] Dispatcher callback prep failed: {cb_err}", exc_info=True)
 
             if follow_up_action and self._orchestrator and event.session_id:
                 try:
@@ -1435,29 +1526,23 @@ class DeepWorkerPool:
             dispatcher_chat_id = event.data.get("dispatcher_chat_id")
             if dispatcher_chat_id and self._orchestrator:
                 try:
-                    from starlette.websockets import WebSocketState
-                    _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
-                    if _ws_state == WebSocketState.CONNECTED:
-                        error_msg = str(e)[:500]
-                        callback_msg = (
-                            f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) FAILED.]\n\n"
-                            f"Error: {error_msg}\n\n"
-                            f"Inform the user about the failure and suggest alternatives if appropriate."
-                        )
-                        callback_message_id = f"worker-err-{uuid4().hex[:8]}"
-                        logger.info(f"[DeepWorker] Notifying dispatcher about failed task {event.task_id}")
-
-                        await self._orchestrator.handle_message(
-                            websocket=self._ws,
-                            content=callback_msg,
-                            message_id=callback_message_id,
-                            chat_id=dispatcher_chat_id,
-                            project_id=event.data.get("project_id"),
-                            chat_level="project" if event.data.get("project_id") else "general",
-                            session_id=event.session_id,
-                            is_callback=True,
-                            callback_depth=1,
-                        )
+                    error_msg = str(e)[:500]
+                    callback_msg_raw = (
+                        f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) FAILED.]\n\n"
+                        f"Error: {error_msg}\n\n"
+                        f"Inform the user about the failure and suggest alternatives if appropriate."
+                    )
+                    spec = {
+                        "task_id": event.task_id,
+                        "dispatcher_chat_id": dispatcher_chat_id,
+                        "callback_msg": callback_msg_raw,
+                        "message_id": f"worker-err-{uuid4().hex[:8]}",
+                        "project_id": event.data.get("project_id"),
+                        "chat_level": "project" if event.data.get("project_id") else "general",
+                        "session_id": event.session_id,
+                    }
+                    logger.info(f"[DeepWorker] Notifying dispatcher about failed task {event.task_id}")
+                    await self._dispatch_or_defer_callback(spec)
                 except Exception as cb_err:
                     logger.warning(f"[DeepWorker] Failed to notify dispatcher about error: {cb_err}")
         finally:

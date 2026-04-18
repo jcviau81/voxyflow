@@ -244,6 +244,11 @@ def _make_pool_for_rendering():
 
     pool = DeepWorkerPool.__new__(DeepWorkerPool)
     pool._recent_callback_chars = {}
+    pool._deferred_callbacks = []
+    pool._MAX_DEFERRED_CALLBACKS = 20
+    pool._stopped = False
+    pool._ws = None
+    pool._orchestrator = None
     return pool
 
 
@@ -361,3 +366,143 @@ def test_clip_against_recent_bursts_window_expires(monkeypatch):
     # 9k entry is older than 60s — dropped — 5k fits under 10k budget.
     assert len(out) == 5_000
     assert "dispatcher burst cap" not in out
+
+
+# ---------------------------------------------------------------------------
+# Deferred dispatcher callback (reconnect after worker finished mid-disconnect)
+# ---------------------------------------------------------------------------
+
+class _FakeWS:
+    def __init__(self, connected: bool = True):
+        from starlette.websockets import WebSocketState
+        self.client_state = WebSocketState.CONNECTED if connected else WebSocketState.DISCONNECTED
+
+
+class _RecordingOrchestrator:
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def handle_message(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+def _make_spec(task_id: str = "T1", msg: str = "hello dispatcher") -> dict:
+    return {
+        "task_id": task_id,
+        "dispatcher_chat_id": "chat-1",
+        "callback_msg": msg,
+        "message_id": f"worker-cb-{task_id}",
+        "project_id": "proj-1",
+        "chat_level": "project",
+        "session_id": "sess-1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_dispatch_callback_runs_immediately_when_ws_connected():
+    pool = _make_pool_for_rendering()
+    pool._ws = _FakeWS(connected=True)
+    pool._orchestrator = _RecordingOrchestrator()
+
+    await pool._dispatch_or_defer_callback(_make_spec())
+
+    assert pool._deferred_callbacks == []
+    assert len(pool._orchestrator.calls) == 1
+    call = pool._orchestrator.calls[0]
+    assert call["chat_id"] == "chat-1"
+    assert call["is_callback"] is True
+    assert call["callback_depth"] == 1
+    assert call["content"].startswith("hello dispatcher")
+
+
+@pytest.mark.asyncio
+async def test_dispatch_callback_defers_when_ws_disconnected():
+    pool = _make_pool_for_rendering()
+    pool._ws = _FakeWS(connected=False)
+    pool._orchestrator = _RecordingOrchestrator()
+
+    await pool._dispatch_or_defer_callback(_make_spec())
+
+    # Nothing invoked on the orchestrator — queued for reconnect.
+    assert pool._orchestrator.calls == []
+    assert len(pool._deferred_callbacks) == 1
+    assert pool._deferred_callbacks[0]["task_id"] == "T1"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_callback_defers_when_ws_is_none():
+    pool = _make_pool_for_rendering()
+    pool._ws = None
+    pool._orchestrator = _RecordingOrchestrator()
+
+    await pool._dispatch_or_defer_callback(_make_spec("T_none"))
+
+    assert pool._orchestrator.calls == []
+    assert [s["task_id"] for s in pool._deferred_callbacks] == ["T_none"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_callback_queue_drops_oldest_when_full():
+    pool = _make_pool_for_rendering()
+    pool._MAX_DEFERRED_CALLBACKS = 3
+    pool._ws = _FakeWS(connected=False)
+    pool._orchestrator = _RecordingOrchestrator()
+
+    for i in range(5):
+        await pool._dispatch_or_defer_callback(_make_spec(f"T{i}"))
+
+    # Only the newest 3 survive; T0 and T1 were evicted.
+    tids = [s["task_id"] for s in pool._deferred_callbacks]
+    assert tids == ["T2", "T3", "T4"]
+
+
+@pytest.mark.asyncio
+async def test_drain_deferred_callbacks_replays_in_order_after_reconnect():
+    pool = _make_pool_for_rendering()
+    pool._ws = _FakeWS(connected=False)
+    pool._orchestrator = _RecordingOrchestrator()
+
+    for i in range(3):
+        await pool._dispatch_or_defer_callback(_make_spec(f"T{i}"))
+    assert len(pool._deferred_callbacks) == 3
+    assert pool._orchestrator.calls == []
+
+    # Reconnect — new healthy WS.
+    pool._ws = _FakeWS(connected=True)
+    await pool._drain_deferred_callbacks()
+
+    assert pool._deferred_callbacks == []
+    chat_ids = [c["chat_id"] for c in pool._orchestrator.calls]
+    msg_ids = [c["message_id"] for c in pool._orchestrator.calls]
+    assert chat_ids == ["chat-1", "chat-1", "chat-1"]
+    assert msg_ids == ["worker-cb-T0", "worker-cb-T1", "worker-cb-T2"]
+
+
+@pytest.mark.asyncio
+async def test_drain_stops_if_ws_closes_mid_drain():
+    """Second pop should not fire if the WS dies between replays."""
+    pool = _make_pool_for_rendering()
+    pool._ws = _FakeWS(connected=False)
+
+    class _FlakyOrchestrator:
+        def __init__(self, pool_ref):
+            self.pool = pool_ref
+            self.calls: list[dict] = []
+
+        async def handle_message(self, **kwargs):
+            self.calls.append(kwargs)
+            # Simulate the WS closing after the first successful replay.
+            self.pool._ws = _FakeWS(connected=False)
+
+    pool._orchestrator = _FlakyOrchestrator(pool)
+
+    for i in range(3):
+        await pool._dispatch_or_defer_callback(_make_spec(f"T{i}"))
+
+    # Healthy WS to kick off the drain.
+    pool._ws = _FakeWS(connected=True)
+    await pool._drain_deferred_callbacks()
+
+    # Only one replay fired; the remaining two are still queued for next reconnect.
+    assert len(pool._orchestrator.calls) == 1
+    assert [s["task_id"] for s in pool._deferred_callbacks] == ["T1", "T2"]
