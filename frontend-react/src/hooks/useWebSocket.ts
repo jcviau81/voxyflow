@@ -7,7 +7,7 @@ const RECONNECT_MAX_ATTEMPTS = 10;
 const RECONNECT_BASE_DELAY = 1000; // ms
 const RECONNECT_MAX_DELAY = 30000; // ms
 const HEARTBEAT_INTERVAL = 30000; // 30s
-const PENDING_ACKS_STORAGE_KEY = 'voxyflow_pending_acks';
+const LEGACY_PENDING_ACKS_STORAGE_KEY = 'voxyflow_pending_acks';
 const ACK_TIMEOUT_MS = 15000; // 15s
 
 function getWsUrl(): string {
@@ -20,20 +20,14 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function loadPendingAcks(): Map<string, QueuedMessage> {
+// Evict any persisted pendingAcks from prior versions. Replaying them on reload
+// caused duplicate orchestrations when a message was ACK'd by the server but the
+// ACK was lost on the wire. The backend now enforces messageId idempotency, and
+// pendingAcks is kept in-memory only — surviving reconnects within the same
+// page load, but never surviving a refresh.
+function purgeLegacyPendingAcks(): void {
   try {
-    const stored = localStorage.getItem(PENDING_ACKS_STORAGE_KEY);
-    if (stored) {
-      const arr = JSON.parse(stored) as [string, QueuedMessage][];
-      return new Map(arr);
-    }
-  } catch { /* ignore */ }
-  return new Map();
-}
-
-function savePendingAcks(map: Map<string, QueuedMessage>): void {
-  try {
-    localStorage.setItem(PENDING_ACKS_STORAGE_KEY, JSON.stringify([...map.entries()]));
+    localStorage.removeItem(LEGACY_PENDING_ACKS_STORAGE_KEY);
   } catch { /* ignore */ }
 }
 
@@ -76,9 +70,14 @@ export function useWebSocket(): UseWebSocketReturn {
   const isClosingRef = useRef(false);
   const handlersRef = useRef<Map<string, Set<MessageHandler>>>(new Map());
 
-  // Pending ACK tracking — messages sent but not yet confirmed by backend
-  const pendingAcksRef = useRef<Map<string, QueuedMessage>>(loadPendingAcks());
+  // Pending ACK tracking — messages sent but not yet confirmed by backend.
+  // In-memory only: survives reconnects within the same page load, but not a
+  // refresh. Backend enforces messageId idempotency as the real dedup guarantee.
+  const pendingAcksRef = useRef<Map<string, QueuedMessage>>(new Map());
   const pendingAckTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Clean up any stale entries from older builds on mount.
+  useEffect(() => { purgeLegacyPendingAcks(); }, []);
 
   // --- Heartbeat ---
 
@@ -215,7 +214,6 @@ export function useWebSocket(): UseWebSocketReturn {
               const timer = pendingAckTimersRef.current.get(messageId);
               if (timer) { clearTimeout(timer); pendingAckTimersRef.current.delete(messageId); }
               pendingAcksRef.current.delete(messageId);
-              savePendingAcks(pendingAcksRef.current);
             }
             return;
           }
@@ -295,15 +293,14 @@ export function useWebSocket(): UseWebSocketReturn {
       if (messageId) {
         const queued: QueuedMessage = { type, payload, id, timestamp };
         pendingAcksRef.current.set(messageId, queued);
-        savePendingAcks(pendingAcksRef.current);
 
-        // Timeout: if no ACK within 15s, move to offline queue for retry
+        // Timeout: if no ACK within 15s, move to offline queue for retry.
+        // Backend idempotency protects against the resend being double-processed.
         const timer = setTimeout(() => {
           pendingAckTimersRef.current.delete(messageId);
           if (pendingAcksRef.current.has(messageId)) {
             const msg = pendingAcksRef.current.get(messageId)!;
             pendingAcksRef.current.delete(messageId);
-            savePendingAcks(pendingAcksRef.current);
             console.warn(`[useWebSocket] No ACK for message ${messageId} after ${ACK_TIMEOUT_MS}ms, re-queuing`);
             enqueue(msg);
           }

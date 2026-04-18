@@ -723,6 +723,50 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }),
     );
 
+    // --- chat:message:new — live cross-device sync ---
+    // Backend broadcasts a finalized user or assistant message to every OTHER
+    // connected client whenever a chat turn is processed. This lets a phone
+    // and a desktop see each other's messages without a manual refresh.
+    // The originating client does NOT receive its own broadcast (emit_to_others),
+    // so we don't need to dedup against the local sender path — only against
+    // prior broadcasts (e.g. two tabs both receiving the same event).
+    unsubs.push(
+      subscribe('chat:message:new', (payload) => {
+        const { sessionId, message } = payload as {
+          chatId?: string;
+          sessionId?: string;
+          message?: {
+            role?: 'user' | 'assistant';
+            content?: string;
+            timestamp?: number; // seconds since epoch
+            model?: string;
+          };
+        };
+        if (!message || !message.role || typeof message.content !== 'string') return;
+        if (message.role !== 'user' && message.role !== 'assistant') return;
+
+        // Timestamp from backend is seconds (time.time()) — convert to ms.
+        const tsMs = typeof message.timestamp === 'number'
+          ? Math.round(message.timestamp * 1000)
+          : Date.now();
+
+        const converted: Message = {
+          id: generateId(),
+          role: message.role,
+          content: message.content,
+          timestamp: tsMs,
+          sessionId,
+          projectId: getProjectIdFromSession(sessionId),
+          streaming: false,
+          model: message.model,
+        };
+
+        // setMessages dedups by role+timestamp+content-prefix — safe to call
+        // even when another tab already injected the same broadcast.
+        messageStoreRef.current.setMessages([converted]);
+      }),
+    );
+
     // --- ws:connected — sync session on connect/reconnect ---
     // 1. Sends session:sync so the backend delivers any pending worker results
     //    that accumulated while the client was disconnected.
