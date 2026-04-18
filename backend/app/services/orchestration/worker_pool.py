@@ -267,9 +267,27 @@ class DeepWorkerPool:
         """Cancel a specific running task by task_id.
 
         Returns True if the task was found and cancelled, False otherwise.
+        If the task is not live in memory but the session store still shows it
+        ``running`` (zombie from a previous backend boot), mark the session
+        ``cancelled`` and emit the WS event so the UI converges.
         """
         task = self._active_tasks.get(task_id)
         if not task:
+            store = get_worker_session_store()
+            session = store.get_session(task_id)
+            if session and session.get("status") == "running":
+                logger.info(f"[DeepWorkerPool] cancel_task: task {task_id} is a zombie (not live) — reconciling")
+                store.update_status(
+                    task_id,
+                    "cancelled",
+                    result_summary="zombie — process not live",
+                )
+                await self._ledger_update(task_id, "cancelled", error="zombie — process not live")
+                await self._send_task_event("task:cancelled", task_id, {
+                    "reason": "zombie_reconciled",
+                    "sessionId": self._bus.session_id,
+                })
+                return True
             logger.warning(f"[DeepWorkerPool] cancel_task: task {task_id} not found")
             return False
 

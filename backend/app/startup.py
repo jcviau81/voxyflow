@@ -60,6 +60,24 @@ async def _cleanup_stale_worker_tasks() -> None:
         logger.exception("⚠️  Worker task cleanup failed (non-fatal)")
 
 
+def _reconcile_orphan_worker_sessions() -> None:
+    """Flip any on-disk worker session still marked ``running`` to ``crashed``.
+
+    If the backend is (re)starting, no live subprocess can own a ``running``
+    session — the process was killed mid-run. Reconcile once at boot so the
+    UI/dispatcher don't keep treating those sessions as live.
+    """
+    from app.services.worker_session_store import get_worker_session_store
+
+    try:
+        store = get_worker_session_store()
+        crashed = store.reconcile_orphans(reason="backend_restart")
+        if crashed:
+            logger.info(f"[WorkerPool] Reconciled {len(crashed)} orphan session(s) on boot")
+    except Exception:
+        logger.exception("⚠️  Orphan worker session reconciliation failed (non-fatal)")
+
+
 async def _sync_settings_from_db(claude_service: "ClaudeService") -> None:
     """Pull settings.json from DB, then trigger a ClaudeService model reload."""
     from app.routes.settings import _load_settings_from_db, AppSettings, SETTINGS_FILE
@@ -228,6 +246,7 @@ def build_lifespan(
         await _sync_settings_from_db(claude_service)
         await _init_personality_files()
         await _cleanup_stale_worker_tasks()
+        _reconcile_orphan_worker_sessions()
 
         ws_service = get_workspace_service()
         ws_path = await ws_service.ensure_workspace()

@@ -203,6 +203,26 @@ class WorkerSessionStore:
         self._persist(session)
         logger.debug(f"[WorkerSessionStore] Updated task {task_id[:8]} → {status}")
 
+    def reconcile_orphans(self, reason: str = "backend_restart") -> list[str]:
+        """Mark any running sessions as ``crashed`` — used at boot.
+
+        A session left with ``status == 'running'`` when the backend starts
+        cannot correspond to a live process (we just (re)started), so the
+        subprocess was killed mid-run. Flip it to a terminal state so the
+        UI/dispatcher stop treating it as live.
+        """
+        crashed: list[str] = []
+        now = time.time()
+        for task_id, session in self._sessions.items():
+            if session.status == "running":
+                session.status = "crashed"
+                session.end_time = now
+                if not session.result_summary:
+                    session.result_summary = f"crashed — {reason}"
+                self._persist(session)
+                crashed.append(task_id)
+        return crashed
+
     def check_timeouts(self) -> list[str]:
         """Check for running sessions that have exceeded the timeout. Returns task_ids that timed out."""
         timed_out = []
