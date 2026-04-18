@@ -1,5 +1,5 @@
-{$CADDY_HOSTNAME:localhost} {
-	tls {$CADDY_TLS_CERT:internal} {$CADDY_TLS_KEY:}
+{$CADDY_HOSTNAME} {
+	tls {$CADDY_TLS_CERT} {$CADDY_TLS_KEY}
 
 	# Security headers — applied globally.
 	# - HSTS: force HTTPS for 1 year (includeSubDomains safe for single-host deploys).
