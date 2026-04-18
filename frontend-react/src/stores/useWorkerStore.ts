@@ -18,7 +18,7 @@ export interface WorkerInfo {
   action: string;
   description: string;
   model: 'haiku' | 'sonnet' | 'opus';
-  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'crashed';
   startedAt: number;
   completedAt?: number;
   resultSummary?: string;

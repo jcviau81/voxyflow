@@ -40,7 +40,7 @@ interface PeekResult {
 
 // ── Constants & Helpers ─────────────────────────────────────────────────────
 
-const TERMINAL_STATUSES = new Set<WorkerInfo['status']>(['done', 'failed', 'cancelled']);
+const TERMINAL_STATUSES = new Set<WorkerInfo['status']>(['done', 'failed', 'cancelled', 'crashed']);
 
 function elapsed(startMs: number, endMs?: number): string {
   const ms = (endMs ?? Date.now()) - startMs;
@@ -271,16 +271,18 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
   };
 
   const statusLabel =
-    worker.status === 'running' ? 'running' :
-    worker.status === 'pending' ? 'pending' :
-    worker.status === 'done'    ? 'done'    :
-    worker.status === 'failed'  ? 'failed'  : 'cancelled';
+    worker.status === 'running'   ? 'running'   :
+    worker.status === 'pending'   ? 'pending'   :
+    worker.status === 'done'      ? 'done'      :
+    worker.status === 'failed'    ? 'failed'    :
+    worker.status === 'crashed'   ? 'crashed'   : 'cancelled';
 
   const statusChipClasses = cn(
     'text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded tracking-wider shrink-0',
     isActive && 'bg-accent/15 text-accent',
     worker.status === 'done' && 'bg-green-500/15 text-green-500',
     worker.status === 'failed' && 'bg-red-500/15 text-red-500',
+    worker.status === 'crashed' && 'bg-orange-500/15 text-orange-500',
     worker.status === 'cancelled' && 'bg-muted text-muted-foreground',
   );
 

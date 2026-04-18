@@ -22,7 +22,7 @@ interface ToolEvent {
   timestamp: number;
 }
 
-const TERMINAL_STATUSES = new Set(['done', 'failed', 'cancelled']);
+const TERMINAL_STATUSES = new Set(['done', 'failed', 'cancelled', 'crashed']);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
