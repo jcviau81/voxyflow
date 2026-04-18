@@ -517,11 +517,11 @@ async def general_websocket(websocket: WebSocket):
                 elif msg_type == "task:cancel":
                     task_id = payload.get("taskId")
                     session_id = payload.get("sessionId")
-                    if task_id and session_id:
-                        cancelled = await _orchestrator.cancel_worker_task(session_id, task_id)
-                        logger.info(f"[WS] task:cancel → task_id={task_id}, session={session_id}, cancelled={cancelled}")
+                    if not task_id:
+                        logger.warning("[WS] task:cancel missing taskId")
                     else:
-                        logger.warning(f"[WS] task:cancel missing taskId or sessionId")
+                        cancelled = await _orchestrator.cancel_worker_task_global(task_id)
+                        logger.info(f"[WS] task:cancel → task_id={task_id}, session={session_id}, cancelled={cancelled}")
 
                 elif msg_type == "task:steer":
                     task_id = payload.get("taskId")
