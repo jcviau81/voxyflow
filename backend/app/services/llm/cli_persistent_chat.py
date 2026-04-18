@@ -275,7 +275,29 @@ class PersistentChatMixin:
                         yield token
                     self._last_usage = pcp.usage_result.copy()
             else:
-                # Subsequent message — inject only the last user message
+                # Subsequent message — inject only the last user message.
+                # Defense-in-depth: drain any stale items left in the queue
+                # from a prior interrupted turn. If an earlier turn's consumer
+                # bailed mid-stream (e.g. WS close) and the GeneratorExit
+                # handler below didn't fire for some reason, the reader task
+                # may have kept filling this queue with that turn's remaining
+                # tokens + its None sentinel. Reading them as the "response"
+                # to this turn causes the one-turn-delay bug. Killing the
+                # subprocess is the primary defense; this drain catches edge
+                # cases where the kill was skipped.
+                drained = 0
+                while not pcp.response_queue.empty():
+                    try:
+                        pcp.response_queue.get_nowait()
+                        drained += 1
+                    except asyncio.QueueEmpty:
+                        break
+                if drained:
+                    logger.warning(
+                        f"[CLI-persistent] Drained {drained} stale queue item(s) "
+                        f"for {chat_id} before new turn"
+                    )
+
                 async with pcp.turn_lock:
                     user_content = messages[-1]["content"] if messages else ""
                     event = json.dumps({
@@ -294,6 +316,28 @@ class PersistentChatMixin:
 
             # Update activity timestamp
             get_cli_session_registry().touch(pcp.registry_id)
+
+        except (GeneratorExit, asyncio.CancelledError):
+            # Consumer cancelled mid-stream (most commonly: WebSocket closed
+            # before the turn finished streaming). Kill the subprocess —
+            # otherwise the background reader task keeps draining this turn's
+            # remaining stdout into response_queue, and the NEXT turn would
+            # read those leftover tokens as its response, causing every
+            # subsequent message to be delayed by one turn. Respawning on the
+            # next turn is cheap (~2-3s) and rebuilds full history from the
+            # session store.
+            logger.warning(
+                f"[CLI-persistent] Stream cancelled for {chat_id} "
+                f"(consumer gone) — killing subprocess to prevent "
+                f"stale queue from polluting next turn"
+            )
+            try:
+                await self.kill_persistent_chat(chat_id)
+            except Exception as kill_err:
+                logger.warning(
+                    f"[CLI-persistent] kill after cancel failed: {kill_err}"
+                )
+            raise
 
         except Exception as e:
             logger.warning(f"[CLI-persistent] Error for {chat_id}, falling back to one-shot: {e}")
