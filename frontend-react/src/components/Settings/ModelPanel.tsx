@@ -9,7 +9,7 @@
  *  - Inline form for adding/editing machines (no modal)
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@/lib/utils';
@@ -1025,20 +1025,59 @@ interface WorkerClassesPanelProps {
   providers: ProviderMeta[];
   endpoints: ProviderEndpoint[];
   endpointStatuses: EndpointStatus[];
+  commitRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, endpoints, endpointStatuses }: WorkerClassesPanelProps) {
+function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, endpoints, endpointStatuses, commitRef }: WorkerClassesPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<WorkerClass | null>(null);
+  // Snapshot of the class when editing started — used to restore on Cancel.
+  const [originalBeforeEdit, setOriginalBeforeEdit] = useState<WorkerClass | null>(null);
   const [isAdding, setIsAdding] = useState(false);
 
   // Per-class model lists (fetched when source changes)
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
 
+  // Keep commitRef up-to-date so the parent form can flush open edits before submit.
+  // Runs on every render (no dep array) so captured values are always fresh.
+  useLayoutEffect(() => {
+    if (!commitRef) return;
+    if (editingId && draft && !isAdding) {
+      const d = draft;
+      const wcs = workerClasses;
+      const cb = onChange;
+      commitRef.current = () => {
+        if (d.name.trim()) cb(wcs.map(c => c.id === d.id ? d : c));
+      };
+    } else {
+      commitRef.current = null;
+    }
+  });
+
+  // Update draft AND immediately propagate to the parent form state. This avoids
+  // losing in-progress edits if the user clicks the outer "Save" button without
+  // first clicking the inline "Done" button. For additions (isAdding), we only
+  // commit to the list once the name is non-empty to avoid ghost entries.
+  function updateDraft(next: WorkerClass) {
+    setDraft(next);
+    if (isAdding) {
+      if (!next.name.trim()) return;
+      const exists = workerClasses.some(c => c.id === next.id);
+      if (exists) {
+        onChange(workerClasses.map(c => c.id === next.id ? next : c));
+      } else {
+        onChange([...workerClasses, next]);
+      }
+    } else {
+      onChange(workerClasses.map(c => c.id === next.id ? next : c));
+    }
+  }
+
   function startAdd() {
     const wc: WorkerClass = { ...EMPTY_WORKER_CLASS, id: crypto.randomUUID() };
     setDraft(wc);
+    setOriginalBeforeEdit(null);
     setIsAdding(true);
     setEditingId(wc.id);
     setAvailableModels([]);
@@ -1046,6 +1085,7 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
 
   function startEdit(wc: WorkerClass) {
     setDraft({ ...wc });
+    setOriginalBeforeEdit({ ...wc });
     setIsAdding(false);
     setEditingId(wc.id);
     setAvailableModels([]);
@@ -1059,7 +1099,14 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
   }
 
   function cancelEdit() {
+    // Revert any live-synced changes back to the snapshot captured in startEdit.
+    if (originalBeforeEdit && !isAdding) {
+      onChange(workerClasses.map(c => c.id === originalBeforeEdit.id ? originalBeforeEdit : c));
+    } else if (isAdding && draft) {
+      onChange(workerClasses.filter(c => c.id !== draft.id));
+    }
     setDraft(null);
+    setOriginalBeforeEdit(null);
     setEditingId(null);
     setIsAdding(false);
     setAvailableModels([]);
@@ -1074,6 +1121,7 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
       onChange([...workerClasses, draft]);
     }
     setDraft(null);
+    setOriginalBeforeEdit(null);
     setEditingId(null);
     setIsAdding(false);
     setAvailableModels([]);
@@ -1130,7 +1178,7 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
       updated = { ...draft, endpoint_id: '', provider_type: pt, model: '' };
       fetchModelsForSource('', pt);
     }
-    setDraft(updated);
+    updateDraft(updated);
   }
 
   function getSourceValue(wc: WorkerClass): string {
@@ -1219,7 +1267,7 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
               className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
               placeholder='e.g. "Coding", "Research"'
               value={draft.name}
-              onChange={e => setDraft({ ...draft, name: e.target.value })}
+              onChange={e => updateDraft({ ...draft, name: e.target.value })}
               autoFocus
             />
           </div>
@@ -1232,7 +1280,7 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
               className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
               placeholder="What this worker class does"
               value={draft.description}
-              onChange={e => setDraft({ ...draft, description: e.target.value })}
+              onChange={e => updateDraft({ ...draft, description: e.target.value })}
             />
           </div>
 
@@ -1273,7 +1321,7 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
                 <select
                   className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 flex-1"
                   value={draft.model}
-                  onChange={e => setDraft({ ...draft, model: e.target.value })}
+                  onChange={e => updateDraft({ ...draft, model: e.target.value })}
                 >
                   <option value="">Select model...</option>
                   {availableModels.map(m => (
@@ -1286,7 +1334,7 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
                   className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 flex-1"
                   placeholder="e.g. claude-sonnet-4, qwen2.5:32b"
                   value={draft.model}
-                  onChange={e => setDraft({ ...draft, model: e.target.value })}
+                  onChange={e => updateDraft({ ...draft, model: e.target.value })}
                 />
               )}
               {modelsLoading && (
@@ -1303,7 +1351,7 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
               className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
               placeholder='e.g. "code, implement, refactor" or "research, search, analyze"'
               value={draft.intent_patterns.join(', ')}
-              onChange={e => setDraft({
+              onChange={e => updateDraft({
                 ...draft,
                 intent_patterns: e.target.value
                   .split(',')
@@ -1848,9 +1896,11 @@ export function ModelPanel() {
     queryFn: () => apiFetch<AppSettings>('/api/settings'),
   });
 
-  const { control, reset, watch, setValue, handleSubmit } = useForm<ModelsSettings>({
+  const { control, reset, watch, setValue, getValues } = useForm<ModelsSettings>({
     defaultValues: DEFAULT_MODELS,
   });
+
+  const workerClassesCommitRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!rawSettings) return;
@@ -1906,17 +1956,22 @@ export function ModelPanel() {
     },
   });
 
-  const onSubmit = (data: ModelsSettings) => saveMutation.mutate(data);
-
   const triggerSave = useCallback(() => {
-    handleSubmit(onSubmit)();
-  }, [handleSubmit]);
+    // Flush any open worker-class edit into the form store before collecting values
+    workerClassesCommitRef.current?.();
+    saveMutation.mutate(getValues() as ModelsSettings);
+  }, [getValues, saveMutation]);
+
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    triggerSave();
+  };
 
   const endpointStatuses: EndpointStatus[] = availableData?.endpoints ?? [];
   const endpoints = useWatch({ control, name: 'endpoints' }) ?? [];
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="p-6 flex flex-col gap-6" data-testid="settings-models">
+    <form onSubmit={handleFormSubmit} className="p-6 flex flex-col gap-6" data-testid="settings-models">
 
       {/* ── Header ── */}
       <div>
@@ -1999,6 +2054,7 @@ export function ModelPanel() {
             providers={providers}
             endpoints={endpoints}
             endpointStatuses={endpointStatuses}
+            commitRef={workerClassesCommitRef}
           />
         )}
       />
