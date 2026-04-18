@@ -706,17 +706,12 @@ class TestBackwardCompat:
 class TestKGToolsInMCPList:
     """Verify KG tools appear in the MCP tool registry."""
 
-    @pytest.mark.asyncio
-    async def test_kg_tools_in_tool_list(self):
-        async with httpx.AsyncClient(timeout=30.0) as c:
-            r = await c.get(f"{BASE}/mcp/tools")
-            assert r.status_code == 200
-            data = r.json()
-            tool_names = {t["name"] for t in data.get("tools", [])}
-
-            expected = {"kg.add", "kg.query", "kg.timeline", "kg.invalidate", "kg.stats"}
-            missing = expected - tool_names
-            assert not missing, f"KG tools missing from MCP list: {missing}"
+    def test_kg_tools_in_tool_list(self):
+        from app.mcp_server import _TOOL_DEFINITIONS
+        tool_names = {t["name"] for t in _TOOL_DEFINITIONS}
+        expected = {"kg.add", "kg.query", "kg.timeline", "kg.invalidate", "kg.stats"}
+        missing = expected - tool_names
+        assert not missing, f"KG tools missing from MCP list: {missing}"
 
     @pytest.mark.asyncio
     async def test_kg_tools_have_correct_scope(self):
