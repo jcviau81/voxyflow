@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react';
 import { Database, Trash2, HardDrive, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToastStore } from '../../stores/useToastStore';
+import { authFetch } from '../../lib/authClient';
 
 interface BackupSettings {
   chromadb_enabled: boolean;
@@ -67,7 +68,7 @@ export function DataPanel() {
     mutationFn: async () => {
       // Always fetch fresh settings to avoid overwriting changes from other panels
       const current = await fetch('/api/settings').then((r) => r.json());
-      const response = await fetch('/api/settings', {
+      const response = await authFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -95,7 +96,7 @@ export function DataPanel() {
   // Manual backup trigger
   const triggerMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch('/api/backup/trigger', { method: 'POST' });
+      const response = await authFetch('/api/backup/trigger', { method: 'POST' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     },

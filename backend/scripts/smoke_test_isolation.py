@@ -275,28 +275,12 @@ def test_cli_backend_injects_env():
 # --- Test 6: chat_id validation logic replica ------------------------------
 @test("chat_id validation rejects mismatched frontend chatId")
 def test_chat_id_validation():
-    """Reproduce the logic from main.py locally to exercise the rule without
-    standing up a WebSocket. Kept in sync with main.py around the
-    ``frontend_chat_id`` / ``canonical_chat_id`` comparison."""
-    SYSTEM_MAIN = "system-main"
+    """Exercise the shared ``resolve_chat_id`` helper that main.py uses."""
+    from app.services.chat_id_utils import resolve_chat_id
 
     def derive_chat_id(project_id, card_id, frontend_chat_id):
-        if card_id:
-            canonical = f"card:{card_id}"
-        elif project_id:
-            canonical = f"project:{project_id}"
-        else:
-            project_id = SYSTEM_MAIN
-            canonical = f"project:{SYSTEM_MAIN}"
-
-        if frontend_chat_id:
-            if (
-                frontend_chat_id == canonical
-                or frontend_chat_id.startswith(canonical + ":")
-            ):
-                return frontend_chat_id
-            return canonical  # rejected — falls back to canonical
-        return canonical
+        chat_id, _, _ = resolve_chat_id(project_id, card_id, frontend_chat_id)
+        return chat_id
 
     # Exact match — passthrough
     assert derive_chat_id("A", None, "project:A") == "project:A"

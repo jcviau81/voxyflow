@@ -14,6 +14,7 @@ import { AudioLines, Volume2, SendHorizonal } from 'lucide-react';
 import { VoiceInput } from '../Voice/VoiceInput';
 import { Tooltip, TooltipProvider } from '../ui/tooltip';
 import { cn } from '../../lib/utils';
+import { authFetch } from '../../lib/authClient';
 import { eventBus } from '../../utils/eventBus';
 
 // ---------------------------------------------------------------------------
@@ -374,7 +375,7 @@ export function ChatInput({
       if (key === 'stt_auto_send') setSttAutoSend(newValue);
       else setTtsAutoPlay(newValue);
       // Sync to backend
-      fetch('/api/settings', {
+      authFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),

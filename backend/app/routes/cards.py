@@ -32,7 +32,7 @@ MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024  # 50 MB
 
 ATTACHMENTS_BASE = Path.home() / ".voxyflow" / "attachments"
 
-router = APIRouter(tags=["cards"])
+router = APIRouter(prefix="/api", tags=["cards"])
 
 
 def _broadcast_card_change(card):

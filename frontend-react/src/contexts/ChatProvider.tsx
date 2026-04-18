@@ -174,14 +174,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const projectIdFromSession = useCallback((sessionId?: string): string => {
-    if (sessionId?.startsWith('project:')) {
-      const projectId = sessionId.split(':')[1];
-      if (projectId) return projectId;
-    }
-    return SYSTEM_PROJECT_ID;
-  }, []);
-
   const getProjectIdFromSession = useCallback((sessionId?: string): string => {
     if (!sessionId) return SYSTEM_PROJECT_ID;
     if (sessionId.startsWith('project:')) return sessionId.slice('project:'.length);
@@ -462,7 +454,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           enrichmentAction: action as 'enrich' | 'correct',
           model,
           sessionId,
-          projectId: projectIdFromSession(sessionId),
+          projectId: getProjectIdFromSession(sessionId),
         });
         emitCallbacks('onMessageEnrichment', message);
       }),
@@ -687,7 +679,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             .then((raw) => {
               if (raw) useCardStore.getState().upsertCard(mapRawCard(raw as Record<string, unknown>));
             })
-            .catch(() => {});
+            .catch((e) => console.warn('[ChatProvider] card refresh failed', cardId, e));
         }
         if (projectId) {
           void queryClient.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
@@ -794,7 +786,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     handleStreamComplete,
     handleFullResponse,
     handleToolUiAction,
-    projectIdFromSession,
     getProjectIdFromSession,
     getAgentEmoji,
     emitCallbacks,

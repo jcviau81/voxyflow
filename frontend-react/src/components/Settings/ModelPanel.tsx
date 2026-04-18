@@ -12,6 +12,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { generateId } from '@/lib/utils';
+import { authFetch } from '@/lib/authClient';
+import { apiFetch as sharedApiFetch, modelsApi } from '@/lib/apiClient';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -200,7 +203,7 @@ const STATIC_MODELS: Record<string, string[]> = {
 };
 
 function newId() {
-  return crypto.randomUUID();
+  return generateId();
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -242,14 +245,7 @@ function providerLabel(type: string): string {
   return labels[type] || type;
 }
 
-async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({})) as { detail?: string };
-    throw new Error(detail.detail ?? `HTTP ${res.status}`);
-  }
-  return res.json() as Promise<T>;
-}
+const apiFetch = sharedApiFetch;
 
 // ── StatusDot ──────────────────────────────────────────────────────────────
 
@@ -273,10 +269,13 @@ function CapabilityBadges({ model }: { model: string }) {
   useEffect(() => {
     if (!model) { setCaps(null); return; }
     const controller = new AbortController();
-    fetch(`/api/models/capabilities?model=${encodeURIComponent(model)}`, { signal: controller.signal })
-      .then(r => r.ok ? r.json() : null)
+    modelsApi.capabilities(model, { signal: controller.signal })
       .then(d => setCaps(d))
-      .catch(() => {});
+      .catch((e) => {
+        if ((e as { name?: string })?.name !== 'AbortError') {
+          console.warn('[ModelPanel] capabilities fetch failed', model, e);
+        }
+      });
     return () => controller.abort();
   }, [model]);
 
@@ -1830,13 +1829,13 @@ export function ModelPanel() {
 
   const { data: providers = [] } = useQuery<ProviderMeta[]>({
     queryKey: ['providers'],
-    queryFn: () => apiFetch<ProviderMeta[]>('/api/models/providers'),
+    queryFn: () => modelsApi.providers<ProviderMeta[]>(),
     staleTime: 60_000,
   });
 
   const { data: availableData } = useQuery<AvailableData>({
     queryKey: ['models-available'],
-    queryFn: () => apiFetch<AvailableData>('/api/models/available'),
+    queryFn: () => modelsApi.available<AvailableData>(),
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
@@ -1880,11 +1879,16 @@ export function ModelPanel() {
     mutationFn: async (modelsData: ModelsSettings) => {
       // Always fetch fresh settings to avoid overwriting changes from other panels
       const current = await apiFetch<AppSettings>('/api/settings');
-      return apiFetch<AppSettings>('/api/settings', {
+      const res = await authFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...current, models: modelsData }),
       });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({})) as { detail?: string };
+        throw new Error(detail.detail ?? `HTTP ${res.status}`);
+      }
+      return res.json() as Promise<AppSettings>;
     },
     onMutate: () => setSaveStatus('saving'),
     onSuccess: () => {

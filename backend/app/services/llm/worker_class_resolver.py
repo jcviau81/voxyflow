@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 async def _load_worker_classes() -> list[dict]:
     """Load worker classes from settings DB, falling back to defaults."""
-    from app.routes.settings import _load_settings_from_db
-    from app.routes.models import DEFAULT_WORKER_CLASSES
+    from app.services.settings_loader import _load_settings_from_db
+    from app.services.worker_classes import DEFAULT_WORKER_CLASSES
     data = await _load_settings_from_db()
     if data:
         classes = data.get("models", {}).get("worker_classes", [])
@@ -64,7 +64,7 @@ async def resolve_endpoint_for_class(wc: dict) -> dict:
 
     endpoint_id = wc.get("endpoint_id", "")
     if endpoint_id:
-        from app.routes.settings import _load_settings_from_db
+        from app.services.settings_loader import _load_settings_from_db
         data = await _load_settings_from_db()
         if data:
             for ep in data.get("models", {}).get("endpoints", []):

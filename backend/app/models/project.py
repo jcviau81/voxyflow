@@ -1,13 +1,18 @@
-"""Project schemas."""
+"""Project schemas.
+
+``ProjectResponse`` is generated from the ORM ``Project`` model via
+``_generated.ProjectBase``. ``ProjectWithCards`` adds a relationship-backed
+``cards`` list using a hand-authored ``CardResponseMinimal`` (intentionally
+a trimmed surface — not the full CardResponse).
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    pass
+from app.models._generated import ProjectBase
 
 
 class ProjectCreate(BaseModel):
@@ -35,34 +40,17 @@ class ProjectUpdate(BaseModel):
     inherit_main_context: Optional[bool] = None
 
 
-class ProjectResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-    context: str
-    is_system: bool = False
-    deletable: bool = True
-    is_favorite: bool = False
-    inherit_main_context: bool = True
-    github_repo: Optional[str] = None
-    github_url: Optional[str] = None
-    github_branch: Optional[str] = None
-    github_language: Optional[str] = None
-    local_path: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class ProjectWithCards(ProjectResponse):
-    """Project response that includes its cards."""
-    cards: list[CardResponseMinimal] = []
+class ProjectResponse(ProjectBase):
+    """Wire representation of a Project — pure column-backed."""
+    pass
 
 
 class CardResponseMinimal(BaseModel):
-    """Minimal card representation for embedding inside ProjectWithCards."""
+    """Minimal card surface embedded inside ``ProjectWithCards``.
+
+    Intentionally a trimmed view — not the full ``CardResponse``. Declared
+    by hand because the wire shape is narrower than the column set.
+    """
     id: str
     project_id: Optional[str] = None
     title: str
@@ -76,6 +64,11 @@ class CardResponseMinimal(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ProjectWithCards(ProjectResponse):
+    """Project response that includes its cards."""
+    cards: list[CardResponseMinimal] = []
 
 
 # Rebuild the model now that CardResponseMinimal is defined

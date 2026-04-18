@@ -13,6 +13,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { GitBranch, CheckCircle, XCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { useToastStore } from '../../stores/useToastStore';
+import { authFetch } from '../../lib/authClient';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -161,7 +162,7 @@ export function GitHubPanel() {
 
     setSaving(true);
     try {
-      const response = await fetch('/api/github/token', {
+      const response = await authFetch('/api/github/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),

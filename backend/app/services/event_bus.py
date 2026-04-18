@@ -6,6 +6,7 @@ The Fast layer emits ActionIntent events; Deep workers consume them.
 
 import asyncio
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import AsyncIterator
@@ -91,26 +92,33 @@ class EventBusRegistry:
 
     def __init__(self):
         self._buses: dict[str, SessionEventBus] = {}
+        self._lock = threading.Lock()
 
     def get_or_create(self, session_id: str) -> SessionEventBus:
         """Get existing bus or create a new one for this session."""
-        if session_id not in self._buses:
-            self._buses[session_id] = SessionEventBus(session_id)
-        return self._buses[session_id]
+        with self._lock:
+            bus = self._buses.get(session_id)
+            if bus is None:
+                bus = SessionEventBus(session_id)
+                self._buses[session_id] = bus
+            return bus
 
     def get(self, session_id: str) -> SessionEventBus | None:
         """Get bus if it exists."""
-        return self._buses.get(session_id)
+        with self._lock:
+            return self._buses.get(session_id)
 
     def remove(self, session_id: str) -> None:
         """Remove and close a session's bus."""
-        bus = self._buses.pop(session_id, None)
+        with self._lock:
+            bus = self._buses.pop(session_id, None)
         if bus:
             bus.close()
 
     def active_sessions(self) -> list[str]:
         """List all sessions with active buses."""
-        return list(self._buses.keys())
+        with self._lock:
+            return list(self._buses.keys())
 
     def cleanup_idle(self, max_idle_seconds: float = 3600) -> int:
         """Remove buses that have been idle (no emits) for longer than max_idle_seconds.
@@ -118,12 +126,18 @@ class EventBusRegistry:
         Returns the number of buses cleaned up.
         """
         now = time.monotonic()
-        stale = [
-            sid for sid, bus in self._buses.items()
-            if (now - bus.last_activity) > max_idle_seconds and bus.pending_count == 0
-        ]
-        for sid in stale:
-            self.remove(sid)
+        with self._lock:
+            stale = [
+                sid for sid, bus in self._buses.items()
+                if (now - bus.last_activity) > max_idle_seconds and bus.pending_count == 0
+            ]
+            removed = []
+            for sid in stale:
+                bus = self._buses.pop(sid, None)
+                if bus:
+                    removed.append(bus)
+        for bus in removed:
+            bus.close()
         if stale:
             logger.info(f"[EventBus] Cleaned up {len(stale)} idle bus(es): {stale}")
         return len(stale)

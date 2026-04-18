@@ -426,6 +426,9 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
       }
       if (wakeWordEnabled) wakeWordService.stop().catch(() => {});
     };
+    // Known gap: `wakeWordEnabled` is captured at mount. If the user toggles
+    // wake-word on after mount and then unmounts, stop() will not run from
+    // this effect — the service's own state handling covers that case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

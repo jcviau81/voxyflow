@@ -270,6 +270,9 @@ export function useWebSocket(): UseWebSocketReturn {
         wsRef.current = null;
       }
     };
+    // Intentional: mount-once. `connect` is re-synced via connectRef in the
+    // effect above, so a stale closure here is not a concern — reconnects
+    // always go through connectRef.current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

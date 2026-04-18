@@ -19,6 +19,10 @@ from app.services.llm.providers.base import (
     CompletionResponse,
     LLMProvider,
     ProviderCapabilities,
+    StreamDone,
+    StreamEvent,
+    TextDelta,
+    ToolUseBlock,
 )
 from app.services.llm import capability_registry as caps_db
 
@@ -90,11 +94,36 @@ class AnthropicProvider(LLMProvider):
             usage=usage,
         )
 
-    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamEvent]:
+        """Stream a completion, yielding StreamEvent variants.
+
+        Text deltas arrive incrementally. tool_use blocks are buffered inside
+        the SDK and emitted as complete `ToolUseBlock` events only after the
+        stream closes (we pull them off `get_final_message()`). The final
+        event is always `StreamDone` with stop_reason + usage.
+        """
         kwargs = self._build_kwargs(request, stream=True)
         async with self._client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
-                yield text
+                yield TextDelta(text)
+            final = await stream.get_final_message()
+
+        for block in final.content:
+            if getattr(block, "type", "") == "tool_use":
+                block_input = block.input if isinstance(block.input, dict) else {}
+                yield ToolUseBlock(id=block.id, name=block.name, input=block_input)
+
+        usage: dict | None = None
+        if final.usage:
+            usage = {
+                "input_tokens": final.usage.input_tokens,
+                "output_tokens": final.usage.output_tokens,
+            }
+            for k in ("cache_creation_input_tokens", "cache_read_input_tokens"):
+                v = getattr(final.usage, k, None)
+                if v:
+                    usage[k] = v
+        yield StreamDone(stop_reason=final.stop_reason or "", usage=usage)
 
     def get_capabilities(self, model: str) -> ProviderCapabilities:
         entry = caps_db.lookup(model)

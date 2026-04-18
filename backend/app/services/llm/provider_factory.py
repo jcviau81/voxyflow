@@ -29,28 +29,61 @@ from app.services.llm.providers.base import LLMProvider
 
 logger = logging.getLogger("voxyflow.provider_factory")
 
+
+class ProviderType:
+    """Canonical provider-type string constants.
+
+    Use these instead of bare strings when comparing or constructing
+    provider_type values. Keeps the set discoverable and typo-proof.
+    """
+
+    CLI = "cli"
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"
+    OLLAMA = "ollama"
+    GROQ = "groq"
+    MISTRAL = "mistral"
+    GEMINI = "gemini"
+    LMSTUDIO = "lmstudio"
+    OPENROUTER = "openrouter"
+
+    # OpenAI-compat family (including OpenAI itself): any of these route
+    # through OpenAICompatProvider.
+    _OPENAI_COMPAT = frozenset({OPENAI, GROQ, MISTRAL, GEMINI, LMSTUDIO, OPENROUTER})
+
+    ALL = frozenset({CLI, ANTHROPIC, OPENAI, OLLAMA, GROQ, MISTRAL, GEMINI, LMSTUDIO, OPENROUTER})
+
+    @classmethod
+    def is_openai_compat(cls, ptype: str) -> bool:
+        return ptype in cls._OPENAI_COMPAT
+
+    @classmethod
+    def is_known(cls, ptype: str) -> bool:
+        return ptype in cls.ALL
+
+
 # Well-known provider URLs — used when provider_type is given but URL is empty
 _DEFAULT_URLS: dict[str, str] = {
-    "openai":   "https://api.openai.com/v1",
-    "groq":       "https://api.groq.com/openai/v1",
-    "mistral":    "https://api.mistral.ai/v1",
-    "gemini":     "https://generativelanguage.googleapis.com/v1beta/openai",
-    "openrouter": "https://openrouter.ai/api/v1",
-    "lmstudio": "http://localhost:1234/v1",
-    "ollama":   "http://localhost:11434",
+    ProviderType.OPENAI:     "https://api.openai.com/v1",
+    ProviderType.GROQ:       "https://api.groq.com/openai/v1",
+    ProviderType.MISTRAL:    "https://api.mistral.ai/v1",
+    ProviderType.GEMINI:     "https://generativelanguage.googleapis.com/v1beta/openai",
+    ProviderType.OPENROUTER: "https://openrouter.ai/api/v1",
+    ProviderType.LMSTUDIO:   "http://localhost:1234/v1",
+    ProviderType.OLLAMA:     "http://localhost:11434",
 }
 
 # Friendly labels shown in the UI
 _LABELS: dict[str, str] = {
-    "openai":     "OpenAI",
-    "groq":       "Groq",
-    "mistral":    "Mistral AI",
-    "gemini":     "Google Gemini",
-    "openrouter": "OpenRouter",
-    "lmstudio":   "LM Studio",
-    "ollama":     "Ollama",
-    "anthropic":  "Anthropic (Claude)",
-    "cli":        "Claude CLI",
+    ProviderType.OPENAI:     "OpenAI",
+    ProviderType.GROQ:       "Groq",
+    ProviderType.MISTRAL:    "Mistral AI",
+    ProviderType.GEMINI:     "Google Gemini",
+    ProviderType.OPENROUTER: "OpenRouter",
+    ProviderType.LMSTUDIO:   "LM Studio",
+    ProviderType.OLLAMA:     "Ollama",
+    ProviderType.ANTHROPIC:  "Anthropic (Claude)",
+    ProviderType.CLI:        "Claude CLI",
 }
 
 
@@ -101,22 +134,17 @@ def get_provider(
         _provider_cache[cache_key] = provider
         return provider
 
-    if ptype == "ollama":
+    if ptype == ProviderType.OLLAMA:
         return _cache(OllamaProvider(base_url=resolved_url or "http://localhost:11434", api_key=api_key))
 
-    if ptype == "anthropic":
+    if ptype == ProviderType.ANTHROPIC:
         return _cache(AnthropicProvider(api_key=api_key))
 
-    if ptype == "cli":
-        # CLI mode is handled by the existing ClaudeCliBackend — return a sentinel
-        # that delegates all calls to it. The orchestration layer checks for this type
-        # explicitly and bypasses the provider interface for CLI calls.
-        raise ValueError(
-            "CLI provider is managed by ClaudeCliBackend, not LLMProvider. "
-            "Check provider_type != 'cli' before calling get_provider()."
-        )
+    if ptype == ProviderType.CLI:
+        from app.services.llm.providers.cli import CliProvider
+        return _cache(CliProvider())
 
-    if ptype in ("openai", "groq", "mistral", "gemini", "lmstudio", "openrouter", "openai_compat"):
+    if ProviderType.is_openai_compat(ptype) or ptype == "openai_compat":
         if not resolved_url:
             raise ValueError(f"No URL configured for provider '{ptype}'")
         return _cache(OpenAICompatProvider(
@@ -125,17 +153,12 @@ def get_provider(
             label=label,
         ))
 
-    # Fallback: treat unknown provider_type as generic OpenAI-compat if a URL is given
-    if resolved_url:
-        logger.warning(
-            "[ProviderFactory] Unknown provider type '%s' — treating as OpenAI-compatible at %s",
-            ptype, resolved_url,
-        )
-        return _cache(OpenAICompatProvider(provider_url=resolved_url, api_key=api_key, label=ptype))
-
+    # Unknown provider_type. We used to silently fall back to OpenAI-compat if a
+    # URL was present, but that masked typos ("ollma" → still worked) until a
+    # model-specific feature failed. Require the caller to use a known type.
     raise ValueError(
         f"Unknown provider type '{provider_type}'. "
-        f"Supported: {sorted(_DEFAULT_URLS.keys()) + ['anthropic', 'cli']}"
+        f"Supported: {sorted(ProviderType.ALL)}"
     )
 
 
@@ -151,36 +174,36 @@ def infer_provider_type(url: str, model: str = "") -> str:
     port = parsed.port if parsed else None
 
     if port == 11434 or "ollama" in lower_url:
-        return "ollama"
+        return ProviderType.OLLAMA
     if port == 1234:
-        return "lmstudio"
+        return ProviderType.LMSTUDIO
     if "groq.com" in lower_url:
-        return "groq"
+        return ProviderType.GROQ
     if "mistral.ai" in lower_url:
-        return "mistral"
+        return ProviderType.MISTRAL
     if "generativelanguage.googleapis" in lower_url or "gemini" in lower_url:
-        return "gemini"
+        return ProviderType.GEMINI
     if "openrouter.ai" in lower_url:
-        return "openrouter"
+        return ProviderType.OPENROUTER
     if "openai.com" in lower_url:
-        return "openai"
+        return ProviderType.OPENAI
     if "anthropic.com" in lower_url or "claude" in lower_model:
-        return "anthropic"
+        return ProviderType.ANTHROPIC
     if port == 3457:
-        return "openai"   # legacy claude-max-api proxy
-    return "openai"       # conservative fallback
+        return ProviderType.OPENAI   # legacy claude-max-api proxy
+    return ProviderType.OPENAI       # conservative fallback
 
 
 def list_known_providers() -> list[dict]:
     """Return metadata for all known providers — used by the Settings UI."""
     return [
-        {"type": "cli",        "label": "Claude CLI",        "requires_key": False, "local": True,  "default_url": ""},
-        {"type": "anthropic",  "label": "Anthropic (Claude)", "requires_key": True,  "local": False, "default_url": "https://api.anthropic.com"},
-        {"type": "ollama",     "label": "Ollama",             "requires_key": False, "local": True,  "default_url": "http://localhost:11434"},
-        {"type": "openai",     "label": "OpenAI",             "requires_key": True,  "local": False, "default_url": "https://api.openai.com/v1"},
-        {"type": "groq",       "label": "Groq",               "requires_key": True,  "local": False, "default_url": "https://api.groq.com/openai/v1"},
-        {"type": "mistral",    "label": "Mistral AI",         "requires_key": True,  "local": False, "default_url": "https://api.mistral.ai/v1"},
-        {"type": "gemini",     "label": "Google Gemini",      "requires_key": True,  "local": False, "default_url": "https://generativelanguage.googleapis.com/v1beta/openai"},
-        {"type": "lmstudio",   "label": "LM Studio",          "requires_key": False, "local": True,  "default_url": "http://localhost:1234/v1"},
-        {"type": "openrouter", "label": "OpenRouter",          "requires_key": True,  "local": False, "default_url": "https://openrouter.ai/api/v1"},
+        {"type": ProviderType.CLI,        "label": "Claude CLI",         "requires_key": False, "local": True,  "default_url": ""},
+        {"type": ProviderType.ANTHROPIC,  "label": "Anthropic (Claude)", "requires_key": True,  "local": False, "default_url": "https://api.anthropic.com"},
+        {"type": ProviderType.OLLAMA,     "label": "Ollama",             "requires_key": False, "local": True,  "default_url": "http://localhost:11434"},
+        {"type": ProviderType.OPENAI,     "label": "OpenAI",             "requires_key": True,  "local": False, "default_url": "https://api.openai.com/v1"},
+        {"type": ProviderType.GROQ,       "label": "Groq",               "requires_key": True,  "local": False, "default_url": "https://api.groq.com/openai/v1"},
+        {"type": ProviderType.MISTRAL,    "label": "Mistral AI",         "requires_key": True,  "local": False, "default_url": "https://api.mistral.ai/v1"},
+        {"type": ProviderType.GEMINI,     "label": "Google Gemini",      "requires_key": True,  "local": False, "default_url": "https://generativelanguage.googleapis.com/v1beta/openai"},
+        {"type": ProviderType.LMSTUDIO,   "label": "LM Studio",          "requires_key": False, "local": True,  "default_url": "http://localhost:1234/v1"},
+        {"type": ProviderType.OPENROUTER, "label": "OpenRouter",         "requires_key": True,  "local": False, "default_url": "https://openrouter.ai/api/v1"},
     ]

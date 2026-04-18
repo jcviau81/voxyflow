@@ -3,7 +3,7 @@
 Personality files are stored in voxyflow/personality/ (NOT OpenClaw workspace).
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
 import asyncio
@@ -13,9 +13,14 @@ import os
 import logging
 from pathlib import Path
 from urllib.parse import urlparse
-from sqlalchemy import text
 
-from app.database import async_session
+from app.database import AppSettings, async_session
+from app.services.auth_service import verify_auth
+from app.services.settings_loader import (
+    _load_settings_from_db,
+    get_default_worker_model,
+    set_default_worker_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,51 +33,31 @@ SETTINGS_FILE = str(VOXYFLOW_DATA_DIR / "settings.json")
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
 
-_default_worker_model: str = "sonnet"
-
-
-def get_default_worker_model() -> str:
-    """Return the default worker model (from settings or 'sonnet' fallback)."""
-    return _default_worker_model
-
-
-def set_default_worker_model(model: str) -> None:
-    """Update the cached default worker model (called when settings are loaded)."""
-    global _default_worker_model
-    if model:
-        _default_worker_model = model
-        logger.info(f"[Settings] Default worker model set to: {model}")
-
-
-async def _load_settings_from_db() -> dict | None:
-    """Load settings from SQLite. Returns None if not found."""
-    try:
-        async with async_session() as session:
-            result = await session.execute(
-                text("SELECT value FROM app_settings WHERE key = 'app_settings'")
-            )
-            row = result.fetchone()
-            if row:
-                return json.loads(row[0])
-    except Exception as e:
-        logger.warning("Failed to load settings from DB: %s", e)
-    return None
+__all__ = [
+    "router",
+    "VOXYFLOW_DIR",
+    "VOXYFLOW_DATA_DIR",
+    "SETTINGS_FILE",
+    "PERSONALITY_DIR",
+    "get_default_worker_model",
+    "set_default_worker_model",
+    "_load_settings_from_db",
+]
 
 
 async def _save_settings_to_db(data: dict):
-    """Save settings to SQLite (upsert)."""
+    """Save settings to SQLite (upsert via ORM)."""
     try:
+        payload = json.dumps(data)
         async with async_session() as session:
-            await session.execute(
-                text(
-                    "INSERT INTO app_settings (key, value) VALUES ('app_settings', :val) "
-                    "ON CONFLICT(key) DO UPDATE SET value = :val"
-                ),
-                {"val": json.dumps(data)},
-            )
+            row = await session.get(AppSettings, "app_settings")
+            if row is None:
+                session.add(AppSettings(key="app_settings", value=payload))
+            else:
+                row.value = payload
             await session.commit()
-    except Exception as e:
-        logger.warning("Failed to save settings to DB: %s", e)
+    except Exception:
+        logger.exception("Failed to save settings to DB")
 
 
 def _read_settings_file() -> dict | None:
@@ -292,7 +277,7 @@ async def get_settings():
     return _redact_sensitive(AppSettings().dict())
 
 
-@router.put("")
+@router.put("", dependencies=[Depends(verify_auth)])
 async def save_settings(settings: AppSettings):
     """Save settings to DB (source of truth).
 
@@ -341,10 +326,13 @@ async def save_settings(settings: AppSettings):
         if not _value:
             continue
         try:
-            existing = _path.read_text(encoding="utf-8") if _path.exists() else ""
+            existing = (
+                await asyncio.to_thread(_path.read_text, encoding="utf-8")
+                if _path.exists() else ""
+            )
             updated = _re.sub(r"(?m)^(- \*\*Name:\*\*\s*).*$", rf"\g<1>{_value}", existing)
             if updated != existing:
-                _path.write_text(updated, encoding="utf-8")
+                await asyncio.to_thread(_path.write_text, updated, encoding="utf-8")
                 logger.info("%s updated with %s=%s", _path.name, _key, _value)
         except Exception as e:
             logger.warning("Failed to update %s: %s", _path.name, e)
@@ -370,7 +358,7 @@ async def preview_personality():
         raw_path = getattr(settings.personality, field)
         path = _resolve_personality_path(raw_path)
         if path.exists():
-            content = path.read_text(encoding="utf-8")
+            content = await asyncio.to_thread(path.read_text, encoding="utf-8")
             previews[label] = {
                 "path": str(path),
                 "exists": True,
@@ -494,11 +482,11 @@ async def read_personality_file(filename: str):
     if not path.exists():
         return {"filename": filename, "content": "", "exists": False}
 
-    content = path.read_text(encoding="utf-8")
+    content = await asyncio.to_thread(path.read_text, encoding="utf-8")
     return {"filename": filename, "content": content, "exists": True, "size": len(content)}
 
 
-@router.put("/personality/files/{filename}")
+@router.put("/personality/files/{filename}", dependencies=[Depends(verify_auth)])
 async def write_personality_file(filename: str, body: dict):
     """Write a user-editable personality file (USER.md, IDENTITY.md only)."""
     if filename not in EDITABLE_FILES:
@@ -507,11 +495,11 @@ async def write_personality_file(filename: str, body: dict):
     path = PERSONALITY_DIR / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     content = body.get("content", "")
-    path.write_text(content, encoding="utf-8")
+    await asyncio.to_thread(path.write_text, content, encoding="utf-8")
     return {"status": "saved", "filename": filename, "size": len(content)}
 
 
-@router.post("/personality/files/{filename}/reset")
+@router.post("/personality/files/{filename}/reset", dependencies=[Depends(verify_auth)])
 async def reset_personality_file(filename: str):
     """Reset USER.md or IDENTITY.md to default template (with current settings values)."""
     if filename not in EDITABLE_FILES:
@@ -529,7 +517,7 @@ async def reset_personality_file(filename: str):
 
     path = PERSONALITY_DIR / filename
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    await asyncio.to_thread(path.write_text, content, encoding="utf-8")
     return {"status": "reset", "filename": filename, "size": len(content)}
 
 
@@ -546,7 +534,7 @@ async def init_personality_files() -> None:
         if not path.exists() or path.stat().st_size == 0:
             path.parent.mkdir(parents=True, exist_ok=True)
             content = _render_template(template, bot_name=bot_name, user_name=user_name)
-            path.write_text(content, encoding="utf-8")
+            await asyncio.to_thread(path.write_text, content, encoding="utf-8")
             logger.info("Generated %s from template (bot_name=%s, user_name=%s)", filename, bot_name, user_name)
 
 

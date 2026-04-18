@@ -80,7 +80,7 @@ Users can save named LLM endpoints (local or remote machines) in Settings.
 - `backend/app/services/chat_orchestration.py` — Orchestrator, delegate parsing
 - `backend/app/routes/models.py` — Model discovery API (`/providers`, `/list`, `/capabilities`, `/available`, `/test`)
 - `backend/app/routes/settings.py` — Settings CRUD, `ProviderEndpoint` model, API key redaction
-- `backend/app/mcp_server.py` — MCP tool definitions (92 tools; dispatcher sees ~20, workers see all)
+- `backend/app/mcp_server.py` — MCP tool definitions (96 tools; dispatcher sees ~20, workers see all)
 - `backend/app/tools/registry.py` — `TOOLS_DISPATCHER` / `TOOLS_WORKER` sets, role-based filtering
 - `backend/app/services/knowledge_graph_service.py` — Temporal KG (entities, triples, attributes)
 - `backend/mcp_stdio.py` — MCP stdio transport entry point
@@ -131,6 +131,19 @@ These are worker-only.
 Full MCP tool access. Workers run as background subprocesses spawned via
 `delegate_action`. They can exec commands, read/write files, search the web,
 manage git, use tmux, call AI features, and perform destructive operations.
+
+### Deployment scope — `system.exec` and the broader worker toolset
+Voxyflow is designed as a **single-user, local install**. `system.exec`, `file.*`,
+`git.*`, and `tmux.*` all run with the full privileges of the OS user running the
+backend process; there is no per-user sandbox and no command allow-list. This is
+intentional — the user *is* the operator — but it means:
+
+- Do not expose the backend to untrusted networks or share it across users.
+- Do not treat a Voxyflow worker as a security boundary. A prompt-injected worker
+  can do anything the OS user can do.
+- Multi-tenant / shared-deployment mode is **out of scope**. If that becomes a
+  goal, `system.exec` + friends need a real sandbox (e.g. per-project container,
+  command allow-list, FS chroot) before they can be safely exposed.
 
 ### Key files
 - `backend/app/tools/registry.py` — `TOOLS_DISPATCHER` and `TOOLS_WORKER` sets, `_ROLE_TOOL_SETS`

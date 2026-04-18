@@ -35,12 +35,15 @@ TOOLS_DISPATCHER = {
     "voxyflow.wiki.list", "voxyflow.wiki.get",
     "voxyflow.doc.list",
     "voxyflow.jobs.list", "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
+    # heartbeat.write is instant (single DB upsert) and lets the dispatcher
+    # record "I acted" pings without spawning a worker. Keep it here unless
+    # that ever grows into a side-effecting operation.
     "voxyflow.heartbeat.read", "voxyflow.heartbeat.write",
     "memory.search", "knowledge.search",
     # Basic CRUD (instant, non-blocking)
     "memory.save",
     "voxyflow.card.create_unassigned",
-    "voxyflow.project.create",
+    "voxyflow.project.create", "voxyflow.project.update",
     "voxyflow.card.create", "voxyflow.card.update", "voxyflow.card.move",
     "voxyflow.card.archive",
     # Worker management (dispatcher needs to monitor/read worker results)

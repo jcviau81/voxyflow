@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '../../lib/utils';
+import { authFetch } from '../../lib/authClient';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ async function fetchFile(filename: string): Promise<string> {
 }
 
 async function saveFile(filename: string, content: string): Promise<void> {
-  await fetch(`/api/settings/personality/files/${filename}`, {
+  await authFetch(`/api/settings/personality/files/${filename}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -83,7 +84,7 @@ async function saveFile(filename: string, content: string): Promise<void> {
 }
 
 async function resetFile(filename: string): Promise<string> {
-  await fetch(`/api/settings/personality/files/${filename}/reset`, { method: 'POST' });
+  await authFetch(`/api/settings/personality/files/${filename}/reset`, { method: 'POST' });
   return fetchFile(filename);
 }
 
@@ -158,7 +159,7 @@ export function PersonalityPanel() {
         assistant_name: updates.assistant_name,
         personality: { ...current.personality, ...updates.personality },
       };
-      await fetch('/api/settings', {
+      await authFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(merged),

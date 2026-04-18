@@ -7,14 +7,15 @@ import os
 import subprocess
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.config import SETTINGS_FILE
+from app.services.auth_service import verify_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/github", tags=["github"])
+router = APIRouter(prefix="/api/github", tags=["github"])
 
 GITHUB_API = "https://api.github.com"
 
@@ -288,7 +289,7 @@ class CreateRepoPayload(BaseModel):
     private: bool = True
 
 
-@router.post("/create-repo")
+@router.post("/create-repo", dependencies=[Depends(verify_auth)])
 async def create_repo(payload: CreateRepoPayload):
     """Create a new GitHub repository for the authenticated user."""
     pat = await asyncio.to_thread(_load_pat)
@@ -381,7 +382,7 @@ def _delete_github_token_sync() -> None:
         logger.warning("Failed to delete GitHub token from settings.json: %s", e)
 
 
-@router.post("/token")
+@router.post("/token", dependencies=[Depends(verify_auth)])
 async def save_github_token(payload: TokenPayload):
     """Save a GitHub PAT to settings."""
     token = payload.token.strip()
@@ -391,7 +392,7 @@ async def save_github_token(payload: TokenPayload):
     return {"saved": True}
 
 
-@router.delete("/token")
+@router.delete("/token", dependencies=[Depends(verify_auth)])
 async def delete_github_token():
     """Remove saved GitHub PAT."""
     await asyncio.to_thread(_delete_github_token_sync)
@@ -422,7 +423,7 @@ class ClonePayload(BaseModel):
     target_dir: str | None = None
 
 
-@router.post("/clone")
+@router.post("/clone", dependencies=[Depends(verify_auth)])
 async def clone_repo(payload: ClonePayload):
     """Clone a repo locally via gh CLI."""
     owner = payload.owner
@@ -453,7 +454,7 @@ class MkdirPayload(BaseModel):
     path: str
 
 
-@router.post("/mkdir")
+@router.post("/mkdir", dependencies=[Depends(verify_auth)])
 async def mkdir(payload: MkdirPayload):
     """Create a local directory (and parents) for a project workspace."""
     expanded = os.path.expanduser(payload.path)

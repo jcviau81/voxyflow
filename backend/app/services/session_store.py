@@ -10,7 +10,6 @@ import json
 import os
 import tempfile
 import threading
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -27,8 +26,26 @@ class SessionStore:
     def __init__(self):
         self.sessions_dir = DATA_DIR / "sessions"
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
-        # Per-chat_id threading locks for file-level atomicity
-        self._file_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+        self._file_locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    def _get_file_lock(self, chat_id: str) -> threading.Lock:
+        """Return a per-chat_id lock, creating it atomically.
+
+        Why: a plain ``defaultdict(threading.Lock)`` races on insertion —
+        two threads can both miss, construct fresh Locks, and the second
+        overwrites the first. Anything already holding the first Lock
+        stops protecting the file.
+        """
+        lock = self._file_locks.get(chat_id)
+        if lock is not None:
+            return lock
+        with self._locks_guard:
+            lock = self._file_locks.get(chat_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._file_locks[chat_id] = lock
+            return lock
 
     def _get_session_path(self, chat_id: str) -> Path:
         """Get file path for a chat session."""
@@ -42,7 +59,7 @@ class SessionStore:
         """Append a message to a session file (thread-safe, atomic write)."""
         path = self._get_session_path(chat_id)
 
-        with self._file_locks[chat_id]:
+        with self._get_file_lock(chat_id):
             # Load existing (under lock to prevent read-modify-write races)
             messages = self.load_session(chat_id)
 
@@ -163,7 +180,7 @@ class SessionStore:
             indent=2,
             ensure_ascii=False,
         )
-        with self._file_locks[chat_id]:
+        with self._get_file_lock(chat_id):
             fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
             try:
                 with os.fdopen(fd, "w") as f:

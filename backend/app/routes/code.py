@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.services.claude_service import ClaudeService
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(prefix="/api", tags=["code"])
 
 # Shared claude service instance (lightweight — no history, one-shot)
 _claude: ClaudeService | None = None

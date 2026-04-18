@@ -286,6 +286,14 @@ card_dependencies = Table(
 # Models
 # ---------------------------------------------------------------------------
 
+class AppSettings(Base):
+    """Key-value store for app-wide settings (`key='app_settings'` holds the JSON blob)."""
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(Text, nullable=False)
+
+
 class Chat(Base):
     __tablename__ = "chats"
 

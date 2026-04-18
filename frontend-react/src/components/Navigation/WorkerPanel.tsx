@@ -13,9 +13,9 @@
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, Send, ExternalLink, ChevronRight, ChevronDown, Eye, Clock } from 'lucide-react';
+import { MessageSquare, Send, ExternalLink, ChevronRight, ChevronDown, Eye, Clock, X as XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -51,8 +51,17 @@ function elapsed(startMs: number, endMs?: number): string {
   return `${m}m ${s % 60}s`;
 }
 
+function modelTier(model?: string): 'haiku' | 'sonnet' | 'opus' | null {
+  if (!model) return null;
+  const m = model.toLowerCase();
+  if (m.includes('haiku')) return 'haiku';
+  if (m.includes('opus')) return 'opus';
+  if (m.includes('sonnet')) return 'sonnet';
+  return null;
+}
+
 function modelEmoji(model?: string): string {
-  switch (model) {
+  switch (modelTier(model)) {
     case 'haiku': return '\u{1F7E1}';
     case 'sonnet': return '\u{1F535}';
     case 'opus': return '\u{1F7E3}';
@@ -61,8 +70,9 @@ function modelEmoji(model?: string): string {
 }
 
 function modelLabel(model?: string): string {
-  switch (model) {
+  switch (modelTier(model)) {
     case 'haiku': return 'Fast';
+    case 'sonnet': return 'sonnet';
     case 'opus': return 'Deep';
     default: return model ?? 'unknown';
   }
@@ -72,23 +82,18 @@ function formatAction(action: string): string {
   return action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Parse a chatId like "project:uuid" or "project:card-uuid" into a session label. */
+/** Parse a canonical chatId ("project:<uuid>" / "card:<uuid>" / "job:<id>") into a label. */
 function parseSessionLabel(chatId: string | null, cardTitles: Record<string, string>, jobMeta: Record<string, JobMeta>): string {
   if (!chatId) return 'Direct';
-  // Scheduled background session: "job:<id>-<hash>"
   if (chatId.startsWith('job:')) {
     const meta = jobMeta[chatId];
     return meta?.jobName || 'Scheduled Job';
   }
-  // Card session: "project:card-<uuid>"
-  const cardMatch = chatId.match(/^project:card-(.+)$/);
-  if (cardMatch) {
-    const cardId = cardMatch[1];
+  if (chatId.startsWith('card:')) {
+    const cardId = chatId.slice('card:'.length).split(':')[0];
     const title = cardTitles[cardId];
     return title ? `Card: ${title}` : `Card: ${cardId.slice(0, 8)}`;
   }
-  // Project chat session: "project:<uuid>" or "general:system-main"
-  if (chatId.startsWith('general:')) return 'Chat';
   return 'Project Chat';
 }
 
@@ -204,7 +209,7 @@ function buildTree(
 
 // ── Worker row ──────────────────────────────────────────────────────────────
 
-function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peekExpanded, onTogglePeek }: {
+function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peekExpanded, onTogglePeek, cardTitles, cliPid, parentChatId, projectId }: {
   worker: WorkerInfo;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
@@ -213,6 +218,10 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
   peekData: PeekResult | null;
   peekExpanded: boolean;
   onTogglePeek: (taskId: string) => void;
+  cardTitles: Record<string, string>;
+  cliPid?: number;
+  parentChatId: string;
+  projectId: string;
 }) {
   const [steerOpen, setSteerOpen] = useState(false);
   const [steerInput, setSteerInput] = useState('');
@@ -236,135 +245,236 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
   const isActive = !TERMINAL_STATUSES.has(worker.status);
   const e = elapsed(worker.startedAt, worker.completedAt);
 
+  // Show a card pill when the worker targets a card but the parent session
+  // isn't the card's own chat (i.e., spawned from project-scope chat).
+  const parentIsCardSession =
+    worker.cardId != null && parentChatId === `card:${worker.cardId}`;
+  const showCardPill = !!worker.cardId && !parentIsCardSession;
+  const cardLabel = worker.cardId
+    ? cardTitles[worker.cardId] || worker.cardId.slice(0, 8)
+    : '';
+
+  const selectCard = useProjectStore((s) => s.selectCard);
+  const navigate = useNavigate();
+
   const handleRowClick = () => {
     onSelect(worker);
   };
 
+  const handleCardPillClick = (ev: MouseEvent) => {
+    ev.stopPropagation();
+    if (!worker.cardId) return;
+    if (projectId && projectId !== '_general' && projectId !== SCHEDULER_GROUP_ID) {
+      navigate(projectId === SYSTEM_PROJECT_ID ? '/' : `/project/${projectId}`);
+    }
+    selectCard(worker.cardId);
+  };
+
+  const statusLabel =
+    worker.status === 'running' ? 'running' :
+    worker.status === 'pending' ? 'pending' :
+    worker.status === 'done'    ? 'done'    :
+    worker.status === 'failed'  ? 'failed'  : 'cancelled';
+
+  const statusChipClasses = cn(
+    'text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded tracking-wider shrink-0',
+    isActive && 'bg-accent/15 text-accent',
+    worker.status === 'done' && 'bg-green-500/15 text-green-500',
+    worker.status === 'failed' && 'bg-red-500/15 text-red-500',
+    worker.status === 'cancelled' && 'bg-muted text-muted-foreground',
+  );
+
   return (
-    <div className="relative">
+    <div className="relative group/worker">
       {/* Tree connector lines */}
       <div className={cn(
         'absolute left-0 top-0 w-px bg-border/40',
-        isLast ? 'h-[14px]' : 'h-full',
+        isLast ? 'h-[18px]' : 'h-full',
       )} />
-      <div className="absolute left-0 top-[14px] w-3 h-px bg-border/40" />
+      <div className="absolute left-0 top-[18px] w-3 h-px bg-border/40" />
 
       <div
         className={cn(
-          'flex items-center gap-1.5 py-1 text-[11px] cursor-pointer rounded hover:bg-accent/10 transition-colors',
-          !isActive && 'opacity-50',
+          'ml-3 px-2 py-1.5 rounded cursor-pointer transition-colors',
+          'hover:bg-accent/10 focus-within:bg-accent/10',
+          !isActive && 'opacity-60',
         )}
         onClick={handleRowClick}
+        role="button"
+        tabIndex={0}
+        aria-label={`Worker ${worker.model} — ${formatAction(worker.action)} — ${statusLabel}`}
+        onKeyDown={(ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            handleRowClick();
+          }
+        }}
       >
-        {/* Spinner or status */}
-        {isActive ? (
-          <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin [animation-duration:0.6s] shrink-0" />
-        ) : (
-          <span className={cn(
-            'w-3 h-3 flex items-center justify-center text-[9px] font-bold shrink-0',
-            worker.status === 'done' ? 'text-green-500' : worker.status === 'failed' ? 'text-red-500' : 'text-muted-foreground',
-          )}>
-            {worker.status === 'done' ? '\u2713' : worker.status === 'failed' ? '\u2715' : '\u2298'}
-          </span>
+        {/* ── Line 1: identity (model + card + pid) ─────────────────────── */}
+        <div className="flex items-center gap-1.5 text-[12px] leading-tight">
+          {isActive ? (
+            <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin [animation-duration:0.6s] shrink-0" aria-label="running" />
+          ) : (
+            <span className={cn(
+              'w-3 h-3 flex items-center justify-center text-[10px] font-bold shrink-0',
+              worker.status === 'done' ? 'text-green-500' : worker.status === 'failed' ? 'text-red-500' : 'text-muted-foreground',
+            )} aria-label={statusLabel}>
+              {worker.status === 'done' ? '\u2713' : worker.status === 'failed' ? '\u2715' : '\u2298'}
+            </span>
+          )}
+
+          <span className="shrink-0" aria-hidden="true">{modelEmoji(worker.model)}</span>
+          <span className="font-semibold text-foreground truncate">{worker.model}</span>
+
+          {showCardPill && (
+            <>
+              <span className="text-muted-foreground/50 shrink-0" aria-hidden="true">{'\u2022'}</span>
+              <button
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 hover:bg-amber-500/25 focus-visible:ring-2 focus-visible:ring-amber-500/40 focus:outline-none shrink-0 max-w-[140px] truncate"
+                title={`Open card: ${cardLabel}`}
+                aria-label={`Open card ${cardLabel}`}
+                onClick={handleCardPillClick}
+              >
+                Card: {cardLabel}
+              </button>
+            </>
+          )}
+
+          {cliPid != null && (
+            <>
+              <span className="text-muted-foreground/50 shrink-0" aria-hidden="true">{'\u2022'}</span>
+              <span className="text-[10px] text-muted-foreground tabular-nums shrink-0" title="CLI subprocess pid">
+                pid:{cliPid}
+              </span>
+            </>
+          )}
+
+          <span className={cn(statusChipClasses, 'ml-auto')}>{statusLabel}</span>
+        </div>
+
+        {/* ── Line 2: action + elapsed + tool progress ─────────────────── */}
+        <div className="flex items-baseline gap-2 mt-0.5 text-[11px] text-muted-foreground">
+          <span className="truncate flex-1">{formatAction(worker.action)}</span>
+          <span className="tabular-nums shrink-0">{isActive ? `${e}\u2026` : e}</span>
+        </div>
+
+        {worker.toolCount > 0 && (
+          <div className="mt-0.5 text-[10px] text-muted-foreground/80 truncate">
+            {worker.toolCount} tool{worker.toolCount !== 1 ? 's' : ''}
+            {worker.lastTool ? ` \u2014 ${worker.lastTool}` : ''}
+          </div>
         )}
 
-        <span className="shrink-0">{modelEmoji(worker.model)}</span>
-        <span className="font-medium truncate">{worker.model}</span>
-        <span className="text-muted-foreground truncate flex-1">{formatAction(worker.action)}</span>
-        <span className="text-muted-foreground tabular-nums shrink-0">{isActive ? `${e}\u2026` : e}</span>
-
-        {/* Peek + Steer + Cancel */}
+        {/* ── Action bar: hover / focus-within ──────────────────────────── */}
         {isActive && (
-          <div className="flex items-center gap-1 shrink-0">
+          <div
+            className={cn(
+              'flex items-center gap-1 mt-1 -mb-0.5 transition-opacity',
+              'opacity-0 group-hover/worker:opacity-100 group-focus-within/worker:opacity-100',
+              steerOpen && 'opacity-100',
+            )}
+            onClick={(ev) => ev.stopPropagation()}
+          >
             <button
-              className="text-muted-foreground hover:text-accent transition-colors"
-              title="Peek at tools"
-              onClick={(ev) => { ev.stopPropagation(); onTogglePeek(worker.taskId); }}
+              type="button"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-muted-foreground hover:text-accent hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-accent/40 focus:outline-none transition-colors"
+              aria-label="Peek at tool calls"
+              aria-expanded={peekExpanded}
+              onClick={() => onTogglePeek(worker.taskId)}
             >
-              <Eye size={10} />
+              <Eye size={12} aria-hidden="true" />
+              <span>Peek</span>
             </button>
             <button
-              className="text-muted-foreground hover:text-accent transition-colors"
-              title="Steer"
-              onClick={(ev) => { ev.stopPropagation(); setSteerOpen((o) => !o); }}
+              type="button"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-muted-foreground hover:text-accent hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-accent/40 focus:outline-none transition-colors"
+              aria-label="Steer worker"
+              aria-expanded={steerOpen}
+              onClick={() => setSteerOpen((o) => !o)}
             >
-              <MessageSquare size={10} />
+              <MessageSquare size={12} aria-hidden="true" />
+              <span>Steer</span>
             </button>
             <button
-              className="text-muted-foreground hover:text-red-400 transition-colors"
-              title="Cancel"
-              onClick={(ev) => { ev.stopPropagation(); onCancel(worker.taskId); }}
+              type="button"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-muted-foreground hover:text-red-400 hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-400/40 focus:outline-none transition-colors ml-auto"
+              aria-label="Cancel worker"
+              onClick={() => onCancel(worker.taskId)}
             >
-              &times;
+              <XIcon size={12} aria-hidden="true" />
+              <span>Cancel</span>
+            </button>
+          </div>
+        )}
+
+        {/* ── Peek panel ────────────────────────────────────────────────── */}
+        {peekExpanded && peekData && (
+          <div className="mt-1.5 p-2 rounded bg-muted/50 border border-border/30 text-[10px] text-muted-foreground space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium text-foreground">{peekData.action}</span>
+              <span>{peekData.model}</span>
+              <span className="tabular-nums">{Math.round(peekData.running_seconds)}s</span>
+            </div>
+            <div>{peekData.tool_count} tool{peekData.tool_count !== 1 ? 's' : ''} called{peekData.last_tool ? ` \u2014 last: ${peekData.last_tool}` : ''}</div>
+            {peekData.recent_tools.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {peekData.recent_tools.map((t, i) => (
+                  <span key={i} className="px-1 py-0.5 rounded bg-background border border-border/40 text-[9px]">{t}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {peekExpanded && !peekData && (
+          <div className="mt-1.5 text-[10px] text-muted-foreground">Loading{'\u2026'}</div>
+        )}
+
+        {/* ── Result summary (terminal tasks) ──────────────────────────── */}
+        {worker.resultSummary && TERMINAL_STATUSES.has(worker.status) && (
+          <div
+            className="mt-1 text-[10px] text-muted-foreground hover:text-foreground line-clamp-2"
+            title={worker.resultSummary}
+            onClick={(ev) => { ev.stopPropagation(); onSelect(worker); }}
+          >
+            {worker.resultSummary}
+          </div>
+        )}
+
+        {/* ── Steer input ──────────────────────────────────────────────── */}
+        {steerOpen && isActive && (
+          <div
+            className="flex items-center gap-1 mt-1 bg-card border border-border rounded px-2 py-1 focus-within:ring-2 focus-within:ring-accent/40"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <input
+              ref={steerRef}
+              type="text"
+              value={steerInput}
+              onChange={(ev) => setSteerInput(ev.target.value)}
+              onKeyDown={onKey}
+              placeholder={'Send steer message\u2026'}
+              aria-label="Steering message"
+              className="flex-1 text-[11px] bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
+            />
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-[10px] text-accent hover:text-accent/80 disabled:opacity-40 px-1"
+              disabled={!steerInput.trim()}
+              aria-label="Send steer message"
+              onClick={submit}
+            >
+              <Send size={12} aria-hidden="true" />
             </button>
           </div>
         )}
       </div>
-
-      {/* Tool count */}
-      {worker.toolCount > 0 && (
-        <div className="text-[10px] text-muted-foreground ml-[18px]">
-          {worker.toolCount} tool{worker.toolCount !== 1 ? 's' : ''}
-          {worker.lastTool ? ` \u2014 ${worker.lastTool}` : ''}
-        </div>
-      )}
-
-      {/* Peek details (expandable) */}
-      {peekExpanded && peekData && (
-        <div className="ml-[18px] mt-1 mb-1 p-2 rounded bg-muted/50 border border-border/30 text-[10px] text-muted-foreground space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground">{peekData.action}</span>
-            <span>{peekData.model}</span>
-            <span className="tabular-nums">{Math.round(peekData.running_seconds)}s</span>
-          </div>
-          <div>{peekData.tool_count} tool{peekData.tool_count !== 1 ? 's' : ''} called{peekData.last_tool ? ` \u2014 last: ${peekData.last_tool}` : ''}</div>
-          {peekData.recent_tools.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-0.5">
-              {peekData.recent_tools.map((t, i) => (
-                <span key={i} className="px-1 py-0.5 rounded bg-background border border-border/40 text-[9px]">{t}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      {peekExpanded && !peekData && (
-        <div className="ml-[18px] mt-1 mb-1 text-[10px] text-muted-foreground">Loading...</div>
-      )}
-
-      {/* Result summary (click opens modal) */}
-      {worker.resultSummary && TERMINAL_STATUSES.has(worker.status) && (
-        <div
-          className="text-[10px] text-muted-foreground ml-[18px] mt-0.5 cursor-pointer hover:text-foreground truncate"
-          onClick={() => onSelect(worker)}
-        >
-          {worker.resultSummary.substring(0, 80)}{worker.resultSummary.length > 80 ? '\u2026' : ''}
-        </div>
-      )}
-
-      {/* Steering mini-input */}
-      {steerOpen && isActive && (
-        <div className="flex items-center gap-1 ml-[18px] mt-1 bg-card border border-border rounded px-2 py-1">
-          <input
-            ref={steerRef}
-            type="text"
-            value={steerInput}
-            onChange={(e) => setSteerInput(e.target.value)}
-            onKeyDown={onKey}
-            placeholder="Steer\u2026"
-            className="flex-1 text-[11px] bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
-          />
-          <button className="text-accent hover:text-accent/80 disabled:opacity-40" disabled={!steerInput.trim()} onClick={submit}>
-            <Send size={10} />
-          </button>
-        </div>
-      )}
     </div>
   );
 }
 
 // ── Session row (a CLI session with its child workers) ──────────────────────
 
-function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek }: {
+function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles, cliByTask }: {
   session: SessionNode;
   projectId: string;
   onCancel: (id: string) => void;
@@ -373,6 +483,8 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
   peekData: Record<string, PeekResult | null>;
   expandedPeek: Set<string>;
   onTogglePeek: (taskId: string) => void;
+  cardTitles: Record<string, string>;
+  cliByTask: Record<string, CliSessionInfo>;
 }) {
   const hasChildren = session.workers.length > 0;
   const [open, setOpen] = useState(true);
@@ -383,16 +495,17 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
 
   const isJobSession = session.chatId.startsWith('job:');
 
-  // Detect dispatcher: CLI session of type "chat" or chatId starts with "project:" / "card:"
+  // Detect dispatcher: CLI session of type "chat" or canonical chatId
   const isDispatcher = !isJobSession && !!(
     session.cliSession?.type === 'chat' ||
     session.chatId.startsWith('project:') ||
-    session.chatId.startsWith('general:')
+    session.chatId.startsWith('card:')
   );
 
-  // Extract cardId from chatId for link
-  const cardMatch = session.chatId.match(/^project:card-(.+)$/);
-  const cardId = cardMatch?.[1];
+  // Extract cardId from a canonical "card:<uuid>" chat_id (used to deep-link the card)
+  const cardId = session.chatId.startsWith('card:')
+    ? session.chatId.slice('card:'.length).split(':')[0]
+    : undefined;
 
   const handleSessionClick = () => {
     if (!isJobSession) {
@@ -467,6 +580,10 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
               peekData={peekData[w.taskId] ?? null}
               peekExpanded={expandedPeek.has(w.taskId)}
               onTogglePeek={onTogglePeek}
+              cardTitles={cardTitles}
+              cliPid={cliByTask[w.taskId]?.pid}
+              parentChatId={session.chatId}
+              projectId={projectId}
             />
           ))}
         </div>
@@ -597,7 +714,7 @@ export function WorkerPanel() {
           <div className="text-xs text-muted-foreground text-center py-8">No active sessions</div>
         ) : (
           tree.map((proj) => (
-            <ProjectGroup key={proj.projectId} project={proj} onCancel={cancelTask} onSteer={steerTask} onSelect={selectWorker} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={togglePeek} />
+            <ProjectGroup key={proj.projectId} project={proj} onCancel={cancelTask} onSteer={steerTask} onSelect={selectWorker} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={togglePeek} cardTitles={cardTitles} cliByTask={cliByTask} />
           ))
         )}
       </div>
@@ -612,7 +729,7 @@ export function WorkerPanel() {
 
 // ── Project group (collapsible) ─────────────────────────────────────────────
 
-function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek }: {
+function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles, cliByTask }: {
   project: ProjectNode;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
@@ -620,6 +737,8 @@ function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expanded
   peekData: Record<string, PeekResult | null>;
   expandedPeek: Set<string>;
   onTogglePeek: (taskId: string) => void;
+  cardTitles: Record<string, string>;
+  cliByTask: Record<string, CliSessionInfo>;
 }) {
   const [open, setOpen] = useState(true);
   const navigate = useNavigate();
@@ -647,7 +766,7 @@ function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expanded
       {open && (
         <div className="flex flex-col gap-0.5">
           {project.sessions.map((s) => (
-            <SessionRow key={s.chatId} session={s} projectId={project.projectId} onCancel={onCancel} onSteer={onSteer} onSelect={onSelect} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={onTogglePeek} />
+            <SessionRow key={s.chatId} session={s} projectId={project.projectId} onCancel={onCancel} onSteer={onSteer} onSelect={onSelect} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={onTogglePeek} cardTitles={cardTitles} cliByTask={cliByTask} />
           ))}
         </div>
       )}

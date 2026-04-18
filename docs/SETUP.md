@@ -231,7 +231,7 @@ Direct API calls via the `anthropic` Python SDK. Requires an API key.
 
 Or store the key in the system keyring:
 ```bash
-python setup_keys.py
+keyring set voxyflow claude_api_key
 ```
 
 ### Option C: Settings UI (any provider)

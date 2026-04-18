@@ -8,7 +8,9 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends
+
+from app.services.auth_service import verify_auth
 
 router = APIRouter(prefix="/api/backup", tags=["backup"])
 
@@ -46,7 +48,7 @@ async def backup_status():
     }
 
 
-@router.post("/trigger")
+@router.post("/trigger", dependencies=[Depends(verify_auth)])
 async def trigger_backup(background_tasks: BackgroundTasks):
     """Manually trigger a ChromaDB backup."""
     from app.services.scheduler_service import get_scheduler_service

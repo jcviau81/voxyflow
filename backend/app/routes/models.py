@@ -11,54 +11,13 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.services.llm.provider_factory import infer_provider_type, list_known_providers
+from app.services.worker_classes import DEFAULT_WORKER_CLASSES
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
-# ---------------------------------------------------------------------------
-# Default worker classes — returned when nothing is saved in DB yet.
-# Must stay in sync with frontend defaults in Settings → Models.
-# ---------------------------------------------------------------------------
-
-DEFAULT_WORKER_CLASSES = [
-    {
-        "id": "00000000-0000-0000-0000-000000000001",
-        "name": "Quick",
-        "description": "Fast, lightweight tasks — summaries, simple Q&A, formatting",
-        "endpoint_id": "",
-        "provider_type": "cli",
-        "model": "claude-haiku-4-5-20251001",
-        "intent_patterns": ["summarize", "format", "quick", "simple", "short"],
-    },
-    {
-        "id": "00000000-0000-0000-0000-000000000002",
-        "name": "Coding",
-        "description": "Code writing, debugging, refactoring, code review",
-        "endpoint_id": "",
-        "provider_type": "cli",
-        "model": "claude-sonnet-4-6",
-        "intent_patterns": ["code", "debug", "refactor", "implement", "fix", "test"],
-    },
-    {
-        "id": "00000000-0000-0000-0000-000000000003",
-        "name": "Research",
-        "description": "Deep research, analysis, multi-step investigation",
-        "endpoint_id": "",
-        "provider_type": "cli",
-        "model": "claude-opus-4-7",
-        "intent_patterns": ["research", "analyze", "investigate", "compare", "explain"],
-    },
-    {
-        "id": "00000000-0000-0000-0000-000000000004",
-        "name": "Creative",
-        "description": "Writing, brainstorming, ideation, narrative",
-        "endpoint_id": "",
-        "provider_type": "cli",
-        "model": "claude-sonnet-4-6",
-        "intent_patterns": ["write", "brainstorm", "creative", "story", "draft"],
-    },
-]
+__all__ = ["router", "DEFAULT_WORKER_CLASSES"]
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +74,7 @@ class ModelCapabilities(BaseModel):
 
 async def _load_models_cfg() -> dict:
     """Load the models section from settings (DB-backed)."""
-    from app.routes.settings import _load_settings_from_db
+    from app.services.settings_loader import _load_settings_from_db
     data = await _load_settings_from_db()
     if data:
         return data.get("models", {})

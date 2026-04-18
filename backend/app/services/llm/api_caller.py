@@ -23,6 +23,7 @@ from app.services.llm.model_utils import (
     _strip_think_tags,
     _is_thinking_model,
     _inject_no_think,
+    _flatten_system,
 )
 from app.services.llm.tool_defs import (
     DELEGATE_ACTION_TOOL,
@@ -63,13 +64,6 @@ def _log_token_usage(
             f.write(json.dumps(entry) + "\n")
     except Exception as e:
         logger.debug(f"Token usage logging failed: {e}")
-
-
-def _flatten_system(system: str | list[dict]) -> str:
-    """Convert system content blocks back to a plain string (for non-Anthropic paths)."""
-    if isinstance(system, str):
-        return system
-    return "\n\n".join(block["text"] for block in system if block.get("text"))
 
 
 # Anthropic beta header for Sonnet 4 1M context.

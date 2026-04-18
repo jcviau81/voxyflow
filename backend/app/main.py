@@ -5,10 +5,8 @@ import json
 import logging
 import os
 import time
-from logging.handlers import RotatingFileHandler
 from uuid import uuid4
 
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -17,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db, SYSTEM_MAIN_PROJECT_ID
-from app.routes import projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers, models, worker_tasks, cli_sessions, backup
+from app.routes import projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers, models, worker_tasks, cli_sessions, backup, auth
 from app.routes.health import metrics_router
 from app.services.claude_service import ClaudeService
 from app.services.chat_orchestration import ChatOrchestrator
@@ -25,6 +23,7 @@ from app.services.rag_service import get_rag_service
 from app.services.scheduler_service import get_scheduler_service
 from app.services.pending_results import pending_store
 from app.services.board_executor import execute_board, cancel_execution, build_execution_plan, CardPlan, _build_card_prompt
+from app.services.chat_id_utils import resolve_chat_id
 from app.routes.settings import get_default_worker_model
 
 
@@ -32,268 +31,38 @@ from app.routes.settings import get_default_worker_model
 # Logging
 # ---------------------------------------------------------------------------
 
+from app.services.logging_config import bind_contextvars, bound_contextvars, clear_contextvars, configure_logging
+
 _log_level = logging.DEBUG if get_settings().debug else logging.INFO
-_log_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-
-# --- File-based logging (primary) ---
 _log_dir = os.path.expanduser("~/.voxyflow/logs")
-os.makedirs(_log_dir, exist_ok=True)
-_log_file = os.path.join(_log_dir, "backend.log")
-_file_handler = RotatingFileHandler(
-    _log_file,
-    maxBytes=10 * 1024 * 1024,  # 10 MB
-    backupCount=3,
-    encoding="utf-8",
-)
-_file_handler.setLevel(_log_level)
-_file_handler.setFormatter(logging.Formatter(_log_fmt))
 
-# Configure root logger with file handler only — stderr is already
-# redirected to backend.log by systemd, so basicConfig's StreamHandler
-# would duplicate every line.
-_root = logging.getLogger()
-_root.setLevel(_log_level)
-_root.addHandler(_file_handler)
+# systemd already redirects stderr into the journal / backend.log, so we skip
+# the stream handler here and write straight to a rotating file.
+configure_logging(level=_log_level, log_dir=_log_dir, stream=False)
 
 logger = logging.getLogger("voxyflow")
-logger.info("File logging enabled: %s (max 10MB, 3 backups)", _log_file)
+logger.info("Structured logging enabled (dir=%s, json=%s)", _log_dir, os.environ.get("VOXYFLOW_LOG_JSON", "0"))
 
 
 # ---------------------------------------------------------------------------
-# Lifespan
+# Lifespan — full implementation lives in app/startup.py
 # ---------------------------------------------------------------------------
 
-async def _cleanup_stale_worker_tasks():
-    """Purge terminal worker tasks older than 24h from the database."""
-    from datetime import datetime, timedelta, timezone
-    from sqlalchemy import delete, and_
-    from app.database import async_session, WorkerTask
-
-    try:
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-        async with async_session() as db:
-            result = await db.execute(
-                delete(WorkerTask).where(
-                    and_(
-                        WorkerTask.status.in_(["done", "failed", "cancelled", "timed_out"]),
-                        WorkerTask.created_at < cutoff,
-                    )
-                )
-            )
-            await db.commit()
-            if result.rowcount > 0:
-                logger.info(f"🧹 Cleaned up {result.rowcount} stale worker tasks (>24h)")
-            else:
-                logger.info("🧹 No stale worker tasks to clean up")
-    except Exception as e:
-        logger.warning(f"⚠️  Worker task cleanup failed (non-fatal): {e}")
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Startup/shutdown events."""
-    logger.info("🚀 Voxyflow starting up...")
-    await init_db()
-    logger.info("✅ Database initialized")
-
-    # Sync settings from DB → settings.json so ClaudeService picks them up
-    from app.routes.settings import _load_settings_from_db, AppSettings, SETTINGS_FILE
-    try:
-        _db_settings = await _load_settings_from_db()
-        if _db_settings:
-            # Write DB settings to settings.json so _load_model_overrides() finds them
-            _merged = AppSettings(**_db_settings).dict()
-            os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-            with open(SETTINGS_FILE, "w") as _f:
-                json.dump(_merged, _f, indent=2)
-            logger.info("✅ Settings synced from DB → settings.json")
-        # Reload ClaudeService models after DB sync (it was initialized before sync)
-        _claude_service.reload_models()
-    except Exception as _e:
-        logger.warning("Failed to load settings from DB: %s — using defaults", _e)
-
-    # Generate USER.md and IDENTITY.md from templates if missing
-    try:
-        from app.routes.settings import init_personality_files
-        await init_personality_files()
-        logger.info("✅ Personality files initialized")
-    except Exception as _e:
-        logger.warning("Failed to initialize personality files: %s", _e)
-
-    # Cleanup stale worker tasks (done/failed/cancelled older than 24h)
-    await _cleanup_stale_worker_tasks()
-
-    # Ensure workspace directory exists
-    from app.services.workspace_service import get_workspace_service
-    ws_service = get_workspace_service()
-    ws_path = await ws_service.ensure_workspace()
-    logger.info("✅ Workspace ready: %s", ws_path)
-
-    # Initialize RAGService singleton (chromadb + sentence-transformers)
-    rag = get_rag_service()
-    if rag.enabled:
-        logger.info("✅ RAGService initialized (ChromaDB + intfloat/multilingual-e5-large)")
-    else:
-        logger.warning("⚠️  RAGService disabled (chromadb not installed — install chromadb + sentence-transformers to enable)")
-
-    # Initialize MemoryService and run one-time migration if needed
-    from app.services.memory_service import get_memory_service
-    memory = get_memory_service()
-    if memory.chromadb_enabled:
-        logger.info("✅ MemoryService ChromaDB initialized")
-        try:
-            repair_results = memory.repair_collections()
-            repaired = {k: v for k, v in repair_results.items() if v.startswith("repaired")}
-            if repaired:
-                for col_name, status in repaired.items():
-                    logger.warning(f"🔧 ChromaDB auto-repair: {col_name} → {status}")
-            else:
-                logger.info("✅ ChromaDB collections healthy")
-        except Exception as e:
-            logger.warning(f"⚠️  ChromaDB repair check failed (non-fatal): {e}")
-        try:
-            migrated = await memory.migrate_from_files()
-            if migrated > 0:
-                logger.info(f"✅ Migrated {migrated} memory entries from files to ChromaDB")
-        except Exception as e:
-            logger.warning(f"⚠️  Memory migration failed (non-fatal): {e}")
-    else:
-        logger.info("ℹ️  MemoryService using file-based fallback")
-
-    # Start scheduler (heartbeat + RAG indexer)
-    scheduler = get_scheduler_service()
-    _app_settings = get_settings()
-    # Load scheduler settings from settings.json if available
-    _sched_enabled = True
-    _heartbeat_interval = 2
-    _rag_interval = 15
-    _backup_enabled = False
-    try:
-        from pathlib import Path
-        _voxyflow_data_dir = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
-        _settings_file = _voxyflow_data_dir / "settings.json"
-        if _settings_file.exists():
-            with open(_settings_file) as _f:
-                _stored = json.load(_f)
-            _sched_cfg = _stored.get("scheduler", {})
-            _sched_enabled = _sched_cfg.get("enabled", True)
-            _heartbeat_interval = _sched_cfg.get("heartbeat_interval_minutes", 2)
-            _rag_interval = _sched_cfg.get("rag_index_interval_minutes", 15)
-            _backup_cfg = _stored.get("backup", {})
-            _backup_enabled = _backup_cfg.get("chromadb_enabled", False)
-            scheduler._backup_hour = _backup_cfg.get("backup_hour", 3)
-            scheduler._backup_enabled = _backup_enabled
-    except Exception as _e:
-        logger.warning(f"Failed to load scheduler settings: {_e} — using defaults")
-
-    if _sched_enabled:
-        scheduler.start()
-    else:
-        logger.info("⏸️  Scheduler disabled via settings")
-
-    if not _backup_enabled:
-        logger.info("💡 ChromaDB daily backup is disabled. Enable it in Settings → Backup to protect your memory data.")
-
-    # Background task: cleanup idle persistent chat sessions, event buses, and pending results every 5 minutes
-    async def _cleanup_idle_sessions():
-        from app.services.cli_session_registry import get_cli_session_registry
-        from app.services.event_bus import event_bus_registry
-        from app.services.pending_results import pending_store
-        from starlette.websockets import WebSocketState
-
-        # Track when each worker pool first became "idle" (no active tasks and
-        # no connected WS). A pool is stopped after IDLE_POOL_TIMEOUT seconds
-        # of continuous idleness. Reset to None as soon as activity resumes.
-        IDLE_POOL_TIMEOUT = 1800  # 30 minutes
-        _pool_idle_since: dict[str, float] = {}
-
-        while True:
-            await asyncio.sleep(300)  # 5 minutes
-            try:
-                killed = await get_cli_session_registry().cleanup_inactive(1800)  # 30 min idle
-                if killed:
-                    logger.info(f"[Cleanup] Killed {killed} idle persistent chat sessions")
-            except Exception as e:
-                logger.debug(f"[Cleanup] idle session cleanup error: {e}")
-            try:
-                cleaned = event_bus_registry.cleanup_idle(3600)  # 1 hour idle
-                if cleaned:
-                    logger.info(f"[Cleanup] Removed {cleaned} idle EventBus instance(s)")
-            except Exception as e:
-                logger.debug(f"[Cleanup] EventBus cleanup error: {e}")
-            try:
-                removed = await pending_store.cleanup_stale(86400)  # 24 hour TTL
-                if removed:
-                    logger.info(f"[Cleanup] Removed {removed} stale pending result(s)")
-            except Exception as e:
-                logger.debug(f"[Cleanup] pending results cleanup error: {e}")
-
-            # ---- Idle DeepWorkerPool cleanup (Phase 1) -------------------
-            # A pool is considered idle when it has no active tasks AND its
-            # WebSocket reference is missing or disconnected. We stop it only
-            # after IDLE_POOL_TIMEOUT of continuous idleness, so a legitimate
-            # browser refresh or device switch (which takes a few seconds)
-            # never loses its surviving pool.
-            try:
-                now = time.monotonic()
-                to_stop: list[str] = []
-                live_pool_ids: set[str] = set()
-                for sid, pool in list(_orchestrator._worker_pools.items()):
-                    live_pool_ids.add(sid)
-                    if pool._stopped:
-                        to_stop.append(sid)
-                        continue
-                    has_active = bool(pool._active_tasks)
-                    ws = pool._ws
-                    ws_alive = ws is not None and ws.client_state == WebSocketState.CONNECTED
-                    if has_active or ws_alive:
-                        _pool_idle_since.pop(sid, None)
-                        continue
-                    first_idle = _pool_idle_since.get(sid)
-                    if first_idle is None:
-                        _pool_idle_since[sid] = now
-                    elif now - first_idle >= IDLE_POOL_TIMEOUT:
-                        to_stop.append(sid)
-                # Drop tracking entries for pools that have been removed externally
-                for sid in list(_pool_idle_since.keys()):
-                    if sid not in live_pool_ids:
-                        _pool_idle_since.pop(sid, None)
-                for sid in to_stop:
-                    try:
-                        await _orchestrator.stop_worker_pool(sid)
-                        _pool_idle_since.pop(sid, None)
-                        logger.info(f"[Cleanup] Stopped idle worker pool: {sid}")
-                    except Exception as _stop_err:
-                        logger.warning(f"[Cleanup] Failed to stop idle pool {sid}: {_stop_err}")
-            except Exception as e:
-                logger.debug(f"[Cleanup] idle worker pool cleanup error: {e}")
-
-    _idle_cleanup_task = asyncio.create_task(_cleanup_idle_sessions())
-
-    yield
-
-    _idle_cleanup_task.cancel()
-
-    # Kill all active CLI sessions
-    from app.services.cli_session_registry import get_cli_session_registry
-    killed = await get_cli_session_registry().kill_all()
-    if killed:
-        logger.info(f"Killed {killed} active CLI sessions on shutdown")
-
-    # Shutdown scheduler cleanly
-    scheduler.stop()
-    logger.info("Voxyflow shutting down")
+from app.startup import build_lifespan
 
 
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
+_claude_service = ClaudeService()
+_orchestrator = ChatOrchestrator(_claude_service)
+
 app = FastAPI(
     title="Voxyflow",
     description="Voice-first project management assistant with multi-model orchestration",
     version="0.1.0",
-    lifespan=lifespan,
+    lifespan=build_lifespan(_claude_service, _orchestrator),
 )
 
 
@@ -340,49 +109,50 @@ async def _timing_middleware(request: Request, call_next):
     if any(path.startswith(p) for p in _SKIP_TIMING_PREFIXES):
         return await call_next(request)
 
-    t0 = time.perf_counter()
-    response = await call_next(request)
-    duration_ms = (time.perf_counter() - t0) * 1000
+    request_id = request.headers.get("x-request-id") or uuid4().hex[:12]
+    with bound_contextvars(request_id=request_id, http_path=path, http_method=request.method):
+        t0 = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - t0) * 1000
 
-    from app.services.metrics_store import get_metrics_store, SLOW_THRESHOLD_MS
-    get_metrics_store().record_request(path, request.method, response.status_code, duration_ms)
+        from app.services.metrics_store import get_metrics_store, SLOW_THRESHOLD_MS
+        get_metrics_store().record_request(path, request.method, response.status_code, duration_ms)
 
-    if duration_ms >= SLOW_THRESHOLD_MS:
-        _timing_logger.warning(
-            "[SLOW] %s %s → %d  %.0fms", request.method, path, response.status_code, duration_ms
-        )
-    else:
-        _timing_logger.debug(
-            "%s %s → %d  %.0fms", request.method, path, response.status_code, duration_ms
-        )
+        response.headers["x-request-id"] = request_id
 
-    return response
+        if duration_ms >= SLOW_THRESHOLD_MS:
+            _timing_logger.warning(
+                "[SLOW] %s %s → %d  %.0fms", request.method, path, response.status_code, duration_ms
+            )
+        else:
+            _timing_logger.debug(
+                "%s %s → %d  %.0fms", request.method, path, response.status_code, duration_ms
+            )
 
-# Routes
-app.include_router(projects.router, prefix="/api")
-app.include_router(cards.router, prefix="/api")
+        return response
+
+# Routes — every router declares its own full prefix (/api/... or /mcp).
+# Keep this file free of prefix= arguments on include_router to avoid split-prefix drift.
+app.include_router(projects.router)
+app.include_router(cards.router)
 app.include_router(techdetect.router)
-app.include_router(github.router, prefix="/api")
+app.include_router(github.router)
 app.include_router(settings.router)
-app.include_router(sessions.router, prefix="/api")
-app.include_router(documents.router, prefix="/api")
+app.include_router(sessions.router)
+app.include_router(documents.router)
 app.include_router(health.router)
 app.include_router(metrics_router)
 app.include_router(jobs.router)
-app.include_router(code.router, prefix="/api")
-app.include_router(focus_sessions.router, prefix="/api")
+app.include_router(code.router)
+app.include_router(focus_sessions.router)
 app.include_router(workspace.router)
 app.include_router(workers.router)
 app.include_router(worker_tasks.router)
 app.include_router(models.router)
 app.include_router(cli_sessions.router)
 app.include_router(backup.router)
+app.include_router(auth.router)
 app.include_router(mcp_routes.router)  # MCP server (SSE + stdio, no /api prefix)
-
-
-_claude_service = ClaudeService()
-_orchestrator = ChatOrchestrator(_claude_service)
-
 
 
 # Serve frontend (SPA)
@@ -447,7 +217,13 @@ async def general_websocket(websocket: WebSocket):
     WS_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024
 
     try:
+        ws_id = uuid4().hex[:12]
         while True:
+            # Per-message scope — drop any context left over from a prior
+            # iteration so stale project_id / session_id don't leak into
+            # whatever the next message dispatches.
+            clear_contextvars()
+            bind_contextvars(ws_id=ws_id)
             raw = await websocket.receive_text()
             if len(raw) > WS_MAX_PAYLOAD_BYTES:
                 logger.warning(
@@ -489,6 +265,22 @@ async def general_websocket(websocket: WebSocket):
                     payload = {}
                 msg_id = data.get("id", "")
 
+                # Bind per-message context so every log line emitted during
+                # dispatch (orchestrator, workers, MCP handlers) carries the
+                # originating session + chat identifiers.
+                _ctx: dict[str, str] = {"ws_msg_type": msg_type or "unknown"}
+                for _src_key, _ctx_key in (
+                    ("sessionId", "session_id"),
+                    ("projectId", "project_id"),
+                    ("cardId", "card_id"),
+                    ("chatId", "chat_id"),
+                    ("messageId", "message_id"),
+                ):
+                    _v = payload.get(_src_key)
+                    if _v:
+                        _ctx[_ctx_key] = str(_v)
+                bind_contextvars(**_ctx)
+
                 if msg_type != "ping":
                     logger.info(f"[WS] Received: {msg_type}")
 
@@ -524,35 +316,17 @@ async def general_websocket(websocket: WebSocket):
                     # it against what the project/card context says — a mismatch would bleed
                     # history and CLI subprocesses across projects.
                     if card_id:
-                        canonical_chat_id = f"card:{card_id}"
                         chat_level = "card"
                     elif project_id:
-                        canonical_chat_id = f"project:{project_id}"
                         if chat_level == "general":
                             chat_level = "project" if project_id != SYSTEM_MAIN_PROJECT_ID else "general"
                     else:
                         project_id = SYSTEM_MAIN_PROJECT_ID
-                        canonical_chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}"
                         chat_level = "general"  # Keep "general" for backward compat in prompts
 
-                    # Frontend may pass a stable chatId for sub-sessions (e.g. "project:{id}:s-abc123")
-                    # but it MUST be prefixed with the canonical chat_id. Reject mismatches.
-                    frontend_chat_id = payload.get("chatId")
-                    if frontend_chat_id:
-                        if (
-                            frontend_chat_id == canonical_chat_id
-                            or frontend_chat_id.startswith(canonical_chat_id + ":")
-                        ):
-                            chat_id = frontend_chat_id
-                        else:
-                            logger.warning(
-                                f"[WS] Rejected mismatched chatId={frontend_chat_id!r} for "
-                                f"project_id={project_id!r} card_id={card_id!r} — "
-                                f"using canonical {canonical_chat_id!r} instead"
-                            )
-                            chat_id = canonical_chat_id
-                    else:
-                        chat_id = canonical_chat_id
+                    chat_id, _, _ = resolve_chat_id(
+                        project_id, card_id, payload.get("chatId"), log_context="WS chat:message"
+                    )
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
 
@@ -626,31 +400,9 @@ async def general_websocket(websocket: WebSocket):
                     card_id = payload.get("cardId")
                     session_id = payload.get("sessionId") or str(uuid4())
                     # Derive canonical chat_id from context (same isolation logic as chat:message)
-                    if card_id:
-                        canonical_chat_id = f"card:{card_id}"
-                    elif project_id:
-                        canonical_chat_id = f"project:{project_id}"
-                    else:
-                        canonical_chat_id = f"project:{SYSTEM_MAIN_PROJECT_ID}"
-
-                    # Validate frontend-provided chatId against canonical — reject mismatches
-                    # so we don't clear the history of a different project.
-                    frontend_chat_id = payload.get("chatId")
-                    if frontend_chat_id:
-                        if (
-                            frontend_chat_id == canonical_chat_id
-                            or frontend_chat_id.startswith(canonical_chat_id + ":")
-                        ):
-                            chat_id = frontend_chat_id
-                        else:
-                            logger.warning(
-                                f"[WS] session:reset rejected mismatched chatId={frontend_chat_id!r} "
-                                f"for project_id={project_id!r} card_id={card_id!r} — "
-                                f"using canonical {canonical_chat_id!r} instead"
-                            )
-                            chat_id = canonical_chat_id
-                    else:
-                        chat_id = canonical_chat_id
+                    chat_id, _, _ = resolve_chat_id(
+                        project_id, card_id, payload.get("chatId"), log_context="WS session:reset"
+                    )
 
                     # Fix 5: full session teardown — stop worker pool, clear event bus,
                     # remove from active_session_ids, then clear chat history.

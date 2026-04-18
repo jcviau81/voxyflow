@@ -418,8 +418,9 @@ class SchedulerService:
         job_id = job.get("id", "")
         name = job.get("name", "")
 
-        # Lazy import to avoid circular dependency at module load time
-        from app.routes.jobs import _execute_job, _load_jobs, _save_jobs, _find_job
+        # Lazy import avoids pulling the jobs persistence store at scheduler
+        # module-load time; by now the app is fully booted.
+        from app.services.job_runner import _execute_job, _load_jobs, _save_jobs, _find_job
 
         # Re-check enabled flag from disk — APScheduler may fire after the
         # job was disabled but before remove_job() took effect.
@@ -517,7 +518,7 @@ class SchedulerService:
 
                 # XTTS server — check configured TTS URL
                 try:
-                    from app.routes.settings import _load_settings_from_db
+                    from app.services.settings_loader import _load_settings_from_db
                     settings_data = await _load_settings_from_db()
                     tts_url = ""
                     if settings_data:
@@ -908,7 +909,7 @@ class SchedulerService:
             import time as _time
 
             # Read settings for retention
-            from app.routes.settings import _load_settings_from_db
+            from app.services.settings_loader import _load_settings_from_db
             settings = await _load_settings_from_db() or {}
             backup_cfg = settings.get("backup", {})
             if not backup_cfg.get("chromadb_enabled", False):

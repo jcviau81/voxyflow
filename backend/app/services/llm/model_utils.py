@@ -96,6 +96,18 @@ def _is_thinking_model(model_name: str) -> bool:
     return any(x in lower for x in ("qwen3", "qwen2.5-think", "deepseek-r1", "deepseek-r2", "qwq"))
 
 
+def _flatten_system(system: str | list[dict]) -> str:
+    """Flatten an Anthropic cache-control system (list of text blocks) to a plain string.
+
+    Used by non-Anthropic paths (CLI, OpenAI-compat) that can't forward the
+    structured form. Equivalent to ``"\\n\\n".join(block["text"] …)`` with a
+    passthrough for strings.
+    """
+    if isinstance(system, str):
+        return system
+    return "\n\n".join(block["text"] for block in system if block.get("text"))
+
+
 def _inject_no_think(system: str | list, model_name: str) -> str | list:
     """Prepend /no_think to system prompt for thinking models to disable chain-of-thought."""
     if not _is_thinking_model(model_name):

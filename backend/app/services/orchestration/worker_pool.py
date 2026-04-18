@@ -21,7 +21,7 @@ from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_regi
 from app.services.pending_results import pending_store
 from app.services.worker_session_store import get_worker_session_store
 from app.services.worker_supervisor import get_worker_supervisor
-from app.routes.settings import get_default_worker_model
+from app.services.settings_loader import get_default_worker_model
 
 if TYPE_CHECKING:
     from app.services.chat_orchestration import ChatOrchestrator
@@ -443,7 +443,13 @@ class DeepWorkerPool:
         closeout_mq: asyncio.Queue[str] = asyncio.Queue()
 
         async def _closeout_cb(tool_name: str, arguments: dict, result: dict):
-            if tool_name in ("voxyflow.worker.complete", "voxyflow_worker_complete"):
+            # Claude CLI's MCP bridge flattens dots → underscores on the wire,
+            # and our cli_steerable normalizer only restores the first dot. So
+            # "voxyflow.worker.complete" may arrive as "voxyflow.worker_complete".
+            # Match on the underscore-normalized form to cover every variant.
+            norm = tool_name.replace(".", "_")
+            logger.debug(f"[Closeout] cb tool={tool_name!r} (norm={norm!r}) task={event.task_id}")
+            if norm == "voxyflow_worker_complete" or norm == "worker_complete":
                 wc_summary = (arguments.get("summary") or "").strip()
                 wc_status = arguments.get("status", "success")
                 wc_findings = arguments.get("findings") or []
@@ -657,7 +663,9 @@ class DeepWorkerPool:
                 await self._semaphore.acquire()
                 self._task_meta[event.task_id] = {
                     "action": event.intent or "unknown",
-                    "model": event.model or get_default_worker_model(),
+                    # Placeholder — _execute_event will overwrite with the
+                    # authoritative model (worker_class.model or default).
+                    "model": get_default_worker_model(),
                     "description": event.summary or "",
                     "started_at": time.time(),
                 }
@@ -748,16 +756,19 @@ class DeepWorkerPool:
         the worker class model/provider is used instead of the default layer.
         """
         try:
-            # Resolve worker class (if any) before registering, so we log the right model
+            # Resolve worker class (if any) before registering, so we log the right model.
+            # Precedence: worker_class.model (if matched) > default_worker_model (fallback).
+            # event.model is the dispatcher's LLM-suggested hint — kept only for logging;
+            # user-configured Worker Classes and Default Worker Model are authoritative.
             _worker_class = await self._resolve_worker_class(event)
-            _effective_model = event.model or get_default_worker_model()
-            if _worker_class:
-                _effective_model = _worker_class.get("model") or _effective_model
-                # Store worker_class_id in event data for downstream use
+            if _worker_class and _worker_class.get("model"):
+                _effective_model = _worker_class["model"]
                 event.data["_resolved_worker_class"] = _worker_class
-                # Update task_meta so get_active_tasks reflects the actual model
-                if event.task_id in self._task_meta:
-                    self._task_meta[event.task_id]["model"] = _effective_model
+            else:
+                _effective_model = get_default_worker_model()
+            # Update task_meta so get_active_tasks reflects the actual model
+            if event.task_id in self._task_meta:
+                self._task_meta[event.task_id]["model"] = _effective_model
 
             _wss = get_worker_session_store()
             _task_card_id = event.data.get("card_id")
@@ -810,7 +821,14 @@ class DeepWorkerPool:
                 "projectId": event.data.get("project_id"),
             })
 
-            logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent} (model={event.model})")
+            _wc_name = (_worker_class or {}).get("name")
+            logger.info(
+                f"[DeepWorker] Executing task {event.task_id}: {event.intent} "
+                f"(model={_effective_model}"
+                + (f", class={_wc_name}" if _wc_name else "")
+                + (f", requested={event.model}" if event.model and event.model != _effective_model else "")
+                + ")"
+            )
 
             intent_lower = (event.intent or "unknown").lower()
             is_move_or_update = any(kw in intent_lower for kw in [
@@ -910,12 +928,16 @@ class DeepWorkerPool:
                 # Lifecycle interception — the MCP handlers run in a subprocess
                 # with their own supervisor instance, so we must propagate
                 # claim/complete into the main-process supervisor here.
-                if tool_name in ("voxyflow.worker.claim", "voxyflow_worker_claim"):
+                # Claude CLI's MCP bridge flattens dots → underscores, and our
+                # cli_steerable only restores the first dot, so match against
+                # the fully-underscored form.
+                _norm = tool_name.replace(".", "_")
+                if _norm in ("voxyflow_worker_claim", "worker_claim"):
                     wc_task_id = arguments.get("task_id", event.task_id)
                     wc_plan = arguments.get("plan", "")
                     if wc_plan:
                         supervisor.mark_claimed(wc_task_id, wc_plan)
-                elif tool_name in ("voxyflow.worker.complete", "voxyflow_worker_complete"):
+                elif _norm in ("voxyflow_worker_complete", "worker_complete"):
                     wc_task_id = arguments.get("task_id", event.task_id)
                     wc_summary = (arguments.get("summary") or "").strip()
                     wc_status = arguments.get("status", "success")
@@ -930,7 +952,7 @@ class DeepWorkerPool:
                             next_step=wc_next,
                             source="worker.complete",
                         )
-                elif tool_name in ("task.complete", "task_complete"):
+                elif _norm == "task_complete":
                     tc_task_id = arguments.get("task_id", event.task_id)
                     tc_summary = arguments.get("summary", "")
                     tc_status = arguments.get("status", "success")
@@ -1526,7 +1548,7 @@ class DeepWorkerPool:
             # Build a short title and a full description.
             # intent = action name or full directive; summary = description/instruction
             full_text = summary or intent
-            short_title = _make_short_title(intent, summary)
+            short_title = DeepWorkerPool._make_short_title(intent, summary)
 
             card_id = new_uuid()
             async with async_session() as db:

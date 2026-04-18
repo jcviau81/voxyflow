@@ -65,6 +65,12 @@ DIRECT_ACTION_MAP: dict[str, str] = {
     "workers.get_result": "voxyflow.workers.get_result",
 }
 
+# CRUD-simple write intents: these use a lighter worker when they *aren't*
+# direct-eligible (e.g. the LLM forgot the params dict, so the action falls
+# back to the worker path). Kept here so alias renames stay co-located with
+# the ``DIRECT_ACTION_MAP`` that also references them.
+CRUD_SIMPLE_INTENTS = frozenset({"create_card", "move_card", "update_card"})
+
 # Actions that require user confirmation before execution (irreversible)
 CONFIRM_REQUIRED = {"card.delete", "delete_card", "project.delete", "delete_project", "jobs.delete"}
 
@@ -141,8 +147,8 @@ class DirectExecutor:
 
         try:
             result = await _call_api(list_tool, {"project_id": project_id})
-        except Exception as e:
-            logger.error(f"[DirectExecutor] card.list failed during title lookup: {e}")
+        except Exception:
+            logger.exception("[DirectExecutor] card.list failed during title lookup")
             return None
 
         # result can be a list of cards or a dict with a cards key

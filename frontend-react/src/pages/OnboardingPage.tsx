@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { useThemeStore, type Theme } from '../stores/useThemeStore';
+import { authFetch } from '../lib/authClient';
 import { Loader2 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -112,7 +113,7 @@ export function OnboardingPage() {
     };
 
     try {
-      const response = await fetch('/api/settings', {
+      const response = await authFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
@@ -128,7 +129,7 @@ export function OnboardingPage() {
       // Update USER.md if name provided
       if (data.user_name) {
         try {
-          await fetch('/api/settings/personality/files/USER.md', {
+          await authFetch('/api/settings/personality/files/USER.md', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -15,6 +15,7 @@ import fnmatch
 import json
 import logging
 import os
+import re
 import shlex
 import time
 from datetime import datetime
@@ -22,6 +23,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+
+from app.config import VOXYFLOW_WORKSPACE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -208,17 +211,112 @@ _DEFAULT_BLOCKLIST = [
     "curl | bash",
 ]
 
+# argv[0]s that are never acceptable. Checked against the resolved basename so
+# `/sbin/mkfs.ext4`, `sudo mkfs`, or a quoted `"mk""fs"` argv all trip the gate.
+_BINARY_BLOCKLIST = {"mkfs", "mkfs.ext4", "mkfs.ext3", "mkfs.xfs", "mkfs.btrfs"}
+
+# Regex patterns applied to a canonicalised copy of the command. Canonicalise
+# == strip shell quotes/backslash escapes, collapse whitespace, lowercase.
+# This defeats the obvious bypasses (``r\m``, ``"rm"``, ``rm  -rf  /``) that
+# the old substring blocklist missed.
+_PATTERN_BLOCKLIST = [
+    re.compile(r"\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|--recursive\s+--force)\s+/(\s|$|\*)"),
+    re.compile(r"\bdd\s+if="),
+    re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),
+    re.compile(r"\bchmod\s+-[a-z]*r[a-z]*\s+777\s+/\b"),
+    re.compile(r"\bchown\s+-[a-z]*r[a-z]*\b"),
+    re.compile(r">\s*/dev/sd[a-z]"),
+    re.compile(r"\b(curl|wget)\b.+\|\s*(ba)?sh\b"),
+    re.compile(r"\bmv\s+/\*?\s+/dev/null"),
+]
+
 MAX_OUTPUT_CHARS = 100000
 
 
+def _canonicalize_command(command: str) -> str:
+    """Return a normalised representation of *command* that defeats quoting
+    and escape tricks used to bypass the substring blocklist.
+
+    We parse with shlex (which strips shell quotes and backslash escapes),
+    fall back to the raw string if parsing fails (e.g. unbalanced quotes —
+    which on a real shell would also fail), and collapse whitespace.
+    """
+    try:
+        parts = shlex.split(command, posix=True)
+    except ValueError:
+        parts = command.split()
+    joined = " ".join(parts)
+    return re.sub(r"\s+", " ", joined).strip().lower()
+
+
+def _binary_basename(token: str) -> str:
+    """Return the trailing component of ``token`` without any directory or
+    version qualifier (e.g. ``/sbin/mkfs.ext4`` → ``mkfs.ext4``)."""
+    return Path(token.strip()).name.lower()
+
+
 def _is_command_blocked(command: str) -> bool:
-    """Check command against blocklist."""
+    """Check a command against the safety filters.
+
+    Three layers, short-circuiting:
+      1. Config substring list (back-compat, unchanged).
+      2. argv-level binary blocklist (catches ``sudo mkfs.ext4 /dev/sda``).
+      3. Regex patterns over the canonicalised command (defeats escapes).
+    """
     blocklist = _get_config("exec_blocklist", _DEFAULT_BLOCKLIST)
     cmd_lower = command.lower().strip()
     for blocked in blocklist:
         if blocked.lower() in cmd_lower:
             return True
+
+    try:
+        argv = shlex.split(command, posix=True)
+    except ValueError:
+        argv = command.split()
+
+    for token in argv:
+        if _binary_basename(token) in _BINARY_BLOCKLIST:
+            return True
+
+    canonical = _canonicalize_command(command)
+    for pattern in _PATTERN_BLOCKLIST:
+        if pattern.search(canonical):
+            return True
+
     return False
+
+
+def _resolve_exec_cwd(cwd: str | None) -> tuple[str, str | None]:
+    """Resolve the working directory for ``system.exec`` and confine it.
+
+    Commands must run under ``VOXYFLOW_WORKSPACE_DIR`` (the workers' sandbox).
+    Set ``VOXYFLOW_DEV_TASK=1`` to opt into running against the Voxyflow
+    codebase itself (matches the write-path escape hatch).
+
+    Returns ``(resolved_cwd, error)``. If ``error`` is non-None, the caller
+    must surface it and abort.
+    """
+    workspace = Path(VOXYFLOW_WORKSPACE_DIR).expanduser().resolve()
+
+    if cwd:
+        resolved = Path(cwd).expanduser().resolve()
+        if not resolved.is_dir():
+            return str(resolved), f"Working directory does not exist: {resolved}"
+    else:
+        resolved = workspace
+
+    dev_task = os.environ.get("VOXYFLOW_DEV_TASK", "").lower() in ("1", "true", "yes")
+    if dev_task:
+        return str(resolved), None
+
+    try:
+        resolved.relative_to(workspace)
+    except ValueError:
+        return str(resolved), (
+            f"cwd must be under the workspace ({workspace}); got {resolved}. "
+            "Set VOXYFLOW_DEV_TASK=1 only for Voxyflow codebase tasks."
+        )
+    return str(resolved), None
 
 
 def _truncate(text: str, max_chars: int = MAX_OUTPUT_CHARS) -> tuple[str, bool]:
@@ -247,11 +345,10 @@ async def system_exec(params: dict) -> dict:
         logger.warning(f"[system.exec] BLOCKED dangerous command: {command}")
         return {"success": False, "error": f"Command blocked by safety filter: {command}"}
 
-    cwd = params.get("cwd")
-    if cwd:
-        cwd = str(Path(cwd).expanduser().resolve())
-        if not Path(cwd).is_dir():
-            return {"success": False, "error": f"Working directory does not exist: {cwd}"}
+    cwd, cwd_err = _resolve_exec_cwd(params.get("cwd"))
+    if cwd_err:
+        logger.warning(f"[system.exec] BLOCKED cwd: {cwd_err}")
+        return {"success": False, "error": cwd_err}
 
     timeout = params.get("timeout", 30)
     timeout = min(max(timeout, 1), 300)  # Clamp between 1s and 5min
@@ -812,62 +909,6 @@ async def tmux_kill(params: dict) -> dict:
     if result.get("success"):
         result["result"] = f"Killed session '{session}'"
     return result
-
-
-# ---------------------------------------------------------------------------
-# 5b. file.patch
-# ---------------------------------------------------------------------------
-
-async def file_patch(params: dict) -> dict:
-    """Replace exact text in a file (surgical edit, no heredoc needed)."""
-    path_str = params.get("path", "").strip()
-    if not path_str:
-        return {"success": False, "error": "No file path provided"}
-
-    old_str = params.get("old", "")
-    new_str = params.get("new", "")
-
-    if not old_str:
-        return {"success": False, "error": "No old string provided"}
-
-    command_hint = _looks_like_shell_command(path_str)
-    if command_hint:
-        logger.warning(f"[file.patch] Rejected command-like path {path_str!r}: {command_hint}")
-        return {"success": False, "error": f"Invalid path {path_str!r}: {command_hint}"}
-
-    resolved = Path(path_str).expanduser().resolve()
-
-    if not _is_write_allowed(str(resolved)):
-        return {"success": False, "error": f"Path not allowed for writes: {path_str} — workers must write to ~/.voxyflow/workspace/ (set VOXYFLOW_DEV_TASK=1 for Voxyflow codebase tasks)"}
-
-    if not resolved.exists():
-        return {"success": False, "error": f"File not found: {path_str}"}
-
-    if not resolved.is_file():
-        return {"success": False, "error": f"Not a file: {path_str}"}
-
-    logger.info(f"[file.patch] Patching: {resolved} (old={len(old_str)} chars, new={len(new_str)} chars)")
-
-    try:
-        content = resolved.read_text(encoding="utf-8")
-
-        if old_str not in content:
-            return {"success": False, "error": f"String not found in {path_str}", "path": str(resolved)}
-
-        count = content.count(old_str)
-        new_content = content.replace(old_str, new_str, 1)  # replace first occurrence only
-
-        resolved.write_text(new_content, encoding="utf-8")
-
-        return {
-            "success": True,
-            "path": str(resolved),
-            "occurrences_found": count,
-            "replaced": 1,
-        }
-
-    except Exception as e:
-        return {"success": False, "error": f"Patch failed: {str(e)}"}
 
 
 # ---------------------------------------------------------------------------

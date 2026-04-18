@@ -29,6 +29,8 @@ export interface MessageListProps {
   emptySlot?: React.ReactNode;
   /** Loading indicator shown while connecting */
   loading?: boolean;
+  /** Label shown next to the loading spinner */
+  loadingLabel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,6 +43,7 @@ export function MessageList({
   cardId,
   emptySlot,
   loading = false,
+  loadingLabel = 'Connecting to Voxy\u2026',
 }: MessageListProps) {
   const allMessages = useMessageStore((s) => s.messages);
   const messages = useMemo(() => {
@@ -205,9 +208,13 @@ export function MessageList({
 
   if (loading) {
     return (
-      <div className="chat-messages flex flex-col items-center justify-center h-full gap-3">
+      <div
+        className="chat-messages flex flex-col items-center justify-center h-full gap-3"
+        role="status"
+        aria-live="polite"
+      >
         <div className="chat-loading-spinner w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-        <div className="chat-loading-text text-muted-foreground text-sm">Connecting to Voxy...</div>
+        <div className="chat-loading-text text-muted-foreground text-sm">{loadingLabel}</div>
       </div>
     );
   }

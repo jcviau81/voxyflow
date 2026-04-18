@@ -1,8 +1,25 @@
-"""Card/Task schemas — with agent assignment support."""
+"""Card/Task schemas — with agent assignment support.
+
+``CardResponse`` is generated from the ORM ``Card`` model via
+``_generated.CardBase``; this file layers on:
+
+* request-side validators (``CardCreate`` / ``CardUpdate``) that the ORM
+  can't express (pattern, range);
+* synthesized response fields that don't map to a column:
+  ``dependency_ids`` (from the ``dependencies`` relationship),
+  ``total_minutes`` (sum of ``time_entries``),
+  ``checklist_progress`` (derived from ``checklist_items``);
+* the ``files`` override — stored as JSON text in the DB, emitted as
+  ``list[str]`` on the wire.
+
+See ``_generated.py`` for the generator rationale.
+"""
 
 from datetime import datetime
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
+
+from app.models._generated import CardBase
 
 RecurrenceType = Optional[Literal["daily", "weekly", "monthly"]]
 
@@ -72,36 +89,30 @@ class TimeEntryResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class CardResponse(BaseModel):
-    id: str
-    project_id: Optional[str] = None
-    title: str
-    description: str
-    status: str
-    priority: int
-    position: int
-    source_message_id: Optional[str] = None
-    auto_generated: bool
-    agent_assigned: Optional[str] = None
-    agent_type: Optional[str] = None
-    agent_context: Optional[str] = None
-    color: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+class ChecklistProgress(BaseModel):
+    total: int
+    completed: int
+
+
+class CardResponse(CardBase):
+    """Wire representation of a Card.
+
+    Inherits all column-backed fields from the generated ``CardBase``.
+    Adds three synthesized fields that are computed by
+    ``_card_to_response()`` in ``routes/cards.py``:
+
+    * ``dependency_ids`` — ``[d.id for d in card.dependencies]``
+      (requires ``dependencies`` to be eager-loaded)
+    * ``total_minutes`` — sum of ``TimeEntry.duration_minutes``
+    * ``checklist_progress`` — (total, completed) from ``checklist_items``
+
+    And overrides the ``files`` column (stored as JSON text) to emit
+    a ``list[str]`` on the wire.
+    """
     dependency_ids: list[str] = []
     total_minutes: int = 0
-    checklist_progress: Optional["ChecklistProgress"] = None
-    assignee: Optional[str] = None
-    watchers: str = ""
-    votes: int = 0
-    preferred_model: Optional[str] = None
-    recurring: bool = False
-    recurrence: RecurrenceType = None
-    recurrence_next: Optional[datetime] = None
+    checklist_progress: Optional[ChecklistProgress] = None
     files: list[str] = []
-    archived_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
 
 
 class CardSuggestion(BaseModel):
@@ -159,11 +170,6 @@ class ChecklistItemResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class ChecklistProgress(BaseModel):
-    total: int
-    completed: int
 
 
 class AttachmentResponse(BaseModel):

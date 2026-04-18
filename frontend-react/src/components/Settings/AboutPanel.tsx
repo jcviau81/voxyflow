@@ -13,6 +13,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Info, RefreshCw } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { authFetch } from '../../lib/authClient';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -105,7 +106,7 @@ export function AboutPanel() {
       const res = await fetch('/api/settings');
       if (res.ok) {
         const settings = await res.json();
-        await fetch('/api/settings', {
+        await authFetch('/api/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...settings, onboarding_complete: false }),

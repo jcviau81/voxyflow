@@ -34,7 +34,8 @@ class WSBroadcast:
         for ws in list(self._connections):
             try:
                 await ws.send_json(message)
-            except Exception:
+            except (RuntimeError, ConnectionError, OSError) as exc:
+                logger.debug("[WSBroadcast] drop dead socket on emit(%s): %s", event_type, exc)
                 dead.append(ws)
         for ws in dead:
             self._connections.discard(ws)
@@ -58,7 +59,8 @@ class WSBroadcast:
             try:
                 await ws.send_json(message)
                 sent_count += 1
-            except Exception:
+            except (RuntimeError, ConnectionError, OSError) as exc:
+                logger.debug("[WSBroadcast] drop dead socket on emit_to_others(%s): %s", event_type, exc)
                 dead.append(ws)
         if sent_count > 0:
             logger.info(f"[WSBroadcast] emit_to_others: {event_type} → {sent_count} client(s)")
@@ -68,15 +70,20 @@ class WSBroadcast:
             self._connections.discard(ws)
 
     def emit_sync(self, event_type: str, payload: dict) -> None:
-        """Fire-and-forget emit from sync context (FastAPI route handlers)."""
+        """Fire-and-forget emit from the running event loop.
+
+        Callers are sync helpers inside async code (job handlers, MCP
+        handlers that use ``asyncio.to_thread``). Dropping silently when
+        no loop is running is fine — the prior ``asyncio.run()`` fallback
+        blocked the caller for the length of the broadcast and risked
+        spawning a second loop alongside FastAPI's.
+        """
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self.emit(event_type, payload))
-            else:
-                asyncio.run(self.emit(event_type, payload))
+            loop = asyncio.get_running_loop()
         except RuntimeError:
-            pass  # No event loop available
+            logger.debug(f"[WSBroadcast] emit_sync: no running loop, dropping event {event_type}")
+            return
+        loop.create_task(self.emit(event_type, payload))
 
 
 ws_broadcast = WSBroadcast()

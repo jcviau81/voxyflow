@@ -14,6 +14,7 @@ Subclassed by OllamaProvider which adds Ollama-specific model listing.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import AsyncIterator
 
@@ -22,6 +23,10 @@ from app.services.llm.providers.base import (
     CompletionResponse,
     LLMProvider,
     ProviderCapabilities,
+    StreamDone,
+    StreamEvent,
+    TextDelta,
+    ToolUseBlock,
 )
 from app.services.llm import capability_registry as caps_db
 
@@ -89,29 +94,81 @@ class OpenAICompatProvider(LLMProvider):
             usage=usage,
         )
 
-    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamEvent]:
+        """Stream a completion, yielding StreamEvent variants.
+
+        Text deltas pass through immediately. Tool-call deltas arrive in
+        pieces (partial `function.arguments` JSON across many chunks) —
+        buffered internally by `index` and emitted as complete
+        `ToolUseBlock` events after the stream closes. Usage is requested
+        via `stream_options.include_usage` (OpenAI extension; silently
+        ignored by providers that don't support it).
+        """
         messages = self._build_messages(request)
         kwargs = self._base_kwargs(request)
 
         if request.tools and caps_db.supports_tools(request.model):
             kwargs["tools"] = request.tools
             kwargs["tool_choice"] = "auto"
+        kwargs.setdefault("stream_options", {"include_usage": True})
 
-        had_content = False
-        had_tool_calls = False
+        tool_buffers: dict[int, dict] = {}
+        finish_reason = ""
+        usage_info: dict | None = None
+
         async with await self._client.chat.completions.create(
             messages=messages, stream=True, **kwargs
         ) as response:
             async for chunk in response:
-                delta = chunk.choices[0].delta if chunk.choices else None
+                # Usage arrives in a final empty-choices chunk when enabled.
+                chunk_usage = getattr(chunk, "usage", None)
+                if chunk_usage:
+                    usage_info = {
+                        "input_tokens": getattr(chunk_usage, "prompt_tokens", 0) or 0,
+                        "output_tokens": getattr(chunk_usage, "completion_tokens", 0) or 0,
+                    }
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
                 if delta and delta.content:
-                    had_content = True
-                    yield delta.content
+                    yield TextDelta(delta.content)
                 if delta and delta.tool_calls:
-                    had_tool_calls = True
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        buf = tool_buffers.setdefault(
+                            idx, {"id": "", "name": "", "args": ""}
+                        )
+                        if tc_delta.id:
+                            buf["id"] = tc_delta.id
+                        fn = getattr(tc_delta, "function", None)
+                        if fn:
+                            if getattr(fn, "name", None):
+                                buf["name"] += fn.name
+                            if getattr(fn, "arguments", None):
+                                buf["args"] += fn.arguments
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
 
-        if had_tool_calls and not had_content:
-            logger.warning("[OpenAICompat] tool_call in stream — not forwarded")
+        for idx in sorted(tool_buffers.keys()):
+            buf = tool_buffers[idx]
+            try:
+                parsed = json.loads(buf["args"]) if buf["args"] else {}
+            except json.JSONDecodeError:
+                logger.debug(
+                    "[OpenAICompat] tool_call %r args failed JSON parse; forwarding raw",
+                    buf.get("name") or f"idx{idx}",
+                )
+                parsed = {"_raw_args": buf["args"]}
+            if not isinstance(parsed, dict):
+                parsed = {"_value": parsed}
+            yield ToolUseBlock(
+                id=buf["id"] or f"call_{idx}",
+                name=buf["name"],
+                input=parsed,
+            )
+
+        yield StreamDone(stop_reason=finish_reason, usage=usage_info)
 
     def get_capabilities(self, model: str) -> ProviderCapabilities:
         entry = caps_db.lookup(model)

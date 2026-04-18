@@ -50,7 +50,7 @@ def _save_jobs(jobs: list[dict]) -> None:
         json.dump(jobs, f, indent=2)
     os.replace(tmp_path, JOBS_FILE)
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 # ---------------------------------------------------------------------------
 # Built-in project templates

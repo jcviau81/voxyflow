@@ -2,13 +2,23 @@
 
 Every provider (Anthropic, OpenAI, Ollama, Groq, CLI…) must implement
 this interface so the orchestration layer stays provider-agnostic.
+
+Stream surface: `stream()` yields `StreamEvent` variants — a tagged union
+that models text deltas, completed tool-use blocks (providers buffer
+partial tool_use args internally and only emit the complete block), tool
+results (CLI only, where the subprocess executes tools itself), and a
+terminal `StreamDone` with stop_reason + usage.
+
+Starting minimal on purpose: additional variants (ThinkingDelta,
+PermissionRequest, etc.) should be added only when a real consumer needs
+them. Every variant expansion touches all providers and all consumers.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import AsyncIterator
+from typing import AsyncIterator, Union
 
 
 @dataclass
@@ -48,12 +58,70 @@ class CompletionResponse:
     usage: dict | None = None                       # Token usage info
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Streaming event union
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class TextDelta:
+    """Incremental text chunk from the model."""
+
+    text: str
+
+
+@dataclass
+class ToolUseBlock:
+    """A completed tool-use request from the model.
+
+    Providers buffer partial tool_use args internally (Anthropic's
+    `input_json_delta`, OpenAI's `tool_call.function.arguments` deltas) and
+    emit this block only when the full request is available. `input` is
+    parsed JSON when the provider could parse it, else the raw string.
+    """
+
+    id: str
+    name: str
+    input: dict
+
+
+@dataclass
+class ToolResult:
+    """Result of a tool invocation.
+
+    Only emitted by providers that execute tools themselves — currently
+    the CLI provider, where the subprocess runs MCP tools internally and
+    streams back the results. SDK providers never emit this; the caller
+    is expected to execute tools and inject results into the next request.
+    """
+
+    tool_use_id: str
+    content: str       # JSON-encoded or raw string
+    is_error: bool = False
+
+
+@dataclass
+class StreamDone:
+    """Terminal event — must be the last item yielded by every `stream()`."""
+
+    stop_reason: str = ""
+    usage: dict | None = None
+
+
+StreamEvent = Union[TextDelta, ToolUseBlock, ToolResult, StreamDone]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LLMProvider ABC
+# ──────────────────────────────────────────────────────────────────────────────
+
+
 class LLMProvider(ABC):
     """Abstract base class — implement one subclass per provider.
 
     Subclasses must implement:
         complete()        — single-shot, returns full text
-        stream()          — async generator yielding text chunks
+        stream()          — async generator yielding StreamEvent variants
         get_capabilities()— returns ProviderCapabilities for a model
         list_models()     — returns available model names (empty list if unsupported)
     """
@@ -69,8 +137,13 @@ class LLMProvider(ABC):
         """Execute a completion and return a structured response."""
 
     @abstractmethod
-    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
-        """Stream a completion, yielding text chunks as they arrive."""
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamEvent]:
+        """Stream a completion, yielding StreamEvent variants.
+
+        Must end with a `StreamDone` event (stop_reason + usage). `ToolUseBlock`
+        emissions buffer partial args inside the provider — consumers only see
+        complete blocks.
+        """
 
     @abstractmethod
     def get_capabilities(self, model: str) -> ProviderCapabilities:
