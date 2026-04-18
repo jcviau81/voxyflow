@@ -58,6 +58,31 @@ from app.startup import build_lifespan
 _claude_service = ClaudeService()
 _orchestrator = ChatOrchestrator(_claude_service)
 
+# Idempotency cache for chat:message. Keyed by messageId, value = (chat_id, expiry_ts).
+# Prevents a reconnecting/refreshing client from re-triggering orchestration
+# when it replays un-ACK'd messages from its local queue. Bounded to avoid unbounded growth.
+_PROCESSED_MSG_TTL_S = 600  # 10 minutes
+_PROCESSED_MSG_MAX = 2000
+_processed_message_ids: dict[str, tuple[str, float]] = {}
+
+
+def _seen_message_id(message_id: str, chat_id: str) -> bool:
+    """Return True if this messageId was already processed (within TTL). Records it otherwise."""
+    if not message_id:
+        return False
+    now = time.time()
+    existing = _processed_message_ids.get(message_id)
+    if existing and existing[1] > now:
+        return True
+    # Record + lazy-evict expired / overflow entries
+    _processed_message_ids[message_id] = (chat_id, now + _PROCESSED_MSG_TTL_S)
+    if len(_processed_message_ids) > _PROCESSED_MSG_MAX:
+        # Drop oldest ~10% by expiry
+        stale = sorted(_processed_message_ids.items(), key=lambda kv: kv[1][1])[: _PROCESSED_MSG_MAX // 10]
+        for k, _ in stale:
+            _processed_message_ids.pop(k, None)
+    return False
+
 app = FastAPI(
     title="Voxyflow",
     description="Voice-first project management assistant with multi-model orchestration",
@@ -316,7 +341,8 @@ async def general_websocket(websocket: WebSocket):
                     content = payload.get("content", "")
                     message_id = payload.get("messageId", msg_id)
 
-                    # Acknowledge receipt immediately — lets client know message arrived before processing
+                    # Acknowledge receipt immediately — lets client know message arrived before processing.
+                    # We always re-send the ACK, even on duplicates, so the client clears its pending state.
                     await websocket.send_json({
                         "type": "message:ack",
                         "payload": {"messageId": message_id},
@@ -351,6 +377,12 @@ async def general_websocket(websocket: WebSocket):
                     )
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
+
+                    # Idempotency: if this messageId was already processed, skip orchestration.
+                    # The ACK above still fires so the client clears its pending queue.
+                    if _seen_message_id(message_id, chat_id):
+                        logger.info(f"[WS] chat:message duplicate messageId={message_id} chat_id={chat_id} — skipping orchestration")
+                        continue
 
                     # Ensure worker pool is running for this session
                     if session_id:
