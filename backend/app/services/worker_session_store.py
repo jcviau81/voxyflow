@@ -113,27 +113,49 @@ class WorkerSessionStore:
 
     def _load_from_disk(self) -> None:
         """Load persisted sessions from disk on startup."""
+        self._refresh_from_disk(prune_missing=False, delete_corrupt=True)
+        # Persist any timeout corrections detected on first load
+        for s in self._sessions.values():
+            if s.status == "timed_out":
+                self._persist(s)
+
+    def _refresh_from_disk(
+        self,
+        *,
+        prune_missing: bool = True,
+        delete_corrupt: bool = False,
+    ) -> None:
+        """Re-scan the data dir and sync the in-memory dict with disk.
+
+        Required because each Python process (backend, dispatcher MCP subprocess,
+        worker MCP subprocesses) holds its own ``WorkerSessionStore`` instance.
+        Without re-scanning, a long-lived MCP subprocess only sees the snapshot
+        captured at its startup and is blind to workers spawned later.
+        """
+        on_disk_ids: set[str] = set()
         for filepath in self._data_dir.glob("*.json"):
             try:
                 data = json.loads(filepath.read_text())
                 session = WorkerSession.from_dict(data)
-                # Mark stale running sessions as timed_out
-                if session.status == "running":
-                    elapsed = time.time() - session.start_time
-                    if elapsed > RUNNING_TIMEOUT_SECONDS:
-                        session.status = "timed_out"
-                        session.end_time = session.start_time + RUNNING_TIMEOUT_SECONDS
-                self._sessions[session.task_id] = session
             except Exception as e:
                 logger.warning(f"[WorkerSessionStore] Failed to load {filepath.name}: {e}")
-                try:
-                    filepath.unlink()
-                except Exception as e:
-                    logger.debug("Failed to delete corrupt session file %s: %s", filepath.name, e)
-        # Persist any timeout corrections
-        for s in self._sessions.values():
-            if s.status == "timed_out":
-                self._persist(s)
+                if delete_corrupt:
+                    try:
+                        filepath.unlink()
+                    except Exception as del_err:
+                        logger.debug("Failed to delete corrupt session file %s: %s", filepath.name, del_err)
+                continue
+            on_disk_ids.add(session.task_id)
+            if session.status == "running":
+                elapsed = time.time() - session.start_time
+                if elapsed > RUNNING_TIMEOUT_SECONDS:
+                    session.status = "timed_out"
+                    session.end_time = session.start_time + RUNNING_TIMEOUT_SECONDS
+            self._sessions[session.task_id] = session
+        if prune_missing:
+            for tid in list(self._sessions.keys()):
+                if tid not in on_disk_ids:
+                    del self._sessions[tid]
 
     def _persist(self, session: WorkerSession) -> None:
         """Write a single session to disk."""
@@ -237,6 +259,7 @@ class WorkerSessionStore:
         include_old: bool = False,
     ) -> list[dict]:
         """Get sessions filtered by project_id (stable across WS reconnects)."""
+        self._refresh_from_disk()
         self.check_timeouts()
         now = time.time()
         results = []
@@ -259,6 +282,7 @@ class WorkerSessionStore:
         Running sessions are always included. Terminal sessions expire
         after TERMINAL_WINDOW_SECONDS (2 min).
         """
+        self._refresh_from_disk()
         self.check_timeouts()
         now = time.time()
         results = []
@@ -275,6 +299,7 @@ class WorkerSessionStore:
 
     def get_session(self, task_id: str) -> Optional[dict]:
         """Get a single session by task_id."""
+        self._refresh_from_disk()
         session = self._sessions.get(task_id)
         if session:
             # Check timeout before returning
