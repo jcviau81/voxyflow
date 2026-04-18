@@ -454,9 +454,11 @@ class TestLazyContextLoading:
 
     def test_estimate_tokens(self):
         from app.services.memory_service import MemoryService
-        # ~1.3 tokens per word
-        assert MemoryService._estimate_tokens("hello world") == int(2 * 1.3)
-        assert MemoryService._estimate_tokens("a b c d e f g h i j") == int(10 * 1.3)
+        # ~1 token per 4 characters (BPE-style); min 1 token.
+        assert MemoryService._estimate_tokens("hello world") == max(1, len("hello world") // 4)
+        assert MemoryService._estimate_tokens("a b c d e f g h i j") == max(1, 19 // 4)
+        # Floor at 1 token even for empty strings.
+        assert MemoryService._estimate_tokens("") == 1
 
     def test_build_memory_context_signature(self):
         """Verify new parameters exist with correct defaults."""

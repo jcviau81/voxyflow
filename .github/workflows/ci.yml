@@ -28,19 +28,7 @@ jobs:
           pip install pytest pytest-asyncio
 
       - name: Run pytest (excluding e2e)
-        # FIXME: the following suites are temporarily ignored because of
-        # pre-existing drift against main. Restore them once fixed:
-        #   - tests/test_context_isolation.py  (prompt text + tool-name roundtrip drift)
-        #   - tests/test_direct_executor.py    (eligibility rules changed)
-        #   - tests/test_kg_e2e.py             (test fixtures don't create kg_* tables)
-        #   - tests/test_mcp_tools_e2e.py      (requires a live backend on localhost)
-        run: |
-          pytest --ignore=tests/e2e \
-                 --ignore=tests/test_context_isolation.py \
-                 --ignore=tests/test_direct_executor.py \
-                 --ignore=tests/test_kg_e2e.py \
-                 --ignore=tests/test_mcp_tools_e2e.py \
-                 -q
+        run: pytest --ignore=tests/e2e -q
 
       - name: Project isolation smoke test
         run: python scripts/smoke_test_isolation.py
