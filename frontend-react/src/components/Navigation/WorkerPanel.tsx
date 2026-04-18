@@ -71,9 +71,9 @@ function modelEmoji(model?: string): string {
 
 function modelLabel(model?: string): string {
   switch (modelTier(model)) {
-    case 'haiku': return 'Fast';
-    case 'sonnet': return 'sonnet';
-    case 'opus': return 'Deep';
+    case 'haiku': return 'Haiku';
+    case 'sonnet': return 'Sonnet';
+    case 'opus': return 'Opus';
     default: return model ?? 'unknown';
   }
 }
@@ -324,7 +324,9 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
           )}
 
           <span className="shrink-0" aria-hidden="true">{modelEmoji(worker.model)}</span>
-          <span className="font-semibold text-foreground truncate">{worker.model}</span>
+          <span className="font-semibold text-foreground truncate">
+            {worker.workerClass ? `${worker.workerClass} — ${modelLabel(worker.model)}` : modelLabel(worker.model)}
+          </span>
 
           {showCardPill && (
             <>

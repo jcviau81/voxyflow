@@ -18,6 +18,7 @@ export interface WorkerInfo {
   action: string;
   description: string;
   model: 'haiku' | 'sonnet' | 'opus';
+  workerClass?: string;
   status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
   startedAt: number;
   completedAt?: number;
@@ -102,7 +103,11 @@ function normalizeStatus(status: string): WorkerInfo['status'] {
 }
 
 function normalizeModel(model?: string): WorkerInfo['model'] {
-  if (model === 'haiku' || model === 'sonnet' || model === 'opus') return model;
+  if (!model) return 'sonnet';
+  const m = model.toLowerCase();
+  if (m.includes('haiku')) return 'haiku';
+  if (m.includes('opus')) return 'opus';
+  if (m.includes('sonnet')) return 'sonnet';
   return 'sonnet';
 }
 
@@ -142,6 +147,7 @@ export const useWorkerStore = create<WorkerState>()(
               action: w.action || 'unknown',
               description: w.description || '',
               model: normalizeModel(w.model),
+              workerClass: w.workerClass ?? undefined,
               status: normalizeStatus(w.status),
               startedAt: w.startedAt || Date.now(),
               completedAt: w.completedAt ?? undefined,
@@ -200,6 +206,7 @@ export const useWorkerStore = create<WorkerState>()(
           action: (payload.intent as string) || 'unknown',
           description: (payload.summary as string) || '',
           model: normalizeModel(payload.model as string),
+          workerClass: (payload.workerClass as string) || undefined,
           status: 'running',
           startedAt: Date.now(),
           toolCount: 0,
