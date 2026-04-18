@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from urllib.parse import urlparse
 
-from app.database import AppSettings, async_session
+from app.database import AppSettings as AppSettingsRow, async_session
 from app.services.auth_service import verify_auth
 from app.services.settings_loader import (
     _load_settings_from_db,
@@ -50,9 +50,9 @@ async def _save_settings_to_db(data: dict):
     try:
         payload = json.dumps(data)
         async with async_session() as session:
-            row = await session.get(AppSettings, "app_settings")
+            row = await session.get(AppSettingsRow, "app_settings")
             if row is None:
-                session.add(AppSettings(key="app_settings", value=payload))
+                session.add(AppSettingsRow(key="app_settings", value=payload))
             else:
                 row.value = payload
             await session.commit()
