@@ -736,8 +736,10 @@ class DeepWorkerPool:
                     )
                     return wc
 
-            # Try intent-based keyword matching
-            wc = await resolve_by_intent(event.intent or "")
+            # Try intent-based keyword matching. Pass summary too so long code-name
+            # intents like "execute_secu1_real_ssh" still match when the relevant
+            # keywords only appear in the task description.
+            wc = await resolve_by_intent(event.intent or "", event.summary or "")
             if wc:
                 logger.info(
                     "[DeepWorkerPool] Task %s routed to worker class %r (intent match: %r)",

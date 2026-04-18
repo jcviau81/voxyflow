@@ -2,9 +2,22 @@
 from __future__ import annotations
 
 import logging
+import re
+from functools import lru_cache
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=256)
+def _word_pattern(keyword: str) -> re.Pattern[str]:
+    """Compile a case-insensitive word-boundary regex for *keyword*.
+
+    Word-boundary matching (``\\b``) avoids substring false positives like
+    ``'format'`` hitting ``'Information'`` or ``'code'`` hitting ``'gcode.py'``
+    that routed heavy tasks to the wrong (lighter) class.
+    """
+    return re.compile(rf"\b{re.escape(keyword.lower())}\b", re.IGNORECASE)
 
 
 async def _load_worker_classes() -> list[dict]:
@@ -30,21 +43,27 @@ async def resolve_by_id(worker_class_id: str) -> Optional[dict]:
     return None
 
 
-async def resolve_by_intent(intent: str) -> Optional[dict]:
-    """Return first worker class whose intent_patterns match the intent string (case-insensitive).
+async def resolve_by_intent(intent: str, summary: str = "") -> Optional[dict]:
+    """Return the first worker class whose patterns match the task's text.
 
-    Each pattern is checked as a substring of the intent.
+    Matches ``intent_patterns`` as whole words (regex ``\\b``) against the
+    concatenation of ``intent`` and ``summary``. Summary is included because
+    the dispatcher sometimes emits a short code-name intent (e.g.
+    ``execute_secu1_real_ssh``) whose keywords only appear in the description.
     """
-    if not intent:
+    if not intent and not summary:
         return None
     classes = await _load_worker_classes()
-    intent_lower = intent.lower()
+    haystack = f"{intent}\n{summary}"
     for wc in classes:
         for pattern in wc.get("intent_patterns", []):
-            if pattern.lower() in intent_lower:
+            pat = (pattern or "").strip()
+            if not pat:
+                continue
+            if _word_pattern(pat).search(haystack):
                 logger.info(
-                    "[WorkerClassResolver] Matched intent %r to worker class %r (pattern=%r)",
-                    intent, wc.get("name"), pattern,
+                    "[WorkerClassResolver] Matched %r to worker class %r (pattern=%r)",
+                    intent or summary[:60], wc.get("name"), pat,
                 )
                 return wc
     return None
