@@ -22,6 +22,7 @@ from app.services.memory_service_constants import (
     MEMORY_DIR,
     MEMORY_FILE,
     _project_collection,
+    _slugify,
 )
 
 logger = logging.getLogger(__name__)
