@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
-package-lock.json
+# Only ignore an accidental stub lockfile at the repo root; real lockfiles
+# under frontend-react/ etc. MUST be tracked so CI (npm ci) is reproducible.
+/package-lock.json
 __pycache__/
 *.pyc
 *.pyo
