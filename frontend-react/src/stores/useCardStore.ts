@@ -143,7 +143,44 @@ export const useCardStore = create<CardState>()(
     })),
     {
       name: 'voxyflow_cards',
-      partialize: (state) => ({ cardsById: state.cardsById }),
+      partialize: (state) => ({
+        cardsById: Object.fromEntries(
+          Object.entries(state.cardsById).map(([id, card]) => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { chatHistory: _ch, ...rest } = card;
+            return [id, rest];
+          })
+        ),
+      }),
+      // Auto-clear corrupted/oversized localStorage so the app never crashes on quota errors
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+          try { localStorage.removeItem('voxyflow_cards'); } catch {}
+        }
+      },
+      storage: {
+        getItem: (name) => {
+          try {
+            const s = localStorage.getItem(name);
+            return s ? JSON.parse(s) : null;
+          } catch { return null; }
+        },
+        setItem: (name, value) => {
+          const s = JSON.stringify(value);
+          try {
+            localStorage.setItem(name, s);
+          } catch {
+            // Quota exceeded — wipe and retry once
+            try {
+              localStorage.removeItem(name);
+              localStorage.setItem(name, s);
+            } catch {}
+          }
+        },
+        removeItem: (name) => {
+          try { localStorage.removeItem(name); } catch {}
+        },
+      },
     }
   )
 );
