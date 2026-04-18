@@ -1021,12 +1021,13 @@ const EMPTY_WORKER_CLASS: WorkerClass = {
 interface WorkerClassesPanelProps {
   workerClasses: WorkerClass[];
   onChange: (classes: WorkerClass[]) => void;
+  onAutoSave?: () => void;
   providers: ProviderMeta[];
   endpoints: ProviderEndpoint[];
   endpointStatuses: EndpointStatus[];
 }
 
-function WorkerClassesPanel({ workerClasses, onChange, providers, endpoints, endpointStatuses }: WorkerClassesPanelProps) {
+function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, endpoints, endpointStatuses }: WorkerClassesPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<WorkerClass | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -1076,10 +1077,12 @@ function WorkerClassesPanel({ workerClasses, onChange, providers, endpoints, end
     setEditingId(null);
     setIsAdding(false);
     setAvailableModels([]);
+    onAutoSave?.();
   }
 
   function removeClass(id: string) {
     onChange(workerClasses.filter(c => c.id !== id));
+    onAutoSave?.();
   }
 
   async function fetchModelsForSource(endpointId: string, providerType: string) {
@@ -1905,6 +1908,10 @@ export function ModelPanel() {
 
   const onSubmit = (data: ModelsSettings) => saveMutation.mutate(data);
 
+  const triggerSave = useCallback(() => {
+    handleSubmit(onSubmit)();
+  }, [handleSubmit]);
+
   const endpointStatuses: EndpointStatus[] = availableData?.endpoints ?? [];
   const endpoints = useWatch({ control, name: 'endpoints' }) ?? [];
 
@@ -1988,6 +1995,7 @@ export function ModelPanel() {
           <WorkerClassesPanel
             workerClasses={field.value ?? []}
             onChange={field.onChange}
+            onAutoSave={triggerSave}
             providers={providers}
             endpoints={endpoints}
             endpointStatuses={endpointStatuses}
@@ -2006,6 +2014,7 @@ export function ModelPanel() {
           setValue('worker_classes', current.map(wc =>
             wc.id === classId ? { ...wc, ...config } : wc
           ));
+          triggerSave();
         }}
       />
 
