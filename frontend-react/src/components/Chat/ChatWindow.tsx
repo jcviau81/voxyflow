@@ -253,8 +253,15 @@ export function ChatWindow({
   // Render
   // ---------------------------------------------------------------------------
 
+  const chatScopeTestId =
+    chatLevel === 'general' ? 'chat-window-main'
+    : chatLevel === 'project' ? 'chat-window-project'
+    : 'chat-window-card';
+
   return (
     <div
+      data-testid={chatScopeTestId}
+      data-chat-level={chatLevel}
       className={cn(
         'chat-window flex flex-col h-full',
         embedded && 'chat-window--embedded',

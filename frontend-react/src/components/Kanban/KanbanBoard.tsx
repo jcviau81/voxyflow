@@ -154,6 +154,7 @@ function KanbanColumn({
       ref={setNodeRef}
       className="flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40"
       data-status={status}
+      data-testid={`kanban-column-${status}`}
     >
       {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/30">
