@@ -20,17 +20,24 @@ router = APIRouter(prefix="/api/workers", tags=["workers"])
 async def list_worker_sessions(
     session_id: Optional[str] = None,
     project_id: Optional[str] = None,
+    include_completed: bool = False,
     store: WorkerSessionStore = Depends(get_worker_session_store),
 ):
     """Return active + recent worker sessions (last 1 hour).
 
     Filter by project_id (stable across reconnects) or session_id.
     If both provided, project_id takes precedence.
+    Pass ``include_completed=true`` to include terminal sessions older than
+    the default 2-minute window.
     """
     if project_id:
-        sessions = store.get_sessions_by_project(project_id=project_id)
+        sessions = store.get_sessions_by_project(
+            project_id=project_id, include_old=include_completed
+        )
     else:
-        sessions = store.get_sessions(session_id=session_id)
+        sessions = store.get_sessions(
+            session_id=session_id, include_old=include_completed
+        )
     return {"sessions": sessions}
 
 
@@ -58,6 +65,7 @@ async def clear_terminal_sessions(
 @router.get("/snapshot")
 async def worker_snapshot(
     project_id: Optional[str] = None,
+    include_completed: bool = False,
     store: WorkerSessionStore = Depends(get_worker_session_store),
     registry: CliSessionRegistry = Depends(get_cli_session_registry),
 ):
@@ -68,9 +76,9 @@ async def worker_snapshot(
     """
     # Worker sessions from WorkerSessionStore
     if project_id:
-        raw_sessions = store.get_sessions_by_project(project_id)
+        raw_sessions = store.get_sessions_by_project(project_id, include_old=include_completed)
     else:
-        raw_sessions = store.get_sessions()
+        raw_sessions = store.get_sessions(include_old=include_completed)
 
     # Build job name lookup for scheduler sessions
     job_names: dict[str, str] = {}
@@ -85,6 +93,12 @@ async def worker_snapshot(
     except Exception:
         pass
 
+    # Live tool-activity lookup from the orchestrator's worker pools
+    try:
+        from app.main import _orchestrator
+    except Exception:
+        _orchestrator = None
+
     workers = []
     for s in raw_sessions:
         # Resolve job metadata from session_id pattern "job-{job_id}"
@@ -92,6 +106,17 @@ async def worker_snapshot(
         job_id = session_id[4:] if session_id.startswith("job-") else None
         job_name = job_names.get(job_id, "") if job_id else None
         job_type = job_types.get(job_id, "") if job_id else None
+
+        tool_count = 0
+        last_tool: Optional[str] = None
+        if _orchestrator is not None:
+            try:
+                peek = _orchestrator.peek_worker_task(s["task_id"])
+                if peek:
+                    tool_count = int(peek.get("tool_count") or 0)
+                    last_tool = peek.get("last_tool")
+            except Exception:
+                pass
 
         workers.append({
             "taskId": s["task_id"],
@@ -104,8 +129,8 @@ async def worker_snapshot(
             "status": s.get("status", "running"),
             "startedAt": int((s.get("start_time") or 0) * 1000),
             "completedAt": int(s["end_time"] * 1000) if s.get("end_time") else None,
-            "toolCount": 0,
-            "lastTool": None,
+            "toolCount": tool_count,
+            "lastTool": last_tool,
             "resultSummary": s.get("result_summary"),
             "jobId": job_id,
             "jobName": job_name,
