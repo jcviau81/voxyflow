@@ -35,7 +35,9 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-sonnet-4-6",
-        "intent_patterns": ["code", "debug", "refactor", "implement", "fix", "test"],
+        # Tightened: 'code'/'fix'/'test' alone match too broadly (QR code,
+        # fix typo, test plan). Use multi-word phrases or unambiguous verbs.
+        "intent_patterns": ["debug", "refactor", "implement", "unit test", "fix bug", "code review", "write code"],
     },
     {
         "id": "00000000-0000-0000-0000-000000000003",
@@ -44,7 +46,8 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-opus-4-7",
-        "intent_patterns": ["research", "analyze", "investigate", "compare", "explain"],
+        # Dropped 'explain' (too broad — any "explain X" task matched).
+        "intent_patterns": ["research", "investigate", "analyze", "compare alternatives", "feasibility", "fact check"],
     },
     {
         "id": "00000000-0000-0000-0000-000000000004",
@@ -53,7 +56,8 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-sonnet-4-6",
-        "intent_patterns": ["write", "brainstorm", "creative", "story", "draft"],
+        # Dropped standalone 'write'/'draft' (matched "write code", "draft email").
+        "intent_patterns": ["brainstorm", "brainstorming", "creative writing", "story", "narrative", "ideation"],
     },
     {
         "id": "00000000-0000-0000-0000-000000000001",
@@ -62,6 +66,8 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-haiku-4-5-20251001",
-        "intent_patterns": ["summarize", "format", "quick", "simple", "short"],
+        # Tightened: dropped 'quick','short','simple','format' (matched stray
+        # words in delivery-format text like "Quick-start steps").
+        "intent_patterns": ["summarize", "summarization", "tldr", "reformat", "rephrase"],
     },
 ]

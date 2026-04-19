@@ -8,6 +8,26 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Intent matches outweigh summary matches: a clean intent like "research"
+# is a much stronger signal than a stray keyword in a long description
+# (e.g. "Quick-start steps" in a research task's summary used to route
+# to the Quick class under first-match-wins).
+_INTENT_WEIGHT = 3
+_SUMMARY_WEIGHT = 1
+
+# Tiebreak: when scores are equal, prefer the heavier model. Bias is
+# "if unsure, spend more and get a better answer" rather than silently
+# downgrading to a cheap class.
+_MODEL_TIER = (("opus", 3), ("sonnet", 2), ("haiku", 1))
+
+
+def _model_weight(model: str) -> int:
+    s = (model or "").lower()
+    for token, weight in _MODEL_TIER:
+        if token in s:
+            return weight
+    return 2
+
 
 @lru_cache(maxsize=256)
 def _word_pattern(keyword: str) -> re.Pattern[str]:
@@ -49,30 +69,51 @@ async def resolve_by_id(worker_class_id: str) -> Optional[dict]:
     return None
 
 
-async def resolve_by_intent(intent: str, summary: str = "") -> Optional[dict]:
-    """Return the first worker class whose patterns match the task's text.
+def _score_class(wc: dict, intent: str, summary: str) -> int:
+    score = 0
+    for pattern in wc.get("intent_patterns", []):
+        pat = (pattern or "").strip()
+        if not pat:
+            continue
+        rx = _word_pattern(pat)
+        if intent and rx.search(intent):
+            score += _INTENT_WEIGHT
+        if summary and rx.search(summary):
+            score += _SUMMARY_WEIGHT
+    return score
 
-    Matches ``intent_patterns`` as whole words (regex ``\\b``) against the
-    concatenation of ``intent`` and ``summary``. Summary is included because
-    the dispatcher sometimes emits a short code-name intent (e.g.
-    ``execute_secu1_real_ssh``) whose keywords only appear in the description.
+
+async def resolve_by_intent(intent: str, summary: str = "") -> Optional[dict]:
+    """Return the best-matching worker class for the task's text.
+
+    Scoring: each pattern that matches ``intent`` adds 3 points; each match
+    in ``summary`` adds 1. Highest total wins. Ties broken by model weight
+    (opus > sonnet > haiku).
+
+    Replaces an earlier first-match-wins scheme that mis-routed research
+    tasks to the Quick class because the dispatcher injects delivery-format
+    words like "Quick-start steps" into the summary.
     """
     if not intent and not summary:
         return None
     classes = await _load_worker_classes()
-    haystack = f"{intent}\n{summary}"
+
+    scored: list[tuple[int, int, dict]] = []
     for wc in classes:
-        for pattern in wc.get("intent_patterns", []):
-            pat = (pattern or "").strip()
-            if not pat:
-                continue
-            if _word_pattern(pat).search(haystack):
-                logger.info(
-                    "[WorkerClassResolver] Matched %r to worker class %r (pattern=%r)",
-                    intent or summary[:60], wc.get("name"), pat,
-                )
-                return wc
-    return None
+        s = _score_class(wc, intent, summary)
+        if s > 0:
+            scored.append((s, _model_weight(wc.get("model", "")), wc))
+
+    if not scored:
+        return None
+
+    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    best_score, best_weight, best_wc = scored[0]
+    logger.info(
+        "[WorkerClassResolver] intent=%r → class=%r (score=%d, model_weight=%d, candidates=%d)",
+        intent or summary[:60], best_wc.get("name"), best_score, best_weight, len(scored),
+    )
+    return best_wc
 
 
 async def resolve_endpoint_for_class(wc: dict) -> dict:
