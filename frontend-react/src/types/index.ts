@@ -9,7 +9,8 @@ export type ViewMode =
   | 'projects'
   | 'settings'
   | 'stats'
-  | 'knowledge';
+  | 'knowledge'
+  | 'archives';
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type AgentPersona = 'coder' | 'architect' | 'designer' | 'devops' | 'analyst' | 'tester' | 'writer';
 export type ModelName = 'fast' | 'deep';

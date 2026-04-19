@@ -529,8 +529,8 @@ function RagTab({ projectId }: RagTabProps) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const KNOWLEDGE_TABS: { id: KnowledgeTab; Icon: LucideIcon; label: string }[] = [
-  { id: 'documents', Icon: Files,       label: 'Documents' },
   { id: 'wiki',      Icon: BookMarked,  label: 'Wiki' },
+  { id: 'documents', Icon: Files,       label: 'Documents' },
   { id: 'rag',       Icon: Database,    label: 'RAG Sources' },
 ];
 
@@ -541,7 +541,7 @@ interface ProjectKnowledgeProps {
 export function ProjectKnowledge({ projectId: projectIdProp }: ProjectKnowledgeProps = {}) {
   const storeProjectId = useProjectStore(s => s.currentProjectId);
   const projectId = projectIdProp ?? storeProjectId;
-  const [activeTab, setActiveTab] = useState<KnowledgeTab>('documents');
+  const [activeTab, setActiveTab] = useState<KnowledgeTab>('wiki');
 
   if (!projectId) {
     return (

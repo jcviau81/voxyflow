@@ -181,14 +181,15 @@ h1, h2, h3, h4, h5, h6 {
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
+    /* ── Dark purple theme (sidebar + headers) ── */
+    --sidebar: oklch(0.22 0.155 285);
+    --sidebar-foreground: oklch(0.93 0.02 285);
+    --sidebar-primary: oklch(0.56 0.24 290);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent: oklch(0.30 0.13 285);
     --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar-border: oklch(1 0 0 / 14%);
+    --sidebar-ring: oklch(0.56 0.24 290);
 
     /* ── Legacy compat vars — dark ─────────────────────────── */
     --color-bg: #0a0a0f;
@@ -453,4 +454,59 @@ h1, h2, h3 {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+/* ============================================================
+   Dark purple theme — tab bar & project header
+   Target: .dark .tab-bar  /  .dark .project-header
+   Sidebar background is already handled by --sidebar var above.
+   ============================================================ */
+
+/* Tab bar: slightly darker than sidebar for depth contrast */
+.dark .tab-bar {
+  background-color: oklch(0.19 0.13 285);
+  border-bottom-color: oklch(1 0 0 / 12%);
+}
+
+/* Active tab on the dark purple tab bar */
+.dark .tab-bar .tab[data-active="true"],
+.dark .tab-bar .tab.active {
+  background-color: oklch(0.30 0.14 285);
+  border-color: oklch(1 0 0 / 14%);
+}
+
+/* Project header (view-switcher bar) */
+.dark .project-header {
+  background-color: oklch(0.19 0.13 285);
+  border-bottom-color: oklch(1 0 0 / 12%);
+}
+
+/* Active view tab in the project header — bright violet accent */
+.dark .project-header__tab--active {
+  background-color: oklch(0.30 0.14 285) !important;
+  color: oklch(0.93 0.04 290) !important;
+}
+
+/* Sidebar brand strip — match sidebar but with subtle bottom accent */
+.dark .sidebar-brand {
+  background-color: oklch(0.20 0.16 285);
+  border-bottom-color: oklch(1 0 0 / 14%);
+}
+
+/* Sidebar footer — keep consistent with sidebar palette */
+.dark .sidebar-footer {
+  background-color: oklch(0.20 0.14 285);
+  border-top-color: oklch(1 0 0 / 14%);
+}
+
+/* Sidebar active nav item — use bright violet accent */
+.dark .sidebar-item.active,
+.dark .sidebar-nav a.active,
+.dark .sidebar-nav [aria-current="page"] {
+  background-color: oklch(0.30 0.14 285);
+}
+
+/* Connection status strip */
+.dark .sidebar-status {
+  background-color: oklch(0.21 0.14 285);
 }

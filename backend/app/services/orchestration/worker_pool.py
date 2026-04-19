@@ -755,7 +755,7 @@ class DeepWorkerPool:
             _task_card_id = event.data.get("card_id")
 
             # --- Card lifecycle: auto-create if missing, move to in-progress ---
-            if not _task_card_id:
+            if not _task_card_id and self._should_auto_create_card(event, _worker_class):
                 _task_card_id = await self._auto_create_card(
                     project_id=event.data.get("project_id"),
                     intent=event.intent or "unknown",
@@ -1458,6 +1458,46 @@ class DeepWorkerPool:
             source = source[:77].rsplit(" ", 1)[0] + "…"
 
         return source.strip() or "Worker task"
+
+    # Trivial delegate intents that should never produce a tracking card,
+    # even when no worker class matched. These are housekeeping verbs — the
+    # state change itself is the result, there is no "work in progress" to
+    # represent as a card.
+    _TRIVIAL_INTENTS = frozenset({
+        "archive", "archive_card", "archive_cards",
+        "unarchive", "restore", "restore_card",
+        "delete", "delete_card", "remove",
+        "move", "move_card", "reorder", "reorder_cards",
+        "rename", "rename_card",
+        "tag", "untag",
+        "assign", "unassign", "reassign",
+        "duplicate",
+    })
+
+    @staticmethod
+    def _should_auto_create_card(event: ActionIntent, worker_class: dict | None) -> bool:
+        """Decide whether a delegated task deserves its own tracking card.
+
+        Signals, in order:
+          1. ``worker_class.name == "Quick"`` → no card (lightweight one-shot).
+          2. Intent verb in :data:`_TRIVIAL_INTENTS` → no card (housekeeping).
+          3. No worker class matched + ``complexity == "simple"`` → no card.
+          4. Otherwise → create a card (Coding / Research / Creative, or
+             anything non-trivial).
+        """
+        wc_name = ((worker_class or {}).get("name") or "").strip().lower()
+        if wc_name == "quick":
+            return False
+
+        intent = (event.intent or "").strip().lower()
+        if intent in DeepWorkerPool._TRIVIAL_INTENTS:
+            return False
+
+        complexity = (event.complexity or "").strip().lower()
+        if not wc_name and complexity == "simple":
+            return False
+
+        return True
 
     @staticmethod
     async def _auto_create_card(
