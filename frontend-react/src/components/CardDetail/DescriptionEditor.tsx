@@ -6,8 +6,9 @@
  * Features: markdown syntax highlighting, JS/Python code block support,
  * line numbers, dark/light theme sync, auto-save on blur.
  *
- * Edit/Preview toggle: switch between CodeMirror editor and react-markdown
- * rendered preview. Preferred mode is persisted in localStorage.
+ * Edit/Preview toggle: switch between CodeMirror editor and the shared
+ * MarkdownPreview component (react-markdown + remark-gfm + syntax highlighting).
+ * Preferred mode is persisted in localStorage.
  */
 
 import { useCallback, useMemo, useState, useEffect } from 'react';
@@ -20,13 +21,10 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { LanguageDescription } from '@codemirror/language';
 import { useThemeStore } from '../../stores/useThemeStore';
-import ReactMarkdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Eye, Pencil } from 'lucide-react';
+import { MarkdownPreview } from '../ui/MarkdownPreview';
 
-
-// ── Mode persistence ────────────────────────────────────────────────────────
+// ── Mode persistence ──────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'voxyflow_desc_editor_mode';
 
@@ -48,7 +46,7 @@ function persistMode(mode: 'edit' | 'preview') {
   }
 }
 
-// ── Theme built from CSS variables ──────────────────────────────────────────
+// ── Theme built from CSS variables ────────────────────────────────────────────
 // Applied in both modes so the editor always matches the app surface colors.
 
 const baseTheme = EditorView.theme({
@@ -97,7 +95,7 @@ const baseTheme = EditorView.theme({
   },
 });
 
-// ── Syntax highlighting that works in both light and dark ───────────────────
+// ── Syntax highlighting that works in both light and dark ─────────────────────
 
 const darkHighlight = syntaxHighlighting(
   HighlightStyle.define([
@@ -137,70 +135,7 @@ const lightHighlight = syntaxHighlighting(
   ])
 );
 
-// ── Markdown Preview ────────────────────────────────────────────────────────
-
-interface MarkdownPreviewProps {
-  value: string;
-}
-
-function MarkdownPreview({ value }: MarkdownPreviewProps) {
-  if (!value.trim()) {
-    return (
-      <p className="text-sm text-muted-foreground italic">No description yet…</p>
-    );
-  }
-
-  return (
-    <div className="prose prose-sm dark:prose-invert max-w-none [overflow-wrap:anywhere] [word-break:break-word] [&_pre]:overflow-x-auto [&_table]:block [&_table]:overflow-x-auto [&_img]:max-w-full">
-      <ReactMarkdown
-        components={{
-          code({ className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '');
-            const isBlock = className?.includes('language-');
-            const code = String(children).replace(/\n$/, '');
-            if (isBlock) {
-              return (
-                <div className="relative group overflow-x-auto rounded" style={{ overflowX: 'auto', maxWidth: '100%' }}>
-                  <div className="flex items-center justify-between bg-[#1e1e1e] px-3 py-1 rounded-t text-xs text-gray-400">
-                    <span>{match?.[1] ?? 'code'}</span>
-                  </div>
-                  <SyntaxHighlighter
-                    style={vscDarkPlus}
-                    language={match?.[1] ?? 'text'}
-                    PreTag="div"
-                    customStyle={{ margin: 0, borderRadius: '0 0 4px 4px', fontSize: '0.85em', overflowX: 'auto' }}
-                    wrapLongLines={false}
-                  >
-                    {code}
-                  </SyntaxHighlighter>
-                </div>
-              );
-            }
-            return (
-              <code
-                className="bg-muted px-1 py-0.5 rounded text-sm font-mono"
-                {...props}
-              >
-                {children}
-              </code>
-            );
-          },
-          a({ href, children }) {
-            return (
-              <a href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-              </a>
-            );
-          },
-        }}
-      >
-        {value}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
-// ── Component ────────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
   cardId: string;
@@ -290,7 +225,7 @@ export function DescriptionEditor({ cardId: _cardId, value, onChange }: Props) {
         </div>
       ) : (
         <div className="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border border-border bg-card p-4">
-          <MarkdownPreview value={value} />
+          <MarkdownPreview value={value} emptyText="No description yet…" />
         </div>
       )}
     </div>

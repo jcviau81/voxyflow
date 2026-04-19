@@ -1,6 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import ReactMarkdown from 'react-markdown';
 import {
   Upload, Save, Eye, Pencil, Trash2, Plus, Loader2,
   File, FileText, FileCode, BookOpen, Sheet,
@@ -10,6 +9,7 @@ import {
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { cn } from '../../lib/utils';
+import { MarkdownPreview } from '../ui/MarkdownPreview';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -429,8 +429,8 @@ function WikiTab({ projectId }: WikiTabProps) {
 
             <div className="flex-1 overflow-hidden flex flex-col">
               {previewMode ? (
-                <div className="flex-1 overflow-y-auto p-5 md:p-6 prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown>{editContent}</ReactMarkdown>
+                <div className="flex-1 overflow-y-auto p-5 md:p-6">
+                  <MarkdownPreview value={editContent} emptyText="No content yet… start writing above." />
                 </div>
               ) : (
                 <textarea

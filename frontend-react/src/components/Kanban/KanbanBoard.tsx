@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom';
 import {
   Archive, Play, Square, Link2, Trash2, RotateCcw, X,
-  AlertCircle, ChevronRight,
+  AlertCircle, ChevronRight, Search,
 } from 'lucide-react';
 import {
   DndContext,
@@ -327,7 +327,65 @@ function BulkToolbar({ selectedIds, onClear, onBulkMove, onBulkArchive, onBulkDe
   );
 }
 
-// ── Archived Section ───────────────────────────────────────────────────────────
+// ── Archived Section helpers ──────────────────────────────────────────────────
+
+const PRIORITY_LABELS: Record<number, { label: string; color: string; bg: string }> = {
+  0: { label: 'Low',      color: 'text-green-400',  bg: 'bg-green-500/10'  },
+  1: { label: 'Medium',   color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+  2: { label: 'High',     color: 'text-orange-400', bg: 'bg-orange-500/10' },
+  3: { label: 'Critical', color: 'text-red-400',    bg: 'bg-red-500/10'    },
+};
+
+const ARCHIVE_COLOR_CLASSES: Record<string, string> = {
+  yellow: 'border-yellow-500/30 bg-yellow-500/5',
+  blue:   'border-blue-500/30   bg-blue-500/5',
+  green:  'border-green-500/30  bg-green-500/5',
+  pink:   'border-pink-500/30   bg-pink-500/5',
+  purple: 'border-purple-500/30 bg-purple-500/5',
+  orange: 'border-orange-500/30 bg-orange-500/5',
+};
+
+const ARCHIVE_COLOR_DOT: Record<string, string> = {
+  yellow: 'bg-yellow-400',
+  blue:   'bg-blue-400',
+  green:  'bg-green-400',
+  pink:   'bg-pink-400',
+  purple: 'bg-purple-400',
+  orange: 'bg-orange-400',
+};
+
+const ARCHIVE_TAG_COLORS: Array<[string, string]> = [
+  ['rgba(255,107,107,0.18)', '#ff6b6b'],
+  ['rgba(78,205,196,0.18)',  '#4ecdc4'],
+  ['rgba(255,183,77,0.18)',  '#ffb74d'],
+  ['rgba(66,165,245,0.18)',  '#42a5f5'],
+  ['rgba(171,145,249,0.18)', '#ab91f9'],
+  ['rgba(102,187,106,0.18)', '#66bb6a'],
+  ['rgba(255,138,101,0.18)', '#ff8a65'],
+  ['rgba(236,64,122,0.18)',  '#ec407a'],
+];
+
+function archiveTagColor(tag: string): [string, string] {
+  let h = 0;
+  for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
+  return ARCHIVE_TAG_COLORS[h % ARCHIVE_TAG_COLORS.length];
+}
+
+function timeAgo(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins  = Math.floor(diff / 60_000);
+  const hours = Math.floor(diff / 3_600_000);
+  const days  = Math.floor(diff / 86_400_000);
+  if (days > 0)  return `archivé il y a ${days} jour${days > 1 ? 's' : ''}`;
+  if (hours > 0) return `archivé il y a ${hours} heure${hours > 1 ? 's' : ''}`;
+  if (mins > 0)  return `archivé il y a ${mins} min`;
+  return "archivé à l'instant";
+}
+
+type ArchiveSortKey = 'archivedAt' | 'priority' | 'title';
+
+// ── Archived Section ──────────────────────────────────────────────────────────
 
 interface ArchivedSectionProps {
   projectId: string;
@@ -335,73 +393,248 @@ interface ArchivedSectionProps {
 
 function ArchivedSection({ projectId }: ArchivedSectionProps) {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState<number | null>(null);
+  const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d' | '90d'>('all');
+  const [sortKey, setSortKey] = useState<ArchiveSortKey>('archivedAt');
+
   const { data: archivedCards, isLoading } = useArchivedCards(projectId);
   const restoreCard = useRestoreCard();
   const deleteCard = useDeleteCard();
   const showToast = useToastStore((s) => s.showToast);
 
-  // Only fetch when expanded — useArchivedCards has enabled: !!projectId
-  // but we gate the UI rendering on `open`
+  const filteredAndSorted = useMemo(() => {
+    if (!archivedCards) return [];
+    const now = Date.now();
+    const thresholds: Record<string, number> = {
+      '7d':  now - 7  * 86_400_000,
+      '30d': now - 30 * 86_400_000,
+      '90d': now - 90 * 86_400_000,
+    };
+    return [...archivedCards]
+      .filter((card) => {
+        if (searchQuery && !card.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+        if (priorityFilter !== null && card.priority !== priorityFilter) return false;
+        if (dateFilter !== 'all' && card.archivedAt) {
+          if (new Date(card.archivedAt).getTime() < thresholds[dateFilter]) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortKey === 'title')    return a.title.localeCompare(b.title);
+        if (sortKey === 'priority') return (b.priority ?? 0) - (a.priority ?? 0);
+        const at = a.archivedAt ? new Date(a.archivedAt).getTime() : 0;
+        const bt = b.archivedAt ? new Date(b.archivedAt).getTime() : 0;
+        return bt - at;
+      });
+  }, [archivedCards, searchQuery, priorityFilter, dateFilter, sortKey]);
 
   return (
-    <div className="mt-4">
+    <div className="mt-4 border-t border-border/30 pt-3">
+      {/* Toggle row */}
       <button
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
-        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1 w-full"
+        onClick={() => setOpen((o) => !o)}
       >
-        <Archive size={14} className="text-muted-foreground" /> Archived Cards <ChevronRight size={12} className={cn('transition-transform', open && 'rotate-90')} />
+        <Archive size={14} />
+        <span>Archived Cards</span>
+        {archivedCards && archivedCards.length > 0 && (
+          <span className="text-xs bg-muted/60 px-1.5 py-0.5 rounded-full tabular-nums ml-0.5">
+            {archivedCards.length}
+          </span>
+        )}
+        <ChevronRight size={12} className={cn('transition-transform ml-auto', open && 'rotate-90')} />
       </button>
 
       {open && (
-        <div className="mt-2 space-y-1 pl-2">
-          {isLoading && <div className="text-xs text-muted-foreground py-2">Loading...</div>}
-          {archivedCards && archivedCards.length === 0 && (
-            <div className="text-xs text-muted-foreground py-2">No archived cards</div>
-          )}
-          {archivedCards?.map((card) => (
-            <div key={card.id} className="flex items-center justify-between rounded border border-border/40 px-3 py-2 text-sm">
-              <div className="flex-1 min-w-0">
-                <span className="font-medium text-foreground">{card.title}</span>
-              </div>
-              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      await restoreCard.mutateAsync({ cardId: card.id, projectId });
-                      showToast(`"${card.title}" restored`, 'success');
-                    } catch {
-                      showToast('Restore failed', 'error');
-                    }
-                  }}
+        <div className="mt-3 space-y-3 px-2 pb-4">
+
+          {/* ── Toolbar ── */}
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* Search */}
+            <div className="relative flex-1 min-w-[160px]">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Rechercher…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-7 pr-7 py-1.5 text-xs bg-muted/40 border border-border/40 rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
-                  <RotateCcw size={12} className="text-emerald-400" /> Restore
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive"
-                  onClick={async () => {
-                    if (!confirm(`Permanently delete "${card.title}"? This cannot be undone.`)) return;
-                    try {
-                      await deleteCard.mutateAsync({ cardId: card.id, projectId });
-                      showToast(`"${card.title}" permanently deleted`, 'success');
-                    } catch {
-                      showToast('Delete failed', 'error');
-                    }
-                  }}
-                >
-                  <Trash2 size={12} /> Delete
-                </Button>
-              </div>
+                  <X size={11} />
+                </button>
+              )}
             </div>
-          ))}
+
+            {/* Priority filter */}
+            <select
+              value={priorityFilter ?? ''}
+              onChange={(e) => setPriorityFilter(e.target.value === '' ? null : Number(e.target.value))}
+              className="px-2 py-1.5 text-xs bg-muted/40 border border-border/40 rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
+            >
+              <option value="">Toutes priorités</option>
+              <option value="3">Critical</option>
+              <option value="2">High</option>
+              <option value="1">Medium</option>
+              <option value="0">Low</option>
+            </select>
+
+            {/* Date filter */}
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)}
+              className="px-2 py-1.5 text-xs bg-muted/40 border border-border/40 rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
+            >
+              <option value="all">Toute la période</option>
+              <option value="7d">7 derniers jours</option>
+              <option value="30d">30 derniers jours</option>
+              <option value="90d">90 derniers jours</option>
+            </select>
+
+            {/* Sort */}
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as ArchiveSortKey)}
+              className="px-2 py-1.5 text-xs bg-muted/40 border border-border/40 rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
+            >
+              <option value="archivedAt">Trier: Date archivage</option>
+              <option value="priority">Trier: Priorité</option>
+              <option value="title">Trier: Titre</option>
+            </select>
+          </div>
+
+          {/* Match count when filters active */}
+          {(searchQuery || priorityFilter !== null || dateFilter !== 'all') && (
+            <div className="text-xs text-muted-foreground px-0.5">
+              {filteredAndSorted.length} / {archivedCards?.length ?? 0} carte{filteredAndSorted.length !== 1 ? 's' : ''}
+            </div>
+          )}
+
+          {/* Loading */}
+          {isLoading && <div className="text-xs text-muted-foreground py-2 px-1">Chargement…</div>}
+
+          {/* Empty state */}
+          {!isLoading && filteredAndSorted.length === 0 && (
+            <div className="text-xs text-muted-foreground py-6 text-center">
+              {archivedCards?.length === 0
+                ? 'Aucune carte archivée'
+                : 'Aucune carte ne correspond aux filtres'}
+            </div>
+          )}
+
+          {/* ── Card grid ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {filteredAndSorted.map((card) => {
+              const pri = PRIORITY_LABELS[card.priority ?? 0];
+              const visibleTags = card.tags.slice(0, 3);
+              const hiddenTagCount = card.tags.length - visibleTags.length;
+
+              return (
+                <div
+                  key={card.id}
+                  className={cn(
+                    'group relative rounded-lg border border-border/40 bg-card/60 p-3',
+                    'transition-all duration-150 hover:border-border/70 hover:shadow-md hover:shadow-black/10',
+                    card.color && ARCHIVE_COLOR_CLASSES[card.color],
+                  )}
+                >
+                  {/* Header: color dot + title */}
+                  <div className="flex items-start gap-2">
+                    {card.color && ARCHIVE_COLOR_DOT[card.color] && (
+                      <span className={cn('mt-1.5 flex-shrink-0 w-2 h-2 rounded-full', ARCHIVE_COLOR_DOT[card.color])} />
+                    )}
+                    <span className="flex-1 text-[0.8125rem] font-medium text-foreground/80 leading-snug break-words line-clamp-2">
+                      {card.title}
+                    </span>
+                  </div>
+
+                  {/* Priority + tags row */}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {pri && (
+                      <span className={cn('px-1.5 py-0.5 rounded text-[0.625rem] font-medium leading-none', pri.bg, pri.color)}>
+                        {pri.label}
+                      </span>
+                    )}
+                    {visibleTags.map((tag) => {
+                      const [bg, color] = archiveTagColor(tag);
+                      return (
+                        <span
+                          key={tag}
+                          title={tag}
+                          style={{ background: bg, color }}
+                          className="px-1.5 py-0.5 rounded text-[0.625rem] font-medium leading-none"
+                        >
+                          {tag}
+                        </span>
+                      );
+                    })}
+                    {hiddenTagCount > 0 && (
+                      <span className="text-[0.625rem] text-muted-foreground font-medium">+{hiddenTagCount}</span>
+                    )}
+                  </div>
+
+                  {/* Archive date */}
+                  {card.archivedAt && (
+                    <div className="mt-1.5 text-[0.625rem] text-muted-foreground/70 leading-none">
+                      {timeAgo(card.archivedAt)}
+                    </div>
+                  )}
+
+                  {/* Hover overlay with action buttons */}
+                  <div className={cn(
+                    'absolute inset-0 rounded-lg flex items-center justify-center gap-2',
+                    'opacity-0 group-hover:opacity-100 transition-opacity duration-150',
+                    'bg-card/85 backdrop-blur-[2px]',
+                  )}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2.5 text-xs gap-1.5 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10 hover:border-emerald-500/60"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await restoreCard.mutateAsync({ cardId: card.id, projectId });
+                          showToast(`"${card.title}" restored`, 'success');
+                        } catch {
+                          showToast('Restore failed', 'error');
+                        }
+                      }}
+                    >
+                      <RotateCcw size={12} /> Restore
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2.5 text-xs gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!confirm(`Permanently delete "${card.title}"? This cannot be undone.`)) return;
+                        try {
+                          await deleteCard.mutateAsync({ cardId: card.id, projectId });
+                          showToast(`"${card.title}" permanently deleted`, 'success');
+                        } catch {
+                          showToast('Delete failed', 'error');
+                        }
+                      }}
+                    >
+                      <Trash2 size={12} /> Delete
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
   );
 }
+
 
 // ── Execution Progress Bar ─────────────────────────────────────────────────────
 
