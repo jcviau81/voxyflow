@@ -249,6 +249,7 @@ class PersonalityService:
         worker_classes: Optional[list[dict]] = None,
         live_state: Optional[str] = None,
         worker_events: Optional[str] = None,
+        session_handoff: Optional[str] = None,
     ) -> str:
         """Build the DYNAMIC context block — injected into messages[], NOT the system prompt.
 
@@ -270,6 +271,8 @@ class PersonalityService:
             parts.append(live_state.rstrip())
         if worker_events:
             parts.append(worker_events.rstrip())
+        if session_handoff:
+            parts.append(session_handoff.rstrip())
 
         if chat_level in ("project", "general") and project:
             # Project chat: inject full project state.
@@ -870,6 +873,78 @@ def _fmt_delta_seconds(seconds: float) -> str:
         return f"{hours}h{mins:02d}m"
     days, hours = divmod(hours, 24)
     return f"{days}d{hours:02d}h"
+
+
+def build_session_handoff_block(
+    recent_messages: Optional[list[dict]] = None,
+    *,
+    gap_minutes: int = 30,
+    min_history: int = 4,
+) -> str:
+    """Render a "where we left off" block when the dispatcher resumes cold.
+
+    *recent_messages* is the persisted session history (ordered oldest →
+    newest) — each item should carry ``role``, ``content``, and a
+    ``timestamp`` ISO string. Only triggers when the last assistant turn
+    is older than *gap_minutes* AND history has at least *min_history*
+    messages. Silent otherwise.
+
+    Hard cap: last user + last assistant turn, ~400 chars each.
+    """
+    if not recent_messages or len(recent_messages) < min_history:
+        return ""
+
+    from datetime import datetime, timezone
+
+    def _parse_ts(raw: str):
+        raw = str(raw or "").strip()
+        if not raw:
+            return None
+        try:
+            s = raw.replace(" ", "T").replace("Z", "+00:00")
+            if "+" not in s[10:]:
+                s = s + "+00:00"
+            return datetime.fromisoformat(s)
+        except Exception:
+            return None
+
+    last_assistant = None
+    last_user = None
+    for m in reversed(recent_messages):
+        role = m.get("role")
+        if role == "assistant" and last_assistant is None:
+            last_assistant = m
+        elif role == "user" and last_user is None:
+            last_user = m
+        if last_assistant and last_user:
+            break
+
+    if not last_assistant:
+        return ""
+
+    ts = _parse_ts(last_assistant.get("timestamp"))
+    if not ts:
+        return ""
+    now = datetime.now(timezone.utc)
+    delta_sec = (now - ts).total_seconds()
+    if delta_sec < gap_minutes * 60:
+        return ""
+
+    def _truncate(text: str, n: int = 400) -> str:
+        text = (text or "").strip().replace("\n", " ")
+        return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+    lines: list[str] = [
+        f"## Session handoff (resumed after {_fmt_delta_seconds(int(delta_sec))})",
+    ]
+    if last_user:
+        lines.append(f"- Last JC said: {_truncate(last_user.get('content', ''))}")
+    lines.append(f"- Last you said: {_truncate(last_assistant.get('content', ''))}")
+    lines.append(
+        "- Treat this as memory, not an unread message — don't apologise for the gap, "
+        "just pick up if the user resumes the thread."
+    )
+    return "\n".join(lines)
 
 
 def build_worker_events_block(events: list[dict]) -> str:

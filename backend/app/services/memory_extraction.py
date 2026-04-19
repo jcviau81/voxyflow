@@ -45,6 +45,44 @@ _CONVERSATIONAL_PREFIX_RE = re.compile(
 
 _QUESTION_TAIL_RE = re.compile(r"[?？]\s*$")
 
+# Emoji-heavy assistant flavor: ≥ 2 emoji / pictographs in a short line.
+# Matches broad Unicode pictographic ranges (emoji, symbols, dingbats).
+_EMOJI_RE = re.compile(
+    r"[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F900-\U0001F9FF]"
+)
+
+# Aesthetic / expressive prose Voxy writes about the UI, her own vibe,
+# the moment, the season, etc. Short lines that trip this die as flavor.
+_FLAVOR_TEXT_RE = re.compile(
+    r"(?:"
+    r"high[- ]?five|ca[fé][- ]?vibe|"
+    r"printemps|automne|hiver|été|spring|summer|autumn|winter|"
+    r"c['’]est\s+(?:beau|joli|magnifique|cute|stylé|propre|clean)|"
+    r"(?:l['’]?(?:interface|ui|design))\s+(?:est\s+)?(?:plus\s+)?(?:belle?|jolie?|propre|clean|stylée?)|"
+    r"(?:looks?|feels?)\s+(?:beautiful|pretty|clean|great|nice|lovely)|"
+    r"vibe|ambiance"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _is_flavor_text(text: str) -> bool:
+    """Reject Voxy's own expressive / aesthetic flavor lines.
+
+    Catches emoji-heavy short utterances and short aesthetic-appreciation
+    prose ("l'interface est plus belle", "🌸 printemps", "high-five digital").
+    These are style, not facts — they should not land in memory as
+    ``importance=high`` entries.
+    """
+    t = (text or "").strip()
+    if not t:
+        return False
+    if len(t) <= 200 and len(_EMOJI_RE.findall(t)) >= 2:
+        return True
+    if len(t) <= 160 and _FLAVOR_TEXT_RE.search(t):
+        return True
+    return False
+
 # Conversational closings / handoff fluff — "dis-moi", "je suis là", "tell me",
 # "let me know", "on continue", etc. Applied to the last 60 chars of the text.
 # Short closers with no substance die; long factual sentences that happen to
@@ -89,6 +127,8 @@ def _is_actionable_memory(text: str) -> bool:
     # Closing fluff: if the text ends with a conversational handoff and is
     # short-to-medium length, it's a sign-off masquerading as a fact.
     if len(t) <= 150 and _CLOSING_FLUFF_RE.search(t):
+        return False
+    if _is_flavor_text(t):
         return False
     return True
 
