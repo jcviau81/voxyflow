@@ -151,7 +151,7 @@ function MarkdownPreview({ value }: MarkdownPreviewProps) {
   }
 
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none">
+    <div className="prose prose-sm dark:prose-invert max-w-none [overflow-wrap:anywhere] [word-break:break-word] [&_pre]:overflow-x-auto [&_table]:block [&_table]:overflow-x-auto [&_img]:max-w-full">
       <ReactMarkdown
         components={{
           code({ className, children, ...props }) {
@@ -160,7 +160,7 @@ function MarkdownPreview({ value }: MarkdownPreviewProps) {
             const code = String(children).replace(/\n$/, '');
             if (isBlock) {
               return (
-                <div className="relative group">
+                <div className="relative group overflow-x-auto rounded" style={{ overflowX: 'auto', maxWidth: '100%' }}>
                   <div className="flex items-center justify-between bg-[#1e1e1e] px-3 py-1 rounded-t text-xs text-gray-400">
                     <span>{match?.[1] ?? 'code'}</span>
                   </div>
@@ -168,7 +168,8 @@ function MarkdownPreview({ value }: MarkdownPreviewProps) {
                     style={vscDarkPlus}
                     language={match?.[1] ?? 'text'}
                     PreTag="div"
-                    customStyle={{ margin: 0, borderRadius: '0 0 4px 4px', fontSize: '0.85em' }}
+                    customStyle={{ margin: 0, borderRadius: '0 0 4px 4px', fontSize: '0.85em', overflowX: 'auto' }}
+                    wrapLongLines={false}
                   >
                     {code}
                   </SyntaxHighlighter>
@@ -252,7 +253,7 @@ export function DescriptionEditor({ cardId: _cardId, value, onChange }: Props) {
   }, []);
 
   return (
-    <div className="relative flex h-full flex-col">
+    <div className="relative flex h-full min-w-0 flex-col">
       {/* ── Mode toggle — absolute corner overlay ── */}
       <button
         type="button"
@@ -269,7 +270,7 @@ export function DescriptionEditor({ cardId: _cardId, value, onChange }: Props) {
 
       {/* ── Content ── */}
       {mode === 'edit' ? (
-        <div className="min-h-0 flex-1 overflow-auto [&_.cm-editor]:flex-1">
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto [&_.cm-editor]:flex-1">
           <CodeMirror
             value={value}
             onChange={handleChange}
@@ -288,7 +289,7 @@ export function DescriptionEditor({ cardId: _cardId, value, onChange }: Props) {
           />
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border bg-card p-4">
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border border-border bg-card p-4">
           <MarkdownPreview value={value} />
         </div>
       )}
