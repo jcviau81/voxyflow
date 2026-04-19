@@ -147,6 +147,7 @@ h1, h2, h3, h4, h5, h6 {
     --color-border: oklch(0.922 0 0);
     --color-border-light: oklch(0.88 0 0);
     --color-primary: #ff6b6b; /* fallback — overwritten by applyAccentColor() on load */
+    --sidebar-width: 280px; /* fallback — overwritten by applySidebarWidth() on store rehydration */
     --border-radius: 8px;
     --border-radius-sm: 6px;
     --border-radius-lg: 12px;

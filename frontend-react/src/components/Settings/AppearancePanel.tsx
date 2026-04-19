@@ -210,7 +210,7 @@ export function AppearancePanel() {
         </SettingRow>
 
         {/* ── Sidebar Width ── */}
-        <SettingRow label="Sidebar Width" description="Compact (220px) · Normal (280px) · Wide (360px)">
+        <SettingRow label="Sidebar Width" description="Compact (220px) · Normal (280px) · Wide (400px)">
           <Controller
             control={control}
             name="sidebarWidth"
