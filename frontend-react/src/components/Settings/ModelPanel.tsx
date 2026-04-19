@@ -142,7 +142,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-sonnet-4-6',
-    intent_patterns: ['code', 'debug', 'refactor', 'implement', 'fix', 'test'],
+    intent_patterns: ['debug', 'refactor', 'implement', 'unit test', 'fix bug', 'code review', 'write code'],
   },
   {
     id: '00000000-0000-0000-0000-000000000003',
@@ -151,7 +151,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-opus-4-7',
-    intent_patterns: ['research', 'analyze', 'investigate', 'compare', 'explain'],
+    intent_patterns: ['research', 'investigate', 'analyze', 'compare alternatives', 'feasibility', 'fact check'],
   },
   {
     id: '00000000-0000-0000-0000-000000000004',
@@ -160,7 +160,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-sonnet-4-6',
-    intent_patterns: ['write', 'brainstorm', 'creative', 'story', 'draft'],
+    intent_patterns: ['brainstorm', 'brainstorming', 'creative writing', 'story', 'narrative', 'ideation'],
   },
   {
     id: '00000000-0000-0000-0000-000000000001',
@@ -169,7 +169,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-haiku-4-5-20251001',
-    intent_patterns: ['summarize', 'format', 'quick', 'simple', 'short'],
+    intent_patterns: ['summarize', 'summarization', 'tldr', 'reformat', 'rephrase'],
   },
 ];
 
