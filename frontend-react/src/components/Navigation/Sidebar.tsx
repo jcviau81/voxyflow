@@ -203,9 +203,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           <NavLink
             to="/"
             end
-            className={({ isActive }) =>
-              cn(NAV_ITEM, (isActive || activeTab === 'main') && 'bg-accent text-accent-foreground font-medium')
-            }
+            className={({ isActive }) => cn(NAV_ITEM, isActive && 'bg-accent text-accent-foreground font-medium')}
             data-testid="sidebar-general"
             data-tab="main"
           >

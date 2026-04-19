@@ -209,7 +209,7 @@ function buildTree(
 
 // ── Worker row ──────────────────────────────────────────────────────────────
 
-function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peekExpanded, onTogglePeek, cardTitles, cliPid, parentChatId, projectId }: {
+function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peekExpanded, onTogglePeek, cardTitles, parentChatId, projectId }: {
   worker: WorkerInfo;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
@@ -219,7 +219,6 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
   peekExpanded: boolean;
   onTogglePeek: (taskId: string) => void;
   cardTitles: Record<string, string>;
-  cliPid?: number;
   parentChatId: string;
   projectId: string;
 }) {
@@ -277,7 +276,7 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
     worker.status === 'failed'  ? 'failed'  : 'cancelled';
 
   const statusChipClasses = cn(
-    'text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded tracking-wider shrink-0',
+    'text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md tracking-wider shrink-0 flex items-center gap-1',
     isActive && 'bg-accent/15 text-accent',
     worker.status === 'done' && 'bg-green-500/15 text-green-500',
     worker.status === 'failed' && 'bg-red-500/15 text-red-500',
@@ -289,13 +288,13 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
       {/* Tree connector lines */}
       <div className={cn(
         'absolute left-0 top-0 w-px bg-border/40',
-        isLast ? 'h-[18px]' : 'h-full',
+        isLast ? 'h-[22px]' : 'h-full',
       )} />
-      <div className="absolute left-0 top-[18px] w-3 h-px bg-border/40" />
+      <div className="absolute left-0 top-[22px] w-3 h-px bg-border/40" />
 
       <div
         className={cn(
-          'ml-3 px-2 py-1.5 rounded cursor-pointer transition-colors',
+          'ml-3 px-3 py-2.5 rounded-md cursor-pointer transition-colors',
           'hover:bg-accent/10 focus-within:bg-accent/10',
           !isActive && 'opacity-60',
           isActive && 'shadow-md shadow-black/30',
@@ -311,8 +310,8 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
           }
         }}
       >
-        {/* ── Line 1: identity (model + card + pid) ─────────────────────── */}
-        <div className="flex items-center gap-1.5 text-[12px] leading-tight">
+        {/* ── Line 1: identity (model + card) ──────────────────────────── */}
+        <div className="flex items-center gap-1.5 text-[13px] leading-snug">
           {isActive ? (
             <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin [animation-duration:0.6s] shrink-0" aria-label="running" />
           ) : (
@@ -354,34 +353,33 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
             </>
           )}
 
-          {cliPid != null && (
-            <>
-              <span className="text-muted-foreground/50 shrink-0" aria-hidden="true">{'\u2022'}</span>
-              <span className="text-[10px] text-muted-foreground tabular-nums shrink-0" title="CLI subprocess pid">
-                pid:{cliPid}
-              </span>
-            </>
-          )}
-
-          <span className={cn(statusChipClasses, 'ml-auto')}>{statusLabel}</span>
+          <span className={cn(statusChipClasses, 'ml-auto')}>
+            <span className={cn(
+              'inline-block w-1.5 h-1.5 rounded-full shrink-0',
+              isActive && 'bg-accent',
+              worker.status === 'done' && 'bg-green-500',
+              worker.status === 'failed' && 'bg-red-500',
+              worker.status === 'cancelled' && 'bg-muted-foreground',
+            )} />
+            {statusLabel}
+          </span>
         </div>
 
         {/* ── Line 2: action + elapsed + tool progress ─────────────────── */}
-        <div className="flex items-baseline gap-2 mt-0.5 text-[11px] text-muted-foreground">
+        <div className="flex items-baseline gap-2 mt-1.5 text-[12px] text-muted-foreground">
           <span className="truncate flex-1">{formatAction(worker.action)}</span>
-          <span className="tabular-nums shrink-0">{isActive ? `${e}\u2026` : e}</span>
+          <span className="tabular-nums shrink-0 font-medium">{isActive ? `${e}\u2026` : e}</span>
         </div>
 
         {worker.toolCount > 0 && (
-          <div className="mt-0.5 text-[10px] text-muted-foreground/80 truncate">
-            {worker.toolCount} tool{worker.toolCount !== 1 ? 's' : ''}
-            {worker.lastTool ? ` \u2014 ${worker.lastTool}` : ''}
+          <div className="mt-1 text-[10px] text-muted-foreground/60 truncate">
+            {worker.toolCount} tool call{worker.toolCount !== 1 ? 's' : ''}
           </div>
         )}
 
         {/* Mini progress bar — active workers only */}
         {isActive && (
-          <div className="mt-1 h-[2px] bg-border/40 rounded-full overflow-hidden">
+          <div className="mt-2 h-[2px] bg-border/40 rounded-full overflow-hidden">
             <div
               className="h-full bg-accent/80 rounded-full transition-[width] duration-500 ease-out"
               style={{ width: `${Math.min(((worker.toolCount ?? 0) / 15) * 100 + 8, 90)}%` }}
@@ -456,7 +454,7 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
         {/* ── Result summary (terminal tasks) ──────────────────────────── */}
         {worker.resultSummary && TERMINAL_STATUSES.has(worker.status) && (
           <div
-            className="mt-1 text-[10px] text-muted-foreground hover:text-foreground line-clamp-2"
+            className="mt-1.5 text-[11px] text-muted-foreground hover:text-foreground line-clamp-2 cursor-pointer"
             title={worker.resultSummary}
             onClick={(ev) => { ev.stopPropagation(); onSelect(worker); }}
           >
@@ -498,7 +496,7 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
 
 // ── Session row (a CLI session with its child workers) ──────────────────────
 
-function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles, cliByTask }: {
+function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles }: {
   session: SessionNode;
   projectId: string;
   onCancel: (id: string) => void;
@@ -508,7 +506,6 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
   expandedPeek: Set<string>;
   onTogglePeek: (taskId: string) => void;
   cardTitles: Record<string, string>;
-  cliByTask: Record<string, CliSessionInfo>;
 }) {
   const hasChildren = session.workers.length > 0;
   const [open, setOpen] = useState(true);
@@ -547,7 +544,7 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
     <div>
       <button
         className={cn(
-          'flex items-center gap-1 w-full text-left py-0.5 text-[11px] transition-colors cursor-pointer rounded hover:bg-accent/10',
+          'flex items-center gap-1 w-full text-left py-1 text-[12px] transition-colors cursor-pointer rounded hover:bg-accent/10',
           isActive ? 'text-foreground' : 'text-muted-foreground',
         )}
         onClick={handleSessionClick}
@@ -608,7 +605,6 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
               peekExpanded={expandedPeek.has(w.taskId)}
               onTogglePeek={onTogglePeek}
               cardTitles={cardTitles}
-              cliPid={cliByTask[w.taskId]?.pid}
               parentChatId={session.chatId}
               projectId={projectId}
             />
@@ -736,12 +732,12 @@ export function WorkerPanel() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-1">
+      <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
         {tree.length === 0 ? (
           <div className="text-xs text-muted-foreground text-center py-8">No active sessions</div>
         ) : (
           tree.map((proj) => (
-            <ProjectGroup key={proj.projectId} project={proj} onCancel={cancelTask} onSteer={steerTask} onSelect={selectWorker} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={togglePeek} cardTitles={cardTitles} cliByTask={cliByTask} />
+            <ProjectGroup key={proj.projectId} project={proj} onCancel={cancelTask} onSteer={steerTask} onSelect={selectWorker} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={togglePeek} cardTitles={cardTitles} />
           ))
         )}
       </div>
@@ -756,7 +752,7 @@ export function WorkerPanel() {
 
 // ── Project group (collapsible) ─────────────────────────────────────────────
 
-function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles, cliByTask }: {
+function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles }: {
   project: ProjectNode;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
@@ -765,7 +761,6 @@ function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expanded
   expandedPeek: Set<string>;
   onTogglePeek: (taskId: string) => void;
   cardTitles: Record<string, string>;
-  cliByTask: Record<string, CliSessionInfo>;
 }) {
   const [open, setOpen] = useState(true);
   const navigate = useNavigate();
@@ -783,7 +778,7 @@ function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expanded
   return (
     <div>
       <button
-        className="flex items-center gap-1 w-full px-1 text-[11px] font-bold text-foreground hover:text-accent cursor-pointer rounded hover:bg-accent/10 transition-colors"
+        className="flex items-center gap-1 w-full px-1 py-0.5 text-[12px] font-bold text-foreground hover:text-accent cursor-pointer rounded hover:bg-accent/10 transition-colors"
         onClick={handleProjectClick}
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
@@ -791,9 +786,9 @@ function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expanded
         {project.projectName}
       </button>
       {open && (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-1">
           {project.sessions.map((s) => (
-            <SessionRow key={s.chatId} session={s} projectId={project.projectId} onCancel={onCancel} onSteer={onSteer} onSelect={onSelect} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={onTogglePeek} cardTitles={cardTitles} cliByTask={cliByTask} />
+            <SessionRow key={s.chatId} session={s} projectId={project.projectId} onCancel={onCancel} onSteer={onSteer} onSelect={onSelect} peekData={peekData} expandedPeek={expandedPeek} onTogglePeek={onTogglePeek} cardTitles={cardTitles} />
           ))}
         </div>
       )}

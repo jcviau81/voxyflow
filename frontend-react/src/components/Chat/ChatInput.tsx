@@ -432,24 +432,24 @@ export function ChatInput({
               <button
                 type="button"
                 className={cn(
-                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
-                  sttAutoSend ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
+                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
+                  sttAutoSend ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
                 onClick={() => toggleVoiceSetting('stt_auto_send')}
               >
-                <AudioLines size={14} />
+                <AudioLines size={16} />
               </button>
             </Tooltip>}
             {ttsEnabled && <Tooltip content={ttsAutoPlay ? 'Auto-play TTS: ON — responses read aloud' : 'Auto-play TTS: OFF'}>
               <button
                 type="button"
                 className={cn(
-                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
-                  ttsAutoPlay ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
+                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
+                  ttsAutoPlay ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
                 onClick={() => toggleVoiceSetting('tts_auto_play')}
               >
-                <Volume2 size={14} />
+                <Volume2 size={16} />
               </button>
             </Tooltip>}
             {sttEnabled && <VoiceInput compact />}

@@ -7,7 +7,7 @@ from pathlib import Path
 import json
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 from app.services.ws_broadcast import ws_broadcast
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
@@ -25,6 +25,7 @@ from app.models.card import (
 )
 from app.services.agent_router import get_agent_router
 from app.services.agent_personas import AgentType, get_persona, get_all_personas
+from app.services import turn_card_registry
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ async def create_card(
     project_id: str,
     body: CardCreate,
     db: AsyncSession = Depends(get_db),
+    x_voxyflow_chat_id: str | None = Header(default=None),
 ):
     # Verify project exists
     project = await db.get(Project, project_id)
@@ -113,6 +115,8 @@ async def create_card(
     await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
 
     _broadcast_card_change(card)
+    if x_voxyflow_chat_id:
+        turn_card_registry.record_created_card(x_voxyflow_chat_id, card.id)
     return _card_to_response(card)
 
 
@@ -167,6 +171,7 @@ async def list_unassigned_cards(db: AsyncSession = Depends(get_db)):
 async def create_unassigned_card(
     body: UnassignedCardCreate,
     db: AsyncSession = Depends(get_db),
+    x_voxyflow_chat_id: str | None = Header(default=None),
 ):
     """Create a card on the Main Board (alias — creates in system-main project)."""
     card = Card(
@@ -182,6 +187,8 @@ async def create_unassigned_card(
     await db.commit()
     await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
+    if x_voxyflow_chat_id:
+        turn_card_registry.record_created_card(x_voxyflow_chat_id, card.id)
     return _card_to_response(card)
 
 
@@ -374,7 +381,11 @@ async def get_routing_suggestion(
 
 
 @router.post("/cards/{card_id}/duplicate", response_model=CardResponse, status_code=201)
-async def duplicate_card(card_id: str, db: AsyncSession = Depends(get_db)):
+async def duplicate_card(
+    card_id: str,
+    db: AsyncSession = Depends(get_db),
+    x_voxyflow_chat_id: str | None = Header(default=None),
+):
     """Duplicate a card: copies all fields except id/created_at. Title gets ' (copy)' appended."""
     card = await db.get(Card, card_id)
     if not card:
@@ -405,6 +416,8 @@ async def duplicate_card(card_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(new_card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(new_card)
+    if x_voxyflow_chat_id:
+        turn_card_registry.record_created_card(x_voxyflow_chat_id, new_card.id)
     return _card_to_response(new_card)
 
 

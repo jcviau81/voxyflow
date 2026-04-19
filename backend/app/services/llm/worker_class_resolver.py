@@ -11,13 +11,19 @@ logger = logging.getLogger(__name__)
 
 @lru_cache(maxsize=256)
 def _word_pattern(keyword: str) -> re.Pattern[str]:
-    """Compile a case-insensitive word-boundary regex for *keyword*.
+    """Compile a case-insensitive alphanumeric-boundary regex for *keyword*.
 
-    Word-boundary matching (``\\b``) avoids substring false positives like
-    ``'format'`` hitting ``'Information'`` or ``'code'`` hitting ``'gcode.py'``
-    that routed heavy tasks to the wrong (lighter) class.
+    Uses alphanumeric lookarounds instead of ``\\b`` so that ``_`` and ``-``
+    count as separators. This lets patterns like ``"fix"`` match snake_case
+    action names like ``"fix_login_bug"`` (where ``\\b`` fails because ``_``
+    is a word character). Still blocks substring hits like ``'code'`` in
+    ``'gcode.py'`` (the ``.`` is non-alphanumeric, the ``g`` is alphanumeric
+    so ``'code'`` in ``'barcode'`` still rejects).
     """
-    return re.compile(rf"\b{re.escape(keyword.lower())}\b", re.IGNORECASE)
+    return re.compile(
+        rf"(?<![a-zA-Z0-9]){re.escape(keyword.lower())}(?![a-zA-Z0-9])",
+        re.IGNORECASE,
+    )
 
 
 async def _load_worker_classes() -> list[dict]:

@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@plugin "@tailwindcss/typography";
 
 /* ── Geist Pixel font faces (Square = default heading, all variants available) ── */
 @font-face {
@@ -169,10 +170,10 @@ h1, h2, h3, h4, h5, h6 {
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.269 0 0);
     --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
+    --accent: #7c3aed;
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
+    --border: #2a2a3a;
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
     --chart-1: oklch(0.87 0 0);
@@ -180,29 +181,47 @@ h1, h2, h3, h4, h5, h6 {
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
+    /* ── Dark purple theme (sidebar + headers) ── */
+    --sidebar: oklch(0.08 0.02 285);
+    --sidebar-foreground: oklch(0.93 0.02 285);
+    --sidebar-primary: oklch(0.56 0.24 290);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent: oklch(0.13 0.02 285);
     --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar-border: oklch(1 0 0 / 14%);
+    --sidebar-ring: oklch(0.56 0.24 290);
+
+    /* ── JC Palette ─────────────────────────────────────────── */
+    --bg: #0f0f14;
+    --bg2: #16161f;
+    --bg3: #1e1e2a;
+    --text: #ffffff;
+    --text2: #a0a0b8;
+    --text3: #606078;
+    --accent: #7c3aed;
+    --accent2: #9d5cf7;
+    --accent3: #c084fc;
+    --green: #10b981;
+    --green2: #059669;
+    --blue: #3b82f6;
+    --orange: #f59e0b;
+    --red: #ef4444;
+    --yellow: #fbbf24;
 
     /* ── Legacy compat vars — dark ─────────────────────────── */
-    --color-bg: #0a0a0f;
-    --color-bg-secondary: #111118;
-    --color-bg-tertiary: #1a1a24;
+    --color-bg: #0f0f14;
+    --color-bg-secondary: #16161f;
+    --color-bg-tertiary: #1e1e2a;
     --color-bg-hover: rgba(255, 255, 255, 0.06);
     --color-surface: #16161f;
-    --color-surface-elevated: #1e1e2e;
-    --color-text: #e8e8ed;
-    --color-text-primary: #e8e8ed;
-    --color-text-secondary: #9e9ea8;
-    --color-text-muted: #5c5c6b;
-    --color-border: rgba(255, 255, 255, 0.07);
+    --color-surface-elevated: #1e1e2a;
+    --color-text: #ffffff;
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #a0a0b8;
+    --color-text-muted: #606078;
+    --color-border: #2a2a3a;
     --color-border-light: rgba(255, 255, 255, 0.12);
-    --color-primary: #ff6b6b; /* fallback — overwritten by applyAccentColor() on load */
+    --color-primary: #7c3aed; /* fallback — overwritten by applyAccentColor() on load */
     --border-radius: 8px;
     --border-radius-sm: 6px;
     --border-radius-lg: 12px;
@@ -452,4 +471,59 @@ h1, h2, h3 {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+/* ============================================================
+   Dark purple theme — tab bar & project header
+   Target: .dark .tab-bar  /  .dark .project-header
+   Sidebar background is already handled by --sidebar var above.
+   ============================================================ */
+
+/* Tab bar: slightly darker than sidebar for depth contrast */
+.dark .tab-bar {
+  background-color: oklch(0.07 0.015 285);
+  border-bottom-color: oklch(1 0 0 / 12%);
+}
+
+/* Active tab on the ultra-dark mauve tab bar */
+.dark .tab-bar .tab[data-active="true"],
+.dark .tab-bar .tab.active {
+  background-color: oklch(0.13 0.02 285);
+  border-color: oklch(1 0 0 / 14%);
+}
+
+/* Project header (view-switcher bar) */
+.dark .project-header {
+  background-color: oklch(0.07 0.015 285);
+  border-bottom-color: oklch(1 0 0 / 12%);
+}
+
+/* Active view tab in the project header */
+.dark .project-header__tab--active {
+  background-color: oklch(0.13 0.02 285) !important;
+  color: oklch(0.93 0.04 290) !important;
+}
+
+/* Sidebar brand strip — ultra-dark mauve */
+.dark .sidebar-brand {
+  background-color: oklch(0.08 0.02 285);
+  border-bottom-color: oklch(1 0 0 / 14%);
+}
+
+/* Sidebar footer — ultra-dark mauve */
+.dark .sidebar-footer {
+  background-color: oklch(0.08 0.02 285);
+  border-top-color: oklch(1 0 0 / 14%);
+}
+
+/* Sidebar active nav item */
+.dark .sidebar-item.active,
+.dark .sidebar-nav a.active,
+.dark .sidebar-nav [aria-current="page"] {
+  background-color: oklch(0.13 0.02 285);
+}
+
+/* Connection status strip */
+.dark .sidebar-status {
+  background-color: oklch(0.09 0.015 285);
 }

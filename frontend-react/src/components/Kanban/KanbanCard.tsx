@@ -268,7 +268,7 @@ export function KanbanCard({
 
   const handleCopyId = async () => {
     try {
-      await navigator.clipboard.writeText(card.id);
+      await navigator.clipboard.writeText(`Card ID: ${card.id}`);
       showToast('Card ID copied!', 'success');
     } catch {
       showToast('Failed to copy ID', 'error');

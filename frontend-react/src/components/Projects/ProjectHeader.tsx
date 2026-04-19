@@ -1,4 +1,4 @@
-import { Home, MessageSquare, LayoutGrid, Pin, Brain, BarChart2, Pencil } from 'lucide-react';
+import { Home, MessageSquare, LayoutGrid, Pin, Brain, BarChart2, Pencil, Archive } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -17,11 +17,12 @@ const PROJECT_TABS: ProjectTab[] = [
   { view: 'kanban',    icon: <LayoutGrid size={13} />,    label: 'Kanban' },
   { view: 'freeboard', icon: <Pin size={13} />,           label: 'Backlog' },
   { view: 'knowledge', icon: <Brain size={13} />,         label: 'Knowledge' },
+  { view: 'archives',  icon: <Archive size={13} />,       label: 'Archives' },
   { view: 'stats',     icon: <BarChart2 size={13} />,     label: 'Stats' },
 ];
 
 // Main tab only shows a subset of views
-const MAIN_VIEWS: ViewMode[] = ['chat', 'kanban', 'freeboard', 'knowledge'];
+const MAIN_VIEWS: ViewMode[] = ['chat', 'kanban', 'freeboard', 'knowledge', 'archives'];
 
 interface ProjectHeaderProps {
   onOpenProjectProperties?: (projectId: string) => void;

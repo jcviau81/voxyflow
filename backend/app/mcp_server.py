@@ -46,12 +46,22 @@ _http_client: httpx.AsyncClient | None = None
 
 
 def _get_http_client() -> httpx.AsyncClient:
-    """Return (and lazily create) the module-level persistent HTTP client."""
+    """Return (and lazily create) the module-level persistent HTTP client.
+
+    Forwards ``VOXYFLOW_CHAT_ID`` as ``X-Voxyflow-Chat-Id`` so the backend
+    can attribute side effects (e.g. cards created in a turn) to the
+    originating dispatcher chat — see ``turn_card_registry``.
+    """
     global _http_client
     if _http_client is None:
+        headers = {}
+        chat_id = os.environ.get("VOXYFLOW_CHAT_ID", "").strip()
+        if chat_id:
+            headers["X-Voxyflow-Chat-Id"] = chat_id
         _http_client = httpx.AsyncClient(
             base_url=VOXYFLOW_API_BASE,
             timeout=30.0,
+            headers=headers or None,
         )
     return _http_client
 

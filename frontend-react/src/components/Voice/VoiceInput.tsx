@@ -466,7 +466,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
           <Tooltip content={isRecording ? 'Recording… click to stop' : sttService.currentEngine === 'whisper_local' ? 'Push to talk (hold) · Alt+V · Whisper Local' : 'Push to talk (hold) · Alt+V'}>
             <button
               type="button"
-              className={`voice-btn p-2 rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' hover:bg-muted text-muted-foreground'}`}
+              className={`voice-btn w-8 h-8 flex items-center justify-center rounded-lg transition-colors${isRecording ? ' recording bg-red-500 text-white' : ' text-muted-foreground hover:bg-accent hover:text-foreground'}`}
               onClick={handlePttClick}
               aria-label={isRecording ? 'Stop recording' : 'Click to talk (Alt+V)'}
             >
@@ -478,7 +478,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
         <Tooltip content={wakeWordEnabled ? `Wake word ON — say "${wakeWordLabel}" to start` : `Wake word mode — say "${wakeWordLabel}" to start recording`}>
           <button
             type="button"
-            className={`wake-word-btn p-2 rounded-lg transition-colors${wakeWordEnabled ? ' active bg-primary text-primary-foreground' : ' hover:bg-muted text-muted-foreground'}${wakeWordPulsing ? ' animate-pulse' : ''}`}
+            className={`wake-word-btn w-8 h-8 flex items-center justify-center rounded-lg transition-colors${wakeWordEnabled ? ' active bg-primary/20 text-primary' : ' text-muted-foreground hover:bg-accent hover:text-foreground'}${wakeWordPulsing ? ' animate-pulse' : ''}`}
             onClick={toggleWakeWord}
             aria-label={wakeWordEnabled ? 'Disable wake word mode' : 'Enable wake word mode'}
           >

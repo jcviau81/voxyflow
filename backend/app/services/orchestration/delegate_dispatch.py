@@ -23,6 +23,7 @@ from uuid import uuid4
 
 from fastapi import WebSocket
 
+from app.services import turn_card_registry
 from app.services.direct_executor import DirectExecutor, READ_ACTIONS
 from app.services.event_bus import ActionIntent, event_bus_registry
 from app.services.orchestration.model_resolution import resolve_worker_model
@@ -208,6 +209,12 @@ class DelegateDispatchMixin:
                 task_id = f"task-{uuid4().hex[:8]}"
 
                 card_id = card_context.get("id") if card_context else None
+                # Same-turn linkage: prefer a card_id explicitly passed in the
+                # delegate, else pop one Voxy just created via MCP in this turn.
+                # Avoids the "ghost card" duplicate where _auto_create_card
+                # re-fabricates a card the dispatcher already made.
+                if not card_id:
+                    card_id = data.get("card_id") or turn_card_registry.pop_created_card(chat_id or "")
 
                 event_data = {
                     "project_name": project_name,
@@ -220,6 +227,8 @@ class DelegateDispatchMixin:
                     # Fallback chain: delegate.data['project_id'] → session project_id → None
                     "project_id": data.get("project_id") or project_id,
                 }
+                # Restore card_id after spread (data['card_id'] would overwrite with None)
+                event_data["card_id"] = card_id
                 if _worker_class_id_override:
                     event_data["worker_class_id"] = _worker_class_id_override
 
@@ -333,6 +342,9 @@ class DelegateDispatchMixin:
 
                     # Extract card_id from card_context for direct access
                     card_id = card_context.get("id") if card_context else None
+                    # Same-turn linkage (see _emit_native_delegates for rationale).
+                    if not card_id:
+                        card_id = data.get("card_id") or turn_card_registry.pop_created_card(chat_id or "")
 
                     event_data = {
                         "project_name": project_name,
@@ -345,6 +357,8 @@ class DelegateDispatchMixin:
                         # Fallback chain: delegate.data['project_id'] → session project_id → None
                         "project_id": data.get("project_id") or project_id,
                     }
+                    # Restore card_id after spread (data['card_id'] would overwrite with None)
+                    event_data["card_id"] = card_id
                     if _worker_class_id_override:
                         event_data["worker_class_id"] = _worker_class_id_override
 
