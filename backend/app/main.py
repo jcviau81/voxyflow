@@ -453,28 +453,17 @@ async def general_websocket(websocket: WebSocket):
                         except Exception:
                             pass  # websocket may already be closed
 
-                    # Broadcast completed assistant response to OTHER connected clients
-                    # (after orchestrator returns — fast layer is complete at this point)
-                    try:
-                        history = _orchestrator._claude.get_history(chat_id)
-                        last_assistant = None
-                        for msg in reversed(history):
-                            if msg.get("role") == "assistant" and msg.get("content"):
-                                last_assistant = msg
-                                break
-                        if last_assistant:
-                            await ws_broadcast.emit_to_chat(chat_id, "chat:message:new", {
-                                "chatId": chat_id,
-                                "sessionId": session_id,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": last_assistant.get("content", ""),
-                                    "timestamp": time.time(),
-                                    "model": last_assistant.get("model"),
-                                },
-                            }, exclude=websocket)
-                    except Exception as _broadcast_err:
-                        logger.warning(f"[WS] Failed to broadcast assistant message: {_broadcast_err}")
+                    # NOTE: we intentionally do NOT broadcast chat:message:new for
+                    # the assistant response. Every socket subscribed to chat_id
+                    # already received the full stream (tokens + final done) via
+                    # send_and_fanout_chat in the layer runners, and finalized a
+                    # local bubble. Emitting a second chat:message:new here would
+                    # arrive with a later timestamp than the streamed bubble,
+                    # slip past the role+timestamp+content-prefix dedup in
+                    # setMessages, and render the assistant message twice on
+                    # every subscriber (phone / second tab). Keep only the user
+                    # broadcast above — user text never streams, so subscribers
+                    # genuinely need that one.
 
                 elif msg_type == "session:reset":
                     chat_level = payload.get("chatLevel", "general")
