@@ -408,7 +408,7 @@ class PersonalityService:
             )
 
         if memory_context:
-            parts.append(f"## Retrieved fragments (may be noisy)\n{memory_context}")
+            parts.append(f"## Retrieved fragments (may be noisy — raw semantic hits, not curated truth; scores below ~0.20 are background noise)\n{memory_context}")
 
         if active_workers_context:
             parts.append(f"## Background Workers Status\n{active_workers_context}")
@@ -569,7 +569,7 @@ class PersonalityService:
 
         # Layer 3: Memory context
         if include_memory_context:
-            sections.append("## Retrieved fragments (may be noisy)\n")
+            sections.append("## Retrieved fragments (may be noisy — raw semantic hits, not curated truth; scores below ~0.20 are background noise)\n")
             sections.append(include_memory_context + "\n")
 
         # Layer 4: Agent persona overlay
@@ -704,6 +704,9 @@ class PersonalityService:
             "**Project scoping is automatic**: memory/knowledge tools are scoped to the current "
             "project by the runtime. Don't pass project_id manually. Main/general chat falls back "
             "to global + system-main memory.\n\n"
+            "**Inline memory.search is expected, not stalling.** If you need a fact you don't "
+            "have, call it mid-response — that's normal. Don't self-censor or apologise for a "
+            "quick lookup; it's part of how you think.\n\n"
             "**<delegate> block** (end of response) for research, multi-step, web, code, commands:\n"
             "<delegate>\n"
             '{"action":"...","model":"haiku|sonnet|opus","description":"..."}\n'

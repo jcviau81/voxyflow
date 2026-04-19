@@ -250,11 +250,23 @@ def build_handlers(
                 metadata=meta,
             )
             if doc_id:
+                # Echo the attribution prefix so Voxy sees exactly how this
+                # entry will render in future "Retrieved fragments" blocks —
+                # same formatter used on read, so she can confirm the speaker
+                # and scope are what she intended.
+                try:
+                    from app.services.memory_context import MemoryContextMixin
+                    attribution = MemoryContextMixin._attribution_prefix(meta)
+                except Exception:
+                    attribution = ""
                 return {
                     "success": True,
                     "id": doc_id,
                     "collection": collection,
-                    "message": f"Memory saved ({mem_type}, {importance})",
+                    "attribution": attribution,
+                    "message": (
+                        f"Memory saved ({mem_type}, {importance}) {attribution}".strip()
+                    ),
                 }
             return {"success": False, "error": "store_memory returned None"}
         except Exception as e:
