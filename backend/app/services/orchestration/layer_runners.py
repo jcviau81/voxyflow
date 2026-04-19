@@ -18,6 +18,7 @@ from fastapi import WebSocket
 from app.tools.response_parser import TOOL_CALL_PATTERN
 from app.services.personality_service import (
     build_live_state_block,
+    build_session_handoff_block,
     build_worker_events_block,
 )
 from app.services.ws_broadcast import ws_broadcast
@@ -60,7 +61,7 @@ async def _compute_ambient_blocks(
     session_id: str | None,
     chat_id: str,
     project_id: str | None = None,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     """Build Live state + Worker activity blocks for the next user turn.
 
     Worker activity drains the per-chat completion buffer (see
@@ -130,7 +131,16 @@ async def _compute_ambient_blocks(
             logger.debug("build_worker_events_block failed: %s", e)
             worker_events = ""
 
-    return live_state, worker_events
+    session_handoff = ""
+    try:
+        from app.services.session_store import session_store
+        recent = session_store.get_recent_messages(chat_id, limit=10)
+        session_handoff = build_session_handoff_block(recent)
+    except Exception as e:
+        logger.debug("build_session_handoff_block failed: %s", e)
+        session_handoff = ""
+
+    return live_state, worker_events, session_handoff
 
 
 class LayerRunnersMixin:
@@ -169,7 +179,7 @@ class LayerRunnersMixin:
             # For callbacks: buffer tokens to check for [SILENT] before sending
             buffered_tokens: list[str] = [] if is_callback else []
 
-            live_state_block, worker_events_block = await _compute_ambient_blocks(
+            live_state_block, worker_events_block, session_handoff_block = await _compute_ambient_blocks(
                 self._worker_pools, session_id, chat_id,
                 project_id=project_id,
             )
@@ -187,6 +197,7 @@ class LayerRunnersMixin:
                 session_id=session_id or "",
                 live_state_block=live_state_block,
                 worker_events_block=worker_events_block,
+                session_handoff_block=session_handoff_block,
             ):
                 fast_full_response += token
                 if not first_token_sent:
@@ -324,7 +335,7 @@ class LayerRunnersMixin:
 
         try:
             first_token_sent = False
-            live_state_block, worker_events_block = await _compute_ambient_blocks(
+            live_state_block, worker_events_block, session_handoff_block = await _compute_ambient_blocks(
                 self._worker_pools, session_id, chat_id,
                 project_id=project_id,
             )
@@ -342,6 +353,7 @@ class LayerRunnersMixin:
                 session_id=session_id or "",
                 live_state_block=live_state_block,
                 worker_events_block=worker_events_block,
+                session_handoff_block=session_handoff_block,
             ):
                 deep_full_response += token
                 if not first_token_sent:
