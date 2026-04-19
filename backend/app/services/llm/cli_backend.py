@@ -255,8 +255,16 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
 
         # Chat layers: disable built-in tools for clean streaming
         # Workers: keep native tools (Bash, Read, Edit, etc.) + add MCP for Voxyflow ops
+# --- LOCAL-PATCH-DISALLOW-WEBSEARCH-START ---
+# Workers: block built-in WebSearch (Claude Code DDG default) so they MUST go
+# through voxyflow.web.search (our SearXNG instance with DDG fallback).
+# Chat layers: keep the original behavior (--tools "" disables ALL tools incl.
+# the built-ins; we don't need a disallow because nothing is allowed anyway).
         if not native_tools:
             args.extend(["--tools", ""])
+        else:
+            args.extend(["--disallowedTools", "WebSearch"])
+# --- LOCAL-PATCH-DISALLOW-WEBSEARCH-END ---
 
         if use_tools:
             args.extend([

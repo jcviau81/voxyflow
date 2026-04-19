@@ -46,11 +46,14 @@ def reload_layer_models(service: "ClaudeService") -> None:
     overrides = _load_model_overrides()
     default_api_key = config.claude_api_key
 
-    # Update default worker model from settings
-    from app.services.settings_loader import set_default_worker_model
+    # Update default worker model + Briefer model from settings
+    from app.services.settings_loader import set_default_worker_model, set_briefer_model
     dwm = overrides.get("default_worker_model", "")
     if dwm:
         set_default_worker_model(dwm)
+    bm = overrides.get("briefer_model", "")
+    if bm:
+        set_briefer_model(bm)
 
     for layer, attr_prefix, default_model in [
         ("fast", "fast", config.claude_sonnet_model),

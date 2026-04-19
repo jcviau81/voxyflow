@@ -790,12 +790,26 @@ class PersonalityService:
         context = self._build_worker_context_section(chat_level, project, card)
         worker_rules = self.load_worker()
 
+# --- LOCAL-PATCH-WORKER-WEBSEARCH-RULE-START ---
+# Force workers onto voxyflow.web.search (SearXNG). Belt-and-braces with the
+# --disallowedTools=WebSearch flag at the CLI level: prompt-side rule + flag-
+# side block. Even if the flag is dropped by a future Claude Code update,
+# the prompt rule keeps workers honest.
+        web_search_rule = (
+            "## Web Search\n"
+            "You have access to two web search tools:\n"
+            "- `voxyflow.web.search` — our self-hosted SearXNG instance. **Always use this one.**\n"
+            "- Built-in `WebSearch` — Claude Code's default (DuckDuckGo). **Never use this.**\n\n"
+            "Always call `voxyflow.web.search` for any web search task. Never use the built-in WebSearch tool."
+        )
         return (
             f"{worker_rules}\n\n"
             f"## Active Role: Worker (Task Executor)\n\n"
             f"## Available Tools\n{tool_list}\n\n"
+            f"{web_search_rule}\n\n"
             f"## Context\n{context}"
         )
+# --- LOCAL-PATCH-WORKER-WEBSEARCH-RULE-END ---
 
     def _build_worker_context_section(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
         """Build context section for worker prompts with full IDs and details."""
@@ -838,6 +852,37 @@ class PersonalityService:
 
     def build_agent_prompt(self, agent_persona: str, task_context: str, memory_context: Optional[str] = None) -> str:
         return self.build_system_prompt(base_prompt=task_context, include_memory_context=memory_context, agent_persona=agent_persona)
+
+    # ------------------------------------------------------------------
+    # Briefer — post-worker synthesis prompt
+    # ------------------------------------------------------------------
+
+    def build_briefer_prompt(self) -> str:
+        """System prompt for the Briefer.
+
+        The Briefer reads a worker's raw output (logs, JSON, scan results,
+        long markdown) and writes a short human-readable chat message. It
+        does not take actions, does not call tools, does not delegate.
+        Its only job is to translate machine output into a brief.
+        """
+        return (
+            "You are the **Briefer**.\n\n"
+            "Your only job: read the raw output of a worker that just finished, "
+            "and write a short chat message for the human user.\n\n"
+            "## Format\n"
+            "- 3 to 5 bullets, max ~600 characters total.\n"
+            "- Lead with what was found / what happened (concrete facts, numbers, names).\n"
+            "- If the worker hit an error or could not complete, say so plainly in the first bullet.\n"
+            "- End with a single recommended next step ONLY if the result clearly implies one. "
+            "Otherwise stop — do not invent next steps.\n"
+            "- Match the user's language (French or English) based on the original task wording.\n\n"
+            "## Hard rules\n"
+            "- Do NOT propose to run more tasks, do NOT ask follow-up questions.\n"
+            "- Do NOT repeat the raw worker dump. Synthesize.\n"
+            "- Do NOT prefix with 'Here is the summary' or similar fluff. Get straight to the bullets.\n"
+            "- Do NOT use tools. You have none.\n"
+            "- If the worker output is empty or pure noise, say so in one line."
+        )
 
 
 _personality_service: Optional[PersonalityService] = None

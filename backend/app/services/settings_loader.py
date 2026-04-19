@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 _default_worker_model: str = "sonnet"
+_briefer_model: str = "haiku"
 
 _SETTINGS_KEY = "app_settings"
 
@@ -34,6 +35,19 @@ def set_default_worker_model(model: str) -> None:
     if model:
         _default_worker_model = model
         logger.info(f"[Settings] Default worker model set to: {model}")
+
+
+def get_briefer_model() -> str:
+    """Return the model used by the Briefer (post-worker synthesis)."""
+    return _briefer_model
+
+
+def set_briefer_model(model: str) -> None:
+    """Update the cached Briefer model (called when settings are loaded)."""
+    global _briefer_model
+    if model:
+        _briefer_model = model
+        logger.info(f"[Settings] Briefer model set to: {model}")
 
 
 async def _load_settings_from_db() -> dict | None:

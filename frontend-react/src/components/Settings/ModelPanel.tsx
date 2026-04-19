@@ -55,6 +55,7 @@ interface ModelsSettings {
   deep: ModelLayerConfig;
 
   default_worker_model: string;
+  briefer_model: string;
   endpoints: ProviderEndpoint[];
   worker_classes: WorkerClass[];
 }
@@ -160,6 +161,7 @@ const DEFAULT_MODELS: ModelsSettings = {
   deep: { ...DEFAULT_LAYER, model: 'claude-opus-4' },
 
   default_worker_model: 'sonnet',
+  briefer_model: 'haiku',
   endpoints: [],
   worker_classes: DEFAULT_WORKER_CLASSES,
 };
@@ -2144,6 +2146,143 @@ function DefaultWorkerModelSection({
   );
 }
 
+// ── BrieferModelSection ───────────────────────────────────────────────────
+//
+// "Briefer" — lightweight model that reads each worker's raw output and
+// posts a 3-5 bullet human-friendly summary to the chat. Runs after every
+// worker completes. Defaults to Haiku for speed/cost; switch to Sonnet/Opus
+// here if a richer brief is desired.
+
+const BRIEFER_MODEL_LABELS: Record<string, string> = {
+  haiku: 'Haiku',
+  sonnet: 'Sonnet',
+  opus: 'Opus',
+};
+
+const BRIEFER_DESCRIPTION =
+  "Lightweight model that reads each worker's raw output and posts a human-friendly summary (3-5 bullets) to the chat. Runs automatically after every worker completes.";
+
+interface BrieferModelSectionProps {
+  control: ReturnType<typeof useForm<ModelsSettings>>['control'];
+  watch: ReturnType<typeof useForm<ModelsSettings>>['watch'];
+  setValue: ReturnType<typeof useForm<ModelsSettings>>['setValue'];
+  editingSection: string | null;
+  setEditingSection: (s: string | null) => void;
+  saveAll: (overrides?: Partial<ModelsSettings>) => Promise<void>;
+  isSaving: boolean;
+}
+
+function BrieferModelSection({
+  control, watch, setValue, editingSection, setEditingSection, saveAll, isSaving,
+}: BrieferModelSectionProps) {
+  const sectionKey = 'briefer-model';
+  const isEditing = editingSection === sectionKey;
+  const lockedByOther = editingSection !== null && !isEditing;
+  const value = useWatch({ control, name: 'briefer_model' }) ?? 'haiku';
+  const snapshotRef = useRef<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  function startEdit() {
+    if (editingSection !== null) return;
+    snapshotRef.current = (watch('briefer_model') ?? 'haiku') as string;
+    setSaveError(null);
+    setEditingSection(sectionKey);
+  }
+
+  function cancelEdit() {
+    if (snapshotRef.current !== null) {
+      setValue('briefer_model', snapshotRef.current);
+    }
+    snapshotRef.current = null;
+    setSaveError(null);
+    setEditingSection(null);
+  }
+
+  async function saveEdit() {
+    setSaveError(null);
+    try {
+      const v = (watch('briefer_model') ?? 'haiku') as string;
+      await saveAll({ briefer_model: v });
+      snapshotRef.current = null;
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed');
+    }
+  }
+
+  if (!isEditing) {
+    return (
+      <div className="rounded-lg border border-border bg-background p-4 flex items-center gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">Briefer</span>
+            <span className="text-xs text-muted-foreground font-mono">
+              {BRIEFER_MODEL_LABELS[value] ?? value}
+            </span>
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {BRIEFER_DESCRIPTION}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          onClick={startEdit}
+          disabled={lockedByOther}
+        >
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-background p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-sm font-semibold whitespace-nowrap">Briefer</span>
+        <Controller
+          control={control}
+          name="briefer_model"
+          render={({ field }) => (
+            <select
+              className="input-field text-sm py-1.5 px-2 rounded w-40"
+              value={field.value ?? 'haiku'}
+              onChange={field.onChange}
+            >
+              <option value="haiku">Haiku</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="opus">Opus</option>
+            </select>
+          )}
+        />
+        <span className="text-xs text-muted-foreground flex-1 min-w-0">
+          {BRIEFER_DESCRIPTION}
+        </span>
+      </div>
+      <div className="flex gap-2 justify-end items-center pt-1">
+        {saveError && (
+          <span className="text-xs text-red-400 mr-auto">{saveError}</span>
+        )}
+        <button
+          type="button"
+          className="text-xs px-3 py-1 rounded border border-border hover:bg-accent text-muted-foreground"
+          onClick={cancelEdit}
+          disabled={isSaving}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="text-xs px-4 py-1 rounded border border-border hover:bg-accent font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={saveEdit}
+          disabled={isSaving}
+        >
+          {isSaving ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── ModelPanel ─────────────────────────────────────────────────────────────
 
 export function ModelPanel() {
@@ -2179,6 +2318,7 @@ export function ModelPanel() {
       fast: { ...dm.fast, ...(sm.fast || {}) },
       deep: { ...dm.deep, ...(sm.deep || {}) },
       default_worker_model: sm.default_worker_model ?? dm.default_worker_model,
+      briefer_model: sm.briefer_model ?? dm.briefer_model,
       endpoints: sm.endpoints ?? [],
       worker_classes: sm.worker_classes?.length ? sm.worker_classes : DEFAULT_WORKER_CLASSES,
     };
@@ -2295,6 +2435,17 @@ export function ModelPanel() {
 
       {/* ── Default Worker Model ── */}
       <DefaultWorkerModelSection
+        control={control}
+        watch={watch}
+        setValue={setValue}
+        editingSection={editingSection}
+        setEditingSection={setEditingSection}
+        saveAll={saveAll}
+        isSaving={saveMutation.isPending}
+      />
+
+      {/* ── Briefer (post-worker synthesis) ── */}
+      <BrieferModelSection
         control={control}
         watch={watch}
         setValue={setValue}

@@ -18,7 +18,9 @@ from app.database import AppSettings as AppSettingsRow, async_session
 from app.services.auth_service import verify_auth
 from app.services.settings_loader import (
     _load_settings_from_db,
+    get_briefer_model,
     get_default_worker_model,
+    set_briefer_model,
     set_default_worker_model,
 )
 
@@ -41,6 +43,8 @@ __all__ = [
     "PERSONALITY_DIR",
     "get_default_worker_model",
     "set_default_worker_model",
+    "get_briefer_model",
+    "set_briefer_model",
     "_load_settings_from_db",
 ]
 
@@ -158,6 +162,11 @@ class ModelsSettings(BaseModel):
 
     # Default model for workers (haiku/sonnet/opus)
     default_worker_model: str = "sonnet"
+
+    # Briefer — lightweight model that summarizes each worker's raw output
+    # into a human-friendly chat message (3-5 bullets). Runs after every
+    # worker completes. Default: haiku (fast, cheap, plenty for reformatting).
+    briefer_model: str = "haiku"
 
     # Named provider endpoints (user's machines / remote instances)
     endpoints: list[ProviderEndpoint] = []

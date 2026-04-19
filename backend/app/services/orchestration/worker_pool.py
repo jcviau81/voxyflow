@@ -22,7 +22,12 @@ from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_regi
 from app.services.pending_results import pending_store
 from app.services.worker_session_store import get_worker_session_store
 from app.services.worker_supervisor import get_worker_supervisor
-from app.services.settings_loader import get_default_worker_model
+from app.services.settings_loader import get_briefer_model, get_default_worker_model
+
+# Briefer — max characters of raw worker output fed to the synthesis call.
+# Anything beyond this is truncated with a notice. The Briefer is meant to
+# read summaries / first pages of artifacts, not megabyte log dumps.
+_BRIEFER_INPUT_BUDGET = 6000
 
 if TYPE_CHECKING:
     from app.services.chat_orchestration import ChatOrchestrator
@@ -1328,6 +1333,23 @@ class DeepWorkerPool:
                     summary_line=summary_line,
                 )
 
+                # --- Briefer pass: post a human-friendly summary to the chat ---
+                # Runs on top-level workers only (sub-workers / follow-ups don't
+                # generate their own brief — they bubble up via the parent's).
+                if event.callback_depth == 0 and result_content:
+                    try:
+                        await self._run_briefer(
+                            dispatcher_chat_id=dispatcher_chat_id,
+                            session_id=event.session_id,
+                            task_id=event.task_id,
+                            intent=event.intent or "",
+                            status=status,
+                            structured_summary=(payload or {}).get("summary") or "",
+                            raw_output=result_content,
+                        )
+                    except Exception as brief_err:
+                        logger.warning(f"[Briefer] Failed for task {event.task_id}: {brief_err}")
+
             if follow_up_action and self._orchestrator and event.session_id:
                 try:
                     follow_up_intent = ActionIntent(
@@ -1401,6 +1423,107 @@ class DeepWorkerPool:
                 supervisor.cleanup_task(event.task_id)
             except Exception:
                 pass
+
+    async def _run_briefer(
+        self,
+        *,
+        dispatcher_chat_id: str,
+        session_id: str,
+        task_id: str,
+        intent: str,
+        status: str,
+        structured_summary: str,
+        raw_output: str,
+    ) -> None:
+        """Synthesize a worker's raw output into a 3-5 bullet chat message.
+
+        Calls the Briefer model (configured in Settings → Models, default
+        Haiku) and posts the result as an assistant message in the
+        dispatcher's chat. Best-effort: on any failure the worker
+        completion path continues and the user just doesn't get a brief.
+        """
+        from app.services.personality_service import get_personality_service
+        from app.services.session_store import session_store as _ss
+        from app.services.ws_broadcast import ws_broadcast
+
+        briefer_model_pref = (get_briefer_model() or "haiku").lower()
+        if "opus" in briefer_model_pref:
+            client = self._claude.deep_client
+            client_type = self._claude.deep_client_type
+            full_model = self._claude.deep_model
+        elif "sonnet" in briefer_model_pref:
+            client = self._claude.fast_client
+            client_type = self._claude.fast_client_type
+            full_model = self._claude.fast_model
+        else:
+            client = self._claude.haiku_client
+            client_type = self._claude.haiku_client_type
+            full_model = self._claude.haiku_model
+
+        truncated = raw_output
+        if len(raw_output) > _BRIEFER_INPUT_BUDGET:
+            truncated = (
+                raw_output[:_BRIEFER_INPUT_BUDGET]
+                + f"\n\n[... output truncated — {len(raw_output) - _BRIEFER_INPUT_BUDGET} chars omitted; full text in artifact ...]"
+            )
+
+        user_prompt = (
+            f"Worker intent: {intent or 'unknown'}\n"
+            f"Task id: {task_id}\n"
+            f"Status: {status}\n"
+        )
+        if structured_summary:
+            user_prompt += f"\nWorker's own summary (if any):\n{structured_summary[:1000]}\n"
+        user_prompt += f"\n--- Raw worker output ---\n{truncated}\n--- End ---\n\nWrite the chat message now."
+
+        try:
+            brief = await self._claude._call_api(
+                model=full_model,
+                system=get_personality_service().build_briefer_prompt(),
+                messages=[{"role": "user", "content": user_prompt}],
+                client=client,
+                client_type=client_type,
+                use_tools=False,
+                layer="briefer",
+                chat_level="general",
+            )
+        except Exception as e:
+            logger.warning(f"[Briefer] _call_api failed for task {task_id}: {e}")
+            return
+
+        brief = (brief or "").strip()
+        if not brief:
+            return
+
+        # Persist to session store so it survives reload.
+        try:
+            _ss.save_message(session_id or dispatcher_chat_id, {
+                "role": "assistant",
+                "content": brief,
+                "model": full_model,
+                "type": "briefer",
+                "task_id": task_id,
+                "intent": intent,
+            })
+        except Exception as persist_err:
+            logger.warning(f"[Briefer] Failed to persist brief for {task_id}: {persist_err}")
+
+        # Push live to any connected WS subscribed to this chat.
+        try:
+            await ws_broadcast.emit_to_chat(dispatcher_chat_id, "chat:message:new", {
+                "chatId": dispatcher_chat_id,
+                "sessionId": session_id,
+                "message": {
+                    "role": "assistant",
+                    "content": brief,
+                    "timestamp": time.time(),
+                    "model": full_model,
+                },
+            })
+        except Exception as emit_err:
+            logger.warning(f"[Briefer] WS emit failed for {task_id}: {emit_err}")
+
+        logger.info(f"[Briefer] Posted brief for task {task_id} (model={full_model}, chars={len(brief)})")
 
     async def _send_task_event(self, event_type: str, task_id: str, payload: dict) -> None:
         """Send a task event to the frontend via WebSocket.

@@ -405,8 +405,34 @@ async def system_exec(params: dict) -> dict:
 # 2. web.search
 # ---------------------------------------------------------------------------
 
+# --- LOCAL-PATCH-SEARXNG-START (do not remove markers — used by reapply script) ---
+async def _web_search_searxng(query: str, count: int, base_url: str) -> dict | None:
+    """Hit a local SearXNG JSON API. Returns None on any failure (caller falls back)."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(
+                f"{base_url.rstrip('/')}/search",
+                params={"q": query, "format": "json"},
+                headers={"Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        results = []
+        for r in (data.get("results") or [])[:count]:
+            url = r.get("url") or ""
+            title = (r.get("title") or "").strip()
+            snippet = (r.get("content") or "").strip()[:300]
+            if title and url:
+                results.append({"title": title, "url": url, "snippet": snippet})
+        return {"success": True, "results": results, "count": len(results), "engine": "searxng"}
+    except Exception as e:
+        logger.warning(f"[web.search] SearXNG failed ({e}), will fall back")
+        return None
+# --- LOCAL-PATCH-SEARXNG-END ---
+
+
 async def web_search(params: dict) -> dict:
-    """Search the web via DuckDuckGo (no API key required)."""
+    """Search the web. Prefers local SearXNG (SEARXNG_URL env), falls back to DuckDuckGo."""
     import re as _re
     import urllib.parse as _urlparse
 
@@ -416,6 +442,16 @@ async def web_search(params: dict) -> dict:
 
     count = min(max(params.get("count", 5), 1), 20)
     region = params.get("region", "wt-wt")
+
+    # --- LOCAL PATCH: try SearXNG first ---
+    searxng_url = os.environ.get("SEARXNG_URL", "http://localhost:8888").strip()
+    if searxng_url:
+        logger.info(f"[web.search] SearXNG: {query} (count={count}, url={searxng_url})")
+        result = await _web_search_searxng(query, count, searxng_url)
+        if result is not None and result.get("results"):
+            return result
+        # else: fall through to DDG
+    # --- end local patch ---
 
     logger.info(f"[web.search] DuckDuckGo: {query} (count={count})")
 
@@ -461,7 +497,7 @@ async def web_search(params: dict) -> dict:
             if title and url:
                 results.append({"title": title, "url": url, "snippet": snippet})
 
-        return {"success": True, "results": results, "count": len(results)}
+        return {"success": True, "results": results, "count": len(results), "engine": "duckduckgo"}
 
     except httpx.HTTPStatusError as e:
         return {"success": False, "error": f"DuckDuckGo error: HTTP {e.response.status_code}"}
