@@ -355,13 +355,20 @@ export function KanbanCard({
       onDragStart={handleDragStart}
       onDragEnd={() => setIsDragging(false)}
     >
-      {/* Worker execution indicator badge */}
-      {isWorkerActive && (
+      {/* Status indicator: ping for active worker, mini-spinner for in-progress */}
+      {(isWorkerActive || card.status === 'in-progress') && (
         <div className="absolute top-1.5 right-1.5 flex items-center gap-1 z-20">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-          </span>
+          {isWorkerActive ? (
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+          ) : (
+            <div
+              className="w-3.5 h-3.5 rounded-full border-2 border-orange-500/20 border-t-orange-500 animate-spin [animation-duration:1.2s]"
+              aria-label="in progress"
+            />
+          )}
         </div>
       )}
 

@@ -285,7 +285,7 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
   );
 
   return (
-    <div className="relative group/worker">
+    <div className="relative group/worker worker-item-appear">
       {/* Tree connector lines */}
       <div className={cn(
         'absolute left-0 top-0 w-px bg-border/40',
@@ -298,6 +298,7 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
           'ml-3 px-2 py-1.5 rounded cursor-pointer transition-colors',
           'hover:bg-accent/10 focus-within:bg-accent/10',
           !isActive && 'opacity-60',
+          isActive && 'shadow-md shadow-black/30',
         )}
         onClick={handleRowClick}
         role="button"
@@ -323,7 +324,18 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
             </span>
           )}
 
-          <span className="shrink-0" aria-hidden="true">{modelEmoji(worker.model)}</span>
+          <span
+            className={cn(
+              'shrink-0 w-[18px] h-[18px] rounded flex items-center justify-center text-[10px] leading-none',
+              modelTier(worker.model) === 'haiku'  && 'bg-gradient-to-br from-blue-500 to-blue-700',
+              modelTier(worker.model) === 'sonnet' && 'bg-gradient-to-br from-violet-500 to-violet-700',
+              modelTier(worker.model) === 'opus'   && 'bg-gradient-to-br from-purple-600 to-purple-900',
+              !modelTier(worker.model)             && 'bg-muted',
+            )}
+            aria-hidden="true"
+          >
+            {modelEmoji(worker.model)}
+          </span>
           <span className="font-semibold text-foreground truncate">
             {worker.workerClass ? `${worker.workerClass} — ${modelLabel(worker.model)}` : modelLabel(worker.model)}
           </span>
@@ -364,6 +376,16 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
           <div className="mt-0.5 text-[10px] text-muted-foreground/80 truncate">
             {worker.toolCount} tool{worker.toolCount !== 1 ? 's' : ''}
             {worker.lastTool ? ` \u2014 ${worker.lastTool}` : ''}
+          </div>
+        )}
+
+        {/* Mini progress bar — active workers only */}
+        {isActive && (
+          <div className="mt-1 h-[2px] bg-border/40 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent/80 rounded-full transition-[width] duration-500 ease-out"
+              style={{ width: `${Math.min(((worker.toolCount ?? 0) / 15) * 100 + 8, 90)}%` }}
+            />
           </div>
         )}
 
@@ -537,7 +559,10 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
         )}
 
         {isActive && (
-          <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+          </span>
         )}
 
         {isJobSession && (
