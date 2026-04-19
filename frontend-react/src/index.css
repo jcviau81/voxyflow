@@ -182,11 +182,11 @@ h1, h2, h3, h4, h5, h6 {
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
     /* ── Dark purple theme (sidebar + headers) ── */
-    --sidebar: oklch(0.22 0.155 285);
+    --sidebar: oklch(0.08 0.02 285);
     --sidebar-foreground: oklch(0.93 0.02 285);
     --sidebar-primary: oklch(0.56 0.24 290);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.30 0.13 285);
+    --sidebar-accent: oklch(0.13 0.02 285);
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 14%);
     --sidebar-ring: oklch(0.56 0.24 290);
@@ -464,49 +464,49 @@ h1, h2, h3 {
 
 /* Tab bar: slightly darker than sidebar for depth contrast */
 .dark .tab-bar {
-  background-color: oklch(0.19 0.13 285);
+  background-color: oklch(0.07 0.015 285);
   border-bottom-color: oklch(1 0 0 / 12%);
 }
 
-/* Active tab on the dark purple tab bar */
+/* Active tab on the ultra-dark mauve tab bar */
 .dark .tab-bar .tab[data-active="true"],
 .dark .tab-bar .tab.active {
-  background-color: oklch(0.30 0.14 285);
+  background-color: oklch(0.13 0.02 285);
   border-color: oklch(1 0 0 / 14%);
 }
 
 /* Project header (view-switcher bar) */
 .dark .project-header {
-  background-color: oklch(0.19 0.13 285);
+  background-color: oklch(0.07 0.015 285);
   border-bottom-color: oklch(1 0 0 / 12%);
 }
 
-/* Active view tab in the project header — bright violet accent */
+/* Active view tab in the project header */
 .dark .project-header__tab--active {
-  background-color: oklch(0.30 0.14 285) !important;
+  background-color: oklch(0.13 0.02 285) !important;
   color: oklch(0.93 0.04 290) !important;
 }
 
-/* Sidebar brand strip — match sidebar but with subtle bottom accent */
+/* Sidebar brand strip — ultra-dark mauve */
 .dark .sidebar-brand {
-  background-color: oklch(0.20 0.16 285);
+  background-color: oklch(0.08 0.02 285);
   border-bottom-color: oklch(1 0 0 / 14%);
 }
 
-/* Sidebar footer — keep consistent with sidebar palette */
+/* Sidebar footer — ultra-dark mauve */
 .dark .sidebar-footer {
-  background-color: oklch(0.20 0.14 285);
+  background-color: oklch(0.08 0.02 285);
   border-top-color: oklch(1 0 0 / 14%);
 }
 
-/* Sidebar active nav item — use bright violet accent */
+/* Sidebar active nav item */
 .dark .sidebar-item.active,
 .dark .sidebar-nav a.active,
 .dark .sidebar-nav [aria-current="page"] {
-  background-color: oklch(0.30 0.14 285);
+  background-color: oklch(0.13 0.02 285);
 }
 
 /* Connection status strip */
 .dark .sidebar-status {
-  background-color: oklch(0.21 0.14 285);
+  background-color: oklch(0.09 0.015 285);
 }
