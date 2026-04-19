@@ -371,6 +371,33 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             logger.error(f"delete_memory failed: {e}")
             return False
 
+    def delete_memory_cascade(self, doc_id: str, collections: list[str]) -> list[str]:
+        """Delete a doc_id from each given collection if it exists.
+
+        Returns the subset of `collections` where the doc was actually present
+        and removed. Used by the MCP `memory.delete` handler when no explicit
+        collection is provided — prevents the legacy "delete reports success
+        but leaves an orphaned copy in another collection of the same scope"
+        bug (Home: same id duped across `memory-global` and
+        `memory-project-system-main` from the old migration).
+        """
+        if not self._chromadb_enabled:
+            return []
+
+        deleted_from: list[str] = []
+        for name in collections:
+            try:
+                col = self._get_or_create_collection(name)
+                existing = col.get(ids=[doc_id], include=[])
+                if not existing.get("ids"):
+                    continue
+                col.delete(ids=[doc_id])
+                deleted_from.append(name)
+                logger.info(f"delete_memory_cascade: deleted {doc_id} from {name}")
+            except Exception as e:
+                logger.warning(f"delete_memory_cascade: error in {name}: {e}")
+        return deleted_from
+
     def search_memory(
         self,
         query: str,
