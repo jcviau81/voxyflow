@@ -21,6 +21,7 @@ from fastapi import WebSocket
 
 from app.tools.executor import get_executor
 from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
+from app.services.ws_broadcast import ws_broadcast
 
 logger = logging.getLogger("voxyflow.orchestration")
 
@@ -255,34 +256,34 @@ class ToolCallFallbackMixin:
                 chat_level=chat_level,
             ):
                 followup_full += token
-                await websocket.send_json({
-                    "type": "chat:response",
-                    "payload": {
+                await ws_broadcast.send_and_fanout_chat(
+                    websocket, chat_id, "chat:response",
+                    {
                         "messageId": followup_message_id,
                         "content": token,
                         "model": model_label,
                         "streaming": True,
                         "done": False,
                         "sessionId": session_id,
+                        "chatId": chat_id,
                         "isToolFollowup": True,
                     },
-                    "timestamp": int(time.time() * 1000),
-                })
+                )
 
             # Send stream-done for the follow-up
-            await websocket.send_json({
-                "type": "chat:response",
-                "payload": {
+            await ws_broadcast.send_and_fanout_chat(
+                websocket, chat_id, "chat:response",
+                {
                     "messageId": followup_message_id,
                     "content": "",
                     "model": model_label,
                     "streaming": True,
                     "done": True,
                     "sessionId": session_id,
+                    "chatId": chat_id,
                     "isToolFollowup": True,
                 },
-                "timestamp": int(time.time() * 1000),
-            })
+            )
         except Exception as e:
             logger.error(f"[ToolCallFallback] Follow-up streaming failed: {e}")
 

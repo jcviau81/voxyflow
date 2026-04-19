@@ -397,6 +397,7 @@ class DelegateDispatchMixin:
                     "data": data,
                     "project_id": project_id,
                     "session_id": session_id,
+                    "chat_id": chat_id,
                 }
             try:
                 await websocket.send_json({
@@ -520,36 +521,38 @@ class DelegateDispatchMixin:
                 if confirmation_msg:
                     msg_id = f"direct-msg-{uuid4().hex[:8]}"
                     try:
-                        await websocket.send_json({
-                            "type": "chat:response",
-                            "payload": {
+                        from app.services.ws_broadcast import ws_broadcast
+                        await ws_broadcast.send_and_fanout_chat(
+                            websocket, chat_id or "", "chat:response",
+                            {
                                 "messageId": msg_id,
                                 "content": confirmation_msg,
                                 "model": "system",
                                 "streaming": False,
                                 "done": True,
                                 "sessionId": session_id,
+                                "chatId": chat_id,
                             },
-                            "timestamp": int(time.time() * 1000),
-                        })
+                        )
                     except Exception as e:
                         logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
         elif confirmation_msg:
             # --- WRITE actions: just send chat confirmation (no re-trigger) ---
             msg_id = f"direct-msg-{uuid4().hex[:8]}"
             try:
-                await websocket.send_json({
-                    "type": "chat:response",
-                    "payload": {
+                from app.services.ws_broadcast import ws_broadcast
+                await ws_broadcast.send_and_fanout_chat(
+                    websocket, chat_id or "", "chat:response",
+                    {
                         "messageId": msg_id,
                         "content": confirmation_msg,
                         "model": "system",
                         "streaming": False,
                         "done": True,
                         "sessionId": session_id,
+                        "chatId": chat_id,
                     },
-                    "timestamp": int(time.time() * 1000),
-                })
+                )
             except Exception as e:
                 logger.warning(f"[DirectExecutor] Failed to send chat confirmation: {e}")
 
@@ -660,6 +663,7 @@ class DelegateDispatchMixin:
         data = pending["data"]
         project_id = pending["project_id"]
         session_id = pending["session_id"]
+        chat_id = pending.get("chat_id")
 
         # Re-use the same task_id so frontend can correlate
         action = data.get("action", "unknown")
@@ -708,18 +712,19 @@ class DelegateDispatchMixin:
         confirmation_msg = self._build_direct_confirmation(action, result)
         if confirmation_msg:
             try:
-                await websocket.send_json({
-                    "type": "chat:response",
-                    "payload": {
+                from app.services.ws_broadcast import ws_broadcast
+                await ws_broadcast.send_and_fanout_chat(
+                    websocket, chat_id or "", "chat:response",
+                    {
                         "messageId": f"direct-msg-{uuid4().hex[:8]}",
                         "content": confirmation_msg,
                         "model": "system",
                         "streaming": False,
                         "done": True,
                         "sessionId": session_id,
+                        "chatId": chat_id,
                     },
-                    "timestamp": int(time.time() * 1000),
-                })
+                )
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
 
