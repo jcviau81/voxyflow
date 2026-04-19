@@ -538,6 +538,8 @@ class ClaudeService(ApiCallerMixin):
         project_names: Optional[list] = None,
         active_workers_context: str = "",
         session_id: str = "",
+        live_state_block: str = "",
+        worker_events_block: str = "",
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer.
 
@@ -589,6 +591,8 @@ class ClaudeService(ApiCallerMixin):
             project_names=project_names,
             memory_context=memory_context,
             worker_classes=wc_list,
+            live_state=live_state_block or None,
+            worker_events=worker_events_block or None,
         )
         if dynamic_context:
             dynamic_parts.append(dynamic_context)
@@ -749,6 +753,8 @@ class ClaudeService(ApiCallerMixin):
         project_names: Optional[list] = None,
         active_workers_context: str = "",
         session_id: str = "",
+        live_state_block: str = "",
+        worker_events_block: str = "",
     ) -> AsyncIterator[str]:
         """Deep layer (streaming): Yield tokens from the deep model directly to chat.
 
@@ -796,6 +802,8 @@ class ClaudeService(ApiCallerMixin):
             project_names=project_names,
             memory_context=memory_context,
             worker_classes=wc_list,
+            live_state=live_state_block or None,
+            worker_events=worker_events_block or None,
         )
         if dynamic_context:
             dynamic_parts.append(dynamic_context)

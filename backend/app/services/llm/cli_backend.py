@@ -149,6 +149,8 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         voxyflow_dev_task: bool = False,
         project_id: str = "",
         card_id: str = "",
+        chat_id: str = "",
+        worker_id: str = "",
     ) -> str:
         """Build MCP config JSON string pointing to Voxyflow's stdio server.
 
@@ -162,6 +164,11 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                   Auto-injected into tool path parameters. Defaults to "system-main".
             card_id: Card scope for MCP tools. Exposed as VOXYFLOW_CARD_ID.
                   Auto-injected into tool path parameters when in card chat context.
+            chat_id: Canonical chat id (e.g. "project:<uuid>" / "card:<id>").
+                  Exposed as VOXYFLOW_CHAT_ID for memory attribution tagging.
+            worker_id: Task id when this MCP subprocess is spawned for a worker.
+                  Exposed as VOXYFLOW_WORKER_ID — when set, memory_save tags
+                  source="worker", speaker="worker".
         """
         # Find the Python interpreter — prefer the backend venv, then current interpreter
         venv_python = str(_BACKEND_DIR / "venv" / "bin" / "python3")
@@ -179,6 +186,10 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         }
         if card_id:
             mcp_env["VOXYFLOW_CARD_ID"] = card_id
+        if chat_id:
+            mcp_env["VOXYFLOW_CHAT_ID"] = chat_id
+        if worker_id:
+            mcp_env["VOXYFLOW_WORKER_ID"] = worker_id
         if voxyflow_dev_task:
             mcp_env["VOXYFLOW_DEV_TASK"] = "1"
 
@@ -207,6 +218,8 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         voxyflow_dev_task: bool = False,
         project_id: str = "",
         card_id: str = "",
+        chat_id: str = "",
+        worker_id: str = "",
     ) -> list[str]:
         """Build the CLI argument list.
 
@@ -253,6 +266,8 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                     voxyflow_dev_task=voxyflow_dev_task,
                     project_id=project_id,
                     card_id=card_id,
+                    chat_id=chat_id,
+                    worker_id=worker_id,
                 ),
             ])
 
@@ -314,6 +329,8 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             native_tools=use_tools,  # Workers get native Claude tools
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
             project_id=project_id, card_id=card_id,
+            chat_id=chat_id,
+            worker_id=(session_id if session_type == "worker" else ""),
         )
 
         gate = get_rate_gate()
@@ -448,6 +465,8 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             native_tools=use_tools,  # Workers get native Claude tools (Read, Edit, Bash)
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
             project_id=project_id, card_id=card_id,
+            chat_id=chat_id,
+            worker_id=(session_id if session_type == "worker" else ""),
         )
 
         gate = get_rate_gate()
@@ -626,6 +645,8 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             model, system_prompt,
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
             project_id=project_id, card_id=card_id,
+            chat_id=chat_id,
+            worker_id=(session_id if session_type == "worker" else ""),
         )
 
         gate = get_rate_gate()

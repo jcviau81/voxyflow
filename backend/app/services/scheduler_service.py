@@ -381,6 +381,36 @@ class SchedulerService:
             pass
         return None
 
+    def get_next_upcoming_job(self) -> Optional[dict]:
+        """Return the soonest upcoming scheduled job as {"name", "eta_seconds"}.
+
+        Used by the Live-state heartbeat block so Voxy knows what's next on the
+        calendar without calling jobs.list. Returns None if no jobs are queued
+        or the scheduler is not running.
+        """
+        if not (self._scheduler and self._scheduler.running):
+            return None
+        try:
+            jobs = self._scheduler.get_jobs()
+        except Exception:
+            return None
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        soonest: Optional[tuple[float, str]] = None
+        for aps_job in jobs:
+            nxt = getattr(aps_job, "next_run_time", None)
+            if not nxt:
+                continue
+            delta = (nxt - now).total_seconds()
+            if delta < 0:
+                continue
+            name = getattr(aps_job, "name", None) or aps_job.id
+            if soonest is None or delta < soonest[0]:
+                soonest = (delta, name)
+        if soonest is None:
+            return None
+        return {"name": soonest[1], "eta_seconds": soonest[0]}
+
     def load_user_jobs(self, jobs_file: Path) -> None:
         """Load all user jobs from jobs.json and register enabled ones with APScheduler."""
         if not (self._scheduler and self._scheduler.running):

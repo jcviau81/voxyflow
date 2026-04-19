@@ -74,7 +74,13 @@ def build_handlers(
     )
 
     async def memory_search(params: dict) -> dict:
-        """Semantic search across Voxy's long-term memory, scoped to the current project."""
+        """Semantic search across Voxy's long-term memory.
+
+        Default scope is the current project (isolation preserved). The LLM
+        may pass an explicit `scope` to bridge to global or another project
+        when the user asks for it — this is the single escape hatch from the
+        per-project wall. Unknown scopes fall back to `current` and are logged.
+        """
         from app.services.memory_service import (
             get_memory_service,
             GLOBAL_COLLECTION,
@@ -85,19 +91,42 @@ def build_handlers(
             return {"error": "query is required"}
         limit = params.get("limit", 10)
         offset = params.get("offset", 0)
+        scope = (params.get("scope") or "current").strip()
 
-        # Project scope from runtime env (injected by cli_backend per chat).
-        # STRICT ISOLATION: project chats NEVER see memory-global. Only the
-        # general chat (no project / system-main) is allowed to query global.
-        # - Real project UUID → that project's collection ONLY
-        # - Empty or "system-main" → general chat: global + system-main
-        project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
-        if project_id and project_id != "system-main":
-            collections = [_project_collection(project_id)]
+        env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+        project_id = env_project_id
+
+        def _current_collections() -> list[str]:
+            if project_id and project_id != "system-main":
+                return [_project_collection(project_id)]
+            return [GLOBAL_COLLECTION, _project_collection("system-main")]
+
+        resolved_scope = scope
+        if scope == "current":
+            collections = _current_collections()
+        elif scope == "global":
+            collections = [GLOBAL_COLLECTION]
+        elif scope == "current+global":
+            cur = _current_collections()
+            collections = list(dict.fromkeys(cur + [GLOBAL_COLLECTION]))
+        elif scope.startswith("other:"):
+            other_id = scope[len("other:"):].strip()
+            if not other_id:
+                return {"error": "scope 'other:' requires a project id"}
+            if other_id == project_id:
+                collections = _current_collections()
+                resolved_scope = "current"
+            else:
+                collections = [_project_collection(other_id)]
         else:
-            collections = [GLOBAL_COLLECTION, _project_collection("system-main")]
+            logger.warning(
+                f"[mcp.memory.search] unknown scope={scope!r}, falling back to current"
+            )
+            collections = _current_collections()
+            resolved_scope = "current"
         logger.info(
-            f"[mcp.memory.search] project_id={project_id!r} collections={collections}"
+            f"[mcp.memory.search] project_id={project_id!r} scope={resolved_scope!r} "
+            f"collections={collections}"
         )
 
         try:
@@ -109,7 +138,14 @@ def build_handlers(
                 offset=offset,
             )
             if not results:
-                return {"results": [], "offset": offset, "limit": limit, "count": 0}
+                return {
+                    "results": [],
+                    "offset": offset,
+                    "limit": limit,
+                    "count": 0,
+                    "scope": resolved_scope,
+                    "collections": collections,
+                }
             formatted = []
             for r in results:
                 formatted.append({
@@ -124,6 +160,8 @@ def build_handlers(
                 "limit": limit,
                 "count": len(formatted),
                 "has_more": len(formatted) == limit,
+                "scope": resolved_scope,
+                "collections": collections,
             }
         except Exception as e:
             return {"error": str(e)}
@@ -180,21 +218,44 @@ def build_handlers(
         )
 
         from datetime import datetime, timezone
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        now = datetime.now(timezone.utc)
+        date_str = now.strftime("%Y-%m-%d")
+        worker_id = os.environ.get("VOXYFLOW_WORKER_ID", "").strip()
+        chat_id = os.environ.get("VOXYFLOW_CHAT_ID", "").strip()
+        if worker_id:
+            source = "worker"
+            speaker = "worker"
+        else:
+            source = "chat"
+            speaker = "assistant"
+        meta: dict = {
+            "type": mem_type,
+            "date": date_str,
+            "created_at": now.isoformat(timespec="seconds"),
+            "source": source,
+            "speaker": speaker,
+            "importance": importance,
+        }
+        if worker_id:
+            meta["worker_id"] = worker_id
+        if chat_id:
+            meta["chat_id"] = chat_id
+        if project_id:
+            meta["project_id"] = project_id
         try:
             ms = get_memory_service()
             doc_id = ms.store_memory(
                 text=text,
                 collection=collection,
-                metadata={
-                    "type": mem_type,
-                    "date": date_str,
-                    "source": "chat",
-                    "importance": importance,
-                },
+                metadata=meta,
             )
             if doc_id:
-                return {"success": True, "id": doc_id, "message": f"Memory saved ({mem_type}, {importance})"}
+                return {
+                    "success": True,
+                    "id": doc_id,
+                    "collection": collection,
+                    "message": f"Memory saved ({mem_type}, {importance})",
+                }
             return {"success": False, "error": "store_memory returned None"}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -214,6 +275,71 @@ def build_handlers(
             return {"success": False, "error": f"Failed to delete memory {doc_id}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    async def undo_list(params: dict) -> dict:
+        """List reversible actions recorded during the current chat."""
+        from app.services import undo_journal
+        chat_id = os.environ.get("VOXYFLOW_CHAT_ID", "").strip()
+        if not chat_id:
+            return {"success": False, "error": "no active chat id — undo journal is per-chat"}
+        limit = min(max(int(params.get("limit") or 5), 1), undo_journal.MAX_PER_CHAT)
+        entries = undo_journal.list_entries(chat_id, limit=limit)
+        return {
+            "success": True,
+            "count": len(entries),
+            "entries": [
+                {
+                    "id": e.id,
+                    "label": e.label,
+                    "forward_tool": e.forward_tool,
+                    "inverse_tool": e.inverse_tool,
+                    "age_seconds": int(__import__("time").time() - e.created_at),
+                }
+                for e in entries
+            ],
+        }
+
+    async def undo_apply(params: dict) -> dict:
+        """Replay the inverse of a journaled action."""
+        from app.services import undo_journal
+        chat_id = os.environ.get("VOXYFLOW_CHAT_ID", "").strip()
+        if not chat_id:
+            return {"success": False, "error": "no active chat id — undo journal is per-chat"}
+        entry_id = (params.get("id") or "").strip() or None
+        entry = undo_journal.pop_by_id(chat_id, entry_id)
+        if not entry:
+            if entry_id:
+                return {"success": False, "error": f"no undo entry with id={entry_id}"}
+            return {"success": False, "error": "nothing to undo"}
+
+        inv = entry.inverse_tool
+        args = entry.inverse_args or {}
+        client = _get_http_client()
+        try:
+            if inv == "voxyflow.card.archive":
+                resp = await client.post(f"/api/cards/{args['card_id']}/archive")
+                resp.raise_for_status()
+                return {"success": True, "undid": entry.label, "entry_id": entry.id}
+            if inv == "voxyflow.card.restore":
+                resp = await client.post(f"/api/cards/{args['card_id']}/restore")
+                resp.raise_for_status()
+                return {"success": True, "undid": entry.label, "entry_id": entry.id}
+            if inv == "memory.delete":
+                result = await memory_delete({
+                    "id": args["id"],
+                    **({"collection": args["collection"]} if args.get("collection") else {}),
+                })
+                if not result.get("success"):
+                    return {
+                        "success": False,
+                        "error": result.get("error") or "memory.delete failed",
+                        "entry_id": entry.id,
+                    }
+                return {"success": True, "undid": entry.label, "entry_id": entry.id}
+        except Exception as e:
+            logger.error(f"[undo_apply] inverse failed for {inv}: {e}")
+            return {"success": False, "error": str(e), "entry_id": entry.id}
+        return {"success": False, "error": f"no replay path for inverse tool {inv!r}"}
 
     async def memory_get(params: dict) -> dict:
         """List recent chat sessions (history overview)."""
@@ -689,6 +815,8 @@ def build_handlers(
         "memory_save": memory_save,
         "memory_delete": memory_delete,
         "memory_get": memory_get,
+        "undo_list": undo_list,
+        "undo_apply": undo_apply,
         "knowledge_search": knowledge_search,
         "task_steer": task_steer,
         "task_peek": task_peek,

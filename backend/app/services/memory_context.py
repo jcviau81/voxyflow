@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -22,6 +22,7 @@ from app.services.memory_service_constants import (
     MEMORY_DIR,
     MEMORY_FILE,
     _project_collection,
+    _slugify,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,134 @@ class MemoryContextMixin:
         where whitespace-delimited words don't map well to BPE tokens.
         """
         return max(1, len(text) // 4)
+
+    @staticmethod
+    def _attribution_prefix(meta: dict) -> str:
+        """Build `[speaker · timestamp · scope · importance=x]` prefix.
+
+        Speaker resolution:
+          1. explicit ``speaker`` field (new saves post-April 2026)
+          2. fallback on ``source`` for legacy entries:
+             - "chat"          → Voxy said (dispatcher memory_save)
+             - "manual"        → JC said (user-authored CLI / manual entry)
+             - "worker"        → worker:<id>
+             - "auto-extract"  → Voxy auto (pre-migration auto extractions)
+             - "worker_summary"→ worker summary
+          3. otherwise → "unknown said"
+
+        The fallback is inference-only (no data mutation), so a backfill
+        can replace it later without breaking anything.
+        """
+        meta = meta or {}
+        speaker = str(meta.get("speaker") or "").strip().lower()
+        source = str(meta.get("source") or "").strip().lower()
+        worker_id = str(meta.get("worker_id") or "").strip()
+        if speaker == "user":
+            speaker_label = "JC said"
+        elif speaker == "assistant":
+            speaker_label = "Voxy said"
+        elif speaker == "worker" or source == "worker":
+            speaker_label = f"worker:{worker_id}" if worker_id else "worker"
+        elif speaker == "system":
+            speaker_label = "system"
+        elif source == "chat":
+            speaker_label = "Voxy said"
+        elif source == "manual":
+            speaker_label = "JC said"
+        elif source == "auto-extract":
+            speaker_label = "Voxy auto"
+        elif source == "worker_summary":
+            speaker_label = "worker summary"
+        else:
+            speaker_label = "unknown said"
+
+        ts = (
+            meta.get("created_at")
+            or meta.get("date")
+            or "unknown"
+        )
+        ts = str(ts).strip() or "unknown"
+        # Trim ISO timestamps to date portion for readability.
+        if len(ts) >= 10 and ts[4] == "-" and ts[7] == "-":
+            ts = ts[:10]
+
+        scope = (
+            meta.get("chat_id")
+            or meta.get("card_id")
+            or (f"card:{meta['card_id']}" if meta.get("card_id") else None)
+            or meta.get("project_id")
+            or meta.get("project")
+            or "unknown"
+        )
+        scope = str(scope).strip() or "unknown"
+
+        importance = str(meta.get("importance") or "unknown").strip() or "unknown"
+        return f"[{speaker_label} · {ts} · {scope} · importance={importance}]"
+
+    def _format_memory_line(self, result: dict) -> str:
+        """Render one retrieved fragment as an attributed bullet."""
+        meta = dict(result.get("metadata") or {})
+        # Backfill scope from the collection name for legacy entries that
+        # lack chat_id / project_id in metadata. Collection format is always
+        # ``memory-project-<project_id>`` (incl. "system-main") or the
+        # reserved ``memory-global`` sentinel.
+        collection = str(result.get("collection") or "")
+        has_scope = any(meta.get(k) for k in ("chat_id", "card_id", "project_id", "project"))
+        if not has_scope and collection:
+            if collection.startswith("memory-project-"):
+                meta["project_id"] = collection[len("memory-project-"):]
+            elif collection == "memory-global":
+                meta["project_id"] = "global"
+        prefix = self._attribution_prefix(meta)
+        text = (result.get("text") or "").strip()
+        combined = result.get("_combined_score")
+        if combined is not None:
+            prefix = prefix[:-1] + f" · score={combined}]"
+        return f"- {prefix} {text}"
+
+    L2_RECENCY_HALF_LIFE_DAYS = 14.0
+    L2_RECENCY_MISSING_TS_WEIGHT = 0.5
+
+    @classmethod
+    def _recency_weight(cls, meta: dict) -> float:
+        """Exponential decay weight from a fragment's created_at / date.
+
+        weight = 0.5 ** (age_days / HALF_LIFE). Missing/unparseable timestamp
+        → MISSING_TS_WEIGHT (treated as moderately stale, not pinned). Future
+        timestamps clamp to now.
+        """
+        meta = meta or {}
+        raw = meta.get("created_at") or meta.get("date") or ""
+        raw = str(raw).strip()
+        if not raw:
+            return cls.L2_RECENCY_MISSING_TS_WEIGHT
+        try:
+            if len(raw) == 10 and raw[4] == "-" and raw[7] == "-":
+                ts = datetime.fromisoformat(raw + "T00:00:00+00:00")
+            else:
+                ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except Exception:
+            return cls.L2_RECENCY_MISSING_TS_WEIGHT
+        now = datetime.now(timezone.utc)
+        age_seconds = max(0.0, (now - ts).total_seconds())
+        age_days = age_seconds / 86400.0
+        return 0.5 ** (age_days / cls.L2_RECENCY_HALF_LIFE_DAYS)
+
+    @classmethod
+    def _rerank_by_recency(cls, results: list[dict]) -> list[dict]:
+        """Re-order semantic results by ``score * recency_weight`` (desc).
+
+        Keeps the same entries (no filtering) — just floats fresh facts up so
+        the L2 hard cap lands on recent evidence when semantic scores are close.
+        """
+        if not results:
+            return results
+        def _combined(r: dict) -> float:
+            base = float(r.get("score") or 0.0)
+            return base * cls._recency_weight(r.get("metadata") or {})
+        return sorted(results, key=_combined, reverse=True)
 
     def build_memory_context(
         self,
@@ -107,6 +236,60 @@ class MemoryContextMixin:
     def _normalize_for_dedup(text: str) -> str:
         return " ".join(text.lower().split())
 
+    def _build_procedures_block(
+        self,
+        query: str,
+        project_id: Optional[str],
+        budget: int,
+    ) -> tuple[Optional[str], set[str]]:
+        """Procedural memory: reusable "how to do X" patterns.
+
+        Filters by ``type=procedure`` and renders matches in a dedicated
+        block (not mixed with fact/decision bullets). Returns up to 3
+        procedures ranked by semantic relevance to the query.
+
+        Returns (rendered_block_or_None, ids_used) so L2 can dedup.
+        """
+        MAX_PROCEDURES = 3
+        try:
+            # General chat (no project / system-main) may have saved procedures
+            # to GLOBAL_COLLECTION; project chats stay in their own collection.
+            if project_id and project_id != "system-main":
+                collections = [_project_collection(project_id)]
+            else:
+                collections = [GLOBAL_COLLECTION, _project_collection("system-main")]
+            results = self.search_memory(
+                query=query,
+                collections=collections,
+                filters={"type": "procedure"},
+                limit=MAX_PROCEDURES,
+            )
+            if not results:
+                return None, set()
+            blocks: list[str] = []
+            ids_used: set[str] = set()
+            token_count = 0
+            for r in results:
+                text = (r.get("text") or "").strip()
+                if not text:
+                    continue
+                meta = r.get("metadata") or {}
+                date_str = str(meta.get("created_at") or meta.get("date") or "")[:10] or "unknown"
+                header = f"_({date_str})_"
+                block = f"{header}\n{text}"
+                block_tokens = self._estimate_tokens(block)
+                if token_count + block_tokens > budget:
+                    break
+                blocks.append(block)
+                ids_used.add(r.get("id", ""))
+                token_count += block_tokens
+            if not blocks:
+                return None, set()
+            return "**Known procedures:**\n" + "\n\n".join(blocks), ids_used
+        except Exception:
+            logger.debug("_build_procedures_block failed", exc_info=True)
+            return None, set()
+
     def _build_l1_essentials(
         self,
         query: str,
@@ -133,6 +316,9 @@ class MemoryContextMixin:
             if not results:
                 return None, set(), set()
 
+            from app.services.memory_extraction import _is_actionable_memory
+            from app.services.memory_service_constants import _high_importance_justified
+
             lines: list[str] = []
             ids_used: set[str] = set()
             texts_used: set[str] = set()
@@ -141,7 +327,25 @@ class MemoryContextMixin:
                 norm = self._normalize_for_dedup(r["text"])
                 if norm in texts_used:
                     continue
-                line = f"- {r['text']}"
+                # Retro-filter conversational closers on L1 too — they were
+                # often classified `importance=high` before the extraction
+                # gate existed, so they sneak into essentials otherwise.
+                text_val = str(r.get("text") or "")
+                if not _is_actionable_memory(text_val):
+                    continue
+                # Legacy high-importance cleanup: drop entries tagged `high`
+                # that carry none of the strong signals (no decision verb,
+                # deadline, absolute preference, security hit, root-cause).
+                # They're the jokes and mood reactions that slipped past the
+                # old classifier. They remain searchable via memory.search.
+                if not _high_importance_justified(text_val):
+                    continue
+                # #12 annotate combined score on L1 too — same format as L2
+                # so Voxy can compare relative weights across tiers.
+                score = float(r.get("score") or 0.0)
+                recency = self._recency_weight(r.get("metadata") or {})
+                r["_combined_score"] = round(score * recency, 3)
+                line = self._format_memory_line(r)
                 line_tokens = self._estimate_tokens(line)
                 if token_count + line_tokens > budget:
                     break
@@ -168,67 +372,134 @@ class MemoryContextMixin:
         l1_ids: set[str] | None = None,
         l1_texts: set[str] | None = None,
     ) -> Optional[str]:
-        """L2: Full semantic search (current behavior, budget-capped). Deduplicates against L1."""
+        """L2: Full semantic search, tightened filters. Deduplicates against L1.
+
+        Tightened (April 2026): cap at 3 entries, exclude low-importance and
+        worker_summary auto-extracts. This is the ambient retrieval block —
+        Voxy gets `memory.search` on demand for anything beyond that.
+        """
+        L2_HARD_CAP = 3
         sections: list[str] = []
         display_label = project_name or project_id or ""
         l1_ids = l1_ids or set()
         l1_texts = l1_texts or set()
         remaining = budget
         seen_texts: set[str] = set(l1_texts)
+        total_kept = 0
 
-        def _cap_results(results: list[dict], cap: int) -> list[str]:
-            nonlocal remaining
-            texts = []
+        # Over-fetch from Chroma (no composite where clause — some versions
+        # reject `$and` + `$nin` combos with "Error finding id"). Apply the
+        # importance/source filter in Python. Cheap: we fetch ≤20 rows max.
+        FETCH_N = 20
+        ALLOWED_IMPORTANCE = {"high", "medium"}
+        BLOCKED_SOURCES = {"worker_summary"}
+        MAX_AGE_DAYS = 90  # #2: hard cutoff — anything older than 90 days drops
+        PERTINENCE_FLOOR = 0.15  # #17: drop score×recency below this — noise
+
+        def _age_days(meta: dict) -> float | None:
+            raw = (meta or {}).get("created_at") or (meta or {}).get("date") or ""
+            raw = str(raw).strip()
+            if not raw:
+                return None
+            try:
+                if len(raw) == 10 and raw[4] == "-" and raw[7] == "-":
+                    ts = datetime.fromisoformat(raw + "T00:00:00+00:00")
+                else:
+                    ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+            except Exception:
+                return None
+            return max(0.0, (datetime.now(timezone.utc) - ts).total_seconds() / 86400.0)
+
+        from app.services.memory_extraction import _is_actionable_memory
+
+        def _python_filter(results: list[dict]) -> list[dict]:
+            keep = []
             for r in results:
+                meta = r.get("metadata") or {}
+                if str(meta.get("importance") or "").lower() not in ALLOWED_IMPORTANCE:
+                    continue
+                if str(meta.get("source") or "").lower() in BLOCKED_SOURCES:
+                    continue
+                # Retro-filter conversational fluff that slipped in before the
+                # extraction-time gate existed. Legacy entries get evaluated
+                # against the same heuristic as new writes.
+                if not _is_actionable_memory(str(r.get("text") or "")):
+                    continue
+                # #2 hard age cutoff — honest timestamps only; missing ts passes
+                # through (we can't punish legacy data without a backfill).
+                age = _age_days(meta)
+                if age is not None and age > MAX_AGE_DAYS:
+                    continue
+                # #17 pertinence floor — score × recency must clear the bar.
+                score = float(r.get("score") or 0.0)
+                recency = self._recency_weight(meta)
+                if score * recency < PERTINENCE_FLOOR:
+                    continue
+                r["_combined_score"] = round(score * recency, 3)
+                keep.append(r)
+            return keep
+
+        def _cap_results(results: list[dict]) -> list[str]:
+            nonlocal remaining, total_kept
+            lines: list[str] = []
+            filtered = _python_filter(results)
+            ranked = self._rerank_by_recency(filtered)
+            for r in ranked:
+                if total_kept >= L2_HARD_CAP:
+                    break
                 if r["id"] in l1_ids:
                     continue
                 norm = self._normalize_for_dedup(r["text"])
                 if norm in seen_texts:
                     continue
-                line = r["text"]
+                line = self._format_memory_line(r)
                 t = self._estimate_tokens(line)
                 if remaining - t < 0:
                     break
-                texts.append(line)
+                lines.append(line)
                 seen_texts.add(norm)
                 remaining -= t
-            return texts
+                total_kept += 1
+            return lines
 
         if project_id and card_id:
             proj_col = _project_collection(project_id)
             card_results = self.search_memory(
                 query=query, collections=[proj_col],
-                filters={"card_id": card_id}, limit=5,
+                filters={"card_id": card_id}, limit=FETCH_N,
             )
             if card_results:
-                texts = _cap_results(card_results, remaining)
-                if texts:
+                lines = _cap_results(card_results)
+                if lines:
                     sections.append(
-                        f"**Card memory ({display_label}):**\n" + "\n".join(f"- {t}" for t in texts)
+                        f"**Card memory ({display_label}):**\n" + "\n".join(lines)
                     )
 
-            proj_results = self.search_memory(
-                query=query, collections=[proj_col], limit=5,
-            )
-            if proj_results:
-                card_ids = {r["id"] for r in card_results} if card_results else set()
-                proj_unique = [r for r in proj_results if r["id"] not in card_ids]
-                texts = _cap_results(proj_unique, remaining)
-                if texts:
-                    sections.append(
-                        f"**Project memory ({display_label}):**\n" + "\n".join(f"- {t}" for t in texts)
-                    )
+            if total_kept < L2_HARD_CAP:
+                proj_results = self.search_memory(
+                    query=query, collections=[proj_col], limit=FETCH_N,
+                )
+                if proj_results:
+                    card_ids = {r["id"] for r in card_results} if card_results else set()
+                    proj_unique = [r for r in proj_results if r["id"] not in card_ids]
+                    lines = _cap_results(proj_unique)
+                    if lines:
+                        sections.append(
+                            f"**Project memory ({display_label}):**\n" + "\n".join(lines)
+                        )
 
         elif project_id:
             proj_col = _project_collection(project_id)
             proj_results = self.search_memory(
-                query=query, collections=[proj_col], limit=10,
+                query=query, collections=[proj_col], limit=FETCH_N,
             )
             if proj_results:
-                texts = _cap_results(proj_results, remaining)
-                if texts:
+                lines = _cap_results(proj_results)
+                if lines:
                     sections.append(
-                        f"**Project memory ({display_label}):**\n" + "\n".join(f"- {t}" for t in texts)
+                        f"**Project memory ({display_label}):**\n" + "\n".join(lines)
                     )
 
         else:
@@ -237,12 +508,12 @@ class MemoryContextMixin:
                 [main_col, GLOBAL_COLLECTION] if include_long_term else [main_col]
             )
             main_results = self.search_memory(
-                query=query, collections=search_cols, limit=10,
+                query=query, collections=search_cols, limit=FETCH_N,
             )
             if main_results:
-                texts = _cap_results(main_results, remaining)
-                if texts:
-                    sections.append("**Relevant memory:**\n" + "\n".join(f"- {t}" for t in texts))
+                lines = _cap_results(main_results)
+                if lines:
+                    sections.append("**Relevant memory:**\n" + "\n".join(lines))
 
         return "\n\n---\n\n".join(sections) if sections else None
 
@@ -268,6 +539,7 @@ class MemoryContextMixin:
         sections: list[str] = []
         l1_ids: set[str] = set()
         l1_texts: set[str] = set()
+        proc_ids: set[str] = set()
 
         try:
             # L0: Project identity from KG pinned cache
@@ -276,6 +548,16 @@ class MemoryContextMixin:
                 if l0:
                     sections.append(l0)
                     remaining -= self._estimate_tokens(l0)
+
+            # Procedural: reusable "how to do X" blocks, surfaced above L1/L2.
+            # Separate section so Voxy can spot them when about to execute.
+            if 1 in layers and remaining > 50:
+                proc, proc_ids = self._build_procedures_block(
+                    query, project_id, min(300, remaining),
+                )
+                if proc:
+                    sections.append(proc)
+                    remaining -= self._estimate_tokens(proc)
 
             # L1: High-importance essentials (also returns IDs+texts for L2 dedup)
             if 1 in layers and remaining > 50:
@@ -291,7 +573,7 @@ class MemoryContextMixin:
                 l2 = self._build_l2_ondemand(
                     query, project_name, project_id, card_id,
                     include_long_term, min(remaining, 800),
-                    l1_ids=l1_ids,
+                    l1_ids=l1_ids | proc_ids,
                     l1_texts=l1_texts,
                 )
                 if l2:

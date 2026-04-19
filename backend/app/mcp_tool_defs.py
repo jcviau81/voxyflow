@@ -1358,7 +1358,13 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Memory (semantic search across all memory) -------------------------
     {
         "name": "memory.search",
-        "description": "Search long-term memory (auto-scoped to current project). Use to recall prior conversations, decisions, or facts.",
+        "description": (
+            "Search long-term memory. Default scope is the current project only "
+            "(isolation preserved). Pass `scope='global'` for the shared global "
+            "collection or `scope='other:<project_id>'` to query a specific other "
+            "project explicitly — only use a cross-project scope when the user "
+            "asks for it (e.g. \"check what was said in project X about Y\")."
+        ),
         "inputSchema": {
             "type": "object",
             "required": ["query"],
@@ -1366,6 +1372,15 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "query": {"type": "string"},
                 "limit": {"type": "integer", "description": "Default 10"},
                 "offset": {"type": "integer", "description": "Default 0"},
+                "scope": {
+                    "type": "string",
+                    "description": (
+                        "Retrieval scope. 'current' (default) = this project only. "
+                        "'global' = shared cross-project memory. "
+                        "'other:<project_id>' = one specific other project. "
+                        "'current+global' = this project plus global."
+                    ),
+                },
             },
         },
         "_handler": "memory_search",
@@ -1377,7 +1392,13 @@ _TOOL_DEFINITIONS: list[dict] = [
     # cannot override it — project_id is deliberately NOT in the schema.
     {
         "name": "memory.save",
-        "description": "Save a fact, decision, preference, or lesson to long-term memory (auto-scoped to current project).",
+        "description": (
+            "Save a fact, decision, preference, lesson, or procedure to long-term "
+            "memory (auto-scoped to current project). Use `type='procedure'` for "
+            "reusable 'how to do X' workflows — the content should start with "
+            "\"How to {task}:\" and list ≥2 ordered steps. Procedures are surfaced "
+            "in a dedicated block above regular retrieval."
+        ),
         "inputSchema": {
             "type": "object",
             "required": ["text"],
@@ -1385,7 +1406,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "text": {"type": "string"},
                 "type": {
                     "type": "string",
-                    "enum": ["decision", "preference", "lesson", "fact", "context"],
+                    "enum": ["decision", "preference", "lesson", "fact", "context", "procedure"],
                 },
                 "importance": {
                     "type": "string",
@@ -1426,6 +1447,42 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "memory_delete",
+        "_scope": "voxyflow",
+    },
+
+    # ---- Undo journal (reversible actions taken this chat) -------------------
+    {
+        "name": "voxyflow.undo.list",
+        "description": (
+            "List recent reversible actions taken during this chat (card.create, "
+            "card.archive, card.duplicate, memory.save). Each entry carries an "
+            "id you can pass to voxyflow.undo.apply to revert it. Entries TTL "
+            "after 30 minutes. Use when the user asks 'annule ça' or before "
+            "offering a revert option."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max entries to return (default 5, max 20)"},
+            },
+        },
+        "_handler": "undo_list",
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "voxyflow.undo.apply",
+        "description": (
+            "Undo a recent reversible action by replaying its inverse. If `id` "
+            "is omitted, undoes the most recent action. On success the entry "
+            "is consumed (a re-do is not automatic)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Undo entry id from voxyflow.undo.list (omit for most recent)"},
+            },
+        },
+        "_handler": "undo_apply",
         "_scope": "voxyflow",
     },
 

@@ -156,6 +156,7 @@ class PersistentChatMixin:
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
             interactive=True,
             project_id=project_id, card_id=card_id,
+            chat_id=chat_id,
         )
 
         logger.info(

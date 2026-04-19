@@ -502,7 +502,9 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
         if handler is None:
             return {"success": False, "error": f"Handler not found: {handler_name}"}
         try:
-            return await handler(params)
+            result = await handler(params)
+            _journal_if_reversible(tool_def.get("name", ""), params, result)
+            return result
         except Exception as e:
             logger.error(f"System tool handler failed: {handler_name} → {e}")
             return {"success": False, "error": str(e)}
@@ -543,7 +545,40 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
     # can distinguish successes (it checks result.success).
     if isinstance(data, dict) and "success" not in data:
         data["success"] = True
+    if isinstance(data, dict) and data.get("success"):
+        _journal_if_reversible(tool_def.get("name", ""), params, data)
     return data
+
+
+def _journal_if_reversible(tool_name: str, params: dict, result: dict) -> None:
+    """Record a reversible action in the per-chat undo journal.
+
+    Only runs when ``VOXYFLOW_CHAT_ID`` is set, the result looks successful,
+    and :func:`undo_journal.derive_inverse` knows an inverse for the tool.
+    Failures are swallowed — journaling is never allowed to break the call.
+    """
+    try:
+        from app.services import undo_journal
+        import os
+        chat_id = os.environ.get("VOXYFLOW_CHAT_ID", "").strip()
+        if not chat_id:
+            return
+        if not isinstance(result, dict) or result.get("success") is False:
+            return
+        derived = undo_journal.derive_inverse(tool_name, params, result)
+        if not derived:
+            return
+        inv_tool, inv_args, label = derived
+        undo_journal.record(
+            chat_id=chat_id,
+            label=label,
+            forward_tool=tool_name,
+            forward_args=params or {},
+            inverse_tool=inv_tool,
+            inverse_args=inv_args,
+        )
+    except Exception as e:
+        logger.debug(f"_journal_if_reversible failed (non-fatal): {e}")
 
 
 # ---------------------------------------------------------------------------
