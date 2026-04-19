@@ -238,50 +238,7 @@ function TtsButton({ text }: TtsButtonProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Reaction buttons
-// ---------------------------------------------------------------------------
 
-interface ReactionsProps {
-  messageId: string;
-}
-
-function Reactions({ messageId }: ReactionsProps) {
-  const storageKey = `reaction:${messageId}`;
-  const [selected, setSelected] = useState<string | null>(
-    () => localStorage.getItem(storageKey),
-  );
-
-  const toggle = useCallback((emoji: string) => {
-    setSelected((prev) => {
-      const next = prev === emoji ? null : emoji;
-      if (next) localStorage.setItem(storageKey, next);
-      else localStorage.removeItem(storageKey);
-      return next;
-    });
-  }, [storageKey]);
-
-  return (
-    <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity">
-      {(['👍', '👎'] as const).map((emoji) => (
-        <button
-          key={emoji}
-          onClick={() => toggle(emoji)}
-          className={cn(
-            'text-base px-1.5 py-0.5 rounded transition-all',
-            selected === emoji
-              ? 'bg-primary/20 scale-110'
-              : 'opacity-50 hover:opacity-80',
-          )}
-          type="button"
-          title={emoji}
-        >
-          {emoji}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // MessageBubble
@@ -399,10 +356,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
           )}
         </div>
 
-        {/* Reactions — assistant only, not enrichments */}
-        {!isUser && !isEnrichment && (
-          <Reactions messageId={message.id} />
-        )}
+
       </div>
     </div>
   );
