@@ -402,13 +402,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // --- chat:response ---
     unsubs.push(
       subscribe('chat:response', (payload) => {
-        const { messageId, content, streaming, done, sessionId, model, usage } = payload as {
+        const { messageId, content, streaming, done, sessionId, model, usage, chatId } = payload as {
           messageId: string;
           content: string;
           streaming: boolean;
           done: boolean;
           sessionId?: string;
           model?: string;
+          chatId?: string;
           usage?: {
             inputTokens: number;
             outputTokens: number;
@@ -425,12 +426,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        // Cross-device live sync: if this event arrived via broadcast (fan-out
+        // from another device), the originator's sessionId is unknown here and
+        // `getProjectIdFromSession` would mis-route the bubble to SYSTEM. Use
+        // the chatId (server-canonical) to derive the correct projectId so
+        // message:new and streaming bubbles land in the right project store.
+        const effectiveSessionId =
+          sessionId ||
+          (chatId?.startsWith('project:') ? chatId : undefined) ||
+          (chatId?.startsWith('card:') ? chatId : undefined);
+
         if (streaming && !done) {
-          handleStreamingChunk(messageId, content, sessionId!, model);
+          handleStreamingChunk(messageId, content, effectiveSessionId, model);
         } else if (done && streamingMessagesRef.current.has(messageId)) {
           handleStreamComplete(messageId, content);
         } else {
-          handleFullResponse(content, sessionId!);
+          handleFullResponse(content, effectiveSessionId);
         }
 
         if (done && sessionId && usage && typeof usage.contextWindow === 'number') {
@@ -971,6 +982,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       sessionId?: string,
       replaceSession = false,
     ): Promise<Message[]> => {
+      // Live cross-device sync: announce that this tab is now viewing
+      // `chatId` so the backend fans out streaming tokens + completion
+      // events from other devices on the same canonical chat. Safe to
+      // send even if disconnected — useWebSocket queues it.
+      try {
+        send('chat:subscribe', {
+          chatId,
+          projectId: projectId || undefined,
+          cardId: cardId || undefined,
+        });
+      } catch {
+        /* best effort — offline queue retries on reconnect */
+      }
       try {
         const resp = await fetch(`/api/sessions/${chatId}?limit=50`);
         if (!resp.ok) return [];
@@ -1012,7 +1036,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         return [];
       }
     },
-    [],
+    [send],
   );
 
   const getHistory = useCallback(

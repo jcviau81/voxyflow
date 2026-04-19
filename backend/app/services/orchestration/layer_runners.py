@@ -20,6 +20,7 @@ from app.services.personality_service import (
     build_live_state_block,
     build_worker_events_block,
 )
+from app.services.ws_broadcast import ws_broadcast
 
 if TYPE_CHECKING:
     pass
@@ -197,18 +198,18 @@ class LayerRunnersMixin:
                     # Buffer — don't send yet, check for [SILENT] at end
                     buffered_tokens.append(token)
                 else:
-                    await websocket.send_json({
-                        "type": "chat:response",
-                        "payload": {
+                    await ws_broadcast.send_and_fanout_chat(
+                        websocket, chat_id, "chat:response",
+                        {
                             "messageId": message_id,
                             "content": token,
                             "model": "fast",
                             "streaming": True,
                             "done": False,
                             "sessionId": session_id,
+                            "chatId": chat_id,
                         },
-                        "timestamp": int(time.time() * 1000),
-                    })
+                    )
 
             # [SILENT] suppression for callback responses
             if is_callback and fast_full_response.strip() == "[SILENT]":
@@ -219,18 +220,18 @@ class LayerRunnersMixin:
             # For callbacks: flush buffered tokens now that we know it's not [SILENT]
             if is_callback and buffered_tokens:
                 for tok in buffered_tokens:
-                    await websocket.send_json({
-                        "type": "chat:response",
-                        "payload": {
+                    await ws_broadcast.send_and_fanout_chat(
+                        websocket, chat_id, "chat:response",
+                        {
                             "messageId": message_id,
                             "content": tok,
                             "model": "fast",
                             "streaming": True,
                             "done": False,
                             "sessionId": session_id,
+                            "chatId": chat_id,
                         },
-                        "timestamp": int(time.time() * 1000),
-                    })
+                    )
 
             # Check for <tool_call> text blocks and handle them
             if TOOL_CALL_PATTERN.search(fast_full_response):
@@ -260,15 +261,14 @@ class LayerRunnersMixin:
                 "done": True,
                 "latency_ms": latency,
                 "sessionId": session_id,
+                "chatId": chat_id,
             }
             usage = self._claude.consume_last_chat_usage(chat_id, layer="fast")
             if usage:
                 done_payload["usage"] = usage
-            await websocket.send_json({
-                "type": "chat:response",
-                "payload": done_payload,
-                "timestamp": int(time.time() * 1000),
-            })
+            await ws_broadcast.send_and_fanout_chat(
+                websocket, chat_id, "chat:response", done_payload,
+            )
             await send_model_status("fast", "idle")
             return True
 
@@ -349,18 +349,18 @@ class LayerRunnersMixin:
                     logger.info(f"[Layer-Deep-Chat] first token in {first_token_latency}ms")
                     first_token_sent = True
 
-                await websocket.send_json({
-                    "type": "chat:response",
-                    "payload": {
+                await ws_broadcast.send_and_fanout_chat(
+                    websocket, chat_id, "chat:response",
+                    {
                         "messageId": message_id,
                         "content": token,
                         "model": "deep",
                         "streaming": True,
                         "done": False,
                         "sessionId": session_id,
+                        "chatId": chat_id,
                     },
-                    "timestamp": int(time.time() * 1000),
-                })
+                )
 
             # Check for <tool_call> text blocks and handle them
             if TOOL_CALL_PATTERN.search(deep_full_response):
@@ -390,15 +390,14 @@ class LayerRunnersMixin:
                 "done": True,
                 "latency_ms": latency,
                 "sessionId": session_id,
+                "chatId": chat_id,
             }
             usage = self._claude.consume_last_chat_usage(chat_id, layer="deep")
             if usage:
                 done_payload["usage"] = usage
-            await websocket.send_json({
-                "type": "chat:response",
-                "payload": done_payload,
-                "timestamp": int(time.time() * 1000),
-            })
+            await ws_broadcast.send_and_fanout_chat(
+                websocket, chat_id, "chat:response", done_payload,
+            )
             await send_model_status("deep", "idle")
             return True
 

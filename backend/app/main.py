@@ -338,6 +338,28 @@ async def general_websocket(websocket: WebSocket):
                         "timestamp": data.get("timestamp"),
                     })
 
+                elif msg_type == "chat:subscribe":
+                    # Cross-device live sync: a device announces "I'm viewing
+                    # this chat" so it receives streaming tokens + message:new
+                    # events from other devices on the same canonical chat.
+                    sub_project_id = payload.get("projectId")
+                    sub_card_id = payload.get("cardId")
+                    if sub_card_id:
+                        pass  # chat_id resolves via card
+                    elif not sub_project_id:
+                        sub_project_id = SYSTEM_MAIN_PROJECT_ID
+                    sub_chat_id, _, _ = resolve_chat_id(
+                        sub_project_id, sub_card_id, payload.get("chatId"),
+                        log_context="WS chat:subscribe",
+                    )
+                    # Drop any prior subscriptions on this socket so switching
+                    # projects doesn't leak streams from the old chat.
+                    for prior_chat in ws_broadcast.get_ws_chats(websocket):
+                        if prior_chat != sub_chat_id:
+                            ws_broadcast.unsubscribe_chat(websocket, prior_chat)
+                    ws_broadcast.subscribe_chat(websocket, sub_chat_id)
+                    logger.info(f"[WS] chat:subscribe → {sub_chat_id}")
+
                 elif msg_type == "chat:message":
                     content = payload.get("content", "")
                     message_id = payload.get("messageId", msg_id)
@@ -389,8 +411,13 @@ async def general_websocket(websocket: WebSocket):
                     if session_id:
                         active_session_ids.add(session_id)
 
-                    # Broadcast user message to OTHER connected clients (cross-device sync)
-                    await ws_broadcast.emit_to_others(websocket, "chat:message:new", {
+                    # Auto-subscribe this WS to the chat so future broadcasts
+                    # (streaming tokens from other devices) reach it. Idempotent.
+                    ws_broadcast.subscribe_chat(websocket, chat_id)
+
+                    # Broadcast user message to OTHER devices viewing the same chat.
+                    # Scoped to chat_id so unrelated projects/tabs don't receive it.
+                    await ws_broadcast.emit_to_chat(chat_id, "chat:message:new", {
                         "chatId": chat_id,
                         "sessionId": session_id,
                         "message": {
@@ -398,7 +425,7 @@ async def general_websocket(websocket: WebSocket):
                             "content": content,
                             "timestamp": time.time(),
                         },
-                    })
+                    }, exclude=websocket)
 
                     # Multi-layer orchestration (Fast XOR Deep + delegates in background)
                     # Fix 3: collect returned background tasks for cleanup on disconnect
@@ -436,7 +463,7 @@ async def general_websocket(websocket: WebSocket):
                                 last_assistant = msg
                                 break
                         if last_assistant:
-                            await ws_broadcast.emit_to_others(websocket, "chat:message:new", {
+                            await ws_broadcast.emit_to_chat(chat_id, "chat:message:new", {
                                 "chatId": chat_id,
                                 "sessionId": session_id,
                                 "message": {
@@ -445,7 +472,7 @@ async def general_websocket(websocket: WebSocket):
                                     "timestamp": time.time(),
                                     "model": last_assistant.get("model"),
                                 },
-                            })
+                            }, exclude=websocket)
                     except Exception as _broadcast_err:
                         logger.warning(f"[WS] Failed to broadcast assistant message: {_broadcast_err}")
 
