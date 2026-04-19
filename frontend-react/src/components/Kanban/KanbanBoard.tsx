@@ -47,6 +47,12 @@ const COLUMN_LABELS: Record<string, string> = {
   done: 'Done',
 };
 
+const COLUMN_DOT_COLORS: Record<string, string> = {
+  todo: 'bg-slate-400',
+  'in-progress': 'bg-orange-500',
+  done: 'bg-emerald-500',
+};
+
 // ── Sortable Card Wrapper ──────────────────────────────────────────────────────
 
 interface SortableCardProps {
@@ -158,8 +164,11 @@ function KanbanColumn({
     >
       {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/30">
-        <span className="text-sm font-medium text-foreground">{label}</span>
-        <span className="text-xs text-muted-foreground tabular-nums">{cards.length}</span>
+        <div className="flex items-center gap-2">
+          <span className={cn('w-2 h-2 rounded-full flex-shrink-0', COLUMN_DOT_COLORS[status])} />
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+        </div>
+        <span className="text-xs text-muted-foreground tabular-nums bg-muted/60 px-1.5 py-0.5 rounded-full min-w-[20px] text-center">{cards.length}</span>
       </div>
 
       {/* Droppable card list */}
