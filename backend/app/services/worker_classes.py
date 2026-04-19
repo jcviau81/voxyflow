@@ -11,13 +11,22 @@ from __future__ import annotations
 
 DEFAULT_WORKER_CLASSES = [
     {
-        "id": "00000000-0000-0000-0000-000000000001",
-        "name": "Quick",
-        "description": "Fast, lightweight tasks — summaries, simple Q&A, formatting",
+        "id": "00000000-0000-0000-0000-000000000006",
+        "name": "Architecture",
+        "description": "System design, structural decisions, cross-cutting architecture",
         "endpoint_id": "",
         "provider_type": "cli",
-        "model": "claude-haiku-4-5-20251001",
-        "intent_patterns": ["summarize", "format", "quick", "simple", "short"],
+        "model": "claude-opus-4-7",
+        "intent_patterns": ["architect", "architecture", "system_design", "structural", "redesign"],
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000005",
+        "name": "Complex Coding",
+        "description": "Multi-file changes, major refactors, complex features",
+        "endpoint_id": "",
+        "provider_type": "cli",
+        "model": "claude-opus-4-7",
+        "intent_patterns": ["multi_file", "multifile", "major_refactor", "complex_implement", "complex_feature", "large_refactor"],
     },
     {
         "id": "00000000-0000-0000-0000-000000000002",
@@ -45,5 +54,14 @@ DEFAULT_WORKER_CLASSES = [
         "provider_type": "cli",
         "model": "claude-sonnet-4-6",
         "intent_patterns": ["write", "brainstorm", "creative", "story", "draft"],
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "name": "Quick",
+        "description": "Fast, lightweight tasks — summaries, simple Q&A, formatting",
+        "endpoint_id": "",
+        "provider_type": "cli",
+        "model": "claude-haiku-4-5-20251001",
+        "intent_patterns": ["summarize", "format", "quick", "simple", "short"],
     },
 ]

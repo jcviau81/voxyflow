@@ -747,6 +747,29 @@ class DeepWorkerPool:
                 event.data["_resolved_worker_class"] = _worker_class
             else:
                 _effective_model = get_default_worker_model()
+
+            # Safety guard: coding intents must never run on Haiku — upgrade to sonnet minimum.
+            # Applies regardless of user-configured Worker Classes or Default Worker Model,
+            # so even if the user misconfigured the Coding class with Haiku, it gets upgraded.
+            # Also catches Quick-class mis-routing (e.g. intent "summarize_code_fixes" matched
+            # Quick but is actually coding work) by scanning intent+summary+description.
+            from app.services.orchestration.model_resolution import _is_coding_text
+            _is_coding_intent = _is_coding_text(
+                event.intent,
+                event.summary,
+                (event.data or {}).get("description"),
+            )
+            _is_coding_worker_class = (_worker_class or {}).get("name", "").lower() in {
+                "coding", "complex coding", "architecture",
+            }
+            if "haiku" in _effective_model.lower() and (_is_coding_intent or _is_coding_worker_class):
+                _effective_model = "claude-sonnet-4-6"
+                logger.warning(
+                    "[ModelGuard] Upgraded haiku \u2192 sonnet for coding task "
+                    "(intent=%r, worker_class=%r, task=%s)",
+                    event.intent, (_worker_class or {}).get("name"), event.task_id,
+                )
+
             # Update task_meta so get_active_tasks reflects the actual model
             if event.task_id in self._task_meta:
                 self._task_meta[event.task_id]["model"] = _effective_model

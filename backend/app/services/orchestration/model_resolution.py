@@ -10,6 +10,7 @@ other).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from app.services.direct_executor import CRUD_SIMPLE_INTENTS
@@ -20,12 +21,15 @@ logger = logging.getLogger("voxyflow.orchestration.model_resolution")
 
 _VALID_MODELS = ("haiku", "sonnet", "opus")
 
-# Keywords in a delegate description that force a haiku → sonnet upgrade.
-# Haiku is not reliable enough to pick the right MCP tool for code-editing
-# tasks (see GitHub issue #4) — we upgrade defensively when we see these.
+# Keywords that force a haiku → sonnet upgrade when seen in the delegate's
+# intent / description / summary. Haiku is not reliable enough to pick the
+# right MCP tool for code-editing tasks (see GitHub issue #4).
 _CODING_KEYWORDS = frozenset({
     "fix", "implement", "refactor", "write", "code", "debug",
-    "build", "create function", "add feature", "patch",
+    "build", "patch",
+})
+_CODING_PHRASES = frozenset({
+    "create function", "add feature",
 })
 
 
@@ -36,11 +40,23 @@ class ResolvedWorker:
     intent_type: str  # "complex" | "crud_simple"
 
 
-def _is_coding_description(description: str | None) -> bool:
-    if not description:
+_TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
+
+
+def _is_coding_text(*texts: str | None) -> bool:
+    """True if any of *texts* contains a coding keyword as a standalone token.
+
+    Tokenises on non-alphanumeric so ``fix_login_bug`` matches ``fix`` and
+    ``multi-file refactor`` matches ``refactor`` — but ``prefix`` doesn't
+    falsely match ``fix``. Also scans for multi-word phrases as substrings.
+    """
+    haystack = " ".join((t or "").lower() for t in texts if t)
+    if not haystack:
         return False
-    lower = description.lower()
-    return any(kw in lower for kw in _CODING_KEYWORDS)
+    tokens = set(_TOKEN_SPLIT.split(haystack))
+    if tokens & _CODING_KEYWORDS:
+        return True
+    return any(phrase in haystack for phrase in _CODING_PHRASES)
 
 
 def resolve_worker_model(
@@ -77,7 +93,9 @@ def resolve_worker_model(
             worker_class_id = card_preferred
             logger.info(f"[ModelOverride] Card preferred_model is worker class id={card_preferred}")
 
-    if not worker_class_id and model == "haiku" and _is_coding_description(data.get("description")):
+    if not worker_class_id and model == "haiku" and _is_coding_text(
+        intent, data.get("description"), data.get("summary")
+    ):
         logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (coding task detected: {intent})")
         model = "sonnet"
 
