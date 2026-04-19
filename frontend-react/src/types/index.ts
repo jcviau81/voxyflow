@@ -33,8 +33,8 @@ export interface Message {
   enrichment?: boolean;
   enrichmentAction?: 'enrich' | 'correct';
   model?: string;
-  isWorkerResult?: boolean;
   truncated?: boolean;
+  queued?: boolean;
 }
 
 export interface TechInfo {

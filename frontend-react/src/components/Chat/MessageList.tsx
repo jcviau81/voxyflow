@@ -125,7 +125,7 @@ export function MessageList({
 
   const speakAssistantMessage = useCallback((msg: Message) => {
     if (msg.role !== 'assistant') return;
-    if (msg.enrichment || msg.isWorkerResult) return;
+    if (msg.enrichment) return;
     const cleaned = cleanTextForSpeech(msg.content);
     if (cleaned) ttsService.speakIfAutoPlay(cleaned);
   }, []);
@@ -168,9 +168,9 @@ export function MessageList({
         const spokenLen = streamingTtsBufferRef.current.get(messageId);
         streamingTtsBufferRef.current.delete(messageId);
 
-        // Check message metadata (enrichment/worker result should not be spoken)
+        // Check message metadata (enrichment should not be spoken)
         const msg = useMessageStore.getState().messages.find((m) => m.id === messageId);
-        const isSpecialMessage = msg && (msg.enrichment || msg.isWorkerResult);
+        const isSpecialMessage = msg && msg.enrichment;
 
         if (isSpecialMessage) {
           // Never speak enrichment or worker result messages

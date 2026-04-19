@@ -330,11 +330,22 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             doc_id = f"mem-{uuid.uuid4().hex[:12]}"
 
             meta = metadata or {}
+            now = datetime.now(timezone.utc)
             # Ensure required fields with defaults
             meta.setdefault("type", "context")
-            meta.setdefault("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+            meta.setdefault("date", now.strftime("%Y-%m-%d"))
+            meta.setdefault("created_at", now.isoformat(timespec="seconds"))
             meta.setdefault("source", "manual")
             meta.setdefault("importance", "medium")
+            # Attribution defaults (caller can override).
+            meta.setdefault("speaker", "unknown")
+            # chat_id / project_id: prefer caller metadata, fall back to env.
+            env_chat = os.environ.get("VOXYFLOW_CHAT_ID", "") or ""
+            env_project = os.environ.get("VOXYFLOW_PROJECT_ID", "") or ""
+            if env_chat and "chat_id" not in meta:
+                meta["chat_id"] = env_chat
+            if env_project and "project_id" not in meta:
+                meta["project_id"] = env_project
             # ChromaDB metadata values must be str, int, float, or bool
             # Remove None values
             meta = {k: v for k, v in meta.items() if v is not None}

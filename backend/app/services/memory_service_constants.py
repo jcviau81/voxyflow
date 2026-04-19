@@ -31,8 +31,8 @@ MIGRATION_FLAG_FILE = Path(CHROMA_PERSIST_DIR) / ".memory_migrated"
 
 GLOBAL_COLLECTION = "memory-global"
 
-VALID_TYPES = {"decision", "preference", "lesson", "fact", "context"}
-VALID_SOURCES = {"chat", "manual", "auto-extract"}
+VALID_TYPES = {"decision", "preference", "lesson", "fact", "context", "procedure"}
+VALID_SOURCES = {"chat", "manual", "auto-extract", "worker_summary", "worker"}
 VALID_IMPORTANCE = {"high", "medium", "low"}
 
 # ---------------------------------------------------------------------------
@@ -65,6 +65,39 @@ _LESSON_PATTERNS = [
     re.compile(r"(?:lesson|learned|takeaway|insight|realized?|turns?\s+out)\b", re.I),
     re.compile(r"(?:important|remember|note\s+to\s+self)\b", re.I),
 ]
+
+
+# Patterns that justify classifying a memory as importance="high". Matches
+# decisions, deadlines, root-cause fixes, absolute preferences, compliance.
+# If an LLM returns `importance=high` but the text matches NONE of these,
+# we downgrade to medium — prevents jokes and rhetoric from landing in L1.
+_HIGH_IMPORTANCE_SIGNALS = [
+    re.compile(r"\b(?:decision|decided?|chose|choisi|going\s+with|we['’]?ll\s+use|we['’]?re\s+using|"
+               r"on\s+va\s+(?:utiliser|prendre|faire)|on\s+prend|on\s+choisit|"
+               r"switched?\s+to|migrated?\s+to|"
+               r"root[- ]cause|fixed\s+(?:by|via|the)|bug\s+confirmé|solved)\b", re.I),
+    re.compile(r"\b(?:deadline|due\s+(?:by|on)|freeze|release|launch|ship(?:ped|ping)?|"
+               r"échéance|gel\s+des?\s+merges?|sortie\s+prévue)\b", re.I),
+    re.compile(r"\b(?:always|never|must(?:\s+not)?|don['’]?t\s+ever|jamais|toujours|"
+               r"obligatoirement|interdit|impératif)\b", re.I),
+    re.compile(r"\b(?:CVE|security\s+(?:risk|bug|hole)|data\s+loss|breach|leak|"
+               r"compliance|GDPR|RGPD|faille)\b", re.I),
+    re.compile(r"\b20\d{2}-\d{2}-\d{2}\b"),  # ISO date
+]
+
+
+def _high_importance_justified(text: str) -> bool:
+    """Return True iff the text contains at least one strong-signal pattern.
+
+    Used as a guard after LLM extraction — when the model tags a line as
+    `high` but the line is actually banter or a soft remark, this gate
+    fires False and the caller downgrades importance to `medium`.
+    """
+    t = text or ""
+    for pat in _HIGH_IMPORTANCE_SIGNALS:
+        if pat.search(t):
+            return True
+    return False
 
 
 def _classify_text(text: str) -> tuple[str, str]:
@@ -110,7 +143,13 @@ short block of conversation messages and extract information worth remembering l
 - **preference**: A stated user preference or style guideline ("I prefer dark mode", "always use async")
 - **fact**: A relevant technical fact, tool version, architecture detail, or bug/fix encountered
 - **lesson**: A learned insight, hard-won takeaway, or "note to self"
-- **skip**: Everything else — greetings, filler, vague statements, chitchat, questions without answers
+- **procedure**: A reusable "how to do X" pattern — ordered steps for a recurring workflow \
+("how to restart the backend", "how to deploy", "how to debug Chroma drift"). Content MUST \
+start with "How to {task}:" and list concrete ordered steps. Extract only when the trace is \
+complete enough to be re-executed later. One-off commands are NOT procedures — they're facts.
+- **skip**: Everything else — greetings, filler, jokes, off-topic banter, personal anecdotes \
+unrelated to the work, vague statements, chitchat, questions without answers, conversational \
+closings ("dis-moi", "let me know", "on continue"), rhetorical prompts
 
 ## Language
 The conversation may be in French, English, or franglais (FR/EN mix). Handle all naturally. \
@@ -120,9 +159,30 @@ Extract the memory content in the same language it was expressed.
 Respond with a JSON array ONLY — no markdown, no explanation, no code fence.
 Each item in the array must be a JSON object with exactly these fields:
   - "content": string — the memory text, self-contained (no pronouns without referent)
-  - "type": one of "decision" | "preference" | "fact" | "lesson" | "skip"
+  - "type": one of "decision" | "preference" | "fact" | "lesson" | "procedure" | "skip"
   - "importance": one of "high" | "medium" | "low"
   - "confidence": float between 0.0 and 1.0
+  - "speaker": one of "user" | "assistant" — who uttered the source statement
+    (look at the [USER]/[ASSISTANT] tag of the message the memory is extracted from)
+
+## Importance calibration (STRICT)
+`importance` is NOT a mood signal. Use this rubric:
+
+- **high** — reserve for one of:
+    * an explicit decision or architecture choice ("we're going with X instead of Y")
+    * a deadline, date, or release constraint
+    * a root-cause bug diagnosis or a confirmed fix
+    * a stated strong preference ("always / never / must / don't ever")
+    * a compliance / security / data-loss risk
+  If the sentence doesn't clearly fit one of these slots, it is NOT high.
+
+- **medium** — useful technical facts, tool versions, naming conventions, project status
+  updates, and mild preferences. This is the default for anything real but not critical.
+
+- **low** — incidental detail, single data point, background context.
+
+Jokes, banter, asides, metaphors, emoji-heavy reactions, and personal anecdotes
+unrelated to the project must be classified **skip** — not "high", not "medium", not "low".
 
 ## Rules
 - Only include items with confidence > 0.7 that have real long-term value
@@ -130,6 +190,34 @@ Each item in the array must be a JSON object with exactly these fields:
 - One memory per distinct piece of information (don't bundle multiple facts)
 - Keep "content" concise but complete — someone reading it later should understand it without context
 - If nothing is worth remembering, return an empty array: []
+
+## Examples
+
+Input: "On va utiliser Redis 7 pour le cache, Memcached c'est mort."
+→ {"content": "Decision: using Redis 7 for cache (dropping Memcached)", "type": "decision", "importance": "high", "confidence": 0.95}
+
+Input: "Le backend tourne sur uvicorn port 8000."
+→ {"content": "Backend runs on uvicorn, port 8000", "type": "fact", "importance": "medium", "confidence": 0.9}
+
+Input: "Deadline démo client vendredi prochain, gel des merges mercredi soir."
+→ {"content": "Client demo deadline Friday; merge freeze Wednesday evening", "type": "fact", "importance": "high", "confidence": 0.95}
+
+Input: "Allez file, ton bug t'attend 🔧"
+→ skip (banter / sign-off, no informational value)
+
+Input: "Blague à part, c'était drôle ce matin."
+→ skip (personal banter, off-topic)
+
+Input: "J'aime bien le dark mode."
+→ {"content": "User prefers dark mode", "type": "preference", "importance": "low", "confidence": 0.75}
+  (soft preference without "always/never" → low, not high)
+
+Input: "Pour redémarrer le backend: 1. git pull 2. systemctl --user restart voxyflow-backend 3. attendre /health. Pour le frontend: cd frontend-react && npm run build."
+→ {"content": "How to restart the backend:\\n1. git pull\\n2. systemctl --user restart voxyflow-backend\\n3. wait for /health\\n\\nHow to rebuild the frontend:\\n1. cd frontend-react && npm run build", "type": "procedure", "importance": "medium", "confidence": 0.9}
+
+Input: "tmux kill-session -t voxy"
+→ {"content": "tmux kill-session -t voxy", "type": "fact", "importance": "low", "confidence": 0.6}
+  (single command → fact, not procedure — procedures have ≥ 2 ordered steps)
 
 ## Entity Extraction (Knowledge Graph)
 Also extract named entities and relationships mentioned in the conversation:

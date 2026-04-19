@@ -60,6 +60,8 @@ class SteerableMixin:
         voxyflow_dev_task: bool = False,
         project_id: str = "",
         card_id: str = "",
+        chat_id: str = "",
+        worker_id: str = "",
     ) -> list[str]:
         """Build CLI args for a steerable worker using --input-format stream-json.
 
@@ -89,6 +91,8 @@ class SteerableMixin:
                     voxyflow_dev_task=voxyflow_dev_task,
                     project_id=project_id,
                     card_id=card_id,
+                    chat_id=chat_id,
+                    worker_id=worker_id,
                 ),
             ])
 
@@ -133,6 +137,8 @@ class SteerableMixin:
             model, system_prompt, use_tools=use_tools, mcp_role=mcp_role,
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),
             project_id=project_id, card_id=card_id,
+            chat_id=chat_id,
+            worker_id=(task_id or (session_id if session_type == "worker" else "")),
         )
 
         gate = get_rate_gate()

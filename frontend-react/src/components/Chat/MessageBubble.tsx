@@ -357,8 +357,16 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
         {/* Content */}
         <div ref={contentRef}>
           {isUser ? (
-            <div className="bg-primary border border-transparent text-primary-foreground rounded-xl rounded-br-sm px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">
+            <div
+              className={cn(
+                'bg-primary border border-transparent text-primary-foreground rounded-xl rounded-br-sm px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap',
+                message.queued && 'opacity-50',
+              )}
+            >
               {replaceEmojiShortcodes(typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? ''))}
+              {message.queued && (
+                <div className="mt-1 text-[0.65rem] opacity-80">{'\u23F3 queued'}</div>
+              )}
             </div>
           ) : (
             <div
@@ -366,7 +374,6 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
                 'bg-muted border border-border rounded-xl rounded-bl-sm px-3.5 py-2.5 text-sm leading-relaxed',
                 isEnrichment && 'border-l-[3px] border-l-primary italic',
                 isEnrichment && message.enrichmentAction === 'correct' && 'border-l-yellow-500',
-                message.isWorkerResult && 'border-l-[3px] border-l-primary italic',
               )}
             >
               <MessageContent content={message.content} streaming={message.streaming} />

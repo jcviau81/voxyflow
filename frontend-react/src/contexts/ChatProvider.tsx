@@ -147,6 +147,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // as manual send, without creating a dependency cycle.
   const sendMessageRef = useRef<ChatContextValue['sendMessage'] | null>(null);
 
+  // Conversation lock: queue of user messages typed mid-stream. They render as
+  // `queued: true` (dimmed) and are flushed in order when the current stream ends.
+  const pendingQueueRef = useRef<Array<{
+    messageId: string;
+    content: string;
+    projectId: string;
+    cardId?: string;
+    sessionId?: string;
+    chatLevel: 'general' | 'project' | 'card';
+  }>>([]);
+  // Populated below; called from stream-end handlers. Ref avoids hoist issues.
+  const flushNextQueuedRef = useRef<() => void>(() => {});
+
   // Stable refs for store methods (avoid stale closures)
   const messageStoreRef = useRef(messageStore);
   messageStoreRef.current = messageStore;
@@ -231,6 +244,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         clearStreamingTimer(streamId);
 
         emitCallbacks('onMessageStreamEnd', { messageId: stream.messageId, content });
+        flushNextQueuedRef.current();
       }
     },
     [clearStreamingTimer, emitCallbacks],
@@ -272,6 +286,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       clearStreamingTimer(streamId);
     }
     streamingMessagesRef.current.clear();
+    flushNextQueuedRef.current();
   }, [clearStreamingTimer, emitCallbacks]);
 
   // ---------------------------------------------------------------------------
@@ -514,10 +529,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     unsubs.push(
       subscribe('task:completed', (payload) => {
         normalizeTaskId(payload);
-        const { intent, summary, result, success, sessionId, projectId, cardId } = payload as {
+        const { intent, summary, success, cardId } = payload as {
           intent: string;
           summary: string;
-          result: string;
           success: boolean;
           taskId: string;
           sessionId?: string;
@@ -525,24 +539,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           cardId?: string;
         };
         emitCallbacks('onTaskCompleted', payload);
-
-        // Inject worker result as a chat message
-        if (result && result.trim()) {
-          const resultContent = success
-            ? result
-            : `\u26A0\uFE0F Task failed (${intent}): ${result}`;
-
-          const message = messageStoreRef.current.addMessage({
-            role: 'assistant',
-            content: resultContent,
-            model: 'worker',
-            projectId: projectId || getProjectIdFromSession(sessionId),
-            sessionId: sessionId || activeSessionIdRef.current,
-            cardId: cardId || undefined,
-            isWorkerResult: true,
-          });
-          emitCallbacks('onMessageReceived', message);
-        }
 
         if (success) {
           showToast(`\u2705 ${intent}: ${summary.substring(0, 50)}`, 'success', 4000);
@@ -797,7 +793,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
                 const converted: Message[] = backendMessages
                   .filter((m) => m.role === 'user' || m.role === 'assistant')
-                  .filter((m) => m.type !== 'enrichment')
+                  .filter((m) => m.type !== 'enrichment' && m.type !== 'worker_result')
                   .map((m) => ({
                     id: generateId(),
                     role: m.role as 'user' | 'assistant',
@@ -806,7 +802,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     sessionId,
                     streaming: false,
                     model: m.model,
-                    isWorkerResult: m.type === 'worker_result' ? true : undefined,
                   }));
 
                 if (converted.length > 0) {
@@ -862,12 +857,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const store = messageStoreRef.current;
       const pStore = projectStoreRef.current;
 
+      // Conversation lock: if any assistant stream is active OR there are
+      // already queued messages ahead, mark this one as `queued` and hold it.
+      const isBusy =
+        streamingMessagesRef.current.size > 0 || pendingQueueRef.current.length > 0;
+
       const message = store.addMessage({
         role: 'user',
         content,
         projectId: projectId || undefined,
         cardId,
         sessionId,
+        queued: isBusy || undefined,
       });
 
       const layers = getLayerState();
@@ -878,6 +879,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         chatLevel = 'card';
       } else if (currentProjectId && currentProjectId !== SYSTEM_PROJECT_ID) {
         chatLevel = 'project';
+      }
+
+      if (isBusy) {
+        pendingQueueRef.current.push({
+          messageId: message.id,
+          content,
+          projectId: currentProjectId,
+          cardId: currentCardId || undefined,
+          sessionId: sessionId || undefined,
+          chatLevel,
+        });
+        return message;
       }
 
       send('chat:message', {
@@ -895,6 +908,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     },
     [send, getLayerState],
   );
+
+  // Flush one queued user message after the current stream ends.
+  // Runs on every onMessageStreamEnd; chains naturally if more than one is queued.
+  const flushNextQueued = useCallback(() => {
+    if (streamingMessagesRef.current.size > 0) return;
+    const next = pendingQueueRef.current.shift();
+    if (!next) return;
+
+    messageStoreRef.current.updateMessage(next.messageId, { queued: false });
+
+    send('chat:message', {
+      content: next.content,
+      projectId: next.projectId,
+      cardId: next.cardId,
+      messageId: next.messageId,
+      chatLevel: next.chatLevel,
+      layers: getLayerState(),
+      sessionId: next.sessionId,
+      chatId: next.sessionId,
+    });
+  }, [send, getLayerState]);
+  flushNextQueuedRef.current = flushNextQueued;
 
   // Keep sendMessageRef in sync so flushVoiceAutoSend can use it
   sendMessageRef.current = sendMessage;
@@ -950,7 +985,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         const converted: Message[] = backendMessages
           .filter((m) => m.role === 'user' || m.role === 'assistant')
-          .filter((m) => m.type !== 'enrichment')
+          .filter((m) => m.type !== 'enrichment' && m.type !== 'worker_result')
           .map((m) => ({
             id: generateId(),
             role: m.role as 'user' | 'assistant',
@@ -961,7 +996,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             sessionId: sessionId || undefined,
             streaming: false,
             model: m.model,
-            isWorkerResult: m.type === 'worker_result' ? true : undefined,
           }));
 
         if (converted.length > 0) {

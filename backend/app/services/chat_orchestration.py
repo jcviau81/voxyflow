@@ -503,6 +503,22 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         card_context = None
         project_names: list[str] = []
 
+        # #8 card_id inherit: if we have a card but no project_id, look up
+        # the parent project so the card chat gets project-level context too
+        # (board state, tech stack, github). Without this, Voxy in card chat
+        # sees only the card and hallucinates the surrounding world.
+        if card_id and not project_id:
+            try:
+                from app.database import async_session, Card
+                from sqlalchemy import select
+                async with async_session() as db:
+                    r = await db.execute(select(Card.project_id).where(Card.id == card_id))
+                    parent = r.scalar_one_or_none()
+                    if parent:
+                        project_id = parent
+            except Exception as e:
+                logger.warning(f"_resolve_context: card->project lookup failed: {e}")
+
         if project_id:
             try:
                 from app.database import async_session, Project, Card

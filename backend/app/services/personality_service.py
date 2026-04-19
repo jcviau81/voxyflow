@@ -247,6 +247,8 @@ class PersonalityService:
         memory_context: Optional[str] = None,
         active_workers_context: Optional[str] = None,
         worker_classes: Optional[list[dict]] = None,
+        live_state: Optional[str] = None,
+        worker_events: Optional[str] = None,
     ) -> str:
         """Build the DYNAMIC context block — injected into messages[], NOT the system prompt.
 
@@ -260,6 +262,14 @@ class PersonalityService:
         identical across calls → Anthropic KV cache hits.
         """
         parts: list[str] = []
+
+        # Live-state heartbeat + worker activity (ambient signals) render FIRST
+        # so Voxy reads "what's the environment right now" before per-project
+        # context. These are short, bounded blocks.
+        if live_state:
+            parts.append(live_state.rstrip())
+        if worker_events:
+            parts.append(worker_events.rstrip())
 
         if chat_level in ("project", "general") and project:
             # Project chat: inject full project state.
@@ -288,6 +298,48 @@ class PersonalityService:
             else:
                 in_progress_block = "In progress: (none)"
 
+            # #9 Needs attention: flag cards stuck too long in a status. Heuristic:
+            # in_progress > 7 days since last update, or todo > 14 days. Keep it
+            # short (≤3 cards) — full board is already visible above.
+            stale_lines: list[str] = []
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            def _parse_ts(raw: str):
+                raw = str(raw or "").strip()
+                if not raw:
+                    return None
+                try:
+                    s = raw.replace(" ", "T")
+                    # Strip microseconds if any — fromisoformat handles them but
+                    # sqlalchemy str() can produce "2026-04-18 10:11:12.123456".
+                    if "+" not in s and "Z" not in s:
+                        s = s + "+00:00"
+                    s = s.replace("Z", "+00:00")
+                    return datetime.fromisoformat(s)
+                except Exception:
+                    return None
+            for c in in_progress_cards:
+                ts = _parse_ts(c.get("updated_at"))
+                if ts and (now - ts).days > 7:
+                    stale_lines.append(
+                        f"  - ⚠️ {c.get('title', 'Untitled')} (in_progress, stale {((now - ts).days)}d)"
+                    )
+                    if len(stale_lines) >= 3:
+                        break
+            if len(stale_lines) < 3:
+                for c in todo_cards:
+                    ts = _parse_ts(c.get("updated_at"))
+                    if ts and (now - ts).days > 14:
+                        stale_lines.append(
+                            f"  - ⚠️ {c.get('title', 'Untitled')} (todo, stale {((now - ts).days)}d)"
+                        )
+                        if len(stale_lines) >= 3:
+                            break
+            attention_block = (
+                "Needs attention:\n" + "\n".join(stale_lines)
+                if stale_lines else ""
+            )
+
             # Todo titles
             if todo_cards:
                 td_lines = "\n".join(f"  - {c.get('title', 'Untitled')}" for c in todo_cards)
@@ -305,13 +357,16 @@ class PersonalityService:
             else:
                 backlog_block = "Backlog: (none)"
 
+            blocks_joined = f"{in_progress_block}\n{todo_block}\n{backlog_block}"
+            if attention_block:
+                blocks_joined += f"\n{attention_block}"
             parts.append(
                 f"## Project Context: {name} (LIVE — this overrides any earlier data in the conversation)\n"
                 f"Description: {description}\n"
                 f"Tech Stack: {tech_stack}\n"
                 f"GitHub: {github_url}\n\n"
                 f"{state_line}\n\n"
-                f"{in_progress_block}\n{todo_block}\n{backlog_block}"
+                f"{blocks_joined}"
             )
 
         if chat_level == "card" and card:
@@ -328,9 +383,24 @@ class PersonalityService:
             total_items = len(checklist)
             completed_items = sum(1 for item in checklist if item.get("done") or item.get("completed"))
 
+            # #8 card_id inherit: if we resolved a parent project, surface a
+            # compact header so Voxy knows the surrounding board exists. Full
+            # project rollup stays hidden — a card chat shouldn't flood with
+            # siblings — but a name + 1-line state keeps orientation.
+            parent_line = ""
+            if project:
+                p_cards = [c for c in (project.get("cards") or []) if c.get("status") != "archived"]
+                p_done = sum(1 for c in p_cards if c.get("status") == "done")
+                p_ip = sum(1 for c in p_cards if c.get("status") == "in_progress")
+                parent_line = (
+                    f"Parent project: {project.get('title', 'Untitled')} "
+                    f"({len(p_cards)} cards, {p_done} done, {p_ip} in progress)\n"
+                )
+
             id_part = f" ({card_id})" if card_id else ""
             parts.append(
                 f"## Card Details: {card_title}\n"
+                f"{parent_line}"
                 f"Card: {card_title}{id_part}\n"
                 f"Status: {status} | Priority: {priority} | Agent: {agent_type} | Assignee: {assignee}\n"
                 f"Description: {description}\n"
@@ -338,7 +408,7 @@ class PersonalityService:
             )
 
         if memory_context:
-            parts.append(f"## Relevant Memory\n{memory_context}")
+            parts.append(f"## Retrieved fragments (may be noisy)\n{memory_context}")
 
         if active_workers_context:
             parts.append(f"## Background Workers Status\n{active_workers_context}")
@@ -499,7 +569,7 @@ class PersonalityService:
 
         # Layer 3: Memory context
         if include_memory_context:
-            sections.append("## Relevant Memory\n")
+            sections.append("## Retrieved fragments (may be noisy)\n")
             sections.append(include_memory_context + "\n")
 
         # Layer 4: Agent persona overlay
@@ -772,3 +842,94 @@ def get_personality_service() -> PersonalityService:
     if _personality_service is None:
         _personality_service = PersonalityService()
     return _personality_service
+
+
+# ---------------------------------------------------------------------------
+# Ambient context blocks (Live state + Worker activity)
+#
+# These render at the top of the dynamic context each turn. They replace the
+# old "worker completion re-triggers a dispatcher turn" flow — Voxy now sees
+# ambient signals without being forced into a response turn.
+# ---------------------------------------------------------------------------
+
+_STATUS_GLYPH = {"success": "✓", "ok": "✓", "failed": "✗", "error": "✗"}
+
+
+def _fmt_delta_seconds(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    mins, sec = divmod(seconds, 60)
+    if mins < 60:
+        return f"{mins}m{sec:02d}s"
+    hours, mins = divmod(mins, 60)
+    if hours < 24:
+        return f"{hours}h{mins:02d}m"
+    days, hours = divmod(hours, 24)
+    return f"{days}d{hours:02d}h"
+
+
+def build_worker_events_block(events: list[dict]) -> str:
+    """Render completed worker events as a short reference block.
+
+    This is NOT a turn. It just tells Voxy "these finished while you were away;
+    call workers.get_result if you want the detail." Hard cap ≤10 lines / 600 chars.
+    """
+    if not events:
+        return ""
+    lines: list[str] = ["## Worker activity since your last turn"]
+    for ev in events[:10]:
+        status = (ev.get("status") or "success").lower()
+        glyph = _STATUS_GLYPH.get(status, "•")
+        intent = ev.get("intent") or "unknown"
+        task_id = ev.get("task_id") or "?"
+        summary = (ev.get("summary_line") or "").strip()
+        # Prefer the summary if present; otherwise just fall back to the hint.
+        tail = summary if summary else "use workers.get_result for details"
+        line = f"- {glyph} {task_id} — {intent} ({status}) — {tail}"
+        lines.append(line[:140])
+
+    rendered = "\n".join(lines)
+    if len(rendered) > 600:
+        rendered = rendered[:580].rstrip() + "\n[... events truncated — use workers.list ...]"
+    return rendered
+
+
+def build_live_state_block(
+    *,
+    active_workers: int,
+    next_job: Optional[dict] = None,
+    pending_actions: Optional[int] = None,
+    cards_updated_today: Optional[int] = None,
+    last_user_turn_ago: Optional[str] = None,
+    running_worker_intents: Optional[list[str]] = None,
+) -> str:
+    """Render the ambient "what is currently running" block.
+
+    Silent on any field we don't have data for — don't render `unknown`
+    placeholders because that's noise for Voxy. Hard cap ~8 lines, ~300 chars.
+    """
+    lines: list[str] = ["## Live state"]
+    if running_worker_intents:
+        # Summarise active workers by intent (first 3) so Voxy sees *what's*
+        # running, not just a number.
+        brief = ", ".join(running_worker_intents[:3])
+        if len(running_worker_intents) > 3:
+            brief += f", +{len(running_worker_intents) - 3}"
+        lines.append(f"- Active workers: {int(active_workers or 0)} ({brief})")
+    else:
+        lines.append(f"- Active workers: {int(active_workers or 0)}")
+    if next_job and next_job.get("name"):
+        eta = next_job.get("eta_seconds")
+        eta_str = f"in {_fmt_delta_seconds(eta)}" if isinstance(eta, (int, float)) else "scheduled"
+        lines.append(f"- Next scheduled job: {next_job['name']} {eta_str}")
+    if cards_updated_today is not None and cards_updated_today > 0:
+        lines.append(f"- Cards touched today: {cards_updated_today}")
+    if last_user_turn_ago:
+        lines.append(f"- Last user turn: {last_user_turn_ago} ago")
+    if pending_actions is not None:
+        if pending_actions > 0:
+            lines.append(f"- Pending user actions: {pending_actions}")
+        else:
+            lines.append("- Pending user actions: (none)")
+    return "\n".join(lines)

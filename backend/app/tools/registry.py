@@ -48,6 +48,8 @@ TOOLS_DISPATCHER = {
     "voxyflow.card.archive",
     # Worker management (dispatcher needs to monitor/read worker results)
     "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
+    # Undo journal — lets Voxy revert reversible actions she just took
+    "voxyflow.undo.list", "voxyflow.undo.apply",
 }
 
 # Worker tools: full MCP access — exec, files, git, tmux, AI features,
