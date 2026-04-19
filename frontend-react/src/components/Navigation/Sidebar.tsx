@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useMemo } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   Home,
   Settings,
@@ -146,6 +146,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
   // Stores
   const projects = useProjectStore((s) => s.projects);
   const activeTab = useTabStore((s) => s.activeTab);
+  const location = useLocation();
   const notificationUnreadCount = useNotificationStore((s) => s.notificationUnreadCount);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
@@ -203,9 +204,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           <NavLink
             to="/"
             end
-            className={({ isActive }) =>
-              cn(NAV_ITEM, (isActive || activeTab === 'main') && 'bg-accent text-accent-foreground font-medium')
-            }
+            className={cn(NAV_ITEM, location.pathname === '/' && 'bg-accent text-accent-foreground font-medium')}
             data-testid="sidebar-general"
             data-tab="main"
           >

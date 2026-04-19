@@ -225,15 +225,16 @@ function TtsButton({ text }: TtsButtonProps) {
     <button
       onClick={handleClick}
       className={cn(
-        'opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity',
+        'tts-btn w-7 h-7 flex items-center justify-center rounded-lg transition-all',
+        'opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-accent',
         speaking && 'opacity-100 text-primary',
       )}
       title={speaking ? 'Stop' : 'Read aloud'}
       type="button"
     >
       {speaking
-        ? <Square size={13} className="text-muted-foreground" />
-        : <Volume2 size={13} className="text-muted-foreground" />}
+        ? <Square size={14} className="text-muted-foreground" />
+        : <Volume2 size={14} className="text-muted-foreground" />}
     </button>
   );
 }
