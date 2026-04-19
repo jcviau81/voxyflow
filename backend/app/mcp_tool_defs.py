@@ -1437,13 +1437,25 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Memory Delete --------------------------------------------------------
     {
         "name": "memory.delete",
-        "description": "Delete a specific memory entry by ID. Use memory.search first to find the ID of the memory to delete.",
+        "description": (
+            "Delete a memory entry by ID. By default cascades across every "
+            "collection in the current scope (same set as memory.search "
+            "scope=current), so duplicate copies cannot be left behind. Use "
+            "memory.search first to find the ID. Returns deleted_from (list "
+            "of collections actually affected) and count."
+        ),
         "inputSchema": {
             "type": "object",
             "required": ["id"],
             "properties": {
                 "id": {"type": "string", "description": "Memory document ID to delete"},
-                "collection": {"type": "string", "description": "Collection name (optional, defaults to global)"},
+                "collection": {
+                    "type": "string",
+                    "description": (
+                        "Optional. If set, deletes from this single collection only. "
+                        "If omitted, cascades across every collection in the current scope."
+                    ),
+                },
             },
         },
         "_handler": "memory_delete",

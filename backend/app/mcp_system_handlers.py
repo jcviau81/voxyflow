@@ -273,18 +273,65 @@ def build_handlers(
             return {"success": False, "error": str(e)}
 
     async def memory_delete(params: dict) -> dict:
-        """Delete a memory entry by ID."""
-        from app.services.memory_service import get_memory_service, GLOBAL_COLLECTION
+        """Delete a memory entry by ID.
+
+        Default behavior (no `collection` param): cascade across every
+        collection in the *current scope* (same set used by `memory.search`
+        with `scope=current`). This is the safe default — it prevents the
+        old "success but orphan copy left behind" bug that existed when an
+        ID was present in multiple scope collections (e.g. Home, where
+        legacy migration duplicated docs across `memory-global` and
+        `memory-project-system-main`).
+
+        Pass an explicit `collection` to target a single collection (used
+        by the undo journal, which records the exact write target).
+        """
+        from app.services.memory_service import (
+            get_memory_service,
+            GLOBAL_COLLECTION,
+            _project_collection,
+        )
         doc_id = params.get("id", "").strip()
         if not doc_id:
             return {"error": "id is required"}
-        collection = params.get("collection", GLOBAL_COLLECTION)
+        explicit_collection = params.get("collection")
+
         try:
             ms = get_memory_service()
-            deleted = ms.delete_memory(doc_id, collection=collection)
-            if deleted:
-                return {"success": True, "message": f"Memory {doc_id} deleted from {collection}"}
-            return {"success": False, "error": f"Failed to delete memory {doc_id}"}
+
+            if explicit_collection:
+                deleted = ms.delete_memory(doc_id, collection=explicit_collection)
+                if deleted:
+                    return {
+                        "success": True,
+                        "deleted_from": [explicit_collection],
+                        "count": 1,
+                        "message": f"Memory {doc_id} deleted from {explicit_collection}",
+                    }
+                return {"success": False, "error": f"Failed to delete memory {doc_id}"}
+
+            env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+            if env_project_id and env_project_id != "system-main":
+                scope_collections = [_project_collection(env_project_id)]
+            else:
+                scope_collections = [GLOBAL_COLLECTION, _project_collection("system-main")]
+
+            deleted_from = ms.delete_memory_cascade(doc_id, scope_collections)
+            if not deleted_from:
+                return {
+                    "success": False,
+                    "error": f"Memory {doc_id} not found in current scope",
+                    "searched": scope_collections,
+                }
+            return {
+                "success": True,
+                "deleted_from": deleted_from,
+                "count": len(deleted_from),
+                "message": (
+                    f"Memory {doc_id} deleted from {len(deleted_from)} "
+                    f"collection(s): {', '.join(deleted_from)}"
+                ),
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
