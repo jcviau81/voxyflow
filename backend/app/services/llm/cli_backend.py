@@ -18,6 +18,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import AsyncIterator, Callable, Optional
 
 from app.services.cli_session_registry import (
@@ -28,6 +29,9 @@ from app.services.llm.cli_persistent_chat import (
     PersistentChatMixin, PersistentChatProcess,
 )
 from app.services.llm.cli_rate_gate import get_rate_gate
+from app.services.llm.cli_retry import (
+    MAX_RETRIES, compute_backoff, is_transient_error, parse_rate_limit_event,
+)
 from app.services.llm.cli_steerable import SteerableMixin
 from app.services.llm.model_utils import _flatten_system
 
@@ -123,6 +127,31 @@ def _find_claude_cli(explicit_path: str = "claude") -> str:
     if os.path.isfile(local_bin):
         return local_bin
     return explicit_path  # fallback to bare name (relies on PATH)
+
+
+@dataclass(frozen=True)
+class _CallResult:
+    """Outcome of a single ``_call_once`` attempt."""
+    ok: bool
+    cancelled: bool
+    transient: bool
+    response: str
+    usage: dict = field(default_factory=dict)
+
+    @classmethod
+    def success(cls, response: str, usage: dict) -> "_CallResult":
+        return cls(ok=True, cancelled=False, transient=False,
+                   response=response, usage=usage)
+
+    @classmethod
+    def error(cls, response: str, transient: bool) -> "_CallResult":
+        return cls(ok=False, cancelled=False, transient=transient,
+                   response=response, usage={})
+
+    @classmethod
+    def cancel(cls) -> "_CallResult":
+        return cls(ok=False, cancelled=True, transient=False,
+                   response="[Task cancelled by supervisor]", usage={})
 
 
 class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
@@ -308,6 +337,10 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
 
         When *message_queue* is provided, steering messages can be injected
         mid-execution via stdin (--input-format stream-json native continuation).
+
+        Retries up to ``MAX_RETRIES`` times on transient CLI failures
+        (ECONNRESET, 529, overloaded, spawn EAGAIN, …). Non-transient errors
+        and supervisor cancellation short-circuit the loop.
         """
         # If tool_callback is provided, use stream-json to capture tool events
         if tool_callback and use_tools:
@@ -321,13 +354,69 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 session_type=session_type, cwd=cwd,
             )
 
+        last_error: tuple[str, dict] | None = None
+        for attempt in range(MAX_RETRIES + 1):
+            if attempt > 0:
+                delay = compute_backoff(attempt)
+                logger.warning(
+                    f"[CLI] transient failure — retry {attempt}/{MAX_RETRIES} "
+                    f"after {delay:.1f}s"
+                )
+                await asyncio.sleep(delay)
+
+            result = await self._call_once(
+                model=model, system=system, messages=messages,
+                use_tools=use_tools, mcp_role=mcp_role,
+                cancel_event=cancel_event,
+                session_id=session_id, chat_id=chat_id,
+                project_id=project_id, card_id=card_id,
+                session_type=session_type, cwd=cwd,
+            )
+
+            if result.ok:
+                return result.response, result.usage
+
+            last_error = (result.response, result.usage)
+
+            # Cancelled / non-transient: don't retry.
+            if result.cancelled or not result.transient:
+                return result.response, result.usage
+            if attempt >= MAX_RETRIES:
+                return result.response, result.usage
+
+        # Unreachable in practice, but mypy-friendly.
+        assert last_error is not None
+        return last_error
+
+    async def _call_once(
+        self,
+        *,
+        model: str,
+        system: str | list[dict],
+        messages: list[dict],
+        use_tools: bool,
+        mcp_role: str,
+        cancel_event: Optional[asyncio.Event],
+        session_id: str,
+        chat_id: str,
+        project_id: str,
+        card_id: str,
+        session_type: str,
+        cwd: str,
+    ) -> "_CallResult":
+        """Single subprocess attempt for ``call()``.
+
+        Returns a ``_CallResult`` that tells the caller whether to retry.
+        Rate-limit information discovered in the result payload is pushed
+        into the shared ``CliRateGate`` cooldown so subsequent acquires wait.
+        """
         system_prompt = _flatten_system(system)
         prompt = _format_messages(messages)
         args = self._build_args(
             model, system_prompt,
             streaming=False, use_tools=use_tools, mcp_role=mcp_role,
             native_tools=use_tools,  # Workers get native Claude tools
-            voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
+            voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),
             project_id=project_id, card_id=card_id,
             chat_id=chat_id,
             worker_id=(session_id if session_type == "worker" else ""),
@@ -349,7 +438,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
+                limit=16 * 1024 * 1024,
                 cwd=cwd or None,
             )
 
@@ -363,7 +452,6 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             ))
             bind_contextvars(cli_session_id=_reg_id, cli_pid=proc.pid)
 
-            # Monitor cancel_event in parallel
             cancel_task = None
             if cancel_event:
                 async def _watch_cancel():
@@ -377,7 +465,6 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                             proc.kill()
                     except ProcessLookupError:
                         pass
-
                 cancel_task = asyncio.create_task(_watch_cancel())
 
             try:
@@ -394,30 +481,40 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             gate.release(is_worker=_is_worker)
 
         if cancel_event and cancel_event.is_set():
-            return "[Task cancelled by supervisor]", {}
+            return _CallResult.cancel()
 
         stdout_text = stdout.decode("utf-8", errors="replace").strip()
         stderr_text = stderr.decode("utf-8", errors="replace").strip()
 
+        # Non-zero exit: classify as transient or terminal.
         if proc.returncode != 0:
+            # Try to parse any rate_limit_event from stdout so the gate can
+            # cool down even on non-zero exits.
+            self._extract_and_record_rate_limit(stdout_text)
+            transient = is_transient_error(stderr_text, proc.returncode)
             logger.error(
-                f"[CLI] Process exited with code {proc.returncode}: {stderr_text[:500]}"
+                f"[CLI] Process exited with code {proc.returncode} "
+                f"(transient={transient}): {stderr_text[:500]}"
             )
-            return f"[CLI error: process exited with code {proc.returncode}]", {}
+            return _CallResult.error(
+                response=f"[CLI error: process exited with code {proc.returncode}]",
+                transient=transient,
+            )
 
-        # Parse JSON result
         try:
             result = json.loads(stdout_text)
         except json.JSONDecodeError:
-            # Sometimes the output may have non-JSON preamble; try to find the JSON
-            logger.warning(f"[CLI] Failed to parse JSON output, returning raw text")
+            logger.warning("[CLI] Failed to parse JSON output, returning raw text")
             self._last_usage = {}
-            return stdout_text, {}
+            return _CallResult.success(response=stdout_text, usage={})
 
-        # Extract response text and usage
         response_text = result.get("result", "")
         usage = result.get("usage", {})
         self._last_usage = usage
+
+        # Even on a 0 exit, the CLI sometimes reports a rate-limit rejection
+        # inside the result payload. Record it so the next call pauses.
+        self._extract_and_record_rate_limit(stdout_text)
 
         if result.get("is_error"):
             logger.error(f"[CLI] Error response: {response_text[:200]}")
@@ -427,8 +524,42 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             f"in={usage.get('input_tokens', 0)} out={usage.get('output_tokens', 0)} "
             f"cache_read={usage.get('cache_read_input_tokens', 0)}"
         )
+        return _CallResult.success(response=response_text, usage=usage)
 
-        return response_text, usage
+    def _extract_and_record_rate_limit(self, stdout_text: str) -> None:
+        """Scan stdout (JSON or stream-json) for rate_limit_event and push any
+        rejection into the shared gate's cooldown window."""
+        if not stdout_text:
+            return
+        # Try whole-document parse first (non-streaming --output-format json).
+        try:
+            doc = json.loads(stdout_text)
+        except json.JSONDecodeError:
+            doc = None
+        candidates: list[dict] = []
+        if isinstance(doc, dict):
+            candidates.append(doc)
+            rl = doc.get("rate_limit_info")
+            if isinstance(rl, dict):
+                candidates.append({"type": "rate_limit_event", "rate_limit_info": rl})
+        elif isinstance(doc, list):
+            candidates.extend(x for x in doc if isinstance(x, dict))
+        else:
+            # Fall back to line-by-line (stream-json accidentally flushed).
+            for line in stdout_text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    candidates.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+        for msg in candidates:
+            info = parse_rate_limit_event(msg)
+            if info and info.is_rejected:
+                get_rate_gate().note_rate_limit(info.resets_at)
+                return
 
     async def _call_with_tool_events(
         self,
@@ -589,6 +720,11 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                     result_text = event.get("result", "")
                     usage = event.get("usage", {})
                     self._last_usage = usage
+
+                elif event_type == "rate_limit_event":
+                    info = parse_rate_limit_event(event)
+                    if info and info.is_rejected:
+                        get_rate_gate().note_rate_limit(info.resets_at)
 
         finally:
             gate.release(is_worker=_is_worker)
@@ -761,6 +897,11 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                     result_text = event.get("result", "")
                     if result_text and len(result_text) > yielded_length:
                         yield result_text[yielded_length:]
+
+                elif event_type == "rate_limit_event":
+                    info = parse_rate_limit_event(event)
+                    if info and info.is_rejected:
+                        get_rate_gate().note_rate_limit(info.resets_at)
         finally:
             # Safety net: if the generator is closed early (consumer abort),
             # cancel the drain task and release the gate if it hasn't already.
