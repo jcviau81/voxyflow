@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     claude_max_tokens_sonnet: int = 16000
     claude_max_tokens_opus: int = 32000
 
+    # Startup pre-warm — eagerly load ChromaDB HNSW indexes + KG pinned cache
+    # so the first user message doesn't pay the cold-start cost (~500–800 ms).
+    # Disable if you want a minimal-footprint startup (e.g. short-lived test runs).
+    voxyflow_warmup_on_startup: bool = True
+
     # Conversation
     fast_context_messages: int = 20
     deep_context_messages: int = 100
