@@ -51,6 +51,13 @@ class CliRateGate:
         self.session_concurrent = session_concurrent
         self.worker_concurrent = worker_concurrent
         self.min_spacing_ms = min_spacing_ms
+        # Quota cooldown: when the CLI tells us we hit Claude's usage limit we
+        # park all future acquires until this deadline. Shared across workers
+        # and chat because they all pull from the same Max subscription quota.
+        self._cooldown_until: float = 0.0
+        # Flipped whenever the cooldown deadline changes so sleeping acquirers
+        # can wake up promptly (instead of polling).
+        self._cooldown_changed = asyncio.Event()
         logger.info(
             f"[RateGate] Initialized: session_concurrent={session_concurrent}, "
             f"worker_concurrent={worker_concurrent}, "
@@ -58,11 +65,15 @@ class CliRateGate:
         )
 
     async def acquire(self, is_worker: bool = False) -> None:
-        """Acquire a slot — blocks if at capacity or too soon after last call.
+        """Acquire a slot — blocks if at capacity, too soon after last call,
+        or we are in a quota cooldown window.
 
         Workers acquire the worker semaphore; dispatchers acquire the session
         semaphore. The two pools are independent so they never starve each other.
         """
+        # Wait out any active quota cooldown before taking a semaphore slot.
+        await self._wait_cooldown()
+
         if is_worker:
             await self._worker_sem.acquire()
             self._active_workers += 1
@@ -77,6 +88,57 @@ class CliRateGate:
                 logger.debug(f"[RateGate] Spacing wait: {wait:.3f}s")
                 await asyncio.sleep(wait)
             self._last_call = time.monotonic()
+
+    async def _wait_cooldown(self) -> None:
+        """Sleep until the quota cooldown (if any) has elapsed.
+
+        Wakes immediately if ``note_rate_limit`` / ``clear_cooldown`` changes
+        the deadline so manual overrides take effect without polling.
+        """
+        while True:
+            remaining = self._cooldown_until - time.monotonic()
+            if remaining <= 0:
+                return
+            logger.warning(
+                f"[RateGate] Quota cooldown active — sleeping {remaining:.1f}s"
+            )
+            self._cooldown_changed.clear()
+            try:
+                await asyncio.wait_for(
+                    self._cooldown_changed.wait(), timeout=remaining
+                )
+            except asyncio.TimeoutError:
+                # Deadline elapsed without anyone touching the cooldown.
+                return
+            # Deadline changed; loop re-checks remaining.
+
+    def note_rate_limit(self, resets_at_unix: float | None) -> None:
+        """Register that the CLI reported a usage-limit rejection.
+
+        ``resets_at_unix`` is the unix timestamp (seconds) when the limit
+        resets, as reported by the CLI's rate_limit_event. If unknown, we fall
+        back to a 15-minute cooldown so we don't spin indefinitely.
+        """
+        FALLBACK_COOLDOWN_S = 15 * 60
+        if resets_at_unix is None:
+            deadline_wall = time.time() + FALLBACK_COOLDOWN_S
+        else:
+            deadline_wall = resets_at_unix + 10  # small buffer past the boundary
+        remaining = max(0.0, deadline_wall - time.time())
+        new_deadline = time.monotonic() + remaining
+        # Only extend — never shorten — an active cooldown.
+        if new_deadline > self._cooldown_until:
+            self._cooldown_until = new_deadline
+            self._cooldown_changed.set()
+            logger.warning(
+                f"[RateGate] Quota cooldown set: {remaining:.0f}s "
+                f"(resets_at={resets_at_unix})"
+            )
+
+    def clear_cooldown(self) -> None:
+        """Manually clear the quota cooldown (admin override)."""
+        self._cooldown_until = 0.0
+        self._cooldown_changed.set()
 
     def release(self, is_worker: bool = False) -> None:
         """Release a slot after the API call completes."""
