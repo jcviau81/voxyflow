@@ -40,7 +40,7 @@ interface PeekResult {
 
 // ── Constants & Helpers ────────────────────────────────────────────────────
 
-const TERMINAL_STATUSES = new Set<WorkerInfo['status']>(['done', 'failed', 'cancelled']);
+const TERMINAL_STATUSES = new Set<WorkerInfo['status']>(['done', 'failed', 'cancelled', 'crashed']);
 
 function elapsed(startMs: number, endMs?: number): string {
   const ms = (endMs ?? Date.now()) - startMs;
@@ -275,7 +275,8 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
     worker.status === 'running'   ? 'running'   :
     worker.status === 'pending'   ? 'pending'   :
     worker.status === 'done'      ? 'done'      :
-    worker.status === 'failed'    ? 'failed'    : 'cancelled';
+    worker.status === 'failed'    ? 'failed'    :
+    worker.status === 'crashed'   ? 'crashed'   : 'cancelled';
 
   const hasDetails =
     worker.toolCount > 0 ||
@@ -328,11 +329,12 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
                 'w-3.5 h-3.5 flex items-center justify-center text-[11px] font-bold shrink-0',
                 worker.status === 'done'      && 'text-green-500',
                 worker.status === 'failed'    && 'text-red-400',
+                worker.status === 'crashed'   && 'text-orange-500',
                 worker.status === 'cancelled' && 'text-muted-foreground',
               )}
               aria-label={statusLabel}
             >
-              {worker.status === 'done' ? '✓' : worker.status === 'failed' ? '✗' : '⊘'}
+              {worker.status === 'done' ? '✓' : worker.status === 'failed' ? '✗' : worker.status === 'crashed' ? '⚠' : '⊘'}
             </span>
           )}
 

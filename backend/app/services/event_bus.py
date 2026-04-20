@@ -24,7 +24,7 @@ class ActionIntent:
     data: dict = field(default_factory=dict)
     session_id: str = ""
     complexity: str = "simple"  # "simple" | "complex"
-    model: str = "sonnet"  # "haiku" | "sonnet" | "opus" — overridden at emit site
+    model: str | None = "sonnet"  # "haiku" | "sonnet" | "opus" | None — None lets worker class default apply
     callback_depth: int = 0  # 0 = normal, 1+ = spawned from callback (max auto-callback depth = 1)
 
 
