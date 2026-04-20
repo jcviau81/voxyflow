@@ -320,6 +320,7 @@ class LayerRunnersMixin:
         session_id: str | None,
         send_model_status,
         active_workers_context: str = "",
+        is_callback: bool = False,
     ) -> bool:
         """Run the Deep layer as the primary chat responder (streaming).
 
@@ -328,6 +329,8 @@ class LayerRunnersMixin:
         The model responds conversationally and emits <delegate> blocks for actions,
         which are parsed by _parse_and_emit_delegates → DeepWorkerPool executes in background.
         Returns True on success, False on failure.
+        For callback responses (is_callback=True), buffers tokens and suppresses
+        sending if the full response is exactly [SILENT].
         """
         await send_model_status("deep", "active")
         start = time.time()
@@ -335,6 +338,7 @@ class LayerRunnersMixin:
 
         try:
             first_token_sent = False
+            buffered_tokens: list[str] = [] if is_callback else []
             live_state_block, worker_events_block, session_handoff_block = await _compute_ambient_blocks(
                 self._worker_pools, session_id, chat_id,
                 project_id=project_id,
@@ -361,18 +365,41 @@ class LayerRunnersMixin:
                     logger.info(f"[Layer-Deep-Chat] first token in {first_token_latency}ms")
                     first_token_sent = True
 
-                await ws_broadcast.send_and_fanout_chat(
-                    websocket, chat_id, "chat:response",
-                    {
-                        "messageId": message_id,
-                        "content": token,
-                        "model": "deep",
-                        "streaming": True,
-                        "done": False,
-                        "sessionId": session_id,
-                        "chatId": chat_id,
-                    },
-                )
+                if is_callback:
+                    buffered_tokens.append(token)
+                else:
+                    await ws_broadcast.send_and_fanout_chat(
+                        websocket, chat_id, "chat:response",
+                        {
+                            "messageId": message_id,
+                            "content": token,
+                            "model": "deep",
+                            "streaming": True,
+                            "done": False,
+                            "sessionId": session_id,
+                            "chatId": chat_id,
+                        },
+                    )
+
+            if is_callback and deep_full_response.strip() == "[SILENT]":
+                logger.info(f"[Orchestrator] Deep callback response is [SILENT] — suppressing")
+                await send_model_status("deep", "idle")
+                return True
+
+            if is_callback and buffered_tokens:
+                for tok in buffered_tokens:
+                    await ws_broadcast.send_and_fanout_chat(
+                        websocket, chat_id, "chat:response",
+                        {
+                            "messageId": message_id,
+                            "content": tok,
+                            "model": "deep",
+                            "streaming": True,
+                            "done": False,
+                            "sessionId": session_id,
+                            "chatId": chat_id,
+                        },
+                    )
 
             # Check for <tool_call> text blocks and handle them
             if TOOL_CALL_PATTERN.search(deep_full_response):
