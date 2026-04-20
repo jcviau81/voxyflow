@@ -15,11 +15,15 @@ from fastapi import APIRouter, Depends, HTTPException
 logger = logging.getLogger(__name__)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.database import get_db, Project, Card, WikiPage, new_uuid, utcnow
+from app.database import (
+    get_db, Project, Card, WikiPage,
+    ChecklistItem, CardComment, TimeEntry, CardRelation,
+    new_uuid, utcnow,
+)
 from app.models.project import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithCards
 from app.services.agent_personas import AgentType, get_persona
 from app.services.workspace_service import get_workspace_service
@@ -158,13 +162,48 @@ class CreateFromTemplateResponse(BaseModel):
 # Export/Import schemas
 # ---------------------------------------------------------------------------
 
+class ChecklistItemExport(BaseModel):
+    text: str
+    completed: bool
+    position: int
+
+
+class CommentExport(BaseModel):
+    author: str
+    content: str
+    created_at: str
+
+
+class TimeEntryExport(BaseModel):
+    duration_minutes: int
+    note: str | None = None
+    logged_at: str
+
+
+class RelationExport(BaseModel):
+    target_card_id: str   # original card ID — used for cross-referencing on import
+    relation_type: str
+
+
 class CardExport(BaseModel):
+    id: str  # original card ID — used to resolve relations/dependencies on import
     title: str
     description: str
     status: str
     priority: int
+    position: int = 0
+    color: str | None = None
     agent_type: str | None = None
+    agent_context: str | None = None
+    assignee: str | None = None
+    watchers: str = ""
+    files: list[str] = []
     tags: list[str] = []
+    dependency_ids: list[str] = []
+    checklist_items: list[ChecklistItemExport] = []
+    comments: list[CommentExport] = []
+    time_entries: list[TimeEntryExport] = []
+    relations: list[RelationExport] = []
 
 
 class ProjectExport(BaseModel):
@@ -179,11 +218,21 @@ class ProjectExport(BaseModel):
     local_path: str | None = None
 
 
+class WikiPageExport(BaseModel):
+    title: str
+    content: str
+
+
 class ExportPayload(BaseModel):
     version: str
     exported_at: str
     project: ProjectExport
     cards: list[CardExport]
+    # TODO: wiki pages are intentionally excluded from export v1.0 to keep
+    # the payload size manageable and avoid orphaned page references across
+    # project boundaries.  Bump version to "2.0" and add `wiki` field when
+    # wiki export/import is implemented.
+    # wiki: list[WikiPageExport] = []
 
 
 class ImportResponse(BaseModel):
@@ -425,10 +474,22 @@ async def toggle_favorite(
 
 @router.get("/{project_id}/export")
 async def export_project(project_id: str, db: AsyncSession = Depends(get_db)):
-    """Export a project and all its cards as a JSON payload."""
+    """Export a project and all its cards as a JSON payload.
+
+    Includes per-card: checklists (with completion state), comments, time
+    entries, file references, card relations, dependency IDs, and position.
+
+    Wiki pages are intentionally excluded (see ExportPayload TODO).
+    """
     stmt = (
         select(Project)
-        .options(selectinload(Project.cards))
+        .options(
+            selectinload(Project.cards).selectinload(Card.checklist_items),
+            selectinload(Project.cards).selectinload(Card.comments),
+            selectinload(Project.cards).selectinload(Card.time_entries),
+            selectinload(Project.cards).selectinload(Card.relations_as_source),
+            selectinload(Project.cards).selectinload(Card.dependencies),
+        )
         .where(Project.id == project_id)
     )
     result = await db.execute(stmt)
@@ -436,20 +497,64 @@ async def export_project(project_id: str, db: AsyncSession = Depends(get_db)):
     if not project:
         raise HTTPException(404, "Project not found.")
 
-    cards_data = [
-        {
+    cards_data = []
+    for card in project.cards:
+        # Decode files — stored as a JSON string in the DB
+        try:
+            files = json.loads(card.files) if card.files else []
+        except (ValueError, TypeError):
+            files = []
+
+        cards_data.append({
+            "id": card.id,
             "title": card.title,
             "description": card.description or "",
             "status": card.status,
             "priority": card.priority,
+            "position": card.position,
+            "color": card.color,
             "agent_type": card.agent_type,
+            "agent_context": card.agent_context,
+            "assignee": card.assignee,
+            "watchers": card.watchers or "",
+            "files": files,
             "tags": [],
-        }
-        for card in project.cards
-    ]
+            "dependency_ids": [d.id for d in card.dependencies],
+            "checklist_items": [
+                {
+                    "text": item.text,
+                    "completed": item.completed,
+                    "position": item.position,
+                }
+                for item in card.checklist_items
+            ],
+            "comments": [
+                {
+                    "author": c.author,
+                    "content": c.content,
+                    "created_at": c.created_at.isoformat() if c.created_at else "",
+                }
+                for c in card.comments
+            ],
+            "time_entries": [
+                {
+                    "duration_minutes": te.duration_minutes,
+                    "note": te.note,
+                    "logged_at": te.logged_at.isoformat() if te.logged_at else "",
+                }
+                for te in card.time_entries
+            ],
+            "relations": [
+                {
+                    "target_card_id": rel.target_card_id,
+                    "relation_type": rel.relation_type,
+                }
+                for rel in card.relations_as_source
+            ],
+        })
 
     payload = {
-        "version": "1.0",
+        "version": "1.1",
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "project": {
             "title": project.title,
@@ -474,7 +579,13 @@ async def export_project(project_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/import", response_model=ImportResponse, status_code=201)
 async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)):
-    """Import a project from an exported JSON payload. Creates a new project."""
+    """Import a project from an exported JSON payload. Creates a new project.
+
+    Handles all fields produced by the v1.1 export: checklist items, comments,
+    time entries, file references, card relations, dependencies, and position.
+    For relations and dependencies, old card IDs are mapped to the newly-
+    assigned IDs so cross-references remain consistent after import.
+    """
     title = body.project.title
 
     # Check if a project with the same title exists → append "(imported)"
@@ -496,7 +607,11 @@ async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)
         local_path=body.project.local_path,
     )
     db.add(project)
-    await db.flush()  # Get project.id before creating cards
+    await db.flush()  # get project.id before creating cards
+
+    # --- Pass 1: create cards and build old_id → new_id mapping ---
+    # This mapping is needed to rewrite relations and dependency_ids.
+    old_to_new_id: dict[str, str] = {}
 
     for card_data in body.cards:
         # Resolve agent display name if agent_type is provided
@@ -508,17 +623,88 @@ async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)
             except (ValueError, KeyError):
                 pass
 
+        new_id = new_uuid()
+        if card_data.id:
+            old_to_new_id[card_data.id] = new_id
+
         card = Card(
-            id=new_uuid(),
+            id=new_id,
             project_id=project.id,
             title=card_data.title,
             description=card_data.description,
             status=card_data.status,
             priority=card_data.priority,
+            position=card_data.position,
+            color=card_data.color,
             agent_type=card_data.agent_type,
+            agent_context=card_data.agent_context,
             agent_assigned=agent_assigned,
+            assignee=card_data.assignee,
+            watchers=card_data.watchers or "",
+            files=json.dumps(card_data.files),
         )
         db.add(card)
+
+        # Checklist items — preserve order via position
+        for item in card_data.checklist_items:
+            db.add(ChecklistItem(
+                id=new_uuid(),
+                card_id=new_id,
+                text=item.text,
+                completed=item.completed,
+                position=item.position,
+            ))
+
+        # Comments
+        for comment in card_data.comments:
+            db.add(CardComment(
+                id=new_uuid(),
+                card_id=new_id,
+                author=comment.author,
+                content=comment.content,
+            ))
+
+        # Time entries
+        for te in card_data.time_entries:
+            db.add(TimeEntry(
+                id=new_uuid(),
+                card_id=new_id,
+                duration_minutes=te.duration_minutes,
+                note=te.note,
+            ))
+
+    # Flush so all card rows exist before we add FK-referencing relations
+    await db.flush()
+
+    # --- Pass 2: create relations and dependencies using the ID mapping ---
+    for card_data in body.cards:
+        if not card_data.id or card_data.id not in old_to_new_id:
+            continue
+        new_source_id = old_to_new_id[card_data.id]
+
+        # Card relations
+        for rel in card_data.relations:
+            new_target_id = old_to_new_id.get(rel.target_card_id)
+            if new_target_id:
+                db.add(CardRelation(
+                    id=new_uuid(),
+                    source_card_id=new_source_id,
+                    target_card_id=new_target_id,
+                    relation_type=rel.relation_type,
+                ))
+
+        # Dependencies (many-to-many via card_dependencies — raw insert to
+        # avoid async lazy-load issues on the ORM relationship)
+        for old_dep_id in card_data.dependency_ids:
+            new_dep_id = old_to_new_id.get(old_dep_id)
+            if new_dep_id:
+                await db.execute(
+                    text(
+                        "INSERT OR IGNORE INTO card_dependencies "
+                        "(card_id, depends_on_id) VALUES (:card_id, :dep_id)"
+                    ),
+                    {"card_id": new_source_id, "dep_id": new_dep_id},
+                )
 
     await db.commit()
     await db.refresh(project)
@@ -892,7 +1078,6 @@ async def project_health_check(project_id: str, db: AsyncSession = Depends(get_d
     """Analyse project health and return a score, grade, strengths, issues, and recommendations."""
     from sqlalchemy.orm import selectinload as slo
 
-    from app.database import CardRelation
     stmt = (
         select(Project)
         .options(
