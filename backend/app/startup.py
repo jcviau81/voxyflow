@@ -87,6 +87,45 @@ async def _init_personality_files() -> None:
         logger.exception("Failed to initialize personality files")
 
 
+async def _warmup_caches() -> None:
+    """Pre-load ChromaDB HNSW indexes + KG pinned cache.
+
+    First ChromaDB query on a collection loads the HNSW index from disk into
+    memory (~500–800 ms). Doing it here means the first user message skips
+    that cost. KG pinned context has a ~30 s TTL cache; populating it now
+    makes the first L0 context build instant.
+
+    Runs best-effort: any failure is logged and swallowed. Non-blocking —
+    caller schedules this as a background task so startup isn't delayed.
+    """
+    from app.database import SYSTEM_MAIN_PROJECT_ID
+    from app.services.memory_service import get_memory_service
+    from app.services.memory_service_constants import GLOBAL_COLLECTION, _project_collection
+    from app.services.knowledge_graph_service import get_knowledge_graph_service
+
+    t0 = time.monotonic()
+    try:
+        mem = get_memory_service()
+        if mem.chromadb_enabled:
+            # Warm the two collections every general chat hits on turn 1.
+            mem.search_memory(
+                query="warmup",
+                collections=[GLOBAL_COLLECTION, _project_collection(SYSTEM_MAIN_PROJECT_ID)],
+                limit=1,
+            )
+    except Exception:
+        logger.exception("⚠️  Memory warmup failed (non-fatal)")
+
+    try:
+        kg = get_knowledge_graph_service()
+        kg.get_pinned_context(SYSTEM_MAIN_PROJECT_ID)
+    except Exception:
+        logger.exception("⚠️  KG warmup failed (non-fatal)")
+
+    dt_ms = int((time.monotonic() - t0) * 1000)
+    logger.info(f"🔥 Warmup done in {dt_ms} ms (Chroma + KG)")
+
+
 async def _init_memory_service() -> None:
     from app.services.memory_service import get_memory_service
 
@@ -241,8 +280,11 @@ def build_lifespan(
 
         await _init_memory_service()
 
+        settings = get_settings()  # touch settings so env is loaded early
+        if settings.voxyflow_warmup_on_startup:
+            asyncio.create_task(_warmup_caches())
+
         scheduler = get_scheduler_service()
-        get_settings()  # touch settings so env is loaded early
         sched_enabled, _hb, _rag, backup_enabled, backup_hour = _load_scheduler_config()
         scheduler._backup_hour = backup_hour
         scheduler._backup_enabled = backup_enabled
