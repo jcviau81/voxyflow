@@ -98,6 +98,23 @@ class PendingResultStore:
             except Exception as e:
                 logger.debug("Failed to remove session dir %s: %s", session_dir, e)
 
+    async def list_all_pending(self) -> list[tuple[str, list[dict]]]:
+        """Return all pending results across all sessions.
+
+        Returns list of (session_id, results) tuples, only for sessions
+        that have at least one pending file.
+        """
+        if not self._data_dir.exists():
+            return []
+        out: list[tuple[str, list[dict]]] = []
+        for session_dir in sorted(self._data_dir.iterdir()):
+            if not session_dir.is_dir():
+                continue
+            results = await self.get_pending(session_dir.name)
+            if results:
+                out.append((session_dir.name, results))
+        return out
+
     async def cleanup_stale(self, max_age_seconds: float = 86400) -> int:
         """Remove pending result files older than max_age_seconds (default 24h).
 

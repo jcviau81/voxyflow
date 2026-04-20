@@ -23,6 +23,7 @@ from app.services.llm.model_utils import (
     _strip_think_tags,
     _is_thinking_model,
     _inject_no_think,
+    _flatten_system,
 )
 from app.services.llm.tool_defs import (
     DELEGATE_ACTION_TOOL,
@@ -65,15 +66,37 @@ def _log_token_usage(
         logger.debug(f"Token usage logging failed: {e}")
 
 
-def _flatten_system(system: str | list[dict]) -> str:
-    """Convert system content blocks back to a plain string (for non-Anthropic paths)."""
-    if isinstance(system, str):
-        return system
-    return "\n\n".join(block["text"] for block in system if block.get("text"))
+# Anthropic beta header for Sonnet 4 1M context.
+# See: https://docs.anthropic.com/en/docs/build-with-claude/context-windows#1m-context
+_CONTEXT_1M_HEADER = {"anthropic-beta": "context-1m-2025-08-07"}
+
+
+def _supports_1m_context(model: str) -> bool:
+    """Return True if *model* is eligible for the 1M context beta."""
+    # The beta is currently gated to Sonnet 4+; Opus and Haiku stay at 200K.
+    return "sonnet-4" in (model or "").lower()
 
 
 class ApiCallerMixin:
     """Mixin providing all _call_api_* methods for ClaudeService."""
+
+    def _anthropic_extra_headers(self, model: str) -> dict:
+        """Return extra headers for an Anthropic SDK call for *model*.
+
+        Picks the per-layer ``context_1m`` flag (fast/deep/haiku) by matching
+        *model* against the layer's configured model name. Returns an empty
+        dict when the flag is off or the model doesn't support the beta.
+        """
+        if not _supports_1m_context(model):
+            return {}
+        flag = False
+        if model == getattr(self, "fast_model", None):
+            flag = bool(getattr(self, "fast_context_1m", False))
+        elif model == getattr(self, "deep_model", None):
+            flag = bool(getattr(self, "deep_context_1m", False))
+        elif model == getattr(self, "haiku_model", None):
+            flag = bool(getattr(self, "haiku_context_1m", False))
+        return dict(_CONTEXT_1M_HEADER) if flag else {}
 
     async def _call_api_anthropic(
         self,
@@ -171,12 +194,14 @@ class ApiCallerMixin:
                 # Use async streaming for AsyncAnthropic clients (detected by isinstance).
                 # Sync Anthropic clients fall back to asyncio.to_thread.
                 import anthropic as _anthropic
+                extra_headers = self._anthropic_extra_headers(model)
+                call_kwargs = {**kwargs, "extra_headers": extra_headers} if extra_headers else kwargs
                 if isinstance(client, _anthropic.AsyncAnthropic):
-                    async with client.messages.stream(**kwargs) as stream:
+                    async with client.messages.stream(**call_kwargs) as stream:
                         response = await stream.get_final_message()
                 else:
                     response = await asyncio.to_thread(
-                        lambda kw=kwargs: client.messages.create(**kw)
+                        lambda kw=call_kwargs: client.messages.create(**kw)
                     )
 
                 # After first turn: remove tool_choice so model can freely emit text
@@ -302,6 +327,9 @@ class ApiCallerMixin:
             "messages": clean_messages,
             "tools": [DELEGATE_ACTION_TOOL] + dispatcher_tools,
         }
+        extra_headers = self._anthropic_extra_headers(model)
+        if extra_headers:
+            kwargs["extra_headers"] = extra_headers
 
         # Build set of dispatcher tool names for routing (underscore format from get_claude_tools)
         dispatcher_tool_names = {t["name"] for t in dispatcher_tools}
@@ -353,6 +381,13 @@ class ApiCallerMixin:
                         cache_creation_tokens=getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
                         cache_read_tokens=getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
                     )
+                    if chat_id:
+                        self._last_stream_usage[chat_id] = {
+                            "input_tokens": stream_usage.input_tokens,
+                            "output_tokens": stream_usage.output_tokens,
+                            "cache_creation_input_tokens": getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
+                            "cache_read_input_tokens": getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
+                        }
 
                 if not tool_use_blocks:
                     # No tool calls — done
@@ -461,6 +496,8 @@ class ApiCallerMixin:
                         "system": system,
                         "messages": continuation_messages,
                     }
+                    if extra_headers:
+                        final_kwargs["extra_headers"] = extra_headers
                     final_response = await asyncio.to_thread(
                         lambda kw=final_kwargs: client.messages.create(**kw)
                     )
@@ -509,6 +546,9 @@ class ApiCallerMixin:
         }
         if claude_tools:
             kwargs["tools"] = claude_tools
+        extra_headers = self._anthropic_extra_headers(model)
+        if extra_headers:
+            kwargs["extra_headers"] = extra_headers
 
         try:
             # Collect streamed content and tool_use blocks
@@ -556,6 +596,13 @@ class ApiCallerMixin:
                     cache_creation_tokens=getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
                     cache_read_tokens=getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
                 )
+                if chat_id:
+                    self._last_stream_usage[chat_id] = {
+                        "input_tokens": stream_usage.input_tokens,
+                        "output_tokens": stream_usage.output_tokens,
+                        "cache_creation_input_tokens": getattr(stream_usage, "cache_creation_input_tokens", 0) or 0,
+                        "cache_read_input_tokens": getattr(stream_usage, "cache_read_input_tokens", 0) or 0,
+                    }
 
             # If tool calls present, execute them and get final response
             if tool_use_blocks or stop_reason == "tool_use":
@@ -1327,6 +1374,8 @@ class ApiCallerMixin:
                 cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
                 cache_read_tokens=usage.get("cache_read_input_tokens", 0),
             )
+            if chat_id:
+                self._last_stream_usage[chat_id] = dict(usage)
 
     # ------------------------------------------------------------------
     # Dispatcher: routes to native, CLI, or fallback based on client_type

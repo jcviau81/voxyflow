@@ -366,6 +366,8 @@ export function CardDetailModal() {
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) close(); }}>
       <DialogContent
         showCloseButton
+        data-testid="card-detail-modal"
+        data-card-id={card.id}
         className={cn(
           'flex flex-col overflow-hidden p-0',
           'h-[100dvh] w-full max-w-full md:h-[90vh] md:max-h-[90vh] md:w-[90vw] md:max-w-[90vw]',
@@ -382,6 +384,7 @@ export function CardDetailModal() {
             ref={titleRef}
             defaultValue={card.title}
             key={card.id} // reset on card change
+            data-testid="card-detail-title-input"
             onBlur={handleTitleBlur}
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -441,7 +444,7 @@ export function CardDetailModal() {
           <div
             data-testid="card-detail-description"
             className={cn(
-              'flex flex-col px-4 pb-4 md:flex-1',
+              'flex min-w-0 flex-col overflow-hidden px-4 pb-4 md:flex-1',
               mobileTab === 'description' ? 'flex' : 'hidden md:flex',
             )}
           >
@@ -475,6 +478,7 @@ export function CardDetailModal() {
                 return (
                   <button
                     type="button"
+                    data-testid="card-execute-btn"
                     onClick={handleExecute}
                     disabled={isDisabled}
                     title={workerRunning ? 'A worker is already executing this card' : undefined}

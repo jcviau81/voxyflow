@@ -19,6 +19,7 @@ import { ChatWindow } from '../components/Chat/ChatWindow';
 import { KanbanBoard } from '../components/Kanban/KanbanBoard';
 import { FreeBoard } from '../components/Board/FreeBoard';
 import { ProjectKnowledge } from '../components/Projects/ProjectKnowledge';
+import { ProjectArchives } from '../components/Projects/ProjectArchives';
 import { ProjectStats } from '../components/Projects/ProjectStats';
 import { ProjectList } from '../components/Projects/ProjectList';
 import { useViewStore } from '../stores/useViewStore';
@@ -27,7 +28,7 @@ import { useIsDesktop } from '../hooks/useIsDesktop';
 import { SYSTEM_PROJECT_ID } from '../lib/constants';
 import { cn } from '../lib/utils';
 
-const ALL_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'knowledge', 'projects', 'stats']);
+const ALL_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'knowledge', 'archives', 'projects', 'stats']);
 
 export function ProjectPage() {
   const { id: routeId } = useParams<{ id: string }>();
@@ -107,6 +108,9 @@ export function ProjectPage() {
       )}
       {view === 'knowledge' && (
         <ProjectKnowledge projectId={id} />
+      )}
+      {view === 'archives' && (
+        <ProjectArchives projectId={id} />
       )}
       {view === 'projects' && isHome && (
         <ProjectList />

@@ -31,23 +31,23 @@ import os
 import sys
 
 # ---------------------------------------------------------------------------
-# Logging — write to stderr only (stdout is reserved for MCP protocol)
-# ---------------------------------------------------------------------------
-
-logging.basicConfig(
-    level=logging.WARNING,  # Keep quiet on stdio; MCP clients read stdout
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    stream=sys.stderr,
-)
-logger = logging.getLogger("voxyflow.mcp.stdio")
-
-# ---------------------------------------------------------------------------
 # Ensure the backend package is importable when run from repo root
 # ---------------------------------------------------------------------------
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
 if _script_dir not in sys.path:
     sys.path.insert(0, _script_dir)
+
+# ---------------------------------------------------------------------------
+# Logging — write to stderr only (stdout is reserved for MCP protocol)
+# ---------------------------------------------------------------------------
+
+from app.services.logging_config import configure_logging  # noqa: E402
+
+_log_level_name = os.environ.get("VOXYFLOW_MCP_LOG_LEVEL", "WARNING").upper()
+_log_level = getattr(logging, _log_level_name, logging.WARNING)
+configure_logging(level=_log_level, log_dir=None, stream=sys.stderr)
+logger = logging.getLogger("voxyflow.mcp.stdio")
 
 
 async def main() -> None:

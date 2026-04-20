@@ -12,54 +12,13 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.services.llm.provider_factory import infer_provider_type, list_known_providers
+from app.services.worker_classes import DEFAULT_WORKER_CLASSES
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
-# ---------------------------------------------------------------------------
-# Default worker classes — returned when nothing is saved in DB yet.
-# Must stay in sync with frontend defaults in Settings → Models.
-# ---------------------------------------------------------------------------
-
-DEFAULT_WORKER_CLASSES = [
-    {
-        "id": "00000000-0000-0000-0000-000000000001",
-        "name": "Quick",
-        "description": "Fast, lightweight tasks — summaries, simple Q&A, formatting",
-        "endpoint_id": "",
-        "provider_type": "cli",
-        "model": "claude-haiku-4-5-20251001",
-        "intent_patterns": ["summarize", "format", "quick", "simple", "short"],
-    },
-    {
-        "id": "00000000-0000-0000-0000-000000000002",
-        "name": "Coding",
-        "description": "Code writing, debugging, refactoring, code review",
-        "endpoint_id": "",
-        "provider_type": "cli",
-        "model": "claude-sonnet-4-6",
-        "intent_patterns": ["code", "debug", "refactor", "implement", "fix", "test"],
-    },
-    {
-        "id": "00000000-0000-0000-0000-000000000003",
-        "name": "Research",
-        "description": "Deep research, analysis, multi-step investigation",
-        "endpoint_id": "",
-        "provider_type": "cli",
-        "model": "claude-opus-4-7",
-        "intent_patterns": ["research", "analyze", "investigate", "compare", "explain", "search", "web", "find", "look", "fetch", "cherche", "recherche"],
-    },
-    {
-        "id": "00000000-0000-0000-0000-000000000004",
-        "name": "Creative",
-        "description": "Writing, brainstorming, ideation, narrative",
-        "endpoint_id": "",
-        "provider_type": "cli",
-        "model": "claude-sonnet-4-6",
-        "intent_patterns": ["write", "brainstorm", "creative", "story", "draft"],
-    },
-]
+__all__ = ["router", "DEFAULT_WORKER_CLASSES"]
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +75,7 @@ class ModelCapabilities(BaseModel):
 
 async def _load_models_cfg() -> dict:
     """Load the models section from settings (DB-backed)."""
-    from app.routes.settings import _load_settings_from_db
+    from app.services.settings_loader import _load_settings_from_db
     data = await _load_settings_from_db()
     if data:
         return data.get("models", {})
@@ -237,13 +196,24 @@ async def get_available_models():
     import asyncio
     models_cfg = await _load_models_cfg()
 
-    # Build layers info
+    # Build layers info — report what the RUNTIME actually uses, not just
+    # what's stored. When provider_type is unset, ClaudeService falls back to
+    # the CLI backend if CLAUDE_USE_CLI=true (see claude_service.reload_models).
+    # Mirror that rule here so the Settings UI shows the true active provider
+    # instead of "openai" inferred from the legacy proxy URL.
+    use_cli = get_settings().claude_use_cli
     layers: dict[str, LayerInfo] = {}
     for layer_name in ("fast", "deep"):
         cfg = models_cfg.get(layer_name, {})
         purl = cfg.get("provider_url", "")
         mdl = cfg.get("model", "")
-        ptype = cfg.get("provider_type", "") or infer_provider_type(purl, mdl)
+        explicit = cfg.get("provider_type", "").strip()
+        if explicit:
+            ptype = explicit
+        elif use_cli:
+            ptype = "cli"
+        else:
+            ptype = infer_provider_type(purl, mdl)
         layers[layer_name] = LayerInfo(
             model=mdl,
             provider_type=ptype,
@@ -286,11 +256,20 @@ async def get_available_models():
     providers: dict[str, ProviderInfo] = {}
     known = list_known_providers()
 
+    # CLI is a local subprocess, not a network endpoint — include it in the
+    # response as "reachable" iff the `claude` binary is on PATH so the UI
+    # can offer it as a selectable Source. We don't probe it.
+    from shutil import which as _which
+    cli_available = bool(_which(get_settings().claude_cli_path or "claude"))
+    providers["cli"] = ProviderInfo(
+        type="cli", label="Claude CLI", reachable=cli_available, url="",
+    )
+
     urls_to_probe: dict[str, tuple[str, str]] = {}  # type → (label, url)
     for p in known:
         ptype = p["type"]
         if ptype == "cli":
-            continue
+            continue  # handled above — CLI is local, no HTTP probe
         custom_url = ""
         for layer_cfg in models_cfg.values():
             if isinstance(layer_cfg, dict):
@@ -342,7 +321,15 @@ async def get_available_models():
 
 @router.post("/test")
 async def test_model_layer(body: dict):
-    """Send a quick test message to a model layer and return latency + reply."""
+    """Send a quick test message to a model layer and return latency + reply.
+
+    Routes through the SAME backend the chat layer uses at runtime:
+      - provider_type == "cli"                  → spawn `claude -p` via ClaudeCliBackend
+      - provider_type empty + CLAUDE_USE_CLI    → same as "cli" (matches reload_models)
+      - otherwise                               → LLMProvider via provider_factory
+    Without this dispatch the test would only exercise the HTTP/SDK path and
+    miss the CLI subprocess that actually handles chat.
+    """
     from app.services.llm.provider_factory import get_provider
     from app.services.llm.providers.base import CompletionRequest
 
@@ -354,12 +341,32 @@ async def test_model_layer(body: dict):
     if not model:
         return {"success": False, "error": "model is required"}
 
-    # Auto-detect provider type if not given
+    # Normalise provider_type the same way ClaudeService.reload_models does.
     if not provider_type:
-        provider_type = infer_provider_type(provider_url, model)
+        if get_settings().claude_use_cli:
+            provider_type = "cli"
+        else:
+            provider_type = infer_provider_type(provider_url, model)
 
     start = time.monotonic()
     try:
+        if provider_type == "cli":
+            from app.services.llm.cli_backend import ClaudeCliBackend
+            cli = ClaudeCliBackend()
+            reply, _usage = await cli.call(
+                model=model,
+                system="You are a helpful assistant.",
+                messages=[{"role": "user", "content": "Say hi in 3 words."}],
+            )
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            return {
+                "success": True,
+                "latency_ms": elapsed_ms,
+                "reply": (reply or "").strip()[:100],
+                "model": model,
+                "provider_type": provider_type,
+            }
+
         provider = get_provider(provider_type=provider_type, url=provider_url, api_key=api_key)
         req = CompletionRequest(
             messages=[{"role": "user", "content": "Say hi in 3 words."}],
@@ -377,7 +384,7 @@ async def test_model_layer(body: dict):
         }
     except Exception as e:
         elapsed_ms = round((time.monotonic() - start) * 1000)
-        return {"success": False, "error": str(e), "latency_ms": elapsed_ms}
+        return {"success": False, "error": str(e), "latency_ms": elapsed_ms, "provider_type": provider_type}
 
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 All REST endpoints are prefixed with `/api`. WebSocket is at `/ws`.
 
-> **Note:** The API works with all LLM backends (CLI subprocess, native SDK, or deprecated proxy). The CLI subprocess backend (`CLAUDE_USE_CLI=true`) is the recommended and active configuration.
+> **Note:** The API is provider-agnostic. Any of the eight supported LLM backends — `cli` (default, Claude Max subscription), `anthropic`, `openai`, `groq`, `mistral`, `gemini`, `ollama`, `lmstudio` — can be configured per layer in Settings → Models. The CLI subprocess backend (`CLAUDE_USE_CLI=true`) is the default.
 
 ---
 
@@ -983,15 +983,30 @@ Get current settings (from `settings.json`).
   },
   "models": {
     "fast": {
-      "provider_url": "http://localhost:3456/v1",
+      "provider_type": "cli",
+      "provider_url": "",
       "api_key": "",
-      "model": "claude-sonnet-4",
+      "model": "claude-haiku-4-6",
       "enabled": true
     },
-    "deep": { ... }
+    "deep": {
+      "provider_type": "cli",
+      "provider_url": "",
+      "api_key": "",
+      "model": "claude-opus-4-7",
+      "enabled": true
+    },
+    "endpoints": [
+      { "id": "ep_1", "name": "Local LM Studio", "provider_type": "lmstudio",
+        "url": "http://localhost:1234", "api_key": "" }
+    ]
   }
 }
 ```
+
+> **Security:** `api_key` values are redacted to `***` on GET. When saving via
+> PUT, a value of `***` is treated as "keep existing" — the real key is
+> preserved. Never send the real key in a GET query string.
 
 ---
 
@@ -1051,6 +1066,45 @@ Write a personality file.
 Reset a personality file to its default template.
 
 **Response:** `200` — `{ "status": "reset", "filename": "SOUL.md", "size": 800 }`
+
+---
+
+## Models (provider discovery)
+
+Endpoints under `/api/models/*` expose the multi-provider abstraction. Source:
+`backend/app/routes/models.py`.
+
+### `GET /api/models/providers`
+Lists the eight supported provider types with default URLs and capability hints.
+
+### `GET /api/models/list`
+Dynamic model listing for a provider. Either query the provider directly:
+
+```
+GET /api/models/list?provider_type=ollama&url=http://localhost:11434
+```
+
+or use a saved named endpoint:
+
+```
+GET /api/models/list?endpoint_id=ep_1
+```
+
+### `GET /api/models/capabilities?model=claude-sonnet-4-6`
+Static capability lookup (tool-use, vision, context window). Uses
+longest-prefix match so minor model suffixes still resolve. Source:
+`backend/app/services/llm/capability_registry.py`.
+
+### `GET /api/models/available`
+Returns the current layer configuration plus live reachability probes for each
+saved endpoint. Results are cached for 30 s.
+
+### `POST /api/models/test`
+Send a ping to any provider/model combination. Returns latency and the model's
+reply. Useful for wiring up a new named endpoint.
+
+**Request:** `{ "provider_type": "ollama", "url": "...", "model": "llama3" }`
+or `{ "endpoint_id": "ep_1", "model": "llama3" }`.
 
 ---
 

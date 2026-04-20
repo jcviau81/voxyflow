@@ -2,25 +2,32 @@
 
 ## Overview
 
-Voxyflow doesn't just use Claude — it uses Claude *with a personality*. Every API call carries the personality defined in the Voxyflow workspace files. The result: a voice assistant that sounds like the same person whether answering a quick question (Haiku) or doing deep analysis (Opus).
+Voxyflow doesn't just use an LLM — it runs it *with a personality*. Every dispatcher call and every worker run carries the personality defined in the repo's `personality/` files. The result: a voice assistant that sounds like the same person whether it's answering a quick question on the Fast layer, doing deep analysis on the Deep layer, or executing a task in a worker subprocess — regardless of which underlying provider (CLI / Anthropic / OpenAI / Ollama / etc.) is configured.
 
 ## How It Works
 
-### Source Files (Shared with Voxyflow)
+### Source Files
+
+Personality lives in the repo at `personality/` (checked in) and in the user
+data dir `~/voxyflow/personality/` (user-editable via Settings):
 
 ```
-~/.voxyflow/workspace/
-├── SOUL.md       → Core personality, values, communication style
-├── USER.md       → Who the human is, preferences, context
-├── IDENTITY.md   → Name, creature type, emoji, vibe
-├── MEMORY.md     → Long-term curated memories
-└── memory/
-    ├── YYYY-MM-DD.md   → Daily logs
-    └── projects/
-        └── <name>.md   → Project-specific notes
+personality/                   # repo-checked baseline
+├── SOUL.md         → Core personality, values, communication style
+├── AGENTS.md       → Agent operating rules (dispatcher/worker/agent personas)
+├── DISPATCHER.md   → Dispatcher-specific behavior
+├── WORKER.md       → Worker-specific behavior
+├── PROACTIVE.md    → Proactive / opportunity-detection rules
+└── ARCHITECTURE.md → Architectural context shared with the bot
+
+~/voxyflow/personality/        # user data (auto-generated at first boot)
+├── USER.md         → Who the human is, preferences, context
+├── IDENTITY.md     → Bot name, emoji, vibe
+└── MEMORY.md       → Long-term curated memories
 ```
 
-These files are the **single source of truth**. The assistant personality is consistent across all interfaces — all read from the same soul.
+`USER.md` and `IDENTITY.md` are editable via **Settings → Personality**.
+`SOUL.md`, `AGENTS.md`, and friends are checked in and edited directly.
 
 ### System Prompt Construction
 
@@ -98,7 +105,7 @@ Voxyflow writes to daily logs. Voxyflow's heartbeat system periodically curates 
 ## Design Decisions
 
 ### Why not store personality in the database?
-The Voxyflow workspace files ARE the database. They're version-controlled (git), human-editable, and shared across all surfaces. Duplicating them in SQLite would create sync headaches.
+The `personality/` files ARE the database for persona. Repo-checked files are version-controlled (git), human-editable, and shared across all surfaces; user-data files live under `~/voxyflow/personality/` and are edited via Settings → Personality. Duplicating them in SQLite would create sync headaches.
 
 ### Why different memory depth per layer?
 Speed vs. context tradeoff. Haiku needs to respond in <1s — loading 30KB of MEMORY.md kills that. Opus runs async, so it can afford the fuller picture. This mirrors how humans think: quick responses use recent memory, deep analysis draws on everything.

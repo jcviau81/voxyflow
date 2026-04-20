@@ -3,6 +3,7 @@ export { ProjectForm } from './ProjectForm';
 export { ProjectHeader } from './ProjectHeader';
 export { ProjectStats } from './ProjectStats';
 export { ProjectKnowledge } from './ProjectKnowledge';
+export { ProjectArchives } from './ProjectArchives';
 export { ProjectDocuments } from './ProjectDocuments';
 export { StatsGrid } from './StatsGrid';
 export { StandupSection } from './StandupSection';

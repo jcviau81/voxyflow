@@ -103,6 +103,11 @@ def get_claude_tools(
                 "description": tool_def.description,
                 "input_schema": tool_def.parameters,
             })
+        # Tag the last tool with cache_control so Anthropic caches the entire
+        # tool block (it's static per-role and cheap to cache). Anthropic caches
+        # up-to-and-including any block tagged with ephemeral cache_control.
+        if tools:
+            tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
         return tools
     except Exception as e:
         logger.warning(f"Could not load tools for Claude: {e}")
@@ -110,9 +115,23 @@ def get_claude_tools(
 
 
 def _mcp_tool_name_from_claude(claude_name: str) -> str:
-    """Convert Claude tool name back to MCP equivalent.
-    voxyflow_card_create → voxyflow.card.create
+    """Convert a Claude tool name (underscores) back to its MCP equivalent.
+
+    The forward transform is ``name.replace(".", "_")``, which is NOT
+    invertible by naive split — some real tool names contain underscores
+    inside a single segment (``voxyflow.ai.review_code``) while others
+    are deeper than 3 segments (``voxyflow.card.comment.add``). The only
+    reliable inverse is a reverse lookup against the registered tool
+    names; fall back to a naive 2-split for unknown names so callers get
+    a reasonable guess instead of a KeyError.
     """
+    try:
+        from app.mcp_server import _TOOL_DEFINITIONS
+        for tool in _TOOL_DEFINITIONS:
+            if tool["name"].replace(".", "_") == claude_name:
+                return tool["name"]
+    except Exception as e:
+        logger.debug(f"_mcp_tool_name_from_claude reverse lookup failed: {e}")
     parts = claude_name.split("_", 2)
     return ".".join(parts)
 
@@ -132,19 +151,72 @@ async def _call_mcp_tool(tool_mcp_name: str, arguments: dict) -> dict:
 
 
 def _load_model_overrides() -> dict:
-    """Load model layer overrides from settings.json.  Resolves endpoint_id references."""
+    """Load model layer overrides.  Resolves endpoint_id references.
+
+    Reads from the SQLite ``app_settings`` table (source of truth — same row
+    the /api/settings endpoint serves), with settings.json as a legacy
+    fallback for pre-migration installs. Uses the sync sqlite3 driver so
+    this works from ClaudeService.__init__ (sync ctor) as well as from
+    reload_models() called out of async request handlers.
+    """
+    data = _read_settings_from_db_sync() or _read_settings_from_file_sync()
+    if not data:
+        return {}
+    models = data.get("models", {}) or {}
+    _resolve_endpoint_refs(models)
+    return models
+
+
+def _read_settings_from_db_sync() -> dict | None:
+    """Synchronous read of the app_settings row. Returns None on any error.
+
+    Uses sqlite3 directly (not SQLAlchemy) so the same function is callable
+    from both sync construction paths and async handlers without coupling
+    to the engine's event loop.
+    """
+    import sqlite3
+    from app.config import get_settings
+    try:
+        # database_url looks like "sqlite+aiosqlite:///<path>" — strip scheme
+        db_url = get_settings().database_url
+        if "://" in db_url:
+            db_path = db_url.split("://", 1)[1]
+        else:
+            db_path = db_url
+        # SQLAlchemy uses a leading slash for absolute paths; sqlite3 takes a
+        # plain filesystem path. A URL like "sqlite+aiosqlite:////abs/path"
+        # yields "/abs/path" here, which is what we want.
+        conn = sqlite3.connect(db_path, timeout=5.0)
+        try:
+            # uri=False; app_settings table may not exist on a fresh install
+            cur = conn.execute(
+                "SELECT value FROM app_settings WHERE key = 'app_settings'"
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return json.loads(row[0])
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        # Table missing — fresh install, caller will fall back to file/defaults
+        return None
+    except Exception as e:
+        logger.warning("Failed to read model overrides from DB: %s", e)
+        return None
+
+
+def _read_settings_from_file_sync() -> dict | None:
+    """Legacy fallback — reads settings.json from disk (redacted, may be stale)."""
     from app.config import SETTINGS_FILE
     if not SETTINGS_FILE.exists():
-        return {}
+        return None
     try:
         with open(SETTINGS_FILE) as f:
-            data = json.load(f)
-        models = data.get("models", {})
-        _resolve_endpoint_refs(models)
-        return models
+            return json.load(f)
     except Exception as e:
-        logger.warning(f"Failed to load model overrides from settings.json: {e}")
-        return {}
+        logger.warning("Failed to load model overrides from settings.json: %s", e)
+        return None
 
 
 def _resolve_endpoint_refs(models: dict) -> None:

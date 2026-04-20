@@ -268,7 +268,7 @@ export function KanbanCard({
 
   const handleCopyId = async () => {
     try {
-      await navigator.clipboard.writeText(card.id);
+      await navigator.clipboard.writeText(`Card ID: ${card.id}`);
       showToast('Card ID copied!', 'success');
     } catch {
       showToast('Failed to copy ID', 'error');
@@ -339,28 +339,36 @@ export function KanbanCard({
     <div
       className={cn(
         'group/card relative rounded-lg border border-border/60 bg-card p-3',
-        'cursor-pointer select-none transition-all duration-150',
-        'hover:shadow-md hover:shadow-black/20',
+        'cursor-pointer select-none transition-all duration-200 ease-out',
+        'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 hover:border-border/80',
         card.color && CARD_COLOR_CLASSES[card.color],
-        !card.color && 'hover:border-border',
+        !card.color && 'hover:bg-muted/30',
         isDragging && 'opacity-40 scale-95',
         isSelected && 'border-primary/60 ring-1 ring-primary/40 bg-primary/5',
         isBlocked && 'border-orange-500/40 bg-orange-500/5',
       )}
       draggable={!selectMode}
+      data-testid="kanban-card"
       data-card-id={card.id}
       data-card-status={card.status}
       onClick={handleCardClick}
       onDragStart={handleDragStart}
       onDragEnd={() => setIsDragging(false)}
     >
-      {/* Worker execution indicator badge */}
-      {isWorkerActive && (
+      {/* Status indicator: ping for active worker, mini-spinner for in-progress */}
+      {(isWorkerActive || card.status === 'in-progress') && (
         <div className="absolute top-1.5 right-1.5 flex items-center gap-1 z-20">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-          </span>
+          {isWorkerActive ? (
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+          ) : (
+            <div
+              className="w-3.5 h-3.5 rounded-full border-2 border-orange-500/20 border-t-orange-500 animate-spin [animation-duration:1.2s]"
+              aria-label="in progress"
+            />
+          )}
         </div>
       )}
 
@@ -371,7 +379,9 @@ export function KanbanCard({
           data-checkbox="true"
           className={cn(
             'transition-opacity z-10',
-            selectMode ? 'opacity-100' : 'opacity-60',
+            selectMode || isSelected
+              ? 'opacity-100'
+              : 'opacity-0 group-hover/card:opacity-60',
           )}
           onClick={(e) => e.stopPropagation()}
         >
@@ -390,7 +400,10 @@ export function KanbanCard({
           <span className={cn('mt-1.5 flex-shrink-0 w-2 h-2 rounded-full', CARD_COLOR_DOT[card.color])} />
         )}
         <div className="flex-1 min-w-0">
-          <div className="text-[0.8125rem] font-medium text-foreground leading-snug break-words">
+          <div
+            data-testid="kanban-card-title"
+            className="text-[0.8125rem] font-medium text-foreground leading-snug break-words"
+          >
             {query ? highlightText(card.title, query) : card.title}
           </div>
         </div>

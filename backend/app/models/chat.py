@@ -1,8 +1,16 @@
-"""Chat & Message schemas."""
+"""Chat & Message schemas.
+
+``ChatResponse`` / ``MessageResponse`` are generated from the ORM
+``Chat`` / ``Message`` models via ``_generated.py``; subclasses add
+synthesized fields (``messages``, ``message_count``) that aren't
+columns.
+"""
 
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
+
+from app.models._generated import ChatBase, MessageBase
 
 
 # ---------------------------------------------------------------------------
@@ -15,18 +23,9 @@ class MessageCreate(BaseModel):
     audio_url: Optional[str] = None
 
 
-class MessageResponse(BaseModel):
-    id: str
-    chat_id: str
-    role: str
-    content: str
-    audio_url: Optional[str] = None
-    model_used: Optional[str] = None
-    tokens_used: Optional[int] = None
-    latency_ms: Optional[float] = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
+class MessageResponse(MessageBase):
+    """Wire representation of a Message — pure column-backed."""
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -38,23 +37,18 @@ class ChatCreate(BaseModel):
     project_id: Optional[str] = None
 
 
-class ChatResponse(BaseModel):
-    id: str
-    title: str
-    project_id: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+class ChatResponse(ChatBase):
+    """Chat + its messages.
+
+    ``messages`` is eager-loaded from the ``messages`` relationship.
+    """
     messages: list[MessageResponse] = []
 
-    model_config = {"from_attributes": True}
 
+class ChatListItem(ChatBase):
+    """Lightweight chat summary.
 
-class ChatListItem(BaseModel):
-    """Lightweight chat summary for list endpoints."""
-    id: str
-    title: str
-    project_id: Optional[str] = None
-    created_at: datetime
+    Adds a synthesized ``message_count`` (computed by the route handler
+    from a COUNT query — not a column).
+    """
     message_count: int = 0
-
-    model_config = {"from_attributes": True}

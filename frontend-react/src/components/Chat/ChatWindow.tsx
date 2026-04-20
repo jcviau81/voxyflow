@@ -9,6 +9,7 @@ import { ChatInput } from './ChatInput';
 import { SessionTabBar } from './SessionTabBar';
 import { ChatSearch } from './ChatSearch';
 import { ModePill } from './ModePill';
+import { ContextUsagePill } from './ContextUsagePill';
 import type { ChatLevel } from './SmartSuggestions';
 import { cn } from '../../lib/utils';
 import { Search, Eraser, RotateCcw } from 'lucide-react';
@@ -53,6 +54,22 @@ export function ChatWindow({
   const showToast = useToastStore((s) => s.showToast);
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // Sequence number guards against stale resolutions clobbering a newer load.
+  const loadSeq = useRef(0);
+
+  const loadHistoryWithSpinner = useCallback(
+    (chatId: string, pid?: string, cid?: string, sid?: string, replace = true) => {
+      const seq = ++loadSeq.current;
+      setHistoryLoading(true);
+      loadHistory(chatId, pid, cid, sid, replace)
+        .catch((e) => console.warn('[ChatWindow] loadHistory failed', e))
+        .finally(() => {
+          if (loadSeq.current === seq) setHistoryLoading(false);
+        });
+    },
+    [loadHistory],
+  );
   const activeSession = useSessionStore((s) => s.activeSession);
   const allSessions = useSessionStore((s) => s.sessions);
   const sessionId = useMemo(
@@ -117,12 +134,12 @@ export function ChatWindow({
           const match = updated.find((s) => s.chatId === mostRecent.chatId);
           if (match) {
             setActiveSession(tabId, match.id);
-            loadHistory(match.chatId, projectId, cardId, match.chatId, true).catch(() => {});
+            loadHistoryWithSpinner(match.chatId, projectId, cardId, match.chatId, true);
           }
         }
       })
       .catch((e) => console.warn('[ChatWindow] Session sync failed:', e));
-  }, [connectionState, tabId, projectId, cardId, injectServerSession, setActiveSession, loadHistory]);
+  }, [connectionState, tabId, projectId, cardId, injectServerSession, setActiveSession, loadHistoryWithSpinner]);
 
   // ---------------------------------------------------------------------------
   // Load history when session changes
@@ -130,8 +147,8 @@ export function ChatWindow({
 
   useEffect(() => {
     if (!connected || !sessionId) return;
-    loadHistory(sessionId, projectId, cardId, sessionId, true).catch(() => {});
-  }, [sessionId, connected, projectId, cardId, loadHistory]);
+    loadHistoryWithSpinner(sessionId, projectId, cardId, sessionId, true);
+  }, [sessionId, connected, projectId, cardId, loadHistoryWithSpinner]);
 
   // ---------------------------------------------------------------------------
   // Session management callbacks
@@ -141,10 +158,10 @@ export function ChatWindow({
     (_newSessionId: string) => {
       const chatId = useSessionStore.getState().getActiveChatId(tabId);
       if (chatId) {
-        loadHistory(chatId, projectId, cardId, chatId, true).catch(() => {});
+        loadHistoryWithSpinner(chatId, projectId, cardId, chatId, true);
       }
     },
-    [tabId, projectId, cardId, loadHistory],
+    [tabId, projectId, cardId, loadHistoryWithSpinner],
   );
 
   const handleNewSession = useCallback(() => {
@@ -180,10 +197,10 @@ export function ChatWindow({
   const handleSearchJump = useCallback(
     (chatId: string, _messageId: string) => {
       // Load the conversation containing that message
-      loadHistory(chatId, projectId, cardId, chatId, true).catch(() => {});
+      loadHistoryWithSpinner(chatId, projectId, cardId, chatId, true);
       setSearchOpen(false);
     },
-    [projectId, cardId, loadHistory],
+    [projectId, cardId, loadHistoryWithSpinner],
   );
 
   // ---------------------------------------------------------------------------
@@ -236,8 +253,15 @@ export function ChatWindow({
   // Render
   // ---------------------------------------------------------------------------
 
+  const chatScopeTestId =
+    chatLevel === 'general' ? 'chat-window-main'
+    : chatLevel === 'project' ? 'chat-window-project'
+    : 'chat-window-card';
+
   return (
     <div
+      data-testid={chatScopeTestId}
+      data-chat-level={chatLevel}
       className={cn(
         'chat-window flex flex-col h-full',
         embedded && 'chat-window--embedded',
@@ -261,7 +285,8 @@ export function ChatWindow({
         projectId={projectId}
         cardId={cardId}
         emptySlot={welcomeSlot}
-        loading={connectionState === 'connecting'}
+        loading={connectionState === 'connecting' || historyLoading}
+        loadingLabel={historyLoading ? 'Loading session\u2026' : 'Connecting to Voxy\u2026'}
       />
 
       {/* Bottom bar (not in embedded mode) */}
@@ -275,6 +300,9 @@ export function ChatWindow({
 
           {/* Mode pill */}
           <ModePill />
+
+          {/* Context usage indicator */}
+          <ContextUsagePill sessionId={sessionId} />
 
           <div className="flex-1" />
 

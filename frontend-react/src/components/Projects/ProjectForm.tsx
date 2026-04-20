@@ -16,6 +16,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { cn } from '../../lib/utils';
+import { authFetch } from '../../lib/authClient';
 import {
   useCreateProject,
   useUpdateProject,
@@ -24,6 +25,7 @@ import {
   useCreateProjectFromTemplate,
 } from '../../hooks/api/useProjects';
 import type { Project, GitHubRepoInfo, ProjectTemplate, TechDetectResult } from '../../types';
+import { ProjectAutonomySection } from './ProjectAutonomySection';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -222,7 +224,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
     setGithubStatus({ type: 'loading' });
     try {
       const description = getValues('description') ?? '';
-      const res = await fetch('/api/github/create-repo', {
+      const res = await authFetch('/api/github/create-repo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: repoName, description, private: true }),
@@ -273,7 +275,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
     setCloneStatus('loading');
     setCloneMessage('Cloning…');
     try {
-      const res = await fetch('/api/github/clone', {
+      const res = await authFetch('/api/github/clone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ owner, repo, target_dir: localPath.trim() }),
@@ -303,7 +305,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
     setCloneStatus('loading');
     setCloneMessage('Creating directory…');
     try {
-      const res = await fetch('/api/github/mkdir', {
+      const res = await authFetch('/api/github/mkdir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: localPath.trim() }),
@@ -853,6 +855,10 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                       <option value="archived">Archived</option>
                     </select>
                   </div>
+                )}
+
+                {mode === 'edit' && project && !project.isSystem && (
+                  <ProjectAutonomySection projectId={project.id} />
                 )}
 
                 {mode === 'create' && (

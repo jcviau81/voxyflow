@@ -129,10 +129,27 @@ ChromaDB-backed hierarchical memory with file-based fallback.
 
 ### Collections
 
+Collections are keyed by **project UUID** (never slug or title — slugs change on
+rename and would orphan data). The special `system-main` pseudo-id is used for
+the general / main chat when no project is selected.
+
 | Collection | Scope | Content |
 |-----------|-------|---------|
-| `memory-global` | Cross-project | Universal decisions, preferences, lessons |
-| `memory-project-{slug}` | Per-project | Project-specific context and decisions |
+| `memory-global` | Cross-project | Universal decisions, preferences, lessons. **General chat only** — project chats never query this collection. |
+| `memory-project-{project_id}` | Per-project | Project-specific context and decisions. Keyed by the project UUID. |
+| `memory-project-system-main` | General chat | Per-"project" store for the general chat pseudo-project |
+
+Invariants (see CLAUDE.md §"Project Isolation" and
+`backend/scripts/smoke_test_isolation.py`):
+
+- `search_memory()` requires explicit `collections=[...]` — there is no silent
+  global fallback.
+- MCP tools (`memory.search`, `memory.save`, `knowledge.search`) auto-scope via
+  the `VOXYFLOW_PROJECT_ID` env var set by `cli_backend._build_mcp_config(...)`.
+  The schemas **do not expose** `project_id` — the LLM cannot override scope.
+- `chat_id` is server-canonical (`card:{card_id}`, `project:{project_id}`,
+  `project:{SYSTEM_MAIN_PROJECT_ID}`). A stale or spoofed frontend `chatId` is
+  rejected and replaced.
 
 ### Memory Types
 

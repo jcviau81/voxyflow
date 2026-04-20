@@ -23,6 +23,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '../../lib/utils';
+import { authFetch } from '../../lib/authClient';
 import { eventBus } from '../../utils/eventBus';
 import { STT_EVENTS } from '../../utils/voiceEvents';
 import { sttService } from '../../services/sttService';
@@ -398,11 +399,16 @@ export function VoicePanel() {
   const saveMutation = useMutation({
     mutationFn: async (voiceData: VoiceSettings) => {
       const current = await apiFetch<AppSettings>('/api/settings');
-      return apiFetch<AppSettings>('/api/settings', {
+      const res = await authFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...current, voice: voiceData }),
       });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({})) as { detail?: string };
+        throw new Error(detail.detail ?? `HTTP ${res.status}`);
+      }
+      return res.json() as Promise<AppSettings>;
     },
     onMutate: () => setSaveStatus('saving'),
     onSuccess: (_data, voiceData) => {

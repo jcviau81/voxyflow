@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
@@ -114,10 +115,13 @@ class ClaudeService(ApiCallerMixin):
     """
 
     _instance: "ClaudeService | None" = None
+    _instance_lock: threading.Lock = threading.Lock()
 
     def __new__(cls) -> "ClaudeService":
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self):
@@ -147,6 +151,7 @@ class ClaudeService(ApiCallerMixin):
         fast_model_raw = fast_cfg.get("model", "").strip()
         self.fast_model = _resolve_model(fast_model_raw or config.claude_sonnet_model)
         fast_key = _get_api_key_from_settings(fast_cfg) or default_api_key
+        self.fast_context_1m = bool(fast_cfg.get("context_1m", False))
         if self.use_cli:
             self.fast_client = None
             self.fast_client_type = "cli"
@@ -165,6 +170,7 @@ class ClaudeService(ApiCallerMixin):
         deep_model_raw = deep_cfg.get("model", "").strip()
         self.deep_model = _resolve_model(deep_model_raw or config.claude_deep_model)
         deep_key = _get_api_key_from_settings(deep_cfg) or default_api_key
+        self.deep_context_1m = bool(deep_cfg.get("context_1m", False))
         if self.use_cli:
             self.deep_client = None
             self.deep_client_type = "cli"
@@ -183,6 +189,7 @@ class ClaudeService(ApiCallerMixin):
         haiku_model_raw = haiku_cfg.get("model", "").strip()
         self.haiku_model = _resolve_model(haiku_model_raw or "claude-haiku-4")
         haiku_key = _get_api_key_from_settings(haiku_cfg) or default_api_key
+        self.haiku_context_1m = bool(haiku_cfg.get("context_1m", False))
         if self.use_cli:
             self.haiku_client = None
             self.haiku_client_type = "cli"
@@ -196,13 +203,6 @@ class ClaudeService(ApiCallerMixin):
             )
             self.haiku_client_type = "openai"
 
-        # Legacy single client (backward compat, always OpenAI-compat proxy)
-        if not self.use_cli:
-            from openai import OpenAI as _OAI
-            self.client = _OAI(base_url=config.claude_proxy_url, api_key=config.claude_api_key or "not-needed")
-        else:
-            self.client = None
-
         self.personality = get_personality_service()
         self.memory = get_memory_service()
         # LRU-bounded dicts: max 500 entries to prevent unbounded RAM growth.
@@ -213,6 +213,9 @@ class ClaudeService(ApiCallerMixin):
         # Native delegate tool_use blocks collected during streaming (keyed by chat_id)
         # Populated by chat_fast_stream / chat_deep_stream, consumed by orchestrator
         self._pending_delegates: dict[str, list[dict]] = {}
+        # Last streaming usage stats (keyed by chat_id). Populated by streaming
+        # helpers in api_caller.py; consumed by layer_runners via consume_last_chat_usage().
+        self._last_stream_usage: dict[str, dict] = {}
 
         logger.info(
             f"ClaudeService initialized — cli={self.use_cli} native={self.use_native} | "
@@ -224,106 +227,12 @@ class ClaudeService(ApiCallerMixin):
     def reload_models(self) -> None:
         """Hot-reload model/provider config from settings.json without restarting.
 
-        Supports the new multi-provider architecture: when a layer config contains
-        an explicit ``provider_type`` (e.g. "ollama", "groq", "openai"), the
-        matching LLMProvider is instantiated and the raw SDK client is configured
-        to point at the right endpoint.  The existing ``client_type`` attribute
-        is kept for backward compatibility with api_caller.py dispatch logic.
+        Delegates to :func:`app.services.llm.model_reload.reload_layer_models`
+        which handles the multi-provider factory, native Anthropic SDK, and
+        OpenAI-compat proxy paths for all three (fast/deep/haiku) layers.
         """
-        from app.services.llm.provider_factory import get_provider, infer_provider_type
-
-        config = get_settings()
-        overrides = _load_model_overrides()
-        default_api_key = config.claude_api_key
-
-        # Update default worker model from settings
-        from app.routes.settings import set_default_worker_model
-        dwm = overrides.get("default_worker_model", "")
-        if dwm:
-            set_default_worker_model(dwm)
-
-        for layer, attr_prefix, default_model in [
-            ("fast", "fast", config.claude_sonnet_model),
-            ("deep", "deep", config.claude_deep_model),
-            ("haiku", "haiku", "claude-haiku-4"),
-        ]:
-            cfg = overrides.get(layer, {})
-            model_raw = cfg.get("model", "").strip()
-            model = _resolve_model(model_raw or default_model)
-            key = _get_api_key_from_settings(cfg) or default_api_key
-            purl = cfg.get("provider_url", "")
-
-            # Explicit provider_type in settings takes precedence over env-var flags
-            explicit_ptype = cfg.get("provider_type", "").strip().lower()
-
-            if explicit_ptype == "cli" or (self.use_cli and not explicit_ptype):
-                # CLI mode — explicit "cli" type or env flag with no override
-                client = None
-                client_type = "cli"
-                provider = None
-
-            elif explicit_ptype and explicit_ptype != "cli":
-                # New multi-provider path — use provider_factory
-                try:
-                    provider = get_provider(
-                        provider_type=explicit_ptype,
-                        url=purl,
-                        api_key=key,
-                    )
-                    # For OpenAI-compatible providers (ollama, groq, mistral, etc.)
-                    # we reuse the existing openai client_type so api_caller.py
-                    # dispatches via _call_api_openai() without any changes.
-                    if explicit_ptype == "anthropic":
-                        client = _make_anthropic_client(key, purl or config.claude_api_base)
-                        client_type = "anthropic"
-                    else:
-                        # All OpenAI-compat providers: set up client pointing at their URL
-                        from app.services.llm.client_factory import _make_openai_client as _mkoa
-                        effective_url = purl or getattr(provider, "_url", config.claude_proxy_url)
-                        client = _mkoa(effective_url, key or "not-needed")
-                        client_type = "openai"
-                except Exception as exc:
-                    logger.warning(
-                        "[ClaudeService] Failed to init provider '%s' for %s layer: %s — falling back to proxy",
-                        explicit_ptype, layer, exc,
-                    )
-                    client = _make_openai_client(purl or config.claude_proxy_url, key or default_api_key)
-                    client_type = "openai"
-                    provider = None
-
-            elif self.use_native and key and ("claude" in model.lower() or "anthropic" in purl.lower()):
-                # Native Anthropic SDK
-                client = _make_anthropic_client(key, purl or config.claude_api_base)
-                client_type = "anthropic"
-                provider = None
-
-            else:
-                # Auto-detect from URL/model for backward compat
-                auto_ptype = infer_provider_type(purl, model)
-                try:
-                    provider = get_provider(
-                        provider_type=auto_ptype,
-                        url=purl or config.claude_proxy_url,
-                        api_key=key or default_api_key,
-                    )
-                except Exception:
-                    provider = None
-                client = _make_openai_client(purl or config.claude_proxy_url, key or default_api_key)
-                client_type = "openai"
-
-            setattr(self, f"{attr_prefix}_model", model)
-            setattr(self, f"{attr_prefix}_client", client)
-            setattr(self, f"{attr_prefix}_client_type", client_type)
-            # Store provider instance for future direct calls (capability checks, etc.)
-            setattr(self, f"{attr_prefix}_provider", provider)
-
-        # Log effective URLs for layers that use a non-default provider
-        layer_details = []
-        for lbl, attr_prefix in [("fast", "fast"), ("deep", "deep"), ("haiku", "haiku")]:
-            m = getattr(self, f"{attr_prefix}_model")
-            ct = getattr(self, f"{attr_prefix}_client_type")
-            layer_details.append(f"{lbl}={m}({ct})")
-        logger.info(f"ClaudeService reloaded — {' | '.join(layer_details)}")
+        from app.services.llm.model_reload import reload_layer_models
+        reload_layer_models(self)
 
     async def call_with_worker_class(
         self,
@@ -578,6 +487,28 @@ class ClaudeService(ApiCallerMixin):
         collected during the last streaming call for this chat_id."""
         return self._pending_delegates.pop(chat_id, [])
 
+    def consume_last_chat_usage(self, chat_id: str, layer: str) -> dict | None:
+        """Return and clear usage stats from the most recent chat stream.
+
+        The returned dict is shaped for the WebSocket payload (camelCase)
+        and augmented with the model's static context window from the
+        capability registry. Returns None if no usage was recorded.
+        """
+        raw = self._last_stream_usage.pop(chat_id, None)
+        if not raw:
+            return None
+        model = self.deep_model if layer == "deep" else self.fast_model
+        from app.services.llm.capability_registry import lookup as _caps_lookup
+        caps = _caps_lookup(model)
+        return {
+            "inputTokens": int(raw.get("input_tokens", 0) or 0),
+            "outputTokens": int(raw.get("output_tokens", 0) or 0),
+            "cacheReadTokens": int(raw.get("cache_read_input_tokens", 0) or 0),
+            "cacheCreationTokens": int(raw.get("cache_creation_input_tokens", 0) or 0),
+            "contextWindow": int(caps.context_window),
+            "model": model,
+        }
+
     # ------------------------------------------------------------------
     # Worker class context for dispatcher
     # ------------------------------------------------------------------
@@ -595,74 +526,6 @@ class ClaudeService(ApiCallerMixin):
     # Public API
     # ------------------------------------------------------------------
 
-    async def chat_fast(
-        self,
-        chat_id: str,
-        user_message: str,
-        project_name: Optional[str] = None,
-        project_id: Optional[str] = None,
-        chat_level: str = "general",
-        project_context: Optional[dict] = None,
-        card_context: Optional[dict] = None,
-    ) -> str:
-        """Layer 1: Fast conversational response, personality-infused."""
-        card_id = card_context.get("id", "") if card_context else ""
-        await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
-
-        recent = await self._get_windowed_history(chat_id)
-
-        memory_context = self.memory.build_memory_context(
-            project_name=project_name,
-            project_id=project_id,
-            include_long_term=False,
-            include_daily=True,
-            query=user_message,
-            budget=600,
-            layers=(0, 1),
-        )
-        # Static base prompt (cacheable)
-        base_prompt = self.personality.build_fast_prompt(
-            chat_level=chat_level,
-            project=project_context,
-            card=card_context,
-        )
-
-        # Dynamic context (per-call, not cached)
-        dynamic_parts: list[str] = []
-        wc_list = await self._load_worker_classes_context()
-        dynamic_context = self.personality.build_dynamic_context_block(
-            chat_level=chat_level,
-            project=project_context,
-            card=card_context,
-            memory_context=memory_context,
-            worker_classes=wc_list,
-        )
-        if dynamic_context:
-            dynamic_parts.append(dynamic_context)
-
-        if project_id:
-            try:
-                pass  # RAG disabled — use knowledge.search tool instead
-            except Exception as e:
-                logger.warning(f"RAG context injection failed (chat_fast): {e}")
-
-        system_prompt = _make_cached_system(
-            base_prompt, dynamic_parts, is_anthropic=(self.fast_client_type == "anthropic")
-        )
-
-        response_text = await self._call_api(
-            model=self.fast_model,
-            system=system_prompt,
-            messages=recent,
-            client=self.fast_client,
-            client_type=self.fast_client_type,
-            chat_level=chat_level,
-            project_id=project_id or "", card_id=card_id,
-        )
-
-        await self._append_and_persist_async(chat_id, "assistant", response_text, model="fast")
-        return response_text
-
     async def chat_fast_stream(
         self,
         chat_id: str,
@@ -675,6 +538,9 @@ class ClaudeService(ApiCallerMixin):
         project_names: Optional[list] = None,
         active_workers_context: str = "",
         session_id: str = "",
+        live_state_block: str = "",
+        worker_events_block: str = "",
+        session_handoff_block: str = "",
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer.
 
@@ -726,6 +592,9 @@ class ClaudeService(ApiCallerMixin):
             project_names=project_names,
             memory_context=memory_context,
             worker_classes=wc_list,
+            live_state=live_state_block or None,
+            worker_events=worker_events_block or None,
+            session_handoff=session_handoff_block or None,
         )
         if dynamic_context:
             dynamic_parts.append(dynamic_context)
@@ -886,6 +755,9 @@ class ClaudeService(ApiCallerMixin):
         project_names: Optional[list] = None,
         active_workers_context: str = "",
         session_id: str = "",
+        live_state_block: str = "",
+        worker_events_block: str = "",
+        session_handoff_block: str = "",
     ) -> AsyncIterator[str]:
         """Deep layer (streaming): Yield tokens from the deep model directly to chat.
 
@@ -933,6 +805,9 @@ class ClaudeService(ApiCallerMixin):
             project_names=project_names,
             memory_context=memory_context,
             worker_classes=wc_list,
+            live_state=live_state_block or None,
+            worker_events=worker_events_block or None,
+            session_handoff=session_handoff_block or None,
         )
         if dynamic_context:
             dynamic_parts.append(dynamic_context)
@@ -1195,14 +1070,24 @@ class ClaudeService(ApiCallerMixin):
 
         dynamic_parts: list[str] = []
 
-        # Mandatory task.complete instruction for workers
+        # Mandatory worker lifecycle — strict 3-phase contract.
         dynamic_parts.append(
-            "IMPORTANT: When your task is complete, you MUST call the task.complete tool "
-            "with a status (success/partial/failed) and the FULL RAW OUTPUT in the summary field. "
-            "Put the COMPLETE, VERBATIM content — full file contents, full stdout/stderr, all data. "
-            "Do NOT summarize, paraphrase, or truncate. Never write generic 'Done' or 'Task complete'. "
-            "The dispatcher needs the exact raw content, not a description of what you found. "
-            "This is mandatory — never finish without calling task.complete."
+            "## Worker Lifecycle (MANDATORY)\n"
+            "You operate under a strict 3-phase protocol. The orchestrator enforces it.\n\n"
+            "**Phase 1 — Claim.** As your FIRST action, call voxyflow.worker.claim with "
+            "your task_id and a one-sentence plan describing what you intend to do. "
+            "Do NOT run any other tool before claim.\n\n"
+            "**Phase 2 — Work.** Use any tools needed to complete the task. "
+            "Save full raw output (file contents, stdout/stderr, data) — it will be persisted "
+            "to an artifact that the dispatcher can read on demand.\n\n"
+            "**Phase 3 — Complete.** As your LAST action, call voxyflow.worker.complete "
+            "with: task_id, status (success/partial/failed), summary (2–4 sentences of what you "
+            "did and why it matters — NOT the raw output), findings (3–7 short bullets of the "
+            "key results), pointers (labelled offsets into the artifact for important detail), "
+            "and next_step (optional). Stop immediately after.\n\n"
+            "The summary is the ONLY thing the dispatcher sees directly — write it for a reader "
+            "who has NOT seen the raw output. Do not truncate the artifact itself; the "
+            "dispatcher will fetch specific sections via read_artifact using your pointers."
         )
 
         if project_id:
@@ -1269,28 +1154,31 @@ class ClaudeService(ApiCallerMixin):
             client, client_type, model_name = self._make_endpoint_client(
                 endpoint_config, model,
             )
-        elif model == "haiku":
-            client, client_type, model_name = (
-                self.haiku_client, self.haiku_client_type, self.haiku_model
-            )
-        elif model == "opus":
-            client, client_type, model_name = (
-                self.deep_client, self.deep_client_type, self.deep_model
-            )
         else:
-            client, client_type, model_name = (
-                self.fast_client, self.fast_client_type, self.fast_model
-            )
+            # Match both short names (haiku/sonnet/opus) and full IDs (claude-opus-4-7)
+            model_lower = (model or "").lower()
+            if "haiku" in model_lower:
+                client, client_type, model_name = (
+                    self.haiku_client, self.haiku_client_type, self.haiku_model
+                )
+            elif "opus" in model_lower:
+                client, client_type, model_name = (
+                    self.deep_client, self.deep_client_type, self.deep_model
+                )
+            else:
+                client, client_type, model_name = (
+                    self.fast_client, self.fast_client_type, self.fast_model
+                )
 
         system_prompt = (
-            "You are a task worker. Execute the task below using the available MCP tools. "
-            "Be precise and concise. Execute the task immediately and directly using the "
-            "tools available to you. Do NOT create scheduled jobs or delegate to other "
-            "systems. Do NOT use voxyflow.jobs.create. Use web search tools directly "
-            "(e.g. voxyflow.web.search or web.search) when asked to search the web. "
-            "When done, call task.complete with the FULL RAW OUTPUT "
-            "in the summary field (not just 'Done'). Do NOT summarize or truncate — include "
-            "the complete verbatim content: file contents, command stdout/stderr, data values."
+            "You are a lightweight task worker operating under a strict lifecycle.\n\n"
+            "1. FIRST: call voxyflow.worker.claim(task_id, plan) with a one-sentence plan.\n"
+            "2. Then: use MCP tools to execute the task. Use web search tools directly "
+            "(e.g. voxyflow.web.search) when asked to search the web. Do NOT create "
+            "scheduled jobs or delegate to other systems (no voxyflow.jobs.create).\n"
+            "3. LAST: call voxyflow.worker.complete(task_id, status, summary, findings, pointers, next_step?) "
+            "with a real 2–4 sentence summary in your own words, not the raw output. "
+            "Stop immediately after. The artifact is persisted automatically — don't inline it."
         )
 
         if client_type in ("anthropic", "cli"):

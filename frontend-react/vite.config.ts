@@ -32,12 +32,17 @@ export default defineConfig(({ mode }) => {
           // Exclude large WASM/ML model files from precache
           globIgnores: ['**/*.wasm', '**/whisper.worker*.js'],
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-          // Always fetch fresh JS/CSS — network first, fall back to cache
+          // Wipe stale precache entries on activation — prevents zombie bundles
+          // when the SW updates (e.g. after a cross-device sync fix deploy).
+          cleanupOutdatedCaches: true,
+          // Always fetch fresh JS/CSS — network first, fall back to cache.
+          // Bump cacheName when we need to force clients past a bad cached
+          // bundle (increment the -vN suffix on each forced invalidation).
           runtimeCaching: [
             {
               urlPattern: /\.(?:js|css)$/,
               handler: 'NetworkFirst',
-              options: { cacheName: 'assets', networkTimeoutSeconds: 5 },
+              options: { cacheName: 'assets-v2', networkTimeoutSeconds: 5 },
             },
           ],
           skipWaiting: true,

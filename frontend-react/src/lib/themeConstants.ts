@@ -34,7 +34,7 @@ export const FONT_SIZE_MAP: Record<FontSize, { base: string; card: string }> = {
 export const SIDEBAR_WIDTH_MAP: Record<SidebarWidth, string> = {
   compact: '220px',
   normal:  '280px',
-  wide:    '360px',
+  wide:    '400px',
 };
 
 export const TRANSITION_MAP: Record<AnimationSpeed, { transition: string; transitionFast: string }> = {

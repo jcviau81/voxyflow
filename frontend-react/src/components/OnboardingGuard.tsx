@@ -15,7 +15,7 @@ interface OnboardingGuardProps {
 }
 
 export function OnboardingGuard({ children }: OnboardingGuardProps) {
-  const [status, setStatus] = useState<'loading' | 'complete' | 'needs_onboarding'>('loading');
+  const [status, setStatus] = useState<'loading' | 'complete' | 'needs_onboarding' | 'backend_unreachable'>('loading');
 
   useEffect(() => {
     const syncNames = (data: Record<string, unknown>) => {
@@ -52,8 +52,9 @@ export function OnboardingGuard({ children }: OnboardingGuardProps) {
         }
       })
       .catch(() => {
-        // Backend unreachable — let the app load anyway (it'll show errors elsewhere)
-        setStatus('complete');
+        // Backend unreachable and we have no cached onboarding flag — don't silently
+        // let the user through (that masks first-run setup as "done"). Ask to retry.
+        setStatus('backend_unreachable');
       });
   }, []);
 
@@ -61,6 +62,24 @@ export function OnboardingGuard({ children }: OnboardingGuardProps) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
         <Loader2 size={24} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (status === 'backend_unreachable') {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-background p-6 text-center">
+        <p className="text-foreground mb-2">Can't reach the Voxyflow backend.</p>
+        <p className="text-muted-foreground text-sm mb-4">
+          Make sure the backend service is running, then retry.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 rounded bg-primary text-primary-foreground text-sm"
+        >
+          Retry
+        </button>
       </div>
     );
   }

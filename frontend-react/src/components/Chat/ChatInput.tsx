@@ -14,6 +14,7 @@ import { AudioLines, Volume2, SendHorizonal } from 'lucide-react';
 import { VoiceInput } from '../Voice/VoiceInput';
 import { Tooltip, TooltipProvider } from '../ui/tooltip';
 import { cn } from '../../lib/utils';
+import { authFetch } from '../../lib/authClient';
 import { eventBus } from '../../utils/eventBus';
 
 // ---------------------------------------------------------------------------
@@ -375,12 +376,12 @@ export function ChatInput({
       else setTtsAutoPlay(newValue);
       // Sync to backend — fetch fresh settings first to avoid overwriting
       // other fields (e.g. worker_classes) with stale localStorage data
-      fetch('/api/settings')
+      authFetch('/api/settings')
         .then(r => r.json())
         .then(current => {
           if (!current.voice) current.voice = {};
           current.voice[key] = newValue;
-          return fetch('/api/settings', {
+          return authFetch('/api/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(current),
@@ -439,24 +440,24 @@ export function ChatInput({
               <button
                 type="button"
                 className={cn(
-                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
-                  sttAutoSend ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
+                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
+                  sttAutoSend ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
                 onClick={() => toggleVoiceSetting('stt_auto_send')}
               >
-                <AudioLines size={14} />
+                <AudioLines size={16} />
               </button>
             </Tooltip>}
             {ttsEnabled && <Tooltip content={ttsAutoPlay ? 'Auto-play TTS: ON — responses read aloud' : 'Auto-play TTS: OFF'}>
               <button
                 type="button"
                 className={cn(
-                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded transition-colors',
-                  ttsAutoPlay ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent',
+                  'voice-toggle-btn w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
+                  ttsAutoPlay ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
                 onClick={() => toggleVoiceSetting('tts_auto_play')}
               >
-                <Volume2 size={14} />
+                <Volume2 size={16} />
               </button>
             </Tooltip>}
             {sttEnabled && <VoiceInput compact />}
@@ -493,6 +494,7 @@ export function ChatInput({
         {/* Textarea */}
         <textarea
           ref={textareaRef}
+          data-testid="chat-input-textarea"
           className="chat-input flex-1 resize-none bg-muted/50 border border-border rounded-lg px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[40px] max-h-[150px]"
           placeholder={isMobile ? 'Message...' : 'Type a message or press Alt+V for voice...'}
           rows={1}
@@ -505,6 +507,7 @@ export function ChatInput({
         {/* Send button */}
         <button
           type="button"
+          data-testid="chat-input-send"
           className={cn(
             'chat-send-btn flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-sm font-medium transition-colors',
             connected

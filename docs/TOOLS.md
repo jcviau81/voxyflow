@@ -6,52 +6,58 @@
 
 ## Tool Categories
 
-Voxyflow tools are organized into 8 categories:
+Voxyflow exposes ~100 MCP tools defined in `backend/app/mcp_server.py`. Broad grouping:
 
-| Category | Prefix | Count | Purpose |
-|----------|--------|-------|---------|
-| voxyflow | `voxyflow.*` | 38 | Card/project/wiki/doc/job/AI/worker/session operations |
-| memory | `memory.*` | 4 | Long-term memory search/save/delete + session history |
-| knowledge | `knowledge.*` | 1 | RAG knowledge base search |
-| task | `task.*` | 3 | Worker task supervision (peek/cancel/steer) |
-| system | `system.*` | 1 | Shell command execution |
-| web | `web.*` | 2 | Web search and page fetching |
-| file | `file.*` | 4 | Filesystem read/write/patch/list |
-| git | `git.*` | 5 | Git operations |
-| tmux | `tmux.*` | 6 | Terminal multiplexer control |
+| Category | Prefix | Purpose |
+|----------|--------|---------|
+| voxyflow | `voxyflow.*` | Cards, projects, wiki, docs, jobs, AI ops, worker lifecycle, session/ledger |
+| memory | `memory.*` | Long-term memory search/save/delete/get |
+| knowledge | `knowledge.*` | RAG knowledge base search |
+| kg | `kg.*` | Knowledge-graph triples/attributes (worker-only) |
+| task | `task.*` | Worker supervision + legacy `task.complete` |
+| system | `system.*` | Shell command execution (worker-only) |
+| web | `web.*` | Web search / page fetching (worker-only) |
+| file | `file.*` | Filesystem read/write/patch/list (worker-only) |
+| git | `git.*` | Git operations (worker-only) |
+| tmux | `tmux.*` | Terminal multiplexer (worker-only) |
+| tools | `tools.*` | Dynamic tool loader (worker-only) |
 
-**Total: 66 tools** (defined as MCP tools in `backend/app/mcp_server.py`)
+Counts drift as tools are added — the source of truth is `_TOOL_DEFINITIONS` in
+`backend/app/mcp_server.py` and the role sets in `backend/app/tools/registry.py`.
 
 ---
 
 ## Role-Based Access Control
 
-Tools are split between **dispatcher** (chat layer) and **worker** roles via `_role` tag:
+Tool access is gated by **role**, not by model tier. Fast and Deep dispatchers
+get the **same** tool set — the Haiku vs Opus choice is purely model selection.
+Workers run in background subprocesses and get the full MCP surface.
 
-| Role | Tool Count | Description |
-|------|------------|-------------|
-| **Dispatcher** (chat) | 47 | All voxyflow/memory/knowledge/task tools — inline MCP via CLI |
-| **Worker** | 66 (all) | Everything including system, file, git, tmux |
+| Role | Access | What it can do |
+|------|--------|----------------|
+| **Dispatcher** (fast + deep chat) | `TOOLS_DISPATCHER` | Read ops, basic card/project CRUD, memory search/save, worker monitoring. Never blocks. |
+| **Worker** | `TOOLS_WORKER` (= dispatcher + everything else) | Exec, file/git/tmux, web, AI ops, destructive deletes, worker lifecycle. |
 
-Tools tagged `_role="worker"` are hidden from the dispatcher. The dispatcher uses
-inline MCP tools for CRUD/read operations and `<delegate>` blocks for complex tasks
-that need worker-level tools.
+Source of truth: `TOOLS_DISPATCHER` / `TOOLS_WORKER` in
+`backend/app/tools/registry.py`. The invariant (enforced by
+`backend/tests/test_tool_role_boundary.py`): dispatcher is a strict subset of
+worker, and none of `system.exec`, `file.write`, `file.patch`, `git.commit`,
+`web.*`, `tmux.run/send/new/kill`, `memory.delete`, `kg.invalidate`, `task.steer`,
+or any `*.delete` / `*.export` may leak into the dispatcher set.
 
-### Dispatcher Tools (47)
+### Dispatcher surface (high-level)
 
-Cards (17), Projects (6), Wiki (4), AI ops (5), Memory (4), Knowledge (1),
-Worker supervision (3), System info (5), Documents (2).
+Read: `health`, `project.list/get`, `card.list/get/list_unassigned/list_archived`,
+`wiki.list/get`, `doc.list`, `jobs.list`, `heartbeat.read/write`, `memory.search`,
+`knowledge.search`, `workers.list/get_result/read_artifact`.
+Create/update: `card.create/update/move/archive/create_unassigned`,
+`project.create`, `memory.save`, `jobs.create/update/delete`.
 
-### Worker-Only Tools (19)
+### Worker-only (representative)
 
-```
-system.exec
-web.search, web.fetch
-file.read, file.write, file.patch, file.list
-git.status, git.log, git.diff, git.branches, git.commit
-tmux.list, tmux.run, tmux.send, tmux.capture, tmux.new, tmux.kill
-task.complete
-```
+`system.exec`, `file.*`, `git.*`, `tmux.*`, `web.*`, `kg.*`, `voxyflow.ai.*`,
+`voxyflow.worker.claim`, `voxyflow.worker.complete`, `task.complete` (legacy),
+`task.steer`, `tools.load`, destructive `*.delete` and `voxyflow.project.export`.
 
 ---
 
@@ -344,14 +350,75 @@ List active CLI subprocess sessions (chat and worker processes).
 No parameters.
 
 #### voxyflow.workers.list
-List recent worker tasks from the Worker Ledger.
-No parameters.
+List recent worker tasks from the Worker Ledger. Auto-scoped to the current
+project via `VOXYFLOW_PROJECT_ID`; pass `scope="all"` to cross projects.
 
 #### voxyflow.workers.get_result
 Get the full details and result of a specific worker task.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | task_id | string | yes | Worker task ID |
+
+#### voxyflow.workers.read_artifact
+Fetch the full artifact (verbatim worker output) written to
+`~/.voxyflow/worker_artifacts/{task_id}.md`. Supports paging.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_id | string | yes | Worker task ID |
+| offset | integer | no | Byte offset into the artifact |
+| length | integer | no | Max bytes to return |
+
+---
+
+### Voxyflow — Worker Lifecycle (worker-only)
+
+Workers run a strict three-phase protocol enforced by `WorkerSupervisor` and the
+orchestrator's `_tool_callback`. The dispatcher reads the structured completion
+payload — not truncated raw text — so Voxy usually does not need to call
+`read_artifact` just to understand a result.
+
+```
+voxyflow.worker.claim  →  (work with any MCP tools)  →  voxyflow.worker.complete
+```
+
+If a worker skips `voxyflow.worker.complete` or emits a malformed one, a
+closeout-pass subprocess (`VOXYFLOW_CLOSEOUT_PASS=1`) reads the artifact and
+synthesizes a structured completion. A local tier-3 fallback covers the degenerate
+case where even the closeout fails. Per-message cap:
+`MAX_DISPATCHER_PAYLOAD_CHARS` (15 000); 60 s rolling burst cap per dispatcher
+chat via `VOXYFLOW_CALLBACK_BURST_CAP_CHARS` (40 000).
+
+#### voxyflow.worker.claim
+**First** tool a worker must call. Declares the plan and flips the supervisor
+phase from `spawned` → `claimed`. A watchdog nudges workers that don't claim
+within `WORKER_CLAIM_NUDGE_AFTER` (default 5) tool calls.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_id | string | yes | The task id injected into the worker prompt |
+| plan | string | yes | One- or two-sentence plan the worker intends to execute |
+
+#### voxyflow.worker.complete
+**Last** tool a worker must call. Delivers the dispatcher-facing result.
+The `summary` is the only text the dispatcher sees by default; findings and
+pointers let it fetch detail out-of-band via `read_artifact`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_id | string | yes | Worker task id |
+| status | string | yes | `success` \| `partial` \| `failed` |
+| summary | string | yes | ≥20 chars, ≤8000. Real prose — not "ok" / "done" |
+| findings | string[] | no | Up to 20 short bullets (max 500 chars each) |
+| pointers | object[] | no | Up to 20 `{label, offset, length}` pointers into the artifact |
+| next_step | string | no | One-line suggestion for the dispatcher (≤500 chars) |
+
+Validation: summary < 20 chars, missing `task_id`, invalid `status`, or
+non-list `findings` / `pointers` all return `{success: false, error: ...}`.
+Calling `worker.complete` without a prior `worker.claim` logs a warning but
+still accepts the completion.
+
+#### task.complete (legacy)
+Kept for back-compat. Sets `completion_source="task.complete"`, which does
+**not** count as a structured completion — the closeout pass will upgrade it.
 
 ---
 

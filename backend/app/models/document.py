@@ -1,25 +1,23 @@
-"""Document Pydantic schemas for the documents API."""
+"""Document Pydantic schemas for the documents API.
 
-from datetime import datetime
-from typing import Optional
+``DocumentResponse`` is generated from the ORM ``Document`` model via
+``_generated.DocumentBase``.
+"""
+
 from pydantic import BaseModel
 
+from app.models._generated import DocumentBase
 
-class DocumentResponse(BaseModel):
-    """Response schema for a document record."""
-    id: str
-    project_id: str
-    filename: str
-    filetype: str
-    size_bytes: int
-    chunk_count: int
-    created_at: datetime
-    indexed_at: Optional[datetime] = None
 
-    model_config = {"from_attributes": True}
+class DocumentResponse(DocumentBase):
+    """Wire representation of a Document — pure column-backed."""
+    pass
 
 
 class DocumentListResponse(BaseModel):
-    """List of documents for a project."""
+    """List of documents for a project.
+
+    ``total`` is synthesized by the route handler (COUNT query, not a column).
+    """
     documents: list[DocumentResponse]
     total: int

@@ -12,6 +12,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { generateId } from '@/lib/utils';
+import { authFetch } from '@/lib/authClient';
+import { apiFetch as sharedApiFetch, modelsApi } from '@/lib/apiClient';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +36,7 @@ interface ModelLayerConfig {
   api_key: string;
   model: string;
   endpoint_id: string;
+  context_1m: boolean;
 }
 
 /** A named worker class — routes task types to a specific LLM. */
@@ -109,17 +113,27 @@ const DEFAULT_LAYER: ModelLayerConfig = {
   api_key: '',
   model: '',
   endpoint_id: '',
+  context_1m: false,
 };
 
 const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
   {
-    id: '00000000-0000-0000-0000-000000000001',
-    name: 'Quick',
-    description: 'Fast, lightweight tasks — summaries, simple Q&A, formatting',
+    id: '00000000-0000-0000-0000-000000000006',
+    name: 'Architecture',
+    description: 'System design, structural decisions, cross-cutting architecture',
     endpoint_id: '',
     provider_type: 'cli',
-    model: 'claude-haiku-4-5-20251001',
-    intent_patterns: ['summarize', 'format', 'quick', 'simple', 'short'],
+    model: 'claude-opus-4-7',
+    intent_patterns: ['architect', 'architecture', 'system_design', 'structural', 'redesign'],
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000005',
+    name: 'Complex Coding',
+    description: 'Multi-file changes, major refactors, complex features',
+    endpoint_id: '',
+    provider_type: 'cli',
+    model: 'claude-opus-4-7',
+    intent_patterns: ['multi_file', 'multifile', 'major_refactor', 'complex_implement', 'complex_feature', 'large_refactor'],
   },
   {
     id: '00000000-0000-0000-0000-000000000002',
@@ -128,7 +142,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-sonnet-4-6',
-    intent_patterns: ['code', 'debug', 'refactor', 'implement', 'fix', 'test'],
+    intent_patterns: ['debug', 'refactor', 'implement', 'unit test', 'fix bug', 'code review', 'write code'],
   },
   {
     id: '00000000-0000-0000-0000-000000000003',
@@ -137,7 +151,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-opus-4-7',
-    intent_patterns: ['research', 'analyze', 'investigate', 'compare', 'explain'],
+    intent_patterns: ['research', 'investigate', 'analyze', 'compare alternatives', 'feasibility', 'fact check'],
   },
   {
     id: '00000000-0000-0000-0000-000000000004',
@@ -146,7 +160,16 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-sonnet-4-6',
-    intent_patterns: ['write', 'brainstorm', 'creative', 'story', 'draft'],
+    intent_patterns: ['brainstorm', 'brainstorming', 'creative writing', 'story', 'narrative', 'ideation'],
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000001',
+    name: 'Quick',
+    description: 'Fast, lightweight tasks — summaries, simple Q&A, formatting',
+    endpoint_id: '',
+    provider_type: 'cli',
+    model: 'claude-haiku-4-5-20251001',
+    intent_patterns: ['summarize', 'summarization', 'tldr', 'reformat', 'rephrase'],
   },
 ];
 
@@ -198,7 +221,7 @@ const STATIC_MODELS: Record<string, string[]> = {
 };
 
 function newId() {
-  return crypto.randomUUID();
+  return generateId();
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -240,14 +263,7 @@ function providerLabel(type: string): string {
   return labels[type] || type;
 }
 
-async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({})) as { detail?: string };
-    throw new Error(detail.detail ?? `HTTP ${res.status}`);
-  }
-  return res.json() as Promise<T>;
-}
+const apiFetch = sharedApiFetch;
 
 // ── StatusDot ──────────────────────────────────────────────────────────────
 
@@ -271,10 +287,13 @@ function CapabilityBadges({ model }: { model: string }) {
   useEffect(() => {
     if (!model) { setCaps(null); return; }
     const controller = new AbortController();
-    fetch(`/api/models/capabilities?model=${encodeURIComponent(model)}`, { signal: controller.signal })
-      .then(r => r.ok ? r.json() : null)
+    modelsApi.capabilities(model, { signal: controller.signal })
       .then(d => setCaps(d))
-      .catch(() => {});
+      .catch((e) => {
+        if ((e as { name?: string })?.name !== 'AbortError') {
+          console.warn('[ModelPanel] capabilities fetch failed', model, e);
+        }
+      });
     return () => controller.abort();
   }, [model]);
 
@@ -428,9 +447,10 @@ interface MachineCardProps {
   modelsLoading: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  disabled?: boolean;
 }
 
-function MachineCard({ endpoint, status, models, modelsLoading, onEdit, onDelete }: MachineCardProps) {
+function MachineCard({ endpoint, status, models, modelsLoading, onEdit, onDelete, disabled }: MachineCardProps) {
   const reachable = status ? status.reachable : null;
   const isOnline = reachable === true;
 
@@ -476,15 +496,17 @@ function MachineCard({ endpoint, status, models, modelsLoading, onEdit, onDelete
       <div className="flex gap-2 mt-auto pt-1 border-t border-border">
         <button
           type="button"
-          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent flex-1"
+          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent flex-1 disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={onEdit}
+          disabled={disabled}
         >
           Edit
         </button>
         <button
           type="button"
-          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent text-red-400"
+          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={onDelete}
+          disabled={disabled}
         >
           Delete
         </button>
@@ -495,12 +517,13 @@ function MachineCard({ endpoint, status, models, modelsLoading, onEdit, onDelete
 
 // ── AddMachineCard ────────────────────────────────────────────────────────
 
-function AddMachineCard({ onClick }: { onClick: () => void }) {
+function AddMachineCard({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
-      className="rounded-lg border border-dashed border-border bg-background/50 p-4 flex flex-col items-center justify-center gap-2 min-h-[140px] hover:bg-accent/30 transition-colors cursor-pointer"
+      className="rounded-lg border border-dashed border-border bg-background/50 p-4 flex flex-col items-center justify-center gap-2 min-h-[140px] hover:bg-accent/30 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       onClick={onClick}
+      disabled={disabled}
     >
       <span className="text-2xl text-muted-foreground">+</span>
       <span className="text-xs text-muted-foreground">Add a machine</span>
@@ -515,12 +538,21 @@ interface MachinesGridProps {
   onChange: (endpoints: ProviderEndpoint[]) => void;
   providers: ProviderMeta[];
   endpointStatuses: EndpointStatus[];
+  editingSection: string | null;
+  setEditingSection: (s: string | null) => void;
+  saveAll: (overrides?: Partial<ModelsSettings>) => Promise<void>;
 }
 
-function MachinesGrid({ endpoints, onChange, providers, endpointStatuses }: MachinesGridProps) {
+function MachinesGrid({
+  endpoints, onChange, providers, endpointStatuses,
+  editingSection, setEditingSection, saveAll,
+}: MachinesGridProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ProviderEndpoint | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const lockedByOther = editingSection !== null && !editingSection.startsWith('endpoint:');
 
   // Per-endpoint model lists
   const [modelsByEndpoint, setModelsByEndpoint] = useState<Record<string, string[]>>({});
@@ -553,6 +585,7 @@ function MachinesGrid({ endpoints, onChange, providers, endpointStatuses }: Mach
   }, [endpoints, endpointStatuses]);
 
   function startAdd() {
+    if (editingSection !== null) return;
     const ep: ProviderEndpoint = {
       id: newId(),
       name: '',
@@ -563,46 +596,65 @@ function MachinesGrid({ endpoints, onChange, providers, endpointStatuses }: Mach
     setDraft(ep);
     setIsAdding(true);
     setEditingId(ep.id);
+    setSaveError(null);
+    setEditingSection(`endpoint:${ep.id}`);
   }
 
   function startEdit(ep: ProviderEndpoint) {
+    if (editingSection !== null) return;
     setDraft({ ...ep });
     setIsAdding(false);
     setEditingId(ep.id);
+    setSaveError(null);
+    setEditingSection(`endpoint:${ep.id}`);
   }
 
   function cancelEdit() {
     setDraft(null);
     setEditingId(null);
     setIsAdding(false);
+    setSaveError(null);
+    setEditingSection(null);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!draft) return;
     const existing = endpoints.find(e => e.id === draft.id);
-    if (existing) {
-      onChange(endpoints.map(e => e.id === draft.id ? draft : e));
-    } else {
-      onChange([...endpoints, draft]);
+    const newEndpoints = existing
+      ? endpoints.map(e => e.id === draft.id ? draft : e)
+      : [...endpoints, draft];
+    onChange(newEndpoints);
+    setSaveError(null);
+    try {
+      await saveAll({ endpoints: newEndpoints });
+      // Clear cached models for this endpoint so they get re-fetched
+      setModelsByEndpoint(prev => {
+        const next = { ...prev };
+        delete next[draft.id];
+        return next;
+      });
+      setDraft(null);
+      setEditingId(null);
+      setIsAdding(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed');
     }
-    // Clear cached models for this endpoint so they get re-fetched
-    setModelsByEndpoint(prev => {
-      const next = { ...prev };
-      delete next[draft.id];
-      return next;
-    });
-    setDraft(null);
-    setEditingId(null);
-    setIsAdding(false);
   }
 
-  function removeEndpoint(id: string) {
-    onChange(endpoints.filter(e => e.id !== id));
-    setModelsByEndpoint(prev => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
+  async function removeEndpoint(id: string) {
+    if (editingSection !== null) return;
+    const newEndpoints = endpoints.filter(e => e.id !== id);
+    onChange(newEndpoints);
+    try {
+      await saveAll({ endpoints: newEndpoints });
+      setModelsByEndpoint(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch {
+      onChange(endpoints);
+    }
   }
 
   return (
@@ -638,6 +690,7 @@ function MachinesGrid({ endpoints, onChange, providers, endpointStatuses }: Mach
               modelsLoading={loadingByEndpoint[ep.id] ?? false}
               onEdit={() => startEdit(ep)}
               onDelete={() => removeEndpoint(ep.id)}
+              disabled={editingSection !== null}
             />
           );
         })}
@@ -653,9 +706,12 @@ function MachinesGrid({ endpoints, onChange, providers, endpointStatuses }: Mach
             isNew
           />
         ) : (
-          <AddMachineCard onClick={startAdd} />
+          <AddMachineCard onClick={startAdd} disabled={lockedByOther || editingSection !== null} />
         )}
       </div>
+      {saveError && (
+        <div className="text-xs text-red-400">{saveError}</div>
+      )}
     </div>
   );
 }
@@ -670,11 +726,24 @@ interface LayerRowProps {
   providers: ProviderMeta[];
   endpoints: ProviderEndpoint[];
   endpointStatuses: EndpointStatus[];
+  editingSection: string | null;
+  setEditingSection: (s: string | null) => void;
+  saveAll: (overrides?: Partial<ModelsSettings>) => Promise<void>;
+  isSaving: boolean;
 }
 
-function LayerRow({ layerKey, control, watch, setValue, providers, endpoints, endpointStatuses }: LayerRowProps) {
+function LayerRow({
+  layerKey, control, watch, setValue, providers, endpoints, endpointStatuses,
+  editingSection, setEditingSection, saveAll, isSaving,
+}: LayerRowProps) {
   const meta = LAYER_META[layerKey];
   const prefix = layerKey;
+
+  const sectionKey = `layer:${layerKey}`;
+  const isEditing = editingSection === sectionKey;
+  const lockedByOther = editingSection !== null && !isEditing;
+  const snapshotRef = useRef<ModelLayerConfig | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const providerType = useWatch({ control, name: `${prefix}.provider_type` as const });
   const providerUrl  = useWatch({ control, name: `${prefix}.provider_url`  as const });
@@ -702,6 +771,12 @@ function LayerRow({ layerKey, control, watch, setValue, providers, endpoints, en
   // Endpoint reachability for warning
   const endpointStatus = endpointStatuses.find(s => s.id === endpointId);
   const isEndpointOffline = endpointId && endpointStatus && !endpointStatus.reachable;
+
+  // 1M context beta — only offered for Sonnet 4+ models.
+  // Takes effect via Anthropic SDK (provider_type="anthropic"); no-op for CLI
+  // since Claude Code negotiates its own context via the Max subscription.
+  const is_sonnet_4 = (modelValue ?? '').toLowerCase().includes('sonnet-4');
+  const is_cli_layer = effectiveType === 'cli';
 
   function handleSelectionChange(value: string) {
     if (value.startsWith('ep:')) {
@@ -792,6 +867,86 @@ function LayerRow({ layerKey, control, watch, setValue, providers, endpoints, en
 
   const showModelDropdown = canListModels && availableModels.length > 0;
 
+  // ── View/Edit mode handlers ─────────────────────────────────────────────
+  const layerEnabled = useWatch({ control, name: `${prefix}.enabled` as const });
+
+  function startEdit() {
+    if (editingSection !== null) return;
+    snapshotRef.current = { ...(watch(prefix) as ModelLayerConfig) };
+    setSaveError(null);
+    setEditingSection(sectionKey);
+  }
+
+  function cancelEdit() {
+    if (snapshotRef.current) {
+      const snap = snapshotRef.current;
+      setValue(`${prefix}.enabled`,       snap.enabled);
+      setValue(`${prefix}.provider_type`, snap.provider_type);
+      setValue(`${prefix}.provider_url`,  snap.provider_url);
+      setValue(`${prefix}.api_key`,       snap.api_key);
+      setValue(`${prefix}.model`,         snap.model);
+      setValue(`${prefix}.endpoint_id`,   snap.endpoint_id);
+      setValue(`${prefix}.context_1m`,    snap.context_1m);
+    }
+    snapshotRef.current = null;
+    setSaveError(null);
+    setEditingSection(null);
+  }
+
+  async function saveEdit() {
+    setSaveError(null);
+    try {
+      const layerVals = watch(prefix) as ModelLayerConfig;
+      await saveAll({ [layerKey]: layerVals } as Partial<ModelsSettings>);
+      snapshotRef.current = null;
+      // saveAll() clears editingSection on success.
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed');
+    }
+  }
+
+  // ── View mode ───────────────────────────────────────────────────────────
+  if (!isEditing) {
+    const sourceLabel = activeEndpoint
+      ? (activeEndpoint.name || shortUrl(activeEndpoint.url))
+      : providerLabel(providerType ?? '');
+    return (
+      <div className="rounded-lg border border-border bg-background p-4 flex items-center gap-4" data-layer={layerKey}>
+        <span className="text-lg">{meta.icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">{meta.label}</span>
+            {endpointId && endpointStatus && (
+              <StatusDot reachable={endpointStatus.reachable} />
+            )}
+            <span className="text-xs text-muted-foreground">{sourceLabel}</span>
+            {meta.showEnabled && layerEnabled === false && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">disabled</span>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {modelValue
+              ? <span className="font-mono">{modelValue}</span>
+              : <span className="italic">No model selected</span>}
+          </div>
+          <CapabilityBadges model={modelValue ?? ''} />
+          {isEndpointOffline && (
+            <div className="text-xs text-red-400 mt-1">{'\u26A0'} Machine offline</div>
+          )}
+        </div>
+        <button
+          type="button"
+          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          onClick={startEdit}
+          disabled={lockedByOther}
+        >
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  // ── Edit mode ───────────────────────────────────────────────────────────
   return (
     <div className="rounded-lg border border-border bg-background p-4 flex flex-col gap-3" data-layer={layerKey}>
       {/* Layer header */}
@@ -969,9 +1124,54 @@ function LayerRow({ layerKey, control, watch, setValue, providers, endpoints, en
             Thinking model -- /no_think applied automatically
           </div>
         )}
+        {is_sonnet_4 && (
+          <Controller
+            control={control}
+            name={`${prefix}.context_1m`}
+            render={({ field }) => (
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer mt-1">
+                <input
+                  type="checkbox"
+                  className="setting-checkbox"
+                  checked={!!field.value}
+                  onChange={(e) => field.onChange(e.target.checked)}
+                />
+                <span>1M context (Sonnet 4 beta)</span>
+                {is_cli_layer && (
+                  <span className="text-[10px] opacity-70">
+                    — CLI mode: managed by Anthropic, toggle is a no-op
+                  </span>
+                )}
+              </label>
+            )}
+          />
+        )}
         {testState === 'fail' && testError && (
           <div className="text-xs text-red-400 truncate max-w-md">{testError}</div>
         )}
+      </div>
+
+      {/* Save/Cancel */}
+      <div className="flex gap-2 justify-end items-center pt-1">
+        {saveError && (
+          <span className="text-xs text-red-400 mr-auto">{saveError}</span>
+        )}
+        <button
+          type="button"
+          className="text-xs px-3 py-1 rounded border border-border hover:bg-accent text-muted-foreground"
+          onClick={cancelEdit}
+          disabled={isSaving}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="text-xs px-4 py-1 rounded border border-border hover:bg-accent font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={saveEdit}
+          disabled={isSaving}
+        >
+          {isSaving ? 'Saving...' : 'Save'}
+        </button>
       </div>
     </div>
   );
@@ -992,34 +1192,50 @@ const EMPTY_WORKER_CLASS: WorkerClass = {
 interface WorkerClassesPanelProps {
   workerClasses: WorkerClass[];
   onChange: (classes: WorkerClass[]) => void;
-  onAutoSave?: () => void;  // trigger parent form submission after inline edit
   providers: ProviderMeta[];
   endpoints: ProviderEndpoint[];
   endpointStatuses: EndpointStatus[];
+  editingSection: string | null;
+  setEditingSection: (s: string | null) => void;
+  saveAll: (overrides?: Partial<ModelsSettings>) => Promise<void>;
+  isSaving: boolean;
 }
 
-function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, endpoints, endpointStatuses }: WorkerClassesPanelProps) {
+function WorkerClassesPanel({
+  workerClasses, onChange, providers, endpoints, endpointStatuses,
+  editingSection, setEditingSection, saveAll, isSaving,
+}: WorkerClassesPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<WorkerClass | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // A different section is currently being edited → lock our buttons.
+  const lockedByOther = editingSection !== null && !editingSection.startsWith('worker-class:');
 
   // Per-class model lists (fetched when source changes)
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
 
   function startAdd() {
+    if (editingSection !== null) return;
     const wc: WorkerClass = { ...EMPTY_WORKER_CLASS, id: crypto.randomUUID() };
     setDraft(wc);
     setIsAdding(true);
     setEditingId(wc.id);
     setAvailableModels([]);
+    setSaveError(null);
+    setEditingSection(`worker-class:${wc.id}`);
   }
 
   function startEdit(wc: WorkerClass) {
+    if (editingSection !== null) return;
     setDraft({ ...wc });
     setIsAdding(false);
     setEditingId(wc.id);
     setAvailableModels([]);
+    setSaveError(null);
+    setEditingSection(`worker-class:${wc.id}`);
     // Fetch models for current source
     const effectiveType = wc.endpoint_id
       ? endpoints.find(e => e.id === wc.endpoint_id)?.provider_type ?? wc.provider_type
@@ -1034,31 +1250,41 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
     setEditingId(null);
     setIsAdding(false);
     setAvailableModels([]);
+    setSaveError(null);
+    setEditingSection(null);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!draft || !draft.name.trim()) return;
     const existing = workerClasses.find(c => c.id === draft.id);
-    if (existing) {
-      onChange(workerClasses.map(c => c.id === draft.id ? draft : c));
-    } else {
-      onChange([...workerClasses, draft]);
+    const newClasses = existing
+      ? workerClasses.map(c => c.id === draft.id ? draft : c)
+      : [...workerClasses, draft];
+    // Update form state first (keeps Controller in sync) then persist.
+    onChange(newClasses);
+    setSaveError(null);
+    try {
+      await saveAll({ worker_classes: newClasses });
+      setDraft(null);
+      setEditingId(null);
+      setIsAdding(false);
+      setAvailableModels([]);
+      // saveAll() clears editingSection on success.
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed');
     }
-    setDraft(null);
-    setEditingId(null);
-    setIsAdding(false);
-    setAvailableModels([]);
-    // field.onChange updates react-hook-form's _formValues synchronously,
-    // so we can call onAutoSave immediately — no setTimeout needed.
-    // Using setTimeout(0) introduced a race: the useEffect that calls
-    // reset(merged) could overwrite _formValues between field.onChange
-    // and the deferred handleSubmit read, losing endpoint_id and other fields.
-    onAutoSave?.();
   }
 
-  function removeClass(id: string) {
-    onChange(workerClasses.filter(c => c.id !== id));
-    onAutoSave?.();
+  async function removeClass(id: string) {
+    if (editingSection !== null) return;
+    const newClasses = workerClasses.filter(c => c.id !== id);
+    onChange(newClasses);
+    try {
+      await saveAll({ worker_classes: newClasses });
+    } catch {
+      // Revert on failure
+      onChange(workerClasses);
+    }
   }
 
   async function fetchModelsForSource(endpointId: string, providerType: string) {
@@ -1163,15 +1389,17 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
             <div className="flex gap-2 shrink-0">
               <button
                 type="button"
-                className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent"
+                className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={() => startEdit(wc)}
+                disabled={editingSection !== null}
               >
                 Edit
               </button>
               <button
                 type="button"
-                className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent text-red-400"
+                className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={() => removeClass(wc.id)}
+                disabled={editingSection !== null}
               >
                 Delete
               </button>
@@ -1290,21 +1518,25 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
           </div>
 
           {/* Save/Cancel */}
-          <div className="flex gap-2 justify-end pt-1">
+          <div className="flex gap-2 justify-end items-center pt-1">
+            {saveError && (
+              <span className="text-xs text-red-400 mr-auto">{saveError}</span>
+            )}
             <button
               type="button"
               className="text-xs px-3 py-1 rounded border border-border hover:bg-accent text-muted-foreground"
               onClick={cancelEdit}
+              disabled={isSaving}
             >
               Cancel
             </button>
             <button
               type="button"
-              className="text-xs px-4 py-1 rounded border border-border hover:bg-accent font-medium"
+              className="text-xs px-4 py-1 rounded border border-border hover:bg-accent font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={saveEdit}
-              disabled={!draft.name.trim()}
+              disabled={!draft.name.trim() || isSaving}
             >
-              Save
+              {isSaving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>
@@ -1314,8 +1546,9 @@ function WorkerClassesPanel({ workerClasses, onChange, onAutoSave, providers, en
       {!isAdding && (
         <button
           type="button"
-          className="rounded-lg border border-dashed border-border bg-background/50 p-3 flex items-center justify-center gap-2 hover:bg-accent/30 transition-colors cursor-pointer"
+          className="rounded-lg border border-dashed border-border bg-background/50 p-3 flex items-center justify-center gap-2 hover:bg-accent/30 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={startAdd}
+          disabled={lockedByOther || (editingSection !== null && !isAdding)}
         >
           <span className="text-lg text-muted-foreground">+</span>
           <span className="text-xs text-muted-foreground">Add a worker class</span>
@@ -1834,6 +2067,135 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
   );
 }
 
+// ── DefaultWorkerModelSection ─────────────────────────────────────────────
+
+const DEFAULT_WORKER_MODEL_LABELS: Record<string, string> = {
+  haiku: 'Haiku',
+  sonnet: 'Sonnet',
+  opus: 'Opus',
+};
+
+interface DefaultWorkerModelSectionProps {
+  control: ReturnType<typeof useForm<ModelsSettings>>['control'];
+  watch: ReturnType<typeof useForm<ModelsSettings>>['watch'];
+  setValue: ReturnType<typeof useForm<ModelsSettings>>['setValue'];
+  editingSection: string | null;
+  setEditingSection: (s: string | null) => void;
+  saveAll: (overrides?: Partial<ModelsSettings>) => Promise<void>;
+  isSaving: boolean;
+}
+
+function DefaultWorkerModelSection({
+  control, watch, setValue, editingSection, setEditingSection, saveAll, isSaving,
+}: DefaultWorkerModelSectionProps) {
+  const sectionKey = 'default-worker-model';
+  const isEditing = editingSection === sectionKey;
+  const lockedByOther = editingSection !== null && !isEditing;
+  const value = useWatch({ control, name: 'default_worker_model' }) ?? 'sonnet';
+  const snapshotRef = useRef<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  function startEdit() {
+    if (editingSection !== null) return;
+    snapshotRef.current = (watch('default_worker_model') ?? 'sonnet') as string;
+    setSaveError(null);
+    setEditingSection(sectionKey);
+  }
+
+  function cancelEdit() {
+    if (snapshotRef.current !== null) {
+      setValue('default_worker_model', snapshotRef.current);
+    }
+    snapshotRef.current = null;
+    setSaveError(null);
+    setEditingSection(null);
+  }
+
+  async function saveEdit() {
+    setSaveError(null);
+    try {
+      const v = (watch('default_worker_model') ?? 'sonnet') as string;
+      await saveAll({ default_worker_model: v });
+      snapshotRef.current = null;
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed');
+    }
+  }
+
+  if (!isEditing) {
+    return (
+      <div className="rounded-lg border border-border bg-background p-4 flex items-center gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">Default Worker Model</span>
+            <span className="text-xs text-muted-foreground font-mono">
+              {DEFAULT_WORKER_MODEL_LABELS[value] ?? value}
+            </span>
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            Model used by workers unless overridden by a worker class
+          </div>
+        </div>
+        <button
+          type="button"
+          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          onClick={startEdit}
+          disabled={lockedByOther}
+        >
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-background p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-sm font-semibold whitespace-nowrap">Default Worker Model</span>
+        <Controller
+          control={control}
+          name="default_worker_model"
+          render={({ field }) => (
+            <select
+              className="input-field text-sm py-1.5 px-2 rounded w-40"
+              value={field.value ?? 'sonnet'}
+              onChange={field.onChange}
+            >
+              <option value="haiku">Haiku</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="opus">Opus</option>
+            </select>
+          )}
+        />
+        <span className="text-xs text-muted-foreground">
+          Model used by workers unless overridden by a worker class
+        </span>
+      </div>
+      <div className="flex gap-2 justify-end items-center pt-1">
+        {saveError && (
+          <span className="text-xs text-red-400 mr-auto">{saveError}</span>
+        )}
+        <button
+          type="button"
+          className="text-xs px-3 py-1 rounded border border-border hover:bg-accent text-muted-foreground"
+          onClick={cancelEdit}
+          disabled={isSaving}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="text-xs px-4 py-1 rounded border border-border hover:bg-accent font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={saveEdit}
+          disabled={isSaving}
+        >
+          {isSaving ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── WebSearchComparePanel ─────────────────────────────────────────────────
 
 interface WebSearchResult {
@@ -1976,18 +2338,17 @@ function WebSearchComparePanel() {
 // ── ModelPanel ─────────────────────────────────────────────────────────────
 
 export function ModelPanel() {
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const queryClient = useQueryClient();
 
   const { data: providers = [] } = useQuery<ProviderMeta[]>({
     queryKey: ['providers'],
-    queryFn: () => apiFetch<ProviderMeta[]>('/api/models/providers'),
+    queryFn: () => modelsApi.providers<ProviderMeta[]>(),
     staleTime: 60_000,
   });
 
   const { data: availableData } = useQuery<AvailableData>({
     queryKey: ['models-available'],
-    queryFn: () => apiFetch<AvailableData>('/api/models/available'),
+    queryFn: () => modelsApi.available<AvailableData>(),
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
@@ -1997,7 +2358,7 @@ export function ModelPanel() {
     queryFn: () => apiFetch<AppSettings>('/api/settings'),
   });
 
-  const { control, reset, watch, setValue, handleSubmit } = useForm<ModelsSettings>({
+  const { control, reset, watch, setValue, getValues } = useForm<ModelsSettings>({
     defaultValues: DEFAULT_MODELS,
   });
 
@@ -2008,7 +2369,6 @@ export function ModelPanel() {
     const merged: ModelsSettings = {
       fast: { ...dm.fast, ...(sm.fast || {}) },
       deep: { ...dm.deep, ...(sm.deep || {}) },
-
       default_worker_model: sm.default_worker_model ?? dm.default_worker_model,
       endpoints: sm.endpoints ?? [],
       worker_classes: sm.worker_classes?.length ? sm.worker_classes : DEFAULT_WORKER_CLASSES,
@@ -2016,45 +2376,60 @@ export function ModelPanel() {
     reset(merged);
   }, [rawSettings, reset]);
 
+  // Backfill empty provider_type from /api/models/available without resetting
+  // the whole form (which would wipe unsaved worker_class changes).
+  useEffect(() => {
+    if (!availableData) return;
+    const liveLayers = (availableData.layers ?? {}) as Record<string, { provider_type?: string }>;
+    for (const key of ['fast', 'deep'] as const) {
+      const current = (getValues(`${key}.provider_type`) || '').trim();
+      if (!current) {
+        const inferred = (liveLayers[key]?.provider_type || '').trim();
+        if (inferred) setValue(`${key}.provider_type`, inferred);
+      }
+    }
+  }, [availableData, getValues, setValue]);
+
   const saveMutation = useMutation({
     mutationFn: async (modelsData: ModelsSettings) => {
       // Always fetch fresh settings to avoid overwriting changes from other panels
       const current = await apiFetch<AppSettings>('/api/settings');
-      return apiFetch<AppSettings>('/api/settings', {
+      const res = await authFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...current, models: modelsData }),
       });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({})) as { detail?: string };
+        throw new Error(detail.detail ?? `HTTP ${res.status}`);
+      }
+      return res.json() as Promise<AppSettings>;
     },
-    onMutate: () => setSaveStatus('saving'),
     onSuccess: () => {
-      setSaveStatus('saved');
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       queryClient.invalidateQueries({ queryKey: ['models-available'] });
-      setTimeout(() => setSaveStatus('idle'), 3000);
-    },
-    onError: () => {
-      setSaveStatus('error');
-      setTimeout(() => setSaveStatus('idle'), 4000);
     },
   });
 
-  const { mutate: doSave } = saveMutation;
-  const onSubmit = useCallback(
-    (data: ModelsSettings) => doSave(data),
-    [doSave],
-  );
+  // ── Single editing-section state ───────────────────────────────────────
+  // Only one section (Fast/Deep/Default/WorkerClass:<id>/Endpoint:<id>) can be
+  // in edit mode at a time. Edit buttons on other sections are disabled while
+  // editingSection is non-null. Save persists then clears it; Cancel just clears.
+  const [editingSection, setEditingSection] = useState<string | null>(null);
 
-  // Programmatic form submission — used by WorkerClassesPanel auto-save
-  const triggerSave = useCallback(() => {
-    handleSubmit(onSubmit)();
-  }, [handleSubmit, onSubmit]);
+  // Persist the form state, optionally overriding fields with fresh values that
+  // may not have propagated through react-hook-form yet (avoids onChange race).
+  async function saveAll(overrides?: Partial<ModelsSettings>): Promise<void> {
+    const merged = { ...(getValues() as ModelsSettings), ...(overrides ?? {}) };
+    await saveMutation.mutateAsync(merged);
+    setEditingSection(null);
+  }
 
   const endpointStatuses: EndpointStatus[] = availableData?.endpoints ?? [];
   const endpoints = useWatch({ control, name: 'endpoints' }) ?? [];
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="p-6 flex flex-col gap-6" data-testid="settings-models">
+    <div className="p-6 flex flex-col gap-6" data-testid="settings-models">
 
       {/* ── Header ── */}
       <div>
@@ -2075,6 +2450,9 @@ export function ModelPanel() {
             onChange={field.onChange}
             providers={providers}
             endpointStatuses={endpointStatuses}
+            editingSection={editingSection}
+            setEditingSection={setEditingSection}
+            saveAll={saveAll}
           />
         )}
       />
@@ -2098,32 +2476,24 @@ export function ModelPanel() {
             providers={providers}
             endpoints={endpoints}
             endpointStatuses={endpointStatuses}
+            editingSection={editingSection}
+            setEditingSection={setEditingSection}
+            saveAll={saveAll}
+            isSaving={saveMutation.isPending}
           />
         ))}
       </div>
 
       {/* ── Default Worker Model ── */}
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-semibold whitespace-nowrap">Default Worker Model</span>
-        <Controller
-          control={control}
-          name="default_worker_model"
-          render={({ field }) => (
-            <select
-              className="input-field text-sm py-1.5 px-2 rounded w-40"
-              value={field.value ?? 'sonnet'}
-              onChange={field.onChange}
-            >
-              <option value="haiku">Haiku</option>
-              <option value="sonnet">Sonnet</option>
-              <option value="opus">Opus</option>
-            </select>
-          )}
-        />
-        <span className="text-xs text-muted-foreground">
-          Model used by workers unless overridden by a worker class
-        </span>
-      </div>
+      <DefaultWorkerModelSection
+        control={control}
+        watch={watch}
+        setValue={setValue}
+        editingSection={editingSection}
+        setEditingSection={setEditingSection}
+        saveAll={saveAll}
+        isSaving={saveMutation.isPending}
+      />
 
       {/* ── Section 3: Worker Classes ── */}
       <Controller
@@ -2133,10 +2503,13 @@ export function ModelPanel() {
           <WorkerClassesPanel
             workerClasses={field.value ?? []}
             onChange={field.onChange}
-            onAutoSave={triggerSave}
             providers={providers}
             endpoints={endpoints}
             endpointStatuses={endpointStatuses}
+            editingSection={editingSection}
+            setEditingSection={setEditingSection}
+            saveAll={saveAll}
+            isSaving={saveMutation.isPending}
           />
         )}
       />
@@ -2149,30 +2522,16 @@ export function ModelPanel() {
         workerClasses={watch('worker_classes') ?? []}
         onAssignToClass={(classId, config) => {
           const current = watch('worker_classes') ?? [];
-          setValue('worker_classes', current.map(wc =>
+          const updated = current.map(wc =>
             wc.id === classId ? { ...wc, ...config } : wc
-          ));
-          triggerSave();
+          );
+          setValue('worker_classes', updated);
+          saveAll({ worker_classes: updated }).catch(() => {});
         }}
       />
 
       {/* ── Section 5: Web Search Comparison ── */}
       <WebSearchComparePanel />
-
-
-      {/* ── Save button ── */}
-      <div className="flex items-center gap-3 pt-2">
-        <button
-          type="submit"
-          className="btn-primary text-sm px-5 py-2 rounded"
-          disabled={saveStatus === 'saving'}
-        >
-          {saveStatus === 'saving' ? 'Saving...' : 'Save'}
-        </button>
-        {saveStatus === 'saved' && <span className="text-xs text-green-400">{'\u2713'} Saved</span>}
-        {saveStatus === 'error' && <span className="text-xs text-red-400">{'\u2717'} Save failed</span>}
-      </div>
-
-    </form>
+    </div>
   );
 }

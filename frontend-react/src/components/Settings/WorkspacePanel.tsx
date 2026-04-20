@@ -14,6 +14,7 @@ import { useState, useEffect } from 'react';
 import { FolderOpen, Globe, Loader2 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useToastStore } from '../../stores/useToastStore';
+import { authFetch } from '../../lib/authClient';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ export function WorkspacePanel() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       const current = settings ?? {};
-      const response = await fetch('/api/settings', {
+      const response = await authFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...current, workspace_path: wsPath }),

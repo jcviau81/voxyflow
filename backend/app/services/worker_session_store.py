@@ -29,7 +29,7 @@ class WorkerSession:
 
     __slots__ = (
         "task_id", "session_id", "chat_id", "project_id", "card_id", "status", "model", "intent",
-        "summary", "start_time", "end_time", "result_summary", "artifact_path",
+        "summary", "start_time", "end_time", "result_summary", "artifact_path", "worker_class",
     )
 
     def __init__(
@@ -47,6 +47,7 @@ class WorkerSession:
         end_time: Optional[float] = None,
         result_summary: Optional[str] = None,
         artifact_path: Optional[str] = None,
+        worker_class: Optional[str] = None,
     ):
         self.task_id = task_id
         self.session_id = session_id
@@ -61,6 +62,7 @@ class WorkerSession:
         self.end_time = end_time
         self.result_summary = result_summary
         self.artifact_path = artifact_path
+        self.worker_class = worker_class
 
     def to_dict(self) -> dict:
         return {
@@ -77,6 +79,7 @@ class WorkerSession:
             "end_time": self.end_time,
             "result_summary": self.result_summary,
             "artifact_path": self.artifact_path,
+            "worker_class": self.worker_class,
         }
 
     @classmethod
@@ -95,6 +98,7 @@ class WorkerSession:
             end_time=data.get("end_time"),
             result_summary=data.get("result_summary"),
             artifact_path=data.get("artifact_path"),
+            worker_class=data.get("worker_class"),
         )
 
 
@@ -113,27 +117,49 @@ class WorkerSessionStore:
 
     def _load_from_disk(self) -> None:
         """Load persisted sessions from disk on startup."""
+        self._refresh_from_disk(prune_missing=False, delete_corrupt=True)
+        # Persist any timeout corrections detected on first load
+        for s in self._sessions.values():
+            if s.status == "timed_out":
+                self._persist(s)
+
+    def _refresh_from_disk(
+        self,
+        *,
+        prune_missing: bool = True,
+        delete_corrupt: bool = False,
+    ) -> None:
+        """Re-scan the data dir and sync the in-memory dict with disk.
+
+        Required because each Python process (backend, dispatcher MCP subprocess,
+        worker MCP subprocesses) holds its own ``WorkerSessionStore`` instance.
+        Without re-scanning, a long-lived MCP subprocess only sees the snapshot
+        captured at its startup and is blind to workers spawned later.
+        """
+        on_disk_ids: set[str] = set()
         for filepath in self._data_dir.glob("*.json"):
             try:
                 data = json.loads(filepath.read_text())
                 session = WorkerSession.from_dict(data)
-                # Mark stale running sessions as timed_out
-                if session.status == "running":
-                    elapsed = time.time() - session.start_time
-                    if elapsed > RUNNING_TIMEOUT_SECONDS:
-                        session.status = "timed_out"
-                        session.end_time = session.start_time + RUNNING_TIMEOUT_SECONDS
-                self._sessions[session.task_id] = session
             except Exception as e:
                 logger.warning(f"[WorkerSessionStore] Failed to load {filepath.name}: {e}")
-                try:
-                    filepath.unlink()
-                except Exception as e:
-                    logger.debug("Failed to delete corrupt session file %s: %s", filepath.name, e)
-        # Persist any timeout corrections
-        for s in self._sessions.values():
-            if s.status == "timed_out":
-                self._persist(s)
+                if delete_corrupt:
+                    try:
+                        filepath.unlink()
+                    except Exception as del_err:
+                        logger.debug("Failed to delete corrupt session file %s: %s", filepath.name, del_err)
+                continue
+            on_disk_ids.add(session.task_id)
+            if session.status == "running":
+                elapsed = time.time() - session.start_time
+                if elapsed > RUNNING_TIMEOUT_SECONDS:
+                    session.status = "timed_out"
+                    session.end_time = session.start_time + RUNNING_TIMEOUT_SECONDS
+            self._sessions[session.task_id] = session
+        if prune_missing:
+            for tid in list(self._sessions.keys()):
+                if tid not in on_disk_ids:
+                    del self._sessions[tid]
 
     def _refresh_from_disk(self) -> None:
         """Re-scan disk for new or updated sessions written by other processes.
@@ -194,6 +220,7 @@ class WorkerSessionStore:
         model: str = "sonnet",
         intent: str = "unknown",
         summary: str = "",
+        worker_class: Optional[str] = None,
     ) -> WorkerSession:
         """Register a new worker session (called when a task starts)."""
         session = WorkerSession(
@@ -206,10 +233,11 @@ class WorkerSessionStore:
             model=model,
             intent=intent,
             summary=summary,
+            worker_class=worker_class,
         )
         self._sessions[task_id] = session
         self._persist(session)
-        logger.info(f"[WorkerSessionStore] Registered task {task_id[:8]} ({intent}, {model})")
+        logger.info(f"[WorkerSessionStore] Registered task {task_id[:8]} ({intent}, {model}, class={worker_class or '-'})")
         return session
 
     def update_status(
@@ -235,6 +263,26 @@ class WorkerSessionStore:
             session.artifact_path = artifact_path
         self._persist(session)
         logger.debug(f"[WorkerSessionStore] Updated task {task_id[:8]} → {status}")
+
+    def reconcile_orphans(self, reason: str = "backend_restart") -> list[str]:
+        """Mark any running sessions as ``crashed`` — used at boot.
+
+        A session left with ``status == 'running'`` when the backend starts
+        cannot correspond to a live process (we just (re)started), so the
+        subprocess was killed mid-run. Flip it to a terminal state so the
+        UI/dispatcher stop treating it as live.
+        """
+        crashed: list[str] = []
+        now = time.time()
+        for task_id, session in self._sessions.items():
+            if session.status == "running":
+                session.status = "crashed"
+                session.end_time = now
+                if not session.result_summary:
+                    session.result_summary = f"crashed — {reason}"
+                self._persist(session)
+                crashed.append(task_id)
+        return crashed
 
     def check_timeouts(self) -> list[str]:
         """Check for running sessions that have exceeded the timeout. Returns task_ids that timed out."""
@@ -270,6 +318,7 @@ class WorkerSessionStore:
         include_old: bool = False,
     ) -> list[dict]:
         """Get sessions filtered by project_id (stable across WS reconnects)."""
+        self._refresh_from_disk()
         self.check_timeouts()
         now = time.time()
         results = []

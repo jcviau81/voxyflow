@@ -43,29 +43,26 @@ backend/
 
 ## 🔐 API Key Setup
 
-Voxyflow stores API keys securely using your OS keyring (cross-platform).
+API keys are only needed for the direct-SDK / non-CLI providers. The preferred path is the **Settings UI** (Settings → Models → Add Machine); keys entered there are saved to the app database.
 
-### First-time setup:
-```bash
-cd backend
-source venv/bin/activate
-python setup_keys.py
+For env/keyring setup instead:
+
+### Option A: `.env` file
+```env
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### Check stored keys:
+### Option B: OS keyring (optional)
 ```bash
-python setup_keys.py show
+# uses the `keyring` CLI (installed as a dep of python-keyring)
+keyring set voxyflow claude_api_key
 ```
 
-### Clear stored keys:
-```bash
-python setup_keys.py clear
-```
-
-### Key lookup order:
-1. **OS Keyring** (GNOME Keyring / macOS Keychain / Windows Credential Manager)
-2. **Environment variable** (`ANTHROPIC_API_KEY`)
-3. **`.env` file** (local fallback, not committed to git)
+### Key lookup order (for the legacy `claude_api_key` slot):
+1. Settings UI (per-endpoint, stored in app DB)
+2. OS keyring (`voxyflow` service, `claude_api_key` key)
+3. Environment variable (`ANTHROPIC_API_KEY` / `CLAUDE_API_KEY`)
+4. `.env` file
 
 For Docker/headless environments, use environment variables.
 

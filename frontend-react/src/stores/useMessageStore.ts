@@ -1,7 +1,14 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { Message } from '../types';
 import { generateId } from '../lib/utils';
+
+// Evict legacy persisted chat messages. Keeping them in localStorage caused
+// stale history to be shown on load (before the backend fetch resolved) and
+// drifted away from the server's canonical history on cross-device use.
+// Backend is now the single source of truth; ChatWindow reloads on mount.
+if (typeof window !== 'undefined') {
+  try { window.localStorage.removeItem('voxyflow_messages'); } catch { /* ignore */ }
+}
 
 export interface MessageState {
   messages: Message[];
@@ -32,70 +39,63 @@ export interface MessageState {
   getMessages: (projectId?: string, sessionId?: string) => Message[];
 }
 
-export const useMessageStore = create<MessageState>()(
-  persist(
-    (set, get) => ({
-      messages: [],
+export const useMessageStore = create<MessageState>()((set, get) => ({
+  messages: [],
 
-      addMessage(message) {
-        const fullMessage: Message = {
-          ...message,
-          id: generateId(),
-          timestamp: Date.now(),
-        };
-        set((s) => ({ messages: [...s.messages, fullMessage] }));
-        return fullMessage;
-      },
+  addMessage(message) {
+    const fullMessage: Message = {
+      ...message,
+      id: generateId(),
+      timestamp: Date.now(),
+    };
+    set((s) => ({ messages: [...s.messages, fullMessage] }));
+    return fullMessage;
+  },
 
-      updateMessage(id, updates) {
-        set((s) => ({
-          messages: s.messages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
-        }));
-      },
+  updateMessage(id, updates) {
+    set((s) => ({
+      messages: s.messages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
+    }));
+  },
 
-      setMessages(newMessages, replace = false) {
-        if (replace) {
-          set({ messages: newMessages });
-          return;
-        }
-        set((s) => {
-          const safeSlice = (c: unknown) => (typeof c === 'string' ? c : String(c ?? '')).slice(0, 50);
-          const existingKeys = new Set(
-            s.messages.map((m) => `${m.role}:${m.timestamp}:${safeSlice(m.content)}`),
-          );
-          const toAdd = newMessages.filter(
-            (m) => !existingKeys.has(`${m.role}:${m.timestamp}:${safeSlice(m.content)}`),
-          );
-          if (toAdd.length === 0) return s;
-          return { messages: [...s.messages, ...toAdd] };
-        });
-      },
+  setMessages(newMessages, replace = false) {
+    if (replace) {
+      set({ messages: newMessages });
+      return;
+    }
+    set((s) => {
+      const safeSlice = (c: unknown) => (typeof c === 'string' ? c : String(c ?? '')).slice(0, 50);
+      const existingKeys = new Set(
+        s.messages.map((m) => `${m.role}:${m.timestamp}:${safeSlice(m.content)}`),
+      );
+      const toAdd = newMessages.filter(
+        (m) => !existingKeys.has(`${m.role}:${m.timestamp}:${safeSlice(m.content)}`),
+      );
+      if (toAdd.length === 0) return s;
+      return { messages: [...s.messages, ...toAdd] };
+    });
+  },
 
-      replaceSessionMessages(newMessages, sessionId, projectId, cardId) {
-        set((s) => {
-          const kept = s.messages.filter((m) => {
-            if (sessionId && m.sessionId === sessionId) return false;
-            if (!sessionId && cardId && m.cardId === cardId) return false;
-            if (!sessionId && !cardId && projectId && m.projectId === projectId) return false;
-            return true;
-          });
-          return { messages: [...kept, ...newMessages] };
-        });
-      },
+  replaceSessionMessages(newMessages, sessionId, projectId, cardId) {
+    set((s) => {
+      const kept = s.messages.filter((m) => {
+        if (sessionId && m.sessionId === sessionId) return false;
+        if (!sessionId && cardId && m.cardId === cardId) return false;
+        if (!sessionId && !cardId && projectId && m.projectId === projectId) return false;
+        return true;
+      });
+      return { messages: [...kept, ...newMessages] };
+    });
+  },
 
-      clearMessages() {
-        set({ messages: [] });
-      },
+  clearMessages() {
+    set({ messages: [] });
+  },
 
-      getMessages(projectId, sessionId) {
-        let msgs = get().messages;
-        if (projectId) msgs = msgs.filter((m) => m.projectId === projectId);
-        if (sessionId) msgs = msgs.filter((m) => m.sessionId === sessionId);
-        return msgs;
-      },
-    }),
-    {
-      name: 'voxyflow_messages',
-    },
-  ),
-);
+  getMessages(projectId, sessionId) {
+    let msgs = get().messages;
+    if (projectId) msgs = msgs.filter((m) => m.projectId === projectId);
+    if (sessionId) msgs = msgs.filter((m) => m.sessionId === sessionId);
+    return msgs;
+  },
+}));

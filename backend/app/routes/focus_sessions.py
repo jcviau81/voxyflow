@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, FocusSession, Card, Project, new_uuid
 
-router = APIRouter(tags=["focus-sessions"])
+router = APIRouter(prefix="/api", tags=["focus-sessions"])
 
 
 # ---------------------------------------------------------------------------

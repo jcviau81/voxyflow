@@ -27,20 +27,52 @@ Complete documentation of all shipped features, organized by area.
 
 Every chat message flows through the Dispatcher + Workers architecture:
 
-| Component | Role | Model | Behavior |
-|-----------|------|-------|----------|
-| **Chat Agent (Dispatcher)** | Conversational interface, zero tools | Fast mode: Haiku / Deep mode: Opus | Streams response, dispatches work via `<delegate>` blocks |
-| **Workers** | Background task execution with full tool access | Haiku (CRUD), Sonnet (research), Opus (complex) | Launched by Dispatcher, never blocks conversation |
+| Component | Role | Model slot | Tools |
+|-----------|------|------------|-------|
+| **Chat Agent (Dispatcher)** | Conversational interface, inline CRUD | Fast (Haiku default) / Deep (Opus default) | `TOOLS_DISPATCHER` — read ops + basic CRUD; never blocks |
+| **Workers** | Background task execution | Worker class per task (Haiku / Sonnet / Opus) | `TOOLS_WORKER` — full MCP surface (exec, file, git, tmux, web, AI ops) |
+
+Fast and Deep dispatchers get the **same** tool set — the difference is model
+only, not tool escalation. Worker access is enforced via role tags in
+`backend/app/tools/registry.py`.
 
 **Flow:**
 1. User sends message
-2. Chat Agent (Dispatcher) streams a conversational response immediately (zero tools)
-3. If action is needed, Dispatcher includes `<delegate>` blocks in the response
-4. Delegate blocks are parsed and routed to background Workers (Haiku/Sonnet/Opus)
-5. Workers execute with full tool access and report results via WebSocket
+2. Chat Agent (Dispatcher) streams a conversational response immediately and may
+   call lightweight tools inline (search memory, create a card, etc.)
+3. For heavier work the Dispatcher emits `<delegate>` blocks
+4. The orchestrator parses `<delegate>` blocks and spawns background workers
+5. Workers run the strict lifecycle below and report structured results
 6. **The conversation is never blocked** — Workers run in the background
 
 **Layer toggles:** Deep mode can be disabled per-message via the ModelStatusBar toggle button. Fast mode is always on.
+
+### Strict Worker Lifecycle — claim → work → complete
+
+Workers run a gated three-phase protocol enforced by `WorkerSupervisor` and the
+orchestrator's tool callback:
+
+1. **Claim** — worker's first action is `voxyflow.worker.claim(task_id, plan)`.
+   A watchdog nudges workers that don't claim within the first few tool calls
+   (`WORKER_CLAIM_NUDGE_AFTER`, default 5).
+2. **Work** — any MCP tools the task needs. Output is written to an artifact at
+   `~/.voxyflow/worker_artifacts/{task_id}.md` so the dispatcher never has to
+   read the raw blob.
+3. **Complete** — worker's last action is `voxyflow.worker.complete(task_id,
+   status, summary, findings?, pointers?, next_step?)`. The dispatcher reads
+   **this structured payload**, not truncated raw text.
+
+Resilience:
+- **Closeout pass** (`VOXYFLOW_CLOSEOUT_PASS=1`, default on) — a lightweight
+  subprocess reads the artifact and emits a structured completion if the worker
+  skipped `worker.complete` or used the legacy `task.complete` tool.
+- **Local fallback** — if even the closeout fails, the pool synthesizes a
+  minimal structured payload so downstream code always sees the same shape.
+- **Burst cap** — `MAX_DISPATCHER_PAYLOAD_CHARS` (15 000) caps a single
+  callback; `VOXYFLOW_CALLBACK_BURST_CAP_CHARS` (40 000) over a 60 s rolling
+  window clips aggregate flood when many workers finish together.
+
+Regression suite: `backend/tests/test_worker_lifecycle.py`.
 
 ---
 
@@ -788,18 +820,80 @@ The Settings page includes an inline editor for personality files stored in `vox
 | Density | Compact / Comfortable / Spacious | UI density/spacing |
 | Animations | On / Off | Enable/disable transitions and motion |
 
-### Models Configuration
+### Models & Machines Configuration
 
-Configure each model role independently:
+Voxyflow supports eight LLM provider types through a common abstraction
+(`backend/app/services/llm/providers/`). Each layer (Fast / Deep) can
+independently pick any provider via the Settings → Models panel or via
+`backend/.env`.
 
-| Role | Default Backend | Default Model | Purpose |
-|------|----------------|---------------|---------|
-| Fast | CLI subprocess (`claude -p`) | `claude-haiku-4-5` | Chat Agent (Dispatcher) — Fast mode |
-| Deep | CLI subprocess (`claude -p`) | `claude-opus-4` | Chat Agent (Dispatcher) — Deep mode |
+**Supported provider types:**
 
-**Recommended backend:** `CLAUDE_USE_CLI=true` in `backend/.env` — spawns `claude -p` subprocesses using your Claude Max subscription. No API key required, no proxy. The OpenAI-compatible proxy at `:3457` is deprecated.
+| Type | Source | Notes |
+|------|--------|-------|
+| `cli` (default) | `claude -p` subprocess | Uses your Claude Max subscription; no API key |
+| `anthropic` | Native Anthropic SDK | Direct API with prompt caching |
+| `openai` | OpenAI-compatible | Any OpenAI chat/completions endpoint |
+| `groq` | Groq Cloud | Free / low-latency hosted Llama / Mixtral |
+| `mistral` | Mistral AI | Hosted models |
+| `gemini` | Google Gemini | OpenAI-compat endpoint |
+| `lmstudio` | LM Studio (local) | Default `localhost:1234` |
+| `ollama` | Ollama (local) | Native `/api/tags` listing + OpenAI-compat inference |
 
-Workers select their own model (Haiku/Sonnet/Opus) based on task complexity — they are dispatched by the Chat Agent and do not use these model slots directly.
+Layer defaults (CLI backend):
+
+| Role | Default Model | Used for |
+|------|---------------|----------|
+| Fast | `claude-haiku-4-6` | Chat dispatcher — Fast mode |
+| Deep | `claude-opus-4-7` | Chat dispatcher — Deep mode |
+| Sonnet | `claude-sonnet-4-6` | Worker "research" / balanced tasks |
+
+Override per layer via env:
+
+```env
+CLAUDE_USE_CLI=true
+CLAUDE_FAST_MODEL=claude-haiku-4-6
+CLAUDE_SONNET_MODEL=claude-sonnet-4-6
+CLAUDE_DEEP_MODEL=claude-opus-4-7
+```
+
+#### Named endpoints ("My Machines")
+
+Users can save arbitrary provider endpoints (local boxes, remote API accounts)
+in Settings → Models. Each one persists to `ModelsSettings.endpoints[]` as a
+`ProviderEndpoint { id, name, provider_type, url, api_key }`. Layers then
+reference endpoints by `endpoint_id` — resolved at call time via
+`_resolve_endpoint_refs()`, so renaming a machine doesn't break routing.
+Reachability is probed in parallel on `GET /api/models/available`.
+
+#### Model capability registry
+
+`backend/app/services/llm/capability_registry.py` holds static metadata for 80+
+models (tool-use, vision, context window) and resolves unknown names via
+longest-prefix match. The Models panel surfaces this as capability badges on
+each selected model.
+
+#### Discovery API
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/models/providers` | List supported provider types |
+| `GET /api/models/list?provider_type=X&url=Y` or `endpoint_id=Z` | Dynamic model listing per provider |
+| `GET /api/models/capabilities?model=X` | Capability lookup |
+| `GET /api/models/available` | Layer config + live reachability probes (30s cached) |
+| `POST /api/models/test` | Ping any provider/model, returns latency + reply |
+
+#### API key handling
+
+- `GET /api/settings` redacts each `api_key` field to `***`.
+- `PUT /api/settings` preserves the real key when the frontend sends `***`.
+- Keys never appear in GET query params — the server resolves them from the saved endpoint.
+
+#### Worker classes
+
+Workers pick their own model per task via an internal worker-class mapping
+(fast / research / deep). The Fast/Deep layer models are the **dispatcher**
+slots and are not used directly by workers.
 
 ### Jobs / Cron Management
 

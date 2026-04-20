@@ -176,8 +176,9 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         'sidebar flex flex-col bg-sidebar border-r border-border transition-all duration-200 shrink-0',
         // Mobile: fixed overlay; Desktop: inline flex
         'fixed inset-y-0 left-0 z-30 md:relative md:z-auto',
-        isOpen ? 'w-56' : 'w-0 overflow-hidden',
+        !isOpen && 'w-0 overflow-hidden',
       )}
+      style={isOpen ? { width: 'var(--sidebar-width, 280px)' } : undefined}
       data-testid="sidebar"
     >
       {/* ── Brand ── */}
@@ -203,7 +204,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             to="/"
             end
             className={({ isActive }) =>
-              cn(NAV_ITEM, (isActive || activeTab === 'main') && 'bg-accent text-accent-foreground font-medium')
+              cn(NAV_ITEM, isActive && 'bg-accent text-accent-foreground font-medium')
             }
             data-testid="sidebar-general"
             data-tab="main"

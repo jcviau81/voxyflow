@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import time
+from collections import deque
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -21,7 +22,7 @@ from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_regi
 from app.services.pending_results import pending_store
 from app.services.worker_session_store import get_worker_session_store
 from app.services.worker_supervisor import get_worker_supervisor
-from app.routes.settings import get_default_worker_model
+from app.services.settings_loader import get_default_worker_model
 
 if TYPE_CHECKING:
     from app.services.chat_orchestration import ChatOrchestrator
@@ -57,7 +58,7 @@ logger = logging.getLogger("voxyflow.orchestration")
 # everything else gets a short preview + artifact_path reference.
 # ---------------------------------------------------------------------------
 PREVIEW_CHARS = 500          # for DB ledger, worker session store, session store
-DISPATCHER_PREVIEW_CHARS = 10_000  # for the dispatcher callback to the LLM
+DISPATCHER_PREVIEW_CHARS = 10_000  # read_artifact default page size
 WS_RESULT_CHARS = 2_000     # for the task:completed WS event to the frontend
 
 
@@ -139,6 +140,19 @@ class DeepWorkerPool:
         self._task_tool_events: dict[str, list[dict]] = {}  # task_id → bounded tool event buffer
         self._MAX_TOOL_EVENTS = 50
         self._task_message_queues: dict[str, asyncio.Queue] = {}  # task_id → steer queue
+        # Ambient worker-event buffer keyed by dispatcher_chat_id. Each entry is
+        # {task_id, intent, status, finished_at, summary_line}. Drained by the
+        # dispatcher on the next user-triggered turn and rendered as a small
+        # reference block — NOT a re-triggered conversation turn.
+        self._worker_events: dict[str, deque] = {}
+        self._MAX_WORKER_EVENTS_PER_CHAT = 20
+        # Debounced dispatcher-callback scheduler: coalesces multiple worker
+        # completions for the same dispatcher chat into ONE re-entry turn so
+        # 10 parallel workers finishing don't produce 10 dispatcher turns.
+        self._callback_debouncers: dict[str, asyncio.Task] = {}
+        self._CALLBACK_DEBOUNCE_SECONDS = float(
+            os.environ.get("DISPATCHER_CALLBACK_DEBOUNCE_SECONDS", "3.0")
+        )
         self._stopped = False
 
     # Regex to extract file path from read-file intents
@@ -206,6 +220,11 @@ class DeepWorkerPool:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
+        # Cancel any pending dispatcher-callback debouncers
+        for chat_id, deb_task in list(self._callback_debouncers.items()):
+            if not deb_task.done():
+                deb_task.cancel()
+        self._callback_debouncers.clear()
         # Cancel active asyncio tasks and update DB records
         cancelled_ids = list(self._active_tasks.keys())
         for task_id, task in list(self._active_tasks.items()):
@@ -259,9 +278,27 @@ class DeepWorkerPool:
         """Cancel a specific running task by task_id.
 
         Returns True if the task was found and cancelled, False otherwise.
+        If the task is not live in memory but the session store still shows it
+        ``running`` (zombie from a previous backend boot), mark the session
+        ``cancelled`` and emit the WS event so the UI converges.
         """
         task = self._active_tasks.get(task_id)
         if not task:
+            store = get_worker_session_store()
+            session = store.get_session(task_id)
+            if session and session.get("status") == "running":
+                logger.info(f"[DeepWorkerPool] cancel_task: task {task_id} is a zombie (not live) — reconciling")
+                store.update_status(
+                    task_id,
+                    "cancelled",
+                    result_summary="zombie — process not live",
+                )
+                await self._ledger_update(task_id, "cancelled", error="zombie — process not live")
+                await self._send_task_event("task:cancelled", task_id, {
+                    "reason": "zombie_reconciled",
+                    "sessionId": self._bus.session_id,
+                })
+                return True
             logger.warning(f"[DeepWorkerPool] cancel_task: task {task_id} not found")
             return False
 
@@ -373,6 +410,330 @@ class DeepWorkerPool:
             return result
         return result[:limit] + f"\n[... truncated — {len(result):,} chars total ...]"
 
+    # ------------------------------------------------------------------
+    # Worker lifecycle: closeout pass + local fallback
+    # ------------------------------------------------------------------
+
+    async def _closeout_pass(
+        self,
+        event: ActionIntent,
+        artifact_path: str | None,
+        fallback_text: str | None,
+    ) -> bool:
+        """Spawn a lightweight subprocess that reads the artifact and emits
+        voxyflow.worker.complete for the given task.
+
+        Runs only when the main worker did not deliver a structured completion.
+        Returns True if a structured completion now exists, False otherwise.
+        """
+        if os.environ.get("VOXYFLOW_CLOSEOUT_PASS", "1") != "1":
+            return False
+
+        from app.services.worker_supervisor import get_worker_supervisor
+        supervisor = get_worker_supervisor()
+
+        if supervisor.is_structured_complete(event.task_id):
+            return True
+        if not artifact_path and not (fallback_text and fallback_text.strip()):
+            logger.info(
+                f"[Closeout] Skipping task {event.task_id} — no artifact and no output"
+            )
+            return False
+
+        closeout_model = os.environ.get("VOXYFLOW_CLOSEOUT_MODEL", "fast")
+        closeout_timeout = int(os.environ.get("VOXYFLOW_CLOSEOUT_TIMEOUT", "90"))
+
+        status = supervisor.get_status(event.task_id) or {}
+        source_hint = status.get("completion_source")
+        if source_hint == "task.complete":
+            context_hint = " The worker called the legacy task.complete — upgrade the result."
+        elif source_hint == "auto":
+            context_hint = " The worker exited without calling any completion tool."
+        else:
+            context_hint = ""
+
+        closeout_prompt = (
+            f"You are a closeout agent. Worker task {event.task_id} "
+            f"(intent \"{event.intent}\") just finished.{context_hint}\n\n"
+            "Your job is ONE thing: produce a structured dispatcher-facing completion.\n\n"
+            "Steps:\n"
+            f"1. Call voxyflow.workers.read_artifact(task_id=\"{event.task_id}\") "
+            "to read the artifact. If the artifact is very large, page with offset/length.\n"
+            "2. Call voxyflow.worker.complete exactly once with:\n"
+            "   - status: \"success\" if the task looks complete, \"partial\" otherwise\n"
+            "   - summary: 2–4 sentences in plain prose — what was done, what the dispatcher needs to know\n"
+            "   - findings: 3–7 short bullets of the most important results\n"
+            "   - pointers: list of {label, offset, length} into the artifact for notable sections\n"
+            "   - next_step: optional one-liner the dispatcher could act on\n"
+            "3. Stop after voxyflow.worker.complete — do not do anything else."
+        )
+
+        closeout_cancel = asyncio.Event()
+        closeout_mq: asyncio.Queue[str] = asyncio.Queue()
+
+        async def _closeout_cb(tool_name: str, arguments: dict, result: dict):
+            # Claude CLI's MCP bridge flattens dots → underscores on the wire,
+            # and our cli_steerable normalizer only restores the first dot. So
+            # "voxyflow.worker.complete" may arrive as "voxyflow.worker_complete".
+            # Match on the underscore-normalized form to cover every variant.
+            norm = tool_name.replace(".", "_")
+            logger.debug(f"[Closeout] cb tool={tool_name!r} (norm={norm!r}) task={event.task_id}")
+            if norm == "voxyflow_worker_complete" or norm == "worker_complete":
+                wc_summary = (arguments.get("summary") or "").strip()
+                wc_status = arguments.get("status", "success")
+                wc_findings = arguments.get("findings") or []
+                wc_pointers = arguments.get("pointers") or []
+                wc_next = arguments.get("next_step") or None
+                if wc_summary and wc_status in ("success", "partial", "failed"):
+                    supervisor.mark_completed(
+                        event.task_id, wc_summary, wc_status,
+                        findings=wc_findings if isinstance(wc_findings, list) else None,
+                        pointers=wc_pointers if isinstance(wc_pointers, list) else None,
+                        next_step=wc_next,
+                        source="closeout",
+                    )
+                    closeout_cancel.set()
+
+        try:
+            await asyncio.wait_for(
+                self._claude.execute_lightweight_task(
+                    chat_id=f"closeout-{event.task_id}",
+                    prompt=closeout_prompt,
+                    model=closeout_model,
+                    project_id=event.data.get("project_id"),
+                    card_context=None,
+                    tool_callback=_closeout_cb,
+                    cancel_event=closeout_cancel,
+                    message_queue=closeout_mq,
+                    session_id=event.session_id or "",
+                    task_id=event.task_id,
+                ),
+                timeout=closeout_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"[Closeout] Timed out after {closeout_timeout}s for task {event.task_id}")
+            closeout_cancel.set()
+        except Exception as e:
+            logger.warning(f"[Closeout] Failed for task {event.task_id}: {e}")
+
+        ok = supervisor.is_structured_complete(event.task_id)
+        if ok:
+            logger.info(f"[Closeout] Produced structured completion for task {event.task_id}")
+        else:
+            logger.warning(f"[Closeout] Did not produce structured completion for task {event.task_id}")
+        return ok
+
+    def _synthesize_fallback_completion(
+        self,
+        event: ActionIntent,
+        result_content: str | None,
+    ) -> None:
+        """Last-resort: synthesize a minimal structured completion locally.
+
+        Used when the worker did not call voxyflow.worker.complete AND the
+        closeout pass did not produce a structured payload either. Keeps the
+        dispatcher path uniform — everything downstream reads from the same
+        structured payload shape.
+        """
+        from app.services.worker_supervisor import get_worker_supervisor
+        supervisor = get_worker_supervisor()
+        if supervisor.is_structured_complete(event.task_id):
+            return
+
+        text = (result_content or event.summary or "").strip()
+        if len(text) > 1500:
+            summary = text[:1500] + "…"
+        elif text:
+            summary = text
+        else:
+            summary = f"Worker for intent '{event.intent}' finished without output."
+
+        if len(summary) < 20:
+            summary = f"Worker for intent '{event.intent}' finished. Output: {summary}"
+
+        supervisor.mark_completed(
+            event.task_id, summary, "partial",
+            findings=[], pointers=[], next_step=None,
+            source="auto",
+        )
+        logger.warning(
+            f"[DeepWorker] Task {event.task_id}: synthesized fallback completion "
+            "(no worker.complete + closeout did not run or failed)"
+        )
+
+    # ------------------------------------------------------------------
+    # Ambient worker-event buffer — drained by the dispatcher at the start
+    # of the NEXT user-triggered turn. Worker completions are no longer
+    # turns themselves; they're ambient references.
+    # ------------------------------------------------------------------
+
+    def record_worker_event(
+        self,
+        dispatcher_chat_id: str,
+        *,
+        task_id: str,
+        intent: str,
+        status: str,
+        summary_line: str,
+    ) -> None:
+        """Record a worker completion/failure against a dispatcher chat.
+
+        The event is drained on the next user turn via drain_worker_events().
+        Bounded at _MAX_WORKER_EVENTS_PER_CHAT — oldest dropped on overflow.
+        """
+        if not dispatcher_chat_id:
+            return
+        buf = self._worker_events.setdefault(
+            dispatcher_chat_id,
+            deque(maxlen=self._MAX_WORKER_EVENTS_PER_CHAT),
+        )
+        buf.append({
+            "task_id": task_id,
+            "intent": intent or "unknown",
+            "status": status,
+            "finished_at": time.time(),
+            "summary_line": (summary_line or "")[:200],
+        })
+
+    def drain_worker_events(
+        self, dispatcher_chat_id: str, *, max_items: int = 10,
+    ) -> list[dict]:
+        """Pop pending worker events for a dispatcher chat (oldest first).
+
+        Called from the chat path right before building the system prompt,
+        so the rendered block represents "what happened since the user's
+        previous turn."
+        """
+        buf = self._worker_events.get(dispatcher_chat_id)
+        if not buf:
+            return []
+        out: list[dict] = []
+        while buf and len(out) < max_items:
+            out.append(buf.popleft())
+        if not buf:
+            self._worker_events.pop(dispatcher_chat_id, None)
+        return out
+
+    # ------------------------------------------------------------------
+    # Debounced dispatcher callback — re-enter the dispatcher with a thin
+    # signal (task_id + intent + status + one-line summary via the ambient
+    # worker-events block) after workers finish. Full results stay in
+    # artifacts; the dispatcher pulls them on demand via
+    # voxyflow.workers.get_result / read_artifact. Avoids the old failure
+    # mode where parallel worker results overwhelmed the dispatcher context.
+    # ------------------------------------------------------------------
+
+    def _schedule_dispatcher_callback(
+        self, dispatcher_chat_id: str, event: ActionIntent,
+    ) -> None:
+        """Arm (or re-arm) a debounced callback turn for this chat.
+
+        If another worker tied to the same dispatcher_chat_id finishes within
+        the debounce window, the timer resets and the completions collapse
+        into one callback turn. The turn itself reads the ambient worker-events
+        block drained in _compute_ambient_blocks → build_worker_events_block.
+        """
+        if not dispatcher_chat_id or not self._orchestrator:
+            return
+        if os.environ.get("DISPATCHER_WORKER_CALLBACK", "1") != "1":
+            return
+        if event.callback_depth >= self._orchestrator.MAX_CALLBACK_DEPTH:
+            logger.info(
+                f"[DeepWorkerPool] Skipping callback for task {event.task_id} — "
+                f"callback_depth={event.callback_depth} ≥ cap={self._orchestrator.MAX_CALLBACK_DEPTH}"
+            )
+            return
+
+        existing = self._callback_debouncers.pop(dispatcher_chat_id, None)
+        if existing and not existing.done():
+            existing.cancel()
+
+        self._callback_debouncers[dispatcher_chat_id] = asyncio.create_task(
+            self._run_debounced_callback(dispatcher_chat_id, event)
+        )
+
+    async def _run_debounced_callback(
+        self, dispatcher_chat_id: str, event: ActionIntent,
+    ) -> None:
+        try:
+            await asyncio.sleep(self._CALLBACK_DEBOUNCE_SECONDS)
+        except asyncio.CancelledError:
+            return
+
+        if self._stopped or not self._orchestrator:
+            return
+
+        from starlette.websockets import WebSocketState
+        ws_alive = (
+            self._ws is not None
+            and getattr(self._ws, "client_state", WebSocketState.CONNECTED) == WebSocketState.CONNECTED
+        )
+        if not ws_alive:
+            # pending_store already holds task:completed for redelivery on
+            # reconnect; the ambient events will be drained on the user's
+            # next turn. No need to fire a headless model call.
+            logger.info(
+                f"[DeepWorkerPool] Skipping callback for {dispatcher_chat_id} — WS not alive"
+            )
+            self._callback_debouncers.pop(dispatcher_chat_id, None)
+            return
+
+        try:
+            await self._orchestrator.handle_message(
+                websocket=self._ws,
+                content="[worker-callback] Workers finished — see Worker activity block.",
+                message_id=f"wcb-{uuid4().hex[:8]}",
+                chat_id=dispatcher_chat_id,
+                project_id=event.data.get("project_id"),
+                layers=None,  # default fast; cheap + [SILENT]-aware
+                chat_level=event.data.get("chat_level", "general"),
+                is_callback=True,
+                callback_depth=event.callback_depth,
+                card_id=event.data.get("card_id"),
+                session_id=event.session_id,
+            )
+        except Exception as e:
+            logger.warning(
+                f"[DeepWorkerPool] Dispatcher callback failed for {dispatcher_chat_id}: {e}"
+            )
+        finally:
+            self._callback_debouncers.pop(dispatcher_chat_id, None)
+
+    def count_active_for_chat(self, dispatcher_chat_id: str) -> int:
+        """How many active worker tasks are currently tied to this dispatcher chat?
+
+        Used by the Live-state heartbeat block on each turn.
+        """
+        if not dispatcher_chat_id:
+            return 0
+        count = 0
+        for task_id in self._active_tasks:
+            meta = self._task_meta.get(task_id)
+            if meta and meta.get("dispatcher_chat_id") == dispatcher_chat_id:
+                count += 1
+        return count
+
+    def active_intents_for_chat(self, dispatcher_chat_id: str) -> list[str]:
+        """Return a short intent/action label for each active worker tied to this chat.
+
+        Feeds the enriched Live-state heartbeat so Voxy sees *what's* running,
+        not just a count. Order is not guaranteed; cap at 10 entries.
+        """
+        if not dispatcher_chat_id:
+            return []
+        out: list[str] = []
+        for task_id in list(self._active_tasks.keys()):
+            meta = self._task_meta.get(task_id)
+            if not meta:
+                continue
+            if meta.get("dispatcher_chat_id") != dispatcher_chat_id:
+                continue
+            label = str(meta.get("action") or "unknown")[:24]
+            out.append(label)
+            if len(out) >= 10:
+                break
+        return out
+
     async def _stale_cleanup_loop(self) -> None:
         """Prune old completed-task entries from memory (every 60s)."""
         try:
@@ -395,9 +756,12 @@ class DeepWorkerPool:
                 await self._semaphore.acquire()
                 self._task_meta[event.task_id] = {
                     "action": event.intent or "unknown",
-                    "model": event.model or get_default_worker_model(),
+                    # Placeholder — _execute_event will overwrite with the
+                    # authoritative model (worker_class.model or default).
+                    "model": get_default_worker_model(),
                     "description": event.summary or "",
                     "started_at": time.time(),
+                    "dispatcher_chat_id": event.data.get("dispatcher_chat_id"),
                 }
                 task = asyncio.create_task(self._execute_event(event))
                 self._active_tasks[event.task_id] = task
@@ -466,8 +830,10 @@ class DeepWorkerPool:
                     )
                     return wc
 
-            # Try intent-based keyword matching
-            wc = await resolve_by_intent(event.intent or "")
+            # Try intent-based keyword matching. Pass summary too so long code-name
+            # intents like "execute_secu1_real_ssh" still match when the relevant
+            # keywords only appear in the task description.
+            wc = await resolve_by_intent(event.intent or "", event.summary or "")
             if wc:
                 logger.info(
                     "[DeepWorkerPool] Task %s routed to worker class %r (intent match: %r)",
@@ -486,26 +852,22 @@ class DeepWorkerPool:
         the worker class model/provider is used instead of the default layer.
         """
         try:
-            # Resolve worker class (if any) before registering, so we log the right model
+            # Resolve worker class (if any) before registering, so we log the right model.
+            # Precedence: worker_class.model (if matched) > default_worker_model (fallback).
+            # event.model is the dispatcher's LLM-suggested hint — kept only for logging;
+            # user-configured Worker Classes and Default Worker Model are authoritative.
             _worker_class = await self._resolve_worker_class(event)
             _explicit_model = event.model  # what the dispatcher explicitly requested
             _effective_model = _explicit_model or get_default_worker_model()
             _endpoint_config: dict | None = None  # resolved endpoint for worker class
-            _wc_name = _worker_class.get("name") if _worker_class else None
             if _worker_class:
                 # Worker class with endpoint_id ALWAYS takes precedence — the whole
                 # point of a worker class is to route matching intents to a specific
-                # endpoint+model.  The dispatcher prompt tells the LLM to always
-                # include model="sonnet" in delegates, so _explicit_model is almost
-                # never None; guarding on `not _explicit_model` caused endpoint
-                # resolution to be skipped every time.
-                #
-                # Exception: an explicit "opus" request signals the user/dispatcher
-                # wants maximum reasoning power — honour that over the worker class.
+                # endpoint+model. Exception: an explicit "opus" request signals the
+                # user/dispatcher wants maximum reasoning power — honour that over
+                # the worker class.
                 _wc_has_endpoint = bool(_worker_class.get("endpoint_id"))
                 _wc_has_model = bool(_worker_class.get("model"))
-                # Honour the worker class if it has an endpoint OR a model configured,
-                # unless the dispatcher explicitly requested "opus" (max reasoning override).
                 _honour_worker_class = (_wc_has_endpoint or _wc_has_model) and _explicit_model != "opus"
 
                 if _honour_worker_class or not _explicit_model:
@@ -513,13 +875,6 @@ class DeepWorkerPool:
 
                 # Store worker_class_id in event data for downstream use
                 event.data["_resolved_worker_class"] = _worker_class
-
-            # Update task_meta so get_active_tasks/peek reflect the actual
-            # resolved model, not the raw "sonnet" the dispatcher emitted.
-            if event.task_id in self._task_meta:
-                self._task_meta[event.task_id]["model"] = _effective_model
-
-            if _worker_class:
 
                 # Resolve endpoint so we can route to the correct provider/URL
                 if _wc_has_endpoint and _explicit_model != "opus":
@@ -534,11 +889,37 @@ class DeepWorkerPool:
                             _effective_model,
                         )
 
+            # Safety guard: coding intents must never run on Haiku — upgrade to sonnet minimum.
+            # Applies regardless of user-configured Worker Classes or Default Worker Model,
+            # so even if the user misconfigured the Coding class with Haiku, it gets upgraded.
+            # Also catches Quick-class mis-routing (e.g. intent "summarize_code_fixes" matched
+            # Quick but is actually coding work) by scanning intent+summary+description.
+            from app.services.orchestration.model_resolution import _is_coding_text
+            _is_coding_intent = _is_coding_text(
+                event.intent,
+                event.summary,
+                (event.data or {}).get("description"),
+            )
+            _is_coding_worker_class = (_worker_class or {}).get("name", "").lower() in {
+                "coding", "complex coding", "architecture",
+            }
+            if "haiku" in _effective_model.lower() and (_is_coding_intent or _is_coding_worker_class):
+                _effective_model = "claude-sonnet-4-6"
+                logger.warning(
+                    "[ModelGuard] Upgraded haiku \u2192 sonnet for coding task "
+                    "(intent=%r, worker_class=%r, task=%s)",
+                    event.intent, (_worker_class or {}).get("name"), event.task_id,
+                )
+
+            # Update task_meta so get_active_tasks reflects the actual model
+            if event.task_id in self._task_meta:
+                self._task_meta[event.task_id]["model"] = _effective_model
+
             _wss = get_worker_session_store()
             _task_card_id = event.data.get("card_id")
 
             # --- Card lifecycle: auto-create if missing, move to in-progress ---
-            if not _task_card_id:
+            if not _task_card_id and self._should_auto_create_card(event, _worker_class):
                 _task_card_id = await self._auto_create_card(
                     project_id=event.data.get("project_id"),
                     intent=event.intent or "unknown",
@@ -562,6 +943,7 @@ class DeepWorkerPool:
                 model=_effective_model,
                 intent=event.intent or "unknown",
                 summary=event.summary or "",
+                worker_class=(_worker_class.get("name") if _worker_class else None),
             )
 
             await self._ledger_insert(
@@ -579,13 +961,22 @@ class DeepWorkerPool:
                 "summary": event.summary,
                 "complexity": event.complexity,
                 "model": _effective_model,
+                "workerClass": (_worker_class.get("name") if _worker_class else None),
                 "sessionId": event.session_id,
                 "chatId": event.data.get("dispatcher_chat_id"),
                 "cardId": _task_card_id,
                 "projectId": event.data.get("project_id"),
             })
 
-            logger.info(f"[DeepWorker] Executing task {event.task_id}: {event.intent} (model={event.model}) [effective={_effective_model}]")
+            _wc_name = (_worker_class or {}).get("name")
+            logger.info(
+                f"[DeepWorker] Executing task {event.task_id}: {event.intent} "
+                f"(model={_effective_model}"
+                + (f", class={_wc_name}" if _wc_name else "")
+                + (f", requested={event.model}" if event.model and event.model != _effective_model else "")
+                + (f", endpoint={_endpoint_config.get('url')}" if _endpoint_config else "")
+                + ")"
+            )
 
             intent_lower = (event.intent or "unknown").lower()
             is_move_or_update = any(kw in intent_lower for kw in [
@@ -598,10 +989,15 @@ class DeepWorkerPool:
                 f"Intent: {event.intent}\n"
                 f"Summary: {event.summary}\n"
                 f"Task ID: {event.task_id}\n"
-                f"\nWhen done, call task.complete(task_id=\"{event.task_id}\", summary=\"<FULL RAW OUTPUT HERE>\", status=\"success|partial|failed\").\n"
-                f"CRITICAL: Put the COMPLETE, VERBATIM output in the summary field — full file contents, "
-                f"full stdout/stderr from commands, all data retrieved. Do NOT summarize, paraphrase, "
-                f"or truncate. The dispatcher needs the raw content, not a description of it.\n"
+                f"\nLifecycle (strict):\n"
+                f"1. FIRST call voxyflow.worker.claim(task_id=\"{event.task_id}\", plan=\"<one sentence plan>\").\n"
+                f"2. Then do the work — use any MCP tools you need. All raw output is captured "
+                f"automatically to an artifact; don't try to keep it in your reply.\n"
+                f"3. LAST call voxyflow.worker.complete(task_id=\"{event.task_id}\", status=\"success|partial|failed\", "
+                f"summary=\"<2-4 sentences in your own words>\", findings=[...], pointers=[{{label, offset, length}}], "
+                f"next_step=\"...\"). Stop immediately after.\n"
+                f"\nThe summary is the ONLY thing the dispatcher sees. Write it for a reader who has "
+                f"not seen the raw output. Use pointers to flag important sections of the artifact.\n"
             )
 
             if is_move_or_update:
@@ -677,15 +1073,42 @@ class DeepWorkerPool:
             async def _tool_callback(tool_name: str, arguments: dict, result: dict):
                 supervisor.record_tool_call(event.task_id, tool_name, arguments)
 
-                # Intercept task.complete calls — the MCP handler runs in a
-                # subprocess with its own supervisor instance, so we must
-                # propagate the completion to the main-process supervisor here.
-                if tool_name in ("task.complete", "task_complete"):
+                # Lifecycle interception — the MCP handlers run in a subprocess
+                # with their own supervisor instance, so we must propagate
+                # claim/complete into the main-process supervisor here.
+                # Claude CLI's MCP bridge flattens dots → underscores, and our
+                # cli_steerable only restores the first dot, so match against
+                # the fully-underscored form.
+                _norm = tool_name.replace(".", "_")
+                if _norm in ("voxyflow_worker_claim", "worker_claim"):
+                    wc_task_id = arguments.get("task_id", event.task_id)
+                    wc_plan = arguments.get("plan", "")
+                    if wc_plan:
+                        supervisor.mark_claimed(wc_task_id, wc_plan)
+                elif _norm in ("voxyflow_worker_complete", "worker_complete"):
+                    wc_task_id = arguments.get("task_id", event.task_id)
+                    wc_summary = (arguments.get("summary") or "").strip()
+                    wc_status = arguments.get("status", "success")
+                    wc_findings = arguments.get("findings") or []
+                    wc_pointers = arguments.get("pointers") or []
+                    wc_next = arguments.get("next_step") or None
+                    if wc_summary and wc_status in ("success", "partial", "failed"):
+                        supervisor.mark_completed(
+                            wc_task_id, wc_summary, wc_status,
+                            findings=wc_findings if isinstance(wc_findings, list) else None,
+                            pointers=wc_pointers if isinstance(wc_pointers, list) else None,
+                            next_step=wc_next,
+                            source="worker.complete",
+                        )
+                elif _norm == "task_complete":
                     tc_task_id = arguments.get("task_id", event.task_id)
                     tc_summary = arguments.get("summary", "")
                     tc_status = arguments.get("status", "success")
                     if tc_summary:
-                        supervisor.mark_completed(tc_task_id, tc_summary, tc_status)
+                        supervisor.mark_completed(
+                            tc_task_id, tc_summary, tc_status,
+                            source="task.complete",
+                        )
                         logger.info(
                             f"[Supervisor] Task {tc_task_id} explicitly completed via "
                             f"task.complete (status={tc_status}, "
@@ -744,9 +1167,28 @@ class DeepWorkerPool:
 
                 stall_timeout = int(os.environ.get("WORKER_STALL_TIMEOUT", "1800"))
                 stall_warning = int(os.environ.get("WORKER_STALL_WARNING", str(stall_timeout - 300)))
+                claim_nudge_after = int(os.environ.get("WORKER_CLAIM_NUDGE_AFTER", "5"))
                 warned = False
+                claim_nudged = False
                 while not cancel_event.is_set():
                     await asyncio.sleep(15)
+
+                    # Claim watchdog: nudge the worker once if it has called
+                    # several tools without first calling voxyflow.worker.claim.
+                    if (
+                        not claim_nudged
+                        and not supervisor.is_claimed(event.task_id)
+                        and supervisor.tool_calls_since_register(event.task_id) >= claim_nudge_after
+                    ):
+                        claim_nudged = True
+                        message_queue.put_nowait(
+                            "PROTOCOL REMINDER: you have not called voxyflow.worker.claim yet. "
+                            "Call it NOW with a one-sentence plan before any further actions."
+                        )
+                        logger.info(
+                            f"[Supervisor] Claim nudge sent to task {event.task_id} "
+                            f"(tool_calls={supervisor.tool_calls_since_register(event.task_id)})"
+                        )
 
                     # Check supervisor's tool-call-based activity
                     stall_secs = supervisor.check_stall(event.task_id)
@@ -765,7 +1207,8 @@ class DeepWorkerPool:
                         warned = True
                         message_queue.put_nowait(
                             f"WARNING: You have been idle for {stall_secs:.0f}s. "
-                            "Wrap up now and call task.complete or you will be cancelled."
+                            "Wrap up now and call voxyflow.worker.complete (with a real summary, "
+                            "findings, and pointers) or you will be cancelled."
                         )
                     if stall_secs > stall_timeout:
                         logger.warning(
@@ -867,11 +1310,16 @@ class DeepWorkerPool:
                     result_content = "\n\n".join(_captured_tool_outputs)
 
             if not supervisor.is_completed(event.task_id):
-                # Auto-complete: worker finished but forgot to call task.complete
+                # Auto-complete: worker finished but forgot to call any completion tool.
+                # A closeout pass (below, after artifact write) will try to upgrade
+                # this to a structured voxyflow.worker.complete payload.
                 auto_summary = result_content or event.summary or "Task completed (auto-closed)"
-                supervisor.mark_completed(event.task_id, auto_summary, "success")
+                supervisor.mark_completed(
+                    event.task_id, auto_summary, "success", source="auto",
+                )
                 logger.info(
-                    f"[Supervisor] Task {event.task_id} auto-completed (worker did not call task.complete)"
+                    f"[Supervisor] Task {event.task_id} auto-completed "
+                    "(no worker.complete — closeout pass will attempt structured upgrade)"
                 )
             else:
                 task_status = supervisor.get_status(event.task_id)
@@ -963,6 +1411,20 @@ class DeepWorkerPool:
                     status="success",
                 )
 
+            # Closeout pass — if the worker did not deliver a structured
+            # voxyflow.worker.complete, spawn a lightweight subprocess whose
+            # only job is to read the artifact and emit one. This upgrades the
+            # dispatcher-facing payload from raw truncated text to structured
+            # summary / findings / pointers.
+            if not supervisor.is_structured_complete(event.task_id):
+                await self._closeout_pass(event, artifact_path, result_content)
+
+            # Local synthesis fallback — if closeout also failed, synthesize
+            # a minimal structured payload from what we have. Keeps the
+            # dispatcher path uniform even when both tiers above missed.
+            if not supervisor.is_structured_complete(event.task_id):
+                self._synthesize_fallback_completion(event, result_content)
+
             # --- Secondary stores get previews; artifact is canonical ---
             result_preview = _preview(result_content, PREVIEW_CHARS) if result_content else ""
 
@@ -1016,55 +1478,23 @@ class DeepWorkerPool:
                 except Exception as _persist_err:
                     logger.warning(f"[DeepWorker] Failed to persist worker result: {_persist_err}")
 
-            # --- Notify dispatcher: embed result in a single user message ---
-            # Previously injected result as role="assistant" which caused consecutive
-            # same-role messages (Anthropic API rejects). Now we merge the result
-            # directly into the callback user message for proper role alternation.
+            # --- Record ambient worker event (NOT a dispatcher turn) ---
+            # The dispatcher pulls details on demand via voxyflow.workers.get_result
+            # / read_artifact. A one-line reference is surfaced in the next user
+            # turn's context block so Voxy knows something happened.
             dispatcher_chat_id = event.data.get("dispatcher_chat_id")
-            if dispatcher_chat_id and self._orchestrator:
-                try:
-                    from starlette.websockets import WebSocketState
-                    _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
-                    if _ws_state == WebSocketState.CONNECTED:
-                        summarized = result_content or "(no output)"
-                        if result_content:
-                            summarized = await self._summarize_result(result_content, event.intent or "")
-
-                        # Always advertise the artifact when the result
-                        # was truncated or is large enough to warrant
-                        # paged access.
-                        artifact_hint = ""
-                        raw_len = len(result_content or "")
-                        if artifact_path and raw_len > len(summarized):
-                            artifact_hint = (
-                                f"\n[Full raw output ({raw_len:,} chars) available — "
-                                f"call voxyflow.workers.read_artifact(task_id=\"{event.task_id}\") "
-                                f"to retrieve verbatim. Use offset/length for paging.]"
-                            )
-
-                        callback_msg = (
-                            f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) completed successfully.]\n\n"
-                            f"--- Worker Result ---\n"
-                            f"{summarized}\n"
-                            f"--- End Result ---{artifact_hint}\n\n"
-                            f"Present this result to the user naturally and decide if follow-up actions are needed."
-                        )
-                        callback_message_id = f"worker-cb-{uuid4().hex[:8]}"
-                        logger.info(f"[DeepWorker] Re-triggering dispatcher after {event.intent}")
-
-                        await self._orchestrator.handle_message(
-                            websocket=self._ws,
-                            content=callback_msg,
-                            message_id=callback_message_id,
-                            chat_id=dispatcher_chat_id,
-                            project_id=event.data.get("project_id"),
-                            chat_level="project" if event.data.get("project_id") else "general",
-                            session_id=event.session_id,
-                            is_callback=True,
-                            callback_depth=1,
-                        )
-                except Exception as cb_err:
-                    logger.warning(f"[DeepWorker] Dispatcher callback failed: {cb_err}", exc_info=True)
+            if dispatcher_chat_id:
+                payload = supervisor.get_completion_payload(event.task_id)
+                status = (payload or {}).get("status") or "success"
+                summary_line = ((payload or {}).get("summary") or result_content or "").strip().splitlines()[0] if (payload or result_content) else ""
+                self.record_worker_event(
+                    dispatcher_chat_id,
+                    task_id=event.task_id,
+                    intent=event.intent or "",
+                    status=status,
+                    summary_line=summary_line,
+                )
+                self._schedule_dispatcher_callback(dispatcher_chat_id, event)
 
             if follow_up_action and self._orchestrator and event.session_id:
                 try:
@@ -1123,35 +1553,17 @@ class DeepWorkerPool:
                     summary=str(e)[:120],
                 )
 
-            # Notify dispatcher about failure so it can inform the user
+            # Record ambient failure event — dispatcher will see it on its next turn.
             dispatcher_chat_id = event.data.get("dispatcher_chat_id")
-            if dispatcher_chat_id and self._orchestrator:
-                try:
-                    from starlette.websockets import WebSocketState
-                    _ws_state = getattr(self._ws, "client_state", WebSocketState.CONNECTED)
-                    if _ws_state == WebSocketState.CONNECTED:
-                        error_msg = str(e)[:500]
-                        callback_msg = (
-                            f"[SYSTEM: Worker '{event.intent}' (task {event.task_id}) FAILED.]\n\n"
-                            f"Error: {error_msg}\n\n"
-                            f"Inform the user about the failure and suggest alternatives if appropriate."
-                        )
-                        callback_message_id = f"worker-err-{uuid4().hex[:8]}"
-                        logger.info(f"[DeepWorker] Notifying dispatcher about failed task {event.task_id}")
-
-                        await self._orchestrator.handle_message(
-                            websocket=self._ws,
-                            content=callback_msg,
-                            message_id=callback_message_id,
-                            chat_id=dispatcher_chat_id,
-                            project_id=event.data.get("project_id"),
-                            chat_level="project" if event.data.get("project_id") else "general",
-                            session_id=event.session_id,
-                            is_callback=True,
-                            callback_depth=1,
-                        )
-                except Exception as cb_err:
-                    logger.warning(f"[DeepWorker] Failed to notify dispatcher about error: {cb_err}")
+            if dispatcher_chat_id:
+                self.record_worker_event(
+                    dispatcher_chat_id,
+                    task_id=event.task_id,
+                    intent=event.intent or "",
+                    status="failed",
+                    summary_line=str(e)[:200],
+                )
+                self._schedule_dispatcher_callback(dispatcher_chat_id, event)
         finally:
             try:
                 supervisor = get_worker_supervisor()
@@ -1216,6 +1628,46 @@ class DeepWorkerPool:
 
         return source.strip() or "Worker task"
 
+    # Trivial delegate intents that should never produce a tracking card,
+    # even when no worker class matched. These are housekeeping verbs — the
+    # state change itself is the result, there is no "work in progress" to
+    # represent as a card.
+    _TRIVIAL_INTENTS = frozenset({
+        "archive", "archive_card", "archive_cards",
+        "unarchive", "restore", "restore_card",
+        "delete", "delete_card", "remove",
+        "move", "move_card", "reorder", "reorder_cards",
+        "rename", "rename_card",
+        "tag", "untag",
+        "assign", "unassign", "reassign",
+        "duplicate",
+    })
+
+    @staticmethod
+    def _should_auto_create_card(event: ActionIntent, worker_class: dict | None) -> bool:
+        """Decide whether a delegated task deserves its own tracking card.
+
+        Signals, in order:
+          1. ``worker_class.name == "Quick"`` → no card (lightweight one-shot).
+          2. Intent verb in :data:`_TRIVIAL_INTENTS` → no card (housekeeping).
+          3. No worker class matched + ``complexity == "simple"`` → no card.
+          4. Otherwise → create a card (Coding / Research / Creative, or
+             anything non-trivial).
+        """
+        wc_name = ((worker_class or {}).get("name") or "").strip().lower()
+        if wc_name == "quick":
+            return False
+
+        intent = (event.intent or "").strip().lower()
+        if intent in DeepWorkerPool._TRIVIAL_INTENTS:
+            return False
+
+        complexity = (event.complexity or "").strip().lower()
+        if not wc_name and complexity == "simple":
+            return False
+
+        return True
+
     @staticmethod
     async def _auto_create_card(
         project_id: str | None,
@@ -1244,7 +1696,7 @@ class DeepWorkerPool:
             # Build a short title and a full description.
             # intent = action name or full directive; summary = description/instruction
             full_text = summary or intent
-            short_title = _make_short_title(intent, summary)
+            short_title = DeepWorkerPool._make_short_title(intent, summary)
 
             card_id = new_uuid()
             async with async_session() as db:

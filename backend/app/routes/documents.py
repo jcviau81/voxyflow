@@ -27,7 +27,7 @@ from app.services.rag_service import RAGService, get_rag_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["documents"])
+router = APIRouter(prefix="/api", tags=["documents"])
 
 # Extension validation is handled by the DocumentParserRegistry.
 # Supported formats are determined at runtime based on installed dependencies.

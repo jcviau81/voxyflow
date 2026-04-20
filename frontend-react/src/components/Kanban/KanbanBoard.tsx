@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Archive, Play, Square, Link2, Trash2, RotateCcw, X,
-  AlertCircle, ChevronRight,
+  Archive, Play, Square, Link2, Trash2, X,
+  AlertCircle, ChevronRight, ArrowUpDown,
 } from 'lucide-react';
 import {
   DndContext,
@@ -28,13 +28,14 @@ import type { Card, CardStatus } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
-import { useCards, useArchivedCards, useRestoreCard, useDeleteCard, usePatchCard, useReorderCards, useCreateCard } from '../../hooks/api/useCards';
+import { useCards, useDeleteCard, usePatchCard, useReorderCards, useCreateCard } from '../../hooks/api/useCards';
 import { useExportProject, useImportProject, useExecuteBoardPlan } from '../../hooks/api/useProjects';
-import { useWebSocket } from '../../hooks/useWebSocket';
+import { useWS } from '../../providers/WebSocketProvider';
 import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 import { KanbanCard } from './KanbanCard';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { BoardHeader, useDebounce } from '../Board/BoardHeader';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -46,6 +47,36 @@ const COLUMN_LABELS: Record<string, string> = {
   'in-progress': 'In Progress',
   done: 'Done',
 };
+
+const COLUMN_DOT_COLORS: Record<string, string> = {
+  todo: 'bg-slate-400',
+  'in-progress': 'bg-orange-500',
+  done: 'bg-emerald-500',
+};
+
+// ── Column sort ───────────────────────────────────────────────────────────────────────────────────
+
+type SortOption = 'default' | 'newest' | 'oldest' | 'priority' | 'alpha';
+
+const SORT_LABELS: Record<SortOption, string> = {
+  default: 'Default',
+  newest: 'Newest first',
+  oldest: 'Oldest first',
+  priority: 'Priority (high→low)',
+  alpha: 'Alphabetical',
+};
+
+function sortCards(cards: Card[], sort: SortOption): Card[] {
+  if (sort === 'default') return cards;
+  const arr = [...cards];
+  switch (sort) {
+    case 'newest': return arr.sort((a, b) => b.createdAt - a.createdAt);
+    case 'oldest': return arr.sort((a, b) => a.createdAt - b.createdAt);
+    case 'priority': return arr.sort((a, b) => b.priority - a.priority);
+    case 'alpha': return arr.sort((a, b) => a.title.localeCompare(b.title));
+    default: return arr;
+  }
+}
 
 // ── Sortable Card Wrapper ──────────────────────────────────────────────────────
 
@@ -120,6 +151,8 @@ interface KanbanColumnProps {
   selectMode: boolean;
   selectedIds: Set<string>;
   onSelectChange: (id: string, selected: boolean) => void;
+  onSelectAll: (ids: string[]) => void;
+  onClearAll: () => void;
   query: string;
   priorityFilter: number | null;
   agentFilter: string | null;
@@ -128,6 +161,8 @@ interface KanbanColumnProps {
   onCardClick: (cardId: string) => void;
   executingCardId: string | null;
   isCardActive: (cardId: string) => boolean;
+  sortOption: SortOption;
+  onSortChange: (sort: SortOption) => void;
 }
 
 function KanbanColumn({
@@ -137,6 +172,8 @@ function KanbanColumn({
   selectMode,
   selectedIds,
   onSelectChange,
+  onSelectAll,
+  onClearAll,
   query,
   priorityFilter,
   agentFilter,
@@ -145,29 +182,117 @@ function KanbanColumn({
   onCardClick,
   executingCardId,
   isCardActive,
+  sortOption,
+  onSortChange,
 }: KanbanColumnProps) {
-  const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
+  const sortedCards = useMemo(() => sortCards(cards, sortOption), [cards, sortOption]);
+  const cardIds = useMemo(() => sortedCards.map((c) => c.id), [sortedCards]);
   const { setNodeRef } = useDroppable({ id: status });
+
+  const allSelected = sortedCards.length > 0 && sortedCards.every((c) => selectedIds.has(c.id));
+  const someSelected = sortedCards.some((c) => selectedIds.has(c.id));
+
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someSelected && !allSelected;
+    }
+  }, [someSelected, allSelected]);
+
+  const handleSelectAllToggle = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      e.stopPropagation();
+      if (e.target.checked) {
+        onSelectAll(sortedCards.map((c) => c.id));
+      } else {
+        sortedCards.forEach((c) => onSelectChange(c.id, false));
+      }
+    },
+    [sortedCards, onSelectAll, onSelectChange],
+  );
+
+  const handleCardListClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!selectMode) return;
+      const target = e.target as HTMLElement;
+      // Deselect all when clicking the column background (not on a card)
+      if (!target.closest('[data-testid="kanban-card"]')) {
+        onClearAll();
+      }
+    },
+    [selectMode, onClearAll],
+  );
 
   return (
     <div
       ref={setNodeRef}
-      className="flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40"
+      className="group/col flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40"
       data-status={status}
+      data-testid={`kanban-column-${status}`}
     >
       {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/30">
-        <span className="text-sm font-medium text-foreground">{label}</span>
-        <span className="text-xs text-muted-foreground tabular-nums">{cards.length}</span>
+        <div className="flex items-center gap-2">
+          {/* Select All checkbox — hidden until hover or selectMode is active */}
+          <div
+            className={cn(
+              'transition-opacity',
+              selectMode || someSelected ? 'opacity-100' : 'opacity-0 group-hover/col:opacity-50',
+            )}
+            onClick={(e) => e.stopPropagation()}
+            title={allSelected ? 'Deselect all in column' : 'Select all in column'}
+          >
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              aria-label={`Select all cards in ${label}`}
+              checked={allSelected}
+              onChange={handleSelectAllToggle}
+              className="w-3 h-3 rounded border-border accent-primary cursor-pointer"
+            />
+          </div>
+          <span className={cn('w-2 h-2 rounded-full flex-shrink-0', COLUMN_DOT_COLORS[status])} />
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className={cn(
+                  'p-0.5 rounded hover:bg-muted transition-colors focus:outline-none',
+                  sortOption !== 'default' && 'text-primary',
+                )}
+                title="Sort column"
+              >
+                <ArrowUpDown size={12} className={cn('text-muted-foreground', sortOption !== 'default' && 'text-primary')} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              {(Object.keys(SORT_LABELS) as SortOption[]).map((opt) => (
+                <DropdownMenuItem
+                  key={opt}
+                  onClick={() => onSortChange(opt)}
+                  className={cn('text-xs cursor-pointer', sortOption === opt && 'font-semibold text-primary')}
+                >
+                  {SORT_LABELS[opt]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <span className="text-xs text-muted-foreground tabular-nums bg-muted/60 px-1.5 py-0.5 rounded-full min-w-[20px] text-center">{cards.length}</span>
+        </div>
       </div>
 
       {/* Droppable card list */}
       <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
-        <div className="flex flex-col gap-2 p-2 min-h-[80px] overflow-y-auto max-h-[calc(100vh-320px)]">
-          {cards.length === 0 && (
+        <div
+          className="flex flex-col gap-2 p-2 min-h-[80px] overflow-y-auto max-h-[calc(100vh-320px)]"
+          onClick={handleCardListClick}
+        >
+          {sortedCards.length === 0 && (
             <div className="py-8 text-center text-xs text-muted-foreground">No cards</div>
           )}
-          {cards.map((card) => (
+          {sortedCards.map((card) => (
             <SortableCard
               key={card.id}
               card={card}
@@ -317,81 +442,6 @@ function BulkToolbar({ selectedIds, onClear, onBulkMove, onBulkArchive, onBulkDe
   );
 }
 
-// ── Archived Section ───────────────────────────────────────────────────────────
-
-interface ArchivedSectionProps {
-  projectId: string;
-}
-
-function ArchivedSection({ projectId }: ArchivedSectionProps) {
-  const [open, setOpen] = useState(false);
-  const { data: archivedCards, isLoading } = useArchivedCards(projectId);
-  const restoreCard = useRestoreCard();
-  const deleteCard = useDeleteCard();
-  const showToast = useToastStore((s) => s.showToast);
-
-  // Only fetch when expanded — useArchivedCards has enabled: !!projectId
-  // but we gate the UI rendering on `open`
-
-  return (
-    <div className="mt-4">
-      <button
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
-        onClick={() => setOpen(!open)}
-      >
-        <Archive size={14} className="text-muted-foreground" /> Archived Cards <ChevronRight size={12} className={cn('transition-transform', open && 'rotate-90')} />
-      </button>
-
-      {open && (
-        <div className="mt-2 space-y-1 pl-2">
-          {isLoading && <div className="text-xs text-muted-foreground py-2">Loading...</div>}
-          {archivedCards && archivedCards.length === 0 && (
-            <div className="text-xs text-muted-foreground py-2">No archived cards</div>
-          )}
-          {archivedCards?.map((card) => (
-            <div key={card.id} className="flex items-center justify-between rounded border border-border/40 px-3 py-2 text-sm">
-              <div className="flex-1 min-w-0">
-                <span className="font-medium text-foreground">{card.title}</span>
-              </div>
-              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      await restoreCard.mutateAsync({ cardId: card.id, projectId });
-                      showToast(`"${card.title}" restored`, 'success');
-                    } catch {
-                      showToast('Restore failed', 'error');
-                    }
-                  }}
-                >
-                  <RotateCcw size={12} className="text-emerald-400" /> Restore
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive"
-                  onClick={async () => {
-                    if (!confirm(`Permanently delete "${card.title}"? This cannot be undone.`)) return;
-                    try {
-                      await deleteCard.mutateAsync({ cardId: card.id, projectId });
-                      showToast(`"${card.title}" permanently deleted`, 'success');
-                    } catch {
-                      showToast('Delete failed', 'error');
-                    }
-                  }}
-                >
-                  <Trash2 size={12} /> Delete
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Execution Progress Bar ─────────────────────────────────────────────────────
 
@@ -450,7 +500,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const importProject = useImportProject();
   const executeBoardPlan = useExecuteBoardPlan();
   const deleteCardMut = useDeleteCard();
-  const { send: wsSend, subscribe } = useWebSocket();
+  const { send: wsSend, subscribe } = useWS();
 
   // Worker execution status — poll every 3s to show per-card activity badges
   const { isCardActive } = useWorkerStatus(projectId ?? '');
@@ -469,6 +519,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const [priorityFilter, setPriorityFilter] = useState<number | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [columnSorts, setColumnSorts] = useState<Record<string, SortOption>>({});
 
   // Reset filters on project change
   useEffect(() => {
@@ -476,6 +527,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     setPriorityFilter(null);
     setAgentFilter(null);
     setTagFilter(null);
+    setColumnSorts({});
   }, [projectId]);
 
   // ── Select mode ──────────────────────────────────────────────────────────
@@ -498,6 +550,26 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     setSelectedIds(new Set());
     setSelectMode(false);
   }, []);
+
+  const handleSelectAll = useCallback((ids: string[]) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      setSelectMode(next.size > 0);
+      return next;
+    });
+  }, []);
+
+  // Escape key → clear selection
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectMode) {
+        clearSelection();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectMode, clearSelection]);
 
 
   // ── Board execution state ────────────────────────────────────────────────
@@ -641,6 +713,19 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
           // Roll back the optimistic status change applied in handleDragOver.
           useCardStore.getState().moveCard(activeCardData.id, originStatus);
           showToast('Move failed', 'error');
+          return;
+        }
+        // If moved to Done, insert at the top of the Done column
+        if (targetStatus === 'done') {
+          const freshDoneCards = Object.values(useCardStore.getState().cardsById)
+            .filter((c) => c.projectId === projectId && !c.archivedAt && c.status === 'done')
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+          const doneIds = [
+            activeCardData.id,
+            ...freshDoneCards.filter((c) => c.id !== activeCardData.id).map((c) => c.id),
+          ];
+          useCardStore.getState().reorderCards(doneIds);
+          try { await reorderCards.mutateAsync(doneIds); } catch { /* non-critical */ }
           return;
         }
       }
@@ -794,10 +879,23 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         updateCardStore(id, { status });
         patchCard.mutate({ cardId: id, updates: { status }, projectId: projectId ?? undefined });
       });
+      // If moving to Done, insert selected cards at the top of the Done column
+      if (status === 'done') {
+        const selectedArr = Array.from(selectedIds);
+        const currentDoneCards = Object.values(useCardStore.getState().cardsById)
+          .filter((c) => c.projectId === projectId && !c.archivedAt && c.status === 'done')
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        const doneIds = [
+          ...selectedArr,
+          ...currentDoneCards.filter((c) => !selectedIds.has(c.id)).map((c) => c.id),
+        ];
+        useCardStore.getState().reorderCards(doneIds);
+        reorderCards.mutate(doneIds);
+      }
       showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
       clearSelection();
     },
-    [selectedIds, patchCard, updateCardStore, showToast, clearSelection, projectId],
+    [selectedIds, patchCard, reorderCards, updateCardStore, showToast, clearSelection, projectId],
   );
 
   const handleBulkArchive = useCallback(() => {
@@ -910,6 +1008,8 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
               selectMode={selectMode}
               selectedIds={selectedIds}
               onSelectChange={handleSelectChange}
+              onSelectAll={handleSelectAll}
+              onClearAll={clearSelection}
               query={query}
               priorityFilter={priorityFilter}
               agentFilter={agentFilter}
@@ -918,6 +1018,8 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
               onCardClick={handleCardClickInternal}
               executingCardId={executingCardId}
               isCardActive={isCardActive}
+              sortOption={columnSorts[status] ?? 'default'}
+              onSortChange={(sort) => setColumnSorts((prev) => ({ ...prev, [status]: sort }))}
             />
           ))}
         </div>
@@ -931,9 +1033,6 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
           ) : null}
         </DragOverlay>
       </DndContext>
-
-      {/* Archived cards */}
-      <ArchivedSection projectId={projectId} />
 
       {/* Dependency graph overlay */}
       {depGraphOpen && (

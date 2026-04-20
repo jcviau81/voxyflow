@@ -18,7 +18,8 @@ export interface WorkerInfo {
   action: string;
   description: string;
   model: string;
-  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
+  workerClass?: string;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'crashed';
   startedAt: number;
   completedAt?: number;
   resultSummary?: string;
@@ -85,7 +86,7 @@ export interface WorkerState {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const TERMINAL_STATUSES = new Set(['done', 'failed', 'cancelled']);
+const TERMINAL_STATUSES = new Set(['done', 'failed', 'cancelled', 'crashed']);
 
 function normalizeStatus(status: string): WorkerInfo['status'] {
   const map: Record<string, WorkerInfo['status']> = {
@@ -95,6 +96,7 @@ function normalizeStatus(status: string): WorkerInfo['status'] {
     completed: 'done',
     failed: 'failed',
     cancelled: 'cancelled',
+    crashed: 'crashed',
     timed_out: 'failed',
     timeout: 'failed',
   };
@@ -141,6 +143,7 @@ export const useWorkerStore = create<WorkerState>()(
               action: w.action || 'unknown',
               description: w.description || '',
               model: normalizeModel(w.model),
+              workerClass: w.workerClass ?? undefined,
               status: normalizeStatus(w.status),
               startedAt: w.startedAt || Date.now(),
               completedAt: w.completedAt ?? undefined,
@@ -199,6 +202,7 @@ export const useWorkerStore = create<WorkerState>()(
           action: (payload.intent as string) || 'unknown',
           description: (payload.summary as string) || '',
           model: normalizeModel(payload.model as string),
+          workerClass: (payload.workerClass as string) || undefined,
           status: 'running',
           startedAt: Date.now(),
           toolCount: 0,

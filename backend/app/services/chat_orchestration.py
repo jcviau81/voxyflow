@@ -20,27 +20,24 @@ Event Bus Architecture:
 """
 
 import asyncio
-import json
 import logging
-import re
+import threading
 import time
 from collections import OrderedDict
-from uuid import uuid4
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
 from app.services.claude_service import ClaudeService
 from app.services.session_store import session_store
-from app.services.event_bus import ActionIntent, SessionEventBus, event_bus_registry
+from app.services.event_bus import event_bus_registry
 from app.services.pending_results import pending_store
 from app.services.worker_session_store import get_worker_session_store
-from app.services.direct_executor import DirectExecutor, READ_ACTIONS
 from app.services.worker_supervisor import get_worker_supervisor
-from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
-from app.tools.executor import get_executor
 from app.services.orchestration.worker_pool import DeepWorkerPool, LIGHTWEIGHT_INTENTS, is_lightweight_intent, _format_result_for_card
 from app.services.orchestration.layer_runners import LayerRunnersMixin
+from app.services.orchestration.delegate_dispatch import DelegateDispatchMixin
+from app.services.orchestration.tool_call_fallback import ToolCallFallbackMixin
 from app.services.orchestration.session_timeline import get_timeline
 
 logger = logging.getLogger("voxyflow.orchestration")
@@ -49,7 +46,7 @@ logger = logging.getLogger("voxyflow.orchestration")
 # _run_fast_layer, _run_deep_chat_layer → app.services.orchestration.layer_runners
 
 
-class ChatOrchestrator(LayerRunnersMixin):
+class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbackMixin):
     """Orchestrates the multi-layer AI chat pipeline over a WebSocket connection.
 
     This class owns the *flow* — which layers to call, how to combine results,
@@ -69,12 +66,13 @@ class ChatOrchestrator(LayerRunnersMixin):
         self._worker_pools: dict[str, DeepWorkerPool] = {}
         # Pending confirmations for destructive direct actions (taskId → delegate data)
         self._pending_confirms: dict[str, dict] = {}
+        self._pending_confirms_lock = threading.Lock()
         # Per-chat lock to serialize user messages and worker callbacks.
         # Bounded LRU — oldest idle chats get evicted once we're over the cap so
         # long-lived servers don't grow this dict without bound.
         self._chat_locks: "OrderedDict[str, asyncio.Lock]" = OrderedDict()
 
-    MAX_CALLBACK_DEPTH = 2  # Prevent infinite dispatcher↔worker re-trigger loops
+    MAX_CALLBACK_DEPTH = 5  # Prevent infinite dispatcher↔worker re-trigger loops
     _CHAT_LOCKS_CAP = 512  # evict oldest unlocked entries past this
 
     def _get_chat_lock(self, chat_id: str) -> asyncio.Lock:
@@ -189,6 +187,7 @@ class ChatOrchestrator(LayerRunnersMixin):
                 session_id=session_id,
                 send_model_status=send_model_status,
                 active_workers_context=active_workers_context,
+                is_callback=is_callback,
             )
         else:
             # Mode Fast (default): Sonnet streams to chat
@@ -1253,6 +1252,7 @@ class ChatOrchestrator(LayerRunnersMixin):
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
+
     # ------------------------------------------------------------------
     # Internal: Context resolution
     # ------------------------------------------------------------------
@@ -1263,13 +1263,31 @@ class ChatOrchestrator(LayerRunnersMixin):
         card_id: str | None,
         chat_level: str,
     ) -> tuple[dict | None, dict | None, list[str]]:
-        """Resolve project context, card context, and project name list from the database.
+        """Resolve project context and card context from the database.
 
         Returns (project_context, card_context, project_names).
+        project_names is always an empty list — the dispatcher calls
+        voxyflow.project.list on demand instead of receiving the full roll.
         """
         project_context = None
         card_context = None
         project_names: list[str] = []
+
+        # #8 card_id inherit: if we have a card but no project_id, look up
+        # the parent project so the card chat gets project-level context too
+        # (board state, tech stack, github). Without this, Voxy in card chat
+        # sees only the card and hallucinates the surrounding world.
+        if card_id and not project_id:
+            try:
+                from app.database import async_session, Card
+                from sqlalchemy import select
+                async with async_session() as db:
+                    r = await db.execute(select(Card.project_id).where(Card.id == card_id))
+                    parent = r.scalar_one_or_none()
+                    if parent:
+                        project_id = parent
+            except Exception as e:
+                logger.warning(f"_resolve_context: card->project lookup failed: {e}")
 
         if project_id:
             try:
@@ -1331,311 +1349,5 @@ class ChatOrchestrator(LayerRunnersMixin):
             except Exception as e:
                 logger.warning(f"Failed to resolve project/card context: {e}")
 
-        # For general/main chat: fetch all project names for the Chat Init block
-        if chat_level == "general" or not project_id:
-            try:
-                from app.database import async_session, Project
-                from sqlalchemy import select
-                async with async_session() as db:
-                    all_proj_result = await db.execute(
-                        select(Project.title).where(Project.status != "archived")
-                    )
-                    project_names = [row[0] for row in all_proj_result.fetchall()]
-            except Exception as e:
-                logger.warning(f"Failed to fetch project names for main chat init: {e}")
-
         return project_context, card_context, project_names
-
-    # ------------------------------------------------------------------
-    # Internal: <tool_call> text fallback — parse, execute, follow-up
-    # ------------------------------------------------------------------
-
-    async def _handle_tool_call_fallback(
-        self,
-        full_response: str,
-        websocket: WebSocket,
-        message_id: str,
-        chat_id: str,
-        model_label: str,
-        session_id: str | None,
-        project_name: str | None,
-        project_id: str | None,
-        chat_level: str,
-        project_context: dict | None,
-        card_context: dict | None,
-        project_names: list[str] | None,
-    ) -> bool:
-        """Check streamed response for <tool_call> blocks. If found:
-        1. Strip <tool_call> blocks and update history with clean text
-        2. Launch async background task for tool execution + follow-up
-        3. Return immediately so the user sees the response right away
-
-        Returns True if tool calls were detected (async task launched), False otherwise.
-        """
-        parser = ToolResponseParser()
-        text_content, tool_calls = parser.parse(full_response)
-
-        if not tool_calls:
-            return False
-
-        logger.info(f"[ToolCallFallback] Found {len(tool_calls)} <tool_call> blocks in {model_label} response — launching async execution")
-
-        # Strip <tool_call> blocks from the original response for history
-        clean_response = TOOL_CALL_PATTERN.sub("", full_response).strip()
-
-        # Overwrite the last assistant message in history with the clean version
-        history = self._claude.get_history(chat_id)
-        if history and history[-1].get("role") == "assistant":
-            history[-1]["content"] = clean_response
-
-        # Fire-and-forget: launch tool execution + follow-up as background task
-        asyncio.create_task(
-            self._execute_tools_and_followup_safe(
-                tool_calls=tool_calls,
-                websocket=websocket,
-                message_id=message_id,
-                chat_id=chat_id,
-                model_label=model_label,
-                session_id=session_id,
-                project_name=project_name,
-                project_id=project_id,
-                chat_level=chat_level,
-                project_context=project_context,
-                card_context=card_context,
-                project_names=project_names,
-            )
-        )
-
-        return True
-
-    async def _execute_tools_and_followup_safe(self, **kwargs) -> None:
-        """Background-safe wrapper for tool execution + follow-up."""
-        try:
-            await self._execute_tools_and_followup(**kwargs)
-        except Exception as e:
-            logger.error(f"[ToolCallFallback] Background tool execution failed: {e}", exc_info=True)
-            # Try to notify the user of the failure
-            ws = kwargs.get("websocket")
-            session_id = kwargs.get("session_id")
-            message_id = kwargs.get("message_id")
-            if ws:
-                try:
-                    await ws.send_json({
-                        "type": "chat:error",
-                        "payload": {
-                            "messageId": message_id,
-                            "error": f"Tool execution failed: {e}",
-                            "sessionId": session_id,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    })
-                except Exception as e:
-                    logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
-    async def _execute_tools_and_followup(
-        self,
-        tool_calls: list,
-        websocket: WebSocket,
-        message_id: str,
-        chat_id: str,
-        model_label: str,
-        session_id: str | None,
-        project_name: str | None,
-        project_id: str | None,
-        chat_level: str,
-        project_context: dict | None,
-        card_context: dict | None,
-        project_names: list[str] | None,
-    ) -> None:
-        """Background async task: execute tools, then stream a follow-up LLM response.
-
-        This runs AFTER the initial response has already been sent to the user,
-        so the chat is non-blocking. Results arrive as a new streamed message.
-        """
-        # Send tool:status events for each tool
-        for tc in tool_calls:
-            try:
-                await websocket.send_json({
-                    "type": "tool:status",
-                    "payload": {
-                        "tool": tc.name,
-                        "state": "executing",
-                        "sessionId": session_id,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                })
-            except Exception as e:
-                logger.warning(f"[ToolCallFallback] Failed to send tool:status: {e}")
-
-        # Execute tools
-        executor = get_executor()
-        executed_tools: list[dict] = []
-
-        for tc in tool_calls:
-            logger.info(f"[ToolCallFallback] Executing: {tc.name}({tc.arguments})")
-            result = await executor.execute(tc, timeout=30)
-            executed_tools.append({
-                "tool": tc.name,
-                "args": tc.arguments,
-                "result": result,
-            })
-
-            # Send tool:executed event to frontend
-            try:
-                await websocket.send_json({
-                    "type": "tool:executed",
-                    "payload": {
-                        "messageId": message_id,
-                        "tool": tc.name,
-                        "args": tc.arguments,
-                        "result": result,
-                        "sessionId": session_id,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                })
-            except Exception as e:
-                logger.warning(f"[ToolCallFallback] Failed to send tool:executed event: {e}")
-
-        # Build tool results context for follow-up
-        tool_context_parts = []
-        for evt in executed_tools:
-            tool_context_parts.append(
-                f"Tool: {evt['tool']}\n"
-                f"Args: {json.dumps(evt['args'], default=str)}\n"
-                f"Result: {json.dumps(evt['result'], default=str)}"
-            )
-        tool_context = "\n\n".join(tool_context_parts)
-
-        # Build follow-up messages: existing history + tool results as user context
-        history = self._claude.get_history(chat_id)
-        followup_messages = list(history) + [
-            {
-                "role": "user",
-                "content": (
-                    f"[SYSTEM: Tool execution results — incorporate these into your response]\n\n"
-                    f"{tool_context}\n\n"
-                    "Now provide your response to the user incorporating the tool results above. "
-                    "Do NOT mention tool calls, <tool_call> blocks, or system internals. "
-                    "Just answer naturally with the information."
-                ),
-            }
-        ]
-
-        # Determine which client/model to use
-        if model_label == "deep":
-            client = self._claude.deep_client
-            client_type = self._claude.deep_client_type
-            model = self._claude.deep_model
-        else:
-            client = self._claude.fast_client
-            client_type = self._claude.fast_client_type
-            model = self._claude.fast_model
-
-        # Build system prompt for the follow-up (static base + dynamic context block)
-        memory_context = self._claude.memory.build_memory_context(
-            project_name=project_name,
-            project_id=project_id,
-            include_long_term=False,
-            include_daily=True,
-            budget=200,
-            layers=(0,),
-        )
-        # Static base (cacheable) — dynamic context injected separately below
-        base_prompt = self._claude.personality.build_fast_prompt(
-            chat_level=chat_level,
-            project=project_context,
-            card=card_context,
-        )
-        _wc_list = await self._claude._load_worker_classes_context()
-        _dynamic_ctx = self._claude.personality.build_dynamic_context_block(
-            chat_level=chat_level,
-            project=project_context,
-            card=card_context,
-            project_names=project_names,
-            memory_context=memory_context,
-            worker_classes=_wc_list,
-        )
-        _dynamic_parts = [_dynamic_ctx] if _dynamic_ctx else []
-        from app.services.claude_service import _make_cached_system
-        system_prompt = _make_cached_system(
-            base_prompt, _dynamic_parts,
-            is_anthropic=(self._claude.fast_client_type == "anthropic"),
-        )
-
-        # Generate a new message ID for the follow-up response
-        followup_message_id = f"followup-{uuid4().hex[:8]}"
-
-        # Stream follow-up response as a NEW message
-        followup_full = ""
-        try:
-            async for token in self._claude._call_api_stream(
-                model=model,
-                system=system_prompt,
-                messages=followup_messages,
-                client=client,
-                client_type=client_type,
-                use_tools=False,
-                chat_level=chat_level,
-            ):
-                followup_full += token
-                await websocket.send_json({
-                    "type": "chat:response",
-                    "payload": {
-                        "messageId": followup_message_id,
-                        "content": token,
-                        "model": model_label,
-                        "streaming": True,
-                        "done": False,
-                        "sessionId": session_id,
-                        "isToolFollowup": True,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                })
-
-            # Send stream-done for the follow-up
-            await websocket.send_json({
-                "type": "chat:response",
-                "payload": {
-                    "messageId": followup_message_id,
-                    "content": "",
-                    "model": model_label,
-                    "streaming": True,
-                    "done": True,
-                    "sessionId": session_id,
-                    "isToolFollowup": True,
-                },
-                "timestamp": int(time.time() * 1000),
-            })
-        except Exception as e:
-            logger.error(f"[ToolCallFallback] Follow-up streaming failed: {e}")
-
-        # Persist tool results + follow-up response in session history
-        if followup_full:
-            # 1. Persist tool results as a hidden user message (system context)
-            #    This ensures the LLM has tool context on subsequent turns.
-            #    msg_type="tool_results" lets the UI filter it out.
-            tool_results_msg = f"[SYSTEM: Tool execution results]\n\n{tool_context}"
-            self._claude._append_and_persist(
-                chat_id, "user", tool_results_msg,
-                model=model_label, msg_type="tool_results",
-                session_id=session_id,
-            )
-            # 2. Persist the assistant follow-up response
-            self._claude._append_and_persist(
-                chat_id, "assistant", followup_full,
-                model=model_label, session_id=session_id,
-            )
-
-        # Send final tool:status complete
-        try:
-            await websocket.send_json({
-                "type": "tool:status",
-                "payload": {
-                    "state": "complete",
-                    "sessionId": session_id,
-                },
-                "timestamp": int(time.time() * 1000),
-            })
-        except Exception as e:
-            logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
-        logger.info(f"[ToolCallFallback] Async follow-up complete ({len(followup_full)} chars)")
 

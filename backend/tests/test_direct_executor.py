@@ -49,9 +49,17 @@ class TestIsDirectEligible:
         data_empty = {"model": "direct", "action": action, "params": {}}
         assert DirectExecutor.is_direct_eligible(data_empty) is True
 
-    def test_not_eligible_without_model_direct(self):
-        data = {"model": "sonnet", "action": "card.create", "params": {"title": "x"}}
-        assert DirectExecutor.is_direct_eligible(data) is False
+    def test_eligible_regardless_of_model(self):
+        """CRUD actions take the fast path even when the LLM requested a tier.
+
+        This is intentional — the model hint is ignored for whitelisted
+        CRUD intents so we skip the LLM roundtrip and save tokens.
+        """
+        for model in ("direct", "haiku", "sonnet", "opus"):
+            data = {"model": model, "action": "card.create", "params": {"title": "x"}}
+            assert DirectExecutor.is_direct_eligible(data) is True, (
+                f"CRUD action should stay eligible with model={model!r}"
+            )
 
     def test_not_eligible_without_params(self):
         data = {"model": "direct", "action": "card.create"}

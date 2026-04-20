@@ -91,9 +91,9 @@ class Settings(BaseSettings):
     claude_cli_path: str = "claude"  # Path to claude CLI binary
     cli_max_concurrent: int = 10        # DEPRECATED — use cli_session_concurrent + cli_worker_concurrent
     cli_min_spacing_ms: int = 0         # Min ms between CLI calls (CliRateGate)
-    cli_session_concurrent: int = 5     # Chat/dispatcher CLI slots
-    cli_worker_concurrent: int = 15     # Worker CLI slots
-    max_workers: int = 15               # Max parallel workers in DeepWorkerPool
+    cli_session_concurrent: int = 5     # Chat/dispatcher CLI slots (global, shared across all sessions)
+    cli_worker_concurrent: int = 15     # Worker CLI slots (global, shared across all sessions)
+    max_workers: int = 15               # Per-session DeepWorkerPool concurrency cap (one pool per chat session)
 
     # Claude API — native Anthropic SDK (preferred)
     claude_use_native: bool = False   # False = OpenAI-compatible proxy (claude-max-api). True requires direct API access.
@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     claude_max_tokens_haiku: int = 8192
     claude_max_tokens_sonnet: int = 16000
     claude_max_tokens_opus: int = 32000
+
+    # Startup pre-warm — eagerly load ChromaDB HNSW indexes + KG pinned cache
+    # so the first user message doesn't pay the cold-start cost (~500–800 ms).
+    # Disable if you want a minimal-footprint startup (e.g. short-lived test runs).
+    voxyflow_warmup_on_startup: bool = True
 
     # Conversation
     fast_context_messages: int = 20
