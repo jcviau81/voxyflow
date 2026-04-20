@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Archive, Play, Square, Link2, Trash2, RotateCcw, X,
-  AlertCircle, ChevronRight, Search,
+  Archive, Play, Square, Link2, Trash2, X,
+  AlertCircle, ChevronRight, ArrowUpDown,
 } from 'lucide-react';
 import {
   DndContext,
@@ -28,13 +28,14 @@ import type { Card, CardStatus } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
-import { useCards, useArchivedCards, useRestoreCard, useDeleteCard, usePatchCard, useReorderCards, useCreateCard } from '../../hooks/api/useCards';
+import { useCards, useDeleteCard, usePatchCard, useReorderCards, useCreateCard } from '../../hooks/api/useCards';
 import { useExportProject, useImportProject, useExecuteBoardPlan } from '../../hooks/api/useProjects';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 import { KanbanCard } from './KanbanCard';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { BoardHeader, useDebounce } from '../Board/BoardHeader';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -52,6 +53,30 @@ const COLUMN_DOT_COLORS: Record<string, string> = {
   'in-progress': 'bg-orange-500',
   done: 'bg-emerald-500',
 };
+
+// ── Column sort ───────────────────────────────────────────────────────────────────────────────────
+
+type SortOption = 'default' | 'newest' | 'oldest' | 'priority' | 'alpha';
+
+const SORT_LABELS: Record<SortOption, string> = {
+  default: 'Default',
+  newest: 'Newest first',
+  oldest: 'Oldest first',
+  priority: 'Priority (high→low)',
+  alpha: 'Alphabetical',
+};
+
+function sortCards(cards: Card[], sort: SortOption): Card[] {
+  if (sort === 'default') return cards;
+  const arr = [...cards];
+  switch (sort) {
+    case 'newest': return arr.sort((a, b) => b.createdAt - a.createdAt);
+    case 'oldest': return arr.sort((a, b) => a.createdAt - b.createdAt);
+    case 'priority': return arr.sort((a, b) => b.priority - a.priority);
+    case 'alpha': return arr.sort((a, b) => a.title.localeCompare(b.title));
+    default: return arr;
+  }
+}
 
 // ── Sortable Card Wrapper ──────────────────────────────────────────────────────
 
@@ -126,6 +151,8 @@ interface KanbanColumnProps {
   selectMode: boolean;
   selectedIds: Set<string>;
   onSelectChange: (id: string, selected: boolean) => void;
+  onSelectAll: (ids: string[]) => void;
+  onClearAll: () => void;
   query: string;
   priorityFilter: number | null;
   agentFilter: string | null;
@@ -134,6 +161,8 @@ interface KanbanColumnProps {
   onCardClick: (cardId: string) => void;
   executingCardId: string | null;
   isCardActive: (cardId: string) => boolean;
+  sortOption: SortOption;
+  onSortChange: (sort: SortOption) => void;
 }
 
 function KanbanColumn({
@@ -143,6 +172,8 @@ function KanbanColumn({
   selectMode,
   selectedIds,
   onSelectChange,
+  onSelectAll,
+  onClearAll,
   query,
   priorityFilter,
   agentFilter,
@@ -151,33 +182,117 @@ function KanbanColumn({
   onCardClick,
   executingCardId,
   isCardActive,
+  sortOption,
+  onSortChange,
 }: KanbanColumnProps) {
-  const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
+  const sortedCards = useMemo(() => sortCards(cards, sortOption), [cards, sortOption]);
+  const cardIds = useMemo(() => sortedCards.map((c) => c.id), [sortedCards]);
   const { setNodeRef } = useDroppable({ id: status });
+
+  const allSelected = sortedCards.length > 0 && sortedCards.every((c) => selectedIds.has(c.id));
+  const someSelected = sortedCards.some((c) => selectedIds.has(c.id));
+
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someSelected && !allSelected;
+    }
+  }, [someSelected, allSelected]);
+
+  const handleSelectAllToggle = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      e.stopPropagation();
+      if (e.target.checked) {
+        onSelectAll(sortedCards.map((c) => c.id));
+      } else {
+        sortedCards.forEach((c) => onSelectChange(c.id, false));
+      }
+    },
+    [sortedCards, onSelectAll, onSelectChange],
+  );
+
+  const handleCardListClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!selectMode) return;
+      const target = e.target as HTMLElement;
+      // Deselect all when clicking the column background (not on a card)
+      if (!target.closest('[data-testid="kanban-card"]')) {
+        onClearAll();
+      }
+    },
+    [selectMode, onClearAll],
+  );
 
   return (
     <div
       ref={setNodeRef}
-      className="flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40"
+      className="group/col flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40"
       data-status={status}
       data-testid={`kanban-column-${status}`}
     >
       {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/30">
         <div className="flex items-center gap-2">
+          {/* Select All checkbox — hidden until hover or selectMode is active */}
+          <div
+            className={cn(
+              'transition-opacity',
+              selectMode || someSelected ? 'opacity-100' : 'opacity-0 group-hover/col:opacity-50',
+            )}
+            onClick={(e) => e.stopPropagation()}
+            title={allSelected ? 'Deselect all in column' : 'Select all in column'}
+          >
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              aria-label={`Select all cards in ${label}`}
+              checked={allSelected}
+              onChange={handleSelectAllToggle}
+              className="w-3 h-3 rounded border-border accent-primary cursor-pointer"
+            />
+          </div>
           <span className={cn('w-2 h-2 rounded-full flex-shrink-0', COLUMN_DOT_COLORS[status])} />
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
         </div>
-        <span className="text-xs text-muted-foreground tabular-nums bg-muted/60 px-1.5 py-0.5 rounded-full min-w-[20px] text-center">{cards.length}</span>
+        <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className={cn(
+                  'p-0.5 rounded hover:bg-muted transition-colors focus:outline-none',
+                  sortOption !== 'default' && 'text-primary',
+                )}
+                title="Sort column"
+              >
+                <ArrowUpDown size={12} className={cn('text-muted-foreground', sortOption !== 'default' && 'text-primary')} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              {(Object.keys(SORT_LABELS) as SortOption[]).map((opt) => (
+                <DropdownMenuItem
+                  key={opt}
+                  onClick={() => onSortChange(opt)}
+                  className={cn('text-xs cursor-pointer', sortOption === opt && 'font-semibold text-primary')}
+                >
+                  {SORT_LABELS[opt]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <span className="text-xs text-muted-foreground tabular-nums bg-muted/60 px-1.5 py-0.5 rounded-full min-w-[20px] text-center">{cards.length}</span>
+        </div>
       </div>
 
       {/* Droppable card list */}
       <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
-        <div className="flex flex-col gap-2 p-2 min-h-[80px] overflow-y-auto max-h-[calc(100vh-320px)]">
-          {cards.length === 0 && (
+        <div
+          className="flex flex-col gap-2 p-2 min-h-[80px] overflow-y-auto max-h-[calc(100vh-320px)]"
+          onClick={handleCardListClick}
+        >
+          {sortedCards.length === 0 && (
             <div className="py-8 text-center text-xs text-muted-foreground">No cards</div>
           )}
-          {cards.map((card) => (
+          {sortedCards.map((card) => (
             <SortableCard
               key={card.id}
               card={card}
@@ -327,314 +442,6 @@ function BulkToolbar({ selectedIds, onClear, onBulkMove, onBulkArchive, onBulkDe
   );
 }
 
-// ── Archived Section helpers ──────────────────────────────────────────────────
-
-const PRIORITY_LABELS: Record<number, { label: string; color: string; bg: string }> = {
-  0: { label: 'Low',      color: 'text-green-400',  bg: 'bg-green-500/10'  },
-  1: { label: 'Medium',   color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
-  2: { label: 'High',     color: 'text-orange-400', bg: 'bg-orange-500/10' },
-  3: { label: 'Critical', color: 'text-red-400',    bg: 'bg-red-500/10'    },
-};
-
-const ARCHIVE_COLOR_CLASSES: Record<string, string> = {
-  yellow: 'border-yellow-500/30 bg-yellow-500/5',
-  blue:   'border-blue-500/30   bg-blue-500/5',
-  green:  'border-green-500/30  bg-green-500/5',
-  pink:   'border-pink-500/30   bg-pink-500/5',
-  purple: 'border-purple-500/30 bg-purple-500/5',
-  orange: 'border-orange-500/30 bg-orange-500/5',
-};
-
-const ARCHIVE_COLOR_DOT: Record<string, string> = {
-  yellow: 'bg-yellow-400',
-  blue:   'bg-blue-400',
-  green:  'bg-green-400',
-  pink:   'bg-pink-400',
-  purple: 'bg-purple-400',
-  orange: 'bg-orange-400',
-};
-
-const ARCHIVE_TAG_COLORS: Array<[string, string]> = [
-  ['rgba(255,107,107,0.18)', '#ff6b6b'],
-  ['rgba(78,205,196,0.18)',  '#4ecdc4'],
-  ['rgba(255,183,77,0.18)',  '#ffb74d'],
-  ['rgba(66,165,245,0.18)',  '#42a5f5'],
-  ['rgba(171,145,249,0.18)', '#ab91f9'],
-  ['rgba(102,187,106,0.18)', '#66bb6a'],
-  ['rgba(255,138,101,0.18)', '#ff8a65'],
-  ['rgba(236,64,122,0.18)',  '#ec407a'],
-];
-
-function archiveTagColor(tag: string): [string, string] {
-  let h = 0;
-  for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
-  return ARCHIVE_TAG_COLORS[h % ARCHIVE_TAG_COLORS.length];
-}
-
-function timeAgo(dateStr: string | null | undefined): string {
-  if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins  = Math.floor(diff / 60_000);
-  const hours = Math.floor(diff / 3_600_000);
-  const days  = Math.floor(diff / 86_400_000);
-  if (days > 0)  return `archivé il y a ${days} jour${days > 1 ? 's' : ''}`;
-  if (hours > 0) return `archivé il y a ${hours} heure${hours > 1 ? 's' : ''}`;
-  if (mins > 0)  return `archivé il y a ${mins} min`;
-  return "archivé à l'instant";
-}
-
-type ArchiveSortKey = 'archivedAt' | 'priority' | 'title';
-
-// ── Archived Section ──────────────────────────────────────────────────────────
-
-interface ArchivedSectionProps {
-  projectId: string;
-}
-
-function ArchivedSection({ projectId }: ArchivedSectionProps) {
-  const [open, setOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState<number | null>(null);
-  const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d' | '90d'>('all');
-  const [sortKey, setSortKey] = useState<ArchiveSortKey>('archivedAt');
-
-  const { data: archivedCards, isLoading } = useArchivedCards(projectId);
-  const restoreCard = useRestoreCard();
-  const deleteCard = useDeleteCard();
-  const showToast = useToastStore((s) => s.showToast);
-
-  const filteredAndSorted = useMemo(() => {
-    if (!archivedCards) return [];
-    const now = Date.now();
-    const thresholds: Record<string, number> = {
-      '7d':  now - 7  * 86_400_000,
-      '30d': now - 30 * 86_400_000,
-      '90d': now - 90 * 86_400_000,
-    };
-    return [...archivedCards]
-      .filter((card) => {
-        if (searchQuery && !card.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-        if (priorityFilter !== null && card.priority !== priorityFilter) return false;
-        if (dateFilter !== 'all' && card.archivedAt) {
-          if (new Date(card.archivedAt).getTime() < thresholds[dateFilter]) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortKey === 'title')    return a.title.localeCompare(b.title);
-        if (sortKey === 'priority') return (b.priority ?? 0) - (a.priority ?? 0);
-        const at = a.archivedAt ? new Date(a.archivedAt).getTime() : 0;
-        const bt = b.archivedAt ? new Date(b.archivedAt).getTime() : 0;
-        return bt - at;
-      });
-  }, [archivedCards, searchQuery, priorityFilter, dateFilter, sortKey]);
-
-  return (
-    <div className="mt-4 border-t border-border/30 pt-3">
-      {/* Toggle row */}
-      <button
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1 w-full"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <Archive size={14} />
-        <span>Archived Cards</span>
-        {archivedCards && archivedCards.length > 0 && (
-          <span className="text-xs bg-muted/60 px-1.5 py-0.5 rounded-full tabular-nums ml-0.5">
-            {archivedCards.length}
-          </span>
-        )}
-        <ChevronRight size={12} className={cn('transition-transform ml-auto', open && 'rotate-90')} />
-      </button>
-
-      {open && (
-        <div className="mt-3 space-y-3 px-2 pb-4">
-
-          {/* ── Toolbar ── */}
-          <div className="flex flex-wrap gap-2 items-center">
-            {/* Search */}
-            <div className="relative flex-1 min-w-[160px]">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Rechercher…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-7 pr-7 py-1.5 text-xs bg-muted/40 border border-border/40 rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X size={11} />
-                </button>
-              )}
-            </div>
-
-            {/* Priority filter */}
-            <select
-              value={priorityFilter ?? ''}
-              onChange={(e) => setPriorityFilter(e.target.value === '' ? null : Number(e.target.value))}
-              className="px-2 py-1.5 text-xs bg-muted/40 border border-border/40 rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
-            >
-              <option value="">Toutes priorités</option>
-              <option value="3">Critical</option>
-              <option value="2">High</option>
-              <option value="1">Medium</option>
-              <option value="0">Low</option>
-            </select>
-
-            {/* Date filter */}
-            <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)}
-              className="px-2 py-1.5 text-xs bg-muted/40 border border-border/40 rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
-            >
-              <option value="all">Toute la période</option>
-              <option value="7d">7 derniers jours</option>
-              <option value="30d">30 derniers jours</option>
-              <option value="90d">90 derniers jours</option>
-            </select>
-
-            {/* Sort */}
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as ArchiveSortKey)}
-              className="px-2 py-1.5 text-xs bg-muted/40 border border-border/40 rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
-            >
-              <option value="archivedAt">Trier: Date archivage</option>
-              <option value="priority">Trier: Priorité</option>
-              <option value="title">Trier: Titre</option>
-            </select>
-          </div>
-
-          {/* Match count when filters active */}
-          {(searchQuery || priorityFilter !== null || dateFilter !== 'all') && (
-            <div className="text-xs text-muted-foreground px-0.5">
-              {filteredAndSorted.length} / {archivedCards?.length ?? 0} carte{filteredAndSorted.length !== 1 ? 's' : ''}
-            </div>
-          )}
-
-          {/* Loading */}
-          {isLoading && <div className="text-xs text-muted-foreground py-2 px-1">Chargement…</div>}
-
-          {/* Empty state */}
-          {!isLoading && filteredAndSorted.length === 0 && (
-            <div className="text-xs text-muted-foreground py-6 text-center">
-              {archivedCards?.length === 0
-                ? 'Aucune carte archivée'
-                : 'Aucune carte ne correspond aux filtres'}
-            </div>
-          )}
-
-          {/* ── Card grid ── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {filteredAndSorted.map((card) => {
-              const pri = PRIORITY_LABELS[card.priority ?? 0];
-              const visibleTags = card.tags.slice(0, 3);
-              const hiddenTagCount = card.tags.length - visibleTags.length;
-
-              return (
-                <div
-                  key={card.id}
-                  className={cn(
-                    'group relative rounded-lg border border-border/40 bg-card/60 p-3',
-                    'transition-all duration-150 hover:border-border/70 hover:shadow-md hover:shadow-black/10',
-                    card.color && ARCHIVE_COLOR_CLASSES[card.color],
-                  )}
-                >
-                  {/* Header: color dot + title */}
-                  <div className="flex items-start gap-2">
-                    {card.color && ARCHIVE_COLOR_DOT[card.color] && (
-                      <span className={cn('mt-1.5 flex-shrink-0 w-2 h-2 rounded-full', ARCHIVE_COLOR_DOT[card.color])} />
-                    )}
-                    <span className="flex-1 text-[0.8125rem] font-medium text-foreground/80 leading-snug break-words line-clamp-2">
-                      {card.title}
-                    </span>
-                  </div>
-
-                  {/* Priority + tags row */}
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    {pri && (
-                      <span className={cn('px-1.5 py-0.5 rounded text-[0.625rem] font-medium leading-none', pri.bg, pri.color)}>
-                        {pri.label}
-                      </span>
-                    )}
-                    {visibleTags.map((tag) => {
-                      const [bg, color] = archiveTagColor(tag);
-                      return (
-                        <span
-                          key={tag}
-                          title={tag}
-                          style={{ background: bg, color }}
-                          className="px-1.5 py-0.5 rounded text-[0.625rem] font-medium leading-none"
-                        >
-                          {tag}
-                        </span>
-                      );
-                    })}
-                    {hiddenTagCount > 0 && (
-                      <span className="text-[0.625rem] text-muted-foreground font-medium">+{hiddenTagCount}</span>
-                    )}
-                  </div>
-
-                  {/* Archive date */}
-                  {card.archivedAt && (
-                    <div className="mt-1.5 text-[0.625rem] text-muted-foreground/70 leading-none">
-                      {timeAgo(card.archivedAt)}
-                    </div>
-                  )}
-
-                  {/* Hover overlay with action buttons */}
-                  <div className={cn(
-                    'absolute inset-0 rounded-lg flex items-center justify-center gap-2',
-                    'opacity-0 group-hover:opacity-100 transition-opacity duration-150',
-                    'bg-card/85 backdrop-blur-[2px]',
-                  )}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2.5 text-xs gap-1.5 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10 hover:border-emerald-500/60"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          await restoreCard.mutateAsync({ cardId: card.id, projectId });
-                          showToast(`"${card.title}" restored`, 'success');
-                        } catch {
-                          showToast('Restore failed', 'error');
-                        }
-                      }}
-                    >
-                      <RotateCcw size={12} /> Restore
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2.5 text-xs gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (!confirm(`Permanently delete "${card.title}"? This cannot be undone.`)) return;
-                        try {
-                          await deleteCard.mutateAsync({ cardId: card.id, projectId });
-                          showToast(`"${card.title}" permanently deleted`, 'success');
-                        } catch {
-                          showToast('Delete failed', 'error');
-                        }
-                      }}
-                    >
-                      <Trash2 size={12} /> Delete
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 
 // ── Execution Progress Bar ─────────────────────────────────────────────────────
 
@@ -712,6 +519,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const [priorityFilter, setPriorityFilter] = useState<number | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [columnSorts, setColumnSorts] = useState<Record<string, SortOption>>({});
 
   // Reset filters on project change
   useEffect(() => {
@@ -719,6 +527,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     setPriorityFilter(null);
     setAgentFilter(null);
     setTagFilter(null);
+    setColumnSorts({});
   }, [projectId]);
 
   // ── Select mode ──────────────────────────────────────────────────────────
@@ -741,6 +550,26 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     setSelectedIds(new Set());
     setSelectMode(false);
   }, []);
+
+  const handleSelectAll = useCallback((ids: string[]) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      setSelectMode(next.size > 0);
+      return next;
+    });
+  }, []);
+
+  // Escape key → clear selection
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectMode) {
+        clearSelection();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectMode, clearSelection]);
 
 
   // ── Board execution state ────────────────────────────────────────────────
@@ -884,6 +713,19 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
           // Roll back the optimistic status change applied in handleDragOver.
           useCardStore.getState().moveCard(activeCardData.id, originStatus);
           showToast('Move failed', 'error');
+          return;
+        }
+        // If moved to Done, insert at the top of the Done column
+        if (targetStatus === 'done') {
+          const freshDoneCards = Object.values(useCardStore.getState().cardsById)
+            .filter((c) => c.projectId === projectId && !c.archivedAt && c.status === 'done')
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+          const doneIds = [
+            activeCardData.id,
+            ...freshDoneCards.filter((c) => c.id !== activeCardData.id).map((c) => c.id),
+          ];
+          useCardStore.getState().reorderCards(doneIds);
+          try { await reorderCards.mutateAsync(doneIds); } catch { /* non-critical */ }
           return;
         }
       }
@@ -1037,10 +879,23 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         updateCardStore(id, { status });
         patchCard.mutate({ cardId: id, updates: { status }, projectId: projectId ?? undefined });
       });
+      // If moving to Done, insert selected cards at the top of the Done column
+      if (status === 'done') {
+        const selectedArr = Array.from(selectedIds);
+        const currentDoneCards = Object.values(useCardStore.getState().cardsById)
+          .filter((c) => c.projectId === projectId && !c.archivedAt && c.status === 'done')
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        const doneIds = [
+          ...selectedArr,
+          ...currentDoneCards.filter((c) => !selectedIds.has(c.id)).map((c) => c.id),
+        ];
+        useCardStore.getState().reorderCards(doneIds);
+        reorderCards.mutate(doneIds);
+      }
       showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
       clearSelection();
     },
-    [selectedIds, patchCard, updateCardStore, showToast, clearSelection, projectId],
+    [selectedIds, patchCard, reorderCards, updateCardStore, showToast, clearSelection, projectId],
   );
 
   const handleBulkArchive = useCallback(() => {
@@ -1153,6 +1008,8 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
               selectMode={selectMode}
               selectedIds={selectedIds}
               onSelectChange={handleSelectChange}
+              onSelectAll={handleSelectAll}
+              onClearAll={clearSelection}
               query={query}
               priorityFilter={priorityFilter}
               agentFilter={agentFilter}
@@ -1161,6 +1018,8 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
               onCardClick={handleCardClickInternal}
               executingCardId={executingCardId}
               isCardActive={isCardActive}
+              sortOption={columnSorts[status] ?? 'default'}
+              onSortChange={(sort) => setColumnSorts((prev) => ({ ...prev, [status]: sort }))}
             />
           ))}
         </div>
@@ -1174,9 +1033,6 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
           ) : null}
         </DragOverlay>
       </DndContext>
-
-      {/* Archived cards */}
-      <ArchivedSection projectId={projectId} />
 
       {/* Dependency graph overlay */}
       {depGraphOpen && (

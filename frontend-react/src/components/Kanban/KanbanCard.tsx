@@ -339,10 +339,10 @@ export function KanbanCard({
     <div
       className={cn(
         'group/card relative rounded-lg border border-border/60 bg-card p-3',
-        'cursor-pointer select-none transition-all duration-150',
-        'hover:shadow-md hover:shadow-black/20',
+        'cursor-pointer select-none transition-all duration-200 ease-out',
+        'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 hover:border-border/80',
         card.color && CARD_COLOR_CLASSES[card.color],
-        !card.color && 'hover:border-border',
+        !card.color && 'hover:bg-muted/30',
         isDragging && 'opacity-40 scale-95',
         isSelected && 'border-primary/60 ring-1 ring-primary/40 bg-primary/5',
         isBlocked && 'border-orange-500/40 bg-orange-500/5',
@@ -379,7 +379,9 @@ export function KanbanCard({
           data-checkbox="true"
           className={cn(
             'transition-opacity z-10',
-            selectMode ? 'opacity-100' : 'opacity-60',
+            selectMode || isSelected
+              ? 'opacity-100'
+              : 'opacity-0 group-hover/card:opacity-60',
           )}
           onClick={(e) => e.stopPropagation()}
         >
