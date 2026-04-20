@@ -146,6 +146,13 @@ class DeepWorkerPool:
         # reference block — NOT a re-triggered conversation turn.
         self._worker_events: dict[str, deque] = {}
         self._MAX_WORKER_EVENTS_PER_CHAT = 20
+        # Debounced dispatcher-callback scheduler: coalesces multiple worker
+        # completions for the same dispatcher chat into ONE re-entry turn so
+        # 10 parallel workers finishing don't produce 10 dispatcher turns.
+        self._callback_debouncers: dict[str, asyncio.Task] = {}
+        self._CALLBACK_DEBOUNCE_SECONDS = float(
+            os.environ.get("DISPATCHER_CALLBACK_DEBOUNCE_SECONDS", "3.0")
+        )
         self._stopped = False
 
     # Regex to extract file path from read-file intents
@@ -213,6 +220,11 @@ class DeepWorkerPool:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
+        # Cancel any pending dispatcher-callback debouncers
+        for chat_id, deb_task in list(self._callback_debouncers.items()):
+            if not deb_task.done():
+                deb_task.cancel()
+        self._callback_debouncers.clear()
         # Cancel active asyncio tasks and update DB records
         cancelled_ids = list(self._active_tasks.keys())
         for task_id, task in list(self._active_tasks.items()):
@@ -583,6 +595,91 @@ class DeepWorkerPool:
         if not buf:
             self._worker_events.pop(dispatcher_chat_id, None)
         return out
+
+    # ------------------------------------------------------------------
+    # Debounced dispatcher callback — re-enter the dispatcher with a thin
+    # signal (task_id + intent + status + one-line summary via the ambient
+    # worker-events block) after workers finish. Full results stay in
+    # artifacts; the dispatcher pulls them on demand via
+    # voxyflow.workers.get_result / read_artifact. Avoids the old failure
+    # mode where parallel worker results overwhelmed the dispatcher context.
+    # ------------------------------------------------------------------
+
+    def _schedule_dispatcher_callback(
+        self, dispatcher_chat_id: str, event: ActionIntent,
+    ) -> None:
+        """Arm (or re-arm) a debounced callback turn for this chat.
+
+        If another worker tied to the same dispatcher_chat_id finishes within
+        the debounce window, the timer resets and the completions collapse
+        into one callback turn. The turn itself reads the ambient worker-events
+        block drained in _compute_ambient_blocks → build_worker_events_block.
+        """
+        if not dispatcher_chat_id or not self._orchestrator:
+            return
+        if os.environ.get("DISPATCHER_WORKER_CALLBACK", "1") != "1":
+            return
+        if event.callback_depth >= self._orchestrator.MAX_CALLBACK_DEPTH:
+            logger.info(
+                f"[DeepWorkerPool] Skipping callback for task {event.task_id} — "
+                f"callback_depth={event.callback_depth} ≥ cap={self._orchestrator.MAX_CALLBACK_DEPTH}"
+            )
+            return
+
+        existing = self._callback_debouncers.pop(dispatcher_chat_id, None)
+        if existing and not existing.done():
+            existing.cancel()
+
+        self._callback_debouncers[dispatcher_chat_id] = asyncio.create_task(
+            self._run_debounced_callback(dispatcher_chat_id, event)
+        )
+
+    async def _run_debounced_callback(
+        self, dispatcher_chat_id: str, event: ActionIntent,
+    ) -> None:
+        try:
+            await asyncio.sleep(self._CALLBACK_DEBOUNCE_SECONDS)
+        except asyncio.CancelledError:
+            return
+
+        if self._stopped or not self._orchestrator:
+            return
+
+        from starlette.websockets import WebSocketState
+        ws_alive = (
+            self._ws is not None
+            and getattr(self._ws, "client_state", WebSocketState.CONNECTED) == WebSocketState.CONNECTED
+        )
+        if not ws_alive:
+            # pending_store already holds task:completed for redelivery on
+            # reconnect; the ambient events will be drained on the user's
+            # next turn. No need to fire a headless model call.
+            logger.info(
+                f"[DeepWorkerPool] Skipping callback for {dispatcher_chat_id} — WS not alive"
+            )
+            self._callback_debouncers.pop(dispatcher_chat_id, None)
+            return
+
+        try:
+            await self._orchestrator.handle_message(
+                websocket=self._ws,
+                content="[worker-callback] Workers finished — see Worker activity block.",
+                message_id=f"wcb-{uuid4().hex[:8]}",
+                chat_id=dispatcher_chat_id,
+                project_id=event.data.get("project_id"),
+                layers=None,  # default fast; cheap + [SILENT]-aware
+                chat_level=event.data.get("chat_level", "general"),
+                is_callback=True,
+                callback_depth=event.callback_depth,
+                card_id=event.data.get("card_id"),
+                session_id=event.session_id,
+            )
+        except Exception as e:
+            logger.warning(
+                f"[DeepWorkerPool] Dispatcher callback failed for {dispatcher_chat_id}: {e}"
+            )
+        finally:
+            self._callback_debouncers.pop(dispatcher_chat_id, None)
 
     def count_active_for_chat(self, dispatcher_chat_id: str) -> int:
         """How many active worker tasks are currently tied to this dispatcher chat?
@@ -1350,6 +1447,7 @@ class DeepWorkerPool:
                     status=status,
                     summary_line=summary_line,
                 )
+                self._schedule_dispatcher_callback(dispatcher_chat_id, event)
 
             if follow_up_action and self._orchestrator and event.session_id:
                 try:
@@ -1418,6 +1516,7 @@ class DeepWorkerPool:
                     status="failed",
                     summary_line=str(e)[:200],
                 )
+                self._schedule_dispatcher_callback(dispatcher_chat_id, event)
         finally:
             try:
                 supervisor = get_worker_supervisor()

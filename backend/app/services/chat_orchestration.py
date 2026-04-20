@@ -72,7 +72,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         # long-lived servers don't grow this dict without bound.
         self._chat_locks: "OrderedDict[str, asyncio.Lock]" = OrderedDict()
 
-    MAX_CALLBACK_DEPTH = 2  # Prevent infinite dispatcher↔worker re-trigger loops
+    MAX_CALLBACK_DEPTH = 5  # Prevent infinite dispatcher↔worker re-trigger loops
     _CHAT_LOCKS_CAP = 512  # evict oldest unlocked entries past this
 
     def _get_chat_lock(self, chat_id: str) -> asyncio.Lock:
@@ -187,6 +187,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 session_id=session_id,
                 send_model_status=send_model_status,
                 active_workers_context=active_workers_context,
+                is_callback=is_callback,
             )
         else:
             # Mode Fast (default): Sonnet streams to chat

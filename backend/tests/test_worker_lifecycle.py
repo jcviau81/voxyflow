@@ -369,3 +369,188 @@ def test_record_worker_event_truncates_long_summary_line():
     ev = pool._worker_events["chat-1"][0]
     # 200-char cap prevents any single completion from blowing up the block.
     assert len(ev["summary_line"]) == 200
+
+
+# ---------------------------------------------------------------------------
+# Debounced dispatcher callback
+#
+# Workers no longer hand full results back to the dispatcher — they only
+# re-enter the dispatcher turn with a thin signal (the ambient worker-events
+# block). Multiple completions for the same chat within the debounce window
+# must coalesce into ONE callback turn so 10 parallel workers don't produce
+# 10 dispatcher re-entries.
+# ---------------------------------------------------------------------------
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+
+def _make_pool_for_callbacks(orchestrator=None, ws=None, debounce=0.05):
+    """Bare DeepWorkerPool wired for callback unit tests."""
+    from app.services.orchestration.worker_pool import DeepWorkerPool
+
+    pool = DeepWorkerPool.__new__(DeepWorkerPool)
+    pool._worker_events = {}
+    pool._MAX_WORKER_EVENTS_PER_CHAT = 20
+    pool._active_tasks = {}
+    pool._task_meta = {}
+    pool._stopped = False
+    pool._ws = ws
+    pool._orchestrator = orchestrator
+    pool._callback_debouncers = {}
+    pool._CALLBACK_DEBOUNCE_SECONDS = debounce
+    return pool
+
+
+def _fake_orchestrator(max_depth=5):
+    """Mock orchestrator with an AsyncMock handle_message + configured depth cap."""
+    orch = MagicMock()
+    orch.MAX_CALLBACK_DEPTH = max_depth
+    orch.handle_message = AsyncMock(return_value=[])
+    return orch
+
+
+def _fake_live_ws():
+    from starlette.websockets import WebSocketState
+    ws = MagicMock()
+    ws.client_state = WebSocketState.CONNECTED
+    return ws
+
+
+def _make_event(task_id="T1", chat_id="chat-1", callback_depth=0):
+    from app.services.event_bus import ActionIntent
+    return ActionIntent(
+        task_id=task_id,
+        intent_type="complex",
+        intent="do stuff",
+        summary="...",
+        session_id="sess-1",
+        model="fast",
+        data={
+            "dispatcher_chat_id": chat_id,
+            "project_id": "proj-1",
+            "chat_level": "project",
+        },
+        callback_depth=callback_depth,
+    )
+
+
+@pytest.mark.asyncio
+async def test_callback_fires_once_after_debounce(monkeypatch):
+    monkeypatch.setenv("DISPATCHER_WORKER_CALLBACK", "1")
+    orch = _fake_orchestrator()
+    pool = _make_pool_for_callbacks(orchestrator=orch, ws=_fake_live_ws())
+    event = _make_event()
+
+    pool._schedule_dispatcher_callback("chat-1", event)
+    # Debounce is 0.05s — wait a bit longer than that.
+    await asyncio.sleep(0.15)
+
+    orch.handle_message.assert_awaited_once()
+    kwargs = orch.handle_message.await_args.kwargs
+    assert kwargs["chat_id"] == "chat-1"
+    assert kwargs["is_callback"] is True
+    assert kwargs["callback_depth"] == 0
+    # Debouncer bookkeeping is cleared after firing.
+    assert "chat-1" not in pool._callback_debouncers
+
+
+@pytest.mark.asyncio
+async def test_callback_coalesces_burst_into_one_turn(monkeypatch):
+    """Five worker completions for the same chat within the debounce window
+    must produce exactly ONE dispatcher callback turn."""
+    monkeypatch.setenv("DISPATCHER_WORKER_CALLBACK", "1")
+    orch = _fake_orchestrator()
+    pool = _make_pool_for_callbacks(orchestrator=orch, ws=_fake_live_ws(), debounce=0.1)
+
+    for i in range(5):
+        pool._schedule_dispatcher_callback("chat-1", _make_event(task_id=f"T{i}"))
+        await asyncio.sleep(0.02)  # well under debounce (0.1s)
+
+    # At this point all 5 scheduling calls re-armed the same timer.
+    await asyncio.sleep(0.2)
+
+    assert orch.handle_message.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_callback_skipped_at_depth_cap(monkeypatch):
+    monkeypatch.setenv("DISPATCHER_WORKER_CALLBACK", "1")
+    orch = _fake_orchestrator(max_depth=5)
+    pool = _make_pool_for_callbacks(orchestrator=orch, ws=_fake_live_ws())
+
+    pool._schedule_dispatcher_callback("chat-1", _make_event(callback_depth=5))
+    await asyncio.sleep(0.15)
+
+    orch.handle_message.assert_not_awaited()
+    assert pool._callback_debouncers == {}
+
+
+@pytest.mark.asyncio
+async def test_callback_skipped_when_ws_dead(monkeypatch):
+    from starlette.websockets import WebSocketState
+    monkeypatch.setenv("DISPATCHER_WORKER_CALLBACK", "1")
+
+    dead_ws = MagicMock()
+    dead_ws.client_state = WebSocketState.DISCONNECTED
+    orch = _fake_orchestrator()
+    pool = _make_pool_for_callbacks(orchestrator=orch, ws=dead_ws)
+
+    pool._schedule_dispatcher_callback("chat-1", _make_event())
+    await asyncio.sleep(0.15)
+
+    # pending_store / ambient-event block handles this case; no headless model call.
+    orch.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_callback_disabled_via_env(monkeypatch):
+    monkeypatch.setenv("DISPATCHER_WORKER_CALLBACK", "0")
+    orch = _fake_orchestrator()
+    pool = _make_pool_for_callbacks(orchestrator=orch, ws=_fake_live_ws())
+
+    pool._schedule_dispatcher_callback("chat-1", _make_event())
+    await asyncio.sleep(0.15)
+
+    orch.handle_message.assert_not_awaited()
+    assert pool._callback_debouncers == {}
+
+
+@pytest.mark.asyncio
+async def test_callback_debouncers_cancelled_on_stop(monkeypatch):
+    """A pending debouncer must not survive pool shutdown and fire a
+    headless model call against a torn-down orchestrator."""
+    monkeypatch.setenv("DISPATCHER_WORKER_CALLBACK", "1")
+    orch = _fake_orchestrator()
+    pool = _make_pool_for_callbacks(orchestrator=orch, ws=_fake_live_ws(), debounce=5.0)
+
+    pool._schedule_dispatcher_callback("chat-1", _make_event())
+    assert "chat-1" in pool._callback_debouncers
+    deb = pool._callback_debouncers["chat-1"]
+
+    # Inline the cancel behavior from pool.stop() without touching the bus.
+    pool._stopped = True
+    for _, t in list(pool._callback_debouncers.items()):
+        if not t.done():
+            t.cancel()
+    pool._callback_debouncers.clear()
+
+    with pytest.raises(asyncio.CancelledError):
+        await deb
+    orch.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_callback_parallel_chats_do_not_coalesce(monkeypatch):
+    """Debounce is per-chat: two independent chats each get their own turn."""
+    monkeypatch.setenv("DISPATCHER_WORKER_CALLBACK", "1")
+    orch = _fake_orchestrator()
+    pool = _make_pool_for_callbacks(orchestrator=orch, ws=_fake_live_ws())
+
+    pool._schedule_dispatcher_callback("chat-A", _make_event(chat_id="chat-A"))
+    pool._schedule_dispatcher_callback("chat-B", _make_event(chat_id="chat-B"))
+    await asyncio.sleep(0.15)
+
+    assert orch.handle_message.await_count == 2
+    chats = {call.kwargs["chat_id"] for call in orch.handle_message.await_args_list}
+    assert chats == {"chat-A", "chat-B"}
