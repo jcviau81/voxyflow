@@ -35,7 +35,7 @@ _CODING_PHRASES = frozenset({
 
 @dataclass(frozen=True)
 class ResolvedWorker:
-    model: str  # "haiku" | "sonnet" | "opus"
+    model: str | None  # "haiku" | "sonnet" | "opus" | None — None lets the matched worker class pick the model
     worker_class_id: str | None  # set when ``card.preferred_model`` is a UUID, not a tier
     intent_type: str  # "complex" | "crud_simple"
 
@@ -69,7 +69,9 @@ def resolve_worker_model(
     """Pick the model + intent_type for a delegated task.
 
     Ordering (matches the original inlined logic in chat_orchestration):
-      1. Start with ``data.model`` (clamped to haiku/sonnet/opus, default sonnet).
+      1. Start with ``data.model``. Normalize full names ("claude-opus-4-7") to
+         aliases ("opus"). Keep ``None`` when the delegate didn't specify a
+         model — the worker class (if matched) will then supply its default.
       2. If the card has ``preferred_model``, it wins — either a direct tier
          or a worker-class UUID (the pool resolves UUIDs later).
       3. Coding-keyword detection: haiku → sonnet on obvious code tasks,
@@ -79,9 +81,19 @@ def resolve_worker_model(
       5. intent_type = "complex" when model=opus or complexity=complex,
          "crud_simple" for create/move/update_card, else "complex".
     """
-    model = data.get("model") or "sonnet"
-    if model not in _VALID_MODELS:
-        model = "sonnet"
+    raw_model = data.get("model") or None
+    model: str | None = None
+    if raw_model:
+        _lower = str(raw_model).lower()
+        if "opus" in _lower:
+            model = "opus"
+        elif "haiku" in _lower:
+            model = "haiku"
+        elif "sonnet" in _lower:
+            model = "sonnet"
+        elif raw_model in _VALID_MODELS:
+            model = raw_model
+        # else: unrecognized → leave model=None, worker class decides
 
     worker_class_id: str | None = None
     card_preferred = card_context.get("preferred_model") if card_context else None

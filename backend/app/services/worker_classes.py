@@ -34,7 +34,7 @@ DEFAULT_WORKER_CLASSES = [
         "description": "Code writing, debugging, refactoring, code review",
         "endpoint_id": "",
         "provider_type": "cli",
-        "model": "claude-sonnet-4-6",
+        "model": "claude-opus-4-7",
         # Tightened: 'code'/'fix'/'test' alone match too broadly (QR code,
         # fix typo, test plan). Use multi-word phrases or unambiguous verbs.
         "intent_patterns": ["debug", "refactor", "implement", "unit test", "fix bug", "code review", "write code"],
