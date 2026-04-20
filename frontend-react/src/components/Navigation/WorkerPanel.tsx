@@ -164,9 +164,7 @@ function buildTree(
       const cli = cliByChatId[chatId];
       const ws = workersByChatId[chatId] || [];
       const label = parseSessionLabel(chatId, cardTitles, jobMeta);
-      const sessionLabel = cli
-        ? `${label} - ${modelEmoji(cli.model)} ${modelLabel(cli.model)}`
-        : label;
+      const sessionLabel = label;
 
       sessions.push({
         chatId,

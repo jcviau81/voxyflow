@@ -47,7 +47,13 @@ DEFAULT_WORKER_CLASSES = [
         "provider_type": "cli",
         "model": "claude-opus-4-7",
         # Dropped 'explain' (too broad — any "explain X" task matched).
-        "intent_patterns": ["research", "investigate", "analyze", "compare alternatives", "feasibility", "fact check"],
+        # Added web-search phrases so research → local LLM + SearXNG routes
+        # pick up "search the web", "recherche", etc.
+        "intent_patterns": [
+            "research", "investigate", "analyze", "compare alternatives",
+            "feasibility", "fact check",
+            "web search", "search web", "recherche web", "recherche",
+        ],
     },
     {
         "id": "00000000-0000-0000-0000-000000000004",

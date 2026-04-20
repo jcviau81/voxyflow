@@ -293,6 +293,15 @@ async def save_settings(settings: AppSettings):
     """
     data = settings.dict()
 
+    # Debug: log worker_classes being saved
+    _wcs = data.get("models", {}).get("worker_classes", [])
+    for _wc in _wcs:
+        if _wc.get("endpoint_id") or _wc.get("provider_type") != "cli":
+            logger.info(
+                "[settings save] worker_class %s: endpoint_id=%r, provider_type=%r, model=%r",
+                _wc.get("name"), _wc.get("endpoint_id"), _wc.get("provider_type"), _wc.get("model"),
+            )
+
     # If the frontend sent '***' for api_key fields, preserve the existing values
     existing = await _load_settings_from_db()
     if existing:
@@ -742,3 +751,97 @@ async def tts_speak_stream(request: Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ── Endpoint (My Machines) CRUD ───────────────────────────────────────────────
+
+@router.get("/endpoints")
+async def list_endpoints():
+    """Return all saved LLM endpoints (My Machines)."""
+    data = await _load_settings_from_db()
+    if data is None:
+        return {"endpoints": []}
+    endpoints = data.get("models", {}).get("endpoints", [])
+    # Redact api_key inline — avoids N deep-copies via _redact_sensitive
+    redacted = []
+    for ep in endpoints:
+        if not isinstance(ep, dict):
+            continue
+        out = dict(ep)
+        if out.get("api_key"):
+            out["api_key"] = "***"
+        redacted.append(out)
+    return {"endpoints": redacted}
+
+
+@router.post("/endpoints")
+async def add_endpoint(endpoint: ProviderEndpoint):
+    """Add or update a named LLM endpoint. If id already exists, it is replaced."""
+    import uuid as _uuid
+    data = await _load_settings_from_db()
+    if data is None:
+        data = AppSettings().dict()
+
+    if not endpoint.id:
+        endpoint.id = str(_uuid.uuid4())
+
+    models = data.setdefault("models", {})
+    endpoints: list = models.setdefault("endpoints", [])
+
+    ep_dict = endpoint.dict()
+
+    # If api_key is the redacted sentinel "***", preserve the existing real key
+    # (mirrors _merge_sensitive_on_save logic for the main PUT /api/settings route).
+    if ep_dict.get("api_key") == "***":
+        for existing_ep in endpoints:
+            if isinstance(existing_ep, dict) and existing_ep.get("id") == endpoint.id:
+                ep_dict["api_key"] = existing_ep.get("api_key", "")
+                break
+        else:
+            # No existing endpoint to merge from — clear the sentinel
+            ep_dict["api_key"] = ""
+
+    # Replace if id already exists, else append
+    replaced = False
+    for i, ep in enumerate(endpoints):
+        if isinstance(ep, dict) and ep.get("id") == endpoint.id:
+            endpoints[i] = ep_dict
+            replaced = True
+            break
+    if not replaced:
+        endpoints.append(ep_dict)
+
+    await _save_settings_to_db(data)
+    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+    logger.info("Endpoint %s (%s) %s", endpoint.name, endpoint.id, "updated" if replaced else "added")
+    return {"success": True, "id": endpoint.id, "action": "updated" if replaced else "added"}
+
+
+@router.delete("/endpoints/{endpoint_id}")
+async def remove_endpoint(endpoint_id: str):
+    """Remove a saved LLM endpoint by id."""
+    data = await _load_settings_from_db()
+    if data is None:
+        return {"success": False, "error": "No settings found"}
+
+    models = data.get("models")
+    if not isinstance(models, dict):
+        return {"success": False, "error": f"Endpoint {endpoint_id!r} not found"}
+
+    endpoints: list = models.get("endpoints", [])
+    filtered = [ep for ep in endpoints if not (isinstance(ep, dict) and ep.get("id") == endpoint_id)]
+    if len(filtered) == len(endpoints):
+        return {"success": False, "error": f"Endpoint {endpoint_id!r} not found"}
+
+    models["endpoints"] = filtered
+
+    await _save_settings_to_db(data)
+    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+    logger.info("Endpoint %s removed", endpoint_id)
+    return {"success": True, "id": endpoint_id}

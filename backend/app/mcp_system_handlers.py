@@ -845,9 +845,134 @@ def build_handlers(
         except Exception as e:
             return {"error": str(e)}
 
+    async def session_read(params: dict) -> dict:
+        """Read session history and return a condensed timeline of key events."""
+        import json
+        import re as _re
+
+        try:
+            from app.services.session_store import session_store as store
+
+            chat_id = (params.get("chat_id") or "").strip()
+            if not chat_id:
+                project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "")
+                chat_id = f"project:{project_id}" if project_id else ""
+            if not chat_id:
+                return {"success": False, "error": "chat_id required (or set VOXYFLOW_PROJECT_ID env var)"}
+
+            last_n = min(max(int(params.get("last_n_messages", 200) or 200), 10), 500)
+            focus = params.get("focus", "all")
+
+            all_messages = store.load_session(chat_id)
+            if not all_messages:
+                return {"success": True, "chat_id": chat_id, "total_messages": 0, "timeline": "", "summary": "No messages found."}
+
+            total = len(all_messages)
+            messages = all_messages[-last_n:]
+
+            summary_text = ""
+            summarized_count = 0
+            try:
+                safe_id = chat_id.replace(":", "/").replace("..", "")
+                data_dir = os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
+                summary_path = Path(data_dir) / "sessions" / f"{safe_id}.summary.json"
+                if summary_path.exists():
+                    summary_data = json.loads(summary_path.read_text())
+                    summary_text = summary_data.get("summary_text", "")
+                    summarized_count = summary_data.get("summarized_count", 0)
+            except Exception:
+                summarized_count = 0
+
+            timeline: list[dict] = []
+            for msg in messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                ts = msg.get("timestamp", msg.get("created_at", ""))
+                ts = ts[:19] if isinstance(ts, str) else ""
+
+                if isinstance(content, list):
+                    content = " ".join(
+                        c.get("text", "") if isinstance(c, dict) else str(c)
+                        for c in content
+                    ).strip()
+                if not content:
+                    continue
+
+                content_lower = content.lower()
+
+                if role == "user":
+                    if content.startswith("[SYSTEM:") and len(content) > 500:
+                        first_line = content.split("\n")[0][:200]
+                        if focus != "decisions":
+                            timeline.append({"ts": ts, "role": "system", "event": "worker_event", "text": first_line})
+                        continue
+                    is_go = content.strip().lower() in ("go", "ok", "oui", "yes", "go!", "go ?", "go?")
+                    if is_go:
+                        timeline.append({"ts": ts, "role": "user", "event": "go_signal", "text": "✅ GO"})
+                    elif len(content) > 5:
+                        timeline.append({"ts": ts, "role": "user", "event": "instruction", "text": content[:300]})
+
+                elif role == "assistant":
+                    if "<delegate>" in content:
+                        for dm in _re.findall(r'<delegate>(.*?)</delegate>', content, _re.DOTALL):
+                            try:
+                                dm_data = json.loads(dm.strip())
+                                action = str(dm_data.get("action", dm_data.get("description", "")))[:200]
+                                model = dm_data.get("model", "")
+                                timeline.append({
+                                    "ts": ts,
+                                    "role": "assistant",
+                                    "event": "delegate",
+                                    "text": f"🚀 DELEGATE → {action}" + (f" [model={model}]" if model else ""),
+                                })
+                            except Exception:
+                                timeline.append({"ts": ts, "role": "assistant", "event": "delegate", "text": f"🚀 DELEGATE → {dm[:200]}"})
+                        if focus == "delegates":
+                            continue
+
+                    if focus != "delegates" and "<delegate>" not in content:
+                        if len(content) < 20:
+                            continue
+                        keywords = (
+                            "plan", "go?", "install", "deploy", "ssh", "playwright", "brain", "m5max",
+                            "dashboard", "fix", "repair", "script", "worker", "je vais", "on va",
+                            "je relis", "j'ai relu", "voici", "résumé", "confirmé", "annulé",
+                        )
+                        if any(kw in content_lower for kw in keywords) or len(content) < 400:
+                            timeline.append({"ts": ts, "role": "assistant", "event": "decision", "text": content[:300]})
+
+            lines: list[str] = []
+            if summary_text and summarized_count > 0:
+                covered_end = messages[0].get("timestamp", "")[:19] if messages else ""
+                lines.append(f"=== SUMMARY (first {summarized_count} messages, before {covered_end}) ===")
+                lines.append(summary_text[:1500])
+                lines.append("")
+
+            lines.append(f"=== TIMELINE (last {len(messages)} of {total} messages) ===")
+            for event in timeline:
+                ts_str = event.get("ts", "")[-8:] if event.get("ts") else "??:??:??"
+                role_icon = "👤" if event["role"] == "user" else ("🤖" if event["role"] == "assistant" else "⚙️")
+                lines.append(f"[{ts_str}] {role_icon} {event['text']}")
+
+            if not timeline:
+                lines.append("(no notable events found in scanned range)")
+
+            return {
+                "success": True,
+                "chat_id": chat_id,
+                "total_messages": total,
+                "scanned": len(messages),
+                "events_found": len(timeline),
+                "timeline": "\n".join(lines),
+            }
+        except Exception as e:
+            logger.error(f"[mcp.session.read] failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
     handlers: dict = {
         "heartbeat_read": heartbeat_read,
         "heartbeat_write": heartbeat_write,
+        "session_read": session_read,
         "tools_load": tools_load,
         "system_exec": system_exec,
         "web_search": web_search,

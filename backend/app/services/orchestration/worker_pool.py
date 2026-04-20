@@ -857,11 +857,37 @@ class DeepWorkerPool:
             # event.model is the dispatcher's LLM-suggested hint — kept only for logging;
             # user-configured Worker Classes and Default Worker Model are authoritative.
             _worker_class = await self._resolve_worker_class(event)
-            if _worker_class and _worker_class.get("model"):
-                _effective_model = _worker_class["model"]
+            _explicit_model = event.model  # what the dispatcher explicitly requested
+            _effective_model = _explicit_model or get_default_worker_model()
+            _endpoint_config: dict | None = None  # resolved endpoint for worker class
+            if _worker_class:
+                # Worker class with endpoint_id ALWAYS takes precedence — the whole
+                # point of a worker class is to route matching intents to a specific
+                # endpoint+model. Exception: an explicit "opus" request signals the
+                # user/dispatcher wants maximum reasoning power — honour that over
+                # the worker class.
+                _wc_has_endpoint = bool(_worker_class.get("endpoint_id"))
+                _wc_has_model = bool(_worker_class.get("model"))
+                _honour_worker_class = (_wc_has_endpoint or _wc_has_model) and _explicit_model != "opus"
+
+                if _honour_worker_class or not _explicit_model:
+                    _effective_model = _worker_class.get("model") or _effective_model
+
+                # Store worker_class_id in event data for downstream use
                 event.data["_resolved_worker_class"] = _worker_class
-            else:
-                _effective_model = get_default_worker_model()
+
+                # Resolve endpoint so we can route to the correct provider/URL
+                if _wc_has_endpoint and _explicit_model != "opus":
+                    from app.services.llm.worker_class_resolver import resolve_endpoint_for_class
+                    _endpoint_config = await resolve_endpoint_for_class(_worker_class)
+                    if _endpoint_config and _endpoint_config.get("url"):
+                        logger.info(
+                            "[DeepWorkerPool] Task %s using endpoint %r (%s @ %s, model=%s)",
+                            event.task_id, _worker_class.get("endpoint_id"),
+                            _endpoint_config.get("provider_type"),
+                            _endpoint_config.get("url"),
+                            _effective_model,
+                        )
 
             # Safety guard: coding intents must never run on Haiku — upgrade to sonnet minimum.
             # Applies regardless of user-configured Worker Classes or Default Worker Model,
@@ -948,6 +974,7 @@ class DeepWorkerPool:
                 f"(model={_effective_model}"
                 + (f", class={_wc_name}" if _wc_name else "")
                 + (f", requested={event.model}" if event.model and event.model != _effective_model else "")
+                + (f", endpoint={_endpoint_config.get('url')}" if _endpoint_config else "")
                 + ")"
             )
 
@@ -1215,6 +1242,7 @@ class DeepWorkerPool:
                         message_queue=message_queue,
                         session_id=event.session_id or "",
                         task_id=event.task_id,
+                        endpoint_config=_endpoint_config,
                     )
                 else:
                     result_content = await self._claude.execute_worker_task(
@@ -1230,6 +1258,7 @@ class DeepWorkerPool:
                         message_queue=message_queue,
                         session_id=event.session_id or "",
                         task_id=event.task_id,
+                        endpoint_config=_endpoint_config,
                     )
             except asyncio.CancelledError:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")

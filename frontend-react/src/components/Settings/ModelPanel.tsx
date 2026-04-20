@@ -1625,6 +1625,7 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
   const [selectedClassId, setSelectedClassId] = useState('');
   const [prompt, setPrompt] = useState('');
   const [promptEdited, setPromptEdited] = useState(false);
+  const [promptIndex, setPromptIndex] = useState(-1);
   const [slotA, setSlotA] = useState<ComparisonSlot>(emptySlot());
   const [slotB, setSlotB] = useState<ComparisonSlot>(() => ({ ...emptySlot(), sourceValue: 'pt:anthropic', providerType: 'anthropic' }));
   const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResponse | null>(null);
@@ -1642,25 +1643,48 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
   function handleClassChange(classId: string) {
     setSelectedClassId(classId);
     setPromptEdited(false);
+    setPromptIndex(-1);
     setBenchmarkResult(null);
     const wc = workerClasses.find(c => c.id === classId);
     if (wc) {
-      // Generate a preview prompt client-side (server will re-generate if custom_prompt is empty)
-      const name = wc.name.toLowerCase();
-      if (name.includes('cod') || name.includes('code') || name.includes('debug')) {
-        setPrompt('Write a Python function that parses a markdown table into a list of dicts. Handle missing values gracefully. Include type hints and a brief docstring.');
-      } else if (name.includes('research') || name.includes('analyz') || name.includes('investigat')) {
-        setPrompt('Compare the trade-offs between PostgreSQL and MongoDB for a real-time collaborative document editing application. Structure your answer with pros/cons and a recommendation.');
-      } else if (name.includes('creat') || name.includes('writ') || name.includes('story')) {
-        setPrompt('Write the opening scene of a short story where a software engineer discovers their AI assistant has been secretly learning to paint. Make it vivid and surprising.');
-      } else if (name.includes('quick') || name.includes('fast') || name.includes('summar')) {
-        setPrompt('Summarize this in exactly 3 bullet points, each under 15 words: \'Large language models have revolutionized NLP by enabling few-shot learning, but they require significant compute resources and careful prompt engineering to perform reliably across diverse tasks.\'');
-      } else {
-        const hint = wc.description || (wc.intent_patterns.slice(0, 3).join(', ') || wc.name);
-        setPrompt(`You are a ${wc.name} assistant. Demonstrate your capabilities by completing this task: ${hint}. Provide a clear, well-structured response.`);
-      }
+      // Fetch a random prompt from the backend pool
+      const params = new URLSearchParams({
+        worker_class_name: wc.name,
+        worker_class_description: wc.description,
+        intent_patterns: wc.intent_patterns.join(','),
+        prompt_index: '-1',
+      });
+      apiFetch<{ prompt: string }>(`/api/models/benchmark/prompt?${params}`)
+        .then(data => {
+          if (!promptEdited) setPrompt(data.prompt);
+        })
+        .catch(() => {
+          // Fallback: generic prompt
+          const hint = wc.description || (wc.intent_patterns.slice(0, 3).join(', ') || wc.name);
+          setPrompt(`You are a ${wc.name} assistant. Demonstrate your capabilities by completing this task: ${hint}. Provide a clear, well-structured response.`);
+        });
     } else {
       setPrompt('');
+    }
+  }
+
+  async function handleShufflePrompt() {
+    const wc = workerClasses.find(c => c.id === selectedClassId);
+    if (!wc) return;
+    const nextIndex = promptIndex + 1;
+    setPromptIndex(nextIndex);
+    try {
+      const params = new URLSearchParams({
+        worker_class_name: wc.name,
+        worker_class_description: wc.description,
+        intent_patterns: wc.intent_patterns.join(','),
+        prompt_index: String(nextIndex),
+      });
+      const data = await apiFetch<{ prompt: string }>(`/api/models/benchmark/prompt?${params}`);
+      setPrompt(data.prompt);
+      setPromptEdited(false);
+    } catch {
+      // Silently ignore — keep current prompt
     }
   }
 
@@ -1870,6 +1894,16 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
           <label className="text-xs text-muted-foreground">Test Prompt</label>
           {!promptEdited && prompt && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Auto-generated</span>
+          )}
+          {!promptEdited && prompt && selectedClassId && (
+            <button
+              type="button"
+              title="Try a different prompt"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-accent text-muted-foreground transition-colors"
+              onClick={handleShufflePrompt}
+            >
+              🎲 Try another
+            </button>
           )}
         </div>
         <textarea
@@ -2162,6 +2196,145 @@ function DefaultWorkerModelSection({
   );
 }
 
+// ── WebSearchComparePanel ─────────────────────────────────────────────────
+
+interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+interface WebSearchEngineResult {
+  success: boolean;
+  engine: string;
+  results: WebSearchResult[];
+  count: number;
+  latency_ms: number;
+  error?: string;
+}
+
+interface WebSearchCompareResponse {
+  query: string;
+  searxng: WebSearchEngineResult;
+  duckduckgo: WebSearchEngineResult;
+}
+
+function WebSearchComparePanel() {
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<WebSearchCompareResponse | null>(null);
+  const [error, setError] = useState('');
+
+  async function runCompare() {
+    if (!query.trim()) return;
+    setLoading(true);
+    setResult(null);
+    setError('');
+    try {
+      const data = await apiFetch<WebSearchCompareResponse>('/api/models/websearch-compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query.trim(), count: 5 }),
+      });
+      setResult(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Request failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderEngine(res: WebSearchEngineResult) {
+    const latencyColor = res.latency_ms < 800 ? 'text-green-400' : res.latency_ms < 2000 ? 'text-yellow-400' : 'text-red-400';
+    return (
+      <div className="flex-1 min-w-[280px] flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold">{res.engine}</span>
+          {res.success ? (
+            <>
+              <span className={`text-xs font-medium ${latencyColor}`}>{res.latency_ms}ms</span>
+              <span className="text-xs text-muted-foreground">{res.count} results</span>
+            </>
+          ) : (
+            <span className="text-xs text-red-400">Failed</span>
+          )}
+        </div>
+        {!res.success && res.error && (
+          <p className="text-xs text-red-400 bg-red-500/10 rounded p-2">{res.error}</p>
+        )}
+        {res.success && res.results.length === 0 && (
+          <p className="text-xs text-muted-foreground">No results returned.</p>
+        )}
+        <div className="flex flex-col gap-2">
+          {res.results.map((r, i) => (
+            <div key={i} className="rounded border border-border bg-background p-2 flex flex-col gap-0.5">
+              <a
+                href={r.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-medium text-blue-400 hover:underline truncate block"
+              >
+                {r.title}
+              </a>
+              <span className="text-[10px] text-muted-foreground truncate">{r.url}</span>
+              {r.snippet && (
+                <p className="text-xs text-foreground/80 mt-0.5 line-clamp-2">{r.snippet}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold">Web Search Comparison</span>
+        <span className="text-xs text-muted-foreground">SearXNG vs DuckDuckGo — same query, side-by-side</span>
+      </div>
+
+      <div className="flex gap-2 items-end">
+        <div className="flex flex-col gap-1 flex-1">
+          <label className="text-xs text-muted-foreground">Search query</label>
+          <input
+            type="text"
+            className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
+            placeholder="e.g. best practices for RAG 2025"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !loading) runCompare(); }}
+          />
+        </div>
+        <button
+          type="button"
+          className="btn-secondary text-sm px-4 py-1.5 rounded border border-border hover:bg-accent font-medium shrink-0"
+          disabled={!query.trim() || loading}
+          onClick={runCompare}
+        >
+          {loading ? 'Searching...' : 'Compare'}
+        </button>
+      </div>
+
+      {error && <p className="text-xs text-red-400">{error}</p>}
+
+      {loading && (
+        <div className="flex items-center gap-2 py-2">
+          <span className="text-sm text-muted-foreground animate-pulse">Running both searches in parallel...</span>
+        </div>
+      )}
+
+      {result && (
+        <div className="flex gap-4 items-start flex-wrap">
+          {renderEngine(result.searxng)}
+          <div className="w-px bg-border self-stretch shrink-0" />
+          {renderEngine(result.duckduckgo)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ModelPanel ─────────────────────────────────────────────────────────────
 
 export function ModelPanel() {
@@ -2349,11 +2522,16 @@ export function ModelPanel() {
         workerClasses={watch('worker_classes') ?? []}
         onAssignToClass={(classId, config) => {
           const current = watch('worker_classes') ?? [];
-          setValue('worker_classes', current.map(wc =>
+          const updated = current.map(wc =>
             wc.id === classId ? { ...wc, ...config } : wc
-          ));
+          );
+          setValue('worker_classes', updated);
+          saveAll({ worker_classes: updated }).catch(() => {});
         }}
       />
+
+      {/* ── Section 5: Web Search Comparison ── */}
+      <WebSearchComparePanel />
     </div>
   );
 }

@@ -843,6 +843,38 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_handler": "task_cancel",
         "_scope": "voxyflow",
     },
+    {
+        "name": "voxyflow.session.read",
+        "description": (
+            "Read the current chat session history and return a condensed timeline of key events. "
+            "Use this when you need to recall what happened earlier in the session — decisions made, "
+            "tasks delegated, plans agreed, go signals given. Returns user instructions, delegate blocks, "
+            "worker completions, and key assistant decisions in chronological order. "
+            "Much more reliable than relying on context window alone for long sessions."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "string",
+                    "description": "Chat session ID (e.g. 'project:uuid'). Defaults to current session if omitted.",
+                },
+                "last_n_messages": {
+                    "type": "integer",
+                    "description": "How many recent messages to scan (default 200, max 500). Increase if session is very long.",
+                    "default": 200,
+                },
+                "focus": {
+                    "type": "string",
+                    "enum": ["decisions", "delegates", "all"],
+                    "description": "What to focus on: 'decisions' (user instructions + go signals), 'delegates' (spawned workers), 'all' (everything notable). Default: 'all'",
+                    "default": "all",
+                },
+            },
+        },
+        "_handler": "session_read",
+        "_scope": "voxyflow",
+    },
 
     # ---- System ------------------------------------------------------------
     {
@@ -1701,6 +1733,52 @@ _TOOL_DEFINITIONS: list[dict] = [
             },
         },
         "_handler": "task_steer",
+        "_scope": "voxyflow",
+    },
+
+    # ---- Endpoint / My Machines management ---------------------------------
+    {
+        "name": "voxyflow.endpoint.list",
+        "description": "List all saved LLM endpoints (My Machines) configured in Voxyflow settings.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+        "_http": ("GET", "/api/settings/endpoints", None),
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "voxyflow.endpoint.add",
+        "description": "Add or update a named LLM endpoint (My Machines). If the id already exists it is replaced. Use provider_type 'ollama' for Ollama instances.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["name", "provider_type", "url"],
+            "properties": {
+                "id": {"type": "string", "description": "Optional UUID — auto-generated if omitted"},
+                "name": {"type": "string", "description": "Display name, e.g. 'Brain', 'M5Max'"},
+                "provider_type": {
+                    "type": "string",
+                    "enum": ["ollama", "openai", "lmstudio", "groq", "mistral", "gemini", "anthropic"],
+                    "description": "LLM provider type",
+                },
+                "url": {"type": "string", "description": "Base URL, e.g. 'http://10.0.0.1:11434'"},
+                "api_key": {"type": "string", "description": "API key — leave empty for local providers like Ollama"},
+            },
+        },
+        "_http": ("POST", "/api/settings/endpoints", None),
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "voxyflow.endpoint.remove",
+        "description": "Remove a saved LLM endpoint (My Machines) by its id.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["endpoint_id"],
+            "properties": {
+                "endpoint_id": {"type": "string", "description": "UUID of the endpoint to remove"},
+            },
+        },
+        "_http": ("DELETE", "/api/settings/endpoints/{endpoint_id}", None),
         "_scope": "voxyflow",
     },
 ]

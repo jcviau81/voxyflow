@@ -51,6 +51,10 @@ TOOLS_DISPATCHER = {
     "voxyflow.card.archive",
     # Worker management (dispatcher needs to monitor/read worker results)
     "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
+    # Session introspection (read-only, non-blocking timeline recall)
+    "voxyflow.session.read",
+    # Endpoint management (My Machines) — instant, non-blocking CRUD
+    "voxyflow.endpoint.list", "voxyflow.endpoint.add", "voxyflow.endpoint.remove",
     # Undo journal — lets Voxy revert reversible actions she just took
     "voxyflow.undo.list", "voxyflow.undo.apply",
 }
