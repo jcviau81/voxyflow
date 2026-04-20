@@ -28,6 +28,8 @@ _GENERAL_CONTEXT_TOOLS = {
     "voxyflow.health",
     "voxyflow.jobs.list", "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
     "voxyflow.heartbeat.read", "voxyflow.heartbeat.write",
+    "voxyflow.autonomy.status", "voxyflow.autonomy.enable",
+    "voxyflow.autonomy.disable", "voxyflow.autonomy.run_now",
     "voxyflow.doc.list",
     "memory.search", "knowledge.search", "memory.save",
 }

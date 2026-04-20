@@ -950,6 +950,72 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
 
     # ======================================================================
+    # PROJECT AUTONOMY — per-project heartbeat (distinct from the GLOBAL one)
+    # Reads/writes ~/.voxyflow/workspace/projects/{project_id}/heartbeat.md and
+    # manages a dedicated ``agent_task`` job that runs on its own schedule with
+    # project-scoped memory / KG / MCP. In a project chat, project_id is
+    # auto-injected from VOXYFLOW_PROJECT_ID — Voxy does not need to pass it.
+    # ======================================================================
+
+    {
+        "name": "voxyflow.autonomy.status",
+        "description": (
+            "Return the project's autonomy state: {enabled, schedule, next_run, "
+            "directive, file_path, actionable}. In a project chat, project_id is "
+            "injected from the current project and must not be passed."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "Project UUID (only needed from general chat)"},
+            },
+        },
+        "_http": ("GET", "/api/projects/{project_id}/autonomy", None),
+    },
+    {
+        "name": "voxyflow.autonomy.enable",
+        "description": (
+            "Enable or update per-project autonomy. Creates/updates the heartbeat job and, "
+            "when ``directive`` is provided, rewrites the content below the '---' divider "
+            "in the project's heartbeat.md. Use this to hand Voxy the next step for the "
+            "project to execute on the next cycle. Pass directive='' to pause without "
+            "disabling the job. Schedule shorthand: every_5min / every_15min / every_1h / cron."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "Project UUID (only needed from general chat)"},
+                "enabled": {"type": "boolean", "description": "Default true"},
+                "schedule": {"type": "string", "description": "Cron or shorthand (default every_5min)"},
+                "directive": {"type": "string", "description": "Content written below the '---' divider. Empty string clears it."},
+            },
+        },
+        "_http": ("PUT", "/api/projects/{project_id}/autonomy", None),
+    },
+    {
+        "name": "voxyflow.autonomy.disable",
+        "description": "Remove the project's autonomy heartbeat job entirely. The directive file is kept on disk for reference.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "Project UUID (only needed from general chat)"},
+            },
+        },
+        "_http": ("DELETE", "/api/projects/{project_id}/autonomy", None),
+    },
+    {
+        "name": "voxyflow.autonomy.run_now",
+        "description": "Trigger the project's autonomy heartbeat immediately, bypassing the schedule. Same gate still applies — no directive, no LLM call.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "Project UUID (only needed from general chat)"},
+            },
+        },
+        "_http": ("POST", "/api/projects/{project_id}/autonomy/run", None),
+    },
+
+    # ======================================================================
     # SYSTEM TOOLS — direct execution, no REST API
     # ======================================================================
 

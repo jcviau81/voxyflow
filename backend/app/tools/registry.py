@@ -39,6 +39,9 @@ TOOLS_DISPATCHER = {
     # record "I acted" pings without spawning a worker. Keep it here unless
     # that ever grows into a side-effecting operation.
     "voxyflow.heartbeat.read", "voxyflow.heartbeat.write",
+    # Per-project autonomy — thin REST wrappers, all instant/non-blocking.
+    "voxyflow.autonomy.status", "voxyflow.autonomy.enable",
+    "voxyflow.autonomy.disable", "voxyflow.autonomy.run_now",
     "memory.search", "knowledge.search",
     # Basic CRUD (instant, non-blocking)
     "memory.save",

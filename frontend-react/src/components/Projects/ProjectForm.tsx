@@ -25,6 +25,7 @@ import {
   useCreateProjectFromTemplate,
 } from '../../hooks/api/useProjects';
 import type { Project, GitHubRepoInfo, ProjectTemplate, TechDetectResult } from '../../types';
+import { ProjectAutonomySection } from './ProjectAutonomySection';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -854,6 +855,10 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                       <option value="archived">Archived</option>
                     </select>
                   </div>
+                )}
+
+                {mode === 'edit' && project && !project.isSystem && (
+                  <ProjectAutonomySection projectId={project.id} />
                 )}
 
                 {mode === 'create' && (

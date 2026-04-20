@@ -21,6 +21,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db, Project, Card, WikiPage, new_uuid, utcnow
 from app.models.project import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithCards
+from app.services import project_autonomy
 from app.services.agent_personas import AgentType, get_persona
 from app.services.workspace_service import get_workspace_service
 
@@ -351,6 +352,12 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     await db.delete(project)
     await db.commit()
 
+    # Tear down the autonomy heartbeat (if any) after the project is gone.
+    try:
+        project_autonomy.disable(project_id)
+    except Exception as e:
+        logger.warning("Could not disable autonomy for deleted project %s: %s", project_id, e)
+
 
 @router.post("/{project_id}/archive", response_model=ProjectResponse)
 async def archive_project(project_id: str, db: AsyncSession = Depends(get_db)):
@@ -417,6 +424,73 @@ async def toggle_favorite(
     await db.commit()
     await db.refresh(project)
     return project
+
+
+# ---------------------------------------------------------------------------
+# Autonomy — per-project heartbeat
+# ---------------------------------------------------------------------------
+
+
+class AutonomyUpsertBody(BaseModel):
+    enabled: bool = True
+    schedule: str | None = None  # e.g. "every_5min", "every_15min", cron expr
+    directive: str | None = None  # content written below the "---" divider
+
+
+async def _require_project(project_id: str, db: AsyncSession) -> Project:
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found.")
+    return project
+
+
+@router.get("/{project_id}/autonomy")
+async def get_autonomy(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the current heartbeat state + directive for this project."""
+    await _require_project(project_id, db)
+    return project_autonomy.get_status(project_id)
+
+
+@router.put("/{project_id}/autonomy")
+async def put_autonomy(
+    project_id: str,
+    body: AutonomyUpsertBody,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create or update the project's autonomy heartbeat.
+
+    - ``enabled=false`` keeps the job in ``jobs.json`` but unregisters it from
+      APScheduler (pause). Use DELETE to remove it entirely.
+    - ``directive`` overwrites the content below the ``---`` divider. Pass
+      ``""`` to clear the directive (next cycle becomes a no-op via the gate).
+    """
+    project = await _require_project(project_id, db)
+    job = project_autonomy.upsert(
+        project_id,
+        project.title,
+        enabled=body.enabled,
+        schedule=body.schedule,
+        directive=body.directive,
+    )
+    status = project_autonomy.get_status(project_id)
+    status["job"] = job
+    return status
+
+
+@router.delete("/{project_id}/autonomy", status_code=204)
+async def delete_autonomy(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Remove the autonomy heartbeat job. The directive file is kept on disk."""
+    await _require_project(project_id, db)
+    project_autonomy.disable(project_id)
+    return None
+
+
+@router.post("/{project_id}/autonomy/run")
+async def run_autonomy_now(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Trigger the heartbeat job immediately (fire-and-forget semantics)."""
+    await _require_project(project_id, db)
+    result = await project_autonomy.run_now(project_id)
+    return {"project_id": project_id, "result": result}
 
 
 # ---------------------------------------------------------------------------
