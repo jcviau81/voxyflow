@@ -516,11 +516,24 @@ h1, h2, h3 {
   border-top-color: oklch(1 0 0 / 14%);
 }
 
-/* Sidebar active nav item */
-.dark .sidebar-item.active,
-.dark .sidebar-nav a.active,
+/* Sidebar active nav item — light mode: visible gray tint */
+.sidebar-nav a[aria-current="page"],
+.sidebar-nav [aria-current="page"] {
+  background-color: oklch(0.925 0 0);
+}
+
+/* Sidebar active nav item — dark mode: accent purple */
+.dark .sidebar-nav a[aria-current="page"],
 .dark .sidebar-nav [aria-current="page"] {
-  background-color: oklch(0.13 0.02 285);
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+/* Legacy .active class support */
+.dark .sidebar-item.active,
+.dark .sidebar-nav a.active {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
 }
 
 /* Connection status strip */
