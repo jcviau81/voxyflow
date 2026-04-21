@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Clock, User } from 'lucide-react';
+import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Clock, User, Bell } from 'lucide-react';
 import { PageHeader } from '../layout/PageHeader';
 import { cn } from '../../lib/utils';
 import { AppearancePanel } from './AppearancePanel';
@@ -22,6 +22,7 @@ import { WorkspacePanel } from './WorkspacePanel';
 import { DataPanel } from './DataPanel';
 import { AboutPanel } from './AboutPanel';
 import { JobsPanel } from './JobsPanel';
+import { NotificationsPanel } from './NotificationsPanel';
 
 // ── Panel registry ─────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ type PanelId =
   | 'personality'
   | 'models'
   | 'voice'
+  | 'notifications'
   | 'github'
   | 'workspace'
   | 'data'
@@ -47,6 +49,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'personality', label: 'Personality', icon: User },
   { id: 'models',     label: 'Models',     icon: Cpu },
   { id: 'voice',      label: 'Voice & STT', icon: Mic },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'github',     label: 'GitHub',     icon: GitBranch },
   { id: 'workspace',  label: 'Workspace',  icon: FolderOpen },
   { id: 'data',       label: 'Data',       icon: Database },
@@ -62,6 +65,7 @@ function renderPanel(id: PanelId) {
     case 'personality': return <PersonalityPanel />;
     case 'models':      return <ModelPanel />;
     case 'voice':      return <VoicePanel />;
+    case 'notifications': return <NotificationsPanel />;
     case 'github':     return <GitHubPanel />;
     case 'workspace':  return <WorkspacePanel />;
     case 'data':       return <DataPanel />;

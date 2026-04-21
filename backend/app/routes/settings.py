@@ -190,12 +190,25 @@ class VoiceSettings(BaseModel):
     volume: int = 80
 
 
+class PushEventFlags(BaseModel):
+    worker_done: bool = True
+    autonomy_result: bool = True
+
+
+class PushSettings(BaseModel):
+    enabled: bool = False
+    events: PushEventFlags = PushEventFlags()
+    vapid_public_key: str = ""
+    vapid_subject: str = "mailto:admin@localhost"
+
+
 class AppSettings(BaseModel):
     personality: PersonalitySettings = PersonalitySettings()
     models: ModelsSettings = ModelsSettings()
     scheduler: SchedulerSettings = SchedulerSettings()
     backup: BackupSettings = BackupSettings()
     voice: VoiceSettings = VoiceSettings()
+    push: PushSettings = PushSettings()
     onboarding_complete: bool = False
     user_name: str = ""
     assistant_name: str = "Voxy"

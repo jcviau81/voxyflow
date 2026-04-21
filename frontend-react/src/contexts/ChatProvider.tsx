@@ -25,6 +25,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '../types';
 import { cardKeys, mapRawCard } from '../hooks/api/useCards';
+import { showInPageNotification } from '../services/inPageNotifier';
 
 // ---------------------------------------------------------------------------
 // Chat event callback types — components subscribe to these via context
@@ -567,6 +568,52 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           success,
           link: cardId || undefined,
         });
+
+        // In-page browser notification — complements Web Push so browsers
+        // without working GCM (e.g. Brave on Linux) still get a native OS
+        // notification while the tab is open. Matching tag de-dupes if Web
+        // Push also fires.
+        try {
+          type PushCfg = {
+            enabled?: boolean;
+            events?: { worker_done?: boolean; autonomy_result?: boolean };
+          };
+          type CachedSettings = { push?: PushCfg } | undefined;
+          const cached = queryClient.getQueryData(['settings']) as CachedSettings;
+          const taskId = (payload as Record<string, unknown>).taskId as string | undefined;
+          const projectId = (payload as Record<string, unknown>).projectId as string | undefined;
+          const apply = (push?: PushCfg) => {
+            if (!push?.enabled) return;
+            if (push.events?.worker_done === false) return;
+            const intentLabel = intent || 'task';
+            const result = (payload as { result?: string }).result;
+            const url = cardId && projectId
+              ? `/project/${projectId}?card=${cardId}`
+              : projectId ? `/project/${projectId}` : '/';
+            void showInPageNotification({
+              title: success
+                ? `Worker finished: ${intentLabel}`
+                : `Worker failed: ${intentLabel}`,
+              body: ((summary || result || '') as string).slice(0, 140),
+              url,
+              tag: `worker-${taskId || Date.now()}`,
+            });
+          };
+          if (cached?.push) {
+            apply(cached.push);
+          } else {
+            // Fallback: fetch once and cache for subsequent completions.
+            void fetch('/api/settings')
+              .then((r) => (r.ok ? r.json() : null))
+              .then((data: CachedSettings) => {
+                if (data) queryClient.setQueryData(['settings'], data);
+                apply(data?.push);
+              })
+              .catch(() => { /* ignore */ });
+          }
+        } catch {
+          /* never let notification logic break the handler */
+        }
       }),
     );
     unsubs.push(

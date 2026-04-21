@@ -1461,6 +1461,22 @@ class DeepWorkerPool:
                 "artifactPath": artifact_path,
             })
 
+            # Fire-and-forget Web Push notification — gated by push.enabled in settings
+            try:
+                from app.services.push_service import build_deep_link, notify_user
+                _pid = event.data.get("project_id")
+                _cid = event.data.get("card_id")
+                _body = (result_content or result_preview or "").strip()[:140] or "Task finished."
+                asyncio.create_task(notify_user(
+                    event="worker_done",
+                    title=f"Worker finished: {event.intent or 'task'}",
+                    body=_body,
+                    url=build_deep_link(_pid, _cid),
+                    tag=f"worker-{event.task_id}",
+                ))
+            except Exception as _push_err:
+                logger.warning(f"[DeepWorker] Web push (success) dispatch failed: {_push_err}")
+
             # --- Persist worker result to session store (survives page refresh) ---
             if result_content and event.session_id:
                 try:
@@ -1543,6 +1559,22 @@ class DeepWorkerPool:
                 })
             except Exception:
                 pass
+
+            # Fire-and-forget Web Push notification on failure
+            try:
+                from app.services.push_service import build_deep_link, notify_user
+                _pid = event.data.get("project_id")
+                _cid = event.data.get("card_id")
+                _body = str(e)[:140] or "Task failed."
+                asyncio.create_task(notify_user(
+                    event="worker_done",
+                    title=f"Worker failed: {event.intent or 'task'}",
+                    body=_body,
+                    url=build_deep_link(_pid, _cid),
+                    tag=f"worker-{event.task_id}",
+                ))
+            except Exception as _push_err:
+                logger.warning(f"[DeepWorker] Web push (failure) dispatch failed: {_push_err}")
 
             # Record failure in session timeline
             if event.session_id:
