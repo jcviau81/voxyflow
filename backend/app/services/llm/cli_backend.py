@@ -213,6 +213,13 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             "VOXYFLOW_MCP_ROLE": role,
             "VOXYFLOW_PROJECT_ID": project_id or "system-main",
         }
+        # Propagate path overrides so the MCP subprocess computes the same
+        # dirs as the backend (prevents silent desync when the user overrides
+        # VOXYFLOW_DIR / VOXYFLOW_DATA_DIR / VOXYFLOW_WORKSPACE_DIR).
+        for _var in ("VOXYFLOW_DIR", "VOXYFLOW_DATA_DIR", "VOXYFLOW_WORKSPACE_DIR", "VOXYFLOW_MCP_LOG_LEVEL"):
+            _val = os.environ.get(_var)
+            if _val:
+                mcp_env[_var] = _val
         if card_id:
             mcp_env["VOXYFLOW_CARD_ID"] = card_id
         if chat_id:
