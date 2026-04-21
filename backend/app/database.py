@@ -243,6 +243,23 @@ async def init_db():
             "ON kg_attributes (entity_id, valid_to)"
         ))
 
+        # Ensure push_subscriptions table exists (Web Push / VAPID endpoints)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id TEXT PRIMARY KEY,
+                endpoint TEXT NOT NULL,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                user_agent TEXT,
+                created_at DATETIME NOT NULL,
+                last_used_at DATETIME
+            )
+        """))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_push_subscriptions_endpoint "
+            "ON push_subscriptions (endpoint)"
+        ))
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -520,6 +537,18 @@ class WorkerTask(Base):
     started_at = Column(DateTime, nullable=False, default=utcnow)
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+
+    id = Column(String, primary_key=True, default=new_uuid)
+    endpoint = Column(String, nullable=False, unique=True)
+    p256dh = Column(String, nullable=False)
+    auth = Column(String, nullable=False)
+    user_agent = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    last_used_at = Column(DateTime, nullable=True)
 
 
 class Document(Base):

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router-dom';
 import { WebSocketProvider } from './providers/WebSocketProvider';
@@ -16,6 +17,10 @@ const queryClient = new QueryClient({
 });
 
 function App() {
+  useEffect(() => {
+    import('./services/pushService').then((m) => m.ensureRegistered().catch(() => {}));
+  }, []);
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>

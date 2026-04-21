@@ -392,6 +392,20 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
     finally:
         await _cleanup_job_session(chat_id, session_id)
 
+    # Fire-and-forget Web Push heartbeat notification — only for project heartbeat jobs
+    if payload.get("project_heartbeat"):
+        try:
+            from app.services.push_service import notify_user
+            asyncio.create_task(notify_user(
+                event="autonomy_result",
+                title=f"Heartbeat: {job.get('name', 'autonomy')}",
+                body="Autonomy cycle completed.",
+                url=f"/project/{project_id}" if project_id else "/",
+                tag=f"autonomy-{job.get('id', '')}",
+            ))
+        except Exception as _push_err:
+            logger.warning(f"[Jobs][AgentTask] Web push dispatch failed: {_push_err}")
+
     return {"status": "ok", "message": f"Agent task completed: {job.get('name')}"}
 
 

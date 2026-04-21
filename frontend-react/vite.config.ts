@@ -13,6 +13,9 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.ts',
         includeAssets: ['favicon.svg', 'icons.svg'],
         manifest: {
           name: 'Voxyflow',
@@ -28,25 +31,10 @@ export default defineConfig(({ mode }) => {
             { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
           ]
         },
-        workbox: {
+        injectManifest: {
           // Exclude large WASM/ML model files from precache
           globIgnores: ['**/*.wasm', '**/whisper.worker*.js'],
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-          // Wipe stale precache entries on activation — prevents zombie bundles
-          // when the SW updates (e.g. after a cross-device sync fix deploy).
-          cleanupOutdatedCaches: true,
-          // Always fetch fresh JS/CSS — network first, fall back to cache.
-          // Bump cacheName when we need to force clients past a bad cached
-          // bundle (increment the -vN suffix on each forced invalidation).
-          runtimeCaching: [
-            {
-              urlPattern: /\.(?:js|css)$/,
-              handler: 'NetworkFirst',
-              options: { cacheName: 'assets-v2', networkTimeoutSeconds: 5 },
-            },
-          ],
-          skipWaiting: true,
-          clientsClaim: true,
         }
       })
     ],
