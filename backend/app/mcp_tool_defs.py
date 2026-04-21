@@ -15,6 +15,26 @@ All runtime behavior stays in ``mcp_server.py``; this module only holds the list
 
 from __future__ import annotations
 
+
+def _minimize_card_list(data):
+    """Project card list responses to the minimal fields an LLM actually needs.
+
+    Full ``CardResponse`` carries description, files, time sums, checklist
+    progress, watchers, etc. — a project with ~200 cards balloons the tool
+    result to >1 MB of tokens per call. This keeps only what's needed to
+    identify, filter, and order cards.
+    """
+    if not isinstance(data, list):
+        return data
+    keep = ("id", "title", "status", "priority", "position", "assignee", "agent_type")
+    out = []
+    for c in data:
+        if not isinstance(c, dict):
+            continue
+        out.append({k: c[k] for k in keep if k in c})
+    return out
+
+
 _TOOL_DEFINITIONS: list[dict] = [
     # ---- Main Board Cards (system-main project, backward-compatible aliases) ─
     {
@@ -40,12 +60,13 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.list_unassigned",
-        "description": "List cards on the Main Board (system-main project).",
+        "description": "List cards on the Main Board (system-main project). Returns minimal fields (id, title, status, priority, position, assignee, agent_type).",
         "inputSchema": {
             "type": "object",
             "properties": {},
         },
         "_http": ("GET", "/api/cards/unassigned", None),
+        "_post_process": _minimize_card_list,
     },
 
     # ---- Projects ----------------------------------------------------------
@@ -186,15 +207,24 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.list",
-        "description": "List cards for a project.",
+        "description": (
+            "List cards for the current project. project_id is auto-scoped from "
+            "the active chat context (VOXYFLOW_PROJECT_ID) — omit it in project "
+            "chats. In general chat it defaults to the Main Board. Returns "
+            "minimal fields (id, title, status, priority, position, assignee, "
+            "agent_type) to keep the response small."
+        ),
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
             "properties": {
-                "project_id": {"type": "string"},
+                "project_id": {
+                    "type": "string",
+                    "description": "Optional — normally auto-injected; only pass a UUID to override.",
+                },
             },
         },
         "_http": ("GET", "/api/projects/{project_id}/cards", None),
+        "_post_process": _minimize_card_list,
     },
     {
         "name": "voxyflow.card.get",
@@ -309,15 +339,22 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.list_archived",
-        "description": "List all archived cards for a project.",
+        "description": (
+            "List archived cards for the current project. project_id is "
+            "auto-scoped from VOXYFLOW_PROJECT_ID; omit it in project chats. "
+            "Returns minimal fields only."
+        ),
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "project_id": {
+                    "type": "string",
+                    "description": "Optional — normally auto-injected; only pass a UUID to override.",
+                },
             },
         },
         "_http": ("GET", "/api/projects/{project_id}/cards/archived", None),
+        "_post_process": _minimize_card_list,
     },
     {
         "name": "voxyflow.card.history",
