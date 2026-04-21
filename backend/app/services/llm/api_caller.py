@@ -17,7 +17,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional
+from typing import AsyncIterator, Callable, Optional
 
 from app.services.llm.model_utils import (
     _strip_think_tags,
@@ -238,7 +238,7 @@ class ApiCallerMixin:
                     text_parts = [b.text for b in response.content if b.type == "text"]
                     partial = "".join(text_parts)
                     logger.warning(
-                        f"[Anthropic] max_tokens reached on round {_+1} for {chat_id!r} "
+                        f"[Anthropic] max_tokens reached on round {_round} for {chat_id!r} "
                         f"(partial text length={len(partial)})"
                     )
                     return partial + "\n[Truncated: max tokens reached]"

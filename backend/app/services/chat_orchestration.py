@@ -20,6 +20,7 @@ Event Bus Architecture:
 """
 
 import asyncio
+import json
 import logging
 import re
 import threading
@@ -33,7 +34,7 @@ from starlette.websockets import WebSocketState
 from app.services.claude_service import ClaudeService
 from app.services.direct_executor import DirectExecutor, READ_ACTIONS
 from app.services.session_store import session_store
-from app.services.event_bus import event_bus_registry
+from app.services.event_bus import ActionIntent, event_bus_registry
 from app.services.pending_results import pending_store
 from app.services.worker_session_store import get_worker_session_store
 from app.services.worker_supervisor import get_worker_supervisor

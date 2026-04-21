@@ -25,7 +25,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          pip install pytest pytest-asyncio ruff
+
+      - name: Lint — undefined names (ruff F821)
+        run: ruff check --select F821 app
 
       - name: Run pytest (excluding e2e)
         run: pytest --ignore=tests/e2e -q
