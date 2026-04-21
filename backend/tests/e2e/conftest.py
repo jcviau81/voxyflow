@@ -50,6 +50,94 @@ def _require_backend():
 
 
 # ---------------------------------------------------------------------------
+# E2E job sweeper
+# ---------------------------------------------------------------------------
+
+# Name prefixes used by tests that POST /api/jobs. Any job matching one of
+# these at session teardown is considered orphaned and removed. Kept in one
+# place so new test-job names can be registered here without touching the
+# teardown logic.
+_E2E_JOB_NAME_PREFIXES: tuple[str, ...] = (
+    "E2E Test Job ",
+    "E2E Reminder ",
+    "E2E RAG ",
+    "E2E Trigger ",
+    "E2E Listed ",
+    "Update Test ",
+    "Delete Test ",
+)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _sweep_stale_e2e_jobs(_require_backend):
+    """Delete stray E2E jobs/projects left over from previous failed runs.
+
+    Tests in test_10_jobs.py create jobs via POST /api/jobs and delete them
+    at the end of each test; the test_project fixture creates throwaway
+    projects with title prefix 'E2E_Test_'. When a test fails mid-run the
+    delete is skipped and the job/project stays on disk — scheduled, and in
+    the case of rag_index jobs, contributing to event-loop stalls every
+    few minutes. This fixture wipes both on session start AND at teardown.
+    """
+    import httpx as _httpx
+
+    def _sweep_jobs(label: str) -> int:
+        try:
+            r = _httpx.get(f"{BASE_URL}/api/jobs", timeout=5)
+            if r.status_code != 200:
+                return 0
+            jobs = r.json().get("jobs", [])
+        except Exception:
+            return 0
+
+        removed = 0
+        for job in jobs:
+            name = (job.get("name") or "").strip()
+            if not any(name.startswith(p) for p in _E2E_JOB_NAME_PREFIXES):
+                continue
+            try:
+                dr = _httpx.delete(f"{BASE_URL}/api/jobs/{job.get('id')}", timeout=5)
+                if dr.status_code in (200, 204):
+                    removed += 1
+            except Exception:
+                pass
+        if removed:
+            print(f"[conftest] {label}: swept {removed} stale E2E job(s)")
+        return removed
+
+    def _sweep_projects(label: str) -> int:
+        try:
+            r = _httpx.get(f"{BASE_URL}/api/projects", timeout=5)
+            if r.status_code != 200:
+                return 0
+            payload = r.json()
+            projects = payload if isinstance(payload, list) else payload.get("projects", [])
+        except Exception:
+            return 0
+
+        removed = 0
+        for p in projects:
+            title = (p.get("title") or "").strip()
+            if not title.startswith("E2E_Test_"):
+                continue
+            try:
+                dr = _httpx.delete(f"{BASE_URL}/api/projects/{p.get('id')}", timeout=15)
+                if dr.status_code in (200, 204):
+                    removed += 1
+            except Exception:
+                pass
+        if removed:
+            print(f"[conftest] {label}: swept {removed} stale E2E project(s)")
+        return removed
+
+    _sweep_jobs("pre-session")
+    _sweep_projects("pre-session")
+    yield
+    _sweep_jobs("post-session")
+    _sweep_projects("post-session")
+
+
+# ---------------------------------------------------------------------------
 # Test project lifecycle (create → yield → cleanup)
 # ---------------------------------------------------------------------------
 

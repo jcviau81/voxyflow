@@ -64,6 +64,11 @@ class SchedulerService:
         self._backup_enabled: bool = False
         # Track previous health statuses for heartbeat change detection
         self._prev_health_statuses: dict[str, str] = {}
+        # Global mutex for _rag_index_job — multiple rag_index job entries
+        # (builtin, user-scoped, hourly, etc.) otherwise overlap and starve
+        # the event loop. Lazily created on first use so __init__ doesn't
+        # require a running loop.
+        self._rag_index_lock: Optional[asyncio.Lock] = None
 
     # ------------------------------------------------------------------
     # WS event helper
@@ -351,6 +356,12 @@ class SchedulerService:
                 args=[job],
                 replace_existing=True,
                 misfire_grace_time=300,
+                # Collapse missed fires into a single run, and refuse to
+                # queue a second instance of the same job on top of one
+                # that's still executing. Protects against slow jobs
+                # (rag_index, heartbeat) stacking up under load.
+                coalesce=True,
+                max_instances=1,
             )
             logger.info(f"[Jobs] Registered job '{name}' with APScheduler (id={job_id}, schedule={schedule})")
         except Exception as e:
@@ -761,7 +772,7 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"[Recurrence] unexpected error: {e}", exc_info=True)
 
-    async def _rag_index_job(self) -> None:
+    async def _rag_index_job(self, project_ids: Optional[list[str]] = None) -> None:
         """
         Re-index workspace for projects with recent chat activity (last 30 min).
 
@@ -771,7 +782,32 @@ class SchedulerService:
 
         Keeps RAG context fresh without doing full re-index on every message.
         Uses RAGService.index_workspace() which upserts by card_id.
+
+        If ``project_ids`` is provided, only those projects are considered
+        (still gated by the "recent activity" cutoff). Pass None to scan
+        all projects (default — used by the every-15min builtin sweep).
+
+        Overlapping invocations are dropped: only one _rag_index_job may
+        run at a time across the whole process. Without this, multiple
+        rag_index job entries (builtin + user-created) would pile up on
+        aligned schedules (e.g. :00 and :30) and stall the event loop.
         """
+        # Lazy-init the lock on the running loop.
+        if self._rag_index_lock is None:
+            self._rag_index_lock = asyncio.Lock()
+
+        if self._rag_index_lock.locked():
+            logger.info(
+                "[RAGIndex] Another rag_index pass is already running — "
+                "skipping this invocation (scope=%s)",
+                "all" if project_ids is None else f"{len(project_ids)} project(s)",
+            )
+            return
+
+        async with self._rag_index_lock:
+            await self._rag_index_job_inner(project_ids)
+
+    async def _rag_index_job_inner(self, project_ids: Optional[list[str]]) -> None:
         try:
             from datetime import timedelta
 
@@ -786,9 +822,13 @@ class SchedulerService:
                 return
 
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+            scope_filter = set(project_ids) if project_ids else None
 
             async with async_session() as db:
-                result = await db.execute(select(Project))
+                stmt = select(Project)
+                if scope_filter:
+                    stmt = stmt.where(Project.id.in_(scope_filter))
+                result = await db.execute(stmt)
                 projects = result.scalars().all()
 
                 indexed_count = 0
