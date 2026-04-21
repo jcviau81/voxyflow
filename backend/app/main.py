@@ -651,6 +651,16 @@ async def general_websocket(websocket: WebSocket):
                 logger.warning(f"WS message parse error: {e}")
     except WebSocketDisconnect:
         logger.info("General WebSocket client disconnected")
+    except RuntimeError as e:
+        # Starlette raises RuntimeError("WebSocket is not connected…") when
+        # receive_text() is awaited on a socket the client has already
+        # closed. Same shape as WebSocketDisconnect — demote from exception
+        # to info so it stops spamming tracebacks on normal page reloads.
+        msg = str(e)
+        if "not connected" in msg or "disconnect" in msg.lower():
+            logger.info("General WebSocket client disconnected (runtime)")
+        else:
+            logger.exception(f"General WebSocket error: {e}")
     except Exception as e:
         logger.exception(f"General WebSocket error: {e}")
     finally:

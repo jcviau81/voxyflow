@@ -218,14 +218,27 @@ def _emit_job_session(job: dict, chat_id: str, project_id: str | None = None) ->
 
 
 async def _run_rag_index(job: dict, payload: dict) -> dict:
-    """Run a RAG index job for a specific project or all active projects."""
-    project_id = payload.get("project_id")
+    """Run a RAG index job for specific projects or all active projects.
+
+    Payload keys (all optional):
+      - project_ids: list[str]  → scope to these projects
+      - project_id:  str        → legacy single-project scope
+    Neither set → reindex all projects with recent activity (builtin sweep).
+    """
+    project_ids: list[str] = []
+    raw_ids = payload.get("project_ids")
+    if isinstance(raw_ids, list):
+        project_ids.extend(str(x) for x in raw_ids if x)
+    single = payload.get("project_id")
+    if isinstance(single, str) and single:
+        project_ids.append(single)
 
     from app.services.scheduler_service import get_scheduler_service
 
     svc = get_scheduler_service()
-    await svc._rag_index_job()
-    return {"status": "ok", "message": f"RAG index triggered (project_id={project_id or 'all active'})"}
+    await svc._rag_index_job(project_ids=project_ids or None)
+    scope = ", ".join(project_ids) if project_ids else "all active"
+    return {"status": "ok", "message": f"RAG index triggered (scope={scope})"}
 
 
 async def _run_builtin(job: dict, job_type: str) -> dict:
