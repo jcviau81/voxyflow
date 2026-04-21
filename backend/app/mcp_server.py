@@ -551,6 +551,18 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
             "detail": data,
         }
 
+    # Optional response shaping — used by list tools that would otherwise
+    # dump huge full-object payloads into the LLM context. Declared per-tool
+    # as a `_post_process` callable on the tool def in mcp_tool_defs.py.
+    post = tool_def.get("_post_process")
+    if callable(post):
+        try:
+            data = post(data)
+        except Exception as e:
+            logger.warning(
+                f"[MCP] _post_process for {tool_def.get('name')} failed: {e} — returning raw response"
+            )
+
     # Ensure success flag is present so the frontend tool:executed handler
     # can distinguish successes (it checks result.success).
     if isinstance(data, dict) and "success" not in data:
