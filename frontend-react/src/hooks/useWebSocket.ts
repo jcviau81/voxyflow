@@ -9,6 +9,10 @@ const RECONNECT_MAX_DELAY = 30000; // ms
 const HEARTBEAT_INTERVAL = 30000; // 30s
 const LEGACY_PENDING_ACKS_STORAGE_KEY = 'voxyflow_pending_acks';
 const ACK_TIMEOUT_MS = 15000; // 15s
+// If no `session:sync:ack` arrives within this window after connect we flush
+// anyway. Covers the case where no active session triggers session:sync at all.
+const SYNC_ACK_TIMEOUT_MS = 3000;
+const SERVER_STARTUP_ID_KEY = 'voxyflow_server_startup_id';
 
 function getWsUrl(): string {
   if (typeof window === 'undefined') return 'ws://localhost:8000/ws';
@@ -61,7 +65,7 @@ export interface UseWebSocketReturn {
 export function useWebSocket(): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
-  const { pendingCount, enqueue, flush } = useOfflineQueue();
+  const { pendingCount, enqueue, flush, clear: clearQueue } = useOfflineQueue();
 
   // Mutable refs for reconnection state (avoid re-render on every attempt)
   const reconnectAttemptsRef = useRef(0);
@@ -76,8 +80,19 @@ export function useWebSocket(): UseWebSocketReturn {
   const pendingAcksRef = useRef<Map<string, QueuedMessage>>(new Map());
   const pendingAckTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
+  // Boot-id tracking — when the server emits a fresh startupId in its
+  // session:sync:ack we know it restarted under us; any queued/unacked
+  // messages targeted the old process and must not be replayed.
+  const lastStartupIdRef = useRef<string | null>(null);
+  const syncAckReceivedRef = useRef(false);
+  const syncAckFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const postSyncFlushRef = useRef<() => void>(() => {});
+
   // Clean up any stale entries from older builds on mount.
-  useEffect(() => { purgeLegacyPendingAcks(); }, []);
+  useEffect(() => {
+    purgeLegacyPendingAcks();
+    try { lastStartupIdRef.current = sessionStorage.getItem(SERVER_STARTUP_ID_KEY); } catch { /* ignore */ }
+  }, []);
 
   // --- Heartbeat ---
 
@@ -176,31 +191,46 @@ export function useWebSocket(): UseWebSocketReturn {
         reconnectAttemptsRef.current = 0;
         setConnectionState('connected');
         startHeartbeat();
-        dispatchMessage({ type: 'ws:connected', payload: {} });
 
-        // Resend messages that were sent but never ACK'd
-        if (pendingAcksRef.current.size > 0) {
-          console.log(`[useWebSocket] Resending ${pendingAcksRef.current.size} unACK'd messages`);
-          for (const [, msg] of pendingAcksRef.current) {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: msg.type, payload: msg.payload, id: msg.id, timestamp: msg.timestamp }));
+        // Defer pending-ACK resend + offline-queue flush until we've seen the
+        // server's startupId via session:sync:ack. If the id changed, the
+        // backend restarted under us and those messages must be dropped, not
+        // replayed. ChatProvider sends session:sync in response to
+        // ws:connected, so the ack will follow shortly; if no active session
+        // triggers session:sync at all, the fallback timer flushes anyway.
+        syncAckReceivedRef.current = false;
+        postSyncFlushRef.current = () => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          if (pendingAcksRef.current.size > 0) {
+            console.log(`[useWebSocket] Resending ${pendingAcksRef.current.size} unACK'd messages`);
+            for (const [, msg] of pendingAcksRef.current) {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: msg.type, payload: msg.payload, id: msg.id, timestamp: msg.timestamp }));
+              }
             }
           }
-        }
-
-        // Flush any messages queued while offline
-        flush((msg: QueuedMessage) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: msg.type,
-              payload: msg.payload,
-              id: msg.id,
-              timestamp: msg.timestamp,
-            }));
-            return true;
+          flush((msg: QueuedMessage) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: msg.type,
+                payload: msg.payload,
+                id: msg.id,
+                timestamp: msg.timestamp,
+              }));
+              return true;
+            }
+            return false;
+          });
+        };
+        if (syncAckFallbackTimerRef.current) clearTimeout(syncAckFallbackTimerRef.current);
+        syncAckFallbackTimerRef.current = setTimeout(() => {
+          if (!syncAckReceivedRef.current) {
+            console.log('[useWebSocket] No session:sync:ack within timeout — flushing anyway');
+            postSyncFlushRef.current();
           }
-          return false;
-        });
+        }, SYNC_ACK_TIMEOUT_MS);
+
+        dispatchMessage({ type: 'ws:connected', payload: {} });
       };
 
       ws.onmessage = (event: MessageEvent) => {
@@ -215,6 +245,35 @@ export function useWebSocket(): UseWebSocketReturn {
               if (timer) { clearTimeout(timer); pendingAckTimersRef.current.delete(messageId); }
               pendingAcksRef.current.delete(messageId);
             }
+            return;
+          }
+
+          // Boot-id gate: server's reply to session:sync. If the startupId
+          // changed since we last saw it, the backend restarted — drop any
+          // messages queued/unacked while we were disconnected, they
+          // targeted a process that no longer exists.
+          if (message.type === 'session:sync:ack') {
+            const startupId = (message.payload as Record<string, unknown>)?.startupId as string | undefined;
+            if (startupId) {
+              const last = lastStartupIdRef.current;
+              if (last && last !== startupId) {
+                console.warn(
+                  `[useWebSocket] Backend startupId changed (${last.slice(0, 8)} → ${startupId.slice(0, 8)}) — dropping offline queue and unacked messages`,
+                );
+                clearQueue();
+                for (const t of pendingAckTimersRef.current.values()) clearTimeout(t);
+                pendingAckTimersRef.current.clear();
+                pendingAcksRef.current.clear();
+              }
+              lastStartupIdRef.current = startupId;
+              try { sessionStorage.setItem(SERVER_STARTUP_ID_KEY, startupId); } catch { /* ignore */ }
+            }
+            syncAckReceivedRef.current = true;
+            if (syncAckFallbackTimerRef.current) {
+              clearTimeout(syncAckFallbackTimerRef.current);
+              syncAckFallbackTimerRef.current = null;
+            }
+            postSyncFlushRef.current();
             return;
           }
 
@@ -242,7 +301,7 @@ export function useWebSocket(): UseWebSocketReturn {
       console.error('[useWebSocket] Connection error:', error);
       handleDisconnect();
     }
-  }, [startHeartbeat, stopHeartbeat, dispatchMessage, handleDisconnect, flush]);
+  }, [startHeartbeat, stopHeartbeat, dispatchMessage, handleDisconnect, flush, clearQueue]);
 
   // Keep connectRef in sync
   useEffect(() => {
@@ -263,6 +322,10 @@ export function useWebSocket(): UseWebSocketReturn {
         clearTimeout(timer);
       }
       pendingAckTimersRef.current.clear();
+      if (syncAckFallbackTimerRef.current) {
+        clearTimeout(syncAckFallbackTimerRef.current);
+        syncAckFallbackTimerRef.current = null;
+      }
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;

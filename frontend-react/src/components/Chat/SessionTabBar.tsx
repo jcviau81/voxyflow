@@ -68,7 +68,9 @@ export function SessionTabBar({
   const fetchSessionHistory = useCallback(() => {
     const prefix = cardId ? `card:${cardId}` : `project:${projectId || tabId}`;
     setHistoryLoading(true);
-    fetch(`/api/sessions?active=true&max_age_hours=720`)
+    // Cap history to recent sessions — month-old chats are rarely what the
+    // user wants to "restore", they just clutter the dropdown.
+    fetch(`/api/sessions?active=true&max_age_hours=72`)
       .then((r) => (r.ok ? r.json() : []))
       .then((all: ServerSession[]) => {
         const localChatIds = new Set(sessions.map((s) => s.chatId));

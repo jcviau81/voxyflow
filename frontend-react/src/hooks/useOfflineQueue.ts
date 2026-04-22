@@ -23,6 +23,10 @@ export interface UseOfflineQueueReturn {
   enqueue: (msg: QueuedMessage) => void;
   /** Flush queued messages via the provided sender. Re-queues on failure. */
   flush: (sender: (msg: QueuedMessage) => boolean) => void;
+  /** Drop every queued message. Used when the backend restarted underneath us
+   *  — those messages targeted a process that no longer exists, replaying them
+   *  against a fresh idempotency cache would re-trigger orchestration. */
+  clear: () => void;
 }
 
 // Fresh-session guard: runs once per page load, before any queue read.
@@ -141,10 +145,20 @@ export function useOfflineQueue(): UseOfflineQueueReturn {
     syncCount();
   }, [syncCount]);
 
+  const clear = useCallback(() => {
+    const dropped = queueRef.current.length;
+    queueRef.current = [];
+    saveQueue(queueRef.current);
+    syncCount();
+    if (dropped > 0) {
+      console.log(`[useOfflineQueue] Cleared ${dropped} queued message(s)`);
+    }
+  }, [syncCount]);
+
   // On mount, sync the count from whatever was loaded from localStorage
   useEffect(() => {
     syncCount();
   }, [syncCount]);
 
-  return { pendingCount, enqueue, flush };
+  return { pendingCount, enqueue, flush, clear };
 }
