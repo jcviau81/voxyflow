@@ -13,6 +13,10 @@ if (typeof window !== 'undefined') {
 export interface MessageState {
   messages: Message[];
 
+  // Sessions where a worker just completed and Voxy's follow-up reply is expected.
+  // Keyed by sessionId; flipped on by task:completed and off by the next chat:response.
+  pendingAssistantBySession: Record<string, boolean>;
+
   // Add a single message (auto-assigns id + timestamp)
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => Message;
 
@@ -35,12 +39,16 @@ export interface MessageState {
   // Clear all messages globally
   clearMessages: () => void;
 
+  // Mark/unmark a session as awaiting Voxy's reply (drives typing indicator).
+  setPendingAssistant: (sessionId: string, pending: boolean) => void;
+
   // Queries (non-reactive helpers)
   getMessages: (projectId?: string, sessionId?: string) => Message[];
 }
 
 export const useMessageStore = create<MessageState>()((set, get) => ({
   messages: [],
+  pendingAssistantBySession: {},
 
   addMessage(message) {
     const fullMessage: Message = {
@@ -89,7 +97,22 @@ export const useMessageStore = create<MessageState>()((set, get) => ({
   },
 
   clearMessages() {
-    set({ messages: [] });
+    set({ messages: [], pendingAssistantBySession: {} });
+  },
+
+  setPendingAssistant(sessionId, pending) {
+    if (!sessionId) return;
+    set((s) => {
+      const current = s.pendingAssistantBySession[sessionId] ?? false;
+      if (current === pending) return s;
+      const next = { ...s.pendingAssistantBySession };
+      if (pending) {
+        next[sessionId] = true;
+      } else {
+        delete next[sessionId];
+      }
+      return { pendingAssistantBySession: next };
+    });
   },
 
   getMessages(projectId, sessionId) {
