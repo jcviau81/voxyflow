@@ -58,6 +58,13 @@ from app.startup import build_lifespan
 _claude_service = ClaudeService()
 _orchestrator = ChatOrchestrator(_claude_service)
 
+# Boot identity. Changes on every process start, so the client can detect an
+# in-session backend restart (a WS reconnect landing on a fresh process) and
+# drop its offline message queue. Without this, any messages the user typed
+# during the restart window are replayed against an empty idempotency cache
+# and re-trigger orchestration for turns the user already saw resolved.
+STARTUP_ID = uuid4().hex
+
 # Idempotency cache for chat:message. Keyed by messageId, value = (chat_id, expiry_ts).
 # Prevents a reconnecting/refreshing client from re-triggering orchestration
 # when it replays un-ACK'd messages from its local queue. Bounded to avoid unbounded growth.
@@ -635,6 +642,13 @@ async def general_websocket(websocket: WebSocket):
                         # Reattach in-flight workers to this WebSocket FIRST
                         _orchestrator.update_pool_websocket(sync_session_id, websocket)
                         active_session_ids.add(sync_session_id)
+                    # Reply BEFORE delivering pending, so the client can wipe its
+                    # offline queue on startup-id mismatch before flushing it.
+                    await websocket.send_json({
+                        "type": "session:sync:ack",
+                        "payload": {"sessionId": sync_session_id, "startupId": STARTUP_ID},
+                        "timestamp": int(time.time() * 1000),
+                    })
                     # Deliver all pending across all sessions (idempotent — files are
                     # deleted after delivery so already-delivered results won't re-appear)
                     await _deliver_all_pending()
