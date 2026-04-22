@@ -398,6 +398,19 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
                 logger.warning(f"delete_memory_cascade: error in {name}: {e}")
         return deleted_from
 
+    def drop_project_collection(self, project_id: str) -> bool:
+        """Drop the memory-project-{project_id} ChromaDB collection."""
+        if not self._chromadb_enabled:
+            return False
+        name = _project_collection(project_id)
+        try:
+            self._client.delete_collection(name)
+            logger.info(f"drop_project_collection: dropped {name}")
+            return True
+        except Exception as e:
+            logger.debug(f"drop_project_collection: could not drop {name}: {e}")
+            return False
+
     def search_memory(
         self,
         query: str,

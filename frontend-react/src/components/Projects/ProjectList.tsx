@@ -392,7 +392,7 @@ export function ProjectList() {
   }
 
   function handleDelete(project: Project) {
-    if (confirm(`Permanently delete "${project.name}"? This cannot be undone. All cards, history, and knowledge will be lost.`)) {
+    if (confirm(`Permanently delete "${project.name}"? This is irreversible — cards, chats, memory, knowledge graph, documents, and all sessions/workspace files for this project will be wiped. Use Archive if you want a safety net.`)) {
       void deleteMutation.mutateAsync(project.id);
     }
   }
