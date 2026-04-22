@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import time
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -118,15 +119,15 @@ def _format_messages(messages: list[dict]) -> str:
 def _find_claude_cli(explicit_path: str = "claude") -> str:
     """Resolve the Claude CLI binary path.
 
-    Priority: explicit path > ~/.local/bin/claude > $PATH lookup.
+    Priority: explicit path (if it exists) > `shutil.which("claude")` on $PATH
+    > bare "claude" (let exec fail loudly).
     """
     if explicit_path != "claude" and os.path.isfile(explicit_path):
         return explicit_path
-    # Common install location (npm global, pipx, etc.)
-    local_bin = os.path.expanduser("~/.local/bin/claude")
-    if os.path.isfile(local_bin):
-        return local_bin
-    return explicit_path  # fallback to bare name (relies on PATH)
+    resolved = shutil.which("claude")
+    if resolved:
+        return resolved
+    return explicit_path
 
 
 @dataclass(frozen=True)
@@ -163,9 +164,17 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
     """
 
     def __init__(self, cli_path: str = "claude"):
-        self.cli_path = _find_claude_cli(cli_path)
+        self._configured_cli_path = cli_path
         self._last_usage: dict = {}
         self._persistent_chats: dict[str, PersistentChatProcess] = {}
+
+    @property
+    def cli_path(self) -> str:
+        return _find_claude_cli(self._configured_cli_path)
+
+    @cli_path.setter
+    def cli_path(self, value: str) -> None:
+        self._configured_cli_path = value
 
     @property
     def last_usage(self) -> dict:
