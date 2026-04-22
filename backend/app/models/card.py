@@ -137,21 +137,6 @@ class AgentAssignment(BaseModel):
     agent_context: Optional[str] = None
 
 
-class CommentCreate(BaseModel):
-    content: str = Field(..., min_length=1)
-    author: str = "User"
-
-
-class CommentResponse(BaseModel):
-    id: str
-    card_id: str
-    author: str
-    content: str
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class ChecklistItemCreate(BaseModel):
     text: str = Field(..., min_length=1)
 

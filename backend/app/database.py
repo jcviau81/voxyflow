@@ -88,6 +88,8 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN recurring INTEGER NOT NULL DEFAULT 0"))
         # Migrate: remove 'idea' status — cards go to 'card' (backlog)
         await conn.execute(text("UPDATE cards SET status='card' WHERE status='idea'"))
+        # Migrate: drop removed card_comments table (feature fully deleted)
+        await conn.execute(text("DROP TABLE IF EXISTS card_comments"))
         # Ensure card_relations table exists (created via create_all above, but explicit for safety)
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS card_relations (
@@ -420,24 +422,11 @@ class Card(Base):
         backref="dependents",
     )
     time_entries = relationship("TimeEntry", back_populates="card", cascade="all, delete-orphan")
-    comments = relationship("CardComment", back_populates="card", cascade="all, delete-orphan")
     checklist_items = relationship("ChecklistItem", back_populates="card", cascade="all, delete-orphan", order_by="ChecklistItem.position")
     attachments = relationship("CardAttachment", back_populates="card", cascade="all, delete-orphan", order_by="CardAttachment.created_at")
     relations_as_source = relationship("CardRelation", foreign_keys="[CardRelation.source_card_id]", back_populates="source_card", cascade="all, delete-orphan")
     relations_as_target = relationship("CardRelation", foreign_keys="[CardRelation.target_card_id]", back_populates="target_card", cascade="all, delete-orphan")
     history_entries = relationship("CardHistory", back_populates="card", cascade="all, delete-orphan", order_by="CardHistory.changed_at.desc()")
-
-
-class CardComment(Base):
-    __tablename__ = "card_comments"
-
-    id = Column(String, primary_key=True, default=new_uuid)
-    card_id = Column(String, ForeignKey("cards.id"), nullable=False)
-    author = Column(String, nullable=False, default="User")
-    content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=utcnow)
-
-    card = relationship("Card", back_populates="comments")
 
 
 class TimeEntry(Base):

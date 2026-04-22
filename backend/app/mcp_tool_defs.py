@@ -393,47 +393,6 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_http": ("GET", "/api/cards/{card_id}/history", None),
     },
 
-    # ---- Card Comments -----------------------------------------------------
-    {
-        "name": "voxyflow.card.comment.add",
-        "description": "Add a comment to a card.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["card_id", "content"],
-            "properties": {
-                "card_id": {"type": "string", "description": "Card ID"},
-                "content": {"type": "string", "description": "Comment text"},
-                "author": {"type": "string", "description": "Author name (default: Voxy)", "default": "Voxy"},
-            },
-        },
-        "_http": ("POST", "/api/cards/{card_id}/comments", None),
-    },
-    {
-        "name": "voxyflow.card.comment.list",
-        "description": "List all comments on a card (newest first).",
-        "inputSchema": {
-            "type": "object",
-            "required": ["card_id"],
-            "properties": {
-                "card_id": {"type": "string", "description": "Card ID"},
-            },
-        },
-        "_http": ("GET", "/api/cards/{card_id}/comments", None),
-    },
-    {
-        "name": "voxyflow.card.comment.delete",
-        "description": "Delete a comment from a card.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["card_id", "comment_id"],
-            "properties": {
-                "card_id": {"type": "string", "description": "Card ID"},
-                "comment_id": {"type": "string", "description": "Comment ID to delete"},
-            },
-        },
-        "_http": ("DELETE", "/api/cards/{card_id}/comments/{comment_id}", None),
-    },
-
     # ---- Card Relations ----------------------------------------------------
     {
         "name": "voxyflow.card.relation.add",

@@ -15,11 +15,10 @@ from sqlalchemy import select, func, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, Card, CardAttachment, CardRelation, CardHistory, Project, TimeEntry, CardComment, ChecklistItem, new_uuid, utcnow, SYSTEM_MAIN_PROJECT_ID
+from app.database import get_db, Card, CardAttachment, CardRelation, CardHistory, Project, TimeEntry, ChecklistItem, new_uuid, utcnow, SYSTEM_MAIN_PROJECT_ID
 from app.models.card import (
     CardCreate, CardUpdate, CardResponse, AgentAssignment, BulkReorderRequest,
     TimeEntryCreate, TimeEntryResponse,
-    CommentCreate, CommentResponse,
     ChecklistItemCreate, ChecklistItemUpdate, ChecklistItemResponse, ChecklistProgress,
     AttachmentResponse,
 )
@@ -873,65 +872,6 @@ async def delete_time_entry(
 
 
 # ---------------------------------------------------------------------------
-# Comments endpoints
-# ---------------------------------------------------------------------------
-
-@router.post("/cards/{card_id}/comments", response_model=CommentResponse, status_code=201)
-async def add_comment(
-    card_id: str,
-    body: CommentCreate,
-    db: AsyncSession = Depends(get_db),
-):
-    """Add a comment to a card."""
-    card = await db.get(Card, card_id)
-    if not card:
-        raise HTTPException(404, "Card not found.")
-
-    comment = CardComment(
-        id=new_uuid(),
-        card_id=card_id,
-        author=body.author,
-        content=body.content,
-        created_at=utcnow(),
-    )
-    db.add(comment)
-    await db.commit()
-    await db.refresh(comment)
-    return comment
-
-
-@router.get("/cards/{card_id}/comments", response_model=list[CommentResponse])
-async def list_comments(
-    card_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """List all comments for a card, newest first."""
-    card = await db.get(Card, card_id)
-    if not card:
-        raise HTTPException(404, "Card not found.")
-
-    stmt = select(CardComment).where(CardComment.card_id == card_id).order_by(CardComment.created_at.desc())
-    result = await db.execute(stmt)
-    return result.scalars().all()
-
-
-@router.delete("/cards/{card_id}/comments/{comment_id}", status_code=204)
-async def delete_comment(
-    card_id: str,
-    comment_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Delete a specific comment."""
-    stmt = select(CardComment).where(CardComment.id == comment_id, CardComment.card_id == card_id)
-    result = await db.execute(stmt)
-    comment = result.scalar_one_or_none()
-    if not comment:
-        raise HTTPException(404, "Comment not found.")
-    await db.delete(comment)
-    await db.commit()
-
-
-# ---------------------------------------------------------------------------
 # Checklist endpoints
 # ---------------------------------------------------------------------------
 
@@ -962,6 +902,7 @@ async def add_checklist_item(
     db.add(item)
     await db.commit()
     await db.refresh(item)
+    _broadcast_card_change(card)
     return item
 
 
@@ -1000,6 +941,9 @@ async def update_checklist_item(
 
     await db.commit()
     await db.refresh(item)
+    card = await db.get(Card, card_id)
+    if card:
+        _broadcast_card_change(card)
     return item
 
 
@@ -1017,6 +961,9 @@ async def delete_checklist_item(
         raise HTTPException(404, "Checklist item not found.")
     await db.delete(item)
     await db.commit()
+    card = await db.get(Card, card_id)
+    if card:
+        _broadcast_card_change(card)
 
 
 @router.post("/cards/{card_id}/checklist/bulk", response_model=list[ChecklistItemResponse], status_code=201)
@@ -1050,6 +997,7 @@ async def add_checklist_items_bulk(
     await db.commit()
     for item in items:
         await db.refresh(item)
+    _broadcast_card_change(card)
     return items
 
 

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Card, CardStatus, CardRelation, CardRelationType, CardHistoryEntry, TimeEntry, CardComment, ChecklistItem, CardAttachment } from '../../types';
+import type { Card, CardStatus, CardRelation, CardRelationType, CardHistoryEntry, TimeEntry, ChecklistItem, CardAttachment } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 
 const API = '';
@@ -45,7 +45,6 @@ export const cardKeys = {
   archived: (projectId: string) => ['cards', 'archived', projectId] as const,
   detail: (cardId: string) => ['cards', cardId] as const,
   timeEntries: (cardId: string) => ['cards', cardId, 'time'] as const,
-  comments: (cardId: string) => ['cards', cardId, 'comments'] as const,
   checklist: (cardId: string) => ['cards', cardId, 'checklist'] as const,
   attachments: (cardId: string) => ['cards', cardId, 'attachments'] as const,
   relations: (cardId: string) => ['cards', cardId, 'relations'] as const,
@@ -89,24 +88,6 @@ export function useTimeEntries(cardId: string) {
         durationMinutes: e.duration_minutes,
         note: e.note,
         loggedAt: new Date(e.logged_at).getTime(),
-      }));
-    },
-    staleTime: 30_000,
-    enabled: !!cardId,
-  });
-}
-
-export function useComments(cardId: string) {
-  return useQuery({
-    queryKey: cardKeys.comments(cardId),
-    queryFn: async () => {
-      const data = await apiFetch<Array<{ id: string; card_id: string; author: string; content: string; created_at: string }>>(`/api/cards/${cardId}/comments`);
-      return data.map((c): CardComment => ({
-        id: c.id,
-        cardId: c.card_id,
-        author: c.author,
-        content: c.content,
-        createdAt: new Date(c.created_at).getTime(),
       }));
     },
     staleTime: 30_000,
@@ -459,40 +440,6 @@ export function useDeleteTimeEntry() {
     },
     onSuccess: (_data, { cardId }) => {
       qc.invalidateQueries({ queryKey: cardKeys.timeEntries(cardId) });
-    },
-  });
-}
-
-// --- Comment mutations ---
-
-export function useAddComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ cardId, content, author = 'User' }: { cardId: string; content: string; author?: string }) => {
-      const c = await apiFetch<{ id: string; card_id: string; author: string; content: string; created_at: string }>(
-        `/api/cards/${cardId}/comments`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content, author }),
-        }
-      );
-      return { id: c.id, cardId: c.card_id, author: c.author, content: c.content, createdAt: new Date(c.created_at).getTime() } satisfies CardComment;
-    },
-    onSuccess: (_data, { cardId }) => {
-      qc.invalidateQueries({ queryKey: cardKeys.comments(cardId) });
-    },
-  });
-}
-
-export function useDeleteComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ cardId, commentId }: { cardId: string; commentId: string }) => {
-      await fetch(`${API}/api/cards/${cardId}/comments/${commentId}`, { method: 'DELETE' });
-    },
-    onSuccess: (_data, { cardId }) => {
-      qc.invalidateQueries({ queryKey: cardKeys.comments(cardId) });
     },
   });
 }

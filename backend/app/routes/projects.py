@@ -21,7 +21,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import (
     get_db, Project, Card, WikiPage,
-    ChecklistItem, CardComment, TimeEntry, CardRelation,
+    ChecklistItem, TimeEntry, CardRelation,
     new_uuid, utcnow,
 )
 from app.models.project import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithCards
@@ -169,12 +169,6 @@ class ChecklistItemExport(BaseModel):
     position: int
 
 
-class CommentExport(BaseModel):
-    author: str
-    content: str
-    created_at: str
-
-
 class TimeEntryExport(BaseModel):
     duration_minutes: int
     note: str | None = None
@@ -202,7 +196,6 @@ class CardExport(BaseModel):
     tags: list[str] = []
     dependency_ids: list[str] = []
     checklist_items: list[ChecklistItemExport] = []
-    comments: list[CommentExport] = []
     time_entries: list[TimeEntryExport] = []
     relations: list[RelationExport] = []
 
@@ -550,8 +543,8 @@ async def run_autonomy_now(project_id: str, db: AsyncSession = Depends(get_db)):
 async def export_project(project_id: str, db: AsyncSession = Depends(get_db)):
     """Export a project and all its cards as a JSON payload.
 
-    Includes per-card: checklists (with completion state), comments, time
-    entries, file references, card relations, dependency IDs, and position.
+    Includes per-card: checklists (with completion state), time entries,
+    file references, card relations, dependency IDs, and position.
 
     Wiki pages are intentionally excluded (see ExportPayload TODO).
     """
@@ -559,7 +552,6 @@ async def export_project(project_id: str, db: AsyncSession = Depends(get_db)):
         select(Project)
         .options(
             selectinload(Project.cards).selectinload(Card.checklist_items),
-            selectinload(Project.cards).selectinload(Card.comments),
             selectinload(Project.cards).selectinload(Card.time_entries),
             selectinload(Project.cards).selectinload(Card.relations_as_source),
             selectinload(Project.cards).selectinload(Card.dependencies),
@@ -601,14 +593,6 @@ async def export_project(project_id: str, db: AsyncSession = Depends(get_db)):
                     "position": item.position,
                 }
                 for item in card.checklist_items
-            ],
-            "comments": [
-                {
-                    "author": c.author,
-                    "content": c.content,
-                    "created_at": c.created_at.isoformat() if c.created_at else "",
-                }
-                for c in card.comments
             ],
             "time_entries": [
                 {
@@ -655,8 +639,8 @@ async def export_project(project_id: str, db: AsyncSession = Depends(get_db)):
 async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)):
     """Import a project from an exported JSON payload. Creates a new project.
 
-    Handles all fields produced by the v1.1 export: checklist items, comments,
-    time entries, file references, card relations, dependencies, and position.
+    Handles all fields produced by the v1.1 export: checklist items, time
+    entries, file references, card relations, dependencies, and position.
     For relations and dependencies, old card IDs are mapped to the newly-
     assigned IDs so cross-references remain consistent after import.
     """
@@ -727,15 +711,6 @@ async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)
                 text=item.text,
                 completed=item.completed,
                 position=item.position,
-            ))
-
-        # Comments
-        for comment in card_data.comments:
-            db.add(CardComment(
-                id=new_uuid(),
-                card_id=new_id,
-                author=comment.author,
-                content=comment.content,
             ))
 
         # Time entries

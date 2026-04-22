@@ -120,7 +120,7 @@ def _mcp_tool_name_from_claude(claude_name: str) -> str:
     The forward transform is ``name.replace(".", "_")``, which is NOT
     invertible by naive split — some real tool names contain underscores
     inside a single segment (``voxyflow.ai.review_code``) while others
-    are deeper than 3 segments (``voxyflow.card.comment.add``). The only
+    are deeper than 3 segments (``voxyflow.card.checklist.add``). The only
     reliable inverse is a reverse lookup against the registered tool
     names; fall back to a naive 2-split for unknown names so callers get
     a reasonable guess instead of a KeyError.

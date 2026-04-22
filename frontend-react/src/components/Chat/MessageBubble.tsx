@@ -121,7 +121,7 @@ function MessageContent({ content, streaming }: MessageContentProps) {
   return (
     <div className="prose prose-sm dark:prose-invert max-w-none">
       {isEmpty ? (
-        <span className="text-muted-foreground text-sm">⚙️ Délégation en cours…</span>
+        <span className="text-muted-foreground text-sm">⚙️ Delegating…</span>
       ) : (
         <>
           <ReactMarkdown
