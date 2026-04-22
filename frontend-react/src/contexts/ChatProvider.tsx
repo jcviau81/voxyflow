@@ -148,6 +148,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // as manual send, without creating a dependency cycle.
   const sendMessageRef = useRef<ChatContextValue['sendMessage'] | null>(null);
 
+  // Per-session safety timers for the "worker done, Voxy about to reply" flag.
+  // Auto-clears the pending flag if the dispatcher never streams a response.
+  const pendingAssistantTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const PENDING_ASSISTANT_TIMEOUT_MS = 30000;
+
   // Conversation lock: queue of user messages typed mid-stream. They render as
   // `queued: true` (dimmed) and are flushed in order when the current stream ends.
   const pendingQueueRef = useRef<Array<{
@@ -230,6 +235,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
       streamingTimersRef.current.delete(streamId);
     }
+  }, []);
+
+  const clearPendingAssistant = useCallback((sessionId?: string) => {
+    if (!sessionId) return;
+    const timer = pendingAssistantTimersRef.current.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      pendingAssistantTimersRef.current.delete(sessionId);
+    }
+    messageStoreRef.current.setPendingAssistant(sessionId, false);
+  }, []);
+
+  const markPendingAssistant = useCallback((sessionId?: string) => {
+    if (!sessionId) return;
+    messageStoreRef.current.setPendingAssistant(sessionId, true);
+    const existing = pendingAssistantTimersRef.current.get(sessionId);
+    if (existing) clearTimeout(existing);
+    pendingAssistantTimersRef.current.set(
+      sessionId,
+      setTimeout(() => {
+        pendingAssistantTimersRef.current.delete(sessionId);
+        messageStoreRef.current.setPendingAssistant(sessionId, false);
+      }, PENDING_ASSISTANT_TIMEOUT_MS),
+    );
   }, []);
 
   const handleStreamComplete = useCallback(
@@ -437,6 +466,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           (chatId?.startsWith('project:') ? chatId : undefined) ||
           (chatId?.startsWith('card:') ? chatId : undefined);
 
+        // Voxy is actually speaking — drop the "worker-done, about to reply" flag.
+        clearPendingAssistant(effectiveSessionId);
+
         if (streaming && !done) {
           handleStreamingChunk(messageId, content, effectiveSessionId, model);
         } else if (done && streamingMessagesRef.current.has(messageId)) {
@@ -541,7 +573,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     unsubs.push(
       subscribe('task:completed', (payload) => {
         normalizeTaskId(payload);
-        const { intent, summary, success, cardId } = payload as {
+        const { intent, summary, success, cardId, sessionId: taskSessionId } = payload as {
           intent: string;
           summary: string;
           success: boolean;
@@ -551,6 +583,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           cardId?: string;
         };
         emitCallbacks('onTaskCompleted', payload);
+
+        // Successful workers trigger a dispatcher re-entry — show typing dots in
+        // the originating chat until Voxy starts streaming the follow-up reply.
+        if (success && taskSessionId) {
+          markPendingAssistant(taskSessionId);
+        }
 
         if (success) {
           showToast(`\u2705 ${intent}: ${summary.substring(0, 50)}`, 'success', 4000);
@@ -620,6 +658,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       subscribe('task:cancelled', (payload) => {
         normalizeTaskId(payload);
         emitCallbacks('onTaskCancelled', payload);
+        clearPendingAssistant((payload as { sessionId?: string }).sessionId);
         showToast('Task cancelled', 'info', 3000);
       }),
     );
@@ -627,6 +666,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       subscribe('task:timeout', (payload) => {
         normalizeTaskId(payload);
         emitCallbacks('onTaskTimeout', payload);
+        clearPendingAssistant((payload as { sessionId?: string }).sessionId);
         const { intent, timeout_seconds } = payload as {
           intent: string;
           timeout_seconds: number;
@@ -887,6 +927,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     getAgentEmoji,
     emitCallbacks,
     queryClient,
+    markPendingAssistant,
+    clearPendingAssistant,
   ]);
 
   // --- Force-end streaming on WS disconnect ---

@@ -46,6 +46,9 @@ export function MessageList({
   loadingLabel = 'Connecting to Voxy\u2026',
 }: MessageListProps) {
   const allMessages = useMessageStore((s) => s.messages);
+  const pendingAssistantForSession = useMessageStore((s) =>
+    sessionId ? !!s.pendingAssistantBySession[sessionId] : false,
+  );
   const messages = useMemo(() => {
     if (sessionId) return allMessages.filter((m) => m.sessionId === sessionId);
     if (cardId) return allMessages.filter((m) => m.cardId === cardId);
@@ -199,8 +202,8 @@ export function MessageList({
 
   const lastMessage = messages[messages.length - 1];
   const isStreaming = messages.some((m) => m.streaming);
-  const showTypingIndicator =
-    messages.length > 0 && lastMessage?.role === 'user' && !isStreaming;
+  const justSent = messages.length > 0 && lastMessage?.role === 'user';
+  const showTypingIndicator = !isStreaming && (justSent || pendingAssistantForSession);
 
   // ---------------------------------------------------------------------------
   // Render
