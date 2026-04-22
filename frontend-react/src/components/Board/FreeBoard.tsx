@@ -7,7 +7,6 @@
 
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, RotateCcw, ChevronRight, Trash2 } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -25,7 +24,7 @@ import type { Card, CardStatus } from '../../types';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
-import { useCards, useArchivedCards, useCreateCard, useRestoreCard, useDeleteCard, usePatchCard } from '../../hooks/api/useCards';
+import { useCards, useCreateCard, usePatchCard } from '../../hooks/api/useCards';
 import { useExportProject, useImportProject } from '../../hooks/api/useProjects';
 import { KanbanCard } from '../Kanban/KanbanCard';
 import { DepGraphOverlay } from '../Kanban/KanbanBoard';
@@ -332,9 +331,6 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
               ))
             )}
           </div>
-
-          {/* Archived cards */}
-          <FreeBoardArchived projectId={currentProjectId} />
         </div>
 
         {/* Drag overlay — ghost of dragged card */}
@@ -354,71 +350,6 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
           cardsById={cardsById}
           onClose={() => setDepGraphOpen(false)}
         />
-      )}
-    </div>
-  );
-}
-
-// ── Archived section ─────────────────────────────────────────────────────────
-
-function FreeBoardArchived({ projectId }: { projectId: string }) {
-  const [open, setOpen] = useState(false);
-  const { data: archivedCards, isLoading } = useArchivedCards(projectId);
-  const restoreCard = useRestoreCard();
-  const deleteCard = useDeleteCard();
-  const showToast = useToastStore((s) => s.showToast);
-
-  return (
-    <div className="mt-6">
-      <button
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
-        onClick={() => setOpen(!open)}
-      >
-        <Archive size={14} /> Archived Cards
-        <ChevronRight size={12} className={cn('transition-transform', open && 'rotate-90')} />
-      </button>
-
-      {open && (
-        <div className="mt-2 space-y-1">
-          {isLoading && <div className="text-xs text-muted-foreground py-2">Loading...</div>}
-          {archivedCards && archivedCards.length === 0 && (
-            <div className="text-xs text-muted-foreground py-2">No archived cards</div>
-          )}
-          {archivedCards?.map((card) => (
-            <div key={card.id} className="flex items-center justify-between rounded border border-border/40 px-3 py-2 text-sm">
-              <span className="flex-1 min-w-0 font-medium text-foreground truncate">{card.title}</span>
-              <div className="flex items-center gap-1 ml-2 shrink-0">
-                <button
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-emerald-400 hover:bg-accent transition-colors"
-                  onClick={async () => {
-                    try {
-                      await restoreCard.mutateAsync({ cardId: card.id, projectId });
-                      showToast(`"${card.title}" restored`, 'success');
-                    } catch {
-                      showToast('Restore failed', 'error');
-                    }
-                  }}
-                >
-                  <RotateCcw size={12} /> Restore
-                </button>
-                <button
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-destructive hover:bg-destructive/20 transition-colors"
-                  onClick={async () => {
-                    if (!confirm(`Permanently delete "${card.title}"?`)) return;
-                    try {
-                      await deleteCard.mutateAsync({ cardId: card.id, projectId });
-                      showToast(`"${card.title}" deleted`, 'success');
-                    } catch {
-                      showToast('Delete failed', 'error');
-                    }
-                  }}
-                >
-                  <Trash2 size={12} /> Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );
