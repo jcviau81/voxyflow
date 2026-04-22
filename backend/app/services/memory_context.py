@@ -49,41 +49,69 @@ class MemoryContextMixin:
     def _attribution_prefix(meta: dict) -> str:
         """Build `[speaker · timestamp · scope · importance=x]` prefix.
 
+        Stored identity is role-based (`speaker: "user" | "assistant" | "worker"
+        | "unknown"`); display names are resolved at format-time from
+        PersonalityService so renaming the user or bot never breaks historical
+        memories. For auto-saved entries we append an "auto-saved" marker so
+        Voxy knows the attribution came from background extraction rather than
+        an explicit save.
+
         Speaker resolution:
           1. explicit ``speaker`` field (new saves post-April 2026)
-          2. fallback on ``source`` for legacy entries:
-             - "chat"          → Voxy said (dispatcher memory_save)
-             - "manual"        → JC said (user-authored CLI / manual entry)
+          2. fallback on ``source`` for legacy entries without a speaker field:
+             - "chat"          → bot said (dispatcher memory_save)
+             - "manual"        → user said (user-authored CLI / manual entry)
              - "worker"        → worker:<id>
-             - "auto-extract"  → Voxy auto (pre-migration auto extractions)
+             - "auto-extract"  → auto-saved · speaker=unknown (pre-migration)
              - "worker_summary"→ worker summary
-          3. otherwise → "unknown said"
+          3. otherwise → "speaker=unknown"
 
-        The fallback is inference-only (no data mutation), so a backfill
-        can replace it later without breaking anything.
+        The fallback is inference-only (no data mutation); a backfill can
+        upgrade legacy docs to explicit speaker values later.
         """
         meta = meta or {}
         speaker = str(meta.get("speaker") or "").strip().lower()
         source = str(meta.get("source") or "").strip().lower()
         worker_id = str(meta.get("worker_id") or "").strip()
+
+        # Resolve configured display names at format-time. Names are never
+        # persisted with memories (stored identity is role-based), so a rename
+        # rewrites every tag retroactively.
+        try:
+            from app.services.personality_service import get_personality_service
+            _ps = get_personality_service()
+            user_name = _ps.get_user_name() or "User"
+            bot_name = _ps.get_bot_name() or "Voxy"
+        except Exception:  # noqa: BLE001
+            user_name, bot_name = "User", "Voxy"
+
+        is_auto = source in {"worker_summary", "auto-extract"}
+        auto_suffix = " · auto-saved" if is_auto else ""
+
         if speaker == "user":
-            speaker_label = "JC said"
+            speaker_label = f"{user_name} said{auto_suffix}"
         elif speaker == "assistant":
-            speaker_label = "Voxy said"
+            speaker_label = f"{bot_name} said{auto_suffix}"
         elif speaker == "worker" or source == "worker":
-            speaker_label = f"worker:{worker_id}" if worker_id else "worker"
+            base = f"worker:{worker_id}" if worker_id else "worker"
+            speaker_label = f"{base}{auto_suffix}"
         elif speaker == "system":
             speaker_label = "system"
+        elif speaker == "unknown":
+            speaker_label = "auto-saved · speaker=unknown" if is_auto else "speaker=unknown"
+        # --- Legacy source-only inference (no explicit speaker on the doc) ---
         elif source == "chat":
-            speaker_label = "Voxy said"
+            speaker_label = f"{bot_name} said"
         elif source == "manual":
-            speaker_label = "JC said"
+            speaker_label = f"{user_name} said"
         elif source == "auto-extract":
-            speaker_label = "Voxy auto"
+            # Pre-migration auto extractions — speaker truly unknown, do not
+            # guess it was the bot (that was the original bug).
+            speaker_label = "auto-saved · speaker=unknown"
         elif source == "worker_summary":
-            speaker_label = "worker summary"
+            speaker_label = "auto-saved · speaker=unknown"
         else:
-            speaker_label = "unknown said"
+            speaker_label = "speaker=unknown"
 
         ts = (
             meta.get("created_at")

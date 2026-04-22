@@ -222,12 +222,17 @@ def build_handlers(
         date_str = now.strftime("%Y-%m-%d")
         worker_id = os.environ.get("VOXYFLOW_WORKER_ID", "").strip()
         chat_id = os.environ.get("VOXYFLOW_CHAT_ID", "").strip()
+        # Caller-supplied speaker overrides the default — lets the bot record
+        # the user's quotes with speaker="user" instead of mis-attributing them
+        # to itself. Only honoured outside the worker path (workers always
+        # speak as "worker").
+        requested_speaker = str(params.get("speaker") or "").strip().lower()
         if worker_id:
             source = "worker"
             speaker = "worker"
         else:
             source = "chat"
-            speaker = "assistant"
+            speaker = requested_speaker if requested_speaker in {"user", "assistant"} else "assistant"
         meta: dict = {
             "type": mem_type,
             "date": date_str,

@@ -946,8 +946,9 @@ def build_session_handoff_block(
     lines: list[str] = [
         f"## Session handoff (resumed after {_fmt_delta_seconds(int(delta_sec))})",
     ]
+    user_name = get_personality_service().get_user_name() or "User"
     if last_user:
-        lines.append(f"- Last JC said: {_truncate(last_user.get('content', ''))}")
+        lines.append(f"- Last {user_name} said: {_truncate(last_user.get('content', ''))}")
     lines.append(f"- Last you said: {_truncate(last_assistant.get('content', ''))}")
     lines.append(
         "- Treat this as memory, not an unread message — don't apologise for the gap, "

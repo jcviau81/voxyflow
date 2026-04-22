@@ -1515,7 +1515,12 @@ _TOOL_DEFINITIONS: list[dict] = [
             "memory (auto-scoped to current project). Use `type='procedure'` for "
             "reusable 'how to do X' workflows — the content should start with "
             "\"How to {task}:\" and list ≥2 ordered steps. Procedures are surfaced "
-            "in a dedicated block above regular retrieval."
+            "in a dedicated block above regular retrieval. "
+            "Set `speaker='user'` when recording something the user said (verbatim "
+            "or a direct paraphrase); set `speaker='assistant'` (default) for your "
+            "own statement, decision, or inference. Getting the speaker right "
+            "matters — it drives how the memory is attributed back to you at "
+            "retrieval time, so never store a user's quote as your own."
         ),
         "inputSchema": {
             "type": "object",
@@ -1529,6 +1534,15 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "importance": {
                     "type": "string",
                     "enum": ["high", "medium", "low"],
+                },
+                "speaker": {
+                    "type": "string",
+                    "enum": ["user", "assistant"],
+                    "description": (
+                        "Who originated this content. 'user' = the human said it; "
+                        "'assistant' = you (the bot) said or inferred it. "
+                        "Defaults to 'assistant' when omitted."
+                    ),
                 },
             },
         },
