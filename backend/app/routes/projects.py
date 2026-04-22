@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import (
-    get_db, Project, Card, WikiPage,
+    get_db, Project, Card, WikiPage, Chat, WorkerTask, KGEntity,
     ChecklistItem, TimeEntry, CardRelation,
     new_uuid, utcnow,
 )
@@ -376,7 +377,9 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
-    """Delete a project and all its cards (irreversible)."""
+    """Delete a project and every trace of it — DB rows, ChromaDB collections,
+    chat/worker session files, workspace dir, worker artifacts. Irreversible;
+    users should rely on Archive for recoverability."""
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found.")
@@ -385,16 +388,95 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     if getattr(project, 'deletable', True) is False or getattr(project, 'is_system', False):
         raise HTTPException(403, "Cannot delete system project.")
 
-    # Delete all cards belonging to this project
-    stmt = select(Card).where(Card.project_id == project_id)
-    result = await db.execute(stmt)
-    for card in result.scalars().all():
+    # Capture card ids before the cascade delete — needed to wipe per-card
+    # session files and worker artifacts on disk after the DB is gone.
+    card_ids = [
+        cid for cid, in (
+            await db.execute(select(Card.id).where(Card.project_id == project_id))
+        ).all()
+    ]
+    task_ids = [
+        tid for tid, in (
+            await db.execute(select(WorkerTask.id).where(WorkerTask.project_id == project_id))
+        ).all()
+    ]
+
+    # Delete all cards belonging to this project (cascades to checklist items,
+    # attachments, relations, history via ORM relationships).
+    for card in (await db.execute(select(Card).where(Card.project_id == project_id))).scalars().all():
         await db.delete(card)
+
+    # Project.chats relationship has no cascade — wipe chats (and their
+    # messages via cascade="all, delete-orphan" on Chat.messages) explicitly.
+    for chat in (await db.execute(select(Chat).where(Chat.project_id == project_id))).scalars().all():
+        await db.delete(chat)
+
+    # WorkerTask and KGEntity use plain string project_id (no FK) — bulk delete.
+    # KGEntity cascades to triples/attributes via the entity FK.
+    for task in (await db.execute(select(WorkerTask).where(WorkerTask.project_id == project_id))).scalars().all():
+        await db.delete(task)
+    for ent in (await db.execute(select(KGEntity).where(KGEntity.project_id == project_id))).scalars().all():
+        await db.delete(ent)
 
     await db.delete(project)
     await db.commit()
 
-    # Tear down the autonomy heartbeat (if any) after the project is gone.
+    # ------------------------------------------------------------------
+    # Best-effort cleanup of out-of-DB state. Each step is isolated so a
+    # single failure can't leave the caller with a half-deleted project.
+    # ------------------------------------------------------------------
+
+    # ChromaDB: RAG collections (docs/history/workspace) + memory collection.
+    try:
+        from app.services.rag_service import get_rag_service
+        get_rag_service().delete_project(project_id)
+    except Exception as e:
+        logger.warning("RAG cleanup failed for project %s: %s", project_id, e)
+    try:
+        from app.services.memory_service import get_memory_service
+        get_memory_service().drop_project_collection(project_id)
+    except Exception as e:
+        logger.warning("Memory collection cleanup failed for project %s: %s", project_id, e)
+
+    # Filesystem: session files (project + per-card), workspace dir, worker
+    # sessions whose JSON carries this project_id, and worker artifacts for
+    # every task that belonged to the project.
+    data_root = Path(os.environ.get("VOXYFLOW_DATA", os.path.expanduser("~/.voxyflow")))
+    sessions_dir = data_root / "sessions"
+    workspace_dir = data_root / "workspace" / "projects" / project_id
+    worker_sessions_dir = data_root / "worker_sessions"
+    worker_artifacts_dir = data_root / "worker_artifacts"
+
+    def _rmtree(path: Path):
+        try:
+            if path.exists():
+                shutil.rmtree(path)
+        except Exception as e:
+            logger.warning("Could not remove %s: %s", path, e)
+
+    _rmtree(sessions_dir / "project" / project_id)
+    for cid in card_ids:
+        _rmtree(sessions_dir / "card" / cid)
+    _rmtree(workspace_dir)
+
+    if worker_sessions_dir.exists():
+        for fp in worker_sessions_dir.glob("*.json"):
+            try:
+                data = json.loads(fp.read_text())
+                if data.get("project_id") == project_id:
+                    fp.unlink(missing_ok=True)
+            except Exception as e:
+                logger.debug("worker_sessions prune skipped %s: %s", fp.name, e)
+
+    if worker_artifacts_dir.exists():
+        for tid in task_ids:
+            try:
+                (worker_artifacts_dir / f"{tid}.md").unlink(missing_ok=True)
+            except Exception as e:
+                logger.debug("worker_artifacts prune skipped %s: %s", tid, e)
+
+    # Tear down the autonomy heartbeat (if any) last — the directive file
+    # lived under workspace_dir, which we just removed.
     try:
         project_autonomy.disable(project_id)
     except Exception as e:
