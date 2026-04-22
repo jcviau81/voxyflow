@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'voxyflow_offline_queue';
+const SESSION_FLAG_KEY = 'voxyflow_session_active';
+// Stale-entry cutoff. Legitimate offline queueing (brief WiFi blip) resolves
+// in seconds; anything older than this is almost certainly a message that sat
+// through a backend restart — flushing it would replay against a wiped
+// idempotency cache. Applied on load AND on flush so the in-session restart
+// path (WS auto-reconnects, sessionStorage flag still set) is also covered.
+const MAX_QUEUE_AGE_MS = 60_000;
 
 export interface QueuedMessage {
   type: string;
@@ -18,11 +25,51 @@ export interface UseOfflineQueueReturn {
   flush: (sender: (msg: QueuedMessage) => boolean) => void;
 }
 
+// Fresh-session guard: runs once per page load, before any queue read.
+//
+// The offline queue is scoped to a single browser session. If we find it
+// populated on a fresh load (sessionStorage flag absent), those messages
+// were left over from a previous session where the backend likely
+// restarted — replaying them now would re-trigger orchestration for
+// messages the backend's in-memory idempotency cache (main.py:66-83)
+// no longer remembers, replaying the last ~N user turns. Regression of
+// fix #22 (0d5d10c) which handled pendingAcks but left this queue.
+let _sessionGuardApplied = false;
+function _applyFreshSessionGuard(): void {
+  if (_sessionGuardApplied) return;
+  _sessionGuardApplied = true;
+  try {
+    const active = sessionStorage.getItem(SESSION_FLAG_KEY);
+    if (!active) {
+      const prior = localStorage.getItem(STORAGE_KEY);
+      if (prior && prior !== '[]') {
+        console.log('[useOfflineQueue] Fresh session — discarding stale offline queue to avoid replay');
+        localStorage.removeItem(STORAGE_KEY);
+      }
+      sessionStorage.setItem(SESSION_FLAG_KEY, '1');
+    }
+  } catch {
+    // sessionStorage may throw in private / incognito mode — best-effort.
+  }
+}
+
+function _dropStale(queue: QueuedMessage[]): QueuedMessage[] {
+  const now = Date.now();
+  const fresh = queue.filter((m) => now - (m.timestamp ?? 0) <= MAX_QUEUE_AGE_MS);
+  const dropped = queue.length - fresh.length;
+  if (dropped > 0) {
+    console.log(`[useOfflineQueue] Dropped ${dropped} stale queued message(s) (>${MAX_QUEUE_AGE_MS}ms old)`);
+  }
+  return fresh;
+}
+
 function loadQueue(): QueuedMessage[] {
+  _applyFreshSessionGuard();
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      return JSON.parse(stored) as QueuedMessage[];
+      const parsed = JSON.parse(stored) as QueuedMessage[];
+      return _dropStale(parsed);
     }
   } catch (e) {
     console.warn('[useOfflineQueue] Failed to load from localStorage:', e);
@@ -63,7 +110,17 @@ export function useOfflineQueue(): UseOfflineQueueReturn {
   }, [syncCount]);
 
   const flush = useCallback((sender: (msg: QueuedMessage) => boolean) => {
-    if (queueRef.current.length === 0) return;
+    // Drop entries that aged past the cutoff while we were disconnected.
+    // This is the in-session defence against the backend-restart replay:
+    // the WS reconnects automatically without a page reload (so the
+    // sessionStorage guard does not fire), but queued messages are now
+    // older than any legitimate offline-blip could explain.
+    queueRef.current = _dropStale(queueRef.current);
+    if (queueRef.current.length === 0) {
+      saveQueue(queueRef.current);
+      syncCount();
+      return;
+    }
 
     console.log(`[useOfflineQueue] Flushing ${queueRef.current.length} queued messages`);
     const toSend = [...queueRef.current];
