@@ -159,6 +159,10 @@ export function CardDetailModal() {
   const [description, setDescription] = useState('');
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True while the user has an unsaved local edit (between keystroke and debounced save).
+  // Used to block external updates (e.g. Voxy) from clobbering the textarea mid-edit.
+  const descriptionDirtyRef = useRef(false);
+  const titleDirtyRef = useRef(false);
 
   // Resizable columns (desktop only)
   const [leftPct, setLeftPct] = useState(35);
@@ -211,20 +215,25 @@ export function CardDetailModal() {
     [card?.projectId, cardsById],
   );
 
-  // Sync local description only when opening a different card.
-  // While the modal is open, local state is the source of truth — server/WebSocket
-  // updates must not overwrite the user's in-progress edits.
+  // Sync local description from the store. Skip while the user has an unsaved
+  // edit in flight so a debounce-in-progress keystroke isn't clobbered by a
+  // stale server echo. External updates (e.g. Voxy rewriting the description
+  // via a tool) land immediately when the user is idle.
   useEffect(() => {
-    if (card) setDescription(card.description ?? '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [card?.id]);
+    if (!card) return;
+    if (card.id !== selectedCardId) return;
+    if (descriptionDirtyRef.current) return;
+    setDescription(card.description ?? '');
+  }, [card?.id, card?.description, selectedCardId]);
 
   useEffect(() => {
-    if (card && titleRef.current) {
+    if (!card || !titleRef.current) return;
+    if (card.id !== selectedCardId) return;
+    if (titleDirtyRef.current) return;
+    if (titleRef.current.value !== card.title) {
       titleRef.current.value = card.title;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [card?.id]);
+  }, [card?.id, card?.title, selectedCardId]);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
@@ -253,15 +262,22 @@ export function CardDetailModal() {
     if (val && card && val !== card.title) {
       save({ title: val });
     }
+    titleDirtyRef.current = false;
   }, [card, save]);
+
+  const handleTitleChange = useCallback(() => {
+    titleDirtyRef.current = true;
+  }, []);
 
   const handleDescriptionChange = useCallback(
     (value: string) => {
       setDescription(value);
+      descriptionDirtyRef.current = true;
       // Debounce save
       if (descriptionTimerRef.current) clearTimeout(descriptionTimerRef.current);
       descriptionTimerRef.current = setTimeout(() => {
         if (card) save({ description: value });
+        descriptionDirtyRef.current = false;
       }, 800);
     },
     [card, save],
@@ -385,6 +401,7 @@ export function CardDetailModal() {
             defaultValue={card.title}
             key={card.id} // reset on card change
             data-testid="card-detail-title-input"
+            onChange={handleTitleChange}
             onBlur={handleTitleBlur}
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();

@@ -13,7 +13,6 @@ Project 1───* Document
 Project 1───* Sprint
 Project 1───* Chat
 
-Card 1───* CardComment
 Card 1───* TimeEntry
 Card 1───* ChecklistItem
 Card 1───* CardAttachment
@@ -131,7 +130,6 @@ class CardResponse(BaseModel):
 |---------------|-------------|-------------|
 | Project | Many-to-One | `project_id` — defaults to `"system-main"` (Home) for unassigned cards |
 | Sprint | Many-to-One (optional) | `sprint_id` — time-boxed grouping |
-| CardComment | One-to-Many | Comments on the card |
 | TimeEntry | One-to-Many | Logged time entries |
 | ChecklistItem | One-to-Many | Checklist items with completion |
 | CardAttachment | One-to-Many | File attachments |
@@ -327,17 +325,6 @@ class Sprint(Base):
 ---
 
 ## Card Sub-Entities
-
-### CardComment
-
-```python
-class CardComment(Base):
-    id       = Column(String, primary_key=True)
-    card_id  = Column(String, ForeignKey("cards.id"))
-    author   = Column(String, default="user")
-    content  = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=utcnow)
-```
 
 ### TimeEntry
 

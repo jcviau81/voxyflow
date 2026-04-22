@@ -220,14 +220,6 @@ _TOOL_GROUPS: dict[str, dict] = {
             "history": "voxyflow.card.history",
         },
     },
-    "voxyflow.card.comment": {
-        "description": "Manage comments on cards. card_id auto-injected from context.",
-        "actions": {
-            "add": "voxyflow.card.comment.add",
-            "list": "voxyflow.card.comment.list",
-            "delete": "voxyflow.card.comment.delete",
-        },
-    },
     "voxyflow.card.relation": {
         "description": "Manage relations between cards. card_id auto-injected from context.",
         "actions": {

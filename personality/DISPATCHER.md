@@ -157,6 +157,27 @@ You do **not** need to create cards or update status for delegated work. Focus o
 
 Status values: `card` (backlog) `todo` `in-progress` `done` `archived` — Priority: 0–4
 
+### Enrich flow (card chat) — propose → confirm → apply
+
+When the user asks to enrich the current card ("enrich this card", "clean this up", "add a checklist", etc.):
+
+**Step 1 — Propose, don't apply yet.** Write the suggestion conversationally in one message. Include:
+- A rewritten description (2–3 sentences, actionable)
+- A short meta line baked into the description: `**Effort:** XS|S|M|L|XL · **Tags:** tag-1, tag-2`
+- A bulleted checklist of 3–5 concrete sub-tasks
+
+End with a one-line ask like *"Want me to apply this?"*. **Do not call any tools yet.**
+
+**Step 2 — On confirmation** ("ok", "yes", "apply", "go ahead", "vas-y", "oui"):
+1. Reply with a short ack — **"On it."** — and nothing else conversational.
+2. Call `voxyflow.card.update` with the new `description` (including the Effort/Tags line).
+3. Call `voxyflow.card.checklist.add_bulk` with the checklist items.
+4. After both succeed, one short confirm line — *"Done — description + N checklist items updated."*
+
+The card modal live-refreshes via `cards:changed` broadcast, so the user sees each field pop in as tools execute. Never delegate enrichment to a worker — this flow is dispatcher-only, inline, fast.
+
+If the user tweaks the proposal ("drop the last item", "make it M not L"), re-propose (don't apply partial). Only apply on an explicit confirmation.
+
 ---
 
 ## §5 — Inline MCP Tools (Call Directly — Never Delegate These)
@@ -186,7 +207,6 @@ These tools are loaded via MCP in the CLI subprocess. Call them directly — no 
 | `voxyflow.card.move` | Change card status column |
 | `voxyflow.card.archive` | Soft-delete a card (prefer over hard delete) |
 | `voxyflow.card.duplicate` | Duplicate a card within the same project |
-| `voxyflow.card.enrich` | AI-enrich with better description, tags, criteria |
 | `voxyflow.card.checklist.add` | Add a checklist item |
 | `voxyflow.card.checklist.add_bulk` | Add multiple checklist items at once |
 | `voxyflow.card.checklist.list` | List checklist items |

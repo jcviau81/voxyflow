@@ -49,6 +49,11 @@ TOOLS_DISPATCHER = {
     "voxyflow.project.create", "voxyflow.project.update",
     "voxyflow.card.create", "voxyflow.card.update", "voxyflow.card.move",
     "voxyflow.card.archive",
+    # Checklist — instant REST, needed for the enrich "propose → confirm → apply"
+    # flow in card chat (Voxy applies suggested items via add_bulk on confirm).
+    "voxyflow.card.checklist.add", "voxyflow.card.checklist.add_bulk",
+    "voxyflow.card.checklist.list", "voxyflow.card.checklist.update",
+    "voxyflow.card.checklist.delete",
     # Worker management (dispatcher needs to monitor/read worker results)
     "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
     # Session introspection (read-only, non-blocking timeline recall)
@@ -79,11 +84,8 @@ TOOLS_WORKER = TOOLS_DISPATCHER | {
     "kg.add", "kg.query", "kg.timeline", "kg.invalidate", "kg.stats",
     "memory.delete", "memory.get",
     "voxyflow.card.history",
-    "voxyflow.card.comment.add", "voxyflow.card.comment.list", "voxyflow.card.comment.delete",
     "voxyflow.card.relation.add", "voxyflow.card.relation.list", "voxyflow.card.relation.delete",
     "voxyflow.card.time.log", "voxyflow.card.time.list", "voxyflow.card.time.delete",
-    "voxyflow.card.checklist.add", "voxyflow.card.checklist.add_bulk",
-    "voxyflow.card.checklist.list", "voxyflow.card.checklist.update", "voxyflow.card.checklist.delete",
     "voxyflow.card.restore", "voxyflow.card.list_archived",
     "voxyflow.wiki.delete",
     "voxyflow.focus.log", "voxyflow.focus.analytics",

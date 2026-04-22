@@ -364,7 +364,7 @@ function WikiTab({ projectId }: WikiTabProps) {
                   if (activePageId !== page.id) setActivePageId(page.id);
                 }}
               >
-                <span className="truncate font-medium">{page.title || 'Untitled'}</span>
+                <span className="truncate md:whitespace-normal md:overflow-visible md:break-words md:w-full font-medium leading-snug">{page.title || 'Untitled'}</span>
                 <span className="hidden md:inline text-[0.75rem] text-muted-foreground">{formatDate(page.updated_at)}</span>
               </div>
             ))

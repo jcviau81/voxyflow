@@ -106,14 +106,6 @@ export interface TimeEntry {
   loggedAt: number;
 }
 
-export interface CardComment {
-  id: string;
-  cardId: string;
-  author: string;
-  content: string;
-  createdAt: number;
-}
-
 export interface ChecklistItem {
   id: string;
   cardId: string;
