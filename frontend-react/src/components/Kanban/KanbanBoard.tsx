@@ -28,7 +28,7 @@ import type { Card, CardStatus } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
-import { useCards, useDeleteCard, usePatchCard, useReorderCards, useCreateCard } from '../../hooks/api/useCards';
+import { useCards, useDeleteCard, usePatchCard, useReorderCards, useCreateCard, useArchiveCard } from '../../hooks/api/useCards';
 import { useExportProject, useImportProject, useExecuteBoardPlan } from '../../hooks/api/useProjects';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useWorkerStatus } from '../../hooks/useWorkerStatus';
@@ -500,6 +500,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const importProject = useImportProject();
   const executeBoardPlan = useExecuteBoardPlan();
   const deleteCardMut = useDeleteCard();
+  const archiveCardMut = useArchiveCard();
   const { send: wsSend, subscribe } = useWS();
 
   // Worker execution status — poll every 3s to show per-card activity badges
@@ -901,15 +902,11 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const handleBulkArchive = useCallback(() => {
     selectedIds.forEach((id) => {
       deleteCardStore(id);
-      patchCard.mutate({
-        cardId: id,
-        updates: { status: 'archived' as CardStatus },
-        projectId: projectId ?? undefined,
-      });
+      archiveCardMut.mutate({ cardId: id, projectId: projectId ?? undefined });
     });
     showToast(`Archived ${selectedIds.size} cards`, 'success');
     clearSelection();
-  }, [selectedIds, patchCard, deleteCardStore, showToast, clearSelection, projectId]);
+  }, [selectedIds, archiveCardMut, deleteCardStore, showToast, clearSelection, projectId]);
 
   const handleBulkDelete = useCallback(() => {
     if (!confirm(`Delete ${selectedIds.size} cards permanently? This cannot be undone.`)) return;
