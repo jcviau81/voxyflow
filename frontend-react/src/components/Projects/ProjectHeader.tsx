@@ -1,9 +1,14 @@
-import { Home, MessageSquare, LayoutGrid, Pin, Brain, BarChart2, Pencil, Archive } from 'lucide-react';
+import { Home, MessageSquare, LayoutGrid, Pin, Brain, BarChart2, Pencil, Archive, Zap } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useViewStore } from '../../stores/useViewStore';
 import { useIsDesktop } from '../../hooks/useIsDesktop';
+import { useToastStore } from '../../stores/useToastStore';
+import {
+  useProjectAutonomy,
+  useUpsertProjectAutonomy,
+} from '../../hooks/api/useProjectAutonomy';
 import type { ViewMode } from '../../types';
 
 interface ProjectTab {
@@ -35,9 +40,34 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
   const currentView = useViewStore((s) => s.currentView);
   const setView = useViewStore((s) => s.setView);
   const isDesktop = useIsDesktop();
+  const { showToast } = useToastStore();
 
   const isMainTab = activeTab === 'main';
   const project = currentProjectId ? getProject(currentProjectId) : undefined;
+
+  // Autonomy toggle — Home uses the system-main project, regular project tabs use the active one.
+  const autonomyProjectId = isMainTab ? 'system-main' : currentProjectId ?? undefined;
+  const { data: autonomy } = useProjectAutonomy(autonomyProjectId);
+  const upsertAutonomy = useUpsertProjectAutonomy();
+
+  const toggleAutonomy = async () => {
+    if (!autonomyProjectId) return;
+    const next = !(autonomy?.enabled ?? false);
+    try {
+      await upsertAutonomy.mutateAsync({
+        projectId: autonomyProjectId,
+        enabled: next,
+        schedule: autonomy?.schedule,
+        directive: autonomy?.directive,
+      });
+      showToast(next ? 'Autonomy resumed' : 'Autonomy paused', 'success');
+    } catch (e) {
+      showToast(`Could not toggle autonomy: ${(e as Error).message}`, 'error');
+    }
+  };
+
+  const autonomyOn = autonomy?.enabled ?? false;
+  const autonomyDisabled = !autonomyProjectId || upsertAutonomy.isPending || !autonomy;
 
   // Hidden when on a project tab but no project is loaded
   if (!isMainTab && !project) {
@@ -84,7 +114,52 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
         </div>
       )}
 
-      {/* Right: view navigation tabs */}
+      {/* Right: autonomy toggle + view navigation tabs */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={autonomyOn}
+          aria-label={autonomyOn ? 'Pause Autonomy' : 'Enable Autonomy'}
+          onClick={() => void toggleAutonomy()}
+          disabled={autonomyDisabled}
+          title={
+            !autonomy
+              ? 'Loading autonomy status…'
+              : autonomyOn
+              ? 'Autonomy is running — click to pause'
+              : 'Autonomy is paused — click to enable'
+          }
+          className={cn(
+            'flex items-center gap-1.5 text-[11px] font-medium select-none',
+            autonomyDisabled ? 'opacity-50 cursor-wait' : 'cursor-pointer',
+          )}
+          data-testid="project-header-autonomy-toggle"
+        >
+          <Zap
+            size={12}
+            className={cn(
+              'shrink-0',
+              autonomyOn ? 'text-primary' : 'text-muted-foreground',
+            )}
+          />
+          <span className={autonomyOn ? 'text-foreground' : 'text-muted-foreground'}>
+            Autonomy
+          </span>
+          <span
+            className={cn(
+              'relative inline-flex h-[14px] w-[26px] rounded-full transition-colors',
+              autonomyOn ? 'bg-primary' : 'bg-muted-foreground/30',
+            )}
+          >
+            <span
+              className={cn(
+                'absolute top-[2px] h-[10px] w-[10px] rounded-full bg-background shadow transition-[left]',
+                autonomyOn ? 'left-[14px]' : 'left-[2px]',
+              )}
+            />
+          </span>
+        </button>
       <nav className="project-header__tabs flex items-center gap-1">
         {visibleTabs.map((tab) => {
           const isActive = currentView === tab.view;
@@ -107,6 +182,7 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
           );
         })}
       </nav>
+      </div>
     </div>
   );
 }

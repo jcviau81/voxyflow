@@ -29,7 +29,7 @@ import { ProjectAutonomySection } from './ProjectAutonomySection';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PROJECT_EMOJIS = ['🎮', '🎙', '🌐', '📱', '🔧', '🎨', '📊', '🚀', '💡', '🔥', '📁', '🎯', '🛠️', '🧪', '📦', '🌟'];
+const PROJECT_EMOJIS = ['🏠', '🎮', '🎙', '🌐', '📱', '🔧', '🎨', '📊', '🚀', '💡', '🔥', '📁', '🎯', '🛠️', '🧪', '📦', '🌟'];
 const DEFAULT_EMOJI = '📁';
 
 const COLOR_PALETTE = [
@@ -419,7 +419,8 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
 
   const tabs: { key: TabKey; label: string; icon: string; badge?: 'error' | 'ok' }[] = [
     { key: 'general',  label: 'General',  icon: '📝', badge: errors.name || errors.description ? 'error' : undefined },
-    { key: 'github',   label: 'GitHub',   icon: '🔗', badge: githubStatus.type === 'connected' ? 'ok' : githubStatus.type === 'error' ? 'error' : undefined },
+    // GitHub tab is meaningless for the built-in Home (system) project.
+    ...(project?.isSystem ? [] : [{ key: 'github' as TabKey, label: 'GitHub', icon: '🔗', badge: (githubStatus.type === 'connected' ? 'ok' : githubStatus.type === 'error' ? 'error' : undefined) as 'ok' | 'error' | undefined }]),
     { key: 'path',     label: 'Path',     icon: '📂', badge: pathExists === true ? 'ok' : pathExists === false ? 'error' : undefined },
     { key: 'advanced', label: 'Advanced', icon: '⚙️' },
   ];
@@ -842,7 +843,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                   </div>
                 )}
 
-                {mode === 'edit' && (
+                {mode === 'edit' && !project?.isSystem && (
                   <div className="form-group space-y-1">
                     <label className="text-sm font-medium text-foreground">Status</label>
                     <select
@@ -857,7 +858,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                   </div>
                 )}
 
-                {mode === 'edit' && project && !project.isSystem && (
+                {mode === 'edit' && project && (
                   <ProjectAutonomySection projectId={project.id} />
                 )}
 
@@ -899,7 +900,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
             >
               Cancel
             </button>
-            {mode === 'edit' && project && (
+            {mode === 'edit' && project && !project.isSystem && (
               <button
                 type="button"
                 onClick={() => void handleArchiveToggle()}

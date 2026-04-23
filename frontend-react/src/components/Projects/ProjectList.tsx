@@ -234,14 +234,12 @@ function ProjectCard({
             <ActionButton onClick={() => onExport(project)}>
               <Send size={11} className="inline mr-1" /> Export
             </ActionButton>
-            {!project.isSystem && (
-              <ActionButton
-                data-testid={`project-edit-${project.id}`}
-                onClick={() => onEdit(project)}
-              >
-                <Pencil size={11} className="inline mr-1" /> Edit
-              </ActionButton>
-            )}
+            <ActionButton
+              data-testid={`project-edit-${project.id}`}
+              onClick={() => onEdit(project)}
+            >
+              <Pencil size={11} className="inline mr-1" /> Edit
+            </ActionButton>
             {!project.isSystem && project.deletable !== false && (
               <ActionButton onClick={() => onArchive(project)}>
                 <Archive size={11} className="inline mr-1" /> Archive

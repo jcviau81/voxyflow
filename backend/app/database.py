@@ -145,17 +145,25 @@ async def init_db():
 
         # Ensure the system "Home" project exists (formerly "Main", briefly "Global")
         SYSTEM_MAIN_ID = "system-main"
+        # Home's default working directory is the workspace root, so workers
+        # spawned from Home chat land in ~/.voxyflow/workspace/ by default.
+        from pathlib import Path as _Path
+        HOME_LOCAL_PATH = str(_Path.home() / ".voxyflow" / "workspace")
         existing = await conn.execute(text("SELECT id FROM projects WHERE id = :id"), {"id": SYSTEM_MAIN_ID})
         if existing.fetchone() is None:
             await conn.execute(text(
-                "INSERT INTO projects (id, title, description, status, context, is_system, deletable, is_favorite, inherit_main_context, created_at, updated_at) "
-                "VALUES (:id, :title, :desc, 'active', '', 1, 0, 0, 1, :now, :now)"
-            ), {"id": SYSTEM_MAIN_ID, "title": "Home", "desc": "Default workspace", "now": utcnow().isoformat()})
+                "INSERT INTO projects (id, title, description, status, context, local_path, is_system, deletable, is_favorite, inherit_main_context, created_at, updated_at) "
+                "VALUES (:id, :title, :desc, 'active', '', :lp, 1, 0, 0, 1, :now, :now)"
+            ), {"id": SYSTEM_MAIN_ID, "title": "Home", "desc": "Default workspace", "lp": HOME_LOCAL_PATH, "now": utcnow().isoformat()})
         else:
             # Rename system project to "Home" if it still has a previous default name.
             await conn.execute(text(
                 "UPDATE projects SET title = 'Home' WHERE id = :id AND title IN ('Main', 'Global')"
             ), {"id": SYSTEM_MAIN_ID})
+            # Backfill local_path for older rows that predate this default.
+            await conn.execute(text(
+                "UPDATE projects SET local_path = :lp WHERE id = :id AND (local_path IS NULL OR local_path = '')"
+            ), {"id": SYSTEM_MAIN_ID, "lp": HOME_LOCAL_PATH})
 
         # Migrate all cards with project_id = NULL → system-main
         await conn.execute(text(
