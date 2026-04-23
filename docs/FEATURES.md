@@ -521,7 +521,7 @@ Two distinct recurrence mechanisms:
 **Recurrence (card regeneration):**
 - Set recurrence on a card via the Recurrence field in Card Detail Modal
 - Supported intervals: `hourly`, `6hours`, `daily`, `weekdays`, `weekly`, `biweekly`, `monthly`
-- The scheduler checks every 5 minutes and creates a fresh copy (status `todo`) when `recurrence_next` is reached
+- The scheduler checks hourly and creates a fresh copy (status `todo`) when `recurrence_next` is reached
 - `recurrence_next` is automatically advanced to the next occurrence after each copy is created
 - Configurable via Settings → Personality (or directly via card detail)
 
@@ -945,6 +945,26 @@ Execute all matching cards from a project board sequentially:
 4. Each run picks up all matching cards, executes them sequentially, and resets recurring cards back to `todo` when done
 
 Board run events (`kanban:execute:card:start`, `kanban:execute:complete`, etc.) are broadcast via WebSocket to all connected clients, so the UI reflects progress in real time even for scheduled runs.
+
+### Project Autonomy
+
+Each project can run its own scheduled heartbeat that reads a directive file and acts on it — project-scoped memory, KG, ledger, and MCP. Replaces the retired global `builtin-agent-heartbeat`.
+
+- **Job:** `proj-heartbeat-{project_id}` (an `agent_task` flagged `project_heartbeat`)
+- **Directive file:** `~/.voxyflow/workspace/projects/{project_id}/heartbeat.md` — content below the `---` divider is the next-cycle directive. An empty directive is the explicit "pause" state: the gate skips the LLM call entirely (no-op log only).
+- **Home project:** uses `id="system-main"` with directive at `~/.voxyflow/workspace/projects/system-main/heartbeat.md`.
+- **Scheduling:** any cron or shorthand accepted by `/api/jobs` (`every_5min`, `every_1h`, etc.).
+- **No "go" gate:** autonomy ticks run through a dedicated runner that bypasses the interactive dispatcher's wait-for-user gate. Workers are still free to delegate.
+- **Scoping:** `project_id` is injected from the job, not trusted from the LLM. Memory / KG / chat_id canonicalisation all follow the usual per-project isolation rules.
+- **Session label:** ticks register as `worker_class="autonomy"` in the WorkerSessionStore; the frontend WorkerPanel renders them as `Autonomy — <project>`.
+
+**UI surfaces:**
+- Header switch (`Autonomy` toggle next to the project view tabs) — quick on/off for both regular projects and Home
+- Project Settings → Autonomy section — edit the schedule + directive, trigger "Run now", or remove the heartbeat entirely
+
+**API:** `GET/PUT/DELETE /api/projects/{id}/autonomy` · `POST /api/projects/{id}/autonomy/run`
+
+**MCP tools:** `voxyflow.autonomy.status` / `.enable` / `.disable` / `.run_now` — in a project chat, `project_id` is auto-injected from `VOXYFLOW_PROJECT_ID` and must not be passed.
 
 ### Health Status Bar
 

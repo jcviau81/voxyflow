@@ -23,7 +23,7 @@ Voxyflow has 4 memory/persistence layers:
 
 ### How It Works
 
-- **Storage:** `~/.voxyflow/data/sessions/` (JSON files)
+- **Storage:** `~/.voxyflow/sessions/` (JSON files)
 - **Format:** One JSON file per chat ID, containing an array of messages
 - **Thread safety:** Per-chat_id threading locks for file-level atomicity
 - **Writes:** Atomic (temp file + `os.rename()`)

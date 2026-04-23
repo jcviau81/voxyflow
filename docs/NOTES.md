@@ -1,16 +1,13 @@
 
-## Hidden UI Features (2026-03-20)
+## Hidden UI Features (last audited 2026-04-23)
 
-The following features are implemented but hidden from the interface pending a more solid core flow:
+Current status of the features that were deferred in the 2026-03-20 "Hidden UI Features" note:
 
-| Feature | Location | How to re-enable |
-|---------|----------|-----------------|
-| Stats tab (📊) | `frontend-react/src/components/Projects/ProjectHeader.tsx` | Uncomment `stats` entry in `PROJECT_TABS` |
-| Roadmap tab (📅) | Same file | Uncomment `roadmap` entry |
-| Sprints tab (🏃) | Same file | Uncomment `sprint` entry |
-| /standup command | `frontend-react/src/components/Chat/SlashCommandMenu.tsx` | Uncomment the entry |
+| Feature | Status |
+|---------|--------|
+| Stats tab (📊) | **Shipped.** Present in `PROJECT_TABS` in `frontend-react/src/components/Projects/ProjectHeader.tsx`. |
+| Roadmap tab (📅) | **Dropped.** No code left in the repo; revive from git history if needed. |
+| Sprints tab (🏃) | **Dropped.** No code left in the repo; revive from git history if needed. |
+| `/standup` slash command | **Dropped as a slash command.** The standup feature now lives in the Stats panel via `StandupSection` (`frontend-react/src/components/Projects/StandupSection.tsx`) and the `/api/projects/{id}/standup` endpoint. |
 
-These are not deleted — they are deferred until the kanban + core tool flow is solid.
-
-
-Decision: Focus on kanban + core tools first. Agile features (sprints, velocity, standups) deferred until the base flow is fluid.
+Agile features (sprints, velocity, roadmap) remain out of scope until there's a concrete need — the kanban + autonomy flow is now the primary loop.
