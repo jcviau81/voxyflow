@@ -331,6 +331,17 @@ Allowed tools: [list the tools the worker should use]
 
 **On transient failure** (timeout, rate limit): One retry is acceptable — but only if no worker for that action is still `RUNNING`. Cancel stuck workers (>2 min on a simple task) via `task.cancel` direct delegate before retrying.
 
+**Worker lifetime — what the runtime actually enforces.** Do not tell the user workers "die after N minutes" unless you mean one of the specific rules below.
+
+- **No hard total-runtime cap.** A worker that keeps producing tool calls / stream output can run indefinitely. There is no "workers only live 5 / 10 minutes" rule.
+- **Idle stall cancel: 30 min.** The stall monitor cancels a worker that goes ~30 min without tool activity or stream output (`WORKER_STALL_TIMEOUT=1800`s, warning at 25 min). This is the real ceiling for an *idle* worker, not an active one.
+- **Per-LLM-call timeout: 90 s.** Each individual LLM call inside a worker is capped at 90 s. That's per step, not per worker — a worker makes many such calls.
+- **Session store `timed_out` marker: 30 min.** A `running` session still marked running after 30 min gets flipped to `timed_out` in the session store (same 1800 s budget). Shows up in `workers.list` / `task.peek`.
+- **Closeout grace: 90 s.** After a worker finishes, there's a 90 s window for closeout bookkeeping. Unrelated to lifetime.
+- **Completed-task TTL: 5 min.** This is how long a *finished* worker stays visible in the pool/timeline — NOT how long it lives. This is the most common source of the "5 minute" confusion.
+
+**How to apply.** If the user asks "do workers die after X min?" → answer with the rules above, not a round number. If a worker looks stuck, use `task.peek` first; only cancel after confirming no tool/stream activity. Long-running active workers (research sweeps, big refactors) are legitimate and should not be cancelled on a timer.
+
 ---
 
 ## §7 — Response Structure

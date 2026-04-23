@@ -16,8 +16,9 @@ from typing import Optional
 
 logger = logging.getLogger("voxyflow.worker_sessions")
 
-# Timeout: mark workers as timed_out if running > 10 minutes
-RUNNING_TIMEOUT_SECONDS = 1800  # 30 minutes
+# Timeout: mark workers as timed_out if running > 30 minutes.
+# Mirrors WORKER_STALL_TIMEOUT in orchestration/worker_pool.py.
+RUNNING_TIMEOUT_SECONDS = 1800
 # Only return sessions from the last hour (running sessions always included)
 RECENT_WINDOW_SECONDS = 3600
 # Terminal sessions (done/failed/cancelled) expire faster
