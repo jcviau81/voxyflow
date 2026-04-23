@@ -661,6 +661,70 @@ class PersonalityService:
             native_tools=native_tools,
         )
 
+    def build_autonomy_prompt(
+        self,
+        project: Optional[dict],
+        directive_path: str,
+        native_tools: bool = False,
+    ) -> str:
+        """Build the system prompt for an autonomy heartbeat tick.
+
+        Same toolset as the dispatcher (read + CRUD + delegate), but with the
+        interactive "wait for go" gate replaced by autonomy operating rules.
+        The heartbeat has no user present — the directive file IS the go signal.
+        """
+        base = self.build_project_prompt(project) if project else self.build_general_prompt()
+        project_title = (project or {}).get("title") or "?"
+        init_block = (
+            f"\n\n## Autonomy Heartbeat — {project_title}\n"
+            "You run on a cron, not from a user message. The directive you receive "
+            "IS the instruction. You have the eyes on the board; workers have the hands. "
+            "Your job: read → decide → delegate or no-op. Be concise."
+        )
+        tail = ""
+        architecture = self.load_architecture()
+        if architecture:
+            tail += "\n\n" + architecture
+        tail += self._build_autonomy_operating_rules(directive_path)
+        if native_tools == "cli_mcp":
+            tail += self._build_cli_mcp_delegate_instructions()
+        elif native_tools:
+            tail += self._build_native_delegate_instructions()
+        else:
+            tail += self._build_xml_delegate_instructions()
+        full_prompt = base + init_block + tail
+        logger.info(
+            f"[PersonalityService] Autonomy prompt built: {len(full_prompt)} chars, "
+            f"project={project_title}, native_tools={native_tools}"
+        )
+        return full_prompt
+
+    def _build_autonomy_operating_rules(self, directive_path: str) -> str:
+        """Autonomy-specific rules that replace the dispatcher 'wait for go' gate."""
+        return (
+            "\n\n## Autonomy Operating Rules\n"
+            "**No user is present.** This execution was fired by a scheduler. "
+            "The directive you receive in the user message IS the go signal.\n\n"
+            "- **Delegate freely.** No 'wait for go' gate — the directive is the confirmation. "
+            "Emit `<delegate>` blocks or call `voxyflow.jobs.create` without asking.\n"
+            "- **Act in one cycle.** Do not present a plan and wait — there is no one to confirm. "
+            "Either act now or log a no-op.\n"
+            "- **Eyes on the board, hands on the workers.** Decide what to do, then delegate with a "
+            "focused self-contained brief. You CANNOT `system.exec`, `file.write`, `git.*` yourself — "
+            "those are worker-only tools. Always delegate for anything touching the filesystem or shell.\n"
+            "- **No-op discipline.** If the directive is empty, ambiguous, already satisfied, or would "
+            "require clarification from a user: respond with exactly `[AUTONOMY-NOOP] <one-line reason>` "
+            "and stop. Do NOT brainstorm, do NOT save speculative `memory.save` notes, do NOT invent "
+            "product ideas on a no-op cycle.\n"
+            f"- **Chain cycles via the directive file.** To continue work on the next tick, delegate a "
+            f"worker to rewrite `{directive_path}` below its `---` divider. `file.write` is worker-only.\n"
+            "- **One concise response per tick.** Each cycle either delegates, updates cards, rewrites "
+            "the directive, or logs a no-op. Nothing else.\n\n"
+            "**This REPLACES the 'ACT, DON'T ASK' and 'Worker Delegation Gate' sections from the "
+            "interactive dispatcher protocol.** Those rules protect real users from unsolicited "
+            "delegations; they do not apply when the user is the scheduler itself."
+        )
+
     def _build_dispatcher_tail(self, native_tools) -> str:
         """Shared tail — architecture + dispatcher.md + proactive + delegate instructions."""
         tail = ""

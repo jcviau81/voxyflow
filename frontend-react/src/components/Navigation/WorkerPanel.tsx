@@ -82,12 +82,21 @@ function formatAction(action: string): string {
   return action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Parse a canonical chatId ("project:<uuid>" / "card:<uuid>" / "job:<id>") into a label. */
+/** Parse a canonical chatId ("project:<uuid>" / "card:<uuid>" / "job:<id>" / "autonomy:<id>") into a label. */
 function parseSessionLabel(chatId: string | null, cardTitles: Record<string, string>, jobMeta: Record<string, JobMeta>): string {
   if (!chatId) return 'Direct';
   if (chatId.startsWith('job:')) {
     const meta = jobMeta[chatId];
     return meta?.jobName || 'Scheduled Job';
+  }
+  if (chatId.startsWith('autonomy:')) {
+    const meta = jobMeta[chatId];
+    if (meta?.jobName) {
+      // "Autonomy — " already implies heartbeat; drop a redundant "Heartbeat — " prefix.
+      const name = meta.jobName.replace(/^Heartbeat\s*[—-]\s*/i, '');
+      return `Autonomy — ${name}`;
+    }
+    return 'Autonomy Heartbeat';
   }
   if (chatId.startsWith('card:')) {
     const cardId = chatId.slice('card:'.length).split(':')[0];
