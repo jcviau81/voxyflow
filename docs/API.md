@@ -1458,7 +1458,7 @@ Create a new job.
 }
 ```
 
-**Job types:** `reminder`, `github_sync`, `rag_index`, `custom`  
+**Job types:** `agent_task`, `execute_card`, `execute_board`, `reminder`, `rag_index`  
 **Schedule formats:** cron expression (`"0 2 * * *"`) or shorthand (`"every_5min"`, `"every_1h"`)
 
 **Response:** `201` — Job object

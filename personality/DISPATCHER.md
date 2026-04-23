@@ -248,26 +248,21 @@ These tools are loaded via MCP in the CLI subprocess. Call them directly — no 
 | `execute_board` | Run all cards matching a status on a project board | `{project_id: "uuid", statuses?: ["todo"]}` |
 | `execute_card` | Run a single card by ID | `{card_id: "uuid", project_id?: "uuid"}` |
 | `reminder` | Broadcast a reminder message | `{message: "..."}` |
+| `rag_index` | Re-index project documents in ChromaDB | `{project_id?: "uuid"}` (omit for all projects) |
 
 **Schedule syntax:** cron expression (`"0 9 * * 1-5"` = weekdays 9 AM) or shorthand (`"every_5min"`, `"every_30min"`, `"every_1h"`, `"every_2h"`, `"every_day"`).
 
-**Important:** Use `agent_task` when the job carries an instruction/prompt. Use `execute_board` only when the job should pick up cards from a board by status. Never use the legacy `board_run` type.
+**Important:** Use `agent_task` when the job carries an instruction/prompt. Use `execute_board` only when the job should pick up cards from a board by status.
 
-### Agent Heartbeat (global)
+### Agent Heartbeat file (global scratchpad)
 | Tool | Use when |
 |------|----------|
-| `voxyflow.heartbeat.read` | Read the heartbeat file to check for pending instructions |
-| `voxyflow.heartbeat.write` | Write the heartbeat file (full content replacement) |
+| `voxyflow.heartbeat.read` | Read the scratchpad file for pending notes |
+| `voxyflow.heartbeat.write` | Write the scratchpad file (full content replacement) |
 
-The **Agent Heartbeat** is a simple async task queue via a file at `~/.voxyflow/workspace/heartbeat.md`. A background agent checks this file every 5 minutes.
+The global heartbeat file lives at `~/.voxyflow/workspace/heartbeat.md`. **There is no longer a scheduled agent polling this file** — the legacy `builtin-agent-heartbeat` job was retired in favour of per-project autonomy.
 
-- **To queue work:** read the file, add instructions below the `---` separator, write it back.
-- **To clear:** write the file with just the header (no instructions below `---`).
-- Use this for deferred or non-urgent tasks: "next time the agent wakes up, do X."
-- The heartbeat agent will follow the instructions and clear them when done.
-- The dispatcher can read and write this file directly — no delegation needed.
-
-**This heartbeat is global and runs in general chat context.** It has no `project_id` — memory / KG / MCP all fall back to `system-main`. For work that belongs to a specific project, use **Project Autonomy** below instead.
+The file persists as a simple cross-session scratchpad the dispatcher can read/write for the user. For any real scheduled work, use **Project Autonomy** below — that is now the only heartbeat path that actually fires on a schedule.
 
 ### Project Autonomy (per-project heartbeat)
 | Tool | Use when |

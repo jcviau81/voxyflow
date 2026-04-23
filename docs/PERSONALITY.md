@@ -97,10 +97,10 @@ Conversation happens in Voxyflow
 Next session reads those files → continuity
     │
     ▼
-Heartbeat cron (Voxyflow) curates → MEMORY.md
+Project autonomy heartbeat curates → MEMORY.md
 ```
 
-Voxyflow writes to daily logs. Voxyflow's heartbeat system periodically curates daily logs into MEMORY.md. This is how short-term memory becomes long-term memory.
+Voxyflow writes to daily logs. A project's autonomy heartbeat (see `FEATURES.md` → Project Autonomy) can periodically curate daily logs into MEMORY.md. This is how short-term memory becomes long-term memory.
 
 ## Design Decisions
 

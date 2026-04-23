@@ -467,9 +467,6 @@ List of all scheduled tasks (jobs). Each job can be triggered manually or run on
 | `execute_board` | Sequential execution of all cards on a board based on selected statuses |
 | `reminder` | Reminder at a given time |
 | `rag_index` | Automatic document reindexing |
-| `github_sync` | Synchronization with a GitHub repository |
-| `custom` | Custom job with an arbitrary command |
-| `board_run` | Legacy alias for `execute_board` |
 
 ### Actions
 

@@ -905,9 +905,6 @@ Schedule recurring background tasks via the Settings → Jobs panel:
   - `execute_board` — execute all matching cards from a project board on a schedule
   - `reminder` — broadcast a notification message via WebSocket
   - `rag_index` — re-index project documents in ChromaDB
-  - `github_sync` — GitHub sync (placeholder)
-  - `custom` — extensible placeholder
-  - `board_run` — legacy alias for `execute_board` (backwards compatible)
 - **Schedule:** Cron expression (`0 9 * * 1-5`) or shorthand (`every_5min`, `every_1h`, `every_day`)
 - **Enable/disable** individual jobs without deleting them
 - **Manual trigger:** Run any job immediately via the "Run" button

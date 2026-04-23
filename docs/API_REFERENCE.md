@@ -275,16 +275,16 @@ Response: `DocumentResponse` with `{id, project_id, filename, filetype, size_byt
 | `DELETE` | `/api/jobs/{job_id}` | Delete job |
 | `POST` | `/api/jobs/{job_id}/run` | Trigger job immediately |
 
-**Job types:** `reminder`, `github_sync`, `rag_index`, `custom`
+**Job types:** `agent_task`, `execute_card`, `execute_board`, `reminder`, `rag_index`
 
 **POST /api/jobs**
 ```json
 {
   "name": "string (required)",
-  "type": "reminder|github_sync|rag_index|custom (required)",
-  "cron": "cron expression (required)",
+  "type": "agent_task|execute_card|execute_board|reminder|rag_index (required)",
+  "schedule": "cron expression or shorthand (required)",
   "enabled": true,
-  "config": {}
+  "payload": {}
 }
 ```
 
