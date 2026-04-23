@@ -163,10 +163,11 @@ async def _execute_job(job: dict) -> dict:
             return await _run_rag_index(job, payload)
         elif job_type == "reminder":
             return await _run_reminder(job, payload)
-        elif job_type in ("board_run", "execute_board"):
-            # board_run jobs with instruction(s) are really agent_tasks
+        elif job_type == "execute_board":
+            # A misconfigured execute_board job with an instruction payload is
+            # really an agent_task — route it there instead of failing.
             if payload.get("instruction") or payload.get("instructions"):
-                logger.info(f"[Jobs] Re-routing '{job.get('name')}' (board_run with instructions) → agent_task")
+                logger.info(f"[Jobs] Re-routing '{job.get('name')}' (execute_board with instructions) → agent_task")
                 return await _run_agent_task(job, payload)
             return await _run_execute_board(job, payload)
         elif job_type == "execute_card":

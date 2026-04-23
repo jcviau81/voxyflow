@@ -25,7 +25,7 @@ import { cn } from '../../lib/utils';
 interface Job {
   id: string;
   name: string;
-  type: 'reminder' | 'rag_index' | 'board_run' | 'execute_board' | 'execute_card' | 'agent_task' | 'recurrence' | 'session_cleanup' | 'chromadb_backup';
+  type: 'reminder' | 'rag_index' | 'execute_board' | 'execute_card' | 'agent_task' | 'recurrence' | 'session_cleanup' | 'chromadb_backup';
   schedule: string;
   enabled: boolean;
   payload: Record<string, unknown>;
@@ -67,12 +67,6 @@ const JOB_TYPE_META: Record<JobType, {
     color: 'text-indigo-400',
   },
   execute_board: {
-    label: 'Execute Board',
-    description: 'Execute all matching cards from a project board',
-    icon: LayoutGrid,
-    color: 'text-blue-400',
-  },
-  board_run: {
     label: 'Execute Board',
     description: 'Execute all matching cards from a project board',
     icon: LayoutGrid,
@@ -266,7 +260,6 @@ function getPayloadSummary(
 ): string | null {
   const p = job.payload;
   switch (job.type) {
-    case 'board_run':
     case 'execute_board': {
       const projName = p.project_id ? (projectsMap.get(p.project_id as string) ?? 'Unknown project') : 'No project';
       const statuses = Array.isArray(p.statuses) ? p.statuses.join(', ') : 'todo';
@@ -621,7 +614,6 @@ function PayloadEditor({ type, payload, onChange, projects }: {
   projects: SimpleProject[];
 }) {
   switch (type) {
-    case 'board_run':
     case 'execute_board':
       return <BoardRunPayload payload={payload} onChange={onChange} projects={projects} />;
     case 'execute_card':
@@ -827,7 +819,7 @@ function JobForm({ mode, initial, projects, onCancel, onSubmit }: {
     if (!schedule.trim()) { setError('Schedule is required'); return; }
     const result = validateCronOrShorthand(schedule);
     if (!result.valid) { setError(result.description); return; }
-    if ((type === 'board_run' || type === 'execute_board') && !payload.project_id) { setError('Project is required for Execute Board jobs'); return; }
+    if (type === 'execute_board' && !payload.project_id) { setError('Project is required for Execute Board jobs'); return; }
     if (type === 'execute_card' && !payload.card_id) { setError('Card is required for Execute Card jobs'); return; }
     if (type === 'agent_task' && !payload.instruction) { setError('Instruction is required for Agent Task jobs'); return; }
     setError('');
