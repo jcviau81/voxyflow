@@ -843,7 +843,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                   </div>
                 )}
 
-                {mode === 'edit' && (
+                {mode === 'edit' && !project?.isSystem && (
                   <div className="form-group space-y-1">
                     <label className="text-sm font-medium text-foreground">Status</label>
                     <select
@@ -900,7 +900,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
             >
               Cancel
             </button>
-            {mode === 'edit' && project && (
+            {mode === 'edit' && project && !project.isSystem && (
               <button
                 type="button"
                 onClick={() => void handleArchiveToggle()}
