@@ -20,6 +20,16 @@ const SCHEDULE_OPTIONS = [
   { value: 'every_day', label: 'Every day' },
 ];
 
+// Mirror of backend/app/services/project_autonomy.py:_DEFAULT_DIRECTIVE.
+// Pre-fills the textarea when a project has no heartbeat yet, so the user
+// sees a working baseline instead of an empty field.
+const DEFAULT_DIRECTIVE =
+  'Check worker status via workers.list.\n' +
+  'Check the todo column for a new task to start.\n' +
+  'If a todo card has no in-progress/running worker and no blocked dependencies,\n' +
+  'move it to in-progress and delegate an opus worker with a focused brief.\n' +
+  'Otherwise, log [AUTONOMY-NOOP] with the reason.\n';
+
 export function ProjectAutonomySection({ projectId }: Props) {
   const { showToast } = useToastStore();
   const { data, isLoading } = useProjectAutonomy(projectId);
@@ -36,8 +46,16 @@ export function ProjectAutonomySection({ projectId }: Props) {
     if (!data) return;
     setEnabled(data.enabled);
     setSchedule(data.schedule || 'every_5min');
-    setDirective(data.directive || '');
-    setDirty(false);
+    // Pre-fill the default directive only when the heartbeat has never been
+    // configured for this project (no job on disk, no directive yet). Once a
+    // user has saved or cleared it, respect their choice — don't overwrite.
+    if (!data.job_exists && !(data.directive || '').trim()) {
+      setDirective(DEFAULT_DIRECTIVE);
+      setDirty(true);
+    } else {
+      setDirective(data.directive || '');
+      setDirty(false);
+    }
   }, [data]);
 
   const onSave = async () => {
