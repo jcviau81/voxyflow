@@ -419,7 +419,8 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
 
   const tabs: { key: TabKey; label: string; icon: string; badge?: 'error' | 'ok' }[] = [
     { key: 'general',  label: 'General',  icon: '📝', badge: errors.name || errors.description ? 'error' : undefined },
-    { key: 'github',   label: 'GitHub',   icon: '🔗', badge: githubStatus.type === 'connected' ? 'ok' : githubStatus.type === 'error' ? 'error' : undefined },
+    // GitHub tab is meaningless for the built-in Home (system) project.
+    ...(project?.isSystem ? [] : [{ key: 'github' as TabKey, label: 'GitHub', icon: '🔗', badge: (githubStatus.type === 'connected' ? 'ok' : githubStatus.type === 'error' ? 'error' : undefined) as 'ok' | 'error' | undefined }]),
     { key: 'path',     label: 'Path',     icon: '📂', badge: pathExists === true ? 'ok' : pathExists === false ? 'error' : undefined },
     { key: 'advanced', label: 'Advanced', icon: '⚙️' },
   ];
