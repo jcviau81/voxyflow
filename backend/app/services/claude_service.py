@@ -541,6 +541,8 @@ class ClaudeService(ApiCallerMixin):
         live_state_block: str = "",
         worker_events_block: str = "",
         session_handoff_block: str = "",
+        role: str = "dispatcher",
+        autonomy_directive_path: str = "",
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer.
 
@@ -572,13 +574,20 @@ class ClaudeService(ApiCallerMixin):
         )
         # Determine tool mode for personality prompt
         native_tools_mode = "cli_mcp" if use_cli_mcp else use_native_delegate
-        # Static base prompt — personality + dispatcher + tools only (cacheable)
-        base_prompt = self.personality.build_fast_prompt(
-            chat_level=chat_level,
-            project=project_context,
-            card=card_context,
-            native_tools=native_tools_mode,
-        )
+        # Static base prompt — personality + dispatcher (or autonomy) + tools (cacheable)
+        if role == "autonomy":
+            base_prompt = self.personality.build_autonomy_prompt(
+                project=project_context,
+                directive_path=autonomy_directive_path,
+                native_tools=native_tools_mode,
+            )
+        else:
+            base_prompt = self.personality.build_fast_prompt(
+                chat_level=chat_level,
+                project=project_context,
+                card=card_context,
+                native_tools=native_tools_mode,
+            )
 
         # Collect dynamic context (changes per-call — injected OUTSIDE the cached block)
         dynamic_parts: list[str] = []
@@ -624,9 +633,10 @@ class ClaudeService(ApiCallerMixin):
         system_prompt = _inject_no_think(system_prompt, self.fast_model)
 
         # Inject identity priming exchange at the start of conversations.
+        # Autonomy ticks skip priming — no user is present to prime to.
         primed_messages = list(recent)
         is_auto_greeting = "greet" in user_message.lower() and "naturally" in user_message.lower()
-        if len(full_history) <= 4 and not is_auto_greeting:
+        if role != "autonomy" and len(full_history) <= 4 and not is_auto_greeting:
             if use_native_delegate:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "

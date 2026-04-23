@@ -113,6 +113,8 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         callback_depth: int = 0,
         card_id: str | None = None,
         session_id: str | None = None,
+        role: str = "dispatcher",
+        autonomy_directive_path: str = "",
     ) -> list[asyncio.Task]:
         """Full 3-layer orchestration for a single user message.
 
@@ -128,6 +130,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 chat_id=chat_id, project_id=project_id, layers=layers,
                 chat_level=chat_level, is_callback=is_callback,
                 callback_depth=callback_depth, card_id=card_id, session_id=session_id,
+                role=role, autonomy_directive_path=autonomy_directive_path,
             )
 
     async def _handle_message_inner(
@@ -143,6 +146,8 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         callback_depth: int = 0,
         card_id: str | None = None,
         session_id: str | None = None,
+        role: str = "dispatcher",
+        autonomy_directive_path: str = "",
     ) -> list[asyncio.Task]:
         """Inner implementation of handle_message (called under per-chat lock)."""
         _bg_tasks: list[asyncio.Task] = []
@@ -210,6 +215,8 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 send_model_status=send_model_status,
                 active_workers_context=active_workers_context,
                 is_callback=is_callback,
+                role=role,
+                autonomy_directive_path=autonomy_directive_path,
             )
 
         if not chat_success:
@@ -268,8 +275,8 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     _bg_tasks.append(_t)
 
         # --- Memory auto-extraction (BACKGROUND — non-blocking) ---
-        # Skip for callbacks — worker results aren't user conversation
-        if not is_callback:
+        # Skip for callbacks and autonomy ticks — neither is user conversation.
+        if not is_callback and role != "autonomy":
             _t = asyncio.create_task(
                 self._auto_extract_memories_safe(
                     chat_id=chat_id,

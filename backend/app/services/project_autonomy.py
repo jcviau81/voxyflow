@@ -173,18 +173,18 @@ def build_job_dict(
         "enabled": enabled,
         "payload": {
             "project_id": project_id,
-            "instruction": (
-                f"Read the file {path}. If it contains a directive below the "
-                f"'{DIVIDER}' divider, follow it. If the directive is empty or "
-                "only HTML comments, exit silently without creating cards or "
-                "messages. When chaining work across heartbeats, delegate a "
-                "worker to rewrite the directive for the next cycle."
-            ),
+            # The autonomy system prompt handles all operating rules; the
+            # instruction here is just a tick marker appended after the
+            # directive content in the user message.
+            "instruction": "Execute the directive above, or log [AUTONOMY-NOOP] if nothing to do.",
             "gate": {
                 "type": "file_has_directive",
                 "path": str(path),
                 "divider": DIVIDER,
             },
+            # Flag in payload so _run_agent_task routes to the autonomy runner.
+            # (The top-level flag below is kept for list views / filters.)
+            "project_heartbeat": True,
         },
         # Marker so list views can group / filter these.
         "project_heartbeat": True,

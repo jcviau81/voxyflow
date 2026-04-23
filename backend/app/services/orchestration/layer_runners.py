@@ -162,6 +162,8 @@ class LayerRunnersMixin:
         send_model_status,
         active_workers_context: str = "",
         is_callback: bool = False,
+        role: str = "dispatcher",
+        autonomy_directive_path: str = "",
     ) -> bool:
         """Run the fast layer, streaming tokens to the WebSocket.
 
@@ -198,6 +200,8 @@ class LayerRunnersMixin:
                 live_state_block=live_state_block,
                 worker_events_block=worker_events_block,
                 session_handoff_block=session_handoff_block,
+                role=role,
+                autonomy_directive_path=autonomy_directive_path,
             ):
                 fast_full_response += token
                 if not first_token_sent:

@@ -363,7 +363,18 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
 
 
 async def _run_agent_task(job: dict, payload: dict) -> dict:
-    """Execute a freeform instruction through the chat pipeline."""
+    """Execute a freeform instruction through the chat pipeline.
+
+    Project heartbeats (jobs flagged ``project_heartbeat`` with a ``project_id``)
+    are routed through the dedicated autonomy runner instead of the interactive
+    dispatcher — same toolset, but without the 'wait for go' gate.
+    """
+    is_heartbeat = bool(
+        payload.get("project_heartbeat") or job.get("project_heartbeat")
+    )
+    if is_heartbeat and payload.get("project_id"):
+        return await _run_autonomy_tick(job, payload)
+
     instruction = payload.get("instruction") or payload.get("instructions")
     if not instruction:
         return {"status": "error", "message": "Missing instruction in payload"}
@@ -405,21 +416,93 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
     finally:
         await _cleanup_job_session(chat_id, session_id)
 
-    # Fire-and-forget Web Push heartbeat notification — only for project heartbeat jobs
-    if payload.get("project_heartbeat"):
-        try:
-            from app.services.push_service import notify_user
-            asyncio.create_task(notify_user(
-                event="autonomy_result",
-                title=f"Heartbeat: {job.get('name', 'autonomy')}",
-                body="Autonomy cycle completed.",
-                url=f"/project/{project_id}" if project_id else "/",
-                tag=f"autonomy-{job.get('id', '')}",
-            ))
-        except Exception as _push_err:
-            logger.warning(f"[Jobs][AgentTask] Web push dispatch failed: {_push_err}")
-
     return {"status": "ok", "message": f"Agent task completed: {job.get('name')}"}
+
+
+async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
+    """Execute a project autonomy heartbeat — dispatcher-shaped, no 'go' gate."""
+    import time
+    project_id = payload.get("project_id")
+    if not project_id:
+        return {"status": "error", "message": "autonomy tick requires project_id"}
+
+    gated = _check_payload_gate(job, payload)
+    if gated is not None:
+        return gated
+
+    from app.services.project_autonomy import heartbeat_file, read_directive
+    directive_path = str(heartbeat_file(project_id))
+    directive = read_directive(project_id)
+
+    instruction = payload.get("instruction") or "autonomy-tick"
+    if isinstance(instruction, list):
+        instruction = "\n".join(instruction)
+    user_message = (
+        f"[AUTONOMY TICK]\n\n"
+        f"Directive file: {directive_path}\n\n"
+        f"Current directive (below the divider):\n{directive or '(empty)'}\n\n"
+        f"{instruction}"
+    )
+
+    session_id = f"autonomy-{job.get('id', str(uuid4()))}"
+    chat_id = f"autonomy:{job.get('id')}-{uuid4().hex[:8]}"
+    message_id = f"autonomy-tick-{uuid4().hex[:8]}"
+
+    _emit_job_session(job, chat_id, project_id)
+
+    from app.main import _orchestrator
+
+    start = time.time()
+    spawned = 0
+    logger.info(
+        f"[autonomy-tick] start project={project_id} job={job.get('id')} "
+        f"session={session_id}"
+    )
+
+    try:
+        bg_tasks = await _orchestrator.handle_message(
+            websocket=_BroadcastWS(),
+            content=user_message,
+            message_id=message_id,
+            chat_id=chat_id,
+            project_id=project_id,
+            chat_level="project",
+            session_id=session_id,
+            role="autonomy",
+            autonomy_directive_path=directive_path,
+        )
+        spawned = len(bg_tasks) if bg_tasks else 0
+
+        if bg_tasks:
+            results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+            for r in results:
+                if isinstance(r, Exception):
+                    logger.warning(f"[autonomy-tick] background task failed: {r}")
+    finally:
+        await _cleanup_job_session(chat_id, session_id)
+
+    duration = time.time() - start
+    logger.info(
+        f"[autonomy-tick] end project={project_id} job={job.get('id')} "
+        f"duration={duration:.2f}s spawned={spawned}"
+    )
+
+    try:
+        from app.services.push_service import notify_user
+        asyncio.create_task(notify_user(
+            event="autonomy_result",
+            title=f"Heartbeat: {job.get('name', 'autonomy')}",
+            body=(
+                f"Autonomy cycle completed "
+                f"({duration:.1f}s, {spawned} delegate{'s' if spawned != 1 else ''})."
+            ),
+            url=f"/project/{project_id}",
+            tag=f"autonomy-{job.get('id', '')}",
+        ))
+    except Exception as _push_err:
+        logger.warning(f"[autonomy-tick] push dispatch failed: {_push_err}")
+
+    return {"status": "ok", "message": f"Autonomy tick completed: {job.get('name')}"}
 
 
 async def _run_custom(job: dict, payload: dict) -> dict:
