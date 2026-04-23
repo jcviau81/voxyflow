@@ -419,8 +419,45 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
     return {"status": "ok", "message": f"Agent task completed: {job.get('name')}"}
 
 
+# ---------------------------------------------------------------------------
+# Autonomy tick registry — lets cancel_worker_task_global stop a live tick
+# ---------------------------------------------------------------------------
+
+
+_active_autonomy_tasks: dict[str, asyncio.Task] = {}
+
+
+def get_active_autonomy_task(task_id: str) -> asyncio.Task | None:
+    """Return the asyncio.Task running an autonomy tick, or None."""
+    return _active_autonomy_tasks.get(task_id)
+
+
+async def cancel_autonomy_task(task_id: str) -> bool:
+    """Cancel a running autonomy tick by task_id. Returns True if a task was cancelled."""
+    task = _active_autonomy_tasks.get(task_id)
+    if task is None or task.done():
+        return False
+    task.cancel()
+    logger.info(f"[autonomy-tick] cancel requested task_id={task_id}")
+    return True
+
+
+async def _emit_ws(event_type: str, payload: dict) -> None:
+    try:
+        from app.services.ws_broadcast import ws_broadcast
+        ws_broadcast.emit_sync(event_type, payload)
+    except Exception as e:
+        logger.debug(f"[autonomy-tick] ws emit {event_type} failed: {e}")
+
+
 async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
-    """Execute a project autonomy heartbeat — dispatcher-shaped, no 'go' gate."""
+    """Execute a project autonomy heartbeat — dispatcher-shaped, no 'go' gate.
+
+    The tick is registered in ``WorkerSessionStore`` as a pseudo-session
+    (``worker_class="autonomy"``, ``intent="autonomy"``) so it shows up in the
+    Worker Panel alongside regular workers, and can be cancelled mid-run via
+    the standard ``task:cancel`` WS flow.
+    """
     import time
     project_id = payload.get("project_id")
     if not project_id:
@@ -444,23 +481,60 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
         f"{instruction}"
     )
 
-    session_id = f"autonomy-{job.get('id', str(uuid4()))}"
-    chat_id = f"autonomy:{job.get('id')}-{uuid4().hex[:8]}"
+    job_id = job.get("id") or uuid4().hex
+    session_id = f"autonomy-{job_id}"
+    chat_id = f"autonomy:{job_id}-{uuid4().hex[:8]}"
     message_id = f"autonomy-tick-{uuid4().hex[:8]}"
+    # task_id is the handle the frontend uses to cancel / peek. One per tick
+    # so reruns of the same job don't collide in the session store.
+    task_id = f"autonomy-{job_id}-{uuid4().hex[:8]}"
 
     _emit_job_session(job, chat_id, project_id)
+
+    # Register in the worker session store so the Worker Panel sees it.
+    summary = f"Heartbeat — {job.get('name') or job_id}"
+    try:
+        from app.services.worker_session_store import get_worker_session_store
+        from app.config import settings as _settings
+        model_label = getattr(_settings, "claude_fast_model", "") or "sonnet"
+        get_worker_session_store().register(
+            task_id=task_id,
+            session_id=session_id,
+            chat_id=chat_id,
+            project_id=project_id,
+            card_id=None,
+            model=model_label,
+            intent="autonomy",
+            summary=summary,
+            worker_class="autonomy",
+        )
+        await _emit_ws("task:started", {
+            "taskId": task_id,
+            "projectId": project_id,
+            "cardId": None,
+            "chatId": chat_id,
+            "sessionId": session_id,
+            "intent": "autonomy",
+            "summary": summary,
+            "model": model_label,
+            "workerClass": "autonomy",
+        })
+    except Exception as e:
+        logger.warning(f"[autonomy-tick] could not register session: {e}")
 
     from app.main import _orchestrator
 
     start = time.time()
     spawned = 0
+    status = "completed"
+    error_msg: str | None = None
     logger.info(
-        f"[autonomy-tick] start project={project_id} job={job.get('id')} "
-        f"session={session_id}"
+        f"[autonomy-tick] start project={project_id} job={job_id} "
+        f"session={session_id} task={task_id}"
     )
 
-    try:
-        bg_tasks = await _orchestrator.handle_message(
+    async def _run_handle_message():
+        bg = await _orchestrator.handle_message(
             websocket=_BroadcastWS(),
             content=user_message,
             message_id=message_id,
@@ -471,38 +545,81 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
             role="autonomy",
             autonomy_directive_path=directive_path,
         )
-        spawned = len(bg_tasks) if bg_tasks else 0
-
-        if bg_tasks:
-            results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+        if bg:
+            results = await asyncio.gather(*bg, return_exceptions=True)
             for r in results:
                 if isinstance(r, Exception):
                     logger.warning(f"[autonomy-tick] background task failed: {r}")
+        return len(bg) if bg else 0
+
+    handle_task = asyncio.create_task(_run_handle_message())
+    _active_autonomy_tasks[task_id] = handle_task
+    try:
+        try:
+            spawned = await handle_task
+        except asyncio.CancelledError:
+            status = "cancelled"
+            logger.info(f"[autonomy-tick] cancelled task={task_id}")
+        except Exception as e:
+            status = "failed"
+            error_msg = str(e)
+            logger.error(f"[autonomy-tick] failed task={task_id}: {e}", exc_info=True)
     finally:
+        _active_autonomy_tasks.pop(task_id, None)
         await _cleanup_job_session(chat_id, session_id)
 
     duration = time.time() - start
+    result_summary = (
+        f"{spawned} delegate{'s' if spawned != 1 else ''}, {duration:.1f}s"
+        if status == "completed"
+        else (error_msg or status)
+    )
+    try:
+        from app.services.worker_session_store import get_worker_session_store
+        get_worker_session_store().update_status(task_id, status, result_summary=result_summary)
+    except Exception as e:
+        logger.debug(f"[autonomy-tick] could not update store status: {e}")
+
+    if status == "cancelled":
+        await _emit_ws("task:cancelled", {
+            "taskId": task_id,
+            "sessionId": session_id,
+            "chatId": chat_id,
+        })
+    else:
+        await _emit_ws("task:completed", {
+            "taskId": task_id,
+            "sessionId": session_id,
+            "chatId": chat_id,
+            "success": status == "completed",
+            "result": result_summary,
+        })
+
     logger.info(
-        f"[autonomy-tick] end project={project_id} job={job.get('id')} "
-        f"duration={duration:.2f}s spawned={spawned}"
+        f"[autonomy-tick] end project={project_id} job={job_id} "
+        f"duration={duration:.2f}s spawned={spawned} status={status}"
     )
 
     try:
         from app.services.push_service import notify_user
+        body_status = "completed" if status == "completed" else status
         asyncio.create_task(notify_user(
             event="autonomy_result",
             title=f"Heartbeat: {job.get('name', 'autonomy')}",
             body=(
-                f"Autonomy cycle completed "
+                f"Autonomy cycle {body_status} "
                 f"({duration:.1f}s, {spawned} delegate{'s' if spawned != 1 else ''})."
             ),
             url=f"/project/{project_id}",
-            tag=f"autonomy-{job.get('id', '')}",
+            tag=f"autonomy-{job_id}",
         ))
     except Exception as _push_err:
         logger.warning(f"[autonomy-tick] push dispatch failed: {_push_err}")
 
-    return {"status": "ok", "message": f"Autonomy tick completed: {job.get('name')}"}
+    return {
+        "status": "ok" if status == "completed" else status,
+        "message": f"Autonomy tick {status}: {job.get('name')}",
+    }
 
 
 async def _run_custom(job: dict, payload: dict) -> dict:

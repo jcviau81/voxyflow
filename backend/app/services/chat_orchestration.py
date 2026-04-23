@@ -450,7 +450,27 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         return await pool.cancel_task(task_id)
 
     async def cancel_worker_task_global(self, task_id: str) -> bool:
-        """Cancel a worker task searching across all active pools."""
+        """Cancel a worker task searching across all active pools.
+
+        Also checks the autonomy tick registry — autonomy heartbeats aren't
+        real workers (no pool) but we register them in WorkerSessionStore and
+        stream them through the same Worker Panel, so users expect the cancel
+        button to stop them too.
+        """
+        # Autonomy ticks first — they share the cancel button path but live
+        # outside worker pools.
+        if task_id.startswith("autonomy-"):
+            try:
+                from app.services.job_runner import cancel_autonomy_task
+                if await cancel_autonomy_task(task_id):
+                    logger.info(
+                        f"[ChatOrchestrator] cancel_worker_task_global: cancelled "
+                        f"autonomy tick {task_id}"
+                    )
+                    return True
+            except Exception as e:
+                logger.warning(f"[ChatOrchestrator] autonomy cancel failed: {e}")
+
         for sid, pool in self._worker_pools.items():
             if task_id in pool._active_tasks:
                 result = await pool.cancel_task(task_id)

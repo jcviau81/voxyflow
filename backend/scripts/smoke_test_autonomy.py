@@ -194,6 +194,42 @@ def test_chat_fast_stream_signature():
         "chat_fast_stream missing 'autonomy_directive_path' param"
 
 
+@test("autonomy tick registry — cancel_autonomy_task exists and is wired")
+def test_autonomy_cancel_registry():
+    from app.services import job_runner as jr
+    assert hasattr(jr, "_active_autonomy_tasks"), \
+        "job_runner missing _active_autonomy_tasks registry"
+    assert callable(getattr(jr, "cancel_autonomy_task", None)), \
+        "job_runner missing cancel_autonomy_task()"
+    assert callable(getattr(jr, "get_active_autonomy_task", None)), \
+        "job_runner missing get_active_autonomy_task()"
+
+
+@test("cancel_worker_task_global routes autonomy-* task_ids to autonomy registry")
+def test_cancel_worker_task_global_routes_autonomy():
+    import asyncio
+    from app.services import job_runner as jr
+    from app.services.chat_orchestration import ChatOrchestrator
+
+    captured = {}
+
+    async def fake_cancel(task_id):
+        captured["task_id"] = task_id
+        return True
+
+    original = jr.cancel_autonomy_task
+    jr.cancel_autonomy_task = fake_cancel
+    try:
+        orch = ChatOrchestrator(claude_service=None)  # not used by this code path
+        result = asyncio.run(orch.cancel_worker_task_global("autonomy-job42-abcd1234"))
+    finally:
+        jr.cancel_autonomy_task = original
+
+    assert result is True, "cancel_worker_task_global should return True for autonomy task"
+    assert captured.get("task_id") == "autonomy-job42-abcd1234", \
+        "autonomy task_id was not forwarded to cancel_autonomy_task"
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Voxyflow autonomy heartbeat smoke tests")
@@ -207,6 +243,8 @@ if __name__ == "__main__":
     test_non_heartbeat_stays_on_dispatcher()
     test_handle_message_accepts_role()
     test_chat_fast_stream_signature()
+    test_autonomy_cancel_registry()
+    test_cancel_worker_task_global_routes_autonomy()
 
     print()
     print("=" * 60)
