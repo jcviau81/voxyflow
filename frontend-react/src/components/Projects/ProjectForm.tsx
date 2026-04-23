@@ -29,7 +29,7 @@ import { ProjectAutonomySection } from './ProjectAutonomySection';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PROJECT_EMOJIS = ['🎮', '🎙', '🌐', '📱', '🔧', '🎨', '📊', '🚀', '💡', '🔥', '📁', '🎯', '🛠️', '🧪', '📦', '🌟'];
+const PROJECT_EMOJIS = ['🏠', '🎮', '🎙', '🌐', '📱', '🔧', '🎨', '📊', '🚀', '💡', '🔥', '📁', '🎯', '🛠️', '🧪', '📦', '🌟'];
 const DEFAULT_EMOJI = '📁';
 
 const COLOR_PALETTE = [
