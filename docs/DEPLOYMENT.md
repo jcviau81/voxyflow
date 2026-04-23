@@ -136,25 +136,29 @@ Note: Configure redirects for SPA routing:
 
 ## Backend systemd Service
 
-For running the backend as a persistent service on Linux:
+Voxyflow is a single-user install — the backend runs as a **user-level** systemd
+service (not system-wide). Enable linger so the service starts at boot without login:
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
 
 ```ini
-# /etc/systemd/system/voxyflow.service
+# ~/.config/systemd/user/voxyflow-backend.service
 [Unit]
 Description=Voxyflow Backend
 After=network.target
 
 [Service]
 Type=simple
-User=<your-user>
-WorkingDirectory=/path/to/voxyflow/backend
-EnvironmentFile=/path/to/voxyflow/backend/.env
-ExecStart=/path/to/voxyflow/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+WorkingDirectory=/home/youruser/voxyflow/backend
+EnvironmentFile=/home/youruser/voxyflow/backend/.env
+ExecStart=/home/youruser/voxyflow/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 ```
 
 > **Important:** The `EnvironmentFile=` line must point to your `backend/.env` file.
@@ -162,9 +166,9 @@ WantedBy=multi-user.target
 > which could create a second database if the default doesn't match your `.env`.
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now voxyflow
-sudo journalctl -u voxyflow -f  # watch logs
+systemctl --user daemon-reload
+systemctl --user enable --now voxyflow-backend
+journalctl --user -u voxyflow-backend -f  # watch logs
 ```
 
 ## Environment Variables

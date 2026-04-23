@@ -100,7 +100,7 @@ Edit `.env` as needed. Minimal config (CLI backend):
 
 ```env
 CLAUDE_USE_CLI=true
-CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
+CLAUDE_FAST_MODEL=claude-haiku-4-6
 CLAUDE_SONNET_MODEL=claude-sonnet-4-6
 CLAUDE_DEEP_MODEL=claude-opus-4-7
 ```
@@ -203,7 +203,7 @@ Uses your Claude Max subscription by spawning `claude -p` subprocesses. No API k
 3. Set in `backend/.env`:
    ```env
    CLAUDE_USE_CLI=true
-   CLAUDE_FAST_MODEL=claude-haiku-4-5-20251001
+   CLAUDE_FAST_MODEL=claude-haiku-4-6
    CLAUDE_SONNET_MODEL=claude-sonnet-4-6
    CLAUDE_DEEP_MODEL=claude-opus-4-7
    ```
