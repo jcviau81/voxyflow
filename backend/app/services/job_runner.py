@@ -186,10 +186,55 @@ async def _execute_job(job: dict) -> dict:
         return {"status": "error", "message": str(e)}
 
 
-async def _cleanup_job_session(chat_id: str, session_id: str) -> None:
-    """Kill persistent CLI process, stop worker pool, and free session resources."""
+async def _wait_pool_drain(session_id: str, *, max_wait_s: float = 1800.0) -> None:
+    """Wait for the session's worker pool to finish all active tasks.
+
+    The dispatcher's ``handle_message`` returns as soon as delegates are
+    *emitted* to the bus — the actual workers then run in the pool. Scheduled
+    paths that call ``_cleanup_job_session`` immediately after would otherwise
+    stop the pool mid-execution (``cancelled N active task(s)`` in the logs),
+    which is exactly the "heartbeat fires but no worker works" symptom.
+    """
+    import time as _time
     try:
         from app.main import _orchestrator
+    except Exception:
+        return
+    pool = _orchestrator._worker_pools.get(session_id)
+    if not pool:
+        return
+    deadline = _time.time() + max_wait_s
+    waited = False
+    while _time.time() < deadline:
+        active = [t for t in pool._active_tasks.values() if not t.done()]
+        if not active:
+            if waited:
+                logger.info(
+                    f"[Jobs] Pool drained for session {session_id} "
+                    f"(waited up to {_time.time() - (deadline - max_wait_s):.1f}s)"
+                )
+            return
+        waited = True
+        try:
+            await asyncio.wait(active, timeout=5.0, return_when=asyncio.FIRST_COMPLETED)
+        except Exception as e:
+            logger.debug(f"[Jobs] Pool drain wait error for {session_id}: {e}")
+            break
+    logger.warning(
+        f"[Jobs] Pool drain timed out after {max_wait_s}s for session "
+        f"{session_id} — cleanup will cancel the remaining workers"
+    )
+
+
+async def _cleanup_job_session(chat_id: str, session_id: str) -> None:
+    """Kill persistent CLI process, stop worker pool, and free session resources.
+
+    Waits for active worker tasks to drain first so delegates spawned during
+    the job don't get cancelled before they run.
+    """
+    try:
+        from app.main import _orchestrator
+        await _wait_pool_drain(session_id)
         _orchestrator.reset_session(chat_id, session_id)
         await _orchestrator.stop_worker_pool(session_id)
         logger.info(f"[Jobs] Cleaned up session chat_id={chat_id} session_id={session_id}")
@@ -499,8 +544,8 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
     summary = f"Heartbeat — {job.get('name') or job_id}"
     try:
         from app.services.worker_session_store import get_worker_session_store
-        from app.config import settings as _settings
-        model_label = getattr(_settings, "claude_fast_model", "") or "sonnet"
+        from app.config import get_settings
+        model_label = getattr(get_settings(), "claude_fast_model", "") or "sonnet"
         get_worker_session_store().register(
             task_id=task_id,
             session_id=session_id,
