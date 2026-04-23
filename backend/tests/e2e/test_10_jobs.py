@@ -21,10 +21,10 @@ class TestJobCRUD:
     async def test_create_job(self, client: httpx.AsyncClient):
         r = await client.post("/api/jobs", json={
             "name": f"E2E Test Job {uuid.uuid4().hex[:6]}",
-            "type": "custom",
+            "type": "reminder",
             "schedule": "every_30min",
             "enabled": False,
-            "payload": {"test": True},
+            "payload": {"message": "test"},
         })
         assert r.status_code == 201
         job = r.json()
@@ -39,8 +39,9 @@ class TestJobCRUD:
         # Create
         r = await client.post("/api/jobs", json={
             "name": f"Update Test {uuid.uuid4().hex[:6]}",
-            "type": "custom",
+            "type": "reminder",
             "schedule": "every_1h",
+            "payload": {"message": "test"},
         })
         job = r.json()
         job_id = job["id"]
@@ -63,8 +64,9 @@ class TestJobCRUD:
         # Create
         r = await client.post("/api/jobs", json={
             "name": f"Delete Test {uuid.uuid4().hex[:6]}",
-            "type": "custom",
+            "type": "reminder",
             "schedule": "every_1h",
+            "payload": {"message": "test"},
         })
         job = r.json()
         job_id = job["id"]
@@ -116,12 +118,13 @@ class TestJobTypes:
 
 class TestJobTrigger:
     @pytest.mark.asyncio
-    async def test_trigger_custom_job(self, client: httpx.AsyncClient):
-        # Create a custom job
+    async def test_trigger_reminder_job(self, client: httpx.AsyncClient):
+        # Create a reminder job
         r = await client.post("/api/jobs", json={
             "name": f"E2E Trigger {uuid.uuid4().hex[:6]}",
-            "type": "custom",
+            "type": "reminder",
             "schedule": "every_1h",
+            "payload": {"message": "test"},
         })
         job = r.json()
         job_id = job["id"]
@@ -146,8 +149,9 @@ class TestJobInList:
     async def test_created_job_appears_in_list(self, client: httpx.AsyncClient):
         r = await client.post("/api/jobs", json={
             "name": f"E2E Listed {uuid.uuid4().hex[:6]}",
-            "type": "custom",
+            "type": "reminder",
             "schedule": "every_1h",
+            "payload": {"message": "test"},
         })
         job = r.json()
         job_id = job["id"]

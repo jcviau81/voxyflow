@@ -12,9 +12,9 @@
 import { useState, useCallback, useMemo } from 'react';
 import {
   Clock, Play, Trash2, Plus, Loader2, X, Pencil,
-  Bell, GitBranch, Database, LayoutGrid, Cog, Bot, Square,
+  Bell, Database, LayoutGrid, Bot, Square,
   ChevronDown, ChevronUp, Calendar, Info, Eye, EyeOff,
-  HeartPulse, RefreshCw, FileX, HardDrive,
+  RefreshCw, FileX, HardDrive,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToastStore } from '../../stores/useToastStore';
@@ -25,7 +25,7 @@ import { cn } from '../../lib/utils';
 interface Job {
   id: string;
   name: string;
-  type: 'reminder' | 'github_sync' | 'rag_index' | 'custom' | 'board_run' | 'execute_board' | 'execute_card' | 'agent_task' | 'heartbeat' | 'recurrence' | 'session_cleanup' | 'chromadb_backup';
+  type: 'reminder' | 'rag_index' | 'board_run' | 'execute_board' | 'execute_card' | 'agent_task' | 'recurrence' | 'session_cleanup' | 'chromadb_backup';
   schedule: string;
   enabled: boolean;
   payload: Record<string, unknown>;
@@ -45,7 +45,7 @@ interface SimpleProject {
 // Job types shown in the create/edit type selector (ordered)
 const JOB_TYPE_CREATE_ORDER: JobType[] = [
   'agent_task', 'execute_card', 'execute_board',
-  'reminder', 'rag_index', 'github_sync', 'custom',
+  'reminder', 'rag_index',
 ];
 
 const JOB_TYPE_META: Record<JobType, {
@@ -90,18 +90,6 @@ const JOB_TYPE_META: Record<JobType, {
     icon: Database,
     color: 'text-emerald-400',
   },
-  github_sync: {
-    label: 'GitHub Sync',
-    description: 'Synchronize with a GitHub repository',
-    icon: GitBranch,
-    color: 'text-purple-400',
-  },
-  heartbeat: {
-    label: 'Heartbeat',
-    description: 'System health checks (backend, ChromaDB, XTTS, resources)',
-    icon: HeartPulse,
-    color: 'text-rose-400',
-  },
   recurrence: {
     label: 'Recurrence',
     description: 'Generate recurring cards based on card schedules',
@@ -119,12 +107,6 @@ const JOB_TYPE_META: Record<JobType, {
     description: 'Daily backup of all ChromaDB collections',
     icon: HardDrive,
     color: 'text-slate-400',
-  },
-  custom: {
-    label: 'Custom',
-    description: 'Custom job with user-defined behavior',
-    icon: Cog,
-    color: 'text-muted-foreground',
   },
 };
 
@@ -307,9 +289,6 @@ function getPayloadSummary(
     case 'rag_index': {
       const projName = p.project_id ? (projectsMap.get(p.project_id as string) ?? 'Unknown project') : 'All active projects';
       return projName;
-    }
-    case 'github_sync': {
-      return p.repo ? `Repo: ${p.repo}` : null;
     }
     default:
       return null;
@@ -516,24 +495,6 @@ function RagIndexPayload({ payload, onChange, projects }: {
   );
 }
 
-function GithubSyncPayload({ payload, onChange }: {
-  payload: Record<string, unknown>;
-  onChange: (p: Record<string, unknown>) => void;
-}) {
-  return (
-    <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1 block">Repository</label>
-      <input
-        type="text"
-        value={(payload.repo as string) ?? ''}
-        onChange={(e) => onChange({ ...payload, repo: e.target.value || undefined })}
-        placeholder="owner/repo"
-        className="h-8 w-full px-2.5 text-sm rounded-md border border-input bg-background font-mono"
-      />
-    </div>
-  );
-}
-
 function AgentTaskPayload({ payload, onChange, projects }: {
   payload: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
@@ -671,8 +632,6 @@ function PayloadEditor({ type, payload, onChange, projects }: {
       return <ReminderPayload payload={payload} onChange={onChange} />;
     case 'rag_index':
       return <RagIndexPayload payload={payload} onChange={onChange} projects={projects} />;
-    case 'github_sync':
-      return <GithubSyncPayload payload={payload} onChange={onChange} />;
     default:
       return null;
   }
@@ -689,7 +648,7 @@ function JobItem({ job, projectsMap, onToggle, onRun, onDelete, onEdit }: {
   onEdit: (job: Job) => void;
 }) {
   const [showPayload, setShowPayload] = useState(false);
-  const meta = JOB_TYPE_META[job.type] ?? JOB_TYPE_META.custom;
+  const meta = JOB_TYPE_META[job.type] ?? JOB_TYPE_META.agent_task;
   const Icon = meta.icon;
   const scheduleResult = validateCronOrShorthand(job.schedule);
   const payloadSummary = getPayloadSummary(job, projectsMap);

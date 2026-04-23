@@ -41,16 +41,16 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 # ---------------------------------------------------------------------------
 
 JobType = Literal[
-    "reminder", "github_sync", "rag_index", "custom",
+    "reminder", "rag_index",
     "board_run", "execute_board", "execute_card", "agent_task",
-    "heartbeat", "recurrence", "session_cleanup", "chromadb_backup",
+    "recurrence", "session_cleanup", "chromadb_backup",
 ]
 
 
 class JobModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
-    type: JobType = "custom"
+    type: JobType
     schedule: str  # cron expression OR "every_Xmin" / "every_Xh"
     enabled: bool = True
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -60,7 +60,7 @@ class JobModel(BaseModel):
 
 class JobCreateRequest(BaseModel):
     name: str
-    type: JobType = "custom"
+    type: JobType
     schedule: str
     enabled: bool = True
     payload: dict[str, Any] = Field(default_factory=dict)
