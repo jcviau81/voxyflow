@@ -139,6 +139,9 @@ class DeepWorkerPool:
         self._result_contents: dict[str, str] = {}  # task_id → actual result content
         self._task_tool_events: dict[str, list[dict]] = {}  # task_id → bounded tool event buffer
         self._MAX_TOOL_EVENTS = 50
+        # Monotone tool-call counter, unbounded. The events buffer above is trimmed
+        # to the last N for the dispatcher peek; this one reflects true lifetime count.
+        self._task_tool_counts: dict[str, int] = {}
         self._task_message_queues: dict[str, asyncio.Queue] = {}  # task_id → steer queue
         # Ambient worker-event buffer keyed by dispatcher_chat_id. Each entry is
         # {task_id, intent, status, finished_at, summary_line}. Drained by the
@@ -352,7 +355,7 @@ class DeepWorkerPool:
             "action": meta["action"],
             "model": meta["model"],
             "status": "running" if task_id in self._active_tasks else "completed",
-            "tool_count": len(events) if events else 0,
+            "tool_count": self._task_tool_counts.get(task_id, 0),
             "last_tool": events[-1]["tool"] if events else None,
             "last_tool_at": events[-1]["at"] if events else None,
             "recent_tools": [e["tool"] for e in (events or [])[-5:]],
@@ -379,7 +382,7 @@ class DeepWorkerPool:
                     "model": meta["model"],
                     "description": meta["description"],
                     "running_seconds": elapsed,
-                    "tool_count": len(tool_events) if tool_events else 0,
+                    "tool_count": self._task_tool_counts.get(task_id, 0),
                     "last_tool": tool_events[-1]["tool"] if tool_events else None,
                 })
 
@@ -803,6 +806,7 @@ class DeepWorkerPool:
             # Schedule tool event buffer cleanup after 60s
             def _cleanup_tool_events(tid: str = task_id) -> None:
                 self._task_tool_events.pop(tid, None)
+                self._task_tool_counts.pop(tid, None)
 
             try:
                 loop = asyncio.get_running_loop()
@@ -1039,11 +1043,10 @@ class DeepWorkerPool:
 
             task_chat_id = f"task-{event.task_id}"
 
-            tool_events = self._task_tool_events.get(event.task_id)
             await self._send_task_event("task:progress", event.task_id, {
                 "status": "executing",
                 "sessionId": event.session_id,
-                "toolCount": len(tool_events) if tool_events else 0,
+                "toolCount": self._task_tool_counts.get(event.task_id, 0),
             })
 
             chat_level = event.data.get("chat_level", "general")
@@ -1139,18 +1142,20 @@ class DeepWorkerPool:
                     if isinstance(output, str) and len(output) > 200:
                         _captured_tool_outputs.append(output)
 
-                # Buffer tool event for dispatcher peek
+                # Buffer tool event for dispatcher peek (bounded recent-events window)
                 tool_buf = self._task_tool_events.setdefault(event.task_id, [])
                 tool_buf.append({"tool": tool_name, "at": time.time()})
                 if len(tool_buf) > self._MAX_TOOL_EVENTS:
                     tool_buf[:] = tool_buf[-self._MAX_TOOL_EVENTS:]
+                # Monotone lifetime counter (not trimmed) for accurate UI display
+                self._task_tool_counts[event.task_id] = self._task_tool_counts.get(event.task_id, 0) + 1
 
                 if supervisor.check_repetition(event.task_id):
                     logger.warning(f"[Supervisor] Cancelling task {event.task_id} — repetitive loop detected")
                     supervisor.mark_problem(event.task_id, "repetitive_loop")
                     cancel_event.set()
 
-                tool_count = len(self._task_tool_events.get(event.task_id, []))
+                tool_count = self._task_tool_counts.get(event.task_id, 0)
                 await self._send_task_event("tool:executed", event.task_id, {
                     "tool": tool_name,
                     "args": arguments,
