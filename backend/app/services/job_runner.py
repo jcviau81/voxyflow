@@ -541,7 +541,9 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
     _emit_job_session(job, chat_id, project_id)
 
     # Register in the worker session store so the Worker Panel sees it.
-    summary = f"Heartbeat — {job.get('name') or job_id}"
+    # Job names for heartbeats are already "Heartbeat — <project>"; the panel
+    # prefixes "Autonomy — " on top. Don't double-prefix in the session summary.
+    summary = job.get("name") or job_id
     try:
         from app.services.worker_session_store import get_worker_session_store
         from app.config import get_settings

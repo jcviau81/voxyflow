@@ -91,7 +91,12 @@ function parseSessionLabel(chatId: string | null, cardTitles: Record<string, str
   }
   if (chatId.startsWith('autonomy:')) {
     const meta = jobMeta[chatId];
-    return meta?.jobName ? `Autonomy — ${meta.jobName}` : 'Autonomy Heartbeat';
+    if (meta?.jobName) {
+      // "Autonomy — " already implies heartbeat; drop a redundant "Heartbeat — " prefix.
+      const name = meta.jobName.replace(/^Heartbeat\s*[—-]\s*/i, '');
+      return `Autonomy — ${name}`;
+    }
+    return 'Autonomy Heartbeat';
   }
   if (chatId.startsWith('card:')) {
     const cardId = chatId.slice('card:'.length).split(':')[0];
