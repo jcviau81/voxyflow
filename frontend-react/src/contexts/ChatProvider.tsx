@@ -804,9 +804,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           status: string;
           message: string;
         };
-        // Skip routine heartbeat "ok" — only notify on status changes (warning/error)
-        if (jobId === 'heartbeat' && status === 'ok') return;
-
         addNotificationRef.current({
           type: 'system_job',
           message: `${jobName}: ${message}`,

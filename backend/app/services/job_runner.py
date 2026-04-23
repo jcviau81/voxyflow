@@ -155,7 +155,7 @@ class _BroadcastWS:
 
 async def _execute_job(job: dict) -> dict:
     """Dispatch job execution based on type. Returns result summary."""
-    job_type = job.get("type", "custom")
+    job_type = job.get("type")
     payload = job.get("payload", {})
 
     try:
@@ -163,8 +163,6 @@ async def _execute_job(job: dict) -> dict:
             return await _run_rag_index(job, payload)
         elif job_type == "reminder":
             return await _run_reminder(job, payload)
-        elif job_type == "github_sync":
-            return await _run_github_sync(job, payload)
         elif job_type in ("board_run", "execute_board"):
             # board_run jobs with instruction(s) are really agent_tasks
             if payload.get("instruction") or payload.get("instructions"):
@@ -175,10 +173,8 @@ async def _execute_job(job: dict) -> dict:
             return await _run_execute_card(job, payload)
         elif job_type == "agent_task":
             return await _run_agent_task(job, payload)
-        elif job_type in ("heartbeat", "recurrence", "session_cleanup", "chromadb_backup"):
+        elif job_type in ("recurrence", "session_cleanup", "chromadb_backup"):
             return await _run_builtin(job, job_type)
-        elif job_type == "custom":
-            return await _run_custom(job, payload)
         else:
             return {"status": "error", "message": f"Unknown job type: {job_type}"}
     except Exception as e:
@@ -292,7 +288,6 @@ async def _run_builtin(job: dict, job_type: str) -> dict:
 
     svc = get_scheduler_service()
     handler_map = {
-        "heartbeat": svc._heartbeat_job,
         "recurrence": svc._recurrence_job,
         "session_cleanup": svc._session_cleanup_job,
         "chromadb_backup": svc._chromadb_backup_job,
@@ -317,13 +312,6 @@ async def _run_reminder(job: dict, payload: dict) -> dict:
     })
 
     return {"status": "ok", "message": f"Reminder delivered: {message}"}
-
-
-async def _run_github_sync(job: dict, payload: dict) -> dict:
-    """Placeholder for GitHub sync job."""
-    repo = payload.get("repo", "")
-    logger.info(f"[Jobs][GithubSync] Would sync repo: {repo}")
-    return {"status": "ok", "message": f"GitHub sync placeholder (repo={repo})"}
 
 
 async def _run_execute_board(job: dict, payload: dict) -> dict:
@@ -673,7 +661,3 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
     }
 
 
-async def _run_custom(job: dict, payload: dict) -> dict:
-    """Placeholder for custom job types."""
-    logger.info(f"[Jobs][Custom] Triggered custom job '{job['name']}'")
-    return {"status": "ok", "message": "Custom job triggered (no executor registered)"}

@@ -933,7 +933,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "name": {"type": "string"},
                 "type": {
                     "type": "string",
-                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "custom"],
+                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index"],
                 },
                 "schedule": {"type": "string", "description": "cron or shorthand"},
                 "enabled": {"type": "boolean", "description": "Default true"},
@@ -953,7 +953,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "name": {"type": "string"},
                 "type": {
                     "type": "string",
-                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index", "custom"],
+                    "enum": ["agent_task", "execute_card", "execute_board", "reminder", "rag_index"],
                 },
                 "schedule": {"type": "string"},
                 "enabled": {"type": "boolean"},
