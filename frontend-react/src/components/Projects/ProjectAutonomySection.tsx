@@ -68,24 +68,6 @@ export function ProjectAutonomySection({ projectId }: Props) {
     }
   };
 
-  const onToggleEnabled = async () => {
-    // Quick on/off: flip the saved enabled flag and persist immediately,
-    // using the last-saved schedule/directive so the user doesn't have to Save.
-    const nextEnabled = !(data?.enabled ?? enabled);
-    try {
-      await upsert.mutateAsync({
-        projectId,
-        enabled: nextEnabled,
-        schedule: data?.schedule || schedule,
-        directive: data?.directive ?? directive,
-      });
-      setEnabled(nextEnabled);
-      showToast(nextEnabled ? 'Autonomy resumed' : 'Autonomy paused', 'success');
-    } catch (e) {
-      showToast(`Could not toggle autonomy: ${(e as Error).message}`, 'error');
-    }
-  };
-
   const onRunNow = async () => {
     try {
       const res = await runNow.mutateAsync(projectId);
@@ -199,24 +181,6 @@ export function ProjectAutonomySection({ projectId }: Props) {
         >
           {upsert.isPending ? 'Saving…' : 'Save'}
         </button>
-        <label
-          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs cursor-pointer select-none ${
-            (data?.enabled ?? enabled)
-              ? 'border-primary/40 bg-primary/10 text-primary'
-              : 'border-border text-muted-foreground'
-          } ${upsert.isPending ? 'opacity-60 cursor-wait' : 'hover:bg-accent/50'}`}
-          title={(data?.enabled ?? enabled) ? 'Autonomy is running — click to pause' : 'Autonomy is paused — click to resume'}
-        >
-          <input
-            type="checkbox"
-            checked={data?.enabled ?? enabled}
-            onChange={onToggleEnabled}
-            disabled={upsert.isPending || isLoading}
-            className="w-3.5 h-3.5 accent-primary"
-            data-testid="autonomy-quick-toggle"
-          />
-          <span>{(data?.enabled ?? enabled) ? 'On' : 'Off'}</span>
-        </label>
         <button
           type="button"
           onClick={onRunNow}
