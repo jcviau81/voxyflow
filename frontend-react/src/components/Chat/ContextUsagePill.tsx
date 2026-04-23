@@ -24,10 +24,11 @@ export function ContextUsagePill({ sessionId, className }: ContextUsagePillProps
 
   const cacheRead = usage.cacheReadTokens ?? 0;
   const cacheCreate = usage.cacheCreationTokens ?? 0;
-  // Full prompt seen by the model = fresh input + cached input read + cache writes.
-  // Output tokens count too (they occupy the window as they're generated).
-  const totalInput = usage.inputTokens + cacheRead + cacheCreate;
-  const total = totalInput + usage.outputTokens;
+  // Context window = input-side budget only. fresh + cache_read + cache_create
+  // are disjoint in Anthropic's usage response and together equal the full prompt
+  // size. Output has its own separate max_tokens budget, so don't add it here —
+  // including it was pushing the displayed total past 200k on normal turns.
+  const total = usage.inputTokens + cacheRead + cacheCreate;
   const pct = (total / usage.contextWindow) * 100;
 
   const tone =
