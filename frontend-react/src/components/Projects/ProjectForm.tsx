@@ -857,7 +857,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                   </div>
                 )}
 
-                {mode === 'edit' && project && !project.isSystem && (
+                {mode === 'edit' && project && (
                   <ProjectAutonomySection projectId={project.id} />
                 )}
 
