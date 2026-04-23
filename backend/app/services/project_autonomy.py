@@ -65,6 +65,15 @@ def job_id_for(project_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_DIRECTIVE = (
+    "Check worker status via workers.list.\n"
+    "Check the todo column for a new task to start.\n"
+    "If a todo card has no in-progress/running worker and no blocked dependencies,\n"
+    "move it to in-progress and delegate an opus worker with a focused brief.\n"
+    "Otherwise, log [AUTONOMY-NOOP] with the reason.\n"
+)
+
+
 _DEFAULT_PREAMBLE = (
     "# Project Heartbeat — {title}\n"
     "\n"
@@ -83,6 +92,8 @@ _DEFAULT_PREAMBLE = (
     f"{DIVIDER}\n"
     "\n"
     "<!-- Drop the next directive below this line. Leave empty to pause. -->\n"
+    "\n"
+    f"{_DEFAULT_DIRECTIVE}"
 )
 
 

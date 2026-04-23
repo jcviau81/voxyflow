@@ -74,6 +74,21 @@ def test_prompts_differ():
         "no-op sentinel leaked into interactive dispatcher prompt"
 
 
+@test("default heartbeat file — seeded with an actionable directive, not empty")
+def test_default_directive_not_empty():
+    import re
+    from app.services.project_autonomy import _DEFAULT_PREAMBLE, DIVIDER
+    rendered = _DEFAULT_PREAMBLE.format(title="Any Project")
+    assert DIVIDER in rendered, "divider missing from seeded preamble"
+    below = rendered.split(DIVIDER, 1)[1]
+    stripped = re.sub(r"<!--.*?-->", "", below, flags=re.DOTALL).strip()
+    assert stripped, \
+        "seeded directive below divider is empty — file_has_directive gate would always skip"
+    assert "workers.list" in stripped, "default directive should reference workers.list"
+    assert "AUTONOMY-NOOP" in stripped, \
+        "default directive should tell the model how to no-op instead of brainstorming"
+
+
 @test("build_job_dict — carries project_heartbeat flag in payload and top-level")
 def test_job_dict_flag_both_places():
     from app.services.project_autonomy import build_job_dict
@@ -186,6 +201,7 @@ if __name__ == "__main__":
 
     test_autonomy_prompt_shape()
     test_prompts_differ()
+    test_default_directive_not_empty()
     test_job_dict_flag_both_places()
     test_heartbeat_routing()
     test_non_heartbeat_stays_on_dispatcher()
