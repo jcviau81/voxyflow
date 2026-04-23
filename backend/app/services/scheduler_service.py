@@ -103,28 +103,10 @@ class SchedulerService:
     # ------------------------------------------------------------------
 
     _DEFAULT_JOBS: list[dict] = [
-        {
-            "id": "builtin-agent-heartbeat",
-            "name": "Agent Heartbeat",
-            "type": "agent_task",
-            "schedule": "every_5min",
-            "enabled": True,
-            "builtin": True,
-            "payload": {
-                "instruction": (
-                    "Read the file ~/.voxyflow/workspace/heartbeat.md. "
-                    "If it contains instructions, follow them. "
-                    "If it is empty or contains no actionable instructions, do nothing — "
-                    "do not create cards, do not respond, just exit silently."
-                ),
-                # Skip the LLM entirely when the file has no actionable content
-                # below the "---" divider (see _file_has_directive in routes/jobs.py).
-                "gate": {
-                    "type": "file_has_directive",
-                    "path": "~/.voxyflow/workspace/heartbeat.md",
-                },
-            },
-        },
+        # Removed: `builtin-agent-heartbeat` (global ~/.voxyflow/workspace/heartbeat.md
+        # poller). Replaced by the per-project autonomy layer — each project owns
+        # its own heartbeat at ~/.voxyflow/workspace/projects/{project_id}/heartbeat.md,
+        # scheduled via proj-heartbeat-* jobs. See scripts/smoke_test_autonomy.py.
         {
             "id": "builtin-rag-index",
             "name": "RAG Workspace Indexer",
@@ -171,16 +153,12 @@ class SchedulerService:
         new payload fields without needing a re-seed.
         """
         changed = False
-        for j in jobs:
-            if j.get("id") == "builtin-agent-heartbeat":
-                payload = j.get("payload") or {}
-                if not isinstance(payload.get("gate"), dict):
-                    payload["gate"] = {
-                        "type": "file_has_directive",
-                        "path": "~/.voxyflow/workspace/heartbeat.md",
-                    }
-                    j["payload"] = payload
-                    changed = True
+        # Retire the legacy global heartbeat — the per-project autonomy layer
+        # owns heartbeats now. Drop the row from jobs.json on boot.
+        before = len(jobs)
+        jobs[:] = [j for j in jobs if j.get("id") != "builtin-agent-heartbeat"]
+        if len(jobs) != before:
+            changed = True
         return changed
 
     def _seed_default_jobs(self, jobs_file: Path) -> None:
