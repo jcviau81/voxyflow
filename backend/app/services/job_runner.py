@@ -409,11 +409,7 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
     if is_heartbeat and payload.get("project_id"):
         return await _run_autonomy_tick(job, payload)
 
-    instruction = (
-        payload.get("instruction")
-        or payload.get("instructions")
-        or payload.get("prompt")
-    )
+    instruction = payload.get("instruction") or payload.get("instructions")
     if not instruction:
         return {"status": "error", "message": "Missing instruction in payload"}
 
