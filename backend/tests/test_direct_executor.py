@@ -142,7 +142,15 @@ class TestExecute:
         assert called_params["project_id"] == "my-proj"
 
     @pytest.mark.asyncio
-    async def test_execute_does_not_overwrite_explicit_project_id(self, mock_mcp):
+    async def test_execute_overrides_llm_supplied_project_id(self, mock_mcp):
+        """LLM-supplied project_id must be overridden by the current chat scope.
+
+        Mirrors the VOXYFLOW_PROJECT_ID invariant enforced by the MCP
+        subprocess path — DirectExecutor runs in the backend process where
+        that env is not set, so it enforces the same rule explicitly.
+        Otherwise a stray/guessed project_id from the LLM leaks cards into
+        the wrong project (e.g. Home instead of the active project).
+        """
         _, call_api, tool_def = mock_mcp
         call_api.return_value = {"ok": True}
 
@@ -150,7 +158,7 @@ class TestExecute:
         await DirectExecutor.execute(data, project_id="context-proj")
 
         called_params = call_api.call_args[0][1]
-        assert called_params["project_id"] == "explicit"
+        assert called_params["project_id"] == "context-proj"
 
     @pytest.mark.asyncio
     async def test_execute_error_when_api_raises(self, mock_mcp):

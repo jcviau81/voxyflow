@@ -364,11 +364,13 @@ def test_record_worker_event_truncates_long_summary_line():
     pool = _make_pool_for_events()
     pool.record_worker_event(
         "chat-1", task_id="T1", intent="x",
-        status="success", summary_line="a" * 500,
+        status="success", summary_line="a" * 1000,
     )
     ev = pool._worker_events["chat-1"][0]
-    # 200-char cap prevents any single completion from blowing up the block.
-    assert len(ev["summary_line"]) == 200
+    # 500-char cap prevents any single completion from blowing up the block.
+    # Workers are instructed (WORKER.md §2a) to write compressed briefs that
+    # fit well under this — the cap is the safety net, not the target.
+    assert len(ev["summary_line"]) == 500
 
 
 # ---------------------------------------------------------------------------
