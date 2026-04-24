@@ -1353,7 +1353,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             "required": ["task_id", "summary"],
             "properties": {
                 "task_id": {"type": "string", "description": "Your assigned task ID"},
-                "summary": {"type": "string", "description": "Brief summary of what you accomplished"},
+                "summary": {"type": "string", "description": "Dispatcher-facing brief — compressed, telegraphic, ≤500 chars. Full verbose output lives in the artifact; don't repeat it here."},
                 "status": {
                     "type": "string",
                     "enum": ["success", "partial", "failed"],
@@ -1412,8 +1412,12 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "summary": {
                     "type": "string",
                     "description": (
-                        "What you did and what the dispatcher needs to know, in your own words. "
-                        "Not the raw output — a real summary. Minimum 20 chars."
+                        "Dispatcher-facing brief. This is the ONLY text injected into the "
+                        "dispatcher's next turn — keep it compressed, telegraphic, information-"
+                        "dense. Drop articles, filler, and pleasantries. State outcome + key "
+                        "facts the dispatcher needs to reason about next steps. "
+                        "Target ≤500 chars; hard cap 2000. Minimum 20 chars. "
+                        "Full verbose output still lands in the artifact — don't repeat it here."
                     ),
                 },
                 "findings": {

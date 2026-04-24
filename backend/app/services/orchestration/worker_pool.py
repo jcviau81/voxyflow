@@ -595,7 +595,7 @@ class DeepWorkerPool:
             "intent": intent or "unknown",
             "status": status,
             "finished_at": time.time(),
-            "summary_line": (summary_line or "")[:200],
+            "summary_line": (summary_line or "")[:500],
         })
 
     def drain_worker_events(
@@ -1507,7 +1507,16 @@ class DeepWorkerPool:
             if dispatcher_chat_id:
                 payload = supervisor.get_completion_payload(event.task_id)
                 status = (payload or {}).get("status") or "success"
-                summary_line = ((payload or {}).get("summary") or result_content or "").strip().splitlines()[0] if (payload or result_content) else ""
+                # Prefer the structured worker.complete summary (which §2a of
+                # WORKER.md asks the worker to write in a compressed,
+                # telegraphic style). Fall back to result_content. Flatten any
+                # embedded newlines to " · " so the ambient block stays
+                # one-line-per-event without discarding content after the
+                # first newline.
+                summary_source = ((payload or {}).get("summary") or result_content or "").strip()
+                summary_line = " · ".join(
+                    ln.strip() for ln in summary_source.splitlines() if ln.strip()
+                )
                 self.record_worker_event(
                     dispatcher_chat_id,
                     task_id=event.task_id,

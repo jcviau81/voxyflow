@@ -1028,7 +1028,10 @@ def build_worker_events_block(events: list[dict]) -> str:
     """Render completed worker events as a short reference block.
 
     This is NOT a turn. It just tells Voxy "these finished while you were away;
-    call workers.get_result if you want the detail." Hard cap ≤10 lines / 600 chars.
+    call workers.get_result if you want the detail." Hard cap ≤10 lines /
+    1600 chars — per-line cap is generous because workers are instructed
+    (WORKER.md §2a) to write compressed, telegraphic briefs, and truncating
+    those defeats the purpose.
     """
     if not events:
         return ""
@@ -1042,11 +1045,11 @@ def build_worker_events_block(events: list[dict]) -> str:
         # Prefer the summary if present; otherwise just fall back to the hint.
         tail = summary if summary else "use workers.get_result for details"
         line = f"- {glyph} {task_id} — {intent} ({status}) — {tail}"
-        lines.append(line[:140])
+        lines.append(line[:300])
 
     rendered = "\n".join(lines)
-    if len(rendered) > 600:
-        rendered = rendered[:580].rstrip() + "\n[... events truncated — use workers.list ...]"
+    if len(rendered) > 1600:
+        rendered = rendered[:1580].rstrip() + "\n[... events truncated — use workers.list ...]"
     return rendered
 
 
