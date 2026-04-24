@@ -222,13 +222,25 @@ class DirectExecutor:
         # Build the params to pass to the MCP tool
         params = dict(delegate_data.get("params", {}))
 
-        # Auto-inject project_id if the tool needs it and it's not in params
+        # Hard-scope project_id to the current chat's project. Mirrors the
+        # invariant enforced by `_build_url_and_payload` (via VOXYFLOW_PROJECT_ID
+        # env) for the MCP subprocess path. DirectExecutor runs in the backend
+        # process where that env is not set, so we enforce it explicitly here —
+        # otherwise a stray / guessed project_id from the LLM leaks cards into
+        # the wrong project (typically Home / system-main when the dispatcher
+        # misreads its context).
         tool_schema = tool_def.get("inputSchema", {})
         required_fields = tool_schema.get("required", [])
-        if "project_id" in required_fields and "project_id" not in params:
+        if "project_id" in tool_schema.get("properties", {}) or "project_id" in required_fields:
             if project_id:
+                llm_pid = params.get("project_id")
+                if llm_pid and llm_pid != project_id:
+                    logger.warning(
+                        f"[DirectExecutor] Ignoring LLM-supplied project_id={llm_pid!r}; "
+                        f"forcing current chat scope {project_id!r}"
+                    )
                 params["project_id"] = project_id
-            else:
+            elif "project_id" in required_fields and "project_id" not in params:
                 return {
                     "success": False,
                     "action": action,

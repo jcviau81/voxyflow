@@ -278,6 +278,7 @@ class PersonalityService:
             # Project chat: inject full project state.
             # Main/general chat with no project pulls the list via voxyflow.project.list on demand.
             name = project.get("title", "Untitled")
+            project_id = project.get("id") or ""
             description = project.get("description") or "No description"
             tech_stack = project.get("tech_stack") or "Not specified"
             github_url = project.get("github_url") or "Not linked"
@@ -363,8 +364,10 @@ class PersonalityService:
             blocks_joined = f"{in_progress_block}\n{todo_block}\n{backlog_block}"
             if attention_block:
                 blocks_joined += f"\n{attention_block}"
+            id_line = f"Project ID: {project_id}\n" if project_id else ""
             parts.append(
                 f"## Project Context: {name} (LIVE — this overrides any earlier data in the conversation)\n"
+                f"{id_line}"
                 f"Description: {description}\n"
                 f"Tech Stack: {tech_stack}\n"
                 f"GitHub: {github_url}\n\n"
