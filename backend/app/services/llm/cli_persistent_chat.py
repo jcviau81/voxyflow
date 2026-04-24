@@ -79,6 +79,10 @@ class PersistentChatMixin:
         """
         # Track text already queued so we don't duplicate from the result event
         queued_length = 0
+        # Per-API-call usage from the last `assistant` event of the current
+        # turn. Reset on every `result` event. Preferred over `result.usage`
+        # which is cumulative across all tool-use rounds.
+        last_assistant_usage: dict = {}
         try:
             async for raw_line in proc.stdout:
                 line = raw_line.decode("utf-8", errors="replace").strip()
@@ -105,8 +109,13 @@ class PersistentChatMixin:
                     # MCP tool-use path: CLI emits full assistant messages
                     # instead of stream_event deltas. Extract text blocks.
                     # Only forward if we haven't already streamed via deltas.
+                    msg = event.get("message", {})
+                    # Capture per-round usage (last write wins within a turn)
+                    # for accurate context-window accounting.
+                    round_usage = msg.get("usage")
+                    if isinstance(round_usage, dict) and round_usage:
+                        last_assistant_usage = dict(round_usage)
                     if queued_length == 0:
-                        msg = event.get("message", {})
                         for block in msg.get("content", []):
                             if block.get("type") == "text":
                                 text = block.get("text", "")
@@ -115,7 +124,8 @@ class PersistentChatMixin:
                                     await response_queue.put(text)
 
                 elif event_type == "result":
-                    usage = event.get("usage", {})
+                    # Prefer last-assistant (per-call) over result.usage (cumulative).
+                    usage = last_assistant_usage or event.get("usage", {})
                     usage_holder.clear()
                     usage_holder.update(usage)
                     self._last_usage = usage
@@ -125,6 +135,7 @@ class PersistentChatMixin:
                         await response_queue.put(result_text[queued_length:])
                     # Reset for next turn
                     queued_length = 0
+                    last_assistant_usage = {}
                     # Signal turn complete
                     await response_queue.put(None)
 

@@ -674,6 +674,10 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
 
         result_text = ""
         usage = {}
+        # Per-API-call usage from the last `assistant` event. Preferred over
+        # `result.usage` because the latter is cumulative across all tool-use
+        # rounds (over-counts the real prompt size).
+        last_assistant_usage: dict = {}
         # Track pending tool_use blocks: id → {name, arguments}
         pending_tools: dict[str, dict] = {}
         _last_touch = time.monotonic()
@@ -701,6 +705,12 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 if event_type == "assistant":
                     # Parse content blocks for tool_use entries
                     msg = event.get("message", {})
+                    # Capture this round's prompt usage — last write wins, so
+                    # we end up with the final round's numbers (= actual context
+                    # size at that point, bounded by the model's window).
+                    round_usage = msg.get("usage")
+                    if isinstance(round_usage, dict) and round_usage:
+                        last_assistant_usage = dict(round_usage)
                     for block in msg.get("content", []):
                         if block.get("type") == "tool_use":
                             tid = block.get("id", "")
@@ -738,7 +748,10 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
 
                 elif event_type == "result":
                     result_text = event.get("result", "")
-                    usage = event.get("usage", {})
+                    # Prefer the last assistant round's usage (per-API-call,
+                    # bounded by the context window) over the cumulative
+                    # result.usage which sums across all tool-use rounds.
+                    usage = last_assistant_usage or event.get("usage", {})
                     self._last_usage = usage
 
                 elif event_type == "rate_limit_event":
@@ -845,6 +858,9 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
 
         # Track what we've already yielded to avoid duplicating from result event
         yielded_length = 0
+        # Per-API-call usage from the last `assistant` event (see _call_with_tool_events
+        # for rationale).
+        last_assistant_usage: dict = {}
 
         # Decouple subprocess draining from consumer speed: a background task
         # pulls every stdout line into a queue and releases the gate as soon as
@@ -901,8 +917,13 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                     # MCP tool-use path: CLI emits full assistant messages
                     # instead of stream_event deltas. Extract text blocks.
                     # Only forward if we haven't already streamed via deltas.
+                    msg = event.get("message", {})
+                    # Capture per-round usage (last write wins) for accurate
+                    # context-window accounting; result.usage is cumulative.
+                    round_usage = msg.get("usage")
+                    if isinstance(round_usage, dict) and round_usage:
+                        last_assistant_usage = dict(round_usage)
                     if yielded_length == 0:
-                        msg = event.get("message", {})
                         for block in msg.get("content", []):
                             if block.get("type") == "text":
                                 text = block.get("text", "")
@@ -912,7 +933,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
 
                 elif event_type == "result":
                     # Final result — extract usage for token logging
-                    self._last_usage = event.get("usage", {})
+                    self._last_usage = last_assistant_usage or event.get("usage", {})
                     # Yield any text not yet streamed (safety net)
                     result_text = event.get("result", "")
                     if result_text and len(result_text) > yielded_length:
