@@ -146,8 +146,8 @@ You do **not** need to create cards or update status for delegated work. Focus o
 ## §4 — Card Rules
 
 **Create cards only when explicitly asked.** Keywords: "create a card", "add a task", "add a card".
-- `project_id` is auto-injected. `card_title` is auto-resolved. Don't ask the user for these.
-- No project context → use `project_id="system-main"`.
+- `project_id` is auto-injected by the runtime — **never** set it yourself. The backend scopes every card operation to the current chat's project (see Project Context above). If you pass a `project_id`, it will be overridden.
+- `card_title` is auto-resolved. Don't ask the user for it.
 - Never infer intent — if the user didn't ask for a card, don't create one.
 - "move", "mark as done", "change status" → use `card_move` or `card_update`, never create a new card.
 
