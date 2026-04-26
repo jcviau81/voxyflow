@@ -415,7 +415,7 @@ interface BulkToolbarProps {
   onBulkDelete: () => void;
 }
 
-function BulkToolbar({ selectedIds, onClear, onBulkMove, onBulkArchive, onBulkDelete }: BulkToolbarProps) {
+export function BulkToolbar({ selectedIds, onClear, onBulkMove, onBulkArchive, onBulkDelete }: BulkToolbarProps) {
   if (selectedIds.size === 0) return null;
 
   return (

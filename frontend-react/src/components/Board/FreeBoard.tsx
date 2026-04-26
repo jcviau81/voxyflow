@@ -24,10 +24,10 @@ import type { Card, CardStatus } from '../../types';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
-import { useCards, useCreateCard, usePatchCard } from '../../hooks/api/useCards';
+import { useCards, useCreateCard, usePatchCard, useArchiveCard, useDeleteCard } from '../../hooks/api/useCards';
 import { useExportProject, useImportProject } from '../../hooks/api/useProjects';
 import { KanbanCard } from '../Kanban/KanbanCard';
-import { DepGraphOverlay } from '../Kanban/KanbanBoard';
+import { DepGraphOverlay, BulkToolbar } from '../Kanban/KanbanBoard';
 import { BoardHeader, useDebounce } from './BoardHeader';
 
 // ── DnD helpers ───────────────────────────────────────────────────────────────
@@ -108,6 +108,9 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
 
   const createCard = useCreateCard();
   const patchCard = usePatchCard();
+  const archiveCardMut = useArchiveCard();
+  const deleteCardMut = useDeleteCard();
+  const deleteCardStore = useCardStore((s) => s.deleteCard);
   const exportProject = useExportProject();
   const importProject = useImportProject();
 
@@ -153,7 +156,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
 
   // ── Multi-select state ────────────────────────────────────────────────────
 
-  const [selectMode] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const handleSelectChange = useCallback((id: string, selected: boolean) => {
@@ -161,9 +164,56 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
       const next = new Set(prev);
       if (selected) next.add(id);
       else next.delete(id);
+      setSelectMode(next.size > 0);
       return next;
     });
   }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectMode) clearSelection();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectMode, clearSelection]);
+
+  // ── Bulk actions ──────────────────────────────────────────────────────────
+
+  const handleBulkMove = useCallback(
+    (status: CardStatus) => {
+      selectedIds.forEach((id) => {
+        useCardStore.getState().moveCard(id, status);
+        patchCard.mutate({ cardId: id, updates: { status }, projectId: currentProjectId } as { cardId: string; updates: Record<string, unknown>; projectId?: string });
+      });
+      showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
+      clearSelection();
+    },
+    [selectedIds, patchCard, currentProjectId, showToast, clearSelection],
+  );
+
+  const handleBulkArchive = useCallback(() => {
+    selectedIds.forEach((id) => {
+      deleteCardStore(id);
+      archiveCardMut.mutate({ cardId: id, projectId: currentProjectId });
+    });
+    showToast(`Archived ${selectedIds.size} cards`, 'success');
+    clearSelection();
+  }, [selectedIds, archiveCardMut, deleteCardStore, currentProjectId, showToast, clearSelection]);
+
+  const handleBulkDelete = useCallback(() => {
+    if (!confirm(`Delete ${selectedIds.size} cards permanently? This cannot be undone.`)) return;
+    selectedIds.forEach((id) => {
+      deleteCardStore(id);
+      deleteCardMut.mutate({ cardId: id, projectId: currentProjectId });
+    });
+    showToast(`Deleted ${selectedIds.size} cards`, 'success');
+    clearSelection();
+  }, [selectedIds, deleteCardMut, deleteCardStore, currentProjectId, showToast, clearSelection]);
 
   // ── Action handlers ───────────────────────────────────────────────────────
 
@@ -349,6 +399,17 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
           cards={boardCards}
           cardsById={cardsById}
           onClose={() => setDepGraphOpen(false)}
+        />
+      )}
+
+      {/* Bulk action toolbar */}
+      {selectMode && (
+        <BulkToolbar
+          selectedIds={selectedIds}
+          onClear={clearSelection}
+          onBulkMove={handleBulkMove}
+          onBulkArchive={handleBulkArchive}
+          onBulkDelete={handleBulkDelete}
         />
       )}
     </div>
