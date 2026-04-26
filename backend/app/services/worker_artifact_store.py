@@ -159,6 +159,56 @@ def read_artifact(
     }
 
 
+def read_artifact_meta(task_id: str) -> Optional[dict]:
+    """Parse just the YAML frontmatter of an artifact, no body.
+
+    Used as a last-resort fallback in workers.get_result when the in-memory
+    supervisor and the DB row have both been GC'd: the artifact on disk has
+    no TTL, so we can still tell the dispatcher "yes, this worker did finish,
+    here's its intent / status / size".
+    """
+    path = artifact_path(task_id)
+    if not path.exists():
+        return None
+    try:
+        # Frontmatter is small — read at most the first 4 KB to find the
+        # closing `---` marker.
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            head = f.read(4096)
+    except Exception as e:
+        logger.warning(f"[WorkerArtifact] Failed to read meta {task_id}: {e}")
+        return None
+
+    if not head.startswith("---\n"):
+        return {"path": str(path), "task_id": task_id}
+
+    end = head.find("\n---\n", 4)
+    if end == -1:
+        return {"path": str(path), "task_id": task_id}
+
+    block = head[4:end]
+    meta: dict = {"path": str(path)}
+    for line in block.splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        # Strip surrounding double-quotes from YAML scalar
+        if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+            value = value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        # Coerce `chars` to int when present
+        if key == "chars":
+            try:
+                meta[key] = int(value)
+                continue
+            except ValueError:
+                pass
+        if key:
+            meta[key] = value
+    return meta
+
+
 def delete_artifact(task_id: str) -> bool:
     """Delete an artifact file. Returns True if a file was removed."""
     path = artifact_path(task_id)

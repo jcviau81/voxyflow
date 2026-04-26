@@ -381,6 +381,7 @@ class DeepWorkerPool:
                     "action": meta["action"],
                     "model": meta["model"],
                     "description": meta["description"],
+                    "card_id": meta.get("card_id"),
                     "running_seconds": elapsed,
                     "tool_count": self._task_tool_counts.get(task_id, 0),
                     "last_tool": tool_events[-1]["tool"] if tool_events else None,
@@ -765,6 +766,7 @@ class DeepWorkerPool:
                     "description": event.summary or "",
                     "started_at": time.time(),
                     "dispatcher_chat_id": event.data.get("dispatcher_chat_id"),
+                    "card_id": event.data.get("card_id"),
                 }
                 task = asyncio.create_task(self._execute_event(event))
                 self._active_tasks[event.task_id] = task
