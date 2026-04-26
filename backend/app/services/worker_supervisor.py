@@ -19,7 +19,10 @@ class WorkerSupervisor:
 
     # Completed/problem tasks older than this are garbage-collected on the next
     # register_task. Keeps long-running servers from holding stale history forever.
-    _RETENTION_SECONDS = 3600  # 1 hour
+    # Why 24h: the dispatcher needs to recall workers it kicked off earlier the
+    # same day (e.g. user starts an audit in the morning, comes back after
+    # lunch). Anything shorter caused Voxy to hallucinate "expired" and respawn.
+    _RETENTION_SECONDS = 86400  # 24 hours
     _HARD_CAP = 2000  # absolute ceiling; evicts oldest regardless of status
 
     def __init__(self):

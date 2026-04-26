@@ -570,44 +570,79 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
     def _dedup_delegates(
         worker_delegates: list[dict],
         pool,
-    ) -> list[dict]:
-        """Deduplicate delegates against currently active workers only.
+    ) -> tuple[list[dict], list[dict]]:
+        """Deduplicate delegates against currently active workers.
 
-        Uses (action, description_prefix) tuples instead of just the action
-        name so that two unrelated ``run_command`` delegates are not falsely
-        deduped.  Completed tasks are intentionally excluded — the same action
-        may legitimately be redispatched after a previous run finishes.
+        Two collision rules:
+        - (action, description_prefix) — catches identical re-runs.
+        - card_id — same card already has a worker in flight: refuse the
+          parallel spawn entirely. Why: a dispatcher that re-runs an audit
+          on the same card while the first one is still working creates
+          ghost double-execution and wastes the user's CLI quota.
+
+        Returns (deduped, skipped) so the caller can surface a notice to
+        Voxy explaining which delegates were dropped and why.
         """
         if not pool:
-            return worker_delegates
+            return worker_delegates, []
 
         existing = pool.get_active_tasks()
+        active_tasks = existing.get("active", [])
 
         def _key(action: str, desc: str) -> tuple[str, str]:
             return (action.lower(), desc.lower()[:200].strip())
 
         already = {
             _key(t["action"], t.get("description", ""))
-            for t in existing.get("active", [])
+            for t in active_tasks
         }
+        active_by_card: dict[str, dict] = {}
+        for t in active_tasks:
+            cid = t.get("card_id")
+            if cid and cid not in active_by_card:
+                active_by_card[cid] = t
 
         deduped: list[dict] = []
+        skipped: list[dict] = []
         for data in worker_delegates:
             action = data.get("action") or data.get("intent") or "unknown"
             summary = data.get("summary") or data.get("description") or ""
+            card_id = data.get("card_id")
             k = _key(action, summary)
+
+            collision = None
             if k in already:
-                logger.info(
-                    f"[Orchestrator] Dedup: skipping delegate '{action}' "
-                    f"(summary matches existing task)"
+                collision = "duplicate_summary"
+            elif card_id and card_id in active_by_card:
+                collision = "card_busy"
+
+            if collision:
+                blocking = active_by_card.get(card_id) if card_id else None
+                logger.warning(
+                    f"[Orchestrator] Dedup ({collision}): skipping delegate "
+                    f"'{action}' card_id={card_id} — "
+                    f"blocking task={blocking.get('task_id') if blocking else None}"
                 )
+                skipped.append({
+                    "action": action,
+                    "summary": summary,
+                    "card_id": card_id,
+                    "reason": collision,
+                    "blocking_task_id": blocking.get("task_id") if blocking else None,
+                    "blocking_running_seconds": blocking.get("running_seconds") if blocking else None,
+                })
             else:
                 deduped.append(data)
                 already.add(k)
+                if card_id:
+                    active_by_card.setdefault(card_id, {
+                        "task_id": "(pending)",
+                        "running_seconds": 0,
+                    })
 
         if not deduped:
             logger.info("[Orchestrator] All delegates deduplicated — nothing to emit")
-        return deduped
+        return deduped, skipped
 
     # ------------------------------------------------------------------
     # Event Bus: Native delegate emission (tool_use path)
@@ -658,9 +693,16 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         self.start_worker_pool(session_id, websocket)
 
         # --- Deduplication ---
-        worker_delegates = self._dedup_delegates(
+        worker_delegates, skipped = self._dedup_delegates(
             worker_delegates, self._worker_pools.get(session_id)
         )
+        if skipped:
+            await self._notify_delegates_skipped(
+                websocket=websocket,
+                session_id=session_id,
+                chat_id=chat_id,
+                skipped=skipped,
+            )
         if not worker_delegates:
             return
 
@@ -824,9 +866,16 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         self.start_worker_pool(session_id, websocket)
 
         # --- Deduplication ---
-        worker_delegates = self._dedup_delegates(
+        worker_delegates, skipped = self._dedup_delegates(
             worker_delegates, self._worker_pools.get(session_id)
         )
+        if skipped:
+            await self._notify_delegates_skipped(
+                websocket=websocket,
+                session_id=session_id,
+                chat_id=chat_id,
+                skipped=skipped,
+            )
         if not worker_delegates:
             return
 

@@ -606,6 +606,33 @@ def build_handlers(
                 logger.warning(f"[mcp.workers.get_result] DB read failed: {db_err}")
 
             if session is None:
+                # Last-resort fallback: the in-memory supervisor and the DB
+                # row may have both been GC'd, but the artifact on disk has
+                # no TTL. If we can find one, reconstruct a minimal payload
+                # from its frontmatter so the dispatcher gets "the worker
+                # did finish" instead of an "expired" guess.
+                from app.services.worker_artifact_store import read_artifact_meta
+                meta = read_artifact_meta(task_id)
+                if meta is not None:
+                    return {
+                        "success": True,
+                        "task_id": task_id,
+                        "status": meta.get("status") or "completed",
+                        "intent": meta.get("intent"),
+                        "model": meta.get("model"),
+                        "project_id": meta.get("project_id"),
+                        "card_id": meta.get("card_id"),
+                        "session_id": meta.get("session_id"),
+                        "summary": (
+                            "Reconstructed from on-disk artifact (in-memory "
+                            "tracking expired). Use voxyflow.workers.read_artifact "
+                            "to read the full output."
+                        ),
+                        "artifact_path": meta.get("path"),
+                        "artifact_chars": meta.get("chars"),
+                        "artifact_written_at": meta.get("written_at"),
+                        "source": "artifact_frontmatter",
+                    }
                 return {"success": False, "error": f"Worker task not found: {task_id}"}
 
             if full_result is not None:

@@ -159,12 +159,22 @@ async def _lookup_task_project(task_id: str) -> str | None:
             row = (await db.execute(
                 select(WorkerTask).where(WorkerTask.id == task_id)
             )).scalar_one_or_none()
-            if row is None:
-                return None
-            return (row.project_id or "").strip()
+            if row is not None:
+                return (row.project_id or "").strip()
     except Exception as db_err:
         logger.warning(f"[mcp._lookup_task_project] DB lookup failed for {task_id}: {db_err}")
         return None
+
+    # Last resort: artifact frontmatter on disk (no TTL). Lets the dispatcher
+    # still scope-check + read tasks whose live/DB rows have been GC'd.
+    try:
+        from app.services.worker_artifact_store import read_artifact_meta
+        meta = read_artifact_meta(task_id)
+        if meta is not None:
+            return (meta.get("project_id") or "").strip()
+    except Exception as art_err:
+        logger.debug(f"[mcp._lookup_task_project] artifact lookup failed: {art_err}")
+    return None
 
 
 async def _enforce_task_scope(task_id: str, scope: str | None) -> dict | None:
