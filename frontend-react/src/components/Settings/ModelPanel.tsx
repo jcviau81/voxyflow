@@ -2,7 +2,7 @@
  * ModelPanel — Models & Providers settings panel.
  *
  * Redesigned UX:
- *  - Section 1: "My Machines" — card grid showing each endpoint as a machine card
+ *  - Section 1: "My Providers" — card grid showing each endpoint as a machine card
  *    with real-time status dot, provider type, short URL, available models, edit/delete
  *  - Section 2: Layer configuration — Fast / Deep rows with source dropdown
  *    combining machines + cloud providers, model picker, test button
@@ -18,7 +18,7 @@ import { apiFetch as sharedApiFetch, modelsApi } from '@/lib/apiClient';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type LayerKey = 'fast' | 'deep';
+type LayerKey = 'fast' | 'deep' | 'haiku';
 
 /** A named, saved endpoint (a machine or remote server). */
 interface ProviderEndpoint {
@@ -53,8 +53,16 @@ interface WorkerClass {
 interface ModelsSettings {
   fast: ModelLayerConfig;
   deep: ModelLayerConfig;
+  haiku: ModelLayerConfig;
 
+  // Default worker fallback when no worker class matches the dispatched intent.
+  // Either a layer alias ("haiku" | "sonnet" | "opus") or a real model id.
   default_worker_model: string;
+  // Optional explicit provider override. Empty string = use the layer alias path.
+  // Mirrors the WorkerClass shape (endpoint_id + provider_type + model).
+  default_worker_provider_type: string;
+  default_worker_endpoint_id: string;
+
   endpoints: ProviderEndpoint[];
   worker_classes: WorkerClass[];
 }
@@ -176,15 +184,25 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
 const DEFAULT_MODELS: ModelsSettings = {
   fast: { ...DEFAULT_LAYER, model: 'claude-sonnet-4' },
   deep: { ...DEFAULT_LAYER, model: 'claude-opus-4' },
+  haiku: { ...DEFAULT_LAYER, provider_type: '', model: '' },
 
   default_worker_model: 'sonnet',
+  default_worker_provider_type: '',
+  default_worker_endpoint_id: '',
   endpoints: [],
   worker_classes: DEFAULT_WORKER_CLASSES,
 };
 
-const LAYER_META: Record<LayerKey, { label: string; icon: string; placeholder: string; showEnabled: boolean }> = {
+const LAYER_META: Record<LayerKey, { label: string; icon: string; placeholder: string; showEnabled: boolean; description?: string }> = {
   fast: { label: 'Fast', icon: '\u26A1', placeholder: 'claude-sonnet-4', showEnabled: false },
   deep: { label: 'Deep', icon: '\uD83E\uDDE0', placeholder: 'claude-opus-4',  showEnabled: true  },
+  haiku: {
+    label: 'Utility',
+    icon: '\uD83E\uDEB6',
+    placeholder: 'mirror Fast layer',
+    showEnabled: false,
+    description: 'Summarizes long chats and extracts memories. Leave empty to mirror Fast.',
+  },
 };
 
 const NO_URL_PROVIDERS = new Set(['cli', 'anthropic']);
@@ -354,11 +372,11 @@ function MachineForm({ draft, allProviders, onChange, onSave, onCancel, isNew }:
   return (
     <div className="rounded-lg border border-border bg-background p-4 flex flex-col gap-3">
       <div className="text-sm font-medium text-foreground">
-        {isNew ? 'Add a machine' : 'Edit machine'}
+        {isNew ? 'Add a provider' : 'Edit provider'}
       </div>
 
       <div className="flex flex-col gap-2">
-        <label className="text-xs text-muted-foreground">Machine name</label>
+        <label className="text-xs text-muted-foreground">Provider name</label>
         <input
           type="text"
           className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
@@ -526,7 +544,7 @@ function AddMachineCard({ onClick, disabled }: { onClick: () => void; disabled?:
       disabled={disabled}
     >
       <span className="text-2xl text-muted-foreground">+</span>
-      <span className="text-xs text-muted-foreground">Add a machine</span>
+      <span className="text-xs text-muted-foreground">Add a provider</span>
     </button>
   );
 }
@@ -660,7 +678,7 @@ function MachinesGrid({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold">My Machines</span>
+        <span className="text-sm font-semibold">My Providers</span>
         <span className="text-xs text-muted-foreground">
           Local or remote servers running an LLM
         </span>
@@ -927,11 +945,14 @@ function LayerRow({
           <div className="text-xs text-muted-foreground mt-0.5">
             {modelValue
               ? <span className="font-mono">{modelValue}</span>
-              : <span className="italic">No model selected</span>}
+              : <span className="italic">{meta.placeholder ? meta.placeholder : 'No model selected'}</span>}
           </div>
+          {meta.description && (
+            <div className="text-xs text-muted-foreground mt-0.5 italic">{meta.description}</div>
+          )}
           <CapabilityBadges model={modelValue ?? ''} />
           {isEndpointOffline && (
-            <div className="text-xs text-red-400 mt-1">{'\u26A0'} Machine offline</div>
+            <div className="text-xs text-red-400 mt-1">{'\u26A0'} Provider offline</div>
           )}
         </div>
         <button
@@ -982,7 +1003,7 @@ function LayerRow({
               onChange={e => handleSelectionChange(e.target.value)}
             >
               {endpoints.length > 0 && (
-                <optgroup label="My Machines">
+                <optgroup label="My Providers">
                   {endpoints.map(ep => {
                     const st = endpointStatuses.find(s => s.id === ep.id);
                     const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
@@ -1113,7 +1134,7 @@ function LayerRow({
       {/* Warnings and badges */}
       {isEndpointOffline && (
         <div className="text-xs px-2 py-1 rounded bg-red-500/10 text-red-400 border border-red-500/20">
-          This machine is offline. The layer will not work until it is reachable.
+          This provider is offline. The layer will not work until it is reachable.
         </div>
       )}
 
@@ -1342,7 +1363,7 @@ function WorkerClassesPanel({
   function getSourceLabel(wc: WorkerClass): string {
     if (wc.endpoint_id) {
       const ep = endpoints.find(e => e.id === wc.endpoint_id);
-      return ep ? (ep.name || shortUrl(ep.url)) : 'Unknown machine';
+      return ep ? (ep.name || shortUrl(ep.url)) : 'Unknown provider';
     }
     return providerLabel(wc.provider_type);
   }
@@ -1449,7 +1470,7 @@ function WorkerClassesPanel({
               onChange={e => handleSourceChange(e.target.value)}
             >
               {endpoints.length > 0 && (
-                <optgroup label="My Machines">
+                <optgroup label="My Providers">
                   {endpoints.map(ep => {
                     const st = endpointStatuses.find(s => s.id === ep.id);
                     const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
@@ -1797,7 +1818,7 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
           onChange={e => handleSourceChange(e.target.value, setSlot)}
         >
           {endpoints.length > 0 && (
-            <optgroup label="My Machines">
+            <optgroup label="My Providers">
               {endpoints.map(ep => {
                 const st = endpointStatuses.find(s => s.id === ep.id);
                 const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
@@ -2069,16 +2090,24 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
 
 // ── DefaultWorkerModelSection ─────────────────────────────────────────────
 
-const DEFAULT_WORKER_MODEL_LABELS: Record<string, string> = {
-  haiku: 'Haiku',
-  sonnet: 'Sonnet',
-  opus: 'Opus',
-};
+// Legacy short aliases that resolve to a layer at runtime (Fast/Deep/Utility).
+// Kept as a synthetic source so users can still pick "use whatever the Fast
+// layer is configured for" without committing to a specific provider.
+const LAYER_ALIAS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'sonnet', label: 'Layer alias: Sonnet (uses Fast layer)' },
+  { value: 'haiku',  label: 'Layer alias: Haiku (uses Utility layer)' },
+  { value: 'opus',   label: 'Layer alias: Opus (uses Deep layer)' },
+];
+
+const LAYER_ALIAS_VALUES = new Set(LAYER_ALIAS_OPTIONS.map(o => o.value));
 
 interface DefaultWorkerModelSectionProps {
   control: ReturnType<typeof useForm<ModelsSettings>>['control'];
   watch: ReturnType<typeof useForm<ModelsSettings>>['watch'];
   setValue: ReturnType<typeof useForm<ModelsSettings>>['setValue'];
+  providers: ProviderMeta[];
+  endpoints: ProviderEndpoint[];
+  endpointStatuses: EndpointStatus[];
   editingSection: string | null;
   setEditingSection: (s: string | null) => void;
   saveAll: (overrides?: Partial<ModelsSettings>) => Promise<void>;
@@ -2086,25 +2115,146 @@ interface DefaultWorkerModelSectionProps {
 }
 
 function DefaultWorkerModelSection({
-  control, watch, setValue, editingSection, setEditingSection, saveAll, isSaving,
+  control, watch, setValue, providers, endpoints, endpointStatuses,
+  editingSection, setEditingSection, saveAll, isSaving,
 }: DefaultWorkerModelSectionProps) {
   const sectionKey = 'default-worker-model';
   const isEditing = editingSection === sectionKey;
   const lockedByOther = editingSection !== null && !isEditing;
-  const value = useWatch({ control, name: 'default_worker_model' }) ?? 'sonnet';
-  const snapshotRef = useRef<string | null>(null);
+
+  const model        = useWatch({ control, name: 'default_worker_model' }) ?? 'sonnet';
+  const providerType = useWatch({ control, name: 'default_worker_provider_type' }) ?? '';
+  const endpointId   = useWatch({ control, name: 'default_worker_endpoint_id' }) ?? '';
+
+  // Snapshot for cancel
+  const snapshotRef = useRef<{ model: string; providerType: string; endpointId: string } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Source = "alias:<sonnet|haiku|opus>" | "ep:<id>" | "pt:<provider_type>"
+  const isAlias = !providerType && !endpointId && LAYER_ALIAS_VALUES.has(model);
+  const selectionValue = isAlias
+    ? `alias:${model}`
+    : (endpointId ? `ep:${endpointId}` : (providerType ? `pt:${providerType}` : 'alias:sonnet'));
+
+  const activeEndpoint = endpoints.find(e => e.id === endpointId);
+  const effectiveType  = activeEndpoint ? activeEndpoint.provider_type : providerType;
+  const endpointStatus = endpointStatuses.find(s => s.id === endpointId);
+  const isEndpointOffline = endpointId && endpointStatus && !endpointStatus.reachable;
+  const thinking = !isAlias && isThinkingModel(model ?? '');
+
+  const canListModels = !isAlias && LISTABLE_PROVIDERS.has(effectiveType);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading]     = useState(false);
+  const [testState, setTestState]             = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
+  const [testLatency, setTestLatency]         = useState<number | null>(null);
+  const [testError, setTestError]             = useState<string>('');
+  const prevSelection = useRef('');
+
+  const fetchModels = useCallback(async () => {
+    if (!canListModels) return;
+    setModelsLoading(true);
+    if (!endpointId && STATIC_MODELS[effectiveType]) {
+      setAvailableModels(STATIC_MODELS[effectiveType]);
+    }
+    try {
+      const pmeta = providers.find(p => p.type === effectiveType);
+      const baseUrl = activeEndpoint?.url ?? pmeta?.default_url ?? '';
+      const url = endpointId
+        ? `/api/models/list?endpoint_id=${encodeURIComponent(endpointId)}`
+        : `/api/models/list?provider_type=${encodeURIComponent(effectiveType)}&url=${encodeURIComponent(baseUrl)}`;
+      const models = await apiFetch<string[]>(url);
+      setAvailableModels(models.length > 0 ? models : (STATIC_MODELS[effectiveType] ?? []));
+    } catch {
+      setAvailableModels(STATIC_MODELS[effectiveType] ?? []);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [canListModels, endpointId, effectiveType, providers, activeEndpoint]);
+
+  useEffect(() => {
+    if (selectionValue === prevSelection.current) return;
+    prevSelection.current = selectionValue;
+    if (canListModels) fetchModels();
+    else setAvailableModels([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionValue, canListModels]);
+
+  function handleSelectionChange(value: string) {
+    if (value.startsWith('alias:')) {
+      const alias = value.slice('alias:'.length);
+      setValue('default_worker_model', alias);
+      setValue('default_worker_provider_type', '');
+      setValue('default_worker_endpoint_id', '');
+      setAvailableModels([]);
+      return;
+    }
+    if (value.startsWith('ep:')) {
+      const id = value.slice(3);
+      const ep = endpoints.find(e => e.id === id);
+      if (!ep) return;
+      setValue('default_worker_endpoint_id', id);
+      setValue('default_worker_provider_type', ep.provider_type);
+      setValue('default_worker_model', '');
+      setAvailableModels([]);
+      return;
+    }
+    if (value.startsWith('pt:')) {
+      const pt = value.slice(3);
+      setValue('default_worker_endpoint_id', '');
+      setValue('default_worker_provider_type', pt);
+      setValue('default_worker_model', '');
+      setAvailableModels([]);
+    }
+  }
+
+  async function handleTest() {
+    setTestState('testing');
+    setTestLatency(null);
+    setTestError('');
+    const ep = activeEndpoint;
+    const pmeta = providers.find(p => p.type === effectiveType);
+    try {
+      const data = await apiFetch<TestResult>('/api/models/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider_type: ep ? ep.provider_type : providerType,
+          provider_url:  ep ? ep.url           : (pmeta?.default_url ?? ''),
+          api_key:       ep ? ep.api_key       : '',
+          model,
+        }),
+      });
+      if (data.success) {
+        setTestState('ok');
+        setTestLatency(data.latency_ms ?? null);
+      } else {
+        setTestState('fail');
+        setTestError(data.error?.slice(0, 80) || 'Failed');
+      }
+    } catch (e) {
+      setTestState('fail');
+      setTestError(String(e).slice(0, 80));
+    } finally {
+      setTimeout(() => { setTestState('idle'); setTestError(''); }, 6000);
+    }
+  }
 
   function startEdit() {
     if (editingSection !== null) return;
-    snapshotRef.current = (watch('default_worker_model') ?? 'sonnet') as string;
+    snapshotRef.current = {
+      model: (watch('default_worker_model') ?? 'sonnet') as string,
+      providerType: (watch('default_worker_provider_type') ?? '') as string,
+      endpointId: (watch('default_worker_endpoint_id') ?? '') as string,
+    };
     setSaveError(null);
     setEditingSection(sectionKey);
   }
 
   function cancelEdit() {
-    if (snapshotRef.current !== null) {
-      setValue('default_worker_model', snapshotRef.current);
+    if (snapshotRef.current) {
+      setValue('default_worker_model',         snapshotRef.current.model);
+      setValue('default_worker_provider_type', snapshotRef.current.providerType);
+      setValue('default_worker_endpoint_id',   snapshotRef.current.endpointId);
     }
     snapshotRef.current = null;
     setSaveError(null);
@@ -2114,27 +2264,54 @@ function DefaultWorkerModelSection({
   async function saveEdit() {
     setSaveError(null);
     try {
-      const v = (watch('default_worker_model') ?? 'sonnet') as string;
-      await saveAll({ default_worker_model: v });
+      await saveAll({
+        default_worker_model:         (watch('default_worker_model') ?? '') as string,
+        default_worker_provider_type: (watch('default_worker_provider_type') ?? '') as string,
+        default_worker_endpoint_id:   (watch('default_worker_endpoint_id') ?? '') as string,
+      });
       snapshotRef.current = null;
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Save failed');
     }
   }
 
+  const sourceLabel = isAlias
+    ? (LAYER_ALIAS_OPTIONS.find(o => o.value === model)?.label ?? `Layer alias: ${model}`)
+    : (activeEndpoint
+        ? (activeEndpoint.name || shortUrl(activeEndpoint.url))
+        : providerLabel(providerType));
+
+  const showModelDropdown = canListModels && availableModels.length > 0;
+
+  const ICON  = '🤖'; // 🤖
+  const LABEL = 'Default Worker';
+  const DESCRIPTION = 'Used by workers when no worker class matches the dispatched intent.';
+
+  // ── View mode ───────────────────────────────────────────────────────────
   if (!isEditing) {
     return (
       <div className="rounded-lg border border-border bg-background p-4 flex items-center gap-4">
+        <span className="text-lg">{ICON}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">Default Worker Model</span>
-            <span className="text-xs text-muted-foreground font-mono">
-              {DEFAULT_WORKER_MODEL_LABELS[value] ?? value}
-            </span>
+            <span className="text-sm font-semibold">{LABEL}</span>
+            {endpointId && endpointStatus && (
+              <StatusDot reachable={endpointStatus.reachable} />
+            )}
+            <span className="text-xs text-muted-foreground">{sourceLabel}</span>
           </div>
           <div className="text-xs text-muted-foreground mt-0.5">
-            Model used by workers unless overridden by a worker class
+            {isAlias
+              ? <span className="italic">Routes through the layer alias</span>
+              : (model
+                  ? <span className="font-mono">{model}</span>
+                  : <span className="italic">No model selected</span>)}
           </div>
+          <div className="text-xs text-muted-foreground mt-0.5 italic">{DESCRIPTION}</div>
+          {!isAlias && <CapabilityBadges model={model ?? ''} />}
+          {isEndpointOffline && (
+            <div className="text-xs text-red-400 mt-1">{'⚠'} Provider offline</div>
+          )}
         </div>
         <button
           type="button"
@@ -2148,29 +2325,151 @@ function DefaultWorkerModelSection({
     );
   }
 
+  // ── Edit mode ───────────────────────────────────────────────────────────
   return (
     <div className="rounded-lg border border-border bg-background p-4 flex flex-col gap-3">
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-sm font-semibold whitespace-nowrap">Default Worker Model</span>
-        <Controller
-          control={control}
-          name="default_worker_model"
-          render={({ field }) => (
-            <select
-              className="input-field text-sm py-1.5 px-2 rounded w-40"
-              value={field.value ?? 'sonnet'}
-              onChange={field.onChange}
-            >
-              <option value="haiku">Haiku</option>
-              <option value="sonnet">Sonnet</option>
-              <option value="opus">Opus</option>
-            </select>
-          )}
-        />
-        <span className="text-xs text-muted-foreground">
-          Model used by workers unless overridden by a worker class
-        </span>
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <span className="text-lg">{ICON}</span>
+        <span className="text-sm font-semibold">{LABEL}</span>
       </div>
+
+      {/* Source + Model + Test in one row */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {/* Source dropdown */}
+        <div className="flex flex-col gap-1 min-w-[200px]">
+          <label className="text-xs text-muted-foreground">Source</label>
+          <div className="flex items-center gap-1.5">
+            {endpointId && endpointStatus && (
+              <StatusDot reachable={endpointStatus.reachable} />
+            )}
+            <select
+              className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1"
+              value={selectionValue}
+              onChange={e => handleSelectionChange(e.target.value)}
+            >
+              <optgroup label="Layer Aliases">
+                {LAYER_ALIAS_OPTIONS.map(o => (
+                  <option key={o.value} value={`alias:${o.value}`}>{o.label}</option>
+                ))}
+              </optgroup>
+              {endpoints.length > 0 && (
+                <optgroup label="My Providers">
+                  {endpoints.map(ep => {
+                    const st = endpointStatuses.find(s => s.id === ep.id);
+                    const dot = st ? (st.reachable ? '● ' : '○ ') : '  ';
+                    return (
+                      <option key={ep.id} value={`ep:${ep.id}`}>
+                        {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              )}
+              <optgroup label="Cloud Providers">
+                {providers.map(p => (
+                  <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+        </div>
+
+        {/* Model picker — hidden in alias mode */}
+        {!isAlias && (
+          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+            <label className="text-xs text-muted-foreground">Model</label>
+            <div className="flex items-center gap-1.5">
+              {showModelDropdown ? (
+                <Controller
+                  control={control}
+                  name="default_worker_model"
+                  render={({ field }) => (
+                    <select
+                      className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1"
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                    >
+                      <option value="">Select model...</option>
+                      {availableModels.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  )}
+                />
+              ) : (
+                <Controller
+                  control={control}
+                  name="default_worker_model"
+                  render={({ field }) => (
+                    <input
+                      type="text"
+                      className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1"
+                      placeholder="e.g. claude-sonnet-4-6, qwen2.5:32b"
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              )}
+              {canListModels && (
+                <button
+                  type="button"
+                  className="text-xs px-2 py-1.5 rounded border border-border hover:bg-accent shrink-0"
+                  disabled={modelsLoading}
+                  onClick={fetchModels}
+                  title="Refresh model list"
+                >
+                  {modelsLoading ? '...' : '↻'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Test button + result — only when a real provider is selected */}
+        {!isAlias && (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">&nbsp;</label>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-secondary text-xs px-3 py-1.5 rounded border border-border hover:bg-accent shrink-0"
+                disabled={testState === 'testing' || !model}
+                onClick={handleTest}
+              >
+                {testState === 'testing' ? '...' : 'Test'}
+              </button>
+              <div className="text-xs w-20 shrink-0">
+                {testState === 'ok'      && <span className="text-green-400">{testLatency != null ? `✓ ${testLatency}ms` : '✓ OK'}</span>}
+                {testState === 'fail'    && <span className="text-red-400" title={testError}>{'✗'} Error</span>}
+                {testState === 'testing' && <span className="text-muted-foreground">...</span>}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Warnings and badges */}
+      {isEndpointOffline && (
+        <div className="text-xs px-2 py-1 rounded bg-red-500/10 text-red-400 border border-red-500/20">
+          This provider is offline. The default worker will not work until it is reachable.
+        </div>
+      )}
+
+      <div className="flex flex-col gap-0.5">
+        {!isAlias && <CapabilityBadges model={model ?? ''} />}
+        {thinking && (
+          <div className="text-xs" style={{ color: 'var(--color-accent)' }}>
+            Thinking model -- /no_think applied automatically
+          </div>
+        )}
+        {testState === 'fail' && testError && (
+          <div className="text-xs text-red-400 truncate max-w-md">{testError}</div>
+        )}
+      </div>
+
+      {/* Save/Cancel */}
       <div className="flex gap-2 justify-end items-center pt-1">
         {saveError && (
           <span className="text-xs text-red-400 mr-auto">{saveError}</span>
@@ -2192,145 +2491,6 @@ function DefaultWorkerModelSection({
           {isSaving ? 'Saving...' : 'Save'}
         </button>
       </div>
-    </div>
-  );
-}
-
-// ── WebSearchComparePanel ─────────────────────────────────────────────────
-
-interface WebSearchResult {
-  title: string;
-  url: string;
-  snippet: string;
-}
-
-interface WebSearchEngineResult {
-  success: boolean;
-  engine: string;
-  results: WebSearchResult[];
-  count: number;
-  latency_ms: number;
-  error?: string;
-}
-
-interface WebSearchCompareResponse {
-  query: string;
-  searxng: WebSearchEngineResult;
-  duckduckgo: WebSearchEngineResult;
-}
-
-function WebSearchComparePanel() {
-  const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<WebSearchCompareResponse | null>(null);
-  const [error, setError] = useState('');
-
-  async function runCompare() {
-    if (!query.trim()) return;
-    setLoading(true);
-    setResult(null);
-    setError('');
-    try {
-      const data = await apiFetch<WebSearchCompareResponse>('/api/models/websearch-compare', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query.trim(), count: 5 }),
-      });
-      setResult(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Request failed');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function renderEngine(res: WebSearchEngineResult) {
-    const latencyColor = res.latency_ms < 800 ? 'text-green-400' : res.latency_ms < 2000 ? 'text-yellow-400' : 'text-red-400';
-    return (
-      <div className="flex-1 min-w-[280px] flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold">{res.engine}</span>
-          {res.success ? (
-            <>
-              <span className={`text-xs font-medium ${latencyColor}`}>{res.latency_ms}ms</span>
-              <span className="text-xs text-muted-foreground">{res.count} results</span>
-            </>
-          ) : (
-            <span className="text-xs text-red-400">Failed</span>
-          )}
-        </div>
-        {!res.success && res.error && (
-          <p className="text-xs text-red-400 bg-red-500/10 rounded p-2">{res.error}</p>
-        )}
-        {res.success && res.results.length === 0 && (
-          <p className="text-xs text-muted-foreground">No results returned.</p>
-        )}
-        <div className="flex flex-col gap-2">
-          {res.results.map((r, i) => (
-            <div key={i} className="rounded border border-border bg-background p-2 flex flex-col gap-0.5">
-              <a
-                href={r.url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-medium text-blue-400 hover:underline truncate block"
-              >
-                {r.title}
-              </a>
-              <span className="text-[10px] text-muted-foreground truncate">{r.url}</span>
-              {r.snippet && (
-                <p className="text-xs text-foreground/80 mt-0.5 line-clamp-2">{r.snippet}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold">Web Search Comparison</span>
-        <span className="text-xs text-muted-foreground">SearXNG vs DuckDuckGo — same query, side-by-side</span>
-      </div>
-
-      <div className="flex gap-2 items-end">
-        <div className="flex flex-col gap-1 flex-1">
-          <label className="text-xs text-muted-foreground">Search query</label>
-          <input
-            type="text"
-            className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
-            placeholder="e.g. best practices for RAG 2025"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !loading) runCompare(); }}
-          />
-        </div>
-        <button
-          type="button"
-          className="btn-secondary text-sm px-4 py-1.5 rounded border border-border hover:bg-accent font-medium shrink-0"
-          disabled={!query.trim() || loading}
-          onClick={runCompare}
-        >
-          {loading ? 'Searching...' : 'Compare'}
-        </button>
-      </div>
-
-      {error && <p className="text-xs text-red-400">{error}</p>}
-
-      {loading && (
-        <div className="flex items-center gap-2 py-2">
-          <span className="text-sm text-muted-foreground animate-pulse">Running both searches in parallel...</span>
-        </div>
-      )}
-
-      {result && (
-        <div className="flex gap-4 items-start flex-wrap">
-          {renderEngine(result.searxng)}
-          <div className="w-px bg-border self-stretch shrink-0" />
-          {renderEngine(result.duckduckgo)}
-        </div>
-      )}
     </div>
   );
 }
@@ -2369,7 +2529,10 @@ export function ModelPanel() {
     const merged: ModelsSettings = {
       fast: { ...dm.fast, ...(sm.fast || {}) },
       deep: { ...dm.deep, ...(sm.deep || {}) },
+      haiku: { ...dm.haiku, ...(sm.haiku || {}) },
       default_worker_model: sm.default_worker_model ?? dm.default_worker_model,
+      default_worker_provider_type: sm.default_worker_provider_type ?? dm.default_worker_provider_type,
+      default_worker_endpoint_id: sm.default_worker_endpoint_id ?? dm.default_worker_endpoint_id,
       endpoints: sm.endpoints ?? [],
       worker_classes: sm.worker_classes?.length ? sm.worker_classes : DEFAULT_WORKER_CLASSES,
     };
@@ -2381,7 +2544,7 @@ export function ModelPanel() {
   useEffect(() => {
     if (!availableData) return;
     const liveLayers = (availableData.layers ?? {}) as Record<string, { provider_type?: string }>;
-    for (const key of ['fast', 'deep'] as const) {
+    for (const key of ['fast', 'deep', 'haiku'] as const) {
       const current = (getValues(`${key}.provider_type`) || '').trim();
       if (!current) {
         const inferred = (liveLayers[key]?.provider_type || '').trim();
@@ -2433,10 +2596,10 @@ export function ModelPanel() {
 
       {/* ── Header ── */}
       <div>
-        <h3 className="text-base font-semibold mb-1">Models & Machines</h3>
+        <h3 className="text-base font-semibold mb-1">Models & Providers</h3>
         <p className="text-xs text-muted-foreground">
-          Add your local or remote machines (Mac Studio, MacBook, server...) then assign them to the Fast and Deep layers.
-          Each layer can use a different machine or cloud provider.
+          Add your local or remote providers (Mac Studio, MacBook, server...) then assign them to the Fast and Deep layers.
+          Each layer can use a different provider.
         </p>
       </div>
 
@@ -2466,7 +2629,7 @@ export function ModelPanel() {
           </span>
         </div>
 
-        {(['fast', 'deep'] as LayerKey[]).map((key) => (
+        {(['fast', 'deep', 'haiku'] as LayerKey[]).map((key) => (
           <LayerRow
             key={key}
             layerKey={key}
@@ -2489,6 +2652,9 @@ export function ModelPanel() {
         control={control}
         watch={watch}
         setValue={setValue}
+        providers={providers}
+        endpoints={endpoints}
+        endpointStatuses={endpointStatuses}
         editingSection={editingSection}
         setEditingSection={setEditingSection}
         saveAll={saveAll}
@@ -2530,8 +2696,6 @@ export function ModelPanel() {
         }}
       />
 
-      {/* ── Section 5: Web Search Comparison ── */}
-      <WebSearchComparePanel />
     </div>
   );
 }

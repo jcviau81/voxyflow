@@ -444,7 +444,15 @@ class DeepWorkerPool:
             )
             return False
 
-        closeout_model = os.environ.get("VOXYFLOW_CLOSEOUT_MODEL", "fast")
+        # Reuse the resolved worker class endpoint so closeout runs on the same
+        # provider as the original worker (avoids routing closeout to whatever
+        # the Fast layer points at — e.g. a local model that struggles with the
+        # structured worker.complete tool-call protocol).
+        closeout_endpoint_config = event.data.get("_resolved_worker_class_endpoint")
+        closeout_model = os.environ.get(
+            "VOXYFLOW_CLOSEOUT_MODEL",
+            event.data.get("_resolved_worker_model") or "fast",
+        )
         closeout_timeout = int(os.environ.get("VOXYFLOW_CLOSEOUT_TIMEOUT", "90"))
 
         status = supervisor.get_status(event.task_id) or {}
@@ -511,6 +519,7 @@ class DeepWorkerPool:
                     message_queue=closeout_mq,
                     session_id=event.session_id or "",
                     task_id=event.task_id,
+                    endpoint_config=closeout_endpoint_config,
                 ),
                 timeout=closeout_timeout,
             )
@@ -882,18 +891,59 @@ class DeepWorkerPool:
                 # Store worker_class_id in event data for downstream use
                 event.data["_resolved_worker_class"] = _worker_class
 
-                # Resolve endpoint so we can route to the correct provider/URL
-                if _wc_has_endpoint and _explicit_model != "opus":
+                # Resolve endpoint config so we can route to the correct provider.
+                # Done even without endpoint_id when provider_type is set on the worker
+                # class (e.g. "cli") — otherwise downstream falls through to the layer
+                # aliases (fast/haiku/opus) which now follow whatever provider the user
+                # configured for those layers, ignoring the worker class entirely.
+                _wc_has_provider = bool((_worker_class.get("provider_type") or "").strip())
+                if (_wc_has_endpoint or _wc_has_provider) and _explicit_model != "opus":
                     from app.services.llm.worker_class_resolver import resolve_endpoint_for_class
                     _endpoint_config = await resolve_endpoint_for_class(_worker_class)
-                    if _endpoint_config and _endpoint_config.get("url"):
+                    if _endpoint_config and (_endpoint_config.get("url") or _endpoint_config.get("provider_type")):
                         logger.info(
-                            "[DeepWorkerPool] Task %s using endpoint %r (%s @ %s, model=%s)",
-                            event.task_id, _worker_class.get("endpoint_id"),
+                            "[DeepWorkerPool] Task %s using worker class %r (%s @ %s, model=%s)",
+                            event.task_id, _worker_class.get("name"),
                             _endpoint_config.get("provider_type"),
-                            _endpoint_config.get("url"),
+                            _endpoint_config.get("url") or "(no url)",
                             _effective_model,
                         )
+                        # Forward to closeout so the meta-task uses the same provider.
+                        event.data["_resolved_worker_class_endpoint"] = _endpoint_config
+                        event.data["_resolved_worker_model"] = _effective_model
+
+            # Default worker provider override: when no worker_class matched but the
+            # user configured an explicit provider for the "default worker" in
+            # Settings, route there. Without this, the default worker always falls
+            # back to the Fast layer's provider — there'd be no way to e.g. run the
+            # default worker on Claude CLI while Fast/Dispatcher runs on Ollama.
+            if _endpoint_config is None and _explicit_model != "opus":
+                from app.services.settings_loader import (
+                    get_default_worker_endpoint_id,
+                    get_default_worker_provider_type,
+                )
+                _dw_ptype = get_default_worker_provider_type()
+                _dw_eid = get_default_worker_endpoint_id()
+                if _dw_ptype or _dw_eid:
+                    from app.services.llm.worker_class_resolver import resolve_endpoint_for_class
+                    _synthetic_wc = {
+                        "endpoint_id": _dw_eid,
+                        "provider_type": _dw_ptype,
+                        "model": _effective_model,
+                    }
+                    _endpoint_config = await resolve_endpoint_for_class(_synthetic_wc)
+                    if _endpoint_config and (_endpoint_config.get("url") or _endpoint_config.get("provider_type")):
+                        logger.info(
+                            "[DeepWorkerPool] Task %s using default worker override (%s @ %s, model=%s)",
+                            event.task_id,
+                            _endpoint_config.get("provider_type"),
+                            _endpoint_config.get("url") or "(no url)",
+                            _effective_model,
+                        )
+                        event.data["_resolved_worker_class_endpoint"] = _endpoint_config
+                        event.data["_resolved_worker_model"] = _effective_model
+                    else:
+                        _endpoint_config = None
 
             # Safety guard: coding intents must never run on Haiku — upgrade to sonnet minimum.
             # Applies regardless of user-configured Worker Classes or Default Worker Model,

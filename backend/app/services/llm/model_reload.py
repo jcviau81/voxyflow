@@ -46,11 +46,32 @@ def reload_layer_models(service: "ClaudeService") -> None:
     overrides = _load_model_overrides()
     default_api_key = config.claude_api_key
 
-    # Update default worker model from settings
-    from app.services.settings_loader import set_default_worker_model
+    # Update default worker model + provider override from settings.
+    # The provider override fields let users route the "default" worker (i.e.
+    # delegates that don't match any worker class) to any provider — without
+    # them, the default worker always falls back to the Fast layer's provider.
+    from app.services.settings_loader import (
+        set_default_worker_endpoint_id,
+        set_default_worker_model,
+        set_default_worker_provider_type,
+    )
     dwm = overrides.get("default_worker_model", "")
     if dwm:
         set_default_worker_model(dwm)
+    set_default_worker_provider_type(overrides.get("default_worker_provider_type", ""))
+    set_default_worker_endpoint_id(overrides.get("default_worker_endpoint_id", ""))
+
+    # Haiku is a utility layer (summarization, memory extraction). If the user
+    # hasn't configured it explicitly, mirror Fast's provider/model so it works
+    # out of the box when Fast is moved off Claude (e.g. Ollama) — otherwise
+    # Haiku would try the default Claude model against Fast's endpoint → 404.
+    # "Configured" = at least one of model / provider_type / endpoint_id is set.
+    _hcfg = overrides.get("haiku") or {}
+    haiku_cfg_present = bool(
+        (_hcfg.get("model") or "").strip()
+        or (_hcfg.get("provider_type") or "").strip()
+        or (_hcfg.get("endpoint_id") or "").strip()
+    )
 
     for layer, attr_prefix, default_model in [
         ("fast", "fast", config.claude_sonnet_model),
@@ -87,9 +108,11 @@ def reload_layer_models(service: "ClaudeService") -> None:
                     client = _make_anthropic_client(key, purl or config.claude_api_base)
                     client_type = "anthropic"
                 else:
-                    # All OpenAI-compat providers: set up client pointing at their URL
+                    # All OpenAI-compat providers: set up client pointing at their URL.
+                    # Prefer the provider's normalised _url (Ollama appends /v1 there) —
+                    # the raw layer URL may be missing /v1 and would 404 on POSTs.
                     from app.services.llm.client_factory import _make_openai_client as _mkoa
-                    effective_url = purl or getattr(provider, "_url", config.claude_proxy_url)
+                    effective_url = getattr(provider, "_url", None) or purl or config.claude_proxy_url
                     client = _mkoa(effective_url, key or "not-needed")
                     client_type = "openai"
             except Exception as exc:
@@ -127,6 +150,17 @@ def reload_layer_models(service: "ClaudeService") -> None:
         # Store provider instance for future direct calls (capability checks, etc.)
         setattr(service, f"{attr_prefix}_provider", provider)
         setattr(service, f"{attr_prefix}_context_1m", bool(cfg.get("context_1m", False)))
+
+    # Haiku fallback: when user hasn't configured the Haiku layer, mirror Fast.
+    # Avoids 404s when Fast is on Ollama/Groq/etc. but Haiku still points at the
+    # default Claude model. Users who want a dedicated summarizer can override
+    # via Settings UI (which writes a non-empty haiku block).
+    if not haiku_cfg_present:
+        service.haiku_model = service.fast_model
+        service.haiku_client = service.fast_client
+        service.haiku_client_type = service.fast_client_type
+        service.haiku_provider = service.fast_provider
+        service.haiku_context_1m = service.fast_context_1m
 
     # Log effective URLs for layers that use a non-default provider
     layer_details = []

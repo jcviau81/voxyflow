@@ -203,7 +203,7 @@ async def get_available_models():
     # instead of "openai" inferred from the legacy proxy URL.
     use_cli = get_settings().claude_use_cli
     layers: dict[str, LayerInfo] = {}
-    for layer_name in ("fast", "deep"):
+    for layer_name in ("fast", "deep", "haiku"):
         cfg = models_cfg.get(layer_name, {})
         purl = cfg.get("provider_url", "")
         mdl = cfg.get("model", "")

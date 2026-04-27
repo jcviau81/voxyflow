@@ -155,9 +155,24 @@ class ModelsSettings(BaseModel):
         model="claude-opus-4",
         enabled=True,
     )
+    # Utility layer for summarization & memory extraction. When left empty, the
+    # backend mirrors the Fast layer's provider/model — see model_reload.py.
+    haiku: ModelLayerConfig = ModelLayerConfig(
+        provider_url="",
+        api_key="",
+        model="",
+        enabled=True,
+    )
 
-    # Default model for workers (haiku/sonnet/opus)
+    # Default model for workers when no worker_class matches the delegate intent.
+    # Legacy: short alias ("haiku" | "sonnet" | "opus") which resolves to the
+    # corresponding layer (Fast/Deep/Haiku). Can also be a full model id.
     default_worker_model: str = "sonnet"
+    # Optional explicit provider override for the default worker. When set,
+    # downstream skips the layer alias and routes to this provider directly.
+    # Mirrors the WorkerClass shape (endpoint_id + provider_type + model).
+    default_worker_provider_type: str = ""
+    default_worker_endpoint_id: str = ""
 
     # Named provider endpoints (user's machines / remote instances)
     endpoints: list[ProviderEndpoint] = []
@@ -221,7 +236,7 @@ def _redact_sensitive(data: dict) -> dict:
     redacted = copy.deepcopy(data)
     models = redacted.get("models", {})
     # Redact layer-level api_key fields
-    for layer_key in ("fast", "deep"):
+    for layer_key in ("fast", "deep", "haiku"):
         layer = models.get(layer_key, {})
         if isinstance(layer, dict) and layer.get("api_key"):
             layer["api_key"] = "***"
@@ -236,7 +251,7 @@ def _merge_sensitive_on_save(incoming: dict, existing: dict) -> dict:
     """When incoming data has '***' for api_key, preserve the existing real value."""
     models_in = incoming.get("models", {})
     models_ex = existing.get("models", {})
-    for layer_key in ("fast", "deep"):
+    for layer_key in ("fast", "deep", "haiku"):
         layer_in = models_in.get(layer_key, {})
         layer_ex = models_ex.get(layer_key, {})
         if isinstance(layer_in, dict) and layer_in.get("api_key") == "***":

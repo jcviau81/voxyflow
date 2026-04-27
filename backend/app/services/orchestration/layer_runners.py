@@ -175,6 +175,7 @@ class LayerRunnersMixin:
         await send_model_status("fast", "active")
         start = time.time()
         fast_full_response = ""
+        fast_model_label = self._claude.fast_model or "fast"
 
         try:
             first_token_sent = False
@@ -218,7 +219,7 @@ class LayerRunnersMixin:
                         {
                             "messageId": message_id,
                             "content": token,
-                            "model": "fast",
+                            "model": fast_model_label,
                             "streaming": True,
                             "done": False,
                             "sessionId": session_id,
@@ -240,7 +241,7 @@ class LayerRunnersMixin:
                         {
                             "messageId": message_id,
                             "content": tok,
-                            "model": "fast",
+                            "model": fast_model_label,
                             "streaming": True,
                             "done": False,
                             "sessionId": session_id,
@@ -271,7 +272,7 @@ class LayerRunnersMixin:
             done_payload = {
                 "messageId": message_id,
                 "content": "",
-                "model": "fast",
+                "model": fast_model_label,
                 "streaming": True,
                 "done": True,
                 "latency_ms": latency,
@@ -339,6 +340,7 @@ class LayerRunnersMixin:
         await send_model_status("deep", "active")
         start = time.time()
         deep_full_response = ""
+        deep_model_label = self._claude.deep_model or "deep"
 
         try:
             first_token_sent = False
@@ -377,7 +379,7 @@ class LayerRunnersMixin:
                         {
                             "messageId": message_id,
                             "content": token,
-                            "model": "deep",
+                            "model": deep_model_label,
                             "streaming": True,
                             "done": False,
                             "sessionId": session_id,
@@ -397,7 +399,7 @@ class LayerRunnersMixin:
                         {
                             "messageId": message_id,
                             "content": tok,
-                            "model": "deep",
+                            "model": deep_model_label,
                             "streaming": True,
                             "done": False,
                             "sessionId": session_id,
@@ -428,7 +430,7 @@ class LayerRunnersMixin:
             done_payload = {
                 "messageId": message_id,
                 "content": "",
-                "model": "deep",
+                "model": deep_model_label,
                 "streaming": True,
                 "done": True,
                 "latency_ms": latency,

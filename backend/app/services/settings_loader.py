@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 _default_worker_model: str = "sonnet"
+_default_worker_provider_type: str = ""
+_default_worker_endpoint_id: str = ""
 
 _SETTINGS_KEY = "app_settings"
 
@@ -34,6 +36,28 @@ def set_default_worker_model(model: str) -> None:
     if model:
         _default_worker_model = model
         logger.info(f"[Settings] Default worker model set to: {model}")
+
+
+def get_default_worker_provider_type() -> str:
+    """Return the explicit provider override for the default worker (empty = layer alias)."""
+    return _default_worker_provider_type
+
+
+def set_default_worker_provider_type(provider_type: str) -> None:
+    """Update the cached default worker provider type. Empty string clears the override."""
+    global _default_worker_provider_type
+    _default_worker_provider_type = (provider_type or "").strip().lower()
+
+
+def get_default_worker_endpoint_id() -> str:
+    """Return the saved-endpoint id for the default worker (empty = no machine ref)."""
+    return _default_worker_endpoint_id
+
+
+def set_default_worker_endpoint_id(endpoint_id: str) -> None:
+    """Update the cached default worker endpoint id. Empty string clears the override."""
+    global _default_worker_endpoint_id
+    _default_worker_endpoint_id = (endpoint_id or "").strip()
 
 
 async def _load_settings_from_db() -> dict | None:
