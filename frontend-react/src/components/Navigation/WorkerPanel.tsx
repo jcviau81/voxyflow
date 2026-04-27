@@ -611,7 +611,7 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
 
         <span className="truncate font-medium">{session.label}</span>
 
-        {session.cliSession && (
+        {session.cliSession && session.cliSession.pid > 0 && (
           <span className="text-[9px] text-muted-foreground/50 shrink-0 ml-auto">
             pid:{session.cliSession.pid}
           </span>
