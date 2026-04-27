@@ -9,10 +9,23 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMessageStore } from '../../stores/useMessageStore';
 import { useChatService } from '../../contexts/useChatService';
+import { useToastStore } from '../../stores/useToastStore';
 import { ttsService, cleanTextForSpeech } from '../../services/ttsService';
+import { authFetch } from '../../lib/authClient';
 import { MessageBubble } from './MessageBubble';
 import { StreamingMessage } from './StreamingMessage';
 import type { Message } from '../../types';
+
+function resolveChatId(opts: {
+  sessionId?: string;
+  cardId?: string;
+  projectId?: string;
+}): string | null {
+  if (opts.sessionId) return opts.sessionId;
+  if (opts.cardId) return `card:${opts.cardId}`;
+  if (opts.projectId) return `project:${opts.projectId}`;
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -46,6 +59,9 @@ export function MessageList({
   loadingLabel = 'Connecting to Voxy\u2026',
 }: MessageListProps) {
   const allMessages = useMessageStore((s) => s.messages);
+  const removeMessage = useMessageStore((s) => s.removeMessage);
+  const addMessage = useMessageStore((s) => s.addMessage);
+  const showToast = useToastStore((s) => s.showToast);
   const pendingAssistantForSession = useMessageStore((s) =>
     sessionId ? !!s.pendingAssistantBySession[sessionId] : false,
   );
@@ -200,6 +216,45 @@ export function MessageList({
   // Typing indicator — show when last message is from user and no streaming yet
   // ---------------------------------------------------------------------------
 
+  const handleDeleteMessage = useCallback(
+    async (messageId: string) => {
+      const target = useMessageStore.getState().messages.find((m) => m.id === messageId);
+      if (!target) return;
+
+      const chatId = resolveChatId({ sessionId, cardId, projectId });
+      if (!chatId) {
+        showToast('Cannot delete message — no chat context', 'error');
+        return;
+      }
+
+      // Optimistic remove. On failure we re-insert via addMessage; the
+      // restored message gets a new id (zustand store assigns one) — fine
+      // because the original id only mattered for the server round-trip.
+      removeMessage(messageId);
+
+      try {
+        const res = await authFetch(
+          `/api/sessions/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`,
+          { method: 'DELETE' },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (err) {
+        console.error('[MessageList] delete failed', err);
+        showToast('Failed to delete message', 'error');
+        addMessage({
+          role: target.role,
+          content: target.content,
+          projectId: target.projectId,
+          sessionId: target.sessionId,
+          cardId: target.cardId,
+          model: target.model,
+          enrichment: target.enrichment,
+        });
+      }
+    },
+    [sessionId, cardId, projectId, removeMessage, addMessage, showToast],
+  );
+
   const lastMessage = messages[messages.length - 1];
   const isStreaming = messages.some((m) => m.streaming);
   const justSent = messages.length > 0 && lastMessage?.role === 'user';
@@ -257,7 +312,7 @@ export function MessageList({
               {message.streaming ? (
                 <StreamingMessage message={message} />
               ) : (
-                <MessageBubble message={message} />
+                <MessageBubble message={message} onDelete={handleDeleteMessage} />
               )}
             </div>
           );

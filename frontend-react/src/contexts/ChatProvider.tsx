@@ -858,6 +858,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }),
     );
 
+    // --- message.deleted — cross-tab/device sync of manual message deletes ---
+    // Originating tab does the optimistic remove inline; this handler keeps
+    // every other connected client in sync. removeMessage is a no-op when
+    // the id is already gone, so it's safe to receive our own broadcast too.
+    unsubs.push(
+      subscribe('message.deleted', (payload) => {
+        const messageId = (payload as { message_id?: string }).message_id;
+        if (messageId) messageStoreRef.current.removeMessage(messageId);
+      }),
+    );
+
     // --- ws:connected — sync session on connect/reconnect ---
     // 1. Sends session:sync so the backend delivers any pending worker results
     //    that accumulated while the client was disconnected.
@@ -879,6 +890,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               .then((data) => {
                 if (!data?.messages) return;
                 const backendMessages: Array<{
+                  id?: string;
                   role: string;
                   content: string;
                   timestamp?: string;
@@ -890,7 +902,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                   .filter((m) => m.role === 'user' || m.role === 'assistant')
                   .filter((m) => m.type !== 'enrichment' && m.type !== 'worker_result')
                   .map((m) => ({
-                    id: generateId(),
+                    id: m.id || generateId(),
                     role: m.role as 'user' | 'assistant',
                     content: m.content || '',
                     timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
@@ -1086,6 +1098,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (!resp.ok) return [];
         const data = await resp.json();
         const backendMessages: Array<{
+          id?: string;
           role: string;
           content: string;
           timestamp?: string;
@@ -1097,7 +1110,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .filter((m) => m.type !== 'enrichment' && m.type !== 'worker_result')
           .map((m) => ({
-            id: generateId(),
+            // Prefer the server-assigned id so the manual delete endpoint
+            // can target this message; fall back for ancient sessions
+            // where backfill hasn't run yet.
+            id: m.id || generateId(),
             role: m.role as 'user' | 'assistant',
             content: m.content || '',
             timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),

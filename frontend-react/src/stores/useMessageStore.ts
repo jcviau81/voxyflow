@@ -23,6 +23,11 @@ export interface MessageState {
   // Update fields on an existing message by id
   updateMessage: (id: string, updates: Partial<Message>) => void;
 
+  // Remove a single message by id (no-op if not present — keeps the
+  // cross-tab WS broadcast handler idempotent against the local
+  // optimistic remove).
+  removeMessage: (id: string) => void;
+
   // Merge new messages into the store, deduplicating by role+timestamp+content prefix.
   // replace=true replaces the entire store (use with care).
   setMessages: (newMessages: Message[], replace?: boolean) => void;
@@ -64,6 +69,14 @@ export const useMessageStore = create<MessageState>()((set, get) => ({
     set((s) => ({
       messages: s.messages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
     }));
+  },
+
+  removeMessage(id) {
+    set((s) => {
+      const next = s.messages.filter((m) => m.id !== id);
+      if (next.length === s.messages.length) return s;
+      return { messages: next };
+    });
   },
 
   setMessages(newMessages, replace = false) {
