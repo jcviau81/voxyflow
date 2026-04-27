@@ -123,3 +123,61 @@ def _inject_no_think(system: str | list, model_name: str) -> str | list:
                 return result
         return [{"type": "text", "text": prefix}] + result
     return system
+
+
+def make_think_stream_filter():
+    """Return ``(feed, flush)`` callables that strip ``<think>…</think>`` blocks
+    from a token stream. ``feed(chunk)`` returns the visible text to forward
+    (may be empty while inside a think block or while buffering a partial tag).
+    ``flush()`` returns any remaining buffered text once the stream ends.
+
+    Why: ``/no_think`` in the system prompt isn't always honoured by Qwen3 /
+    DeepSeek-R1 / QwQ via Ollama, especially with long prompts — we still need
+    to keep their reasoning out of the user-visible chat.
+    """
+    OPEN, CLOSE = "<think>", "</think>"
+    state = {"inside": False, "buf": ""}
+
+    def _longest_target_prefix_at_end(buf: str, target: str) -> int:
+        for k in range(min(len(buf), len(target) - 1), 0, -1):
+            if target.startswith(buf[-k:]):
+                return k
+        return 0
+
+    def feed(chunk: str) -> str:
+        state["buf"] += chunk
+        out: list[str] = []
+        while True:
+            if state["inside"]:
+                idx = state["buf"].find(CLOSE)
+                if idx >= 0:
+                    state["buf"] = state["buf"][idx + len(CLOSE):]
+                    state["inside"] = False
+                    continue
+                # No full close tag yet — keep just enough to detect a split CLOSE.
+                keep = _longest_target_prefix_at_end(state["buf"], CLOSE)
+                state["buf"] = state["buf"][-keep:] if keep else ""
+                break
+            idx = state["buf"].find(OPEN)
+            if idx >= 0:
+                if idx:
+                    out.append(state["buf"][:idx])
+                state["buf"] = state["buf"][idx + len(OPEN):]
+                state["inside"] = True
+                continue
+            # No full OPEN — emit everything except a possible partial tag tail.
+            keep = _longest_target_prefix_at_end(state["buf"], OPEN)
+            if keep < len(state["buf"]):
+                out.append(state["buf"][: len(state["buf"]) - keep])
+            state["buf"] = state["buf"][-keep:] if keep else ""
+            break
+        return "".join(out)
+
+    def flush() -> str:
+        if state["inside"]:
+            state["buf"] = ""
+            return ""
+        out, state["buf"] = state["buf"], ""
+        return out
+
+    return feed, flush

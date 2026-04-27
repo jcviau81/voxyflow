@@ -551,10 +551,11 @@ class ClaudeService(ApiCallerMixin):
         CLI+MCP path: inline tools via MCP + <delegate> XML blocks for complex tasks.
         """
         use_native_delegate = self.fast_client_type == "anthropic"
+        use_openai_delegate = self.fast_client_type == "openai"
         use_cli_mcp = self.fast_client_type == "cli"
         card_id = card_context.get("id", "") if card_context else ""
 
-        await self._append_and_persist_async(chat_id, "user", user_message, model="fast")
+        await self._append_and_persist_async(chat_id, "user", user_message, model=self.fast_model)
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
         recent = await self._get_windowed_history(chat_id)  # windowed messages for the API
 
@@ -572,8 +573,14 @@ class ClaudeService(ApiCallerMixin):
             budget=600,
             layers=fast_layers,
         )
-        # Determine tool mode for personality prompt
-        native_tools_mode = "cli_mcp" if use_cli_mcp else use_native_delegate
+        # Determine tool mode for personality prompt.
+        # OpenAI-compat dispatchers (Qwen via Ollama, Groq, etc.) use the same
+        # native delegate_action tool-call protocol as Anthropic — XML delegates
+        # are unreliable on small open-weight models.
+        native_tools_mode = (
+            "cli_mcp" if use_cli_mcp
+            else (use_native_delegate or use_openai_delegate)
+        )
         # Static base prompt — personality + dispatcher (or autonomy) + tools (cacheable)
         if role == "autonomy":
             base_prompt = self.personality.build_autonomy_prompt(
@@ -637,7 +644,7 @@ class ClaudeService(ApiCallerMixin):
         primed_messages = list(recent)
         is_auto_greeting = "greet" in user_message.lower() and "naturally" in user_message.lower()
         if role != "autonomy" and len(full_history) <= 4 and not is_auto_greeting:
-            if use_native_delegate:
+            if use_native_delegate or use_openai_delegate:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
                     "I converse with you directly and use inline tools for fast operations. "
@@ -688,6 +695,24 @@ class ClaudeService(ApiCallerMixin):
                 full_response += token
                 yield token
             logger.info(f"[chat_fast_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
+        elif use_openai_delegate:
+            # OpenAI-compat (Qwen via Ollama, Groq, Mistral, etc.):
+            # native delegate_action tool-call — small open-weight models follow
+            # function-call schemas far more reliably than embedded XML.
+            full_response = ""
+            async for token in self._call_api_stream_openai_with_delegate(
+                model=self.fast_model,
+                system=system_prompt,
+                messages=primed_messages,
+                client=self.fast_client,
+                chat_id=chat_id,
+            ):
+                full_response += token
+                yield token
+            logger.info(
+                f"[chat_fast_stream] OpenAI native delegate path — collected "
+                f"{len(self._pending_delegates.get(chat_id, []))} delegates"
+            )
         elif use_cli_mcp:
             # CLI+MCP: inline tools via MCP, <delegate> XML for complex tasks
             # For persistent sessions: if process exists, send only the new message
@@ -751,7 +776,7 @@ class ClaudeService(ApiCallerMixin):
         if _is_thinking_model(self.fast_model):
             full_response = _strip_think_tags(full_response)
         if full_response:
-            await self._append_and_persist_async(chat_id, "assistant", full_response, model="fast")
+            await self._append_and_persist_async(chat_id, "assistant", full_response, model=self.fast_model)
 
     async def chat_deep_stream(
         self,
@@ -776,10 +801,11 @@ class ClaudeService(ApiCallerMixin):
         CLI+MCP path: inline tools via MCP + <delegate> XML blocks for complex tasks.
         """
         use_native_delegate = self.deep_client_type == "anthropic"
+        use_openai_delegate = self.deep_client_type == "openai"
         use_cli_mcp = self.deep_client_type == "cli"
         card_id = card_context.get("id", "") if card_context else ""
 
-        await self._append_and_persist_async(chat_id, "user", user_message, model="deep")
+        await self._append_and_persist_async(chat_id, "user", user_message, model=self.deep_model)
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
         recent = await self._get_windowed_history(chat_id)  # windowed messages for the API
 
@@ -792,8 +818,12 @@ class ClaudeService(ApiCallerMixin):
             budget=1500,
             layers=(0, 1, 2),
         )
-        # Determine tool mode for personality prompt
-        native_tools_mode = "cli_mcp" if use_cli_mcp else use_native_delegate
+        # Determine tool mode for personality prompt — OpenAI-compat uses native
+        # delegate_action tool calls (same prompt shape as Anthropic native).
+        native_tools_mode = (
+            "cli_mcp" if use_cli_mcp
+            else (use_native_delegate or use_openai_delegate)
+        )
         # Static base prompt — personality + dispatcher + tools only (cacheable)
         base_prompt = self.personality.build_deep_prompt(
             chat_level=chat_level,
@@ -848,7 +878,7 @@ class ClaudeService(ApiCallerMixin):
         primed_messages = list(recent)
         is_auto_greeting = "greet" in user_message.lower() and "naturally" in user_message.lower()
         if len(full_history) <= 4 and not is_auto_greeting:
-            if use_native_delegate:
+            if use_native_delegate or use_openai_delegate:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
                     "I converse with you directly and delegate all actions to background workers "
@@ -896,6 +926,21 @@ class ClaudeService(ApiCallerMixin):
                 full_response += token
                 yield token
             logger.info(f"[chat_deep_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
+        elif use_openai_delegate:
+            full_response = ""
+            async for token in self._call_api_stream_openai_with_delegate(
+                model=self.deep_model,
+                system=system_prompt,
+                messages=primed_messages,
+                client=self.deep_client,
+                chat_id=chat_id,
+            ):
+                full_response += token
+                yield token
+            logger.info(
+                f"[chat_deep_stream] OpenAI native delegate path — collected "
+                f"{len(self._pending_delegates.get(chat_id, []))} delegates"
+            )
         elif use_cli_mcp:
             # CLI+MCP: persistent session optimization
             is_persistent = (
@@ -951,11 +996,43 @@ class ClaudeService(ApiCallerMixin):
         if _is_thinking_model(self.deep_model):
             full_response = _strip_think_tags(full_response)
         if full_response:
-            await self._append_and_persist_async(chat_id, "assistant", full_response, model="deep")
+            await self._append_and_persist_async(chat_id, "assistant", full_response, model=self.deep_model)
 
     # ------------------------------------------------------------------
     # Endpoint-based client helper (for WorkerClass with endpoint_id)
     # ------------------------------------------------------------------
+
+    def _resolve_worker_client(
+        self,
+        endpoint_config: Optional[dict],
+        model: str,
+    ) -> tuple:
+        """Pick (client, client_type, model_name) for a worker call.
+
+        Precedence:
+          1. endpoint_config with provider_type="cli" → CLI backend, worker class's model
+          2. endpoint_config with url → custom endpoint (Ollama/OpenAI/etc.)
+          3. model alias matching (haiku/opus/anything-else → fast) — legacy fallback
+
+        Why this matters: when the user's Fast layer is set to a non-Claude provider,
+        the layer aliases follow that provider. A worker class configured with
+        provider_type="cli" must NOT be silently rerouted to the Fast layer's provider.
+        """
+        if endpoint_config:
+            ptype = (endpoint_config.get("provider_type") or "").strip().lower()
+            wc_model = (endpoint_config.get("model") or "").strip() or model
+            if ptype == "cli":
+                return (None, "cli", wc_model)
+            if endpoint_config.get("url"):
+                return self._make_endpoint_client(endpoint_config, model)
+            # provider_type set but no url and not cli — fall through to alias.
+
+        model_lower = (model or "").lower()
+        if "haiku" in model_lower:
+            return (self.haiku_client, self.haiku_client_type, self.haiku_model)
+        if "opus" in model_lower:
+            return (self.deep_client, self.deep_client_type, self.deep_model)
+        return (self.fast_client, self.fast_client_type, self.fast_model)
 
     def _make_endpoint_client(
         self,
@@ -1029,26 +1106,11 @@ class ClaudeService(ApiCallerMixin):
         """
         card_id = card_context.get("id", "") if card_context else ""
 
-        # If a resolved endpoint config is provided, use its provider directly
-        if endpoint_config and endpoint_config.get("url"):
-            client, client_type, model_name = self._make_endpoint_client(
-                endpoint_config, model,
-            )
-        # Select client/model based on model param — all workers get full tools
-        # Match both short names (haiku/sonnet/opus) and full IDs (claude-opus-4-6)
-        model_lower = model.lower()
-        if "haiku" in model_lower:
-            client, client_type, model_name = (
-                self.haiku_client, self.haiku_client_type, self.haiku_model
-            )
-        elif "opus" in model_lower:
-            client, client_type, model_name = (
-                self.deep_client, self.deep_client_type, self.deep_model
-            )
-        else:  # sonnet (default)
-            client, client_type, model_name = (
-                self.fast_client, self.fast_client_type, self.fast_model
-            )
+        # If a resolved endpoint config is provided, use its provider directly.
+        # CLI worker classes have provider_type="cli" with no url — route to the CLI
+        # backend with the worker class's model rather than falling through to the
+        # Fast/Haiku layer aliases (which may now point at a different provider).
+        client, client_type, model_name = self._resolve_worker_client(endpoint_config, model)
         role = "worker"  # Workers get full MCP tool access
 
         # Workers always use the native Anthropic async SDK (tool_use blocks) to avoid
@@ -1159,26 +1221,7 @@ class ClaudeService(ApiCallerMixin):
         """
         card_id = card_context.get("id", "") if card_context else ""
 
-        # If a resolved endpoint config is provided, use its provider directly
-        if endpoint_config and endpoint_config.get("url"):
-            client, client_type, model_name = self._make_endpoint_client(
-                endpoint_config, model,
-            )
-        else:
-            # Match both short names (haiku/sonnet/opus) and full IDs (claude-opus-4-7)
-            model_lower = (model or "").lower()
-            if "haiku" in model_lower:
-                client, client_type, model_name = (
-                    self.haiku_client, self.haiku_client_type, self.haiku_model
-                )
-            elif "opus" in model_lower:
-                client, client_type, model_name = (
-                    self.deep_client, self.deep_client_type, self.deep_model
-                )
-            else:
-                client, client_type, model_name = (
-                    self.fast_client, self.fast_client_type, self.fast_model
-                )
+        client, client_type, model_name = self._resolve_worker_client(endpoint_config, model or "")
 
         system_prompt = (
             "You are a lightweight task worker operating under a strict lifecycle.\n\n"

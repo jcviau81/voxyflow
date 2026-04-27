@@ -86,6 +86,7 @@ async def review_code(req: CodeReviewRequest) -> CodeReviewResponse:
             system=_REVIEW_SYSTEM,
             messages=[{"role": "user", "content": user_prompt}],
             client=claude.deep_client,
+            client_type=claude.deep_client_type,
         )
 
         # Strip markdown fences if the model disobeyed the instruction

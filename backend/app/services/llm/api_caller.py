@@ -24,11 +24,13 @@ from app.services.llm.model_utils import (
     _is_thinking_model,
     _inject_no_think,
     _flatten_system,
+    make_think_stream_filter,
 )
 from app.services.llm.tool_defs import (
     DELEGATE_ACTION_TOOL,
     _mcp_tool_name_from_claude,
     _call_mcp_tool,
+    anthropic_to_openai_tools,
     get_claude_tools,
 )
 
@@ -514,6 +516,235 @@ class ApiCallerMixin:
             logger.error(f"Anthropic delegate streaming call failed: {e}")
             raise
 
+    async def _call_api_stream_openai_with_delegate(
+        self,
+        model: str,
+        system: str,
+        messages: list[dict],
+        client,
+        chat_id: str,
+    ) -> AsyncIterator[str]:
+        """OpenAI-compatible streaming dispatcher with native function-calling.
+
+        Mirrors ``_call_api_stream_with_delegate`` (Anthropic) but uses the OpenAI
+        chat.completions tool_calls protocol. Exposes the dispatcher tools + the
+        ``delegate_action`` synthetic tool. Dispatcher tool calls are executed
+        inline; ``delegate_action`` calls are collected into
+        ``self._pending_delegates[chat_id]`` for the orchestrator to spawn workers.
+        """
+        import queue
+        import threading
+
+        clean_messages = [m for m in messages if m.get("role") != "system"]
+        if not clean_messages:
+            clean_messages = [{"role": "user", "content": "(empty)"}]
+
+        api_messages: list[dict] = [{"role": "system", "content": _flatten_system(system)}]
+        api_messages.extend(clean_messages)
+
+        dispatcher_tools = get_claude_tools(role="dispatcher")
+        dispatcher_tool_names = {t["name"] for t in dispatcher_tools}
+        openai_tools = anthropic_to_openai_tools([DELEGATE_ACTION_TOOL] + dispatcher_tools)
+
+        max_inline_rounds = 5
+
+        try:
+            for _ in range(max_inline_rounds + 1):
+                kwargs: dict = {
+                    "model": model,
+                    "max_tokens": self.max_tokens,
+                    "messages": api_messages,
+                    "tools": openai_tools,
+                    "tool_choice": "auto",
+                    "stream": True,
+                }
+                stream = client.chat.completions.create(**kwargs)
+
+                token_queue: queue.Queue[str | None] = queue.Queue()
+                streamed_tool_calls: list[dict] = []
+                finish_reason_holder: list[str] = []
+                content_text_holder: list[str] = []
+                think_feed, think_flush = (
+                    make_think_stream_filter() if _is_thinking_model(model) else (None, None)
+                )
+
+                def _consume_stream():
+                    try:
+                        for chunk in stream:
+                            if not chunk.choices:
+                                continue
+                            delta = chunk.choices[0].delta
+                            finish_reason = chunk.choices[0].finish_reason
+
+                            if delta.content:
+                                visible = think_feed(delta.content) if think_feed else delta.content
+                                if visible:
+                                    content_text_holder.append(visible)
+                                    token_queue.put(visible)
+
+                            if delta.tool_calls:
+                                for tc_delta in delta.tool_calls:
+                                    idx = tc_delta.index
+                                    while len(streamed_tool_calls) <= idx:
+                                        streamed_tool_calls.append({
+                                            "id": None,
+                                            "type": "function",
+                                            "function": {"name": "", "arguments": ""},
+                                        })
+                                    if tc_delta.id:
+                                        streamed_tool_calls[idx]["id"] = tc_delta.id
+                                    if tc_delta.function:
+                                        if tc_delta.function.name:
+                                            streamed_tool_calls[idx]["function"]["name"] += tc_delta.function.name
+                                        if tc_delta.function.arguments:
+                                            streamed_tool_calls[idx]["function"]["arguments"] += tc_delta.function.arguments
+
+                            if finish_reason:
+                                finish_reason_holder.append(finish_reason)
+                    except Exception as e:
+                        logger.error(f"OpenAI delegate stream consumption error: {e}")
+                    finally:
+                        if think_flush:
+                            tail = think_flush()
+                            if tail:
+                                content_text_holder.append(tail)
+                                token_queue.put(tail)
+                        token_queue.put(None)
+
+                thread = threading.Thread(target=_consume_stream, daemon=True)
+                thread.start()
+
+                while True:
+                    token = await asyncio.to_thread(token_queue.get)
+                    if token is None:
+                        break
+                    yield token
+
+                if not streamed_tool_calls:
+                    return
+
+                # Normalize tool_call ids
+                normalized_calls: list[dict] = []
+                for i, tc in enumerate(streamed_tool_calls):
+                    normalized_calls.append({
+                        "id": tc["id"] or f"call_{i}",
+                        "type": "function",
+                        "function": {
+                            "name": tc["function"]["name"],
+                            "arguments": tc["function"]["arguments"],
+                        },
+                    })
+
+                assistant_msg: dict = {
+                    "role": "assistant",
+                    "content": "".join(content_text_holder) or None,
+                    "tool_calls": normalized_calls,
+                }
+                api_messages.append(assistant_msg)
+
+                from app.tools.registry import get_registry
+                _registry = get_registry()
+
+                tool_results: list[dict] = []
+                had_dispatcher_tool = False
+                for tc in normalized_calls:
+                    name = tc["function"]["name"]
+                    try:
+                        arguments = json.loads(tc["function"]["arguments"] or "{}")
+                    except json.JSONDecodeError:
+                        arguments = {}
+
+                    if name == "delegate_action":
+                        self._pending_delegates.setdefault(chat_id, []).append(arguments)
+                        logger.info(
+                            f"[NativeDelegate-OpenAI] Collected delegate_action: "
+                            f"action={arguments.get('action')}, summary={arguments.get('summary', '')!r}"
+                        )
+                        tool_results.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": json.dumps({
+                                "status": "delegated",
+                                "message": "Action dispatched to background worker.",
+                            }),
+                        })
+                        continue
+
+                    if name in dispatcher_tool_names:
+                        had_dispatcher_tool = True
+                        mcp_name = _mcp_tool_name_from_claude(name)
+                        logger.info(f"[DispatcherTool-OpenAI] Executing {name} → {mcp_name} with {arguments}")
+                        tool_def = _registry.get(mcp_name)
+                        if tool_def:
+                            result = await tool_def.handler(arguments or {})
+                        else:
+                            result = {"error": f"Unknown tool: {mcp_name}"}
+                        tool_results.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": json.dumps(result, default=str, ensure_ascii=False),
+                        })
+                        continue
+
+                    logger.warning(f"[NativeDelegate-OpenAI] Unexpected tool call: {name} — acknowledging")
+                    tool_results.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": json.dumps({"error": f"Unknown tool: {name}"}),
+                    })
+
+                api_messages.extend(tool_results)
+
+                # If only delegates were emitted, do one final non-tool turn so the model
+                # finishes its text reply naturally — same shape as the Anthropic path.
+                if not had_dispatcher_tool:
+                    final_kwargs: dict = {
+                        "model": model,
+                        "max_tokens": self.max_tokens,
+                        "messages": api_messages,
+                        "stream": True,
+                    }
+                    final_stream = client.chat.completions.create(**final_kwargs)
+                    final_queue: queue.Queue[str | None] = queue.Queue()
+                    final_think_feed, final_think_flush = (
+                        make_think_stream_filter() if _is_thinking_model(model) else (None, None)
+                    )
+
+                    def _consume_final():
+                        try:
+                            for chunk in final_stream:
+                                if not chunk.choices:
+                                    continue
+                                delta = chunk.choices[0].delta
+                                if delta.content:
+                                    visible = final_think_feed(delta.content) if final_think_feed else delta.content
+                                    if visible:
+                                        final_queue.put(visible)
+                        except Exception as e:
+                            logger.error(f"OpenAI delegate final-turn error: {e}")
+                        finally:
+                            if final_think_flush:
+                                tail = final_think_flush()
+                                if tail:
+                                    final_queue.put(tail)
+                            final_queue.put(None)
+
+                    threading.Thread(target=_consume_final, daemon=True).start()
+                    while True:
+                        tok = await asyncio.to_thread(final_queue.get)
+                        if tok is None:
+                            break
+                        yield tok
+                    return
+
+                # Dispatcher tools were called — loop and let the model continue.
+
+            logger.warning("[NativeDelegate-OpenAI] Inline tool loop exceeded max rounds")
+
+        except Exception as e:
+            logger.error(f"OpenAI delegate streaming call failed: {e}")
+            raise
+
     async def _call_api_stream_anthropic(
         self,
         model: str,
@@ -803,6 +1034,9 @@ class ApiCallerMixin:
             streamed_tool_calls: list[dict] = []
             finish_reason_holder: list[str] = []
             content_text_holder: list[str] = []
+            think_feed, think_flush = (
+                make_think_stream_filter() if _is_thinking_model(model) else (None, None)
+            )
 
             def _consume_stream():
                 try:
@@ -813,8 +1047,10 @@ class ApiCallerMixin:
                         finish_reason = chunk.choices[0].finish_reason
 
                         if delta.content:
-                            content_text_holder.append(delta.content)
-                            token_queue.put(delta.content)
+                            visible = think_feed(delta.content) if think_feed else delta.content
+                            if visible:
+                                content_text_holder.append(visible)
+                                token_queue.put(visible)
 
                         if delta.tool_calls:
                             for tc_delta in delta.tool_calls:
@@ -838,6 +1074,11 @@ class ApiCallerMixin:
                 except Exception as e:
                     logger.error(f"Stream consumption error: {e}")
                 finally:
+                    if think_flush:
+                        tail = think_flush()
+                        if tail:
+                            content_text_holder.append(tail)
+                            token_queue.put(tail)
                     token_queue.put(None)
 
             thread = threading.Thread(target=_consume_stream, daemon=True)
@@ -1135,6 +1376,9 @@ class ApiCallerMixin:
         # Stream the first response
         token_queue: queue.Queue[str | None] = queue.Queue()
         content_parts: list[str] = []
+        think_feed, think_flush = (
+            make_think_stream_filter() if _is_thinking_model(model) else (None, None)
+        )
 
         def _consume_stream():
             try:
@@ -1149,11 +1393,18 @@ class ApiCallerMixin:
                         continue
                     delta = chunk.choices[0].delta
                     if delta.content:
-                        content_parts.append(delta.content)
-                        token_queue.put(delta.content)
+                        visible = think_feed(delta.content) if think_feed else delta.content
+                        if visible:
+                            content_parts.append(visible)
+                            token_queue.put(visible)
             except Exception as e:
                 logger.error(f"Server-tools stream error: {e}")
             finally:
+                if think_flush:
+                    tail = think_flush()
+                    if tail:
+                        content_parts.append(tail)
+                        token_queue.put(tail)
                 token_queue.put(None)
 
         thread = threading.Thread(target=_consume_stream, daemon=True)
@@ -1403,7 +1654,7 @@ class ApiCallerMixin:
         system: str | list[dict],
         messages: list[dict],
         client=None,
-        client_type: str = "anthropic",
+        client_type: str | None = None,
         use_tools: bool = True,
         mcp_role: str = "worker",
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
@@ -1421,7 +1672,10 @@ class ApiCallerMixin:
     ) -> str:
         """Dispatch to native Anthropic SDK, CLI subprocess, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
-        ct = client_type if client is not None else self.fast_client_type
+        # Honor explicit client_type even when client is None — CLI mode legitimately
+        # passes client=None with client_type="cli", and inferring from fast_client_type
+        # would mis-route (e.g. Haiku summarization → Ollama 404 when Fast layer = Qwen).
+        ct = client_type if client_type is not None else self.fast_client_type
 
         if ct == "cli":
             return await self._call_api_cli(
@@ -1460,7 +1714,7 @@ class ApiCallerMixin:
         system: str | list[dict],
         messages: list[dict],
         client=None,
-        client_type: str = "anthropic",
+        client_type: str | None = None,
         use_tools: bool = True,
         mcp_role: str = "worker",
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
@@ -1475,7 +1729,7 @@ class ApiCallerMixin:
     ) -> AsyncIterator[str]:
         """Dispatch streaming to CLI subprocess, native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
-        ct = client_type if client is not None else self.fast_client_type
+        ct = client_type if client_type is not None else self.fast_client_type
 
         if ct == "cli":
             async for token in self._call_api_stream_cli(

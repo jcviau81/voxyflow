@@ -114,6 +114,25 @@ def get_claude_tools(
         return []
 
 
+def anthropic_to_openai_tools(tools: list[dict]) -> list[dict]:
+    """Convert Anthropic-format tool defs (name/description/input_schema) to OpenAI format
+    ([{"type": "function", "function": {name, description, parameters}}])."""
+    out: list[dict] = []
+    for t in tools or []:
+        if "type" in t and "function" in t:
+            out.append(t)
+            continue
+        out.append({
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "parameters": t.get("input_schema") or t.get("parameters") or {"type": "object", "properties": {}},
+            },
+        })
+    return out
+
+
 def _mcp_tool_name_from_claude(claude_name: str) -> str:
     """Convert a Claude tool name (underscores) back to its MCP equivalent.
 
