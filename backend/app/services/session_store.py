@@ -10,6 +10,7 @@ import json
 import os
 import tempfile
 import threading
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -66,6 +67,12 @@ class SessionStore:
             # Add timestamp if not present
             if "timestamp" not in message:
                 message["timestamp"] = datetime.now().isoformat()
+
+            # Stable per-message id — required for the manual delete endpoint
+            # to identify a single message inside the JSON list. Older messages
+            # without an id are backfilled lazily by ``get_recent_messages``.
+            if not message.get("id"):
+                message["id"] = uuid.uuid4().hex
 
             messages.append(message)
 
@@ -130,6 +137,76 @@ class SessionStore:
         """Get the N most recent messages."""
         messages = self.load_session(chat_id)
         return messages[-limit:]
+
+    def backfill_message_ids(self, chat_id: str) -> bool:
+        """Ensure every message in the session has a stable ``id``.
+
+        Older sessions saved before per-message ids existed have entries
+        without one. Mints uuids and rewrites the file atomically. Returns
+        True if any ids were added (the file was modified), False if every
+        message already had an id.
+        """
+        path = self._get_session_path(chat_id)
+        with self._get_file_lock(chat_id):
+            messages = self.load_session(chat_id)
+            if not messages:
+                return False
+            changed = False
+            for m in messages:
+                if not m.get("id"):
+                    m["id"] = uuid.uuid4().hex
+                    changed = True
+            if not changed:
+                return False
+            self._atomic_write_messages(path, chat_id, messages)
+            return True
+
+    def delete_message(self, chat_id: str, message_id: str) -> bool:
+        """Permanently remove a single message from a session by id.
+
+        Returns True if a message was removed, False if no message with
+        that id exists (404 path for the route). Atomic write under the
+        per-chat file lock.
+        """
+        path = self._get_session_path(chat_id)
+        with self._get_file_lock(chat_id):
+            messages = self.load_session(chat_id)
+            if not messages:
+                return False
+            kept = [m for m in messages if m.get("id") != message_id]
+            if len(kept) == len(messages):
+                return False
+            self._atomic_write_messages(path, chat_id, kept)
+            return True
+
+    def _atomic_write_messages(self, path: Path, chat_id: str, messages: List[dict]) -> None:
+        """Write the full message list back to ``path`` atomically.
+
+        Caller must already hold the per-chat file lock. Mirrors the
+        write semantics of ``save_message`` so backfill + delete behave
+        identically to the append path.
+        """
+        data = json.dumps(
+            {
+                "chat_id": chat_id,
+                "updated_at": datetime.now().isoformat(),
+                "message_count": len(messages),
+                "messages": messages,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(data)
+            os.rename(tmp_path, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def get_history_for_claude(self, chat_id: str, limit: int = 20) -> List[dict]:
         """Get messages formatted for Claude API (role + content only)."""

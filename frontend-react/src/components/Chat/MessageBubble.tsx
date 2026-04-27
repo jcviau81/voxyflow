@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Volume2, Square } from 'lucide-react';
+import { Volume2, Square, Trash2 } from 'lucide-react';
 import type { Message } from '../../types';
 import { ttsService, cleanTextForSpeech } from '../../services/ttsService';
 import { cn } from '../../lib/utils';
@@ -247,9 +247,10 @@ function TtsButton({ text }: TtsButtonProps) {
 
 export interface MessageBubbleProps {
   message: Message;
+  onDelete?: (messageId: string) => void;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, onDelete }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isEnrichment = message.enrichment;
 
@@ -354,6 +355,23 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
           </span>
           {!isUser && (
             <TtsButton text={getPlainText()} />
+          )}
+          {onDelete && (
+            <button
+              onClick={() => {
+                if (window.confirm('Delete this message? It will be removed from the chat history.')) {
+                  onDelete(message.id);
+                }
+              }}
+              className={cn(
+                'msg-delete-btn w-7 h-7 flex items-center justify-center rounded-lg transition-all',
+                'opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-destructive/10 hover:text-destructive',
+              )}
+              title="Delete message"
+              type="button"
+            >
+              <Trash2 size={13} className="text-muted-foreground" />
+            </button>
           )}
         </div>
 

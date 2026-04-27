@@ -16,6 +16,8 @@ import { Tooltip, TooltipProvider } from '../ui/tooltip';
 import { cn } from '../../lib/utils';
 import { authFetch } from '../../lib/authClient';
 import { eventBus } from '../../utils/eventBus';
+import { looksLikeSecret } from '../../utils/secretDetect';
+import { useToastStore } from '../../stores/useToastStore';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -294,6 +296,19 @@ export function ChatInput({
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const text = e.clipboardData.getData('text');
+    if (!text) return;
+
+    // Passive secret check — runs on every paste regardless of length, since
+    // a 36-char UUID key is shorter than the code-paste threshold.
+    const secret = looksLikeSecret(text);
+    if (secret.matched) {
+      useToastStore.getState().showToast(
+        '🔑 Possible API key — consider deleting this message after Voxy is done with it',
+        'info',
+        6000,
+      );
+    }
+
     if (text.length < CODE_PASTE_MIN_LENGTH) return;
     if (looksLikeCode(text)) {
       setPendingPaste(text);
