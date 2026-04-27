@@ -25,6 +25,7 @@ from app.services.llm.model_utils import (
     _inject_no_think,
 )
 from app.services.llm.api_caller import ApiCallerMixin
+from app.services.cli_session_registry import register_logical_chat_session
 from app.services.personality_service import get_personality_service
 from app.services.memory_service import get_memory_service
 from app.services.agent_personas import AgentType, get_persona_prompt
@@ -685,30 +686,38 @@ class ClaudeService(ApiCallerMixin):
         if use_native_delegate:
             # Native Anthropic: stream with delegate_action tool
             full_response = ""
-            async for token in self._call_api_stream_with_delegate(
-                model=self.fast_model,
-                system=system_prompt,
-                messages=primed_messages,
-                client=self.fast_client,
-                chat_id=chat_id,
+            async with register_logical_chat_session(
+                chat_id=chat_id, project_id=project_id,
+                model=self.fast_model, session_type="chat",
             ):
-                full_response += token
-                yield token
+                async for token in self._call_api_stream_with_delegate(
+                    model=self.fast_model,
+                    system=system_prompt,
+                    messages=primed_messages,
+                    client=self.fast_client,
+                    chat_id=chat_id,
+                ):
+                    full_response += token
+                    yield token
             logger.info(f"[chat_fast_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
         elif use_openai_delegate:
             # OpenAI-compat (Qwen via Ollama, Groq, Mistral, etc.):
             # native delegate_action tool-call — small open-weight models follow
             # function-call schemas far more reliably than embedded XML.
             full_response = ""
-            async for token in self._call_api_stream_openai_with_delegate(
-                model=self.fast_model,
-                system=system_prompt,
-                messages=primed_messages,
-                client=self.fast_client,
-                chat_id=chat_id,
+            async with register_logical_chat_session(
+                chat_id=chat_id, project_id=project_id,
+                model=self.fast_model, session_type="chat",
             ):
-                full_response += token
-                yield token
+                async for token in self._call_api_stream_openai_with_delegate(
+                    model=self.fast_model,
+                    system=system_prompt,
+                    messages=primed_messages,
+                    client=self.fast_client,
+                    chat_id=chat_id,
+                ):
+                    full_response += token
+                    yield token
             logger.info(
                 f"[chat_fast_stream] OpenAI native delegate path — collected "
                 f"{len(self._pending_delegates.get(chat_id, []))} delegates"
@@ -916,27 +925,35 @@ class ClaudeService(ApiCallerMixin):
 
         if use_native_delegate:
             full_response = ""
-            async for token in self._call_api_stream_with_delegate(
-                model=self.deep_model,
-                system=system_prompt,
-                messages=primed_messages,
-                client=self.deep_client,
-                chat_id=chat_id,
+            async with register_logical_chat_session(
+                chat_id=chat_id, project_id=project_id,
+                model=self.deep_model, session_type="chat",
             ):
-                full_response += token
-                yield token
+                async for token in self._call_api_stream_with_delegate(
+                    model=self.deep_model,
+                    system=system_prompt,
+                    messages=primed_messages,
+                    client=self.deep_client,
+                    chat_id=chat_id,
+                ):
+                    full_response += token
+                    yield token
             logger.info(f"[chat_deep_stream] Native delegate path — collected {len(self._pending_delegates.get(chat_id, []))} delegates")
         elif use_openai_delegate:
             full_response = ""
-            async for token in self._call_api_stream_openai_with_delegate(
-                model=self.deep_model,
-                system=system_prompt,
-                messages=primed_messages,
-                client=self.deep_client,
-                chat_id=chat_id,
+            async with register_logical_chat_session(
+                chat_id=chat_id, project_id=project_id,
+                model=self.deep_model, session_type="chat",
             ):
-                full_response += token
-                yield token
+                async for token in self._call_api_stream_openai_with_delegate(
+                    model=self.deep_model,
+                    system=system_prompt,
+                    messages=primed_messages,
+                    client=self.deep_client,
+                    chat_id=chat_id,
+                ):
+                    full_response += token
+                    yield token
             logger.info(
                 f"[chat_deep_stream] OpenAI native delegate path — collected "
                 f"{len(self._pending_delegates.get(chat_id, []))} delegates"

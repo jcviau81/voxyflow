@@ -2,15 +2,21 @@
 
 Singleton, asyncio-safe (single event loop). Every CLI subprocess is
 registered on spawn and deregistered on completion or forced kill.
+
+Also tracks logical chat sessions for non-CLI providers (native Anthropic
+SDK, OpenAI-compatible like Ollama/Groq/etc.) so the UI can surface
+in-flight chat activity regardless of whether a subprocess backs it.
+Logical sessions have ``pid=0`` and ``_process=None``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import AsyncIterator, Optional
 from uuid import uuid4
 
 logger = logging.getLogger("voxyflow.cli_sessions")
@@ -27,7 +33,9 @@ class CliSession:
     session_type: str  # "chat" | "worker"
     started_at: float
     cancel_event: asyncio.Event
-    _process: asyncio.subprocess.Process = field(repr=False)
+    # _process is None for logical (non-CLI) chat sessions — provider-side
+    # streaming has no OS subprocess to track.
+    _process: Optional[asyncio.subprocess.Process] = field(default=None, repr=False)
     task_id: str = ""           # Voxyflow task_id (for steering lookup)
     steer_queue: Optional[asyncio.Queue] = field(default=None, repr=False)  # Steering message queue
     last_activity: float = 0.0  # Updated on each message (for inactivity timeout)
@@ -103,14 +111,16 @@ class CliSessionRegistry:
         # Signal via cancel_event (existing _watch_cancel pattern will SIGTERM)
         session.cancel_event.set()
 
-        # Also terminate directly in case cancel_event watcher isn't running
-        try:
-            session._process.terminate()
-            await asyncio.sleep(2)
-            if session._process.returncode is None:
-                session._process.kill()
-        except ProcessLookupError:
-            pass
+        # Also terminate directly in case cancel_event watcher isn't running.
+        # Logical (non-CLI) sessions have no subprocess to terminate.
+        if session._process is not None:
+            try:
+                session._process.terminate()
+                await asyncio.sleep(2)
+                if session._process.returncode is None:
+                    session._process.kill()
+            except ProcessLookupError:
+                pass
 
         self.deregister(session_id)
         return True
@@ -186,3 +196,41 @@ def new_cli_session_id() -> str:
 
 def get_cli_session_registry() -> CliSessionRegistry:
     return CliSessionRegistry()
+
+
+@contextlib.asynccontextmanager
+async def register_logical_chat_session(
+    *,
+    chat_id: str,
+    project_id: Optional[str],
+    model: str,
+    session_type: str = "chat",
+    task_id: str = "",
+) -> AsyncIterator[str]:
+    """Register a logical (non-subprocess) chat session for the duration of a stream.
+
+    Used when a chat layer streams through a native provider (Anthropic SDK,
+    OpenAI-compatible, Ollama, etc.) instead of spawning a `claude -p`
+    subprocess. The registry entry surfaces the active chat in the UI's
+    session/worker panel exactly like a CLI-backed chat would.
+    """
+    reg_id = new_cli_session_id()
+    registry = get_cli_session_registry()
+    registry.register(CliSession(
+        id=reg_id,
+        pid=0,
+        session_id="",
+        chat_id=chat_id,
+        project_id=project_id or None,
+        model=model,
+        session_type=session_type,
+        started_at=time.time(),
+        cancel_event=asyncio.Event(),
+        _process=None,
+        task_id=task_id,
+        last_activity=time.time(),
+    ))
+    try:
+        yield reg_id
+    finally:
+        registry.deregister(reg_id)
