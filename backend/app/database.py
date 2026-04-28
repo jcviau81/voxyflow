@@ -145,10 +145,9 @@ async def init_db():
 
         # Ensure the system "Home" project exists (formerly "Main", briefly "Global")
         SYSTEM_MAIN_ID = "system-main"
-        # Home's default working directory is the workspace root, so workers
-        # spawned from Home chat land in ~/.voxyflow/workspace/ by default.
         from pathlib import Path as _Path
-        HOME_LOCAL_PATH = str(_Path.home() / ".voxyflow" / "workspace")
+        HOME_LOCAL_PATH = str(_Path.home() / ".voxyflow" / "workspace" / "projects" / "system-home")
+        OLD_HOME_LOCAL_PATH = str(_Path.home() / ".voxyflow" / "workspace")
         existing = await conn.execute(text("SELECT id FROM projects WHERE id = :id"), {"id": SYSTEM_MAIN_ID})
         if existing.fetchone() is None:
             await conn.execute(text(
@@ -160,10 +159,14 @@ async def init_db():
             await conn.execute(text(
                 "UPDATE projects SET title = 'Home' WHERE id = :id AND title IN ('Main', 'Global')"
             ), {"id": SYSTEM_MAIN_ID})
-            # Backfill local_path for older rows that predate this default.
+            # Backfill local_path: empty/null OR pointing at the old default (workspace root).
             await conn.execute(text(
-                "UPDATE projects SET local_path = :lp WHERE id = :id AND (local_path IS NULL OR local_path = '')"
-            ), {"id": SYSTEM_MAIN_ID, "lp": HOME_LOCAL_PATH})
+                "UPDATE projects SET local_path = :lp "
+                "WHERE id = :id AND (local_path IS NULL OR local_path = '' OR local_path = :old)"
+            ), {"id": SYSTEM_MAIN_ID, "lp": HOME_LOCAL_PATH, "old": OLD_HOME_LOCAL_PATH})
+
+        # Make sure the directory exists so workers can chdir into it on first launch.
+        _Path(HOME_LOCAL_PATH).mkdir(parents=True, exist_ok=True)
 
         # Migrate all cards with project_id = NULL → system-main
         await conn.execute(text(
