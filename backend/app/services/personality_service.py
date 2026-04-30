@@ -740,6 +740,7 @@ class PersonalityService:
         proactive = self.load_proactive()
         if proactive:
             tail += "\n\n" + proactive
+        tail += "\n\n" + self._build_reserved_ports_rule(role="dispatcher")
         if native_tools == "cli_mcp":
             tail += self._build_cli_mcp_delegate_instructions()
         elif native_tools:
@@ -747,6 +748,63 @@ class PersonalityService:
         else:
             tail += self._build_xml_delegate_instructions()
         return tail
+
+    def _build_reserved_ports_rule(self, *, role: str) -> str:
+        """Reserved ports awareness — injected into worker AND dispatcher prompts.
+
+        Workers must not kill anything on these ports; dispatchers must not
+        delegate work that would bind to them. Values come from Settings so
+        an ops change in config.py / env propagates to the prompts.
+        """
+        from app.config import get_settings
+        s = get_settings()
+        be = s.voxyflow_backend_port
+        fe = s.voxyflow_frontend_port
+
+        if role == "dispatcher":
+            return (
+                "## Reserved Voxyflow ports\n"
+                f"Voxyflow itself runs on **port {be}** (FastAPI/uvicorn backend) and "
+                f"**port {fe}** (Caddy frontend reverse proxy). These are the ports the "
+                "user is talking to *you* through right now.\n\n"
+                f"When you delegate work that starts a project's dev server, the worker is "
+                f"instructed to refuse port {be} and {fe} and report the collision. So:\n"
+                f"- If a project's config (e.g. `backend/.env`, `vite.config.ts`, `server.js`) "
+                f"binds to {be} or {fe}, **fix the project's port first** — don't ask a worker "
+                f"to \"just free the port\".\n"
+                f"- When briefing a worker to (re)start a service, **state the project's port "
+                f"explicitly** in the delegate description so it knows what's expected and what "
+                f"would be a collision.\n"
+                f"- If a port collision is the real blocker, surface it to the user — "
+                f"freeing {be}/{fe} would kill Voxyflow itself."
+            )
+
+        # role == "worker"
+        return (
+            "## Process safety — DO NOT kill the supervisor\n"
+            "You run as a subprocess of the Voxyflow backend, under the same OS user. A kill "
+            "aimed at the wrong PID will take down Voxyflow itself and abort every running "
+            "worker (including you).\n\n"
+            "**Reserved Voxyflow ports — never target these:**\n"
+            f"- **Port {be}** — Voxyflow backend (FastAPI/uvicorn).\n"
+            f"- **Port {fe}** — Voxyflow frontend (Caddy reverse proxy).\n\n"
+            "**Hard rules:**\n"
+            f"- **Never free ports {be} or {fe}.** No `fuser -k {be}/tcp`, no "
+            f"`lsof -t -i:{be} | xargs kill`, no `lsof -t -i:{fe} | xargs kill`, no equivalent. "
+            f"If your project's dev server collides with {be} or {fe}, **stop and report the "
+            f"conflict in your summary** — change the project's config, don't free the port.\n"
+            "- **Never `pkill`/`killall` by broad patterns** like `python`, `node`, `uvicorn`, "
+            "`claude`, `vite`, `npm`, or anything matching `voxyflow`/`.voxyflow`. These match "
+            "the supervisor and sibling workers.\n"
+            "- **Kill only PIDs you started yourself** (capture `$!` or the PID file your own "
+            "command wrote). To clean up a stale dev server, narrow the `pkill -f` pattern to "
+            "the project's own binary path, e.g. "
+            "`pkill -f \"node --watch /home/.../projects/<this-project>/backend/src/server.js\"`.\n"
+            "- **Never `systemctl stop voxyflow-backend`** or send signals to its PID for any "
+            "reason.\n\n"
+            "If you're unsure whether a kill is safe, don't run it — report the situation in "
+            "your summary and let the user decide."
+        )
 
     def _build_native_delegate_instructions(self) -> str:
         """Delegate instructions when native tool_use is available (Anthropic SDK)."""
@@ -884,11 +942,14 @@ class PersonalityService:
             "Always call `voxyflow.web.search` for any web search task. Never use the built-in WebSearch tool."
         )
 
+        process_safety_rule = self._build_reserved_ports_rule(role="worker")
+
         return (
             f"{worker_rules}\n\n"
             f"## Active Role: Worker (Task Executor)\n\n"
             f"## Available Tools\n{tool_list}\n\n"
             f"{web_search_rule}\n\n"
+            f"{process_safety_rule}\n\n"
             f"## Context\n{context}"
         )
 
