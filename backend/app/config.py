@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # Reserved ports — surfaced into dispatcher + worker prompts so neither
+    # delegates a project that would collide with the supervisor.
+    # `port` above IS the backend port; we keep a separate name here so the
+    # prompt text reads naturally ("backend on 8000, frontend on 18789").
+    voxyflow_backend_port: int = 8000     # uvicorn — same as `port`, exposed for prompts
+    voxyflow_frontend_port: int = 18789   # Caddy reverse proxy serving the React build
+
     # Database — default: ~/.voxyflow/voxyflow.db (respects VOXYFLOW_DATA_DIR)
     database_url: str = f"sqlite+aiosqlite:///{VOXYFLOW_DATA_DIR / 'voxyflow.db'}"
 
