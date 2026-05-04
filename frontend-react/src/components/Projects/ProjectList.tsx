@@ -317,7 +317,7 @@ export function ProjectList() {
     const done = cards.filter((c) => c.status === 'done').length;
     const inProgress = cards.filter((c) => c.status === 'in-progress').length;
     const todo = cards.filter((c) => c.status === 'todo').length;
-    const backlog = cards.filter((c) => c.status === 'card').length;
+    const backlog = cards.filter((c) => c.status === 'backlog').length;
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     return { total, done, inProgress, todo, backlog, pct };
   }, []);

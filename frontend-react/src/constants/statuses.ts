@@ -1,6 +1,6 @@
 /** Card status values — mirrors backend CardStatus enum. */
 export const CARD_STATUS = {
-  CARD: "card",          // backlog
+  BACKLOG: "backlog",
   TODO: "todo",
   IN_PROGRESS: "in-progress",
   DONE: "done",

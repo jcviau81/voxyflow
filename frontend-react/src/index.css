@@ -416,7 +416,7 @@ h1, h2, h3, h4, h5, h6 {
   z-index: 1;
 }
 
-[data-testid="kanban-card"][data-card-status="card"]::before {
+[data-testid="kanban-card"][data-card-status="backlog"]::before {
   background: var(--color-primary, #ff6b6b);
   opacity: 0.6;
 }

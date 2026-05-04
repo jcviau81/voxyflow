@@ -104,14 +104,14 @@ const JOB_TYPE_META: Record<JobType, {
   },
 };
 
-const BOARD_STATUSES = ['todo', 'in_progress', 'review', 'done', 'card'] as const;
+const BOARD_STATUSES = ['todo', 'in_progress', 'review', 'done', 'backlog'] as const;
 
 const BOARD_STATUS_LABELS: Record<string, string> = {
   todo: 'To Do',
   in_progress: 'In Progress',
   review: 'Review',
   done: 'Done',
-  card: 'Backlog',
+  backlog: 'Backlog',
 };
 
 // ── Schedule presets ──────────────────────────────────────────────────────

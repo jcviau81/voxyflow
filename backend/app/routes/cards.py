@@ -178,7 +178,7 @@ async def create_unassigned_card(
         project_id=SYSTEM_MAIN_PROJECT_ID,
         title=body.title,
         description=body.description,
-        status="card",
+        status="backlog",
         priority=body.priority,
         color=body.color,
     )
@@ -248,7 +248,7 @@ async def unassign_card_from_project(
     card_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Detach a card from its project (back to Main Board / system-main). Internal status becomes 'card'."""
+    """Detach a card from its project (back to Main Board / system-main). Internal status becomes 'backlog'."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found.")
@@ -256,12 +256,12 @@ async def unassign_card_from_project(
     old_project_id = card.project_id
     old_status = card.status
     card.project_id = SYSTEM_MAIN_PROJECT_ID
-    card.status = "card"
+    card.status = "backlog"
     card.updated_at = utcnow()
 
-    if old_status != "card":
+    if old_status != "backlog":
         db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="status",
-                           old_value=old_status, new_value="card", changed_at=utcnow(), changed_by="User"))
+                           old_value=old_status, new_value="backlog", changed_at=utcnow(), changed_by="User"))
     db.add(CardHistory(id=new_uuid(), card_id=card_id, field_changed="project_id",
                        old_value=old_project_id, new_value=SYSTEM_MAIN_PROJECT_ID, changed_at=utcnow(), changed_by="User"))
 
@@ -448,7 +448,7 @@ async def execute_card(card_id: str, db: AsyncSession = Depends(get_db)):
         if project:
             project_name = project.title
         # Move card to in-progress for project cards
-        if card.status in ("card", "todo"):
+        if card.status in ("backlog", "todo"):
             card.status = "in-progress"
             await db.commit()
 

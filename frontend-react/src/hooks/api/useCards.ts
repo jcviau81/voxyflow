@@ -193,7 +193,7 @@ export function useCreateCard() {
         body: JSON.stringify({
           title: data.title,
           description: data.description ?? '',
-          status: data.status ?? 'card',
+          status: data.status ?? 'backlog',
           priority: data.priority ?? 0,
         }),
       });

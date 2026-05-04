@@ -288,7 +288,7 @@ class PersonalityService:
             done = sum(1 for c in cards if c.get("status") == "done")
             in_progress_cards = [c for c in cards if c.get("status") == "in_progress"]
             todo_cards = [c for c in cards if c.get("status") == "todo"]
-            backlog_cards = [c for c in cards if c.get("status") == "card"]
+            backlog_cards = [c for c in cards if c.get("status") == "backlog"]
 
             state_line = (
                 f"State: {total} cards — {done} done, {len(in_progress_cards)} in progress, "
@@ -379,7 +379,7 @@ class PersonalityService:
             # Card chat: inject full card details
             card_title = card.get("title", "Untitled")
             card_id = card.get("id", "")
-            status = card.get("status", "card")
+            status = card.get("status", "backlog")
             priority = card.get("priority", "medium")
             agent_type = card.get("agent_type") or "general"
             description = card.get("description") or "No description"

@@ -86,8 +86,10 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cards ADD COLUMN archived_at DATETIME"))
         if "recurring" not in existing_columns:
             await conn.execute(text("ALTER TABLE cards ADD COLUMN recurring INTEGER NOT NULL DEFAULT 0"))
-        # Migrate: remove 'idea' status — cards go to 'card' (backlog)
-        await conn.execute(text("UPDATE cards SET status='card' WHERE status='idea'"))
+        # Migrate: remove 'idea' status — cards go to 'backlog'
+        await conn.execute(text("UPDATE cards SET status='backlog' WHERE status='idea'"))
+        # Migrate: rename 'card' status → 'backlog'
+        await conn.execute(text("UPDATE cards SET status='backlog' WHERE status='card'"))
         # Migrate: drop removed card_comments table (feature fully deleted)
         await conn.execute(text("DROP TABLE IF EXISTS card_comments"))
         # Ensure card_relations table exists (created via create_all above, but explicit for safety)
@@ -400,7 +402,7 @@ class Card(Base):
     project_id = Column(String, ForeignKey("projects.id"), nullable=True)  # system-main = Main Board
     title = Column(String, nullable=False)
     description = Column(Text, default="")
-    status = Column(String, default="card")  # card | todo | in-progress | done | archived
+    status = Column(String, default="backlog")  # backlog | todo | in-progress | done | archived
     priority = Column(Integer, default=0)  # 0=none, 1=low, 2=medium, 3=high, 4=critical
     color = Column(String, nullable=True)  # yellow|blue|green|pink|purple|orange (for Main Board notes)
     position = Column(Integer, default=0)  # ordering within status column
