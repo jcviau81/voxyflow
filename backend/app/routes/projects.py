@@ -994,7 +994,7 @@ async def generate_brief(project_id: str, db: AsyncSession = Depends(get_db)):
             lines.append(f"  - {c.title}{agent} (priority: {prio}){desc}")
         return "\n".join(lines)
 
-    backlog_cards = [c for c in cards if c.status == "card"]
+    backlog_cards = [c for c in cards if c.status == "backlog"]
     todo_cards    = [c for c in cards if c.status == "todo"]
     inprog_cards  = [c for c in cards if c.status == "in-progress"]
     done_cards    = [c for c in cards if c.status == "done"]
@@ -1069,7 +1069,7 @@ def _compute_health(project: "Project", cards: list["Card"]) -> dict:
     recommendations: list[str] = []
 
     total = len(cards)
-    backlog_cards = [c for c in cards if c.status == "card"]
+    backlog_cards = [c for c in cards if c.status == "backlog"]
     todo_cards = [c for c in cards if c.status == "todo"]
     inprog_cards = [c for c in cards if c.status == "in-progress"]
     done_cards = [c for c in cards if c.status == "done"]
@@ -1613,8 +1613,8 @@ def _compute_priority_score(card: "Card", all_cards: list["Card"]) -> float:
         # fully done = 0 extra (already done is done)
     # No checklist = neutral (0 pts for this factor)
 
-    # 6. Status (in-progress > todo > card/backlog; done cards get 0 = should not appear)
-    status_map = {"in-progress": 10.0, "todo": 6.0, "card": 2.0, "done": 0.0}
+    # 6. Status (in-progress > todo > backlog; done cards get 0 = should not appear)
+    status_map = {"in-progress": 10.0, "todo": 6.0, "backlog": 2.0, "done": 0.0}
     score += status_map.get(card.status or "todo", 2.0)
 
     return round(min(score, 100.0), 2)
@@ -1660,7 +1660,7 @@ async def smart_prioritize(project_id: str, db: AsyncSession = Depends(get_db)):
     # Build top-3 AI reasoning prompt
     top3 = scored[:3]
     priority_label = {3: "critical", 2: "high", 1: "medium", 0: "low"}
-    status_label = {"in-progress": "in progress", "todo": "todo", "card": "backlog"}
+    status_label = {"in-progress": "in progress", "todo": "todo", "backlog": "backlog"}
 
     top3_lines = []
     for rank, (card, score) in enumerate(top3, 1):

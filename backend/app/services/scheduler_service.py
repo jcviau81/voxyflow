@@ -848,7 +848,7 @@ class SchedulerService:
                                 "id": card.id,
                                 "title": card.title or "",
                                 "description": card.description or "",
-                                "status": card.status or "card",
+                                "status": card.status or "backlog",
                                 "agent_type": getattr(card, "agent_type", "") or "",
                             }
                             for card in cards_orm

@@ -64,7 +64,7 @@ class TestCardCRUD:
 # ── Status Transitions (Board) ──────────────────────────────────────────────
 
 class TestStatusTransitions:
-    VALID_STATUSES = ["card", "todo", "in-progress", "done"]
+    VALID_STATUSES = ["backlog", "todo", "in-progress", "done"]
 
     @pytest.mark.asyncio
     async def test_move_through_all_statuses(self, client: httpx.AsyncClient, test_card: dict):

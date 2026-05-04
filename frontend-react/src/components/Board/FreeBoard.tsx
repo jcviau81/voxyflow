@@ -1,7 +1,7 @@
 /**
  * FreeBoard — board/inbox view using the same KanbanCard component as Kanban.
  *
- * Shows cards with status === 'card' (inbox/backlog). Uses the exact same
+ * Shows cards with status === 'backlog'. Uses the exact same
  * card rendering as KanbanBoard for consistent UX (checkbox, dropdown, etc).
  */
 
@@ -101,7 +101,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   const boardCards = useMemo(
     () =>
       cards
-        .filter((c) => c.status === 'card')
+        .filter((c) => c.status === 'backlog')
         .sort((a, b) => b.createdAt - a.createdAt),
     [cards],
   );
@@ -223,7 +223,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
       const newCard = await createCard.mutateAsync({
         projectId: currentProjectId,
         title: 'New card',
-        status: 'card',
+        status: 'backlog',
       });
       useCardStore.setState((state) => ({
         cardsById: { ...state.cardsById, [newCard.id]: newCard },
@@ -307,7 +307,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
         showToast(`Moved to ${targetStatus}`, 'success');
       } catch {
         // Rollback
-        useCardStore.getState().moveCard(draggedCard.id, 'card');
+        useCardStore.getState().moveCard(draggedCard.id, 'backlog');
         showToast('Move failed', 'error');
       }
     },

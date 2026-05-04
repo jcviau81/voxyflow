@@ -235,7 +235,7 @@ export function KanbanCard({
     try {
       await patchCard.mutateAsync({
         cardId: card.id,
-        updates: { status: 'card' },
+        updates: { status: 'backlog' },
         projectId: card.projectId ?? undefined,
       });
       showToast('Card moved to Backlog', 'success');
@@ -421,12 +421,12 @@ export function KanbanCard({
             <DropdownMenuItem onSelect={handleExecute}>
               <Play size={13} className="text-emerald-400" /> Execute
             </DropdownMenuItem>
-            {card.status !== 'card' && (
+            {card.status !== 'backlog' && (
               <DropdownMenuItem onSelect={handleMoveToBacklog}>
                 <Pin size={13} className="text-blue-400" /> Move to Backlog
               </DropdownMenuItem>
             )}
-            {card.status === 'card' && (
+            {card.status === 'backlog' && (
               <DropdownMenuItem onSelect={handleMoveToKanban}>
                 <Pin size={13} className="text-blue-400" /> Move to Kanban
               </DropdownMenuItem>

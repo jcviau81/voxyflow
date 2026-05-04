@@ -48,7 +48,7 @@ async def test_full_project_lifecycle(client: httpx.AsyncClient):
 
         # 2. Create multiple cards with different statuses
         card_ids = []
-        for i, status in enumerate(["card", "todo", "in-progress", "done"]):
+        for i, status in enumerate(["backlog", "todo", "in-progress", "done"]):
             r = await client.post(f"/api/projects/{pid}/cards", json={
                 "title": f"Flow Card {i} ({status})",
                 "description": f"Card at status {status}",
@@ -135,7 +135,7 @@ async def test_full_project_lifecycle(client: httpx.AsyncClient):
         assert len(history) >= 1  # At least the status changes
 
         # 12. Archive and restore a card (use a non-done card to avoid status conflicts)
-        archive_cid = card_ids[0]  # "card" status
+        archive_cid = card_ids[0]  # "backlog" status
         r = await client.post(f"/api/cards/{archive_cid}/archive")
         assert r.status_code == 200
 

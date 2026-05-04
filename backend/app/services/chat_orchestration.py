@@ -1388,7 +1388,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                         cards_list = [
                             {
                                 "title": c.title,
-                                "status": c.status or "card",
+                                "status": c.status or "backlog",
                                 "updated_at": str(c.updated_at) if hasattr(c, "updated_at") and c.updated_at else "",
                             }
                             for c in proj_cards
@@ -1416,7 +1416,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                                 "id": c.id,
                                 "title": c.title,
                                 "description": c.description or "",
-                                "status": c.status or "card",
+                                "status": c.status or "backlog",
                                 "priority": str(c.priority) if c.priority is not None else "medium",
                                 "agent_type": getattr(c, "agent_type", None) or "general",
                                 "assignee": getattr(c, "assignee", None),

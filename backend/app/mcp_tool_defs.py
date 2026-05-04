@@ -211,8 +211,8 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "description": {"type": "string"},
                 "status": {
                     "type": "string",
-                    "enum": ["card", "todo", "in-progress", "done"],
-                    "description": "Default: card",
+                    "enum": ["backlog", "todo", "in-progress", "done"],
+                    "description": "Default: backlog",
                 },
                 "priority": {
                     "type": "integer",
@@ -279,7 +279,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 },
                 "status": {
                     "type": "string",
-                    "enum": ["card", "todo", "in-progress", "done", "archived"],
+                    "enum": ["backlog", "todo", "in-progress", "done", "archived"],
                 },
             },
         },
@@ -295,7 +295,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "card_id": {"type": "string"},
                 "new_status": {
                     "type": "string",
-                    "enum": ["card", "todo", "in-progress", "done", "archived"],
+                    "enum": ["backlog", "todo", "in-progress", "done", "archived"],
                 },
             },
         },
