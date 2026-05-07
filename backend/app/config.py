@@ -47,25 +47,48 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent
 _ENV_FILE = _BACKEND_DIR / ".env"
 
 
+def _keyring_get_with_timeout(service: str, key: str, timeout: float) -> str | None:
+    """Call keyring.get_password in a daemon thread and bail after `timeout`.
+
+    Why: on Linux the default backend is SecretService over D-Bus. If the
+    user-session keyring (gnome-keyring-daemon / secret-service) is wedged,
+    keyring.get_password blocks indefinitely — which froze backend startup
+    in the past since this is called at import time. Hard timeout + env-var
+    fallback keeps startup unblockable.
+    """
+    import threading
+    result: dict[str, str | None] = {"val": None}
+
+    def _call() -> None:
+        try:
+            import keyring
+            result["val"] = keyring.get_password(service, key)
+        except Exception as e:
+            logger.debug("keyring not available (%s) — skipping", e)
+
+    t = threading.Thread(target=_call, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        logger.warning(
+            "keyring.get_password(%s, %s) hung > %.1fs — falling back to env",
+            service, key, timeout,
+        )
+        return None
+    return result["val"]
+
+
 def _get_secret(service: str, key: str, env_var: str = None, default: str = "") -> str:
     """Get secret from keyring → env var → default (in order of priority)."""
-    # 1. Try keyring first
-    try:
-        import keyring
+    val = _keyring_get_with_timeout(service, key, timeout=1.5)
+    if val:
+        return val
 
-        val = keyring.get_password(service, key)
-        if val:
-            return val
-    except Exception as e:
-        logger.debug("keyring not available (%s) — skipping", e)
-
-    # 2. Try environment variable
     if env_var:
         val = os.environ.get(env_var)
         if val:
             return val
 
-    # 3. Fall back to default
     return default
 
 
