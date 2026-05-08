@@ -151,6 +151,11 @@ class Settings(BaseSettings):
     deep_context_messages: int = 100
     chat_window_size: int = 6  # sliding window: keep N recent messages verbatim, summarize older
 
+    # Time / locale — used to render "current time" in the dispatcher prompt and
+    # to anchor per-message timestamps so the model can talk about "ce matin",
+    # "tantôt", "il y a 2h" without hallucinating the hour.
+    voxyflow_timezone: str = "America/Toronto"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Ensure all directories exist

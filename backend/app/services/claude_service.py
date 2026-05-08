@@ -31,6 +31,7 @@ from app.services.memory_service import get_memory_service
 from app.services.agent_personas import AgentType, get_persona_prompt
 from app.services.session_store import session_store
 from app.services.rag_service import get_rag_service
+from app.services.time_context import format_message_timestamp, utc_now_iso
 from app.tools.registry import (
     TOOLS_DISPATCHER, TOOLS_WORKER, _ROLE_TOOL_SETS,
 )
@@ -363,8 +364,9 @@ class ClaudeService(ApiCallerMixin):
                 logger.debug(f"[dedup] Skipping duplicate {role} message for {chat_id}")
                 return
 
-            history.append({"role": role, "content": content})
-            msg = {"role": role, "content": content}
+            ts = utc_now_iso()
+            history.append({"role": role, "content": content, "timestamp": ts})
+            msg = {"role": role, "content": content, "timestamp": ts}
             if model:
                 msg["model"] = model
             if msg_type:
@@ -383,8 +385,9 @@ class ClaudeService(ApiCallerMixin):
         if history and history[-1].get("role") == role and history[-1].get("content") == content:
             logger.debug(f"[dedup] Skipping duplicate {role} message for {chat_id}")
             return
-        history.append({"role": role, "content": content})
-        msg = {"role": role, "content": content}
+        ts = utc_now_iso()
+        history.append({"role": role, "content": content, "timestamp": ts})
+        msg = {"role": role, "content": content, "timestamp": ts}
         if model:
             msg["model"] = model
         if msg_type:
@@ -436,18 +439,43 @@ class ClaudeService(ApiCallerMixin):
             # Fallback: keep existing summary unchanged
             return existing_text
 
+    @staticmethod
+    def _strip_timestamps_into_content(messages: list[dict]) -> list[dict]:
+        """Convert ``[{role, content, timestamp}]`` → ``[{role, content}]``
+        with the timestamp prefixed onto each content string.
+
+        This is the single boundary where timestamps leave the in-memory
+        history and enter the API payload. Native Anthropic / OpenAI-compat
+        backends reject unknown keys on messages[], so we fold the
+        timestamp into ``content`` here instead of passing it as metadata.
+        """
+        out: list[dict] = []
+        for m in messages:
+            content = m.get("content", "")
+            ts_raw = m.get("timestamp")
+            label = format_message_timestamp(ts_raw) if ts_raw else ""
+            if label and isinstance(content, str) and content:
+                content = f"[{label}] {content}"
+            out.append({"role": m.get("role", "user"), "content": content})
+        return out
+
     async def _get_windowed_history(self, chat_id: str) -> list[dict]:
         """Return messages for Claude API with sliding window summarization.
 
         If history exceeds chat_window_size, older messages are summarized
         via Haiku and injected as a context block before the recent messages.
+
+        Per-message timestamps are folded into each ``content`` string at
+        this boundary (e.g. ``[2026-05-08 14:32 EDT] {original}``) so the
+        model can reason about elapsed time without leaking unknown keys
+        to APIs that reject them.
         """
         settings = get_settings()
         window = settings.chat_window_size
         history = self._get_history(chat_id)
 
         if len(history) <= window:
-            return list(history)
+            return self._strip_timestamps_into_content(history)
 
         # Determine what needs summarizing
         existing = session_store.load_summary(chat_id)
@@ -464,7 +492,7 @@ class ClaudeService(ApiCallerMixin):
         else:
             summary_text = existing["summary_text"] if existing else ""
 
-        recent = history[-window:]
+        recent = self._strip_timestamps_into_content(history[-window:])
 
         if summary_text:
             summary_msg = {
@@ -477,7 +505,7 @@ class ClaudeService(ApiCallerMixin):
             }
             return [summary_msg, {"role": "assistant", "content": "Understood, I have the context from our earlier conversation."}, *recent]
 
-        return list(recent)
+        return recent
 
     # ------------------------------------------------------------------
     # Native delegate helpers
