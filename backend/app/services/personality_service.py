@@ -264,7 +264,16 @@ class PersonalityService:
         """
         parts: list[str] = []
 
-        # Live-state heartbeat + worker activity (ambient signals) render FIRST
+        # Wall-clock "now" — first thing the model reads in dynamic context.
+        # Without this, the dispatcher hallucinates the hour ("à demain"
+        # mid-afternoon) and can't anchor relative phrases like "il y a 2h".
+        try:
+            from app.services.time_context import format_now_block
+            parts.append(format_now_block())
+        except Exception as e:  # pragma: no cover — defensive
+            logger.debug("format_now_block failed: %s", e)
+
+        # Live-state heartbeat + worker activity (ambient signals) render next
         # so Voxy reads "what's the environment right now" before per-project
         # context. These are short, bounded blocks.
         if live_state:
@@ -1079,9 +1088,17 @@ def build_session_handoff_block(
 
     *recent_messages* is the persisted session history (ordered oldest →
     newest) — each item should carry ``role``, ``content``, and a
-    ``timestamp`` ISO string. Only triggers when the last assistant turn
-    is older than *gap_minutes* AND history has at least *min_history*
-    messages. Silent otherwise.
+    ``timestamp`` ISO string. Only triggers when the last **conversational**
+    assistant turn is older than *gap_minutes* AND history has at least
+    *min_history* messages. Silent otherwise.
+
+    Skips ``type=enrichment`` (memory/system injections) and any other
+    non-user-visible messages so an autonomy heartbeat or worker
+    enrichment doesn't reset the resume anchor and falsely shrink the gap.
+
+    Timestamp parsing goes through ``time_context.parse_iso_to_aware``,
+    which interprets naive legacy timestamps as **local** time, not UTC.
+    The previous local-as-UTC bug inflated gaps by the local offset.
 
     Hard cap: last user + last assistant turn, ~400 chars each.
     """
@@ -1089,22 +1106,22 @@ def build_session_handoff_block(
         return ""
 
     from datetime import datetime, timezone
+    from app.services.time_context import parse_iso_to_aware
 
-    def _parse_ts(raw: str):
-        raw = str(raw or "").strip()
-        if not raw:
-            return None
-        try:
-            s = raw.replace(" ", "T").replace("Z", "+00:00")
-            if "+" not in s[10:]:
-                s = s + "+00:00"
-            return datetime.fromisoformat(s)
-        except Exception:
-            return None
+    def _is_conversational(m: dict) -> bool:
+        # Only real chat turns count: skip enrichments, system, and any
+        # message that looks like an autonomy/worker side-channel.
+        if m.get("type") in ("enrichment", "autonomy", "worker_event", "system"):
+            return False
+        if not m.get("content"):
+            return False
+        return m.get("role") in ("user", "assistant")
 
     last_assistant = None
     last_user = None
     for m in reversed(recent_messages):
+        if not _is_conversational(m):
+            continue
         role = m.get("role")
         if role == "assistant" and last_assistant is None:
             last_assistant = m
@@ -1116,7 +1133,7 @@ def build_session_handoff_block(
     if not last_assistant:
         return ""
 
-    ts = _parse_ts(last_assistant.get("timestamp"))
+    ts = parse_iso_to_aware(last_assistant.get("timestamp"))
     if not ts:
         return ""
     now = datetime.now(timezone.utc)

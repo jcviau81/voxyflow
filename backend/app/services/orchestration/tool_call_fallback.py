@@ -184,9 +184,12 @@ class ToolCallFallbackMixin:
             )
         tool_context = "\n\n".join(tool_context_parts)
 
-        # Build follow-up messages: existing history + tool results as user context
+        # Build follow-up messages: existing history + tool results as user context.
+        # Strip per-message ``timestamp`` keys into content prefixes — APIs reject
+        # unknown keys on messages[], and keeping the prefix lets the model see
+        # when each turn happened (mirrors _get_windowed_history's boundary).
         history = self._claude.get_history(chat_id)
-        followup_messages = list(history) + [
+        followup_messages = self._claude._strip_timestamps_into_content(history) + [
             {
                 "role": "user",
                 "content": (

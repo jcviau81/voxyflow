@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
+from app.services.time_context import utc_now_iso
+
 DATA_DIR = Path(os.environ.get(
     "VOXYFLOW_DATA",
     os.path.expanduser("~/.voxyflow"),
@@ -64,9 +66,11 @@ class SessionStore:
             # Load existing (under lock to prevent read-modify-write races)
             messages = self.load_session(chat_id)
 
-            # Add timestamp if not present
+            # Add timestamp if not present. Aware UTC ISO so downstream
+            # consumers (resume-gap calc, per-message prefixes) don't have
+            # to guess the offset of a naive local-time string.
             if "timestamp" not in message:
-                message["timestamp"] = datetime.now().isoformat()
+                message["timestamp"] = utc_now_iso()
 
             # Stable per-message id — required for the manual delete endpoint
             # to identify a single message inside the JSON list. Older messages
@@ -209,10 +213,22 @@ class SessionStore:
             raise
 
     def get_history_for_claude(self, chat_id: str, limit: int = 20) -> List[dict]:
-        """Get messages formatted for Claude API (role + content only)."""
+        """Get messages formatted for Claude API (role + content + timestamp).
+
+        ``timestamp`` is carried through so the dispatcher can prefix each
+        historical turn with its wall-clock time. Backends that pass
+        messages directly to the API (Anthropic SDK, OpenAI-compat) MUST
+        strip ``timestamp`` before the wire call — see
+        ``claude_service._get_windowed_history`` which does the stripping
+        once at the boundary.
+        """
         messages = self.get_recent_messages(chat_id, limit)
         return [
-            {"role": m["role"], "content": m["content"]}
+            {
+                "role": m["role"],
+                "content": m["content"],
+                "timestamp": m.get("timestamp", ""),
+            }
             for m in messages
             if m.get("role") in ("user", "assistant") and m.get("content")
             and m.get("type") != "enrichment"  # Skip enrichments from history
