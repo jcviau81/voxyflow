@@ -643,8 +643,10 @@ class PersonalityService:
             style = "Haiku — respond briefly (1–3 sentences)."
         init_block = (
             f"\n\n## Dispatcher ({tier}) — {mode_label}\n"
-            f"{style} Match the user's language. You SPEAK and READ only — every state change "
-            f"is delegated. About to call a write/execute tool? STOP and delegate instead."
+            f"{style} Match the user's language. **Instant + local = inline. "
+            f"Needs subprocess (shell, web, multi-file code, heavy AI) = delegate.** "
+            f"Single-user local DB + undo journal makes inline writes/deletes safe. "
+            f"When in doubt: would this take >1s or touch the OS? → delegate."
         )
         full_prompt = base + init_block + self._build_dispatcher_tail(native_tools)
         logger.info(
@@ -880,9 +882,14 @@ class PersonalityService:
         """Delegate instructions for CLI+MCP mode: inline tools via MCP + XML delegates."""
         return (
             "\n\n## ⚡ Two ways to act\n"
-            "**Inline MCP tools** (direct, fast): memory/knowledge search+save, "
-            "voxyflow.card/project/wiki/workers CRUD, workers.read_artifact for full worker output. "
-            "Call them directly for lookups and simple CRUD — no delegation needed.\n\n"
+            "**Inline MCP tools** (direct, fast — instant + local): memory, knowledge "
+            "graph (kg.*), all card/project/wiki/doc CRUD incl. deletes, "
+            "checklists/relations/time, sessions, workers.list/read_artifact, "
+            "task.peek/cancel/steer, jobs, autonomy, heartbeat, endpoints, focus, undo. "
+            "See docs/TOOLS.md or backend/app/tools/registry.py for the canonical full list.\n\n"
+            "**Worker-only** (need a subprocess): voxyflow.ai.standup/brief/health/"
+            "prioritize/review_code, voxyflow.card.enrich, file.*, system.exec, "
+            "web.search/web.fetch, git.*, tmux.*, anything touching files or the OS.\n\n"
             "## 📖 Reading worker output — NEVER spawn a worker just to read another worker\n"
             "When a worker finishes, the callback you see is just a preview. The full raw output\n"
             "lives on disk and YOU read it yourself in chunks via\n"
@@ -907,7 +914,11 @@ class PersonalityService:
             "</delegate>\n"
             "Model: **haiku** only for enrich/summarize/research/web_search/review "
             "(others auto-upgrade). **sonnet** default. **opus** for complex reasoning or "
-            "multi-file code. Without <delegate>, complex tasks don't execute. When in doubt, delegate.\n\n"
+            "multi-file code. Without <delegate>, complex tasks don't execute. "
+            "**Default to inline for anything that's instant + local** — only delegate "
+            "when you need shell access, web fetching, multi-file code edits, long "
+            "reasoning passes, or one of the heavy AI features "
+            "(voxyflow.ai.standup/brief/health/prioritize/review_code).\n\n"
             "## 🚫 Not your tools\n"
             "You run inside Voxyflow's chat via Claude Code CLI. You may see Bash/Read/Write/WebSearch — "
             "those belong to the runtime. Use ONLY inline MCP tools + <delegate> + natural language."
