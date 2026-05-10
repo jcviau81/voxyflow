@@ -299,7 +299,6 @@ Each project can have its own autonomous heartbeat. Unlike the global one, this 
 |------|----------|
 | `voxyflow.health` | System health status |
 | `voxyflow.sessions.list` | List active CLI subprocess sessions |
-| `voxyflow.ai.standup` / `.brief` / `.health` / `.prioritize` | AI project analysis |
 
 ---
 
