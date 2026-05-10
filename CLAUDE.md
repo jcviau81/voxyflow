@@ -119,13 +119,20 @@ Lightweight, non-blocking tools only. The dispatcher streams responses to the us
 and must never block on heavy operations.
 
 **Allowed:** read ops (`project.list/get`, `card.list/get`, `wiki.list/get`, `doc.list`,
-`jobs.list`, `health`), basic CRUD (`card.create/update/move/archive`,
-`card.create_unassigned`, `project.create`), memory (`memory.search/save`,
-`knowledge.search`).
+`jobs.list`, `health`), full kanban CRUD on cards/projects/wiki including row-level
+sub-resources (`card.checklist.*`, `card.relation.*`, `card.time.*`), worker
+monitoring (`workers.list/get_result/read_artifact`, `task.peek/cancel`), memory
+(`memory.search/save/get/delete`, `knowledge.search`), and whole-entity deletes
+(`project.delete`, `project.export`, `card.delete`, `doc.delete`, `wiki.delete`).
+Single-user deployment + the undo journal (`voxyflow.undo.*`) makes inline delete
+safe — the user is always present and reversals are one tool-call away.
 
-**NOT allowed:** `system.exec`, `file.*`, `git.*`, `tmux.*`, `web.*`, `kg.*`,
-`voxyflow.ai.*`, destructive ops (`*.delete`, `*.export`), worker management tools.
-These are worker-only.
+**NOT allowed:** `system.exec`, `file.*`, `git.*`, `tmux.*`, `web.*`,
+`voxyflow.ai.*`, `voxyflow.card.enrich` (heavy AI), worker lifecycle
+(`worker.claim/complete`), `tools.load`.
+These are worker-only. (Notes: `task.steer` IS dispatcher-allowed — it pairs
+with `task.peek`/`task.cancel` for worker control. `kg.*` is dispatcher-allowed
+too — temporal model is local + reversible, no reason to spawn a worker.)
 
 ### Worker — `TOOLS_WORKER`
 Full MCP tool access. Workers run as background subprocesses spawned via

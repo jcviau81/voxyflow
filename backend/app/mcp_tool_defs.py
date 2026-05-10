@@ -1344,29 +1344,6 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_scope": "tmux",
     },
 
-    # ---- Worker Supervision ------------------------------------------------
-    {
-        "name": "task.complete",
-        "description": "Legacy completion signal. Prefer voxyflow.worker.complete.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["task_id", "summary"],
-            "properties": {
-                "task_id": {"type": "string", "description": "Your assigned task ID"},
-                "summary": {"type": "string", "description": "Dispatcher-facing brief — compressed, telegraphic, ≤500 chars. Full verbose output lives in the artifact; don't repeat it here."},
-                "status": {
-                    "type": "string",
-                    "enum": ["success", "partial", "failed"],
-                    "description": "Outcome status (default: success)",
-                    "default": "success",
-                },
-            },
-        },
-        "_handler": "task_complete",
-        "_role": "worker",
-        "_scope": "core",
-    },
-
     # ---- Strict Worker Lifecycle: claim + complete -------------------------
     {
         "name": "voxyflow.worker.claim",
@@ -1459,7 +1436,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             "Load additional tool scopes into this session. "
             "Available scopes: voxyflow (cards, wiki, memory, projects), "
             "web (search, fetch), git (status, log, diff, commit), tmux (sessions). "
-            "Base tools (file.read, file.write, file.list, system.exec, task.complete) "
+            "Base tools (file.read, file.write, file.list, system.exec, voxyflow.worker.complete) "
             "are always available. Call this BEFORE using tools from a scope."
         ),
         "inputSchema": {

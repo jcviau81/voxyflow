@@ -1,9 +1,11 @@
 """Tool Role Boundary — regression tests
 
-Dispatcher chats (fast + deep) must stay lightweight and non-blocking. Dangerous
-tools — shell exec, filesystem writes, git mutation, web fetch, destructive ops —
-are worker-only. This test fails if someone widens TOOLS_DISPATCHER to include
-anything on the forbidden list.
+Dispatcher chats must stay lightweight and non-blocking, regardless of which
+model tier (fast/deep) is driving them. Dangerous tools — shell exec, filesystem
+writes, git mutation, web fetch, destructive ops — are worker-only. This test
+fails if someone widens TOOLS_DISPATCHER to include anything on the forbidden
+list, or if fast/deep ever creep back into the role map as if they were tool
+tiers (they are not — they are pure model selection).
 
 Invariant from CLAUDE.md §"Tool Access Architecture":
     When adding new tools: add to TOOLS_WORKER. Only add to TOOLS_DISPATCHER
@@ -23,16 +25,22 @@ from app.tools.registry import TOOLS_DISPATCHER, TOOLS_WORKER, _ROLE_TOOL_SETS
 # Any of these in TOOLS_DISPATCHER is a regression. Add to this list if you
 # coin new dangerous tool names.
 FORBIDDEN_DISPATCHER_TOOLS = {
+    # OS / dev-environment access — never inline.
     "system.exec",
     "file.write", "file.patch",
     "git.commit",
     "web.fetch", "web.search",
     "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
-    "voxyflow.project.delete", "voxyflow.card.delete", "voxyflow.doc.delete",
-    "voxyflow.project.export",
-    "memory.delete",
-    "kg.invalidate",
-    "task.steer",
+    # NOTE: the following are intentionally NOT forbidden — Voxyflow is
+    # single-user local and these are instant DB / queue ops the dispatcher
+    # needs inline:
+    #   * whole-entity *.delete and *.export (project/card/doc/wiki) —
+    #     reversible via the undo journal (voxyflow.undo.*)
+    #   * memory.delete — local Chroma op, scope-enforced via env var
+    #   * task.steer — pairs with task.peek/cancel for worker control
+    #   * kg.* including kg.invalidate — temporal model (sets valid_to,
+    #     doesn't hard-delete), and KG is local single-user state
+    # Don't re-add any of these here without re-checking the policy.
 }
 
 
@@ -71,12 +79,18 @@ def test_dispatcher_tools_are_all_known():
     )
 
 
-def test_role_sets_map_legacy_layer_names():
-    """fast/deep legacy names must still resolve to dispatcher tools."""
-    assert _ROLE_TOOL_SETS["fast"] is TOOLS_DISPATCHER
-    assert _ROLE_TOOL_SETS["deep"] is TOOLS_DISPATCHER
-    assert _ROLE_TOOL_SETS["dispatcher"] is TOOLS_DISPATCHER
-    assert _ROLE_TOOL_SETS["worker"] is TOOLS_WORKER
+def test_role_sets_only_define_real_roles():
+    """Only "dispatcher" and "worker" are real roles.
+
+    fast/deep are model tiers, NOT tool tiers — they must not appear as keys
+    in the role map. Any unknown role string falls back to dispatcher via
+    get_by_role()'s default, so adding aliases here would re-introduce the
+    dead "model = tool tier" coupling we just removed.
+    """
+    assert _ROLE_TOOL_SETS == {
+        "dispatcher": TOOLS_DISPATCHER,
+        "worker": TOOLS_WORKER,
+    }
 
 
 def test_worker_gets_dangerous_tools():

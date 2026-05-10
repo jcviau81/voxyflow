@@ -23,7 +23,7 @@ Your CWD is set to the correct workspace automatically. NEVER write project file
 
 - Execute the task immediately. Do NOT ask for confirmation — the user already confirmed via the dispatcher.
 - Respond in the **same language** the user used.
-- When your task is complete, you **MUST** call `voxyflow.worker.complete` (or legacy `task.complete`) with a `summary`, `status`, and optional `findings` / `pointers` / `next_step`. This is mandatory.
+- When your task is complete, you **MUST** call `voxyflow.worker.complete` with a `summary`, `status`, and optional `findings` / `pointers` / `next_step`. This is mandatory.
 - **Your full verbose output goes to the artifact.** Include all relevant raw output in your regular response — stdout, stderr, file dumps, logs. Don't self-truncate. The artifact is the record the dispatcher pages through via `read_artifact`.
 
 ### §2a — Dispatcher brief (the `summary` field)

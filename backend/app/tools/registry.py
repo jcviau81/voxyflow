@@ -27,89 +27,116 @@ logger = logging.getLogger(__name__)
 # Opus), NOT a tool escalation. The dispatcher must stay lightweight and
 # non-blocking; anything heavy goes to a worker via delegate_action.
 TOOLS_DISPATCHER = {
-    # Read
+    # ---- Read ----
     "voxyflow.health",
-    "voxyflow.card.list_unassigned",
     "voxyflow.project.list", "voxyflow.project.get",
     "voxyflow.card.list", "voxyflow.card.get",
+    "voxyflow.card.list_unassigned", "voxyflow.card.list_archived",
+    "voxyflow.card.history",
     "voxyflow.wiki.list", "voxyflow.wiki.get",
     "voxyflow.doc.list",
-    "voxyflow.jobs.list", "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
-    # heartbeat.write is instant (single DB upsert) and lets the dispatcher
-    # record "I acted" pings without spawning a worker. Keep it here unless
-    # that ever grows into a side-effecting operation.
-    "voxyflow.heartbeat.read", "voxyflow.heartbeat.write",
-    # Per-project autonomy — thin REST wrappers, all instant/non-blocking.
-    "voxyflow.autonomy.status", "voxyflow.autonomy.enable",
-    "voxyflow.autonomy.disable", "voxyflow.autonomy.run_now",
-    "memory.search", "knowledge.search",
-    # Basic CRUD (instant, non-blocking)
-    "memory.save",
-    "voxyflow.card.create_unassigned",
+    "voxyflow.jobs.list",
+    "voxyflow.heartbeat.read",
+    "voxyflow.autonomy.status",
+    "voxyflow.focus.analytics",
+    "voxyflow.sessions.list",
+    "voxyflow.session.read",
+    "voxyflow.endpoint.list",
+    "voxyflow.undo.list",
+    "memory.search", "memory.get", "knowledge.search",
+
+    # ---- Project / Card / Wiki CRUD (instant, non-blocking) ----
     "voxyflow.project.create", "voxyflow.project.update",
-    "voxyflow.card.create", "voxyflow.card.update", "voxyflow.card.move",
-    "voxyflow.card.archive",
-    # Checklist — instant REST, needed for the enrich "propose → confirm → apply"
-    # flow in card chat (Voxy applies suggested items via add_bulk on confirm).
+    "voxyflow.project.archive", "voxyflow.project.restore",
+    "voxyflow.card.create", "voxyflow.card.create_unassigned",
+    "voxyflow.card.update", "voxyflow.card.move",
+    "voxyflow.card.archive", "voxyflow.card.restore",
+    "voxyflow.card.duplicate",
+    "voxyflow.wiki.create", "voxyflow.wiki.update",
+
+    # ---- Card sub-resources (row-level CRUD, all instant) ----
+    # Checklist — needed for the enrich "propose → confirm → apply" flow.
     "voxyflow.card.checklist.add", "voxyflow.card.checklist.add_bulk",
     "voxyflow.card.checklist.list", "voxyflow.card.checklist.update",
     "voxyflow.card.checklist.delete",
-    # Worker management (dispatcher needs to monitor/read worker results)
-    "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
-    # Session introspection (read-only, non-blocking timeline recall)
-    "voxyflow.session.read",
-    # Endpoint management (My Machines) — instant, non-blocking CRUD
-    "voxyflow.endpoint.list", "voxyflow.endpoint.add", "voxyflow.endpoint.remove",
-    # Undo journal — lets Voxy revert reversible actions she just took
-    "voxyflow.undo.list", "voxyflow.undo.apply",
-}
+    "voxyflow.card.enrich",
+    "voxyflow.card.relation.add", "voxyflow.card.relation.list", "voxyflow.card.relation.delete",
+    "voxyflow.card.time.log", "voxyflow.card.time.list", "voxyflow.card.time.delete",
 
-# Worker tools: full MCP access — exec, files, git, tmux, AI features,
-# destructive ops. Workers run in background subprocesses.
-TOOLS_WORKER = TOOLS_DISPATCHER | {
-    "task.complete",  # Legacy completion signal (kept for back-compat)
-    "voxyflow.worker.claim", "voxyflow.worker.complete",  # Strict lifecycle
-    "voxyflow.card.duplicate", "voxyflow.card.enrich",
-    "voxyflow.wiki.create", "voxyflow.wiki.update",
-    "system.exec",
-    "file.read", "file.write", "file.patch", "file.list",
+    # ---- Memory write (instant; scope enforced via env var) ----
+    "memory.save", "memory.delete",
+
+    # ---- Knowledge graph (instant local DB ops; temporal model is
+    # reversible — kg.invalidate sets valid_to, doesn't hard-delete) ----
+    "kg.add", "kg.query", "kg.timeline", "kg.invalidate", "kg.stats",
+
+    # ---- Destructive whole-entity deletes / exports ----
+    # Single-user local deployment: the user is always present and the undo
+    # journal (voxyflow.undo.*) reverses these, so inline delete is fine.
     "voxyflow.project.delete", "voxyflow.project.export",
     "voxyflow.card.delete",
     "voxyflow.doc.delete",
+    "voxyflow.wiki.delete",
+
+    # ---- Focus / activity logging ----
+    "voxyflow.focus.log",
+    # heartbeat.write is instant (single DB upsert) — dispatcher records
+    # "I acted" pings without spawning a worker.
+    "voxyflow.heartbeat.write",
+
+    # ---- Jobs (cron-like; all REST CRUD, instant) ----
+    "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
+
+    # ---- Per-project autonomy — thin REST wrappers, instant/non-blocking ----
+    "voxyflow.autonomy.enable", "voxyflow.autonomy.disable", "voxyflow.autonomy.run_now",
+
+    # ---- Worker monitoring + control (no need to spawn another worker) ----
+    "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
+    "voxyflow.task.peek", "voxyflow.task.cancel",
+    # task.steer = inject a redirect message into a running worker (instant
+    # queue write, scope-enforced). Pairs with task.peek + task.cancel.
+    "task.steer",
+
+    # ---- Endpoints (LLM Providers) — instant CRUD ----
+    "voxyflow.endpoint.add", "voxyflow.endpoint.remove",
+
+    # ---- Undo journal — revert a reversible action Voxy just took ----
+    "voxyflow.undo.apply",
+}
+
+# Worker tools: dispatcher set PLUS the heavy / dangerous / lifecycle tools.
+# Anything listed here must NOT also appear in TOOLS_DISPATCHER above
+# (the set union would silently mask the duplication).
+_WORKER_EXTRAS = {
+    # Worker lifecycle
+    "voxyflow.worker.claim", "voxyflow.worker.complete",
+
+    # Heavy AI features
     "voxyflow.ai.standup", "voxyflow.ai.brief", "voxyflow.ai.health",
     "voxyflow.ai.prioritize", "voxyflow.ai.review_code",
+
+    # OS / dev-environment access
+    "system.exec",
+    "file.read", "file.write", "file.patch", "file.list",
     "git.status", "git.log", "git.diff", "git.branches", "git.commit",
     "tmux.list", "tmux.capture", "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
     "web.search", "web.fetch",
-    "kg.add", "kg.query", "kg.timeline", "kg.invalidate", "kg.stats",
-    "memory.delete", "memory.get",
-    "voxyflow.card.history",
-    "voxyflow.card.relation.add", "voxyflow.card.relation.list", "voxyflow.card.relation.delete",
-    "voxyflow.card.time.log", "voxyflow.card.time.list", "voxyflow.card.time.delete",
-    "voxyflow.card.restore", "voxyflow.card.list_archived",
-    "voxyflow.wiki.delete",
-    "voxyflow.focus.log", "voxyflow.focus.analytics",
-    "voxyflow.sessions.list",
-    "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
-    "voxyflow.task.peek", "voxyflow.task.cancel",
-    "voxyflow.project.archive", "voxyflow.project.restore",
-    "task.steer", "tools.load",
+
+    # Worker dynamic tool loading
+    "tools.load",
 }
 
-# Legacy aliases — kept so existing imports don't break during transition
-TOOLS_READ_ONLY = TOOLS_DISPATCHER
+# Sanity guard — fail loudly at import time if a tool is listed in both sets.
+# Set union would otherwise silently hide the duplication.
+_overlap = TOOLS_DISPATCHER & _WORKER_EXTRAS
+assert not _overlap, f"Tool listed in both TOOLS_DISPATCHER and _WORKER_EXTRAS: {_overlap}"
+
+TOOLS_WORKER = TOOLS_DISPATCHER | _WORKER_EXTRAS
 
 _ROLE_TOOL_SETS = {
     "dispatcher": TOOLS_DISPATCHER,
     "worker": TOOLS_WORKER,
-    # Legacy layer names map to dispatcher (model selection, not tool escalation)
-    "fast": TOOLS_DISPATCHER,
-    "deep": TOOLS_DISPATCHER,
 }
-
-# Deprecated — use _ROLE_TOOL_SETS
-_LAYER_TOOL_SETS = _ROLE_TOOL_SETS
-
 
 @dataclass
 class ToolDefinition:
@@ -140,9 +167,11 @@ class ToolRegistry:
         return [t for t in self._tools.values() if t.category in categories]
 
     def get_by_role(self, role: str) -> list[ToolDefinition]:
-        """Return tools allowed for a given role (dispatcher/worker).
+        """Return tools allowed for a given role.
 
-        Also accepts legacy layer names (fast/deep) which both map to dispatcher.
+        Only "dispatcher" and "worker" are recognised. Anything else (including
+        model-tier names like "fast"/"deep"/"haiku") falls back to the
+        dispatcher set — fast/deep is purely model selection, not a tool tier.
         """
         allowed_names = _ROLE_TOOL_SETS.get(role, TOOLS_DISPATCHER)
         return [t for name, t in self._tools.items() if name in allowed_names]

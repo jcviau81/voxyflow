@@ -14,7 +14,7 @@ Voxyflow exposes ~100 MCP tools defined in `backend/app/mcp_server.py`. Broad gr
 | memory | `memory.*` | Long-term memory search/save/delete/get |
 | knowledge | `knowledge.*` | RAG knowledge base search |
 | kg | `kg.*` | Knowledge-graph triples/attributes (worker-only) |
-| task | `task.*` | Worker supervision + legacy `task.complete` |
+| task | `task.*` | Worker supervision (peek / cancel / steer) |
 | system | `system.*` | Shell command execution (worker-only) |
 | web | `web.*` | Web search / page fetching (worker-only) |
 | file | `file.*` | Filesystem read/write/patch/list (worker-only) |
@@ -56,8 +56,7 @@ Create/update: `card.create/update/move/archive/create_unassigned`,
 ### Worker-only (representative)
 
 `system.exec`, `file.*`, `git.*`, `tmux.*`, `web.*`, `kg.*`, `voxyflow.ai.*`,
-`voxyflow.worker.claim`, `voxyflow.worker.complete`, `task.complete` (legacy),
-`task.steer`, `tools.load`, destructive `*.delete` and `voxyflow.project.export`.
+`voxyflow.worker.claim`, `voxyflow.worker.complete`, `tools.load`.
 
 ---
 
@@ -415,10 +414,6 @@ Validation: summary < 20 chars, missing `task_id`, invalid `status`, or
 non-list `findings` / `pointers` all return `{success: false, error: ...}`.
 Calling `worker.complete` without a prior `worker.claim` logs a warning but
 still accepts the completion.
-
-#### task.complete (legacy)
-Kept for back-compat. Sets `completion_source="task.complete"`, which does
-**not** count as a structured completion — the closeout pass will upgrade it.
 
 ---
 

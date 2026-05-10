@@ -65,7 +65,7 @@ orchestrator's tool callback:
 Resilience:
 - **Closeout pass** (`VOXYFLOW_CLOSEOUT_PASS=1`, default on) — a lightweight
   subprocess reads the artifact and emits a structured completion if the worker
-  skipped `worker.complete` or used the legacy `task.complete` tool.
+  exited without calling `worker.complete`.
 - **Local fallback** — if even the closeout fails, the pool synthesizes a
   minimal structured payload so downstream code always sees the same shape.
 - **Burst cap** — `MAX_DISPATCHER_PAYLOAD_CHARS` (15 000) caps a single

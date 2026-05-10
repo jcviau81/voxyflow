@@ -8,8 +8,8 @@ Covers the strict claim → work → complete protocol enforced by:
   turn).
 
 Invariant from CLAUDE.md: workers must claim first and deliver a structured
-completion; any other code path (legacy task.complete / auto / closeout) must
-still produce the same payload shape downstream.
+completion; auto / closeout fallback paths must still produce the same
+payload shape downstream.
 """
 
 import os
@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.services.worker_supervisor import (
     WorkerSupervisor,
-    handle_task_complete,
     handle_worker_claim,
     handle_worker_complete,
     _MIN_SUMMARY_CHARS,
@@ -88,19 +87,23 @@ def test_structured_complete_happy_path():
     assert payload["plan"] == "plan"
 
 
-def test_legacy_task_complete_not_flagged_as_structured():
-    """task.complete / auto / closeout must NOT register as structured."""
+def test_fallback_sources_not_flagged_as_structured():
+    """auto / closeout completions must NOT register as structured.
+
+    Only voxyflow.worker.complete should set is_structured_complete=True —
+    that's what triggers the closeout-upgrade path to be skipped.
+    """
     sup = WorkerSupervisor()
     sup.register_task("T1")
-    sup.mark_completed("T1", "a legacy summary of sorts", source="task.complete")
+    sup.mark_completed("T1", "auto-synthesized", source="auto")
     assert sup.is_structured_complete("T1") is False
-    # But the payload is still available (uniform shape downstream).
+    # Payload is still available (uniform shape downstream).
     payload = sup.get_completion_payload("T1")
     assert payload is not None
-    assert payload["summary"].startswith("a legacy")
+    assert payload["summary"].startswith("auto-synthesized")
 
     sup.register_task("T2")
-    sup.mark_completed("T2", "auto-synthesized", source="auto")
+    sup.mark_completed("T2", "closeout-rebuilt", source="closeout")
     assert sup.is_structured_complete("T2") is False
 
 
@@ -215,24 +218,6 @@ async def test_worker_complete_accepts_without_prior_claim(monkeypatch):
     })
     assert r["success"] is True
     assert fresh.is_structured_complete("T1") is True
-
-
-@pytest.mark.asyncio
-async def test_legacy_task_complete_still_works(monkeypatch):
-    from app.services import worker_supervisor as ws_mod
-
-    fresh = WorkerSupervisor()
-    monkeypatch.setattr(ws_mod, "_supervisor", fresh)
-    fresh.register_task("T1")
-
-    r = await handle_task_complete({
-        "task_id": "T1", "status": "success",
-        "summary": "legacy path",
-    })
-    assert r["success"] is True
-    # Legacy must not count as structured — that triggers the closeout upgrade path.
-    assert fresh.is_structured_complete("T1") is False
-    assert fresh.get_status("T1")["completion_source"] == "task.complete"
 
 
 # ---------------------------------------------------------------------------

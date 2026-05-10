@@ -457,9 +457,7 @@ class DeepWorkerPool:
 
         status = supervisor.get_status(event.task_id) or {}
         source_hint = status.get("completion_source")
-        if source_hint == "task.complete":
-            context_hint = " The worker called the legacy task.complete — upgrade the result."
-        elif source_hint == "auto":
+        if source_hint == "auto":
             context_hint = " The worker exited without calling any completion tool."
         else:
             context_hint = ""
@@ -1155,21 +1153,6 @@ class DeepWorkerPool:
                             next_step=wc_next,
                             source="worker.complete",
                         )
-                elif _norm == "task_complete":
-                    tc_task_id = arguments.get("task_id", event.task_id)
-                    tc_summary = arguments.get("summary", "")
-                    tc_status = arguments.get("status", "success")
-                    if tc_summary:
-                        supervisor.mark_completed(
-                            tc_task_id, tc_summary, tc_status,
-                            source="task.complete",
-                        )
-                        logger.info(
-                            f"[Supervisor] Task {tc_task_id} explicitly completed via "
-                            f"task.complete (status={tc_status}, "
-                            f"summary_len={len(tc_summary)})"
-                        )
-
                 # Capture raw output from content-producing tools.
                 # tool_result from CLI is {"content": "<json_string>"} where
                 # the json_string is the MCP tool's serialized response.
