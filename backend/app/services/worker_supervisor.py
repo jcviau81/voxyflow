@@ -4,7 +4,7 @@ Provides per-task monitoring:
 - Tool call recording with repetition detection
 - Stall detection (time since last activity)
 - Lifecycle enforcement: claim → work → complete (strict protocol)
-- Completion tracking via worker.complete / task.complete tools
+- Completion tracking via voxyflow.worker.complete
 """
 
 import logging
@@ -180,7 +180,6 @@ class WorkerSupervisor:
 
         source identifies which path delivered the completion:
         - "worker.complete" — structured payload (preferred)
-        - "task.complete"   — legacy summary-only
         - "auto"            — orchestrator fallback
         - "closeout"        — closeout-pass subprocess
         """
@@ -248,7 +247,7 @@ class WorkerSupervisor:
         }
 
     def is_completed(self, task_id: str) -> bool:
-        """Check if a task called task.complete."""
+        """True if the task has reached the completed status (any source)."""
         task = self._tasks.get(task_id)
         return task is not None and task["status"] == "completed"
 
@@ -270,33 +269,6 @@ def get_worker_supervisor() -> WorkerSupervisor:
         _supervisor = WorkerSupervisor()
         logger.info("WorkerSupervisor initialized")
     return _supervisor
-
-
-# ---------------------------------------------------------------------------
-# task.complete tool handler (registered as system tool in mcp_server)
-# ---------------------------------------------------------------------------
-
-async def handle_task_complete(params: dict) -> dict:
-    """Handler for the legacy task.complete MCP tool (kept for back-compat)."""
-    task_id = params.get("task_id")
-    summary = params.get("summary", "")
-    status = params.get("status", "success")
-
-    if not task_id:
-        return {"success": False, "error": "task_id is required"}
-
-    if status not in ("success", "partial", "failed"):
-        return {"success": False, "error": f"Invalid status: {status}. Must be success|partial|failed"}
-
-    supervisor = get_worker_supervisor()
-    supervisor.mark_completed(task_id, summary, status, source="task.complete")
-
-    return {
-        "success": True,
-        "message": f"Task {task_id} marked as {status}",
-        "task_id": task_id,
-        "status": status,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +355,7 @@ def _validate_pointers(raw: Any) -> tuple[Optional[list[dict]], Optional[str]]:
 async def handle_worker_complete(params: dict) -> dict:
     """Handler for the voxyflow.worker.complete MCP tool.
 
-    Structured completion payload that replaces the loose task.complete:
+    Structured completion payload:
     - summary (required, meaningful length)
     - status (success|partial|failed)
     - findings (list of short bullets, optional)

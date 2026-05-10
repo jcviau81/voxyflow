@@ -68,7 +68,6 @@ def build_handlers(
         tmux_list, tmux_run, tmux_send, tmux_capture, tmux_new, tmux_kill,
     )
     from app.services.worker_supervisor import (
-        handle_task_complete,
         handle_worker_claim,
         handle_worker_complete,
     )
@@ -1024,7 +1023,6 @@ def build_handlers(
         "tmux_capture": tmux_capture,
         "tmux_new": tmux_new,
         "tmux_kill": tmux_kill,
-        "task_complete": handle_task_complete,
         "worker_claim": handle_worker_claim,
         "worker_complete": handle_worker_complete,
         "memory_search": memory_search,
