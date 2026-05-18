@@ -114,6 +114,73 @@ class ProviderEndpoint(BaseModel):
         return v.rstrip("/")
 
 
+_MCP_RESERVED_KEYS = {"voxyflow"}
+
+
+class McpServerConfig(BaseModel):
+    """A user-defined external MCP server made available to the dispatcher and/or workers.
+
+    The Voxyflow MCP server is always injected by ``cli_backend`` regardless of
+    what's configured here — this list is for *additional* servers (Penpot,
+    GitHub, filesystem, etc.). Each entry has a scope (dispatcher/worker) and
+    can be individually disabled.
+    """
+    id: str = ""                       # client-assigned UUID
+    name: str = ""                     # display name, e.g. "Penpot"
+    key: str = ""                      # slug used as the mcpServers dict key, e.g. "penpot"
+    enabled: bool = True
+    transport: str = "http"            # "http" | "stdio"
+
+    # http transport
+    url: str = ""                      # required for http
+    api_key: str = ""                  # optional bearer token → Authorization: Bearer <key>
+
+    # stdio transport
+    command: str = ""                  # required for stdio
+    args: list[str] = []
+    cwd: str = ""
+    env: dict[str, str] = {}
+
+    # Roles allowed to see this server. Default = worker only (safe for tools
+    # that can execute code / mutate state). Add "dispatcher" to expose it
+    # inline in chat — only do this for read-only, instant-return MCPs.
+    scopes: list[str] = ["worker"]
+
+    @field_validator("transport")
+    @classmethod
+    def validate_transport(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in ("http", "stdio"):
+            raise ValueError("transport must be 'http' or 'stdio'")
+        return v
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            return v
+        if v in _MCP_RESERVED_KEYS:
+            raise ValueError(f"'{v}' is reserved")
+        if not all(c.isalnum() or c in "_-" for c in v):
+            raise ValueError("key must be alphanumeric (underscores/dashes allowed)")
+        return v
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("URL must start with http:// or https://")
+        return v.rstrip("/")
+
+    @field_validator("scopes")
+    @classmethod
+    def validate_scopes(cls, v: list[str]) -> list[str]:
+        valid = {"dispatcher", "worker"}
+        cleaned = [s for s in (v or []) if s in valid]
+        return cleaned or ["worker"]
+
+
 class ModelLayerConfig(BaseModel):
     provider_url: str = ""   # e.g. "http://localhost:3457/v1" or "http://localhost:11434/v1"
     api_key: str = ""        # empty = no key required (e.g. Ollama)
@@ -224,6 +291,7 @@ class AppSettings(BaseModel):
     backup: BackupSettings = BackupSettings()
     voice: VoiceSettings = VoiceSettings()
     push: PushSettings = PushSettings()
+    mcp_servers: list[McpServerConfig] = []
     onboarding_complete: bool = False
     user_name: str = ""
     assistant_name: str = "Voxy"
@@ -244,6 +312,10 @@ def _redact_sensitive(data: dict) -> dict:
     for ep in models.get("endpoints", []):
         if isinstance(ep, dict) and ep.get("api_key"):
             ep["api_key"] = "***"
+    # Redact MCP server api_key fields
+    for srv in redacted.get("mcp_servers", []) or []:
+        if isinstance(srv, dict) and srv.get("api_key"):
+            srv["api_key"] = "***"
     return redacted
 
 
@@ -264,6 +336,14 @@ def _merge_sensitive_on_save(incoming: dict, existing: dict) -> dict:
             existing_ep = eps_ex.get(ep_in.get("id"))
             if existing_ep:
                 ep_in["api_key"] = existing_ep.get("api_key", "")
+    # Merge MCP server api_keys (same '***' sentinel)
+    mcp_in = incoming.get("mcp_servers", []) or []
+    mcp_ex = {s.get("id"): s for s in (existing.get("mcp_servers", []) or []) if isinstance(s, dict)}
+    for srv_in in mcp_in:
+        if isinstance(srv_in, dict) and srv_in.get("api_key") == "***":
+            existing_srv = mcp_ex.get(srv_in.get("id"))
+            if existing_srv:
+                srv_in["api_key"] = existing_srv.get("api_key", "")
     return incoming
 
 

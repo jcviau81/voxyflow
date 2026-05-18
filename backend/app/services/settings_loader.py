@@ -60,6 +60,28 @@ def set_default_worker_endpoint_id(endpoint_id: str) -> None:
     _default_worker_endpoint_id = (endpoint_id or "").strip()
 
 
+def load_mcp_servers_sync() -> list[dict]:
+    """Sync-load user-defined MCP server configs from the app_settings row.
+
+    Called from ``cli_backend._build_mcp_config`` which is sync. Returns the
+    raw list (real api_keys — DB has secrets, not the '***' redaction). Empty
+    list on any error or when nothing's configured.
+    """
+    try:
+        from app.services.llm.tool_defs import (
+            _read_settings_from_db_sync,
+            _read_settings_from_file_sync,
+        )
+        data = _read_settings_from_db_sync() or _read_settings_from_file_sync()
+        if not data:
+            return []
+        servers = data.get("mcp_servers") or []
+        return [s for s in servers if isinstance(s, dict)]
+    except Exception:
+        logger.exception("Failed to load mcp_servers from settings")
+        return []
+
+
 async def _load_settings_from_db() -> dict | None:
     """Load settings from SQLite. Returns None if not found."""
     try:
