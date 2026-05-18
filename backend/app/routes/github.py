@@ -20,18 +20,22 @@ router = APIRouter(prefix="/api/github", tags=["github"])
 GITHUB_API = "https://api.github.com"
 
 
-def _load_pat() -> str | None:
-    """Load GitHub PAT from keyring / settings.json / env — in that order."""
-    # 1) Try keyring (optional dependency)
-    try:
-        import keyring
-        token = keyring.get_password("voxyflow", "github_pat")
-        if token:
-            return token
-    except Exception as e:
-        logger.debug("keyring not available (%s) — skipping", e)
+# Cached PAT — resolved on first call, reused for the lifetime of the process.
+# Avoids hitting keyring/forking `gh` on every API request (the keyring path
+# previously leaked FDs in gnome-keyring-daemon, filling auth.log).
+# Call invalidate_pat_cache() after the user updates their token.
+_PAT_CACHE: str | None = None
+_PAT_RESOLVED: bool = False
 
-    # 2) settings.json github.pat OR github.token
+
+def invalidate_pat_cache() -> None:
+    global _PAT_CACHE, _PAT_RESOLVED
+    _PAT_CACHE = None
+    _PAT_RESOLVED = False
+
+
+def _resolve_pat() -> str | None:
+    # 1) settings.json github.pat OR github.token
     try:
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE) as f:
@@ -43,12 +47,12 @@ def _load_pat() -> str | None:
     except Exception as e:
         logger.warning("Failed to read GitHub token from settings.json: %s", e)
 
-    # 3) Environment variable
+    # 2) Environment variable
     env_token = os.environ.get("GITHUB_TOKEN")
     if env_token:
         return env_token
 
-    # 4) gh CLI stored token (fallback — works when user is authenticated via gh)
+    # 3) gh CLI stored token (fallback — works when user is authenticated via gh)
     try:
         result = subprocess.run(
             ["gh", "auth", "token"],
@@ -62,6 +66,15 @@ def _load_pat() -> str | None:
         logger.debug("gh auth token fallback failed: %s", e)
 
     return None
+
+
+def _load_pat() -> str | None:
+    global _PAT_CACHE, _PAT_RESOLVED
+    if _PAT_RESOLVED:
+        return _PAT_CACHE
+    _PAT_CACHE = _resolve_pat()
+    _PAT_RESOLVED = True
+    return _PAT_CACHE
 
 
 def _github_headers() -> dict[str, str]:

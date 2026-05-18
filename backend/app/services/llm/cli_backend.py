@@ -248,6 +248,43 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 }
             }
         }
+        # User-defined MCP servers (Settings → MCP). Each entry is scoped to
+        # "dispatcher" / "worker" / both, can be individually toggled, and is
+        # ignored entirely when transport is misconfigured (missing url/command).
+        # The 'voxyflow' key is reserved and skipped here even if a user manages
+        # to slip it past validation.
+        from app.services.settings_loader import load_mcp_servers_sync
+        for srv in load_mcp_servers_sync():
+            if not srv.get("enabled", True):
+                continue
+            if role not in (srv.get("scopes") or []):
+                continue
+            key = (srv.get("key") or "").strip()
+            if not key or key == "voxyflow":
+                continue
+            transport = (srv.get("transport") or "http").strip().lower()
+            if transport == "http":
+                url = (srv.get("url") or "").strip()
+                if not url:
+                    continue
+                entry: dict = {"type": "http", "url": url}
+                api_key = (srv.get("api_key") or "").strip()
+                if api_key and api_key != "***":
+                    entry["headers"] = {"Authorization": f"Bearer {api_key}"}
+            elif transport == "stdio":
+                cmd = (srv.get("command") or "").strip()
+                if not cmd:
+                    continue
+                entry = {"command": cmd}
+                if srv.get("args"):
+                    entry["args"] = list(srv["args"])
+                if srv.get("cwd"):
+                    entry["cwd"] = srv["cwd"]
+                if srv.get("env"):
+                    entry["env"] = dict(srv["env"])
+            else:
+                continue
+            config["mcpServers"][key] = entry
         return json.dumps(config)
 
     def _build_args(
