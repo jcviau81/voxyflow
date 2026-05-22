@@ -174,12 +174,11 @@ class PersonalityService:
     # Chat Init block builders (injected FIRST in all system prompts)
     # ------------------------------------------------------------------
 
-    def build_general_chat_init(self, project_names: Optional[list] = None) -> str:
+    def build_general_chat_init(self, workspace_names: Optional[list] = None) -> str:
         """Build the Chat Init block for Home workspace chat (system-main).
 
-        This is now just a project chat for the system "Home" project.
-        Kept as a separate method for backward compatibility.
-        The static base omits project_names — inject dynamically via build_dynamic_context_block().
+        This is the system "Home" workspace's chat.
+        The static base omits workspace_names — inject dynamically via build_dynamic_context_block().
         """
         bot_name = self.get_bot_name()
         return (
@@ -193,38 +192,38 @@ class PersonalityService:
             "You don't ask for permission to do what you were clearly asked to do.\n"
             "You use your tools silently and naturally — like someone who knows their workspace.\n\n"
             "## Right Now\n"
-            "You are in the Home project — the default workspace for cards, tasks, and conversation. "
-            "If the user mentions a different project by name, pivot to it. "
-            "Cards created here belong to the Home project.\n\n"
+            "You are in the Home workspace — the default workspace for cards, tasks, and conversation. "
+            "If the user mentions a different workspace by name, pivot to it. "
+            "Cards created here belong to the Home workspace.\n\n"
             "Do NOT say 'welcome back' on a first conversation. Greet naturally based on what they said."
         )
 
-    def build_project_chat_init(self, project: dict) -> str:
+    def build_workspace_chat_init(self, workspace: dict) -> str:
         """Build the static Chat Init block for Workspace Chat mode.
 
         Dynamic details (description, card counts, recent activity) are intentionally
         omitted here to keep the system prompt cacheable. Inject them via
         build_dynamic_context_block() into the messages[] dynamic context instead.
         """
-        name = project.get("title", "Untitled")
+        name = workspace.get("title", "Untitled")
         bot_name = self.get_bot_name()
 
         return (
             f"## Workspace: {name}\n"
-            f"You are {bot_name}, working on **{name}**. This is your context right now — you know this project, you're inside it.\n\n"
+            f"You are {bot_name}, working on **{name}**. This is your context right now — you know this workspace, you're inside it.\n\n"
             f"You can create cards, move them, update them, assign agents, write wiki pages. "
-            f"When the user asks you to do something in this project, do it — don't explain that you can. "
+            f"When the user asks you to do something in this workspace, do it — don't explain that you can. "
             f"Stay focused here unless they explicitly ask about something else."
         )
 
-    def build_card_chat_init(self, project: dict, card: dict) -> str:
+    def build_card_chat_init(self, workspace: dict, card: dict) -> str:
         """Build the static Chat Init block for Card Chat mode.
 
         Dynamic details (description, status, checklist) are intentionally omitted here
         to keep the system prompt cacheable. Inject them via build_dynamic_context_block()
         into the messages[] dynamic context instead.
         """
-        project_name = project.get("title", "Untitled")
+        workspace_name = workspace.get("title", "Untitled")
         card_title = card.get("title", "Untitled")
         bot_name = self.get_bot_name()
 
@@ -232,7 +231,7 @@ class PersonalityService:
             f"## Chat Init — Card: {card_title}\n"
             f"Mode: Card Chat\n"
             f"## Card: {card_title}\n"
-            f"You are {bot_name}, focused on this card in **{project_name}**. This is your current task — you're already inside it.\n\n"
+            f"You are {bot_name}, focused on this card in **{workspace_name}**. This is your current task — you're already inside it.\n\n"
             f"You are here to work on this task — not to describe what you could do. "
             f"If the user says 'implement this', you start. If they say 'write the PRD', you write it. "
             f"Act with the confidence of someone who knows exactly what they're doing."
@@ -241,9 +240,9 @@ class PersonalityService:
     def build_dynamic_context_block(
         self,
         chat_level: str = "general",
-        project: Optional[dict] = None,
+        workspace: Optional[dict] = None,
         card: Optional[dict] = None,
-        project_names: Optional[list] = None,
+        workspace_names: Optional[list] = None,
         memory_context: Optional[str] = None,
         active_workers_context: Optional[str] = None,
         worker_classes: Optional[list[dict]] = None,
@@ -255,9 +254,9 @@ class PersonalityService:
 
         Contains everything that changes call-to-call:
         - memory_context (per-query vector search results)
-        - project description, tech stack, github, card counts, recent activity
+        - workspace description, tech stack, github, card counts, recent activity
         - card description, status, checklist details
-        - project names list (for main/general chat)
+        - workspace names list (for main/general chat)
 
         By keeping this OUT of the system prompt, the static base_prompt stays
         identical across calls → Anthropic KV cache hits.
@@ -283,15 +282,15 @@ class PersonalityService:
         if session_handoff:
             parts.append(session_handoff.rstrip())
 
-        if chat_level in ("project", "general") and project:
-            # Workspace chat: inject full project state.
-            # Main/general chat with no project pulls the list via voxyflow.workspace.list on demand.
-            name = project.get("title", "Untitled")
-            workspace_id = project.get("id") or ""
-            description = project.get("description") or "No description"
-            tech_stack = project.get("tech_stack") or "Not specified"
-            github_url = project.get("github_url") or "Not linked"
-            all_cards = project.get("cards", [])
+        if chat_level in ("workspace", "project", "general") and workspace:
+            # Workspace chat: inject full workspace state.
+            # Main/general chat with no workspace pulls the list via voxyflow.workspace.list on demand.
+            name = workspace.get("title", "Untitled")
+            workspace_id = workspace.get("id") or ""
+            description = workspace.get("description") or "No description"
+            tech_stack = workspace.get("tech_stack") or "Not specified"
+            github_url = workspace.get("github_url") or "Not linked"
+            all_cards = workspace.get("cards", [])
             cards = [c for c in all_cards if c.get("status") != "archived"]
             total = len(cards)
             done = sum(1 for c in cards if c.get("status") == "done")
@@ -398,17 +397,17 @@ class PersonalityService:
             total_items = len(checklist)
             completed_items = sum(1 for item in checklist if item.get("done") or item.get("completed"))
 
-            # #8 card_id inherit: if we resolved a parent project, surface a
+            # #8 card_id inherit: if we resolved a parent workspace, surface a
             # compact header so Voxy knows the surrounding board exists. Full
-            # project rollup stays hidden — a card chat shouldn't flood with
+            # workspace rollup stays hidden — a card chat shouldn't flood with
             # siblings — but a name + 1-line state keeps orientation.
             parent_line = ""
-            if project:
-                p_cards = [c for c in (project.get("cards") or []) if c.get("status") != "archived"]
+            if workspace:
+                p_cards = [c for c in (workspace.get("cards") or []) if c.get("status") != "archived"]
                 p_done = sum(1 for c in p_cards if c.get("status") == "done")
                 p_ip = sum(1 for c in p_cards if c.get("status") == "in_progress")
                 parent_line = (
-                    f"Parent project: {project.get('title', 'Untitled')} "
+                    f"Parent workspace: {workspace.get('title', 'Untitled')} "
                     f"({len(p_cards)} cards, {p_done} done, {p_ip} in progress)\n"
                 )
 
@@ -445,11 +444,11 @@ class PersonalityService:
     # Context-isolated prompt builders (general / project / card)
     # ------------------------------------------------------------------
 
-    def build_general_prompt(self, project_names: Optional[list] = None) -> str:
-        """Build STATIC system prompt for General Chat — no project context.
+    def build_general_prompt(self, workspace_names: Optional[list] = None) -> str:
+        """Build STATIC system prompt for General Chat — no workspace context.
 
-        project_names is accepted for backward compat but no longer embedded here.
-        Dynamic context (project names, memory) must be injected via build_dynamic_context_block().
+        workspace_names is accepted for backward compat but no longer embedded here.
+        Dynamic context (workspace names, memory) must be injected via build_dynamic_context_block().
         """
         soul = self.load_soul()
         user = self.load_user()
@@ -472,10 +471,10 @@ class PersonalityService:
 
         return "\n\n".join(sections)
 
-    def build_project_prompt(self, project: dict) -> str:
-        """Build STATIC system prompt for Workspace Chat — scoped to one project.
+    def build_workspace_prompt(self, workspace: dict) -> str:
+        """Build STATIC system prompt for Workspace Chat — scoped to one workspace.
 
-        Dynamic project details (description, recent cards) must be injected
+        Dynamic workspace details (description, recent cards) must be injected
         via build_dynamic_context_block().
         """
         soul = self.load_soul()
@@ -485,7 +484,7 @@ class PersonalityService:
         sections = []
 
         # Chat Init FIRST — before personality files (static only)
-        sections.append(self.build_project_chat_init(project))
+        sections.append(self.build_workspace_chat_init(workspace))
 
         if soul:
             sections.append(soul)
@@ -496,7 +495,7 @@ class PersonalityService:
 
         return "\n\n".join(sections)
 
-    def build_card_prompt(self, project: dict, card: dict, agent_persona: Optional[dict] = None) -> str:
+    def build_card_prompt(self, workspace: dict, card: dict, agent_persona: Optional[dict] = None) -> str:
         """Build STATIC system prompt for Card Chat — scoped to a specific task.
 
         Dynamic card details (description, status, checklist) must be injected
@@ -507,7 +506,7 @@ class PersonalityService:
         sections = []
 
         # Chat Init FIRST — before agent persona and personality (static only)
-        sections.append(self.build_card_chat_init(project, card))
+        sections.append(self.build_card_chat_init(workspace, card))
 
         # Agent persona after Chat Init (if provided)
         if agent_persona and agent_persona.get("system_prompt"):
@@ -614,7 +613,7 @@ class PersonalityService:
         self,
         tier: str = "fast",
         chat_level: str = "general",
-        project: Optional[dict] = None,
+        workspace: Optional[dict] = None,
         card: Optional[dict] = None,
         agent_persona: Optional[dict] = None,
         native_tools: bool = False,
@@ -626,17 +625,17 @@ class PersonalityService:
         new behaviour belongs here, not in tier-specific copies.
 
         Cache stability contract: returns an IDENTICAL string for the same
-        (tier, chat_level, project.id, card.id, native_tools) tuple. Dynamic
+        (tier, chat_level, workspace.id, card.id, native_tools) tuple. Dynamic
         data lives in build_dynamic_context_block() / messages[], not here.
         """
-        if chat_level == "card" and card and project:
-            base = self.build_card_prompt(project, card, agent_persona)
-        elif project:
-            base = self.build_project_prompt(project)
+        if chat_level == "card" and card and workspace:
+            base = self.build_card_prompt(workspace, card, agent_persona)
+        elif workspace:
+            base = self.build_workspace_prompt(workspace)
         else:
             base = self.build_general_prompt()
 
-        mode_label = f"Workspace Chat: {project.get('title', 'Home')}" if project else "Home Chat"
+        mode_label = f"Workspace Chat: {workspace.get('title', 'Home')}" if workspace else "Home Chat"
         if tier == "deep":
             style = "Opus — thoughtful, precise, depth when helpful."
         else:
@@ -669,17 +668,17 @@ class PersonalityService:
         self,
         memory_context: Optional[str] = None,
         chat_level: str = "general",
-        project: Optional[dict] = None,
+        workspace: Optional[dict] = None,
         card: Optional[dict] = None,
         agent_persona: Optional[dict] = None,
-        project_names: Optional[list] = None,
+        workspace_names: Optional[list] = None,
         native_tools: bool = False,
     ) -> str:
         """Compat wrapper — delegates to build_dispatcher_prompt(tier="fast")."""
         return self.build_dispatcher_prompt(
             tier="fast",
             chat_level=chat_level,
-            project=project,
+            workspace=workspace,
             card=card,
             agent_persona=agent_persona,
             native_tools=native_tools,
@@ -687,7 +686,7 @@ class PersonalityService:
 
     def build_autonomy_prompt(
         self,
-        project: Optional[dict],
+        workspace: Optional[dict],
         directive_path: str,
         native_tools: bool = False,
     ) -> str:
@@ -697,10 +696,10 @@ class PersonalityService:
         interactive "wait for go" gate replaced by autonomy operating rules.
         The heartbeat has no user present — the directive file IS the go signal.
         """
-        base = self.build_project_prompt(project) if project else self.build_general_prompt()
-        project_title = (project or {}).get("title") or "?"
+        base = self.build_workspace_prompt(workspace) if workspace else self.build_general_prompt()
+        workspace_title = (workspace or {}).get("title") or "?"
         init_block = (
-            f"\n\n## Autonomy Heartbeat — {project_title}\n"
+            f"\n\n## Autonomy Heartbeat — {workspace_title}\n"
             "You run on a cron, not from a user message. The directive you receive "
             "IS the instruction. You have the eyes on the board; workers have the hands. "
             "Your job: read → decide → delegate or no-op. Be concise."
@@ -721,7 +720,7 @@ class PersonalityService:
         full_prompt = base + init_block + tail
         logger.info(
             f"[PersonalityService] Autonomy prompt built: {len(full_prompt)} chars, "
-            f"project={project_title}, native_tools={native_tools}"
+            f"workspace={workspace_title}, native_tools={native_tools}"
         )
         return full_prompt
 
@@ -1007,9 +1006,9 @@ class PersonalityService:
         self,
         memory_context: Optional[str] = None,
         chat_level: str = "general",
-        project: Optional[dict] = None,
+        workspace: Optional[dict] = None,
         card: Optional[dict] = None,
-        project_names: Optional[list] = None,
+        workspace_names: Optional[list] = None,
         has_delegation: bool = False,
         is_chat_responder: bool = False,
         native_tools: bool = False,
@@ -1020,15 +1019,15 @@ class PersonalityService:
         preserving the legacy supervisor/background-executor escape hatch.
         """
         if not is_chat_responder:
-            if chat_level == "card" and card and project:
-                return self.build_card_prompt(project, card)
-            if project:
-                return self.build_project_prompt(project)
+            if chat_level == "card" and card and workspace:
+                return self.build_card_prompt(workspace, card)
+            if workspace:
+                return self.build_workspace_prompt(workspace)
             return self.build_general_prompt()
         return self.build_dispatcher_prompt(
             tier="deep",
             chat_level=chat_level,
-            project=project,
+            workspace=workspace,
             card=card,
             native_tools=native_tools,
         )
@@ -1041,7 +1040,7 @@ class PersonalityService:
         self,
         model: str = "sonnet",
         chat_level: str = "general",
-        project: Optional[dict] = None,
+        workspace: Optional[dict] = None,
         card: Optional[dict] = None,
     ) -> str:
         """Build system prompt for background worker execution.
@@ -1051,7 +1050,7 @@ class PersonalityService:
         """
         from app.tools.registry import TOOLS_WORKER
         tool_list = self._build_tool_section(TOOLS_WORKER, chat_level)
-        context = self._build_worker_context_section(chat_level, project, card)
+        context = self._build_worker_context_section(chat_level, workspace, card)
         worker_rules = self.load_worker()
 
         web_search_rule = (
@@ -1073,13 +1072,13 @@ class PersonalityService:
             f"## Context\n{context}"
         )
 
-    def _build_worker_context_section(self, chat_level: str, project: Optional[dict], card: Optional[dict]) -> str:
+    def _build_worker_context_section(self, chat_level: str, workspace: Optional[dict], card: Optional[dict]) -> str:
         """Build context section for worker prompts with full IDs and details."""
         parts = []
-        if chat_level == "card" and card and project:
-            parts.append(f"Workspace: {project.get('title', '?')} (workspace_id: {project.get('id', '?')})")
-            if project.get("local_path"):
-                parts.append(f"Workspace workspace: {project['local_path']} (CWD is set here)")
+        if chat_level == "card" and card and workspace:
+            parts.append(f"Workspace: {workspace.get('title', '?')} (workspace_id: {workspace.get('id', '?')})")
+            if workspace.get("local_path"):
+                parts.append(f"Workspace path: {workspace['local_path']} (CWD is set here)")
             parts.append(f"Card: {card.get('title', '?')} (card_id: {card.get('id', '?')})")
             parts.append(f"Card status: {card.get('status', '?')} | Priority: {card.get('priority', '?')}")
             if card.get("description"):
@@ -1087,29 +1086,29 @@ class PersonalityService:
             parts.append(
                 f"\nYou are operating on this specific card. "
                 f"Use card_id={card.get('id', '?')} for any card operations. "
-                f"Use workspace_id={project.get('id', '?')} for any project operations. "
+                f"Use workspace_id={workspace.get('id', '?')} for any workspace operations. "
                 f"Do NOT ask the user which card — you already know."
             )
             return "\n".join(parts)
-        elif project:
-            parts.append(f"Workspace: {project.get('title', '?')} (workspace_id: {project.get('id', '?')})")
-            if project.get("local_path"):
-                parts.append(f"Workspace workspace: {project['local_path']} (CWD is set here)")
-            if project.get("description"):
-                parts.append(f"Description: {project['description'][:200]}")
+        elif workspace:
+            parts.append(f"Workspace: {workspace.get('title', '?')} (workspace_id: {workspace.get('id', '?')})")
+            if workspace.get("local_path"):
+                parts.append(f"Workspace path: {workspace['local_path']} (CWD is set here)")
+            if workspace.get("description"):
+                parts.append(f"Description: {workspace['description'][:200]}")
             parts.append(
-                f"\nYou are operating in this project's context. "
-                f"Use workspace_id={project.get('id', '?')} for any project/card operations. "
-                f"Do NOT ask the user which project — you already know."
+                f"\nYou are operating in this workspace's context. "
+                f"Use workspace_id={workspace.get('id', '?')} for any workspace/card operations. "
+                f"Do NOT ask the user which workspace — you already know."
             )
             return "\n".join(parts)
         from app.config import VOXYFLOW_SANDBOX_DIR
         sb_dir = str(VOXYFLOW_SANDBOX_DIR)
         return (
-            "Context: Home project (default workspace, workspace_id=system-main)\n"
+            "Context: Home workspace (default, workspace_id=system-main)\n"
             f"Sandbox: {sb_dir}\n"
             f"CWD is set to {sb_dir} — use relative paths for sandbox files.\n"
-            "Voxyflow app codebase: ~/voxyflow/ (do NOT write project files here)."
+            "Voxyflow app codebase: ~/voxyflow/ (do NOT write app files here)."
         )
 
     def build_agent_prompt(self, agent_persona: str, task_context: str, memory_context: Optional[str] = None) -> str:

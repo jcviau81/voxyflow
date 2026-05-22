@@ -41,14 +41,14 @@ DIRECT_ACTION_MAP: dict[str, str] = {
     "list_cards": "voxyflow.card.list",
     "get_card": "voxyflow.card.get",
     # Workspace CRUD
-    "project.list": "voxyflow.workspace.list",
-    "project.get": "voxyflow.workspace.get",
-    "project.create": "voxyflow.workspace.create",
-    "project.delete": "voxyflow.workspace.delete",
-    "list_projects": "voxyflow.workspace.list",
-    "get_project": "voxyflow.workspace.get",
-    "create_project": "voxyflow.workspace.create",
-    "delete_project": "voxyflow.workspace.delete",
+    "workspace.list": "voxyflow.workspace.list",
+    "workspace.get": "voxyflow.workspace.get",
+    "workspace.create": "voxyflow.workspace.create",
+    "workspace.delete": "voxyflow.workspace.delete",
+    "list_workspaces": "voxyflow.workspace.list",
+    "get_workspace": "voxyflow.workspace.get",
+    "create_workspace": "voxyflow.workspace.create",
+    "delete_workspace": "voxyflow.workspace.delete",
     # Wiki read
     "wiki.list": "voxyflow.wiki.list",
     "wiki.get": "voxyflow.wiki.get",
@@ -72,10 +72,10 @@ DIRECT_ACTION_MAP: dict[str, str] = {
 CRUD_SIMPLE_INTENTS = frozenset({"create_card", "move_card", "update_card"})
 
 # Actions that require user confirmation before execution (irreversible)
-CONFIRM_REQUIRED = {"card.delete", "delete_card", "project.delete", "delete_project", "jobs.delete"}
+CONFIRM_REQUIRED = {"card.delete", "delete_card", "workspace.delete", "delete_workspace", "jobs.delete"}
 
 # Actions that require no params (can have empty/missing params dict)
-NO_PARAMS_REQUIRED = {"project.list", "list_projects", "jobs.list", "list_jobs", "health", "workers.list", "card.list", "list_cards", "wiki.list", "list_wiki"}
+NO_PARAMS_REQUIRED = {"workspace.list", "list_workspaces", "jobs.list", "list_jobs", "health", "workers.list", "card.list", "list_cards", "wiki.list", "list_wiki"}
 
 # Read actions — these need LLM context injection so Voxy can use the data
 # in her response.  Direct execution works for writes (fire-and-forget) but
@@ -83,8 +83,8 @@ NO_PARAMS_REQUIRED = {"project.list", "list_projects", "jobs.list", "list_jobs",
 READ_ACTIONS = {
     "card.get", "get_card",
     "card.list", "list_cards",
-    "project.get", "get_project",
-    "project.list", "list_projects",
+    "workspace.get", "get_workspace",
+    "workspace.list", "list_workspaces",
     "wiki.get", "get_wiki",
     "wiki.list", "list_wiki",
     "workers.list", "workers.get_result",
@@ -110,7 +110,7 @@ class DirectExecutor:
             logger.debug(f"[DirectExecutor] Action '{action}' not in whitelist, falling back to worker")
             return False
 
-        # No-param actions (health, list_projects, etc.) don't need params
+        # No-param actions (health, list_workspaces, etc.) don't need params
         if action in NO_PARAMS_REQUIRED:
             return True
 

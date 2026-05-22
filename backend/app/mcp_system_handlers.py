@@ -484,7 +484,7 @@ def build_handlers(
             return {"success": False, "error": str(e)}
 
     async def sessions_list(params: dict) -> dict:
-        """List active CLI subprocess sessions, scoped to the current project by default."""
+        """List active CLI subprocess sessions, scoped to the current workspace by default."""
         import time
         from app.services.cli_session_registry import get_cli_session_registry
         registry = get_cli_session_registry()
@@ -498,12 +498,12 @@ def build_handlers(
             scope_label = "all"
         else:
             filtered = [s for s in all_sessions if (s.workspace_id or "") == current_pid]
-            scope_label = "project"
+            scope_label = "workspace"
 
         return {
             "success": True,
             "scope": scope_label,
-            "workspace_id": current_pid if scope_label == "project" else None,
+            "workspace_id": current_pid if scope_label == "workspace" else None,
             "sessions": [
                 {
                     "id": s.id,
@@ -525,7 +525,7 @@ def build_handlers(
     async def workers_list(params: dict) -> dict:
         """List active and recent worker tasks from the session store + DB.
 
-        Defaults to the current project; pass scope='all' for system-wide.
+        Defaults to the current workspace; pass scope='all' for system-wide.
         """
         from app.services.worker_session_store import get_worker_session_store
         try:
@@ -539,7 +539,7 @@ def build_handlers(
                 scope_label = "all"
             else:
                 filter_pid = current_pid
-                scope_label = "project"
+                scope_label = "workspace"
 
             sessions = store.get_sessions(session_id=session_id)
             if filter_pid:

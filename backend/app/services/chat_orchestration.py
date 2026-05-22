@@ -1222,16 +1222,16 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     parts.append("- [{}] {} (id: {})".format(s, t, cid))
                 return "\n".join(parts)
             return "card.list completed ({} ms)".format(duration)
-        elif action in ("project.list", "list_projects"):
+        elif action in ("workspace.list", "list_workspaces"):
             if isinstance(api_result, list):
                 count = len(api_result)
-                parts = ["Found {} project(s):".format(count)]
+                parts = ["Found {} workspace(s):".format(count)]
                 for p in api_result[:10]:
                     t = p.get("title", "Untitled")
                     pid = p.get("id", "")
                     parts.append("- {} (id: {})".format(t, pid))
                 return "\n".join(parts)
-            return "project.list completed ({} ms)".format(duration)
+            return "workspace.list completed ({} ms)".format(duration)
         else:
             return f"Action `{action}` completed ({duration}ms)"
 
