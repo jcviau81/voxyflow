@@ -141,6 +141,7 @@ class ClaudeService(ApiCallerMixin):
 
         # CLI backend (shared across all layers when use_cli=True)
         self._cli_backend = ClaudeCliBackend(config.claude_cli_path) if self.use_cli else None
+        self._codex_backend = None
 
         # Load overrides from settings.json
         overrides = _load_model_overrides()
@@ -275,18 +276,18 @@ class ClaudeService(ApiCallerMixin):
         url = resolved["url"]
         api_key = resolved["api_key"]
 
-        if not provider_type or provider_type == "cli":
-            # CLI mode — route through the existing CLI backend via deep layer
+        if not provider_type or provider_type in ("cli", "codex"):
+            # Local CLI mode — route through _call_api with the selected client_type.
             logger.info(
-                "[ClaudeService] Worker class %r uses CLI — routing via deep layer with model %s",
-                wc.get("name"), model or self.deep_model,
+                "[ClaudeService] Worker class %r uses %s — routing via local CLI backend with model %s",
+                wc.get("name"), provider_type or "default", model or self.deep_model,
             )
             return await self._call_api(
-                self.deep_client,
-                self.deep_client_type,
-                model or self.deep_model,
-                messages,
+                model=model or self.deep_model,
                 system=system,
+                messages=messages,
+                client=None,
+                client_type=provider_type or self.deep_client_type,
                 **kwargs,
             )
 
@@ -581,7 +582,7 @@ class ClaudeService(ApiCallerMixin):
         """
         use_native_delegate = self.fast_client_type == "anthropic"
         use_openai_delegate = self.fast_client_type == "openai"
-        use_cli_mcp = self.fast_client_type == "cli"
+        use_cli_mcp = self.fast_client_type in ("cli", "codex")
         card_id = card_context.get("id", "") if card_context else ""
 
         await self._append_and_persist_async(chat_id, "user", user_message, model=self.fast_model)
@@ -607,8 +608,8 @@ class ClaudeService(ApiCallerMixin):
         # native delegate_action tool-call protocol as Anthropic — XML delegates
         # are unreliable on small open-weight models.
         native_tools_mode = (
-            "cli_mcp" if use_cli_mcp
-            else (use_native_delegate or use_openai_delegate)
+            "codex_mcp" if self.fast_client_type == "codex"
+            else ("claude_cli_mcp" if use_cli_mcp else (use_native_delegate or use_openai_delegate))
         )
         # Static base prompt — personality + dispatcher (or autonomy) + tools (cacheable)
         if role == "autonomy":
@@ -681,6 +682,14 @@ class ClaudeService(ApiCallerMixin):
                     "card_list, card_get, card_create, card_update, card_move, "
                     "workers_list, workers_get_result, workers_read_artifact. For complex tasks (research, code, "
                     "multi-step ops), I delegate to background workers via delegate_action."
+                )
+            elif self.fast_client_type == "codex":
+                priming_assistant = (
+                    "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
+                    "I converse briefly, use read-only MCP tools only to inspect state, "
+                    "and delegate action work to background workers with <delegate> blocks. "
+                    "I do not perform implementation, research, filesystem, shell, card writes, "
+                    "or multi-step work inline."
                 )
             elif use_cli_mcp:
                 priming_assistant = (
@@ -755,7 +764,9 @@ class ClaudeService(ApiCallerMixin):
             # For persistent sessions: if process exists, send only the new message
             # with dynamic context as prefix (saves tokens)
             is_persistent = (
-                self._cli_backend
+                self.fast_client_type == "cli"
+                and self.deep_client_type == "cli"
+                and self._cli_backend
                 and self._cli_backend.has_persistent_chat(chat_id)
             )
             if is_persistent:
@@ -776,7 +787,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.fast_client,
                 client_type=self.fast_client_type,
                 use_tools=True,
-                mcp_role="dispatcher",
+                mcp_role=("dispatcher_codex" if self.fast_client_type == "codex" else "dispatcher"),
                 chat_level=chat_level,
                 chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "", card_id=card_id,
@@ -786,7 +797,7 @@ class ClaudeService(ApiCallerMixin):
                 full_response += token
                 yield token
             logger.info(
-                f"[chat_fast_stream] CLI+MCP path — "
+                f"[chat_fast_stream] Local CLI+MCP path — "
                 f"{'persistent' if is_persistent else 'new session'}, "
                 f"inline tools via MCP, XML delegates"
             )
@@ -839,7 +850,7 @@ class ClaudeService(ApiCallerMixin):
         """
         use_native_delegate = self.deep_client_type == "anthropic"
         use_openai_delegate = self.deep_client_type == "openai"
-        use_cli_mcp = self.deep_client_type == "cli"
+        use_cli_mcp = self.deep_client_type in ("cli", "codex")
         card_id = card_context.get("id", "") if card_context else ""
 
         await self._append_and_persist_async(chat_id, "user", user_message, model=self.deep_model)
@@ -858,8 +869,8 @@ class ClaudeService(ApiCallerMixin):
         # Determine tool mode for personality prompt — OpenAI-compat uses native
         # delegate_action tool calls (same prompt shape as Anthropic native).
         native_tools_mode = (
-            "cli_mcp" if use_cli_mcp
-            else (use_native_delegate or use_openai_delegate)
+            "codex_mcp" if self.deep_client_type == "codex"
+            else ("claude_cli_mcp" if use_cli_mcp else (use_native_delegate or use_openai_delegate))
         )
         # Static base prompt — personality + dispatcher + tools only (cacheable)
         base_prompt = self.personality.build_deep_prompt(
@@ -921,6 +932,14 @@ class ClaudeService(ApiCallerMixin):
                     "I converse with you directly and delegate all actions to background workers "
                     "using the delegate_action tool. I never execute actions myself. When you ask "
                     "me to do something, I respond briefly and call delegate_action to trigger the worker."
+                )
+            elif self.deep_client_type == "codex":
+                priming_assistant = (
+                    "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. "
+                    "I'm a dispatcher — I converse briefly, use read-only MCP tools only "
+                    "to inspect state, and delegate action work to background workers with "
+                    "<delegate> blocks. I do not perform implementation, research, filesystem, "
+                    "shell, card writes, or multi-step work inline."
                 )
             elif use_cli_mcp:
                 priming_assistant = (
@@ -1009,7 +1028,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.deep_client,
                 client_type=self.deep_client_type,
                 use_tools=True,
-                mcp_role="dispatcher",
+                mcp_role=("dispatcher_codex" if self.deep_client_type == "codex" else "dispatcher"),
                 chat_level=chat_level,
                 chat_id=chat_id,
                 session_id=session_id, project_id=project_id or "", card_id=card_id,
@@ -1018,7 +1037,7 @@ class ClaudeService(ApiCallerMixin):
             ):
                 full_response += token
                 yield token
-            logger.info(f"[chat_deep_stream] CLI+MCP path — inline tools via MCP, XML delegates")
+            logger.info(f"[chat_deep_stream] Local CLI+MCP path — inline tools via MCP, XML delegates")
         else:
             full_response = ""
             async for token in self._call_api_stream(
@@ -1068,6 +1087,8 @@ class ClaudeService(ApiCallerMixin):
             wc_model = (endpoint_config.get("model") or "").strip() or model
             if ptype == "cli":
                 return (None, "cli", wc_model)
+            if ptype == "codex":
+                return (None, "codex", wc_model)
             if endpoint_config.get("url"):
                 return self._make_endpoint_client(endpoint_config, model)
             # provider_type set but no url and not cli — fall through to alias.
@@ -1207,6 +1228,21 @@ class ClaudeService(ApiCallerMixin):
             "dispatcher will fetch specific sections via read_artifact using your pointers."
         )
 
+        if client_type == "codex":
+            dynamic_parts.append(
+                "## Codex Voxyflow Lifecycle Fallback\n"
+                "You do not have Voxyflow MCP lifecycle tools in this mode. Instead, report lifecycle "
+                "with fenced JSON blocks in your final answer. Include a claim block before your work summary "
+                "and a complete block after it. Use exactly these shapes:\n\n"
+                "```json\n"
+                "{\"voxyflow_worker_claim\": {\"task_id\": \"<task_id>\", \"plan\": \"<one sentence plan>\"}}\n"
+                "```\n\n"
+                "```json\n"
+                "{\"voxyflow_worker_complete\": {\"task_id\": \"<task_id>\", \"status\": \"success|partial|failed\", "
+                "\"summary\": \"<2-4 sentences>\", \"findings\": [\"...\"], \"pointers\": [], \"next_step\": null}}\n"
+                "```"
+            )
+
         if project_id:
             try:
                 pass  # RAG disabled — use knowledge.search tool instead
@@ -1214,7 +1250,7 @@ class ClaudeService(ApiCallerMixin):
                 logger.warning(f"RAG context injection failed (execute_worker_task): {e}")
 
         system_prompt = _make_cached_system(
-            base_prompt, dynamic_parts, is_anthropic=(client_type in ("anthropic", "cli"))
+            base_prompt, dynamic_parts, is_anthropic=(client_type in ("anthropic", "cli", "codex"))
         )
         system_prompt = _inject_no_think(system_prompt, model_name)
 
@@ -1279,7 +1315,14 @@ class ClaudeService(ApiCallerMixin):
             "Stop immediately after. The artifact is persisted automatically — don't inline it."
         )
 
-        if client_type in ("anthropic", "cli"):
+        if client_type == "codex":
+            system_prompt += (
+                "\n\nCodex lifecycle fallback: include fenced JSON blocks named "
+                "voxyflow_worker_claim and voxyflow_worker_complete in your final answer. "
+                "The complete block must include task_id, status, summary, findings, pointers, and next_step."
+            )
+
+        if client_type in ("anthropic", "cli", "codex"):
             system_prompt_final: str | list[dict] = [{"type": "text", "text": system_prompt}]
         else:
             system_prompt_final = system_prompt

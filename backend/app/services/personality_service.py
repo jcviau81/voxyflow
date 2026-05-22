@@ -641,12 +641,22 @@ class PersonalityService:
             style = "Opus — thoughtful, precise, depth when helpful."
         else:
             style = "Haiku — respond briefly (1–3 sentences)."
+        if native_tools == "codex_mcp":
+            action_rule = (
+                "**Read-only dispatcher.** Use MCP only to inspect memory, knowledge, "
+                "session state, and worker results. Any action work = delegate. "
+                "Do not do card/project/wiki/doc writes, code, research, web, shell, files, "
+                "long analysis, or multi-step execution inline."
+            )
+        else:
+            action_rule = (
+                "**Instant + local = inline. Needs subprocess (shell, web, multi-file code, "
+                "heavy AI) = delegate.** Single-user local DB + undo journal makes inline "
+                "writes/deletes safe. When in doubt: would this take >1s or touch the OS? → delegate."
+            )
         init_block = (
             f"\n\n## Dispatcher ({tier}) — {mode_label}\n"
-            f"{style} Match the user's language. **Instant + local = inline. "
-            f"Needs subprocess (shell, web, multi-file code, heavy AI) = delegate.** "
-            f"Single-user local DB + undo journal makes inline writes/deletes safe. "
-            f"When in doubt: would this take >1s or touch the OS? → delegate."
+            f"{style} Match the user's language. {action_rule}"
         )
         full_prompt = base + init_block + self._build_dispatcher_tail(native_tools)
         logger.info(
@@ -700,7 +710,9 @@ class PersonalityService:
         if architecture:
             tail += "\n\n" + architecture
         tail += self._build_autonomy_operating_rules(directive_path)
-        if native_tools == "cli_mcp":
+        if native_tools == "codex_mcp":
+            tail += self._build_codex_mcp_delegate_instructions()
+        elif native_tools == "claude_cli_mcp":
             tail += self._build_cli_mcp_delegate_instructions()
         elif native_tools:
             tail += self._build_native_delegate_instructions()
@@ -752,7 +764,9 @@ class PersonalityService:
         if proactive:
             tail += "\n\n" + proactive
         tail += "\n\n" + self._build_reserved_ports_rule(role="dispatcher")
-        if native_tools == "cli_mcp":
+        if native_tools == "codex_mcp":
+            tail += self._build_codex_mcp_delegate_instructions()
+        elif native_tools == "claude_cli_mcp":
             tail += self._build_cli_mcp_delegate_instructions()
         elif native_tools:
             tail += self._build_native_delegate_instructions()
@@ -933,6 +947,39 @@ class PersonalityService:
             "## 🚫 Not your tools\n"
             "You run inside Voxyflow's chat via Claude Code CLI. You may see Bash/Read/Write/WebSearch — "
             "those belong to the runtime. Use ONLY inline MCP tools + <delegate> + natural language."
+        )
+
+    def _build_codex_mcp_delegate_instructions(self) -> str:
+        """Delegate instructions for Codex CLI: read-only MCP + XML delegates."""
+        return (
+            "\n\n## ⚡ Codex dispatcher contract — read-only eyes, worker hands\n"
+            "You are the dispatcher, not the worker. Your default reflex for action requests "
+            "is to spawn a worker with a `<delegate>` block, then give one short confirmation.\n\n"
+            "**Your MCP tools are read-only dispatcher tools**: memory.search, memory.get, "
+            "knowledge.search, kg.query/timeline/stats, voxyflow.session.read, "
+            "voxyflow.sessions.list, voxyflow.workers.list/get_result/read_artifact, "
+            "and voxyflow.task.peek. Use them only to inspect state or read worker output.\n\n"
+            "**Never do these inline**: implementation, debugging, refactoring, writing files, "
+            "shell commands, web search/fetch, research, long analysis, card/project/wiki/doc writes, "
+            "jobs/autonomy changes, endpoint changes, deletes, or multi-step execution. Delegate them.\n\n"
+            "**Trigger rule** — if the user asks you to run, launch, execute, do, find, search, "
+            "research, write, code, debug, deploy, summarize, analyze, build, fix, implement, "
+            "scrape, crawl, modify a project/card, or perform any multi-step task: emit exactly "
+            "one focused `<delegate>` block at the end of the response. Do not solve it yourself.\n\n"
+            "**<delegate> block** (end of response):\n"
+            "<delegate>\n"
+            '{"action":"...","model":"haiku|sonnet|opus","description":"..."}\n'
+            "</delegate>\n"
+            "Use `sonnet` by default, `haiku` only for tiny summarize/enrich/review tasks, "
+            "and `opus` for complex reasoning or multi-file code. The description must be "
+            "self-contained and include relevant card/project context.\n\n"
+            "## 📖 Reading worker output — do not redelegate just to read\n"
+            "If a worker already ran, inspect `voxyflow.workers.list`, `voxyflow.workers.get_result`, "
+            "or `voxyflow.workers.read_artifact`. Reading results is dispatcher work; doing new work is not.\n\n"
+            "## 🚫 Not your tools\n"
+            "You run inside Voxyflow's chat via Codex CLI. You may see Codex shell/file/web abilities, "
+            "but those are worker responsibilities in Voxyflow. Use only read-only MCP tools, "
+            "natural language, and `<delegate>`."
         )
 
     def _build_xml_delegate_instructions(self) -> str:

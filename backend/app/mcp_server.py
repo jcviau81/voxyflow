@@ -20,6 +20,8 @@ from typing import Any
 
 import httpx
 
+from app.tools.registry import TOOLS_DISPATCHER, TOOLS_DISPATCHER_CODEX
+
 try:
     from mcp.server import Server
     from mcp import types
@@ -626,11 +628,53 @@ def _strip_auto_injected(schema: dict, injectable: set[str]) -> dict:
     return new_schema
 
 
+def _allowed_tool_names_for_role(role: str) -> set[str] | None:
+    """Return registry-defined tool names for dispatcher roles, or None for scope mode."""
+    if role == "dispatcher_codex":
+        return TOOLS_DISPATCHER_CODEX
+    if role == "dispatcher":
+        return TOOLS_DISPATCHER
+    return None
+
+
+def _filter_consolidated_by_names(tools: list[dict], allowed_names: set[str]) -> list[dict]:
+    """Filter consolidated MCP tools using registry tool names as source of truth."""
+    visible: list[dict] = []
+    for tool in tools:
+        candidate = dict(tool)
+        dispatch = candidate.get("_dispatch") or {}
+        if dispatch:
+            allowed_dispatch = {
+                action: tool_name
+                for action, tool_name in dispatch.items()
+                if tool_name in allowed_names
+            }
+            if not allowed_dispatch:
+                continue
+            schema = dict(candidate.get("inputSchema") or {})
+            properties = dict(schema.get("properties") or {})
+            action_schema = dict(properties.get("action") or {})
+            action_schema["enum"] = [
+                action for action in action_schema.get("enum", [])
+                if action in allowed_dispatch
+            ]
+            properties["action"] = action_schema
+            schema["properties"] = properties
+            candidate["inputSchema"] = schema
+            candidate["_dispatch"] = allowed_dispatch
+            visible.append(candidate)
+            continue
+        if candidate.get("name") in allowed_names:
+            visible.append(candidate)
+    return visible
+
+
 def _visible_tools_consolidated() -> list[dict]:
     """Return consolidated tool definitions visible to the current role + active scopes."""
     role = VOXYFLOW_MCP_ROLE
-    if role == "dispatcher":
-        return [t for t in _CONSOLIDATED_MCP_TOOLS if t.get("_role", "all") != "worker"]
+    allowed = _allowed_tool_names_for_role(role)
+    if allowed is not None:
+        return _filter_consolidated_by_names(_CONSOLIDATED_MCP_TOOLS, allowed)
     # Workers: filter by active scopes
     return [t for t in _CONSOLIDATED_MCP_TOOLS if t.get("_scope", "core") in _active_scopes]
 
@@ -638,8 +682,9 @@ def _visible_tools_consolidated() -> list[dict]:
 def _visible_tools_flat() -> list[dict]:
     """Return individual (flat) tool definitions visible to the current role + active scopes."""
     role = VOXYFLOW_MCP_ROLE
-    if role == "dispatcher":
-        return [t for t in _TOOL_DEFINITIONS if t.get("_role", "all") != "worker"]
+    allowed = _allowed_tool_names_for_role(role)
+    if allowed is not None:
+        return [dict(t) for t in _TOOL_DEFINITIONS if t.get("name") in allowed]
     # Workers: filter by active scopes
     return [t for t in _TOOL_DEFINITIONS if t.get("_scope", "core") in _active_scopes]
 
@@ -729,13 +774,18 @@ if MCP_AVAILABLE:
             # Log deprecation if this is a grouped tool called by old name
             if name in _GROUPED_TOOL_NAMES:
                 logger.warning(f"[MCP] Deprecated individual tool call: {name} — use consolidated group instead")
+            original_name = name
 
-        # Enforce role-based access (defense in depth — even if list_tools filters)
-        if VOXYFLOW_MCP_ROLE == "dispatcher" and tool_def.get("_role") == "worker":
-            logger.warning(f"[MCP] Blocked dispatcher from calling worker-only tool: {name}")
+        # Enforce registry-defined dispatcher access (defense in depth — even if list_tools filters).
+        allowed_names = _allowed_tool_names_for_role(VOXYFLOW_MCP_ROLE)
+        if allowed_names is not None and original_name not in allowed_names:
+            logger.warning(
+                "[MCP] Blocked %s from calling unavailable tool: %s",
+                VOXYFLOW_MCP_ROLE, original_name,
+            )
             return [TextContent(type="text", text=json.dumps({
                 "success": False,
-                "error": f"Tool '{name}' is not available to the dispatcher. Delegate this task to a worker.",
+                "error": f"Tool '{original_name}' is not available to {VOXYFLOW_MCP_ROLE}. Delegate this task to a worker.",
             }))]
 
         try:

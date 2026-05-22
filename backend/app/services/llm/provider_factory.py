@@ -9,6 +9,7 @@ Usage:
 
 Supported provider_type values:
     "cli"         — Claude CLI subprocess (via existing ClaudeCliBackend)
+    "codex"       — Codex CLI subprocess (via codex exec)
     "anthropic"   — Native Anthropic SDK
     "openai"      — OpenAI or any OpenAI-compatible endpoint
     "ollama"      — Ollama local instance
@@ -38,6 +39,7 @@ class ProviderType:
     """
 
     CLI = "cli"
+    CODEX = "codex"
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     OLLAMA = "ollama"
@@ -51,7 +53,7 @@ class ProviderType:
     # through OpenAICompatProvider.
     _OPENAI_COMPAT = frozenset({OPENAI, GROQ, MISTRAL, GEMINI, LMSTUDIO, OPENROUTER})
 
-    ALL = frozenset({CLI, ANTHROPIC, OPENAI, OLLAMA, GROQ, MISTRAL, GEMINI, LMSTUDIO, OPENROUTER})
+    ALL = frozenset({CLI, CODEX, ANTHROPIC, OPENAI, OLLAMA, GROQ, MISTRAL, GEMINI, LMSTUDIO, OPENROUTER})
 
     @classmethod
     def is_openai_compat(cls, ptype: str) -> bool:
@@ -84,6 +86,7 @@ _LABELS: dict[str, str] = {
     ProviderType.OLLAMA:     "Ollama",
     ProviderType.ANTHROPIC:  "Anthropic (Claude)",
     ProviderType.CLI:        "Claude CLI",
+    ProviderType.CODEX:      "Codex CLI",
 }
 
 
@@ -144,6 +147,10 @@ def get_provider(
         from app.services.llm.providers.cli import CliProvider
         return _cache(CliProvider())
 
+    if ptype == ProviderType.CODEX:
+        from app.services.llm.providers.codex import CodexProvider
+        return _cache(CodexProvider())
+
     if ProviderType.is_openai_compat(ptype) or ptype == "openai_compat":
         if not resolved_url:
             raise ValueError(f"No URL configured for provider '{ptype}'")
@@ -198,6 +205,7 @@ def list_known_providers() -> list[dict]:
     """Return metadata for all known providers — used by the Settings UI."""
     return [
         {"type": ProviderType.CLI,        "label": "Claude CLI",         "requires_key": False, "local": True,  "default_url": ""},
+        {"type": ProviderType.CODEX,      "label": "Codex CLI",          "requires_key": False, "local": True,  "default_url": ""},
         {"type": ProviderType.ANTHROPIC,  "label": "Anthropic (Claude)", "requires_key": True,  "local": False, "default_url": "https://api.anthropic.com"},
         {"type": ProviderType.OLLAMA,     "label": "Ollama",             "requires_key": False, "local": True,  "default_url": "http://localhost:11434"},
         {"type": ProviderType.OPENAI,     "label": "OpenAI",             "requires_key": True,  "local": False, "default_url": "https://api.openai.com/v1"},

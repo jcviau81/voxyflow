@@ -205,14 +205,15 @@ const LAYER_META: Record<LayerKey, { label: string; icon: string; placeholder: s
   },
 };
 
-const NO_URL_PROVIDERS = new Set(['cli', 'anthropic']);
-const NO_KEY_PROVIDERS = new Set(['cli', 'ollama', 'lmstudio']);
-const LISTABLE_PROVIDERS = new Set(['ollama', 'openai', 'groq', 'mistral', 'lmstudio', 'gemini', 'anthropic', 'cli', 'openrouter']);
+const NO_URL_PROVIDERS = new Set(['cli', 'codex', 'anthropic']);
+const NO_KEY_PROVIDERS = new Set(['cli', 'codex', 'ollama', 'lmstudio']);
+const LISTABLE_PROVIDERS = new Set(['ollama', 'openai', 'groq', 'mistral', 'lmstudio', 'gemini', 'anthropic', 'cli', 'codex', 'openrouter']);
 const LOCAL_PROVIDER_TYPES = new Set(['ollama', 'lmstudio']);
 
 // Static fallback model lists for cloud providers (shown when API listing is unavailable)
 const STATIC_MODELS: Record<string, string[]> = {
   cli: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7'],
+  codex: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2'],
   anthropic: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-5', 'claude-opus-4-5'],
   groq: [
     'llama-3.3-70b-versatile', 'llama-3.1-70b-versatile', 'llama-3.1-8b-instant',
@@ -272,6 +273,7 @@ function providerLabel(type: string): string {
     lmstudio: 'LM Studio',
     openai: 'OpenAI-compat',
     cli: 'Claude CLI',
+    codex: 'Codex CLI',
     anthropic: 'Anthropic',
     groq: 'Groq',
     mistral: 'Mistral',
@@ -1852,7 +1854,7 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
             <input
               type="text"
               className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1"
-              placeholder={slot.providerType === 'cli' ? 'claude-sonnet-4' : slot.providerType === 'anthropic' ? 'claude-sonnet-4' : 'model name'}
+              placeholder={slot.providerType === 'cli' ? 'claude-sonnet-4' : slot.providerType === 'codex' ? 'gpt-5.5' : slot.providerType === 'anthropic' ? 'claude-sonnet-4' : 'model name'}
               value={slot.model}
               onChange={e => setSlot(s => ({ ...s, model: e.target.value }))}
             />

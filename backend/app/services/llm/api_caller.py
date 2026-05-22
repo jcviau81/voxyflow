@@ -7,6 +7,7 @@ Extracted from claude_service.py. Relies on self attributes from ClaudeService:
   self._infer_layer(), self._load_tool_settings(), self._should_use_server_tools()
   self._pending_delegates
   self._cli_backend (when client_type == "cli")
+  self._codex_backend (when client_type == "codex")
 """
 
 from __future__ import annotations
@@ -1628,6 +1629,107 @@ class ApiCallerMixin:
             if chat_id:
                 self._last_stream_usage[chat_id] = dict(usage)
 
+
+    # ------------------------------------------------------------------
+    # Codex CLI subprocess path
+    # ------------------------------------------------------------------
+
+    async def _call_api_codex(
+        self,
+        model: str,
+        system: str | list[dict],
+        messages: list[dict],
+        use_tools: bool = False,
+        mcp_role: str = "worker",
+        layer: str = "fast",
+        chat_id: str = "",
+        cancel_event: Optional[asyncio.Event] = None,
+        message_queue: Optional[asyncio.Queue] = None,
+        tool_callback: Optional[Callable] = None,
+        session_id: str = "",
+        project_id: str = "",
+        card_id: str = "",
+        session_type: str = "worker",
+        task_id: str = "",
+        cwd: str = "",
+    ) -> str:
+        if not getattr(self, "_codex_backend", None):
+            from app.services.llm.codex_backend import CodexCliBackend
+            self._codex_backend = CodexCliBackend()
+        text, usage = await self._codex_backend.call(
+            model=model,
+            system=system,
+            messages=messages,
+            use_tools=use_tools,
+            mcp_role=mcp_role,
+            cancel_event=cancel_event,
+            message_queue=message_queue,
+            tool_callback=tool_callback,
+            session_id=session_id,
+            chat_id=chat_id,
+            project_id=project_id,
+            card_id=card_id,
+            session_type=session_type,
+            task_id=task_id,
+            cwd=cwd,
+        )
+        _log_token_usage(
+            layer=layer,
+            model=model,
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            chat_id=chat_id,
+            cache_creation_tokens=0,
+            cache_read_tokens=usage.get("cached_input_tokens", 0),
+        )
+        return text
+
+    async def _call_api_stream_codex(
+        self,
+        model: str,
+        system: str | list[dict],
+        messages: list[dict],
+        use_tools: bool = False,
+        mcp_role: str = "worker",
+        layer: str = "fast",
+        chat_id: str = "",
+        session_id: str = "",
+        project_id: str = "",
+        card_id: str = "",
+        session_type: str = "chat",
+        cwd: str = "",
+    ) -> AsyncIterator[str]:
+        if not getattr(self, "_codex_backend", None):
+            from app.services.llm.codex_backend import CodexCliBackend
+            self._codex_backend = CodexCliBackend()
+        async for token in self._codex_backend.stream(
+            model=model,
+            system=system,
+            messages=messages,
+            use_tools=use_tools,
+            mcp_role=mcp_role,
+            session_id=session_id,
+            chat_id=chat_id,
+            project_id=project_id,
+            card_id=card_id,
+            session_type=session_type,
+            cwd=cwd,
+        ):
+            yield token
+        usage = self._codex_backend.last_usage
+        if usage:
+            _log_token_usage(
+                layer=layer,
+                model=model,
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+                chat_id=chat_id,
+                cache_creation_tokens=0,
+                cache_read_tokens=usage.get("cached_input_tokens", 0),
+            )
+            if chat_id:
+                self._last_stream_usage[chat_id] = dict(usage)
+
     # ------------------------------------------------------------------
     # Dispatcher: routes to native, CLI, or fallback based on client_type
     # ------------------------------------------------------------------
@@ -1677,6 +1779,15 @@ class ApiCallerMixin:
         # would mis-route (e.g. Haiku summarization → Ollama 404 when Fast layer = Qwen).
         ct = client_type if client_type is not None else self.fast_client_type
 
+        if ct == "codex":
+            return await self._call_api_codex(
+                model=model, system=system, messages=messages,
+                use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
+                cancel_event=cancel_event, message_queue=message_queue,
+                tool_callback=tool_callback,
+                session_id=session_id, project_id=project_id, card_id=card_id,
+                session_type=session_type, task_id=task_id, cwd=cwd,
+            )
         if ct == "cli":
             return await self._call_api_cli(
                 model=model, system=system, messages=messages,
@@ -1730,6 +1841,16 @@ class ApiCallerMixin:
         """Dispatch streaming to CLI subprocess, native Anthropic SDK, OpenAI-compat, or server-side tools."""
         api_client = client or self.fast_client
         ct = client_type if client_type is not None else self.fast_client_type
+
+        if ct == "codex":
+            async for token in self._call_api_stream_codex(
+                model=model, system=system, messages=messages,
+                use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
+                session_id=session_id, project_id=project_id, card_id=card_id,
+                session_type=session_type, cwd=cwd,
+            ):
+                yield token
+            return
 
         if ct == "cli":
             async for token in self._call_api_stream_cli(

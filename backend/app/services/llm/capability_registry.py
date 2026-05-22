@@ -43,6 +43,17 @@ _REGISTRY: dict[str, _ModelEntry] = {
     "claude-3-haiku":   _ModelEntry(True,  True,  200_000,  4_096),
 
     # ── OpenAI ──────────────────────────────────────────────────────────────
+    "gpt-5.5":          _ModelEntry(True,  True, 1_050_000, 128_000),
+    "gpt-5.4-mini":     _ModelEntry(True,  True,  400_000, 128_000),
+    "gpt-5.4":          _ModelEntry(True,  True, 1_050_000, 128_000),
+    "gpt-5.3-codex":    _ModelEntry(True,  True,  400_000, 128_000),
+    "gpt-5.2-codex":    _ModelEntry(True,  True,  400_000, 128_000),
+    "gpt-5.2":          _ModelEntry(True,  True,  400_000, 128_000),
+    "gpt-5.1-codex-max":_ModelEntry(True,  True,  400_000, 128_000),
+    "gpt-5.1-codex":    _ModelEntry(True,  True,  400_000, 128_000),
+    "gpt-5.1":          _ModelEntry(True,  True,  400_000, 128_000),
+    "gpt-5-codex":      _ModelEntry(True,  True,  400_000, 128_000),
+    "gpt-5":            _ModelEntry(True,  True,  400_000, 128_000),
     "gpt-4o":           _ModelEntry(True,  True,  128_000, 16_384),
     "gpt-4-turbo":      _ModelEntry(True,  True,  128_000,  4_096),
     "gpt-4":            _ModelEntry(True,  False, 128_000,  4_096),
