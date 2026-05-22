@@ -53,7 +53,7 @@ function highlightMatch(text: string, query: string): string {
 // ---------------------------------------------------------------------------
 
 export interface ChatSearchProps {
-  projectId?: string;
+  workspaceId?: string;
   onJump?: (chatId: string, messageId: string) => void;
 }
 
@@ -61,7 +61,7 @@ export interface ChatSearchProps {
 // Component
 // ---------------------------------------------------------------------------
 
-export function ChatSearch({ projectId, onJump }: ChatSearchProps) {
+export function ChatSearch({ workspaceId, onJump }: ChatSearchProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -101,7 +101,7 @@ export function ChatSearch({ projectId, onJump }: ChatSearchProps) {
       setSearching(true);
       try {
         const params = new URLSearchParams({ q });
-        if (projectId) params.set('project_id', projectId);
+        if (workspaceId) params.set('workspace_id', workspaceId);
         const res = await fetch(`/api/messages/search?${params}`);
         if (res.ok) {
           const data = (await res.json()) as SearchResult[];
@@ -115,7 +115,7 @@ export function ChatSearch({ projectId, onJump }: ChatSearchProps) {
         setSearching(false);
       }
     },
-    [projectId],
+    [workspaceId],
   );
 
   const handleInputChange = useCallback(

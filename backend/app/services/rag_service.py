@@ -2,9 +2,9 @@
 ChromaDB-based RAG (Retrieval-Augmented Generation) service for Voxyflow.
 
 Each project gets 3 isolated collections:
-  - voxyflow_project_{project_id}_docs       ← uploaded documents
-  - voxyflow_project_{project_id}_history    ← conversation history
-  - voxyflow_project_{project_id}_workspace  ← cards, notes, board data
+  - voxyflow_project_{workspace_id}_docs       ← uploaded documents
+  - voxyflow_project_{workspace_id}_history    ← conversation history
+  - voxyflow_project_{workspace_id}_workspace  ← cards, notes, board data
 
 ChromaDB persists to ~/.voxyflow/chroma/ (NOT inside the repo).
 Embeddings use sentence-transformers/all-MiniLM-L6-v2 (local, no API key needed).
@@ -55,9 +55,9 @@ class RAGService:
     Per-project ChromaDB RAG service.
 
     Collections per project:
-    - voxyflow_project_{project_id}_docs      ← uploaded documents
-    - voxyflow_project_{project_id}_history   ← conversation history
-    - voxyflow_project_{project_id}_workspace ← cards, notes, board data
+    - voxyflow_project_{workspace_id}_docs      ← uploaded documents
+    - voxyflow_project_{workspace_id}_history   ← conversation history
+    - voxyflow_project_{workspace_id}_workspace ← cards, notes, board data
     """
 
     def __init__(self, persist_dir: str = "~/.voxyflow/chroma"):
@@ -83,14 +83,14 @@ class RAGService:
     # Collection name helpers
     # -----------------------------------------------------------------------
 
-    def _col_docs(self, project_id: str) -> str:
-        return f"voxyflow_project_{project_id}_docs"
+    def _col_docs(self, workspace_id: str) -> str:
+        return f"voxyflow_project_{workspace_id}_docs"
 
-    def _col_history(self, project_id: str) -> str:
-        return f"voxyflow_project_{project_id}_history"
+    def _col_history(self, workspace_id: str) -> str:
+        return f"voxyflow_project_{workspace_id}_history"
 
-    def _col_workspace(self, project_id: str) -> str:
-        return f"voxyflow_project_{project_id}_workspace"
+    def _col_workspace(self, workspace_id: str) -> str:
+        return f"voxyflow_project_{workspace_id}_workspace"
 
     def _get_or_create_collection(self, name: str):
         """Get or create a ChromaDB collection with the default embedding function."""
@@ -105,7 +105,7 @@ class RAGService:
     # -----------------------------------------------------------------------
 
     async def index_document(
-        self, project_id: str, doc_id: str, parsed: ParsedDocument
+        self, workspace_id: str, doc_id: str, parsed: ParsedDocument
     ) -> int:
         """
         Index all chunks from a parsed document into the docs collection.
@@ -116,7 +116,7 @@ class RAGService:
             return 0
 
         try:
-            collection = self._get_or_create_collection(self._col_docs(project_id))
+            collection = self._get_or_create_collection(self._col_docs(workspace_id))
 
             if not parsed.chunks:
                 logger.warning(f"index_document: no chunks for doc_id={doc_id!r}")
@@ -129,7 +129,7 @@ class RAGService:
                     "doc_id": doc_id,
                     "chunk_index": i,
                     "source": "document",
-                    "project_id": project_id,
+                    "workspace_id": workspace_id,
                 }
                 for i in range(len(parsed.chunks))
             ]
@@ -142,7 +142,7 @@ class RAGService:
 
             logger.info(
                 f"index_document: indexed {len(parsed.chunks)} chunks for doc_id={doc_id!r}, "
-                f"project_id={project_id!r}"
+                f"workspace_id={workspace_id!r}"
             )
             return len(parsed.chunks)
 
@@ -150,13 +150,13 @@ class RAGService:
             logger.error(f"index_document failed (doc_id={doc_id!r}): {e}")
             return 0
 
-    async def delete_document(self, project_id: str, doc_id: str) -> None:
+    async def delete_document(self, workspace_id: str, doc_id: str) -> None:
         """Delete all chunks for a document from the docs collection."""
         if not self._enabled:
             return
 
         try:
-            collection = self._get_or_create_collection(self._col_docs(project_id))
+            collection = self._get_or_create_collection(self._col_docs(workspace_id))
             # Query all IDs that belong to this doc_id
             results = collection.get(where={"doc_id": doc_id})
             ids_to_delete = results.get("ids", [])
@@ -164,7 +164,7 @@ class RAGService:
                 collection.delete(ids=ids_to_delete)
                 logger.info(
                     f"delete_document: deleted {len(ids_to_delete)} chunks "
-                    f"for doc_id={doc_id!r}, project_id={project_id!r}"
+                    f"for doc_id={doc_id!r}, workspace_id={workspace_id!r}"
                 )
         except Exception as e:
             logger.error(f"delete_document failed (doc_id={doc_id!r}): {e}")
@@ -175,7 +175,7 @@ class RAGService:
 
     async def index_conversation_turn(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         role: str,
         content: str,
@@ -189,7 +189,7 @@ class RAGService:
             return
 
         try:
-            collection = self._get_or_create_collection(self._col_history(project_id))
+            collection = self._get_or_create_collection(self._col_history(workspace_id))
 
             # Deterministic ID: hash of session_id + timestamp + role to avoid dupes
             turn_hash = hashlib.sha256(
@@ -206,19 +206,19 @@ class RAGService:
                         "session_id": session_id,
                         "role": role,
                         "timestamp": timestamp,
-                        "project_id": project_id,
+                        "workspace_id": workspace_id,
                     }
                 ],
             )
         except Exception as e:
-            logger.error(f"index_conversation_turn failed (project_id={project_id!r}): {e}")
+            logger.error(f"index_conversation_turn failed (workspace_id={workspace_id!r}): {e}")
 
     # -----------------------------------------------------------------------
     # Workspace indexing (cards, project info)
     # -----------------------------------------------------------------------
 
     async def index_workspace(
-        self, project_id: str, cards: list[dict], project_info: dict
+        self, workspace_id: str, cards: list[dict], project_info: dict
     ) -> None:
         """
         Index card titles/descriptions and project info into the workspace collection.
@@ -228,26 +228,26 @@ class RAGService:
             return
 
         try:
-            collection = self._get_or_create_collection(self._col_workspace(project_id))
+            collection = self._get_or_create_collection(self._col_workspace(workspace_id))
 
             ids = []
             documents = []
             metadatas = []
 
             # Index project info
-            project_text = f"Project: {project_info.get('title', '')}\n"
+            project_text = f"Workspace: {project_info.get('title', '')}\n"
             if project_info.get('description'):
                 project_text += f"Description: {project_info['description']}\n"
             if project_info.get('context'):
                 project_text += f"Context: {project_info['context']}\n"
 
             if project_text.strip():
-                ids.append(f"workspace__project__{project_id}")
+                ids.append(f"workspace__project__{workspace_id}")
                 documents.append(project_text.strip())
                 metadatas.append({
                     "source": "workspace",
                     "type": "project_info",
-                    "project_id": project_id,
+                    "workspace_id": workspace_id,
                 })
 
             # Index cards
@@ -271,25 +271,25 @@ class RAGService:
                         "source": "workspace",
                         "type": "card",
                         "card_id": card_id,
-                        "project_id": project_id,
+                        "workspace_id": workspace_id,
                         "card_status": card.get('status', ''),
                     })
 
             if ids:
                 collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
                 logger.debug(
-                    f"index_workspace: upserted {len(ids)} items for project_id={project_id!r}"
+                    f"index_workspace: upserted {len(ids)} items for workspace_id={workspace_id!r}"
                 )
 
         except Exception as e:
-            logger.error(f"index_workspace failed (project_id={project_id!r}): {e}")
+            logger.error(f"index_workspace failed (workspace_id={workspace_id!r}): {e}")
 
     # -----------------------------------------------------------------------
     # Query
     # -----------------------------------------------------------------------
 
     async def query(
-        self, project_id: str, query_text: str, n_results: int = 5
+        self, workspace_id: str, query_text: str, n_results: int = 5
     ) -> list[dict]:
         """
         Query ALL 3 collections, merge results, deduplicate, rank by relevance.
@@ -305,9 +305,9 @@ class RAGService:
         all_results: list[dict] = []
 
         collection_names = [
-            (self._col_docs(project_id), "document"),
-            (self._col_history(project_id), "history"),
-            (self._col_workspace(project_id), "workspace"),
+            (self._col_docs(workspace_id), "document"),
+            (self._col_history(workspace_id), "history"),
+            (self._col_workspace(workspace_id), "workspace"),
         ]
 
         for col_name, source_label in collection_names:
@@ -356,14 +356,14 @@ class RAGService:
     # Context building
     # -----------------------------------------------------------------------
 
-    async def _get_inherit_main_context(self, project_id: str) -> bool:
+    async def _get_inherit_main_context(self, workspace_id: str) -> bool:
         """Look up the project's inherit_main_context setting from the database."""
         try:
-            from app.database import async_session, Project, SYSTEM_MAIN_PROJECT_ID
-            if project_id == SYSTEM_MAIN_PROJECT_ID:
+            from app.database import async_session, Workspace, SYSTEM_MAIN_WORKSPACE_ID
+            if workspace_id == SYSTEM_MAIN_WORKSPACE_ID:
                 return False
             async with async_session() as session:
-                project = await session.get(Project, project_id)
+                project = await session.get(Workspace, workspace_id)
                 if project is None:
                     return True  # default
                 return bool(project.inherit_main_context)
@@ -372,7 +372,7 @@ class RAGService:
             return True  # default to inheriting
 
     async def build_rag_context(
-        self, project_id: str, query: str, max_chars: int = 2000
+        self, workspace_id: str, query: str, max_chars: int = 2000
     ) -> Optional[str]:
         """
         Query the project knowledge base and format results into a context string
@@ -388,17 +388,17 @@ class RAGService:
             return None
 
         try:
-            from app.database import SYSTEM_MAIN_PROJECT_ID
+            from app.database import SYSTEM_MAIN_WORKSPACE_ID
 
-            inherit = await self._get_inherit_main_context(project_id)
+            inherit = await self._get_inherit_main_context(workspace_id)
 
             # Query current project (and optionally Main project in parallel)
-            should_query_main = inherit and project_id != SYSTEM_MAIN_PROJECT_ID
+            should_query_main = inherit and workspace_id != SYSTEM_MAIN_WORKSPACE_ID
 
             if should_query_main:
                 project_results, main_results = await asyncio.gather(
-                    self.query(project_id, query, n_results=8),
-                    self.query(SYSTEM_MAIN_PROJECT_ID, query, n_results=4),
+                    self.query(workspace_id, query, n_results=8),
+                    self.query(SYSTEM_MAIN_WORKSPACE_ID, query, n_results=4),
                 )
                 # Merge and deduplicate (project results take priority)
                 seen_texts: dict[str, dict] = {}
@@ -408,7 +408,7 @@ class RAGService:
                         seen_texts[text_key] = item
                 results = sorted(seen_texts.values(), key=lambda x: x["score"], reverse=True)[:8]
             else:
-                results = await self.query(project_id, query, n_results=8)
+                results = await self.query(workspace_id, query, n_results=8)
 
             # Filter to reasonably relevant results
             # Threshold calibrated for sentence-transformers/all-MiniLM-L6-v2 (cosine):
@@ -455,22 +455,22 @@ class RAGService:
             return "\n\n".join(parts)
 
         except Exception as e:
-            logger.error(f"build_rag_context failed (project_id={project_id!r}): {e}")
+            logger.error(f"build_rag_context failed (workspace_id={workspace_id!r}): {e}")
             return None
 
     # -----------------------------------------------------------------------
-    # Project cleanup
+    # Workspace cleanup
     # -----------------------------------------------------------------------
 
-    def delete_project(self, project_id: str) -> None:
+    def delete_project(self, workspace_id: str) -> None:
         """Delete all 3 collections for a project."""
         if not self._enabled:
             return
 
         for col_name in [
-            self._col_docs(project_id),
-            self._col_history(project_id),
-            self._col_workspace(project_id),
+            self._col_docs(workspace_id),
+            self._col_history(workspace_id),
+            self._col_workspace(workspace_id),
         ]:
             try:
                 self._client.delete_collection(col_name)

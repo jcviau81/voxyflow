@@ -6,9 +6,9 @@ import constants + lightweight helpers without pulling in the full
 memory_service uses the mixins as its base classes).
 
 Exports:
-  GLOBAL_COLLECTION, MEMORY_FILE, MEMORY_DIR, WORKSPACE_DIR
+  GLOBAL_COLLECTION, MEMORY_FILE, MEMORY_DIR, PERSONALITY_DIR
   VALID_TYPES, VALID_SOURCES, VALID_IMPORTANCE
-  _classify_text, _format_messages_for_extraction, _slugify, _project_collection
+  _classify_text, _format_messages_for_extraction, _slugify, _workspace_collection
   _MEMORY_EXTRACTION_SYSTEM, _MEMORY_EXTRACTION_USER_TEMPLATE
 """
 from __future__ import annotations
@@ -22,9 +22,9 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-WORKSPACE_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.voxyflow"))) / "personality"
-MEMORY_FILE = WORKSPACE_DIR / "MEMORY.md"
-MEMORY_DIR = WORKSPACE_DIR / "memory"
+PERSONALITY_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.voxyflow"))) / "personality"
+MEMORY_FILE = PERSONALITY_DIR / "MEMORY.md"
+MEMORY_DIR = PERSONALITY_DIR / "memory"
 
 CHROMA_PERSIST_DIR = os.path.expanduser("~/.voxyflow/chroma")
 MIGRATION_FLAG_FILE = Path(CHROMA_PERSIST_DIR) / ".memory_migrated"
@@ -261,13 +261,13 @@ def _slugify(name: str) -> str:
     return slug or "default"
 
 
-def _project_collection(project_id: str) -> str:
-    """Return the collection name for a project (keyed by project_id, not slug).
+def _workspace_collection(workspace_id: str) -> str:
+    """Return the collection name for a workspace (keyed by workspace_id, not slug).
 
-    Using the project UUID as the collection key prevents cross-project
+    Using the workspace UUID as the collection key prevents cross-workspace
     context leaks that happened when slugs collided (e.g. "main" matching
-    both the generic chat and the "system-main" project).
+    both the generic chat and the "system-main" workspace).
     """
-    return f"memory-project-{project_id}"
+    return f"memory-workspace-{workspace_id}"
 
 

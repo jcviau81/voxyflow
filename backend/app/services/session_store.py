@@ -452,14 +452,14 @@ class SessionStore:
 
         return sorted(sessions, key=lambda s: s.get("updatedAt", ""), reverse=True)
 
-    def create_session(self, project_id: str, title: str | None = None) -> str:
+    def create_session(self, workspace_id: str, title: str | None = None) -> str:
         """Create a new session with a stable incremental chat_id.
 
         Returns the chat_id, e.g. 'project:system-main:session-2'.
-        The base session (no suffix) is 'project:{project_id}'.
+        The base session (no suffix) is 'project:{workspace_id}'.
         """
         import re
-        base_chat_id = f"project:{project_id}"
+        base_chat_id = f"project:{workspace_id}"
 
         # Find existing session numbers for this project
         max_session_num = 1  # base session counts as 1

@@ -34,7 +34,7 @@ class MessageResponse(MessageBase):
 
 class ChatCreate(BaseModel):
     title: Optional[str] = "New Chat"
-    project_id: Optional[str] = None
+    workspace_id: Optional[str] = None
 
 
 class ChatResponse(ChatBase):

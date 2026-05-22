@@ -9,7 +9,7 @@ One `configure_logging()` call sets up:
     stderr, so stream logging stays on stderr).
 
 Contextvars are the async-safe carrier for per-request/per-WS context
-(request_id, chat_id, project_id, session_id, ...). Bind via
+(request_id, chat_id, workspace_id, session_id, ...). Bind via
 `bound_contextvars(...)` (a context manager) or `bind_contextvars(...)`
 directly — both are re-exported here for convenience.
 """

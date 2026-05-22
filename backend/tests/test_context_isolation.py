@@ -1,7 +1,7 @@
 """Voxyflow — Context Isolation & Tool Scoping Tests
 
 Comprehensive test suite verifying:
-1. Tool scoping per chat level (general / project / card)
+1. Tool scoping per chat level (general / workspace / card)
 2. Chat Init content correctness per level
 3. Context isolation — no data leaks between levels
 4. Tool call fallback parsing (regex extraction)
@@ -43,8 +43,8 @@ def _get_claude_tools(chat_level: str = "general") -> list[dict]:
     This avoids importing claude_service which pulls in pydantic_settings, etc.
     The logic is identical to the production code.
 
-    Post-refactor: "general" is now the system-main project and gets both
-    unassigned aliases AND project card tools. Project level gets all tools.
+    Post-refactor: "general" is now the system-main workspace and gets both
+    unassigned aliases AND workspace card tools. Workspace level gets all tools.
     """
     all_tools = _get_tool_list()
 
@@ -57,13 +57,13 @@ def _get_claude_tools(chat_level: str = "general") -> list[dict]:
             "voxyflow.card.get",
             "voxyflow.card.update",
             "voxyflow.card.move",
-            "voxyflow.project.create",
-            "voxyflow.project.list",
-            "voxyflow.project.get",
+            "voxyflow.workspace.create",
+            "voxyflow.workspace.list",
+            "voxyflow.workspace.get",
             "voxyflow.health",
         }
-    elif chat_level == "project":
-        # Project level: all tools (unassigned aliases are still valid)
+    elif chat_level == "workspace":
+        # Workspace level: all tools (unassigned aliases are still valid)
         allowed = {t["name"] for t in all_tools}
     else:
         allowed = {t["name"] for t in all_tools}
@@ -103,17 +103,17 @@ class TestToolScoping:
         assert "voxyflow_card_create_unassigned" in names, "General chat should have card_create_unassigned"
         assert "voxyflow_card_list_unassigned" in names, "General chat should have card_list_unassigned"
 
-    def test_general_has_project_tools(self):
+    def test_general_has_workspace_tools(self):
         names = self._tool_names("general")
-        assert "voxyflow_project_create" in names, "General chat should have project_create"
-        assert "voxyflow_project_list" in names, "General chat should have project_list"
+        assert "voxyflow_workspace_create" in names, "General chat should have workspace_create"
+        assert "voxyflow_workspace_list" in names, "General chat should have workspace_list"
 
     def test_general_has_health(self):
         names = self._tool_names("general")
         assert "voxyflow_health" in names, "General chat should have health check"
 
     def test_general_has_card_tools(self):
-        """Post-refactor: general (Main project) has card tools since Main is a real project."""
+        """Post-refactor: general (Main workspace) has card tools since Main is a real workspace."""
         names = self._tool_names("general")
         assert "voxyflow_card_create" in names, "General/Main should have card_create"
         assert "voxyflow_card_update" in names, "General/Main should have card_update"
@@ -124,45 +124,45 @@ class TestToolScoping:
         assert "voxyflow_wiki_create" not in names, "General/Main chat should NOT have wiki_create"
         assert "voxyflow_wiki_list" not in names, "General/Main chat should NOT have wiki_list"
 
-    def test_general_excludes_ai_project_tools(self):
+    def test_general_excludes_ai_workspace_tools(self):
         names = self._tool_names("general")
         assert "voxyflow_ai_standup" not in names, "General/Main chat should NOT have standup"
         assert "voxyflow_ai_brief" not in names, "General/Main chat should NOT have brief"
 
     def test_general_tool_count(self):
-        """General/Main chat should have exactly 11 tools (unassigned aliases + card CRUD + project/health)."""
+        """General/Main chat should have exactly 11 tools (unassigned aliases + card CRUD + workspace/health)."""
         tools = _get_claude_tools("general")
         assert len(tools) == 11, f"Expected 11 general tools, got {len(tools)}: {[t['name'] for t in tools]}"
 
-    # -- Project chat tools --
+    # -- Workspace chat tools --
 
-    def test_project_has_card_tools(self):
-        names = self._tool_names("project")
-        assert "voxyflow_card_create" in names, "Project chat should have card_create"
-        assert "voxyflow_card_update" in names, "Project chat should have card_update"
-        assert "voxyflow_card_list" in names, "Project chat should have card_list"
+    def test_workspace_has_card_tools(self):
+        names = self._tool_names("workspace")
+        assert "voxyflow_card_create" in names, "Workspace chat should have card_create"
+        assert "voxyflow_card_update" in names, "Workspace chat should have card_update"
+        assert "voxyflow_card_list" in names, "Workspace chat should have card_list"
 
-    def test_project_has_wiki_tools(self):
-        names = self._tool_names("project")
-        assert "voxyflow_wiki_create" in names, "Project chat should have wiki_create"
-        assert "voxyflow_wiki_list" in names, "Project chat should have wiki_list"
+    def test_workspace_has_wiki_tools(self):
+        names = self._tool_names("workspace")
+        assert "voxyflow_wiki_create" in names, "Workspace chat should have wiki_create"
+        assert "voxyflow_wiki_list" in names, "Workspace chat should have wiki_list"
 
-    def test_project_has_ai_tools(self):
-        names = self._tool_names("project")
-        assert "voxyflow_ai_standup" in names, "Project chat should have standup"
-        assert "voxyflow_ai_brief" in names, "Project chat should have brief"
-        assert "voxyflow_ai_health" in names, "Project chat should have health"
+    def test_workspace_has_ai_tools(self):
+        names = self._tool_names("workspace")
+        assert "voxyflow_ai_standup" in names, "Workspace chat should have standup"
+        assert "voxyflow_ai_brief" in names, "Workspace chat should have brief"
+        assert "voxyflow_ai_health" in names, "Workspace chat should have health"
 
-    def test_project_has_unassigned_tools(self):
+    def test_workspace_has_unassigned_tools(self):
         """Post-refactor: unassigned tools are aliases, available everywhere."""
-        names = self._tool_names("project")
-        assert "voxyflow_card_create_unassigned" in names, "Project chat should have card_create_unassigned (alias)"
-        assert "voxyflow_card_list_unassigned" in names, "Project chat should have card_list_unassigned (alias)"
+        names = self._tool_names("workspace")
+        assert "voxyflow_card_create_unassigned" in names, "Workspace chat should have card_create_unassigned (alias)"
+        assert "voxyflow_card_list_unassigned" in names, "Workspace chat should have card_list_unassigned (alias)"
 
-    def test_project_has_more_tools_than_general(self):
+    def test_workspace_has_more_tools_than_general(self):
         general = _get_claude_tools("general")
-        project = _get_claude_tools("project")
-        assert len(project) > len(general), "Project should have more tools than general"
+        workspace = _get_claude_tools("workspace")
+        assert len(workspace) > len(general), "Workspace should have more tools than general"
 
     # -- Card chat tools --
 
@@ -183,14 +183,14 @@ class TestToolScoping:
 
     def test_tool_names_have_no_dots(self):
         """Claude API forbids dots in tool names — they should be underscores."""
-        for level in ("general", "project", "card"):
+        for level in ("general", "workspace", "card"):
             tools = _get_claude_tools(level)
             for t in tools:
                 assert "." not in t["name"], f"Tool name has dots: {t['name']} (level={level})"
 
     def test_tools_have_required_fields(self):
         """Each tool must have name, description, and input_schema."""
-        for level in ("general", "project", "card"):
+        for level in ("general", "workspace", "card"):
             tools = _get_claude_tools(level)
             for t in tools:
                 assert "name" in t, f"Tool missing 'name' (level={level})"
@@ -207,71 +207,71 @@ class TestChatInitContent:
 
     # -- General Chat Init --
     # Post-refactor: the static general chat init no longer embeds dynamic
-    # content (project names, etc). It advertises the Home project only.
-    # Dynamic project/memory data lives in build_dynamic_context_block().
+    # content (workspace names, etc). It advertises the Home workspace only.
+    # Dynamic workspace/memory data lives in build_dynamic_context_block().
 
-    def test_general_chat_init_has_home_project(self):
+    def test_general_chat_init_has_home_workspace(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init()
-        assert "Home project" in prompt
+        assert "Home workspace" in prompt
 
     def test_general_chat_init_mentions_cards(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init()
         assert "card" in prompt.lower() or "Card" in prompt
 
-    # -- Project Chat Init --
+    # -- Workspace Chat Init --
 
-    def test_project_chat_init_has_project_name(self):
+    def test_workspace_chat_init_has_workspace_name(self):
         ps = self._ps()
-        project = {"title": "TestProject", "description": "A test", "tech_stack": "Python"}
-        prompt = ps.build_project_chat_init(project)
-        assert "TestProject" in prompt
+        workspace = {"title": "TestWorkspace", "description": "A test", "tech_stack": "Python"}
+        prompt = ps.build_workspace_chat_init(workspace)
+        assert "TestWorkspace" in prompt
 
-    def test_project_chat_init_has_mode(self):
+    def test_workspace_chat_init_has_mode(self):
         ps = self._ps()
-        project = {"title": "TestProject"}
-        prompt = ps.build_project_chat_init(project)
-        assert "## Project:" in prompt
+        workspace = {"title": "TestWorkspace"}
+        prompt = ps.build_workspace_chat_init(workspace)
+        assert "## Workspace:" in prompt
 
-    def test_project_chat_init_has_stay_focused(self):
+    def test_workspace_chat_init_has_stay_focused(self):
         ps = self._ps()
-        project = {"title": "TestProject"}
-        prompt = ps.build_project_chat_init(project)
+        workspace = {"title": "TestWorkspace"}
+        prompt = ps.build_workspace_chat_init(workspace)
         assert "Stay focused here" in prompt
 
-    # Dynamic project fields (tech_stack, card counts) moved to
+    # Dynamic workspace fields (tech_stack, card counts) moved to
     # build_dynamic_context_block — covered by TestDynamicContextBlock below.
 
     # -- Card Chat Init --
 
     def test_card_chat_init_has_card_title(self):
         ps = self._ps()
-        project = {"title": "TestProject"}
+        workspace = {"title": "TestWorkspace"}
         card = {"title": "Fix bug", "status": "todo", "priority": "high", "agent_type": "coder"}
-        prompt = ps.build_card_chat_init(project, card)
+        prompt = ps.build_card_chat_init(workspace, card)
         assert "Fix bug" in prompt
 
     def test_card_chat_init_has_mode(self):
         ps = self._ps()
-        project = {"title": "TestProject"}
+        workspace = {"title": "TestWorkspace"}
         card = {"title": "Fix bug", "status": "todo"}
-        prompt = ps.build_card_chat_init(project, card)
+        prompt = ps.build_card_chat_init(workspace, card)
         assert "Card Chat" in prompt
 
-    def test_card_chat_init_has_project_name(self):
+    def test_card_chat_init_has_workspace_name(self):
         ps = self._ps()
-        project = {"title": "TestProject"}
+        workspace = {"title": "TestWorkspace"}
         card = {"title": "Fix bug"}
-        prompt = ps.build_card_chat_init(project, card)
-        assert "TestProject" in prompt
+        prompt = ps.build_card_chat_init(workspace, card)
+        assert "TestWorkspace" in prompt
 
     # Status / priority / checklist moved out of the static card chat init
     # into build_dynamic_context_block — covered by TestDynamicContextBlock.
 
 
 class TestDynamicContextBlock:
-    """Verify dynamic project / card data ends up in build_dynamic_context_block.
+    """Verify dynamic workspace / card data ends up in build_dynamic_context_block.
 
     The static chat-init builders are intentionally cache-friendly and omit
     everything that changes call-to-call. The dynamic block is where the
@@ -282,23 +282,23 @@ class TestDynamicContextBlock:
         from app.services.personality_service import PersonalityService
         return PersonalityService()
 
-    def test_project_dynamic_has_tech_stack(self):
+    def test_workspace_dynamic_has_tech_stack(self):
         ps = self._ps()
-        project = {"title": "TestProject", "tech_stack": "Python, FastAPI"}
-        block = ps.build_dynamic_context_block(chat_level="project", project=project)
+        workspace = {"title": "TestWorkspace", "tech_stack": "Python, FastAPI"}
+        block = ps.build_dynamic_context_block(chat_level="workspace", workspace=workspace)
         assert "Python, FastAPI" in block
 
-    def test_project_dynamic_has_card_counts(self):
+    def test_workspace_dynamic_has_card_counts(self):
         ps = self._ps()
-        project = {
-            "title": "TestProject",
+        workspace = {
+            "title": "TestWorkspace",
             "cards": [
                 {"status": "done", "title": "Card1"},
                 {"status": "todo", "title": "Card2"},
                 {"status": "in_progress", "title": "Card3"},
             ],
         }
-        block = ps.build_dynamic_context_block(chat_level="project", project=project)
+        block = ps.build_dynamic_context_block(chat_level="workspace", workspace=workspace)
         assert "3 cards" in block
         assert "1 done" in block
         assert "1 in progress" in block
@@ -335,54 +335,54 @@ class TestContextIsolation:
     def test_general_prompt_has_no_card_references(self):
         """General prompt should not mention kanban or sprint in general chat init."""
         ps = self._ps()
-        prompt = ps.build_general_chat_init(project_names=["Voxyflow"])
+        prompt = ps.build_general_chat_init(workspace_names=["Voxyflow"])
         assert "kanban" not in prompt.lower()
         assert "sprint" not in prompt.lower()
 
-    def test_general_prompt_mentions_home_project(self):
+    def test_general_prompt_mentions_home_workspace(self):
         ps = self._ps()
         prompt = ps.build_general_chat_init()
-        assert "Home project" in prompt
+        assert "Home workspace" in prompt
 
-    def test_project_prompt_scoped_to_one_project(self):
+    def test_workspace_prompt_scoped_to_one_workspace(self):
         ps = self._ps()
-        project = {"title": "ProjectA", "description": "AAA"}
-        prompt = ps.build_project_chat_init(project)
-        assert "ProjectA" in prompt
+        workspace = {"title": "WorkspaceA", "description": "AAA"}
+        prompt = ps.build_workspace_chat_init(workspace)
+        assert "WorkspaceA" in prompt
         assert "Stay focused here" in prompt
 
     def test_general_full_prompt_includes_chat_init_first(self):
         """Chat Init block should appear BEFORE personality files in the full prompt."""
         ps = self._ps()
-        prompt = ps.build_general_prompt(project_names=["Voxyflow"])
+        prompt = ps.build_general_prompt(workspace_names=["Voxyflow"])
         assert prompt.startswith("## Who You Are")
 
-    def test_project_full_prompt_includes_chat_init_first(self):
+    def test_workspace_full_prompt_includes_chat_init_first(self):
         ps = self._ps()
-        project = {"title": "TestProject"}
-        prompt = ps.build_project_prompt(project)
-        assert prompt.startswith("## Project:")
+        workspace = {"title": "TestWorkspace"}
+        prompt = ps.build_workspace_prompt(workspace)
+        assert prompt.startswith("## Workspace:")
 
     def test_card_full_prompt_includes_chat_init_first(self):
         ps = self._ps()
-        project = {"title": "TestProject"}
+        workspace = {"title": "TestWorkspace"}
         card = {"title": "Fix bug"}
-        prompt = ps.build_card_prompt(project, card)
+        prompt = ps.build_card_prompt(workspace, card)
         assert prompt.startswith("## Chat Init")
 
-    def test_general_and_project_tools_overlap_post_refactor(self):
-        """Post-refactor: both general (Main project) and project have card tools.
+    def test_general_and_workspace_tools_overlap_post_refactor(self):
+        """Post-refactor: both general (Main workspace) and workspace have card tools.
         Unassigned aliases are available everywhere."""
         general_names = {t["name"] for t in _get_claude_tools("general")}
-        project_names_set = {t["name"] for t in _get_claude_tools("project")}
+        workspace_names_set = {t["name"] for t in _get_claude_tools("workspace")}
 
         # Unassigned aliases available in both
         assert "voxyflow_card_create_unassigned" in general_names
-        assert "voxyflow_card_create_unassigned" in project_names_set
+        assert "voxyflow_card_create_unassigned" in workspace_names_set
 
         # Card tools available in both
         assert "voxyflow_card_create" in general_names
-        assert "voxyflow_card_create" in project_names_set
+        assert "voxyflow_card_create" in workspace_names_set
 
 
 class TestToolCallFallbackParsing:
@@ -402,12 +402,12 @@ class TestToolCallFallbackParsing:
         text = (
             '<tool_call>{"name": "voxyflow.card.create_unassigned", "arguments": {"content": "Note 1"}}</tool_call>\n'
             'Then also:\n'
-            '<tool_call>{"name": "voxyflow.project.create", "arguments": {"title": "New Project"}}</tool_call>'
+            '<tool_call>{"name": "voxyflow.workspace.create", "arguments": {"title": "New Workspace"}}</tool_call>'
         )
         matches = self.PATTERN.findall(text)
         assert len(matches) == 2
         assert json.loads(matches[0])["name"] == "voxyflow.card.create_unassigned"
-        assert json.loads(matches[1])["name"] == "voxyflow.project.create"
+        assert json.loads(matches[1])["name"] == "voxyflow.workspace.create"
 
     def test_no_tool_call(self):
         text = "Just a regular response with no tool calls."
@@ -420,7 +420,7 @@ class TestToolCallFallbackParsing:
 {
   "name": "voxyflow.card.create",
   "arguments": {
-    "project_id": "abc123",
+    "workspace_id": "abc123",
     "title": "Fix login bug"
   }
 }
@@ -486,10 +486,10 @@ class TestDeepPrompt:
     def test_deep_prompt_changes_with_chat_level(self):
         ps = self._ps()
         general_prompt = ps.build_deep_prompt(chat_level="general", is_chat_responder=True)
-        project = {"title": "TestProject"}
-        project_prompt = ps.build_deep_prompt(chat_level="project", project=project, is_chat_responder=True)
+        workspace = {"title": "TestWorkspace"}
+        workspace_prompt = ps.build_deep_prompt(chat_level="workspace", workspace=workspace, is_chat_responder=True)
         assert "Home" in general_prompt
-        assert "TestProject" in project_prompt
+        assert "TestWorkspace" in workspace_prompt
 
 
 class TestMCPToolDefinitions:
@@ -578,35 +578,35 @@ pytestmark_integration = pytest.mark.skipif(
 
 
 @pytestmark_integration
-class TestIntegrationProjectCRUD:
-    """Test 4a: Integration test — project CRUD via REST API."""
+class TestIntegrationWorkspaceCRUD:
+    """Test 4a: Integration test — workspace CRUD via REST API."""
 
     @pytest.mark.asyncio
-    async def test_list_projects(self, backend_url):
+    async def test_list_workspaces(self, backend_url):
         import httpx
         async with httpx.AsyncClient(base_url=backend_url, timeout=10) as client:
-            response = await client.get("/api/projects")
+            response = await client.get("/api/workspaces")
             assert response.status_code == 200
             data = response.json()
             assert isinstance(data, list)
 
     @pytest.mark.asyncio
-    async def test_create_project(self, backend_url):
+    async def test_create_workspace(self, backend_url):
         import httpx
         import time
-        title = f"TestProject_Integration_Isolation_{int(time.time())}"
+        title = f"TestWorkspace_Integration_Isolation_{int(time.time())}"
         async with httpx.AsyncClient(base_url=backend_url, timeout=10) as client:
-            response = await client.post("/api/projects", json={
+            response = await client.post("/api/workspaces", json={
                 "title": title,
                 "description": "Created by integration test",
             })
             assert response.status_code in (200, 201), f"Create failed: {response.text}"
             data = response.json()
             assert "id" in data
-            project_id = data["id"]
+            workspace_id = data["id"]
 
             # Verify it exists
-            get_resp = await client.get(f"/api/projects/{project_id}")
+            get_resp = await client.get(f"/api/workspaces/{workspace_id}")
             assert get_resp.status_code == 200
             assert get_resp.json()["title"] == title
 
@@ -641,23 +641,23 @@ class TestIntegrationMCPToolEndpoints:
 
 @pytestmark_integration
 class TestIntegrationCardCRUD:
-    """Test 4d: Integration test — card CRUD within a project."""
+    """Test 4d: Integration test — card CRUD within a workspace."""
 
     @pytest.mark.asyncio
-    async def test_create_card_in_project(self, backend_url):
+    async def test_create_card_in_workspace(self, backend_url):
         import httpx
         import time
         async with httpx.AsyncClient(base_url=backend_url, timeout=10) as client:
-            # Create a temporary project with unique name to avoid conflicts
-            proj_resp = await client.post("/api/projects", json={
-                "title": f"TestProject_CardCRUD_{int(time.time())}",
+            # Create a temporary workspace with unique name to avoid conflicts
+            proj_resp = await client.post("/api/workspaces", json={
+                "title": f"TestWorkspace_CardCRUD_{int(time.time())}",
                 "description": "Temporary for card test",
             })
             assert proj_resp.status_code in (200, 201)
-            project_id = proj_resp.json()["id"]
+            workspace_id = proj_resp.json()["id"]
 
             # Create a card
-            card_resp = await client.post(f"/api/projects/{project_id}/cards", json={
+            card_resp = await client.post(f"/api/workspaces/{workspace_id}/cards", json={
                 "title": "Test Card Isolation",
                 "description": "Integration test card",
                 "status": "todo",
@@ -669,7 +669,7 @@ class TestIntegrationCardCRUD:
             assert card_data["title"] == "Test Card Isolation"
 
             # List cards
-            list_resp = await client.get(f"/api/projects/{project_id}/cards")
+            list_resp = await client.get(f"/api/workspaces/{workspace_id}/cards")
             assert list_resp.status_code == 200
             cards = list_resp.json()
             assert any(c["id"] == card_data["id"] for c in cards)

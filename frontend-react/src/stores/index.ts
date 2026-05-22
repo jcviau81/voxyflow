@@ -1,7 +1,7 @@
-export { useProjectStore } from './useProjectStore';
-export type { ProjectState } from './useProjectStore';
+export { useWorkspaceStore } from './useWorkspaceStore';
+export type { WorkspaceState } from './useWorkspaceStore';
 
-export { useCardStore, SYSTEM_PROJECT_ID } from './useCardStore';
+export { useCardStore, SYSTEM_WORKSPACE_ID } from './useCardStore';
 export type { CardState } from './useCardStore';
 
 export { useThemeStore } from './useThemeStore';

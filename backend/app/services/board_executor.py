@@ -16,7 +16,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.database import Card, Project, async_session
+from app.database import Card, Workspace, async_session
 from app.models.enums import CardStatus
 
 logger = logging.getLogger("voxyflow.board_executor")
@@ -36,7 +36,7 @@ class CardPlan:
 @dataclass
 class ExecutionPlan:
     execution_id: str
-    project_id: str
+    workspace_id: str
     cards: list[CardPlan]
     total: int
 
@@ -44,7 +44,7 @@ class ExecutionPlan:
 @dataclass
 class BoardExecution:
     execution_id: str
-    project_id: str
+    workspace_id: str
     cards: list[CardPlan]
     current_index: int = 0
     cancelled: bool = False
@@ -56,7 +56,7 @@ _active_executions: dict[str, BoardExecution] = {}
 
 
 async def build_execution_plan(
-    project_id: str,
+    workspace_id: str,
     statuses: list[str] | None = None,
 ) -> ExecutionPlan:
     """Query cards for a project and build an ordered execution plan."""
@@ -66,7 +66,7 @@ async def build_execution_plan(
     async with async_session() as db:
         stmt = (
             select(Card)
-            .where(Card.project_id == project_id, Card.status.in_(statuses))
+            .where(Card.workspace_id == workspace_id, Card.status.in_(statuses))
             .order_by(Card.position)
         )
         result = await db.execute(stmt)
@@ -86,7 +86,7 @@ async def build_execution_plan(
     execution_id = str(uuid4())
     return ExecutionPlan(
         execution_id=execution_id,
-        project_id=project_id,
+        workspace_id=workspace_id,
         cards=plan_cards,
         total=len(plan_cards),
     )
@@ -118,10 +118,10 @@ async def _build_card_prompt(card_id: str) -> tuple[str, str | None]:
         # Linked files
         files = json.loads(card.files) if card.files else []
 
-        # Project name
+        # Workspace name
         project_name = None
-        if card.project_id:
-            project = await db.get(Project, card.project_id)
+        if card.workspace_id:
+            project = await db.get(Workspace, card.workspace_id)
             if project:
                 project_name = project.title
             # Note: card status transition to in-progress is handled by
@@ -187,7 +187,7 @@ async def _reset_recurring_cards(card_ids: list[str]) -> None:
 
 async def execute_board(
     execution_id: str,
-    project_id: str,
+    workspace_id: str,
     cards: list[CardPlan],
     websocket: Any,
     orchestrator,
@@ -200,11 +200,11 @@ async def execute_board(
     """
     execution = BoardExecution(
         execution_id=execution_id,
-        project_id=project_id,
+        workspace_id=workspace_id,
         cards=cards,
     )
     _active_executions[execution_id] = execution
-    chat_id = chat_id or f"project:{project_id}"
+    chat_id = chat_id or f"project:{workspace_id}"
     done_card_ids: list[str] = []
 
     async def _run_card(card_plan: CardPlan, index: int) -> None:
@@ -241,7 +241,7 @@ async def execute_board(
             content=prompt,
             message_id=message_id,
             chat_id=chat_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             layers={"deep": False},
             chat_level="project",
             card_id=card_plan.id,

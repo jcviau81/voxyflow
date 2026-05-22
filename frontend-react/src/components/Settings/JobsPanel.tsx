@@ -35,7 +35,7 @@ interface Job {
 
 type JobType = Job['type'];
 
-interface SimpleProject {
+interface SimpleWorkspace {
   id: string;
   name: string;
 }
@@ -68,7 +68,7 @@ const JOB_TYPE_META: Record<JobType, {
   },
   execute_board: {
     label: 'Execute Board',
-    description: 'Execute all matching cards from a project board',
+    description: 'Execute all matching cards from a workspace board',
     icon: LayoutGrid,
     color: 'text-blue-400',
   },
@@ -80,7 +80,7 @@ const JOB_TYPE_META: Record<JobType, {
   },
   rag_index: {
     label: 'RAG Index',
-    description: 'Re-index project documents in the vector store',
+    description: 'Re-index workspace documents in the vector store',
     icon: Database,
     color: 'text-emerald-400',
   },
@@ -240,8 +240,8 @@ async function runJob(id: string): Promise<void> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
-async function fetchProjects(): Promise<SimpleProject[]> {
-  const res = await fetch('/api/projects?archived=false');
+async function fetchWorkspaces(): Promise<SimpleWorkspace[]> {
+  const res = await fetch('/api/workspaces?archived=false');
   if (!res.ok) return [];
   const data = await res.json();
   return (Array.isArray(data) ? data : [])
@@ -256,19 +256,19 @@ async function fetchProjects(): Promise<SimpleProject[]> {
 
 function getPayloadSummary(
   job: Job,
-  projectsMap: Map<string, string>,
+  workspacesMap: Map<string, string>,
 ): string | null {
   const p = job.payload;
   switch (job.type) {
     case 'execute_board': {
-      const projName = p.project_id ? (projectsMap.get(p.project_id as string) ?? 'Unknown project') : 'No project';
+      const wsName = p.workspace_id ? (workspacesMap.get(p.workspace_id as string) ?? 'Unknown workspace') : 'No workspace';
       const statuses = Array.isArray(p.statuses) ? p.statuses.join(', ') : 'todo';
-      return `${projName} — statuses: ${statuses}`;
+      return `${wsName} — statuses: ${statuses}`;
     }
     case 'execute_card': {
-      const projName = p.project_id ? (projectsMap.get(p.project_id as string) ?? 'Unknown') : '';
+      const wsName = p.workspace_id ? (workspacesMap.get(p.workspace_id as string) ?? 'Unknown') : '';
       const cardLabel = p.card_title ? (p.card_title as string) : (p.card_id ? `Card ${(p.card_id as string).slice(0, 8)}…` : 'No card');
-      return projName ? `${projName} — ${cardLabel}` : cardLabel;
+      return wsName ? `${wsName} — ${cardLabel}` : cardLabel;
     }
     case 'agent_task': {
       const instr = ((p.instruction ?? p.instructions) as string | undefined) ?? '';
@@ -280,8 +280,8 @@ function getPayloadSummary(
       return msg ? `"${msg.length > 60 ? msg.slice(0, 57) + '…' : msg}"` : null;
     }
     case 'rag_index': {
-      const projName = p.project_id ? (projectsMap.get(p.project_id as string) ?? 'Unknown project') : 'All active projects';
-      return projName;
+      const wsName = p.workspace_id ? (workspacesMap.get(p.workspace_id as string) ?? 'Unknown workspace') : 'All active workspaces';
+      return wsName;
     }
     default:
       return null;
@@ -385,10 +385,10 @@ function ScheduleInput({ value, onChange, error, description }: {
 
 // ── Type-specific payload forms ───────────────────────────────────────────
 
-function BoardRunPayload({ payload, onChange, projects }: {
+function BoardRunPayload({ payload, onChange, workspaces }: {
   payload: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
-  projects: SimpleProject[];
+  workspaces: SimpleWorkspace[];
 }) {
   const selectedStatuses = (payload.statuses as string[] | undefined) ?? ['todo'];
 
@@ -405,19 +405,19 @@ function BoardRunPayload({ payload, onChange, projects }: {
   return (
     <div className="space-y-3">
       <div>
-        <label className="text-xs font-medium text-muted-foreground mb-1 block">Project</label>
+        <label className="text-xs font-medium text-muted-foreground mb-1 block">Workspace</label>
         <select
-          value={(payload.project_id as string) ?? ''}
-          onChange={(e) => onChange({ ...payload, project_id: e.target.value || undefined })}
+          value={(payload.workspace_id as string) ?? ''}
+          onChange={(e) => onChange({ ...payload, workspace_id: e.target.value || undefined })}
           className="h-8 w-full px-2 text-sm rounded-md border border-input bg-background"
         >
-          <option value="">Select a project…</option>
-          {projects.map((p) => (
+          <option value="">Select a workspace…</option>
+          {workspaces.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        {!payload.project_id && (
-          <p className="text-[11px] text-amber-400 mt-1">A project is required for board runs</p>
+        {!payload.workspace_id && (
+          <p className="text-[11px] text-amber-400 mt-1">A workspace is required for board runs</p>
         )}
       </div>
 
@@ -466,21 +466,21 @@ function ReminderPayload({ payload, onChange }: {
   );
 }
 
-function RagIndexPayload({ payload, onChange, projects }: {
+function RagIndexPayload({ payload, onChange, workspaces }: {
   payload: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
-  projects: SimpleProject[];
+  workspaces: SimpleWorkspace[];
 }) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1 block">Project (optional)</label>
+      <label className="text-xs font-medium text-muted-foreground mb-1 block">Workspace (optional)</label>
       <select
-        value={(payload.project_id as string) ?? ''}
-        onChange={(e) => onChange({ ...payload, project_id: e.target.value || undefined })}
+        value={(payload.workspace_id as string) ?? ''}
+        onChange={(e) => onChange({ ...payload, workspace_id: e.target.value || undefined })}
         className="h-8 w-full px-2 text-sm rounded-md border border-input bg-background"
       >
-        <option value="">All active projects</option>
-        {projects.map((p) => (
+        <option value="">All active workspaces</option>
+        {workspaces.map((p) => (
           <option key={p.id} value={p.id}>{p.name}</option>
         ))}
       </select>
@@ -488,10 +488,10 @@ function RagIndexPayload({ payload, onChange, projects }: {
   );
 }
 
-function AgentTaskPayload({ payload, onChange, projects }: {
+function AgentTaskPayload({ payload, onChange, workspaces }: {
   payload: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
-  projects: SimpleProject[];
+  workspaces: SimpleWorkspace[];
 }) {
   return (
     <div className="space-y-3">
@@ -509,40 +509,40 @@ function AgentTaskPayload({ payload, onChange, projects }: {
         )}
       </div>
       <div>
-        <label className="text-xs font-medium text-muted-foreground mb-1 block">Project scope (optional)</label>
+        <label className="text-xs font-medium text-muted-foreground mb-1 block">Workspace scope (optional)</label>
         <select
-          value={(payload.project_id as string) ?? ''}
-          onChange={(e) => onChange({ ...payload, project_id: e.target.value || undefined })}
+          value={(payload.workspace_id as string) ?? ''}
+          onChange={(e) => onChange({ ...payload, workspace_id: e.target.value || undefined })}
           className="h-8 w-full px-2 text-sm rounded-md border border-input bg-background"
         >
-          <option value="">No project (general context)</option>
-          {projects.map((p) => (
+          <option value="">No workspace (general context)</option>
+          {workspaces.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
         <p className="text-[11px] text-muted-foreground mt-0.5">
-          Selecting a project gives the agent access to project context and memories
+          Selecting a workspace gives the agent access to workspace context and memories
         </p>
       </div>
     </div>
   );
 }
 
-function ExecuteCardPayload({ payload, onChange, projects }: {
+function ExecuteCardPayload({ payload, onChange, workspaces }: {
   payload: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
-  projects: SimpleProject[];
+  workspaces: SimpleWorkspace[];
 }) {
   const [cards, setCards] = useState<{ id: string; title: string }[]>([]);
   const [loadingCards, setLoadingCards] = useState(false);
-  const selectedProjectId = (payload.project_id as string) ?? '';
+  const selectedWorkspaceId = (payload.workspace_id as string) ?? '';
 
-  // Fetch cards when project changes
-  const fetchCards = useCallback(async (projectId: string) => {
-    if (!projectId) { setCards([]); return; }
+  // Fetch cards when workspace changes
+  const fetchCards = useCallback(async (workspaceId: string) => {
+    if (!workspaceId) { setCards([]); return; }
     setLoadingCards(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/cards`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/cards`);
       if (!res.ok) { setCards([]); return; }
       const data = await res.json();
       const list = (Array.isArray(data) ? data : [])
@@ -553,25 +553,25 @@ function ExecuteCardPayload({ payload, onChange, projects }: {
     finally { setLoadingCards(false); }
   }, []);
 
-  // Re-fetch when project changes
-  useState(() => { if (selectedProjectId) fetchCards(selectedProjectId); });
+  // Re-fetch when workspace changes
+  useState(() => { if (selectedWorkspaceId) fetchCards(selectedWorkspaceId); });
 
   return (
     <div className="space-y-3">
       <div>
-        <label className="text-xs font-medium text-muted-foreground mb-1 block">Project</label>
+        <label className="text-xs font-medium text-muted-foreground mb-1 block">Workspace</label>
         <select
-          value={selectedProjectId}
+          value={selectedWorkspaceId}
           onChange={(e) => {
             const pid = e.target.value || undefined;
-            onChange({ ...payload, project_id: pid, card_id: undefined, card_title: undefined });
+            onChange({ ...payload, workspace_id: pid, card_id: undefined, card_title: undefined });
             if (pid) fetchCards(pid);
             else setCards([]);
           }}
           className="h-8 w-full px-2 text-sm rounded-md border border-input bg-background"
         >
-          <option value="">Select a project…</option>
-          {projects.map((p) => (
+          <option value="">Select a workspace…</option>
+          {workspaces.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
@@ -591,15 +591,15 @@ function ExecuteCardPayload({ payload, onChange, projects }: {
               onChange({ ...payload, card_id: cid, card_title: card?.title });
             }}
             className="h-8 w-full px-2 text-sm rounded-md border border-input bg-background"
-            disabled={!selectedProjectId}
+            disabled={!selectedWorkspaceId}
           >
-            <option value="">{selectedProjectId ? 'Select a card…' : 'Select a project first'}</option>
+            <option value="">{selectedWorkspaceId ? 'Select a card…' : 'Select a workspace first'}</option>
             {cards.map((c) => (
               <option key={c.id} value={c.id}>{c.title}</option>
             ))}
           </select>
         )}
-        {selectedProjectId && !payload.card_id && (
+        {selectedWorkspaceId && !payload.card_id && (
           <p className="text-[11px] text-amber-400 mt-1">A card is required</p>
         )}
       </div>
@@ -607,23 +607,23 @@ function ExecuteCardPayload({ payload, onChange, projects }: {
   );
 }
 
-function PayloadEditor({ type, payload, onChange, projects }: {
+function PayloadEditor({ type, payload, onChange, workspaces }: {
   type: JobType;
   payload: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
-  projects: SimpleProject[];
+  workspaces: SimpleWorkspace[];
 }) {
   switch (type) {
     case 'execute_board':
-      return <BoardRunPayload payload={payload} onChange={onChange} projects={projects} />;
+      return <BoardRunPayload payload={payload} onChange={onChange} workspaces={workspaces} />;
     case 'execute_card':
-      return <ExecuteCardPayload payload={payload} onChange={onChange} projects={projects} />;
+      return <ExecuteCardPayload payload={payload} onChange={onChange} workspaces={workspaces} />;
     case 'agent_task':
-      return <AgentTaskPayload payload={payload} onChange={onChange} projects={projects} />;
+      return <AgentTaskPayload payload={payload} onChange={onChange} workspaces={workspaces} />;
     case 'reminder':
       return <ReminderPayload payload={payload} onChange={onChange} />;
     case 'rag_index':
-      return <RagIndexPayload payload={payload} onChange={onChange} projects={projects} />;
+      return <RagIndexPayload payload={payload} onChange={onChange} workspaces={workspaces} />;
     default:
       return null;
   }
@@ -631,9 +631,9 @@ function PayloadEditor({ type, payload, onChange, projects }: {
 
 // ── JobItem ────────────────────────────────────────────────────────────────
 
-function JobItem({ job, projectsMap, onToggle, onRun, onDelete, onEdit }: {
+function JobItem({ job, workspacesMap, onToggle, onRun, onDelete, onEdit }: {
   job: Job;
-  projectsMap: Map<string, string>;
+  workspacesMap: Map<string, string>;
   onToggle: (id: string, enabled: boolean) => void;
   onRun: (id: string) => void;
   onDelete: (id: string, name: string) => void;
@@ -643,7 +643,7 @@ function JobItem({ job, projectsMap, onToggle, onRun, onDelete, onEdit }: {
   const meta = JOB_TYPE_META[job.type] ?? JOB_TYPE_META.agent_task;
   const Icon = meta.icon;
   const scheduleResult = validateCronOrShorthand(job.schedule);
-  const payloadSummary = getPayloadSummary(job, projectsMap);
+  const payloadSummary = getPayloadSummary(job, workspacesMap);
   const hasPayload = Object.keys(job.payload).length > 0;
 
   const lastRunText = job.last_run ? relativeTime(job.last_run) : 'never';
@@ -765,7 +765,7 @@ function JobItem({ job, projectsMap, onToggle, onRun, onDelete, onEdit }: {
 
 // ── Job Form (shared Create/Edit) ─────────────────────────────────────────
 
-function JobForm({ mode, initial, projects, onCancel, onSubmit }: {
+function JobForm({ mode, initial, workspaces, onCancel, onSubmit }: {
   mode: 'create' | 'edit';
   initial: {
     name: string;
@@ -774,7 +774,7 @@ function JobForm({ mode, initial, projects, onCancel, onSubmit }: {
     enabled: boolean;
     payload: Record<string, unknown>;
   };
-  projects: SimpleProject[];
+  workspaces: SimpleWorkspace[];
   onCancel: () => void;
   onSubmit: (data: { name: string; type: JobType; schedule: string; enabled: boolean; payload: Record<string, unknown> }) => void;
 }) {
@@ -819,7 +819,7 @@ function JobForm({ mode, initial, projects, onCancel, onSubmit }: {
     if (!schedule.trim()) { setError('Schedule is required'); return; }
     const result = validateCronOrShorthand(schedule);
     if (!result.valid) { setError(result.description); return; }
-    if (type === 'execute_board' && !payload.project_id) { setError('Project is required for Execute Board jobs'); return; }
+    if (type === 'execute_board' && !payload.workspace_id) { setError('Workspace is required for Execute Board jobs'); return; }
     if (type === 'execute_card' && !payload.card_id) { setError('Card is required for Execute Card jobs'); return; }
     if (type === 'agent_task' && !payload.instruction) { setError('Instruction is required for Agent Task jobs'); return; }
     setError('');
@@ -888,7 +888,7 @@ function JobForm({ mode, initial, projects, onCancel, onSubmit }: {
       </div>
 
       {/* Type-specific payload config */}
-      <PayloadEditor type={type} payload={payload} onChange={setPayload} projects={projects} />
+      <PayloadEditor type={type} payload={payload} onChange={setPayload} workspaces={workspaces} />
 
       {/* Schedule */}
       <div>
@@ -948,17 +948,17 @@ export function JobsPanel() {
     queryFn: fetchJobs,
   });
 
-  const { data: projects = [] } = useQuery<SimpleProject[]>({
-    queryKey: ['projects', 'list', 'for-jobs'],
-    queryFn: fetchProjects,
+  const { data: workspaces = [] } = useQuery<SimpleWorkspace[]>({
+    queryKey: ['workspaces', 'list', 'for-jobs'],
+    queryFn: fetchWorkspaces,
     staleTime: 60_000,
   });
 
-  const projectsMap = useMemo(() => {
+  const workspacesMap = useMemo(() => {
     const m = new Map<string, string>();
-    for (const p of projects) m.set(p.id, p.name);
+    for (const p of workspaces) m.set(p.id, p.name);
     return m;
-  }, [projects]);
+  }, [workspaces]);
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => updateJob(id, { enabled }),
@@ -1048,7 +1048,7 @@ export function JobsPanel() {
         <JobForm
           mode="create"
           initial={{ name: '', type: 'reminder', schedule: '', enabled: true, payload: {} }}
-          projects={projects}
+          workspaces={workspaces}
           onCancel={() => setShowForm(false)}
           onSubmit={(data) => createMutation.mutate(data)}
         />
@@ -1079,7 +1079,7 @@ export function JobsPanel() {
                   enabled: job.enabled,
                   payload: job.payload,
                 }}
-                projects={projects}
+                workspaces={workspaces}
                 onCancel={() => setEditingJob(null)}
                 onSubmit={(data) => editMutation.mutate({ id: job.id, patch: data })}
               />
@@ -1087,7 +1087,7 @@ export function JobsPanel() {
               <JobItem
                 key={job.id}
                 job={job}
-                projectsMap={projectsMap}
+                workspacesMap={workspacesMap}
                 onToggle={(id, enabled) => toggleMutation.mutate({ id, enabled })}
                 onRun={handleRun}
                 onDelete={handleDelete}

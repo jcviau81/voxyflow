@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 TOOLS_DISPATCHER = {
     # ---- Read ----
     "voxyflow.health",
-    "voxyflow.project.list", "voxyflow.project.get",
+    "voxyflow.workspace.list", "voxyflow.workspace.get",
     "voxyflow.card.list", "voxyflow.card.get",
     "voxyflow.card.list_unassigned", "voxyflow.card.list_archived",
     "voxyflow.card.history",
@@ -49,9 +49,9 @@ TOOLS_DISPATCHER = {
     "voxyflow.undo.list",
     "memory.search", "memory.get", "knowledge.search",
 
-    # ---- Project / Card / Wiki CRUD (instant, non-blocking) ----
-    "voxyflow.project.create", "voxyflow.project.update",
-    "voxyflow.project.archive", "voxyflow.project.restore",
+    # ---- Workspace / Card / Wiki CRUD (instant, non-blocking) ----
+    "voxyflow.workspace.create", "voxyflow.workspace.update",
+    "voxyflow.workspace.archive", "voxyflow.workspace.restore",
     "voxyflow.card.create", "voxyflow.card.create_unassigned",
     "voxyflow.card.update", "voxyflow.card.move",
     "voxyflow.card.archive", "voxyflow.card.restore",
@@ -77,7 +77,7 @@ TOOLS_DISPATCHER = {
     # ---- Destructive whole-entity deletes / exports ----
     # Single-user local deployment: the user is always present and the undo
     # journal (voxyflow.undo.*) reverses these, so inline delete is fine.
-    "voxyflow.project.delete", "voxyflow.project.export",
+    "voxyflow.workspace.delete", "voxyflow.workspace.export",
     "voxyflow.card.delete",
     "voxyflow.doc.delete",
     "voxyflow.wiki.delete",
@@ -114,7 +114,7 @@ TOOLS_DISPATCHER = {
 # output, then delegate action work rather than performing it inline.
 TOOLS_DISPATCHER_CODEX = {
     "voxyflow.health",
-    "voxyflow.project.list", "voxyflow.project.get",
+    "voxyflow.workspace.list", "voxyflow.workspace.get",
     "voxyflow.card.list", "voxyflow.card.get",
     "voxyflow.card.list_unassigned", "voxyflow.card.list_archived",
     "voxyflow.card.history",
@@ -245,7 +245,7 @@ def _register_all_tools(registry: ToolRegistry) -> None:
             category = "other"
 
         dangerous = name in {"system.exec", "file.write", "file.patch", "git.commit",
-                             "voxyflow.project.delete", "voxyflow.card.delete",
+                             "voxyflow.workspace.delete", "voxyflow.card.delete",
                              "voxyflow.doc.delete", "voxyflow.jobs.delete", "tmux.kill"}
 
         # Build handler — reuse existing mcp_server infrastructure

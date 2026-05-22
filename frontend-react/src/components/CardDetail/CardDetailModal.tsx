@@ -6,7 +6,7 @@
  *   CENTER: CardChat (embedded per-card chat)
  *   RIGHT:  Metadata sidebar (status, agent, tags, color, people, deps, etc.)
  *
- * Opens when useProjectStore.selectedCardId is set.
+ * Opens when useWorkspaceStore.selectedCardId is set.
  * Mobile: tabs switch between the three columns.
  */
 
@@ -19,8 +19,8 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import type { Card, CardStatus } from '../../types';
-import { useProjectStore } from '../../stores/useProjectStore';
-import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { useCardStore, SYSTEM_WORKSPACE_ID } from '../../stores/useCardStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useChatService } from '../../contexts/useChatService';
 
@@ -47,7 +47,7 @@ import { AgentSelector } from './AgentSelector';
 import { TagsSection } from './TagsSection';
 import { ColorPicker } from './ColorPicker';
 
-import { ProjectPicker } from './ProjectPicker';
+import { WorkspacePicker } from './WorkspacePicker';
 import { DependenciesSection } from './DependenciesSection';
 
 
@@ -124,8 +124,8 @@ function formatTime(ts: number): string {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function CardDetailModal() {
-  const selectedCardId = useProjectStore((s) => s.selectedCardId);
-  const selectCard = useProjectStore((s) => s.selectCard);
+  const selectedCardId = useWorkspaceStore((s) => s.selectedCardId);
+  const selectCard = useWorkspaceStore((s) => s.selectCard);
   const updateCardStore = useCardStore((s) => s.updateCard);
   const deleteCardStore = useCardStore((s) => s.deleteCard);
   const cardsById = useCardStore((s) => s.cardsById);
@@ -151,8 +151,8 @@ export function CardDetailModal() {
   // Resolve current card from store (must be before useWorkerStatus which references card)
   const card: Card | undefined = selectedCardId ? cardsById[selectedCardId] : undefined;
 
-  // Worker status — poll to detect active workers on the current card's project
-  const { isCardActive } = useWorkerStatus(card?.projectId ?? '');
+  // Worker status — poll to detect active workers on the current card's workspace
+  const { isCardActive } = useWorkerStatus(card?.workspaceId ?? '');
 
   // Local state
   const [mobileTab, setMobileTab] = useState<MobileTab>('description');
@@ -205,14 +205,14 @@ export function CardDetailModal() {
   const isOpen = !!card;
 
   // Determine if on main board
-  const isMainBoard = !card?.projectId || card.projectId === SYSTEM_PROJECT_ID;
+  const isMainBoard = !card?.workspaceId || card.workspaceId === SYSTEM_WORKSPACE_ID;
 
-  // Project cards for dependency picker
-  const projectCards = useMemo(
-    () => card?.projectId
-      ? Object.values(cardsById).filter((c) => c.projectId === card.projectId)
+  // Workspace cards for dependency picker
+  const workspaceCards = useMemo(
+    () => card?.workspaceId
+      ? Object.values(cardsById).filter((c) => c.workspaceId === card.workspaceId)
       : [],
-    [card?.projectId, cardsById],
+    [card?.workspaceId, cardsById],
   );
 
   // Sync local description from the store. Skip while the user has an unsaved
@@ -247,11 +247,11 @@ export function CardDetailModal() {
       if (!card) return;
       // Optimistic local update
       updateCardStore(card.id, updates as Partial<Card>);
-      // Persist to server — scoped invalidation by projectId avoids refetching all boards.
+      // Persist to server — scoped invalidation by workspaceId avoids refetching all boards.
       patchCard.mutate({
         cardId: card.id,
         updates,
-        projectId: card.projectId ?? undefined,
+        workspaceId: card.workspaceId ?? undefined,
       });
     },
     [card, updateCardStore, patchCard],
@@ -296,7 +296,7 @@ export function CardDetailModal() {
       patchCard.mutate({
         cardId: card.id,
         updates: { agent_type: agentType },
-        projectId: card.projectId ?? undefined,
+        workspaceId: card.workspaceId ?? undefined,
       });
     },
     [card, updateCardStore, patchCard],
@@ -352,7 +352,7 @@ export function CardDetailModal() {
     deleteCardStore(card.id);
     close();
     archiveCard.mutate(
-      { cardId: card.id, projectId: card.projectId ?? undefined },
+      { cardId: card.id, workspaceId: card.workspaceId ?? undefined },
       {
         onSuccess: () => {
           showToast(`"${card.title}" archived`, 'success');
@@ -365,7 +365,7 @@ export function CardDetailModal() {
     if (!card) return;
     executeCard.mutate(card.id, {
       onSuccess: () => {
-        executeCardWS(card.id, card.projectId || undefined);
+        executeCardWS(card.id, card.workspaceId || undefined);
         showToast(`Executing: "${card.title}"`, 'success');
       },
       onError: () => showToast('Execution failed', 'error'),
@@ -444,7 +444,7 @@ export function CardDetailModal() {
             <ChatWindow
               tabId={card.id}
               chatLevel="card"
-              projectId={card.projectId ?? undefined}
+              workspaceId={card.workspaceId ?? undefined}
               cardId={card.id}
               embedded
               className="flex-1"
@@ -578,7 +578,7 @@ export function CardDetailModal() {
                     onChange={handleColorChange}
                   />
                 </div>
-                {isMainBoard && <ProjectPicker cardId={card.id} onMoved={close} />}
+                {isMainBoard && <WorkspacePicker cardId={card.id} onMoved={close} />}
                 <RecurrenceSection
                   current={card.recurrence}
                   nextDate={card.recurrenceNext}
@@ -603,7 +603,7 @@ export function CardDetailModal() {
               <section className="space-y-3">
                 <ChecklistSection cardId={card.id} />
                 <hr className="border-border" />
-                <LinkedFiles cardId={card.id} projectId={card.projectId ?? undefined} files={card.files ?? []} />
+                <LinkedFiles cardId={card.id} workspaceId={card.workspaceId ?? undefined} files={card.files ?? []} />
                 <AttachmentsSection cardId={card.id} />
 
                 <hr className="border-border" />
@@ -611,12 +611,12 @@ export function CardDetailModal() {
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">Dependencies</label>
                 <DependenciesSection
                   card={card}
-                  projectCards={projectCards}
+                  workspaceCards={workspaceCards}
                   onAdd={handleAddDep}
                   onRemove={handleRemoveDep}
                 />
               
-                <RelationsSection cardId={card.id} projectId={card.projectId ?? undefined} />
+                <RelationsSection cardId={card.id} workspaceId={card.workspaceId ?? undefined} />
                 <hr className="border-border" />
                 <HistorySection cardId={card.id} />
               </section>

@@ -2,7 +2,7 @@
 
 Background
 ----------
-``migrate_memory_collections.py`` created the new ``memory-project-{uuid}``
+``migrate_memory_collections.py`` created the new ``memory-workspace-{uuid}``
 and ``memory-global`` collections without passing an explicit
 ``embedding_function``. ChromaDB persisted ``default`` in the collection
 metadata. The app code in ``memory_service.py`` opens collections with
@@ -13,7 +13,7 @@ metadata. The app code in ``memory_service.py`` opens collections with
     sentence_transformer vs persisted: default
 
 Both reads and writes fail. Voxy can no longer use memory tools inside any
-migrated project.
+migrated workspace.
 
 Fix
 ---
@@ -55,7 +55,7 @@ MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def is_memory_collection(name: str) -> bool:
-    return name == "memory-global" or name.startswith("memory-project-")
+    return name == "memory-global" or name.startswith("memory-workspace-")
 
 
 def probe(client, name: str, ef) -> str:

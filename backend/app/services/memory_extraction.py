@@ -27,7 +27,7 @@ from app.services.memory_service_constants import (
     _high_importance_justified,
     _MEMORY_EXTRACTION_SYSTEM,
     _MEMORY_EXTRACTION_USER_TEMPLATE,
-    _project_collection,
+    _workspace_collection,
 )
 
 logger = logging.getLogger(__name__)
@@ -166,16 +166,16 @@ class MemoryExtractionMixin:
         self,
         chat_id: str,
         messages: list[dict],
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> list[str]:
         """Analyze conversation messages and auto-store important facts/decisions.
 
-        ``project_id`` is the UUID of the project chat (or ``"system-main"``
+        ``workspace_id`` is the UUID of the project chat (or ``"system-main"``
         / ``None`` for the general chat). Auto-extracted memories NEVER land
         in the cross-project ``memory-global`` collection — that collection
         is reserved for manual ``memory.save`` calls without a project
         scope. General-chat auto extractions land in
-        ``memory-project-system-main``.
+        ``memory-workspace-system-main``.
 
         B4 cost optimization flow:
         1. Message counter throttle — only run every EXTRACTION_INTERVAL messages
@@ -202,15 +202,15 @@ class MemoryExtractionMixin:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         # Determine target collection.
-        # - No project_id OR project_id == "system-main" → system-main project
-        # - Any other project_id → that project's collection
+        # - No workspace_id OR workspace_id == "system-main" → system-main project
+        # - Any other workspace_id → that project's collection
         # We NEVER auto-extract into GLOBAL_COLLECTION; global memory is
         # reserved for deliberate user saves without a project scope.
-        if not project_id or project_id == "system-main":
-            target_project_id = "system-main"
+        if not workspace_id or workspace_id == "system-main":
+            target_workspace_id = "system-main"
         else:
-            target_project_id = project_id
-        collection = _project_collection(target_project_id)
+            target_workspace_id = workspace_id
+        collection = _workspace_collection(target_workspace_id)
 
         # Take the last 4 non-system messages
         relevant_messages = [
@@ -243,7 +243,7 @@ class MemoryExtractionMixin:
                     from app.services.knowledge_graph_service import get_knowledge_graph_service
                     from sqlalchemy.exc import SQLAlchemyError
                     kg = get_knowledge_graph_service()
-                    await kg.extract_entities_from_llm_output(extracted_entities, target_project_id)
+                    await kg.extract_entities_from_llm_output(extracted_entities, target_workspace_id)
                 except (ImportError, ValueError, SQLAlchemyError) as e:
                     logger.warning(f"auto_extract: KG entity extraction failed (non-fatal): {e}")
 
@@ -289,8 +289,8 @@ class MemoryExtractionMixin:
                     "importance": importance,
                     "confidence": round(confidence, 2),
                 }
-                metadata["project"] = target_project_id
-                metadata["project_id"] = target_project_id
+                metadata["project"] = target_workspace_id
+                metadata["workspace_id"] = target_workspace_id
 
                 # Dedup: check if very similar memory already exists
                 existing = self.search_memory(
@@ -347,8 +347,8 @@ class MemoryExtractionMixin:
                     "speaker": speaker,
                     "importance": importance,
                 }
-                metadata["project"] = target_project_id
-                metadata["project_id"] = target_project_id
+                metadata["project"] = target_workspace_id
+                metadata["workspace_id"] = target_workspace_id
 
                 existing = self.search_memory(
                     query=sentence,

@@ -14,9 +14,9 @@ import httpx
 
 class TestCardCRUD:
     @pytest.mark.asyncio
-    async def test_create_card(self, client: httpx.AsyncClient, test_project: dict):
-        pid = test_project["_id"]
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+    async def test_create_card(self, client: httpx.AsyncClient, test_workspace: dict):
+        pid = test_workspace["_id"]
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": "CRUD test card",
             "description": "Testing create",
             "status": "todo",
@@ -27,9 +27,9 @@ class TestCardCRUD:
         assert card.get("id") or card.get("card", {}).get("id")
 
     @pytest.mark.asyncio
-    async def test_list_cards(self, client: httpx.AsyncClient, test_project: dict, test_card: dict):
-        pid = test_project["_id"]
-        r = await client.get(f"/api/projects/{pid}/cards")
+    async def test_list_cards(self, client: httpx.AsyncClient, test_workspace: dict, test_card: dict):
+        pid = test_workspace["_id"]
+        r = await client.get(f"/api/workspaces/{pid}/cards")
         assert r.status_code == 200
         cards = r.json()
         assert isinstance(cards, list)
@@ -101,7 +101,7 @@ class TestCardArchive:
         assert r.status_code == 200
 
         # Verify archived status
-        r = await client.get(f"/api/projects/{test_card['_project_id']}/cards")
+        r = await client.get(f"/api/workspaces/{test_card['_workspace_id']}/cards")
         active_ids = [c["id"] for c in r.json() if c.get("status") != "archived"]
         assert cid not in active_ids
 
@@ -110,15 +110,15 @@ class TestCardArchive:
         assert r.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_list_archived_cards(self, client: httpx.AsyncClient, test_project: dict, test_card: dict):
+    async def test_list_archived_cards(self, client: httpx.AsyncClient, test_workspace: dict, test_card: dict):
         cid = test_card["_id"]
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
 
         # Archive the card
         await client.post(f"/api/cards/{cid}/archive")
 
         # List archived
-        r = await client.get(f"/api/projects/{pid}/cards/archived")
+        r = await client.get(f"/api/workspaces/{pid}/cards/archived")
         assert r.status_code == 200
 
         # Restore for cleanup
@@ -271,12 +271,12 @@ class TestVoting:
 
 class TestRelations:
     @pytest.mark.asyncio
-    async def test_create_relation(self, client: httpx.AsyncClient, test_project: dict, test_card: dict):
-        pid = test_project["_id"]
+    async def test_create_relation(self, client: httpx.AsyncClient, test_workspace: dict, test_card: dict):
+        pid = test_workspace["_id"]
         src_id = test_card["_id"]
 
         # Create a second card to relate to
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": "Related card",
             "status": "todo",
         })

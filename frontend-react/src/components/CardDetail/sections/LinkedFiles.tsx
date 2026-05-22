@@ -9,11 +9,11 @@ interface KnowledgeDoc {
 
 export function LinkedFiles({
   cardId,
-  projectId,
+  workspaceId,
   files,
 }: {
   cardId: string;
-  projectId?: string;
+  workspaceId?: string;
   files: string[];
 }) {
   const updateCard = useCardStore((s) => s.updateCard);
@@ -26,10 +26,10 @@ export function LinkedFiles({
       setShowPicker(false);
       return;
     }
-    if (!projectId) return;
+    if (!workspaceId) return;
     setLoading(true);
     try {
-      const resp = await fetch(`/api/projects/${projectId}/documents`);
+      const resp = await fetch(`/api/workspaces/${workspaceId}/documents`);
       if (resp.ok) {
         const data = await resp.json() as { documents: KnowledgeDoc[] };
         setDocs(data.documents ?? []);
@@ -84,7 +84,7 @@ export function LinkedFiles({
         <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
           <Link size={12} /> Knowledge files
         </label>
-        {projectId && (
+        {workspaceId && (
           <button
             type="button"
             onClick={loadDocs}

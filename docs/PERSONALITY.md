@@ -2,7 +2,7 @@
 
 ## Overview
 
-Voxyflow doesn't just use an LLM — it runs it *with a personality*. Every dispatcher call and every worker run carries the personality defined in the repo's `personality/` files. The result: a voice assistant that sounds like the same person whether it's answering a quick question on the Fast layer, doing deep analysis on the Deep layer, or executing a task in a worker subprocess — regardless of which underlying provider (CLI / Anthropic / OpenAI / Ollama / etc.) is configured.
+Voxyflow doesn't just use an LLM — it runs it *with a personality*. Every dispatcher call and every worker run carries the personality defined in the repo's `personality/` files. The result: a voice assistant that sounds like the same person whether it's answering a quick question on the Fast layer, doing deep analysis on the Deep layer, or executing a task in a worker subprocess — regardless of which underlying provider (Claude CLI / Codex CLI / Anthropic / OpenAI-compatible / Ollama / etc.) is configured.
 
 ## How It Works
 
@@ -31,7 +31,7 @@ personality/                   # repo-checked baseline
 
 ### System Prompt Construction
 
-Every Claude API call builds a layered system prompt:
+Every dispatcher call and worker run builds a layered system prompt:
 
 ```
 ┌──────────────────────────────────┐
@@ -69,7 +69,7 @@ memory = get_memory_service()
 
 # Memory context varies by layer
 memory_ctx = memory.build_memory_context(
-    project_name="voxyflow",      # Project-specific notes
+    workspace_name="voxyflow",      # Workspace-specific notes
     include_long_term=True,        # MEMORY.md
     include_daily=True,            # Recent daily logs
 )
@@ -91,16 +91,16 @@ Personality files are cached by mtime — they're only re-read when modified. Th
 Conversation happens in Voxyflow
     │
     ├── Decisions made → append to memory/YYYY-MM-DD.md
-    ├── Project learnings → update memory/projects/<name>.md
+    ├── Workspace learnings → update memory/workspaces/<name>.md
     │
     ▼
 Next session reads those files → continuity
     │
     ▼
-Project autonomy heartbeat curates → MEMORY.md
+Workspace autonomy heartbeat curates → MEMORY.md
 ```
 
-Voxyflow writes to daily logs. A project's autonomy heartbeat (see `FEATURES.md` → Project Autonomy) can periodically curate daily logs into MEMORY.md. This is how short-term memory becomes long-term memory.
+Voxyflow writes to daily logs. A workspace's autonomy heartbeat (see `FEATURES.md` → Workspace Autonomy) can periodically curate daily logs into MEMORY.md. This is how short-term memory becomes long-term memory.
 
 ## Design Decisions
 
@@ -112,10 +112,10 @@ Speed vs. context tradeoff. Haiku needs to respond in <1s — loading 30KB of ME
 
 ## Example: Before vs. After Personality
 
-**Without personality (generic Claude):**
+**Without personality (generic LLM):**
 ```
 User: "Je veux refactor l'API"
-Claude: "I can help with that. What specific aspects of the API would you like to refactor?"
+Assistant: "I can help with that. What specific aspects of the API would you like to refactor?"
 ```
 
 **With personality (Voxy):**

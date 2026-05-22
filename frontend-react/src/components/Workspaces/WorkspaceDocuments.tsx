@@ -1,11 +1,11 @@
 import { useRef, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Upload, Trash2, Loader2, File, FileText, FileCode, BookOpen, Sheet } from 'lucide-react';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useToastStore } from '../../stores/useToastStore';
 import type { LucideIcon } from 'lucide-react';
 
-interface ProjectDocument {
+interface WorkspaceDocument {
   id: string;
   filename: string;
   file_size: number;
@@ -43,39 +43,39 @@ function DocIcon({ filename, mimeType }: { filename: string; mimeType: string })
 
 const ALLOWED_EXTS = ['.txt', '.md', '.pdf', '.docx', '.xlsx'];
 
-export function ProjectDocuments() {
-  const projectId = useProjectStore(s => s.currentProjectId);
+export function WorkspaceDocuments() {
+  const workspaceId = useWorkspaceStore(s => s.currentWorkspaceId);
   const { showToast } = useToastStore();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const { data: docs = [] } = useQuery<ProjectDocument[]>({
-    queryKey: ['projects', projectId, 'documents'],
+  const { data: docs = [] } = useQuery<WorkspaceDocument[]>({
+    queryKey: ['workspaces', workspaceId, 'documents'],
     queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/documents`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/documents`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as ProjectDocument[] | { documents: ProjectDocument[] };
+      const data = await res.json() as WorkspaceDocument[] | { documents: WorkspaceDocument[] };
       return Array.isArray(data) ? data : (data.documents ?? []);
     },
-    enabled: !!projectId,
+    enabled: !!workspaceId,
     staleTime: 30_000,
   });
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
-      if (!projectId) throw new Error('No project selected');
+      if (!workspaceId) throw new Error('No workspace selected');
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`/api/projects/${projectId}/documents`, { method: 'POST', body: formData });
+      const res = await fetch(`/api/workspaces/${workspaceId}/documents`, { method: 'POST', body: formData });
       if (!res.ok) {
         const errText = await res.text();
         throw new Error(errText || `HTTP ${res.status}`);
       }
-      return res.json() as Promise<ProjectDocument>;
+      return res.json() as Promise<WorkspaceDocument>;
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'documents'] });
+      void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] });
       showToast('Document indexed', 'success', 3000);
     },
     onError: (err: Error) => {
@@ -85,11 +85,11 @@ export function ProjectDocuments() {
 
   const deleteMutation = useMutation({
     mutationFn: async ({ docId }: { docId: string; filename: string }) => {
-      const res = await fetch(`/api/projects/${projectId}/documents/${docId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/workspaces/${workspaceId}/documents/${docId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     },
     onSuccess: (_data, { filename }) => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'documents'] });
+      void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] });
       showToast(`"${filename}" removed`, 'info', 2500);
     },
     onError: () => {
@@ -121,11 +121,11 @@ export function ProjectDocuments() {
     if (file) handleFile(file);
   }, [handleFile]);
 
-  if (!projectId) {
+  if (!workspaceId) {
     return (
       <div className="docs-view">
         <div className="docs-empty" style={{ textAlign: 'center', padding: '32px 0', color: 'var(--color-text-muted, #888)', fontSize: '13px' }}>
-          No project selected.
+          No workspace selected.
         </div>
       </div>
     );
@@ -181,7 +181,7 @@ export function ProjectDocuments() {
             className="docs-empty"
             style={{ textAlign: 'center', padding: '32px 0', color: 'var(--color-text-muted, #888)', fontSize: '13px' }}
           >
-            No documents yet. Upload files to give Voxy context about this project.
+            No documents yet. Upload files to give Voxy context about this workspace.
           </div>
         ) : (
           docs.map((doc) => (

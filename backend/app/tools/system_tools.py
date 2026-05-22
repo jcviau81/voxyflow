@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 import httpx
 
-from app.config import VOXYFLOW_WORKSPACE_DIR
+from app.config import VOXYFLOW_SANDBOX_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def _is_path_allowed(path_str: str) -> bool:
 # Common shell builtins / utilities that workers sometimes pass as a "path"
 # when they meant to run a command. Used by _looks_like_shell_command() to
 # reject obvious misuses of file.write / file.patch before they pollute the
-# workspace with files named after bash commands.
+# sandbox with files named after bash commands.
 _SHELL_COMMAND_PREFIXES = {
     "mkdir", "rmdir", "rm", "cp", "mv", "touch", "ls", "ll", "cat",
     "echo", "cd", "pwd", "chmod", "chown", "ln", "find", "grep",
@@ -154,7 +154,7 @@ def _is_write_allowed(path_str: str) -> bool:
       env var VOXYFLOW_DEV_TASK=1 is set (Voxyflow codebase dev tasks).
 
     This protects ~/voxyflow/ (the app codebase) from accidental writes by
-    workers. Workers should write to ~/.voxyflow/workspace/ instead.
+    workers. Workers should write to ~/.voxyflow/sandbox/ instead.
     Note: ~/.voxyflow (dot-voxyflow) is NOT affected by this restriction.
     """
     # Standard allowed_paths check
@@ -181,7 +181,7 @@ def _is_write_allowed(path_str: str) -> bool:
                 return True
             logger.warning(
                 f"[path.write] BLOCKED write to protected path: {resolved} "
-                "(Workers must write to ~/.voxyflow/workspace/ — "
+                "(Workers must write to ~/.voxyflow/sandbox/ — "
                 "set VOXYFLOW_DEV_TASK=1 only for Voxyflow codebase tasks)"
             )
             return False
@@ -289,31 +289,31 @@ def _is_command_blocked(command: str) -> bool:
 def _resolve_exec_cwd(cwd: str | None) -> tuple[str, str | None]:
     """Resolve the working directory for ``system.exec`` and confine it.
 
-    Commands must run under ``VOXYFLOW_WORKSPACE_DIR`` (the workers' sandbox).
+    Commands must run under ``VOXYFLOW_SANDBOX_DIR`` (the workers' sandbox).
     Set ``VOXYFLOW_DEV_TASK=1`` to opt into running against the Voxyflow
     codebase itself (matches the write-path escape hatch).
 
     Returns ``(resolved_cwd, error)``. If ``error`` is non-None, the caller
     must surface it and abort.
     """
-    workspace = Path(VOXYFLOW_WORKSPACE_DIR).expanduser().resolve()
+    sandbox = Path(VOXYFLOW_SANDBOX_DIR).expanduser().resolve()
 
     if cwd:
         resolved = Path(cwd).expanduser().resolve()
         if not resolved.is_dir():
             return str(resolved), f"Working directory does not exist: {resolved}"
     else:
-        resolved = workspace
+        resolved = sandbox
 
     dev_task = os.environ.get("VOXYFLOW_DEV_TASK", "").lower() in ("1", "true", "yes")
     if dev_task:
         return str(resolved), None
 
     try:
-        resolved.relative_to(workspace)
+        resolved.relative_to(sandbox)
     except ValueError:
         return str(resolved), (
-            f"cwd must be under the workspace ({workspace}); got {resolved}. "
+            f"cwd must be under the sandbox ({sandbox}); got {resolved}. "
             "Set VOXYFLOW_DEV_TASK=1 only for Voxyflow codebase tasks."
         )
     return str(resolved), None
@@ -620,7 +620,7 @@ async def file_write(params: dict) -> dict:
     resolved = Path(path_str).expanduser().resolve()
 
     if not _is_write_allowed(str(resolved)):
-        return {"success": False, "error": f"Path not allowed for writes: {path_str} — workers must write to ~/.voxyflow/workspace/ (set VOXYFLOW_DEV_TASK=1 for Voxyflow codebase tasks)"}
+        return {"success": False, "error": f"Path not allowed for writes: {path_str} — workers must write to ~/.voxyflow/sandbox/ (set VOXYFLOW_DEV_TASK=1 for Voxyflow codebase tasks)"}
 
     logger.info(f"[file.write] Writing: {resolved} (mode={mode}, {len(content)} chars)")
 
@@ -668,7 +668,7 @@ async def file_patch(params: dict) -> dict:
     resolved = Path(path_str).expanduser().resolve()
 
     if not _is_write_allowed(str(resolved)):
-        return {"success": False, "error": f"Path not allowed for writes: {path_str} — workers must write to ~/.voxyflow/workspace/ (set VOXYFLOW_DEV_TASK=1 for Voxyflow codebase tasks)"}
+        return {"success": False, "error": f"Path not allowed for writes: {path_str} — workers must write to ~/.voxyflow/sandbox/ (set VOXYFLOW_DEV_TASK=1 for Voxyflow codebase tasks)"}
 
     if not resolved.exists():
         return {"success": False, "error": f"File not found: {path_str}"}

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
 
-from app.config import get_settings, VOXYFLOW_WORKSPACE_DIR
+from app.config import get_settings, VOXYFLOW_SANDBOX_DIR
 from app.services.llm.client_factory import (
     _make_anthropic_client,
     _make_async_anthropic_client,
@@ -564,7 +564,7 @@ class ClaudeService(ApiCallerMixin):
         chat_level: str = "general",
         project_context: Optional[dict] = None,
         card_context: Optional[dict] = None,
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         project_names: Optional[list] = None,
         active_workers_context: str = "",
         session_id: str = "",
@@ -596,7 +596,7 @@ class ClaudeService(ApiCallerMixin):
 
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
-            project_id=project_id,
+            workspace_id=workspace_id,
             include_long_term=False,
             include_daily=True,
             query=user_message,
@@ -630,7 +630,7 @@ class ClaudeService(ApiCallerMixin):
         dynamic_parts: list[str] = []
         wc_list = await self._load_worker_classes_context()
 
-        # Project/card context + memory — dynamic, must NOT be in base_prompt
+        # Workspace/card context + memory — dynamic, must NOT be in base_prompt
         dynamic_context = self.personality.build_dynamic_context_block(
             chat_level=chat_level,
             project=project_context,
@@ -652,7 +652,7 @@ class ClaudeService(ApiCallerMixin):
             f"If asked, say you are {self.fast_model}."
         )
 
-        if project_id:
+        if workspace_id:
             try:
                 pass  # RAG disabled — use knowledge.search tool instead
             except Exception as e:
@@ -724,7 +724,7 @@ class ClaudeService(ApiCallerMixin):
             # Native Anthropic: stream with delegate_action tool
             full_response = ""
             async with register_logical_chat_session(
-                chat_id=chat_id, project_id=project_id,
+                chat_id=chat_id, workspace_id=workspace_id,
                 model=self.fast_model, session_type="chat",
             ):
                 async for token in self._call_api_stream_with_delegate(
@@ -743,7 +743,7 @@ class ClaudeService(ApiCallerMixin):
             # function-call schemas far more reliably than embedded XML.
             full_response = ""
             async with register_logical_chat_session(
-                chat_id=chat_id, project_id=project_id,
+                chat_id=chat_id, workspace_id=workspace_id,
                 model=self.fast_model, session_type="chat",
             ):
                 async for token in self._call_api_stream_openai_with_delegate(
@@ -790,9 +790,9 @@ class ClaudeService(ApiCallerMixin):
                 mcp_role=("dispatcher_codex" if self.fast_client_type == "codex" else "dispatcher"),
                 chat_level=chat_level,
                 chat_id=chat_id,
-                session_id=session_id, project_id=project_id or "", card_id=card_id,
+                session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
                 session_type="chat",
-                cwd=str(VOXYFLOW_WORKSPACE_DIR),
+                cwd=str(VOXYFLOW_SANDBOX_DIR),
             ):
                 full_response += token
                 yield token
@@ -813,9 +813,9 @@ class ClaudeService(ApiCallerMixin):
                 use_tools=False,
                 chat_level=chat_level,
                 chat_id=chat_id,
-                session_id=session_id, project_id=project_id or "", card_id=card_id,
+                session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
                 session_type="chat",
-                cwd=str(VOXYFLOW_WORKSPACE_DIR),
+                cwd=str(VOXYFLOW_SANDBOX_DIR),
             ):
                 full_response += token
                 yield token
@@ -834,7 +834,7 @@ class ClaudeService(ApiCallerMixin):
         chat_level: str = "general",
         project_context: Optional[dict] = None,
         card_context: Optional[dict] = None,
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         project_names: Optional[list] = None,
         active_workers_context: str = "",
         session_id: str = "",
@@ -859,7 +859,7 @@ class ClaudeService(ApiCallerMixin):
 
         memory_context = self.memory.build_memory_context(
             project_name=project_name,
-            project_id=project_id,
+            workspace_id=workspace_id,
             include_long_term=True,
             include_daily=True,
             query=user_message,
@@ -885,7 +885,7 @@ class ClaudeService(ApiCallerMixin):
         dynamic_parts: list[str] = []
         wc_list = await self._load_worker_classes_context()
 
-        # Project/card context + memory — dynamic, must NOT be in base_prompt
+        # Workspace/card context + memory — dynamic, must NOT be in base_prompt
         dynamic_context = self.personality.build_dynamic_context_block(
             chat_level=chat_level,
             project=project_context,
@@ -905,7 +905,7 @@ class ClaudeService(ApiCallerMixin):
             f"This is your actual model. If asked, say you are {self.deep_model}."
         )
 
-        if project_id:
+        if workspace_id:
             try:
                 pass  # RAG disabled — use knowledge.search tool instead
             except Exception as e:
@@ -973,7 +973,7 @@ class ClaudeService(ApiCallerMixin):
         if use_native_delegate:
             full_response = ""
             async with register_logical_chat_session(
-                chat_id=chat_id, project_id=project_id,
+                chat_id=chat_id, workspace_id=workspace_id,
                 model=self.deep_model, session_type="chat",
             ):
                 async for token in self._call_api_stream_with_delegate(
@@ -989,7 +989,7 @@ class ClaudeService(ApiCallerMixin):
         elif use_openai_delegate:
             full_response = ""
             async with register_logical_chat_session(
-                chat_id=chat_id, project_id=project_id,
+                chat_id=chat_id, workspace_id=workspace_id,
                 model=self.deep_model, session_type="chat",
             ):
                 async for token in self._call_api_stream_openai_with_delegate(
@@ -1031,9 +1031,9 @@ class ClaudeService(ApiCallerMixin):
                 mcp_role=("dispatcher_codex" if self.deep_client_type == "codex" else "dispatcher"),
                 chat_level=chat_level,
                 chat_id=chat_id,
-                session_id=session_id, project_id=project_id or "", card_id=card_id,
+                session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
                 session_type="chat",
-                cwd=str(VOXYFLOW_WORKSPACE_DIR),
+                cwd=str(VOXYFLOW_SANDBOX_DIR),
             ):
                 full_response += token
                 yield token
@@ -1049,9 +1049,9 @@ class ClaudeService(ApiCallerMixin):
                 use_tools=False,
                 chat_level=chat_level,
                 chat_id=chat_id,
-                session_id=session_id, project_id=project_id or "", card_id=card_id,
+                session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
                 session_type="chat",
-                cwd=str(VOXYFLOW_WORKSPACE_DIR),
+                cwd=str(VOXYFLOW_SANDBOX_DIR),
             ):
                 full_response += token
                 yield token
@@ -1155,7 +1155,7 @@ class ClaudeService(ApiCallerMixin):
         chat_level: str = "general",
         project_context: Optional[dict] = None,
         card_context: Optional[dict] = None,
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
@@ -1243,7 +1243,7 @@ class ClaudeService(ApiCallerMixin):
                 "```"
             )
 
-        if project_id:
+        if workspace_id:
             try:
                 pass  # RAG disabled — use knowledge.search tool instead
             except Exception as e:
@@ -1259,7 +1259,7 @@ class ClaudeService(ApiCallerMixin):
         if project_context and project_context.get("local_path"):
             worker_cwd = project_context["local_path"]
         elif not worker_cwd:
-            worker_cwd = str(VOXYFLOW_WORKSPACE_DIR)
+            worker_cwd = str(VOXYFLOW_SANDBOX_DIR)
 
         result = await self._call_api(
             model=model_name,
@@ -1274,7 +1274,7 @@ class ClaudeService(ApiCallerMixin):
             chat_id=chat_id,
             cancel_event=cancel_event,
             message_queue=message_queue,
-            session_id=session_id, project_id=project_id or "", card_id=card_id,
+            session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
             session_type="worker",
             task_id=task_id,
             cwd=worker_cwd,
@@ -1286,7 +1286,7 @@ class ClaudeService(ApiCallerMixin):
         chat_id: str,
         prompt: str,
         model: str = "haiku",
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         card_context: Optional[dict] = None,
         tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
         cancel_event: Optional[asyncio.Event] = None,
@@ -1341,10 +1341,10 @@ class ClaudeService(ApiCallerMixin):
             chat_id=chat_id,
             cancel_event=cancel_event,
             message_queue=message_queue,
-            session_id=session_id, project_id=project_id or "", card_id=card_id,
+            session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
             session_type="worker",
             task_id=task_id,
-            cwd=str(VOXYFLOW_WORKSPACE_DIR),
+            cwd=str(VOXYFLOW_SANDBOX_DIR),
         )
         return result or ""
 

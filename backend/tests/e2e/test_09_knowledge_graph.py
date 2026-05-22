@@ -1,6 +1,6 @@
 """
 E2E: Knowledge Graph — entity/triple/attribute CRUD, temporal queries,
-project isolation, pinned context, stats.
+workspace isolation, pinned context, stats.
 
 Uses in-memory SQLite — no backend required.
 """
@@ -129,7 +129,7 @@ class TestTriples:
 
 
 # ── Attributes (Temporal) ────────────────────────────────────────────────────
-# add_attribute(entity_id, key, value) — project_id is inferred from entity
+# add_attribute(entity_id, key, value) — workspace_id is inferred from entity
 
 class TestAttributes:
     @pytest.mark.asyncio
@@ -172,23 +172,23 @@ class TestTimeline:
         await kg.invalidate(attribute_id=aid)
         await kg.add_attribute(eid, "version", "7.0")
 
-        timeline = await kg.get_timeline(project_id=pid, entity_name="Redis")
+        timeline = await kg.get_timeline(workspace_id=pid, entity_name="Redis")
         assert len(timeline) >= 3
 
     @pytest.mark.asyncio
-    async def test_project_timeline(self, kg):
+    async def test_workspace_timeline(self, kg):
         pid = _pid()
         eid1 = await kg.add_entity("A", "concept", pid)
         eid2 = await kg.add_entity("B", "concept", pid)
         await kg.add_triple(eid1, "related_to", eid2, pid)
 
-        timeline = await kg.get_timeline(project_id=pid)
+        timeline = await kg.get_timeline(workspace_id=pid)
         assert len(timeline) >= 1
 
 
-# ── Project Isolation ────────────────────────────────────────────────────────
+# ── Workspace Isolation ────────────────────────────────────────────────────────
 
-class TestKGProjectIsolation:
+class TestKGWorkspaceIsolation:
     @pytest.mark.asyncio
     async def test_entities_isolated(self, kg):
         pid_a = _pid()
@@ -276,7 +276,7 @@ class TestStats:
         assert stats["active_attributes"] >= 1
 
     @pytest.mark.asyncio
-    async def test_stats_empty_project(self, kg):
+    async def test_stats_empty_workspace(self, kg):
         pid = _pid()
         stats = await kg.get_stats(pid)
         assert stats["entities"] == 0

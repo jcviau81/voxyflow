@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 interface WorkerSession {
   task_id: string;
   session_id: string;
-  project_id?: string;
+  workspace_id?: string;
   card_id?: string;
   status: string;
   model?: string;
@@ -19,15 +19,15 @@ interface WorkerSession {
  * and provides an `isCardActive` function to check if a specific card
  * has an active (running/pending) worker session.
  */
-export function useWorkerStatus(projectId: string) {
+export function useWorkerStatus(workspaceId: string) {
   const [sessions, setSessions] = useState<WorkerSession[]>([]);
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!workspaceId) return;
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/workers/sessions?project_id=${encodeURIComponent(projectId)}`);
+        const res = await fetch(`/api/workers/sessions?workspace_id=${encodeURIComponent(workspaceId)}`);
         if (res.ok) {
           const data = await res.json();
           // API returns { sessions: [...] }
@@ -41,7 +41,7 @@ export function useWorkerStatus(projectId: string) {
     poll();
     const interval = setInterval(poll, 3000);
     return () => clearInterval(interval);
-  }, [projectId]);
+  }, [workspaceId]);
 
   const isCardActive = useCallback(
     (cardId: string): boolean => {

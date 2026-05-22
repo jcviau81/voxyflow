@@ -22,21 +22,21 @@ router = APIRouter(prefix="/api/worker-tasks", tags=["worker-tasks"])
 @router.get("")
 async def list_worker_tasks(
     session_id: Optional[str] = None,
-    project_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
     """List recent worker tasks from the Worker Ledger.
 
-    Filters: session_id, project_id, status (pending/running/done/failed/cancelled).
+    Filters: session_id, workspace_id, status (pending/running/done/failed/cancelled).
     """
     query = select(WorkerTask).order_by(desc(WorkerTask.created_at))
 
     if session_id:
         query = query.where(WorkerTask.session_id == session_id)
-    if project_id:
-        query = query.where(WorkerTask.project_id == project_id)
+    if workspace_id:
+        query = query.where(WorkerTask.workspace_id == workspace_id)
     if status:
         query = query.where(WorkerTask.status == status)
 
@@ -50,7 +50,7 @@ async def list_worker_tasks(
             {
                 "id": t.id,
                 "session_id": t.session_id,
-                "project_id": t.project_id,
+                "workspace_id": t.workspace_id,
                 "card_id": t.card_id,
                 "action": t.action,
                 "description": t.description,
@@ -161,7 +161,7 @@ async def get_worker_task(
     return {
         "id": task.id,
         "session_id": task.session_id,
-        "project_id": task.project_id,
+        "workspace_id": task.workspace_id,
         "card_id": task.card_id,
         "action": task.action,
         "description": task.description,

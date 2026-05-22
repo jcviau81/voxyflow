@@ -41,7 +41,8 @@ uvicorn app.main:app ...
 | Git | any | |
 
 **LLM backend (at least one):**
-- Claude CLI (`claude`) — for CLI backend (recommended with Claude Max subscription)
+- Claude CLI (`claude`) — local CLI backend for Claude Max subscriptions
+- OpenAI Codex CLI (`codex`) — native local CLI backend for Codex models
 - Anthropic API key — for native Anthropic SDK
 - Any OpenAI-compatible endpoint — Ollama, LM Studio, Groq, Mistral, OpenAI, Gemini, OpenRouter
 
@@ -185,6 +186,7 @@ Voxyflow supports multiple LLM providers through a provider abstraction layer. E
 | Provider | Type | API Key | Local | Default URL |
 |----------|------|---------|-------|-------------|
 | Claude CLI | `cli` | No (uses Max subscription) | Yes | — |
+| Codex CLI | `codex` | No (uses local Codex login) | Yes | — |
 | Anthropic (Claude) | `anthropic` | Yes | No | `https://api.anthropic.com` |
 | OpenAI | `openai` | Yes | No | `https://api.openai.com/v1` |
 | Ollama | `ollama` | No | Yes | `http://localhost:11434` |
@@ -219,7 +221,17 @@ Uses your Claude Max subscription by spawning `claude -p` subprocesses. No API k
 
 Increase `CLI_WORKER_CONCURRENT` and `MAX_WORKERS` if you have headroom on your subscription. Decrease them if you share your Max subscription across multiple machines.
 
-### Option B: Anthropic API (direct SDK)
+### Option B: Codex CLI
+
+Uses your local OpenAI Codex CLI account by spawning `codex exec --json`. No Voxyflow API key or base URL is needed.
+
+1. Install and sign in to the Codex CLI.
+2. Verify available models with `/model` inside Codex or by testing `codex exec -m <model-id>`.
+3. In **Settings > Models**, choose **Codex CLI** for Fast, Deep, or any worker class.
+
+Built-in Codex model choices: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`. See [CODEX_CLI.md](CODEX_CLI.md) for model assignment guidance, MCP behavior, and capacity fallback details.
+
+### Option C: Anthropic API (direct SDK)
 
 Direct API calls via the `anthropic` Python SDK. Requires an API key.
 
@@ -234,7 +246,7 @@ Or store the key in the system keyring:
 keyring set voxyflow claude_api_key
 ```
 
-### Option C: Settings UI (any provider)
+### Option D: Settings UI (any provider)
 
 The most flexible approach — configure providers entirely through the web UI. No `.env` changes needed beyond the basic app config.
 
@@ -244,10 +256,10 @@ The most flexible approach — configure providers entirely through the web UI. 
    - Pick a provider type (Ollama, OpenAI, Groq, etc.)
    - Enter the base URL (auto-filled for known providers)
    - Add an API key if required
-4. **Configure layers** — assign a provider and model to each layer (Fast / Deep):
+4. **Configure layers** — assign a provider and model to each dispatcher layer (Fast / Deep):
    - Select a saved machine or enter provider details directly
    - Pick a model from the auto-discovered list
-5. **Configure worker classes** (optional) — route specific task types to dedicated LLMs (e.g. "Coding" tasks to a powerful model, "Research" tasks to a fast model)
+5. **Configure worker classes** — route specific task types to dedicated LLMs (for example Codex `gpt-5.3-codex` for coding workers and `gpt-5.4-mini` for simple utility work)
 
 The UI shows live reachability status for each configured endpoint and displays model capabilities (tool use, vision, context window).
 
@@ -309,7 +321,7 @@ sudo apt install gh
 gh auth login
 ```
 
-Without `gh`, GitHub-related features (repo validation, project GitHub linking) will return 503 errors.
+Without `gh`, GitHub-related features (repo validation, workspace GitHub linking) will return 503 errors.
 
 ---
 

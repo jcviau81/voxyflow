@@ -19,20 +19,20 @@ router = APIRouter(prefix="/api/workers", tags=["workers"])
 @router.get("/sessions")
 async def list_worker_sessions(
     session_id: Optional[str] = None,
-    project_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     include_completed: bool = False,
     store: WorkerSessionStore = Depends(get_worker_session_store),
 ):
     """Return active + recent worker sessions (last 1 hour).
 
-    Filter by project_id (stable across reconnects) or session_id.
-    If both provided, project_id takes precedence.
+    Filter by workspace_id (stable across reconnects) or session_id.
+    If both provided, workspace_id takes precedence.
     Pass ``include_completed=true`` to include terminal sessions older than
     the default 2-minute window.
     """
-    if project_id:
+    if workspace_id:
         sessions = store.get_sessions_by_project(
-            project_id=project_id, include_old=include_completed
+            workspace_id=workspace_id, include_old=include_completed
         )
     else:
         sessions = store.get_sessions(
@@ -64,7 +64,7 @@ async def clear_terminal_sessions(
 
 @router.get("/snapshot")
 async def worker_snapshot(
-    project_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     include_completed: bool = False,
     store: WorkerSessionStore = Depends(get_worker_session_store),
     registry: CliSessionRegistry = Depends(get_cli_session_registry),
@@ -75,8 +75,8 @@ async def worker_snapshot(
     Used for initial page load and visibility-resume re-sync.
     """
     # Worker sessions from WorkerSessionStore
-    if project_id:
-        raw_sessions = store.get_sessions_by_project(project_id, include_old=include_completed)
+    if workspace_id:
+        raw_sessions = store.get_sessions_by_project(workspace_id, include_old=include_completed)
     else:
         raw_sessions = store.get_sessions(include_old=include_completed)
 
@@ -121,7 +121,7 @@ async def worker_snapshot(
 
         workers.append({
             "taskId": s["task_id"],
-            "projectId": s.get("project_id"),
+            "projectId": s.get("workspace_id"),
             "cardId": s.get("card_id"),
             "chatId": s.get("chat_id"),
             "action": s.get("intent", "unknown"),
@@ -142,14 +142,14 @@ async def worker_snapshot(
     # CLI sessions from CliSessionRegistry
     cli_sessions = []
     for cs in registry.list_active():
-        # Filter by project_id if provided
-        if project_id and cs.project_id != project_id:
+        # Filter by workspace_id if provided
+        if workspace_id and cs.workspace_id != workspace_id:
             continue
         cli_sessions.append({
             "id": cs.id,
             "pid": cs.pid,
             "chatId": cs.chat_id,
-            "projectId": cs.project_id,
+            "projectId": cs.workspace_id,
             "model": cs.model,
             "type": cs.session_type,
             "startedAt": cs.started_at,

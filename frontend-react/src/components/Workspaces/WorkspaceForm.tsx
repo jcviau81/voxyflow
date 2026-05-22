@@ -1,5 +1,5 @@
 /**
- * ProjectForm — React port of frontend/src/components/Projects/ProjectForm.ts
+ * WorkspaceForm — React port of frontend/src/components/Workspaces/WorkspaceForm.ts
  *
  * Handles create and edit modes with:
  *   - Template picker (create mode only)
@@ -18,14 +18,14 @@ import { z } from 'zod';
 import { cn } from '../../lib/utils';
 import { authFetch } from '../../lib/authClient';
 import {
-  useCreateProject,
-  useUpdateProject,
-  useProjectTemplates,
-  useArchiveProject,
-  useCreateProjectFromTemplate,
-} from '../../hooks/api/useProjects';
-import type { Project, GitHubRepoInfo, ProjectTemplate, TechDetectResult } from '../../types';
-import { ProjectAutonomySection } from './ProjectAutonomySection';
+  useCreateWorkspace,
+  useUpdateWorkspace,
+  useWorkspaceTemplates,
+  useArchiveWorkspace,
+  useCreateWorkspaceFromTemplate,
+} from '../../hooks/api/useWorkspaces';
+import type { Workspace, GitHubRepoInfo, WorkspaceTemplate, TechDetectResult } from '../../types';
+import { WorkspaceAutonomySection } from './WorkspaceAutonomySection';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ const COLOR_PALETTE = [
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 const schema = z.object({
-  name: z.string().min(1, 'Project name is required').max(100, 'Max 100 characters'),
+  name: z.string().min(1, 'Workspace name is required').max(100, 'Max 100 characters'),
   description: z.string().max(500, 'Max 500 characters').optional(),
 });
 
@@ -48,9 +48,9 @@ type FormValues = z.infer<typeof schema>;
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-interface ProjectFormProps {
+interface WorkspaceFormProps {
   mode: 'create' | 'edit';
-  project?: Project;
+  workspace?: Workspace;
   prefillTitle?: string;
   onClose: () => void;
 }
@@ -66,7 +66,7 @@ type GitHubStatus =
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFormProps) {
+export function WorkspaceForm({ mode, workspace, prefillTitle, onClose }: WorkspaceFormProps) {
   // ── Form ──────────────────────────────────────────────────────────────────
   const {
     register,
@@ -76,40 +76,40 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      name: project?.name ?? prefillTitle ?? '',
-      description: project?.description ?? '',
+      name: workspace?.name ?? prefillTitle ?? '',
+      description: workspace?.description ?? '',
     },
   });
 
   // ── Selectors ─────────────────────────────────────────────────────────────
-  const [selectedEmoji, setSelectedEmoji] = useState(project?.emoji ?? DEFAULT_EMOJI);
-  const [selectedColor, setSelectedColor] = useState(project?.color ?? '');
+  const [selectedEmoji, setSelectedEmoji] = useState(workspace?.emoji ?? DEFAULT_EMOJI);
+  const [selectedColor, setSelectedColor] = useState(workspace?.color ?? '');
   const [selectedStatus, setSelectedStatus] = useState<'active' | 'archived'>(
-    project?.archived ? 'archived' : 'active'
+    workspace?.archived ? 'archived' : 'active'
   );
   const [inheritMainContext, setInheritMainContext] = useState(
-    project?.inheritMainContext === true
+    workspace?.inheritMainContext === true
   );
 
   // ── Templates ─────────────────────────────────────────────────────────────
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const { data: templates = [] } = useProjectTemplates();
+  const { data: templates = [] } = useWorkspaceTemplates();
 
   // ── GitHub ─────────────────────────────────────────────────────────────────
-  const [githubInput, setGithubInput] = useState(project?.githubRepo ?? '');
+  const [githubInput, setGithubInput] = useState(workspace?.githubRepo ?? '');
   const [githubStatus, setGithubStatus] = useState<GitHubStatus>(() => {
-    if (project?.githubRepo && project?.githubUrl) {
+    if (workspace?.githubRepo && workspace?.githubUrl) {
       return {
         type: 'connected',
         info: {
           valid: true,
-          full_name: project.githubRepo,
+          full_name: workspace.githubRepo,
           description: '',
-          default_branch: project.githubBranch ?? 'main',
-          language: project.githubLanguage ?? null,
+          default_branch: workspace.githubBranch ?? 'main',
+          language: workspace.githubLanguage ?? null,
           stars: 0,
           private: false,
-          html_url: project.githubUrl,
+          html_url: workspace.githubUrl,
           clone_url: '',
           updated_at: '',
         },
@@ -120,8 +120,8 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
   const [githubSetupOk, setGithubSetupOk] = useState(true);
 
   // ── Local path / tech stack ─────────────────────────────────────────────────
-  const [localPath, setLocalPath] = useState(project?.localPath ?? '');
-  const [techStack, setTechStack] = useState<TechDetectResult | null>(project?.techStack ?? null);
+  const [localPath, setLocalPath] = useState(workspace?.localPath ?? '');
+  const [techStack, setTechStack] = useState<TechDetectResult | null>(workspace?.techStack ?? null);
   const [detecting, setDetecting] = useState(false);
   const [pathExists, setPathExists] = useState<boolean | null>(null);
   const [pathExpanded, setPathExpanded] = useState('');
@@ -130,10 +130,10 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
   const [cloneMessage, setCloneMessage] = useState('');
 
   // ── Mutations ──────────────────────────────────────────────────────────────
-  const createProject = useCreateProject();
-  const updateProject = useUpdateProject();
-  const archiveProject = useArchiveProject();
-  const createFromTemplate = useCreateProjectFromTemplate();
+  const createWorkspace = useCreateWorkspace();
+  const updateWorkspace = useUpdateWorkspace();
+  const archiveWorkspace = useArchiveWorkspace();
+  const createFromTemplate = useCreateWorkspaceFromTemplate();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const nameRef = useRef<HTMLInputElement | null>(null);
@@ -161,7 +161,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
   }, [localPath]);
 
   // ── Template selection ─────────────────────────────────────────────────────
-  function selectTemplate(tpl: ProjectTemplate | null) {
+  function selectTemplate(tpl: WorkspaceTemplate | null) {
     setSelectedTemplateId(tpl?.id ?? null);
     if (tpl) {
       setSelectedEmoji(tpl.emoji);
@@ -247,7 +247,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
     if (!trimmed) { setPathExists(null); setPathExpanded(''); return; }
     setPathChecking(true);
     try {
-      const res = await fetch(`/api/projects/path-info?path=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(`/api/workspaces/path-info?path=${encodeURIComponent(trimmed)}`);
       if (res.ok) {
         const data = await res.json() as { exists: boolean; is_dir: boolean; path: string };
         setPathExists(data.exists);
@@ -259,7 +259,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
   async function suggestPath(name: string) {
     if (localPath || !name.trim()) return;
     try {
-      const res = await fetch(`/api/projects/suggest-path?name=${encodeURIComponent(name)}`);
+      const res = await fetch(`/api/workspaces/suggest-path?name=${encodeURIComponent(name)}`);
       if (res.ok) {
         const data = await res.json() as { path: string };
         setLocalPath(data.path);
@@ -363,7 +363,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
           },
         });
       } else {
-        await createProject.mutateAsync({
+        await createWorkspace.mutateAsync({
           name: values.name,
           description: values.description,
           emoji: selectedEmoji,
@@ -373,11 +373,11 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
           githubUrl: githubConnected?.html_url,
           githubBranch: githubConnected?.default_branch,
           githubLanguage: githubConnected?.language ?? undefined,
-        } as Parameters<typeof createProject.mutateAsync>[0]);
+        } as Parameters<typeof createWorkspace.mutateAsync>[0]);
       }
-    } else if (project) {
-      await updateProject.mutateAsync({
-        id: project.id,
+    } else if (workspace) {
+      await updateWorkspace.mutateAsync({
+        id: workspace.id,
         updates: {
           name: values.name,
           description: values.description,
@@ -388,15 +388,15 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
           githubUrl: githubConnected?.html_url,
           githubBranch: githubConnected?.default_branch,
           githubLanguage: githubConnected?.language ?? undefined,
-          inheritMainContext: project.isSystem ? undefined : inheritMainContext,
-          ...(selectedStatus === 'archived' && !project.archived ? {} : {}),
+          inheritMainContext: workspace.isSystem ? undefined : inheritMainContext,
+          ...(selectedStatus === 'archived' && !workspace.archived ? {} : {}),
         },
       });
       // Handle status change separately
-      if (selectedStatus === 'archived' && !project.archived) {
-        await archiveProject.mutateAsync({ id: project.id });
-      } else if (selectedStatus === 'active' && project.archived) {
-        await archiveProject.mutateAsync({ id: project.id, restore: true });
+      if (selectedStatus === 'archived' && !workspace.archived) {
+        await archiveWorkspace.mutateAsync({ id: workspace.id });
+      } else if (selectedStatus === 'active' && workspace.archived) {
+        await archiveWorkspace.mutateAsync({ id: workspace.id, restore: true });
       }
     }
     onClose();
@@ -406,12 +406,12 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
   }
 
   async function handleArchiveToggle() {
-    if (!project) return;
-    await archiveProject.mutateAsync({ id: project.id, restore: project.archived });
+    if (!workspace) return;
+    await archiveWorkspace.mutateAsync({ id: workspace.id, restore: workspace.archived });
     onClose();
   }
 
-  const isPending = createProject.isPending || updateProject.isPending || createFromTemplate.isPending;
+  const isPending = createWorkspace.isPending || updateWorkspace.isPending || createFromTemplate.isPending;
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
   type TabKey = 'general' | 'github' | 'path' | 'advanced';
@@ -419,28 +419,28 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
 
   const tabs: { key: TabKey; label: string; icon: string; badge?: 'error' | 'ok' }[] = [
     { key: 'general',  label: 'General',  icon: '📝', badge: errors.name || errors.description ? 'error' : undefined },
-    // GitHub tab is meaningless for the built-in Home (system) project.
-    ...(project?.isSystem ? [] : [{ key: 'github' as TabKey, label: 'GitHub', icon: '🔗', badge: (githubStatus.type === 'connected' ? 'ok' : githubStatus.type === 'error' ? 'error' : undefined) as 'ok' | 'error' | undefined }]),
+    // GitHub tab is meaningless for the built-in Home (system) workspace.
+    ...(workspace?.isSystem ? [] : [{ key: 'github' as TabKey, label: 'GitHub', icon: '🔗', badge: (githubStatus.type === 'connected' ? 'ok' : githubStatus.type === 'error' ? 'error' : undefined) as 'ok' | 'error' | undefined }]),
     { key: 'path',     label: 'Path',     icon: '📂', badge: pathExists === true ? 'ok' : pathExists === false ? 'error' : undefined },
     { key: 'advanced', label: 'Advanced', icon: '⚙️' },
   ];
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="project-form-wrapper fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div className="workspace-form-wrapper fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div
-        className="project-form relative bg-background border border-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-        data-testid="project-form"
+        className="workspace-form relative bg-background border border-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        data-testid="workspace-form"
       >
         {/* ── Header ── */}
         <div className="px-6 pt-5 pb-3 border-b border-border">
           <h2 className="text-xl font-semibold text-foreground">
-            {mode === 'create' ? 'Create Project' : 'Edit Project'}
+            {mode === 'create' ? 'Create Workspace' : 'Edit Workspace'}
           </h2>
         </div>
 
         {/* ── Tab bar ── */}
-        <div className="project-form-tabs flex gap-1 px-4 pt-3 border-b border-border bg-muted/30" role="tablist">
+        <div className="workspace-form-tabs flex gap-1 px-4 pt-3 border-b border-border bg-muted/30" role="tablist">
           {tabs.map((t) => {
             const isActive = activeTab === t.key;
             return (
@@ -449,10 +449,10 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                 type="button"
                 role="tab"
                 aria-selected={isActive}
-                data-testid={`project-form-tab-${t.key}`}
+                data-testid={`workspace-form-tab-${t.key}`}
                 onClick={() => setActiveTab(t.key)}
                 className={cn(
-                  'project-form-tab relative flex items-center gap-1.5 px-3 py-2 text-sm rounded-t-md border-b-2 transition-colors',
+                  'workspace-form-tab relative flex items-center gap-1.5 px-3 py-2 text-sm rounded-t-md border-b-2 transition-colors',
                   isActive
                     ? 'border-primary text-foreground bg-background font-medium'
                     : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50'
@@ -473,7 +473,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
           {/* ── Tab content (scrollable) ── */}
-          <div className="project-form-body flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          <div className="workspace-form-body flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
             {/* ──────────────── GENERAL TAB ──────────────── */}
             {activeTab === 'general' && (
@@ -501,7 +501,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                         <button
                           key={tpl.id}
                           type="button"
-                          onClick={() => selectTemplate(tpl as ProjectTemplate)}
+                          onClick={() => selectTemplate(tpl as WorkspaceTemplate)}
                           style={{ '--tpl-color': tpl.color } as React.CSSProperties}
                           className={cn(
                             'template-card flex-shrink-0 flex flex-col items-center gap-1 p-3 rounded-lg border text-center w-24 transition-colors',
@@ -577,7 +577,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
 
                 {/* Name */}
                 <div className="form-group space-y-1">
-                  <label className="text-sm font-medium text-foreground">Project Name *</label>
+                  <label className="text-sm font-medium text-foreground">Workspace Name *</label>
                   <input
                     {...register('name')}
                     ref={(el) => {
@@ -585,9 +585,9 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                       nameRef.current = el;
                     }}
                     type="text"
-                    placeholder="My Awesome Project"
+                    placeholder="My Awesome Workspace"
                     maxLength={100}
-                    data-testid="project-name-input"
+                    data-testid="workspace-name-input"
                     onBlur={(e) => { if (mode === 'create') void suggestPath(e.target.value); }}
                     className={cn(
                       'form-input w-full px-3 py-2 rounded-md border bg-background text-foreground text-sm',
@@ -596,7 +596,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                     )}
                   />
                   {errors.name && (
-                    <p className="form-error text-xs text-destructive" data-testid="project-name-error">
+                    <p className="form-error text-xs text-destructive" data-testid="workspace-name-error">
                       {errors.name.message}
                     </p>
                   )}
@@ -607,10 +607,10 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                   <label className="text-sm font-medium text-foreground">Description</label>
                   <textarea
                     {...register('description')}
-                    placeholder="What's this project about?"
+                    placeholder="What's this workspace about?"
                     maxLength={500}
                     rows={3}
-                    data-testid="project-description-input"
+                    data-testid="workspace-description-input"
                     className={cn(
                       'form-textarea w-full px-3 py-2 rounded-md border bg-background text-foreground text-sm resize-none',
                       'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50',
@@ -629,7 +629,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
               <div className="form-group space-y-2">
                 <label className="text-sm font-medium text-foreground">🔗 GitHub Repository</label>
                 <p className="text-xs text-muted-foreground">
-                  Connect this project to a GitHub repository. Used for cloning and tech-stack detection.
+                  Connect this workspace to a GitHub repository. Used for cloning and tech-stack detection.
                 </p>
                 {!githubSetupOk && (
                   <div className="text-xs text-yellow-500">
@@ -651,7 +651,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                     onChange={(e) => setGithubInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleGitHubConnect(); } }}
                     placeholder="owner/repo or https://github.com/owner/repo"
-                    data-testid="project-github-input"
+                    data-testid="workspace-github-input"
                     className="form-input flex-1 px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                   <button
@@ -721,7 +721,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
               <div className="form-group space-y-2">
                 <label className="text-sm font-medium text-foreground">📂 Local Path</label>
                 <p className="text-xs text-muted-foreground">
-                  Where this project lives on disk. Used by workers, file tools, and tech detection.
+                  Where this workspace lives on disk. Used by workers, file tools, and tech detection.
                 </p>
                 <div className="flex gap-2">
                   <input
@@ -729,7 +729,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                     value={localPath}
                     onChange={(e) => setLocalPath(e.target.value)}
                     placeholder="~/.voxyflow/workspace/my-app"
-                    data-testid="project-localpath-input"
+                    data-testid="workspace-localpath-input"
                     className="form-input flex-1 px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                   <button
@@ -800,13 +800,13 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                       {techStack.technologies.slice(0, 6).map((tech) => (
                         <span
                           key={tech.name}
-                          className="project-tech-badge px-2 py-0.5 rounded text-xs bg-accent text-accent-foreground border border-border"
+                          className="workspace-tech-badge px-2 py-0.5 rounded text-xs bg-accent text-accent-foreground border border-border"
                         >
                           {tech.icon ? `${tech.icon} ` : ''}{tech.name}
                         </span>
                       ))}
                       {techStack.technologies.length > 6 && (
-                        <span className="project-tech-badge px-2 py-0.5 rounded text-xs bg-accent text-muted-foreground border border-border">
+                        <span className="workspace-tech-badge px-2 py-0.5 rounded text-xs bg-accent text-muted-foreground border border-border">
                           +{techStack.technologies.length - 6}
                         </span>
                       )}
@@ -819,7 +819,7 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
             {/* ──────────────── ADVANCED TAB ──────────────── */}
             {activeTab === 'advanced' && (
               <div className="space-y-5">
-                {mode === 'edit' && !project?.isSystem && (
+                {mode === 'edit' && !workspace?.isSystem && (
                   <div className="form-group space-y-1">
                     <div className="flex items-center gap-2">
                       <input
@@ -838,18 +838,18 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                       </label>
                     </div>
                     <p className="text-xs text-muted-foreground ml-6">
-                      When enabled, AI responses also use knowledge from the Home project.
+                      When enabled, AI responses also use knowledge from the Home workspace.
                     </p>
                   </div>
                 )}
 
-                {mode === 'edit' && !project?.isSystem && (
+                {mode === 'edit' && !workspace?.isSystem && (
                   <div className="form-group space-y-1">
                     <label className="text-sm font-medium text-foreground">Status</label>
                     <select
                       value={selectedStatus}
                       onChange={(e) => setSelectedStatus(e.target.value as 'active' | 'archived')}
-                      data-testid="project-status-select"
+                      data-testid="workspace-status-select"
                       className="form-input w-full px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                     >
                       <option value="active">Active</option>
@@ -858,13 +858,13 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
                   </div>
                 )}
 
-                {mode === 'edit' && project && (
-                  <ProjectAutonomySection projectId={project.id} />
+                {mode === 'edit' && workspace && (
+                  <WorkspaceAutonomySection workspaceId={workspace.id} />
                 )}
 
                 {mode === 'create' && (
                   <p className="text-xs text-muted-foreground">
-                    Additional settings become available after the project is created.
+                    Additional settings become available after the workspace is created.
                   </p>
                 )}
               </div>
@@ -883,31 +883,31 @@ export function ProjectForm({ mode, project, prefillTitle, onClose }: ProjectFor
             <button
               type="submit"
               disabled={isPending}
-              data-testid="project-form-submit"
+              data-testid="workspace-form-submit"
               className="btn-primary px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               {isPending
                 ? 'Saving…'
                 : mode === 'create'
-                ? 'Create Project'
+                ? 'Create Workspace'
                 : 'Save Changes'}
             </button>
             <button
               type="button"
               onClick={onClose}
-              data-testid="project-form-cancel"
+              data-testid="workspace-form-cancel"
               className="btn-ghost px-4 py-2 rounded-md border border-border text-sm hover:bg-accent transition-colors"
             >
               Cancel
             </button>
-            {mode === 'edit' && project && !project.isSystem && (
+            {mode === 'edit' && workspace && !workspace.isSystem && (
               <button
                 type="button"
                 onClick={() => void handleArchiveToggle()}
-                data-testid="project-form-archive"
+                data-testid="workspace-form-archive"
                 className="btn-danger ml-auto px-4 py-2 rounded-md border border-destructive/50 text-destructive text-sm hover:bg-destructive/10 transition-colors"
               >
-                {project.archived ? 'Unarchive' : 'Archive'}
+                {workspace.archived ? 'Unarchive' : 'Archive'}
               </button>
             )}
           </div>

@@ -39,11 +39,11 @@ def test_subscribe_chat_delivers_to_subscribed_sockets_only():
     c = FakeWS("c")
     bus.register(a); bus.register(b); bus.register(c)
 
-    bus.subscribe_chat(a, "project:42")
-    bus.subscribe_chat(b, "project:42")
-    bus.subscribe_chat(c, "project:99")
+    bus.subscribe_chat(a, "workspace:42")
+    bus.subscribe_chat(b, "workspace:42")
+    bus.subscribe_chat(c, "workspace:99")
 
-    sent = _run(bus.emit_to_chat("project:42", "chat:response", {"content": "hi"}))
+    sent = _run(bus.emit_to_chat("workspace:42", "chat:response", {"content": "hi"}))
     assert sent == 2
     assert len(a.sent) == 1 and len(b.sent) == 1
     assert c.sent == []  # different chat
@@ -53,9 +53,9 @@ def test_emit_to_chat_respects_exclude():
     bus = WSBroadcast()
     a = FakeWS("a"); b = FakeWS("b")
     bus.register(a); bus.register(b)
-    bus.subscribe_chat(a, "project:1"); bus.subscribe_chat(b, "project:1")
+    bus.subscribe_chat(a, "workspace:1"); bus.subscribe_chat(b, "workspace:1")
 
-    sent = _run(bus.emit_to_chat("project:1", "chat:response", {"x": 1}, exclude=a))
+    sent = _run(bus.emit_to_chat("workspace:1", "chat:response", {"x": 1}, exclude=a))
     assert sent == 1
     assert a.sent == []
     assert len(b.sent) == 1
@@ -78,14 +78,14 @@ def test_unregister_drops_all_chat_subscriptions():
     bus = WSBroadcast()
     a = FakeWS("a"); b = FakeWS("b")
     bus.register(a); bus.register(b)
-    bus.subscribe_chat(a, "project:1")
-    bus.subscribe_chat(a, "project:2")
-    bus.subscribe_chat(b, "project:1")
+    bus.subscribe_chat(a, "workspace:1")
+    bus.subscribe_chat(a, "workspace:2")
+    bus.subscribe_chat(b, "workspace:1")
 
     bus.unregister(a)
-    # a should be gone from both chats; b still in project:1
-    sent1 = _run(bus.emit_to_chat("project:1", "x", {}))
-    sent2 = _run(bus.emit_to_chat("project:2", "x", {}))
+    # a should be gone from both chats; b still in workspace:1
+    sent1 = _run(bus.emit_to_chat("workspace:1", "x", {}))
+    sent2 = _run(bus.emit_to_chat("workspace:2", "x", {}))
     assert sent1 == 1  # only b
     assert sent2 == 0  # nobody left
     assert bus.get_ws_chats(a) == set()

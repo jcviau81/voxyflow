@@ -105,7 +105,7 @@ class SchedulerService:
     _DEFAULT_JOBS: list[dict] = [
         # Removed: `builtin-agent-heartbeat` (global ~/.voxyflow/workspace/heartbeat.md
         # poller). Replaced by the per-project autonomy layer — each project owns
-        # its own heartbeat at ~/.voxyflow/workspace/projects/{project_id}/heartbeat.md,
+        # its own heartbeat at ~/.voxyflow/workspace/projects/{workspace_id}/heartbeat.md,
         # scheduled via proj-heartbeat-* jobs. See scripts/smoke_test_autonomy.py.
         {
             "id": "builtin-rag-index",
@@ -731,7 +731,7 @@ class SchedulerService:
                 from app.services.ws_broadcast import ws_broadcast
                 for card in due_cards:
                     ws_broadcast.emit_sync("cards:changed", {
-                        "projectId": card.project_id,
+                        "projectId": card.workspace_id,
                         "cardId": card.id,
                     })
                 titles = [c.title for c in due_cards[:5]]
@@ -745,7 +745,7 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"[Recurrence] unexpected error: {e}", exc_info=True)
 
-    async def _rag_index_job(self, project_ids: Optional[list[str]] = None) -> None:
+    async def _rag_index_job(self, workspace_ids: Optional[list[str]] = None) -> None:
         """
         Re-index workspace for projects with recent chat activity (last 30 min).
 
@@ -756,7 +756,7 @@ class SchedulerService:
         Keeps RAG context fresh without doing full re-index on every message.
         Uses RAGService.index_workspace() which upserts by card_id.
 
-        If ``project_ids`` is provided, only those projects are considered
+        If ``workspace_ids`` is provided, only those projects are considered
         (still gated by the "recent activity" cutoff). Pass None to scan
         all projects (default — used by the every-15min builtin sweep).
 
@@ -773,18 +773,18 @@ class SchedulerService:
             logger.info(
                 "[RAGIndex] Another rag_index pass is already running — "
                 "skipping this invocation (scope=%s)",
-                "all" if project_ids is None else f"{len(project_ids)} project(s)",
+                "all" if workspace_ids is None else f"{len(workspace_ids)} project(s)",
             )
             return
 
         async with self._rag_index_lock:
-            await self._rag_index_job_inner(project_ids)
+            await self._rag_index_job_inner(workspace_ids)
 
-    async def _rag_index_job_inner(self, project_ids: Optional[list[str]]) -> None:
+    async def _rag_index_job_inner(self, workspace_ids: Optional[list[str]]) -> None:
         try:
             from datetime import timedelta
 
-            from app.database import async_session, Project, Card
+            from app.database import async_session, Workspace, Card
             from app.services.rag_service import get_rag_service
             from app.services.session_store import session_store
             from sqlalchemy import select
@@ -795,12 +795,12 @@ class SchedulerService:
                 return
 
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
-            scope_filter = set(project_ids) if project_ids else None
+            scope_filter = set(workspace_ids) if workspace_ids else None
 
             async with async_session() as db:
-                stmt = select(Project)
+                stmt = select(Workspace)
                 if scope_filter:
-                    stmt = stmt.where(Project.id.in_(scope_filter))
+                    stmt = stmt.where(Workspace.id.in_(scope_filter))
                 result = await db.execute(stmt)
                 projects = result.scalars().all()
 
@@ -840,7 +840,7 @@ class SchedulerService:
 
                         # Fetch cards and build card dicts
                         cards_result = await db.execute(
-                            select(Card).where(Card.project_id == project.id)
+                            select(Card).where(Card.workspace_id == project.id)
                         )
                         cards_orm = cards_result.scalars().all()
                         cards_dicts = [

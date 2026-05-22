@@ -2,14 +2,14 @@
 
 ## Our Pledge
 
-We are committed to making participation in this project a welcoming experience for everyone, regardless of age, background, experience level, or identity.
+We are committed to making participation in this workspace a welcoming experience for everyone, regardless of age, background, experience level, or identity.
 
 ## Our Standards
 
 **Encouraged behavior:**
 - Being kind and respectful in all interactions
 - Giving and accepting constructive feedback gracefully
-- Focusing on what's best for the project and its users
+- Focusing on what's best for the workspace and its users
 - Helping newcomers get oriented
 
 **Not acceptable:**
@@ -20,7 +20,7 @@ We are committed to making participation in this project a welcoming experience 
 
 ## Scope
 
-This Code of Conduct applies to all project spaces — GitHub issues, pull requests, discussions, and any other project-related communication.
+This Code of Conduct applies to all workspace spaces — GitHub issues, pull requests, discussions, and any other workspace-related communication.
 
 ## Enforcement
 

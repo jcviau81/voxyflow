@@ -14,8 +14,8 @@ from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.database import init_db, SYSTEM_MAIN_PROJECT_ID
-from app.routes import projects, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, workspace, workers, models, worker_tasks, cli_sessions, backup, auth, debug, push
+from app.database import init_db, SYSTEM_MAIN_WORKSPACE_ID
+from app.routes import workspaces, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, sandbox, workers, models, worker_tasks, cli_sessions, backup, auth, debug, push
 from app.routes.health import metrics_router
 from app.services.claude_service import ClaudeService
 from app.services.chat_orchestration import ChatOrchestrator
@@ -165,7 +165,7 @@ async def _timing_middleware(request: Request, call_next):
 
 # Routes — every router declares its own full prefix (/api/... or /mcp).
 # Keep this file free of prefix= arguments on include_router to avoid split-prefix drift.
-app.include_router(projects.router)
+app.include_router(workspaces.router)
 app.include_router(cards.router)
 app.include_router(techdetect.router)
 app.include_router(github.router)
@@ -177,7 +177,7 @@ app.include_router(metrics_router)
 app.include_router(jobs.router)
 app.include_router(code.router)
 app.include_router(focus_sessions.router)
-app.include_router(workspace.router)
+app.include_router(sandbox.router)
 app.include_router(workers.router)
 app.include_router(worker_tasks.router)
 app.include_router(models.router)
@@ -275,7 +275,7 @@ async def general_websocket(websocket: WebSocket):
         ws_id = uuid4().hex[:12]
         while True:
             # Per-message scope — drop any context left over from a prior
-            # iteration so stale project_id / session_id don't leak into
+            # iteration so stale workspace_id / session_id don't leak into
             # whatever the next message dispatches.
             clear_contextvars()
             bind_contextvars(ws_id=ws_id)
@@ -326,7 +326,7 @@ async def general_websocket(websocket: WebSocket):
                 _ctx: dict[str, str] = {"ws_msg_type": msg_type or "unknown"}
                 for _src_key, _ctx_key in (
                     ("sessionId", "session_id"),
-                    ("projectId", "project_id"),
+                    ("projectId", "workspace_id"),
                     ("cardId", "card_id"),
                     ("chatId", "chat_id"),
                     ("messageId", "message_id"),
@@ -350,14 +350,14 @@ async def general_websocket(websocket: WebSocket):
                     # Cross-device live sync: a device announces "I'm viewing
                     # this chat" so it receives streaming tokens + message:new
                     # events from other devices on the same canonical chat.
-                    sub_project_id = payload.get("projectId")
+                    sub_workspace_id = payload.get("projectId")
                     sub_card_id = payload.get("cardId")
                     if sub_card_id:
                         pass  # chat_id resolves via card
-                    elif not sub_project_id:
-                        sub_project_id = SYSTEM_MAIN_PROJECT_ID
+                    elif not sub_workspace_id:
+                        sub_workspace_id = SYSTEM_MAIN_WORKSPACE_ID
                     sub_chat_id, _, _ = resolve_chat_id(
-                        sub_project_id, sub_card_id, payload.get("chatId"),
+                        sub_workspace_id, sub_card_id, payload.get("chatId"),
                         log_context="WS chat:subscribe",
                     )
                     # Drop any prior subscriptions on this socket so switching
@@ -379,7 +379,7 @@ async def general_websocket(websocket: WebSocket):
                         "payload": {"messageId": message_id},
                         "timestamp": int(time.time() * 1000),
                     })
-                    project_id = payload.get("projectId")
+                    workspace_id = payload.get("projectId")
                     card_id = payload.get("cardId")
                     chat_level = payload.get("chatLevel", "general")
                     msg_layers = payload.get("layers")  # {deep: bool}
@@ -390,21 +390,21 @@ async def general_websocket(websocket: WebSocket):
                     # so results from other projects arrive without manual navigation
                     await _deliver_all_pending()
 
-                    # Derive the canonical chat_id from project_id/card_id (server-side authority).
+                    # Derive the canonical chat_id from workspace_id/card_id (server-side authority).
                     # The frontend may pass a stable chatId for sub-sessions, but we validate
                     # it against what the project/card context says — a mismatch would bleed
                     # history and CLI subprocesses across projects.
                     if card_id:
                         chat_level = "card"
-                    elif project_id:
+                    elif workspace_id:
                         if chat_level == "general":
-                            chat_level = "project" if project_id != SYSTEM_MAIN_PROJECT_ID else "general"
+                            chat_level = "workspace" if workspace_id != SYSTEM_MAIN_WORKSPACE_ID else "general"
                     else:
-                        project_id = SYSTEM_MAIN_PROJECT_ID
+                        workspace_id = SYSTEM_MAIN_WORKSPACE_ID
                         chat_level = "general"  # Keep "general" for backward compat in prompts
 
                     chat_id, _, _ = resolve_chat_id(
-                        project_id, card_id, payload.get("chatId"), log_context="WS chat:message"
+                        workspace_id, card_id, payload.get("chatId"), log_context="WS chat:message"
                     )
 
                     logger.info(f"[WS] chat:message → chat_id={chat_id}, level={chat_level}, layers={msg_layers}: {content[:80]!r}")
@@ -443,7 +443,7 @@ async def general_websocket(websocket: WebSocket):
                             content=content,
                             message_id=message_id,
                             chat_id=chat_id,
-                            project_id=project_id,
+                            workspace_id=workspace_id,
                             layers=msg_layers,
                             chat_level=chat_level,
                             card_id=card_id,
@@ -475,12 +475,12 @@ async def general_websocket(websocket: WebSocket):
 
                 elif msg_type == "session:reset":
                     chat_level = payload.get("chatLevel", "general")
-                    project_id = payload.get("projectId")
+                    workspace_id = payload.get("projectId")
                     card_id = payload.get("cardId")
                     session_id = payload.get("sessionId") or str(uuid4())
                     # Derive canonical chat_id from context (same isolation logic as chat:message)
                     chat_id, _, _ = resolve_chat_id(
-                        project_id, card_id, payload.get("chatId"), log_context="WS session:reset"
+                        workspace_id, card_id, payload.get("chatId"), log_context="WS session:reset"
                     )
 
                     # Fix 5: full session teardown — stop worker pool, clear event bus,
@@ -503,11 +503,11 @@ async def general_websocket(websocket: WebSocket):
                     })
 
                 elif msg_type == "kanban:execute:start":
-                    project_id = payload.get("projectId")
+                    workspace_id = payload.get("projectId")
                     session_id = payload.get("sessionId") or str(uuid4())
                     statuses = payload.get("statuses", ["todo", "in-progress"])
 
-                    if not project_id:
+                    if not workspace_id:
                         await websocket.send_json({
                             "type": "kanban:execute:error",
                             "payload": {"error": "projectId is required"},
@@ -515,7 +515,7 @@ async def general_websocket(websocket: WebSocket):
                         })
                     else:
                         # Build execution plan
-                        plan = await build_execution_plan(project_id, statuses)
+                        plan = await build_execution_plan(workspace_id, statuses)
                         if plan.total == 0:
                             await websocket.send_json({
                                 "type": "kanban:execute:error",
@@ -530,7 +530,7 @@ async def general_websocket(websocket: WebSocket):
                             exec_task = asyncio.create_task(
                                 execute_board(
                                     execution_id=plan.execution_id,
-                                    project_id=project_id,
+                                    workspace_id=workspace_id,
                                     cards=plan.cards,
                                     websocket=websocket,
                                     orchestrator=_orchestrator,
@@ -548,7 +548,7 @@ async def general_websocket(websocket: WebSocket):
 
                 elif msg_type == "card:execute":
                     card_id = payload.get("cardId")
-                    project_id = payload.get("projectId")
+                    workspace_id = payload.get("projectId")
                     session_id = payload.get("sessionId") or str(uuid4())
 
                     if not card_id:
@@ -573,7 +573,7 @@ async def general_websocket(websocket: WebSocket):
                                 data={
                                     "action": "execute_card",
                                     "description": prompt,
-                                    "project_id": project_id,
+                                    "workspace_id": workspace_id,
                                     "card_id": card_id,
                                     "model": worker_model,
                                     "complexity": "complex",

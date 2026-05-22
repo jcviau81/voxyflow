@@ -21,11 +21,11 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import type { Card, CardStatus } from '../../types';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useToastStore } from '../../stores/useToastStore';
-import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
+import { useCardStore, SYSTEM_WORKSPACE_ID } from '../../stores/useCardStore';
 import { useCards, useCreateCard, usePatchCard, useArchiveCard, useDeleteCard } from '../../hooks/api/useCards';
-import { useExportProject, useImportProject } from '../../hooks/api/useProjects';
+import { useExportWorkspace, useImportWorkspace } from '../../hooks/api/useWorkspaces';
 import { KanbanCard } from '../Kanban/KanbanCard';
 import { DepGraphOverlay, BulkToolbar } from '../Kanban/KanbanBoard';
 import { BoardHeader, useDebounce } from './BoardHeader';
@@ -86,17 +86,17 @@ function KanbanDropZone({ status, label }: KanbanDropZoneProps) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export interface FreeBoardProps {
-  projectId?: string;
+  workspaceId?: string;
 }
 
-export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
-  const storeProjectId = useProjectStore((s) => s.currentProjectId);
-  const currentProjectId = projectIdProp ?? storeProjectId ?? SYSTEM_PROJECT_ID;
-  const selectCard = useProjectStore((s) => s.selectCard);
+export function FreeBoard({ workspaceId: workspaceIdProp }: FreeBoardProps = {}) {
+  const storeWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const currentWorkspaceId = workspaceIdProp ?? storeWorkspaceId ?? SYSTEM_WORKSPACE_ID;
+  const selectCard = useWorkspaceStore((s) => s.selectCard);
   const showToast = useToastStore((s) => s.showToast);
   const cardsById = useCardStore((s) => s.cardsById);
 
-  const { data: cards = [], isLoading } = useCards(currentProjectId);
+  const { data: cards = [], isLoading } = useCards(currentWorkspaceId);
 
   const boardCards = useMemo(
     () =>
@@ -111,8 +111,8 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   const archiveCardMut = useArchiveCard();
   const deleteCardMut = useDeleteCard();
   const deleteCardStore = useCardStore((s) => s.deleteCard);
-  const exportProject = useExportProject();
-  const importProject = useImportProject();
+  const exportWorkspace = useExportWorkspace();
+  const importWorkspace = useImportWorkspace();
 
   // ── Filter state ─────────────────────────────────────────────────────────
 
@@ -122,13 +122,13 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
 
-  // Reset filters on project change
+  // Reset filters on workspace change
   useEffect(() => {
     setSearchInput('');
     setPriorityFilter(null);
     setAgentFilter(null);
     setTagFilter(null);
-  }, [currentProjectId]);
+  }, [currentWorkspaceId]);
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -188,40 +188,40 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
     (status: CardStatus) => {
       selectedIds.forEach((id) => {
         useCardStore.getState().moveCard(id, status);
-        patchCard.mutate({ cardId: id, updates: { status }, projectId: currentProjectId } as { cardId: string; updates: Record<string, unknown>; projectId?: string });
+        patchCard.mutate({ cardId: id, updates: { status }, workspaceId: currentWorkspaceId } as { cardId: string; updates: Record<string, unknown>; workspaceId?: string });
       });
       showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
       clearSelection();
     },
-    [selectedIds, patchCard, currentProjectId, showToast, clearSelection],
+    [selectedIds, patchCard, currentWorkspaceId, showToast, clearSelection],
   );
 
   const handleBulkArchive = useCallback(() => {
     selectedIds.forEach((id) => {
       deleteCardStore(id);
-      archiveCardMut.mutate({ cardId: id, projectId: currentProjectId });
+      archiveCardMut.mutate({ cardId: id, workspaceId: currentWorkspaceId });
     });
     showToast(`Archived ${selectedIds.size} cards`, 'success');
     clearSelection();
-  }, [selectedIds, archiveCardMut, deleteCardStore, currentProjectId, showToast, clearSelection]);
+  }, [selectedIds, archiveCardMut, deleteCardStore, currentWorkspaceId, showToast, clearSelection]);
 
   const handleBulkDelete = useCallback(() => {
     if (!confirm(`Delete ${selectedIds.size} cards permanently? This cannot be undone.`)) return;
     selectedIds.forEach((id) => {
       deleteCardStore(id);
-      deleteCardMut.mutate({ cardId: id, projectId: currentProjectId });
+      deleteCardMut.mutate({ cardId: id, workspaceId: currentWorkspaceId });
     });
     showToast(`Deleted ${selectedIds.size} cards`, 'success');
     clearSelection();
-  }, [selectedIds, deleteCardMut, deleteCardStore, currentProjectId, showToast, clearSelection]);
+  }, [selectedIds, deleteCardMut, deleteCardStore, currentWorkspaceId, showToast, clearSelection]);
 
   // ── Action handlers ───────────────────────────────────────────────────────
 
   const handleAddCard = useCallback(async () => {
-    if (!currentProjectId) return;
+    if (!currentWorkspaceId) return;
     try {
       const newCard = await createCard.mutateAsync({
-        projectId: currentProjectId,
+        workspaceId: currentWorkspaceId,
         title: 'New card',
         status: 'backlog',
       });
@@ -232,34 +232,34 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
     } catch {
       showToast('Failed to create card', 'error');
     }
-  }, [currentProjectId, createCard, selectCard, showToast]);
+  }, [currentWorkspaceId, createCard, selectCard, showToast]);
 
   const handleExport = useCallback(async () => {
     try {
-      const data = await exportProject.mutateAsync(currentProjectId);
+      const data = await exportWorkspace.mutateAsync(currentWorkspaceId);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `project-${currentProjectId}.json`;
+      a.download = `workspace-${currentWorkspaceId}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('✅ Project exported', 'success');
+      showToast('✅ Workspace exported', 'success');
     } catch {
       showToast('Export failed', 'error');
     }
-  }, [currentProjectId, exportProject, showToast]);
+  }, [currentWorkspaceId, exportWorkspace, showToast]);
 
   const handleImport = useCallback(async (file: File) => {
     try {
       const text = await file.text();
       const data = JSON.parse(text) as unknown;
-      const result = await importProject.mutateAsync(data);
-      showToast(`✅ Project imported: ${result.project_title}`, 'success');
+      const result = await importWorkspace.mutateAsync(data);
+      showToast(`✅ Workspace imported: ${result.workspace_title}`, 'success');
     } catch {
       showToast('Import failed — check file format', 'error');
     }
-  }, [importProject, showToast]);
+  }, [importWorkspace, showToast]);
 
   const handleCardClick = useCallback(
     (cardId: string) => selectCard(cardId),
@@ -302,8 +302,8 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
         await patchCard.mutateAsync({
           cardId: draggedCard.id,
           updates: { status: targetStatus },
-          projectId: draggedCard.projectId ?? currentProjectId,
-        } as { cardId: string; updates: Record<string, unknown>; projectId?: string });
+          workspaceId: draggedCard.workspaceId ?? currentWorkspaceId,
+        } as { cardId: string; updates: Record<string, unknown>; workspaceId?: string });
         showToast(`Moved to ${targetStatus}`, 'success');
       } catch {
         // Rollback
@@ -311,7 +311,7 @@ export function FreeBoard({ projectId: projectIdProp }: FreeBoardProps = {}) {
         showToast('Move failed', 'error');
       }
     },
-    [patchCard, showToast, currentProjectId],
+    [patchCard, showToast, currentWorkspaceId],
   );
 
   // Portal: render BoardHeader into the page-level slot when available (desktop split layout)

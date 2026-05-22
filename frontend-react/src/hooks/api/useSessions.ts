@@ -33,7 +33,7 @@ export interface SearchResult {
 export const sessionKeys = {
   all: ['sessions'] as const,
   active: (maxAgeHours?: number) => ['sessions', 'active', maxAgeHours ?? 720] as const,
-  search: (query: string, projectId?: string) => ['sessions', 'search', query, projectId] as const,
+  search: (query: string, workspaceId?: string) => ['sessions', 'search', query, workspaceId] as const,
 };
 
 // --- Queries ---
@@ -47,12 +47,12 @@ export function useSessions(maxAgeHours = 720) {
   });
 }
 
-export function useSearchMessages(query: string, projectId?: string, limit = 20) {
+export function useSearchMessages(query: string, workspaceId?: string, limit = 20) {
   return useQuery({
-    queryKey: sessionKeys.search(query, projectId),
+    queryKey: sessionKeys.search(query, workspaceId),
     queryFn: () => {
       const params = new URLSearchParams({ q: query, limit: String(limit) });
-      if (projectId) params.set('project_id', projectId);
+      if (workspaceId) params.set('workspace_id', workspaceId);
       return apiFetch<SearchResult[]>(`/api/sessions/search/messages?${params}`);
     },
     enabled: query.length > 1,
@@ -68,11 +68,11 @@ export function useSearchMessages(query: string, projectId?: string, limit = 20)
 export function useCreateSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ projectId, title }: { projectId: string; title?: string }) => {
+    mutationFn: async ({ workspaceId, title }: { workspaceId: string; title?: string }) => {
       return apiFetch<{ chatId: string; title: string }>('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: projectId, title: title ?? null }),
+        body: JSON.stringify({ workspace_id: workspaceId, title: title ?? null }),
       });
     },
     onSuccess: () => {

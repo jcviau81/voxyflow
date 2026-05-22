@@ -6,14 +6,14 @@ import {
   Files, BookMarked, Database, Settings,
   type LucideIcon,
 } from 'lucide-react';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { cn } from '../../lib/utils';
 import { MarkdownPreview } from '../ui/MarkdownPreview';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface ProjectDocument {
+interface WorkspaceDocument {
   id: string;
   filename: string;
   file_size: number;
@@ -28,7 +28,7 @@ interface WikiPageSummary {
 }
 
 interface WikiPageDetail extends WikiPageSummary {
-  project_id: string;
+  workspace_id: string;
   content: string;
   created_at: string;
 }
@@ -70,21 +70,21 @@ type KnowledgeTab = 'documents' | 'wiki' | 'rag';
 // ─── Documents tab ────────────────────────────────────────────────────────────
 
 interface DocumentsTabProps {
-  projectId: string;
+  workspaceId: string;
 }
 
-function DocumentsTab({ projectId }: DocumentsTabProps) {
+function DocumentsTab({ workspaceId }: DocumentsTabProps) {
   const { showToast } = useToastStore();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const { data: docs = [] } = useQuery<ProjectDocument[]>({
-    queryKey: ['projects', projectId, 'documents'],
+  const { data: docs = [] } = useQuery<WorkspaceDocument[]>({
+    queryKey: ['workspaces', workspaceId, 'documents'],
     queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/documents`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/documents`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as ProjectDocument[] | { documents: ProjectDocument[] };
+      const data = await res.json() as WorkspaceDocument[] | { documents: WorkspaceDocument[] };
       return Array.isArray(data) ? data : (data.documents ?? []);
     },
     staleTime: 30_000,
@@ -94,15 +94,15 @@ function DocumentsTab({ projectId }: DocumentsTabProps) {
     mutationFn: async (file: File) => {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`/api/projects/${projectId}/documents`, { method: 'POST', body: formData });
+      const res = await fetch(`/api/workspaces/${workspaceId}/documents`, { method: 'POST', body: formData });
       if (!res.ok) {
         const errText = await res.text();
         throw new Error(errText || `HTTP ${res.status}`);
       }
-      return res.json() as Promise<ProjectDocument>;
+      return res.json() as Promise<WorkspaceDocument>;
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'documents'] });
+      void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] });
       showToast('Document indexed', 'success', 3000);
     },
     onError: (err: Error) => showToast(`Upload failed: ${err.message}`, 'error'),
@@ -110,11 +110,11 @@ function DocumentsTab({ projectId }: DocumentsTabProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async ({ docId }: { docId: string; filename: string }) => {
-      const res = await fetch(`/api/projects/${projectId}/documents/${docId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/workspaces/${workspaceId}/documents/${docId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     },
     onSuccess: (_data, { filename }) => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'documents'] });
+      void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] });
       showToast(`"${filename}" removed`, 'info', 2500);
     },
     onError: () => showToast('Delete failed', 'error'),
@@ -206,10 +206,10 @@ function DocumentsTab({ projectId }: DocumentsTabProps) {
 // ─── Wiki tab ─────────────────────────────────────────────────────────────────
 
 interface WikiTabProps {
-  projectId: string;
+  workspaceId: string;
 }
 
-function WikiTab({ projectId }: WikiTabProps) {
+function WikiTab({ workspaceId }: WikiTabProps) {
   const { showToast } = useToastStore();
   const qc = useQueryClient();
 
@@ -221,9 +221,9 @@ function WikiTab({ projectId }: WikiTabProps) {
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   const { data: pages = [] } = useQuery<WikiPageSummary[]>({
-    queryKey: ['projects', projectId, 'wiki'],
+    queryKey: ['workspaces', workspaceId, 'wiki'],
     queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/wiki`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/wiki`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<WikiPageSummary[]>;
     },
@@ -232,9 +232,9 @@ function WikiTab({ projectId }: WikiTabProps) {
   });
 
   const { data: activePage } = useQuery<WikiPageDetail>({
-    queryKey: ['projects', projectId, 'wiki', activePageId],
+    queryKey: ['workspaces', workspaceId, 'wiki', activePageId],
     queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/wiki/${activePageId}`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/wiki/${activePageId}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<WikiPageDetail>;
     },
@@ -259,7 +259,7 @@ function WikiTab({ projectId }: WikiTabProps) {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/wiki`, {
+      const res = await fetch(`/api/workspaces/${workspaceId}/wiki`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: 'New Page', content: '' }),
@@ -268,7 +268,7 @@ function WikiTab({ projectId }: WikiTabProps) {
       return res.json() as Promise<WikiPageDetail>;
     },
     onSuccess: (page) => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'wiki'] });
+      void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'wiki'] });
       setActivePageId(page.id);
       setTimeout(() => titleInputRef.current?.focus(), 50);
     },
@@ -278,7 +278,7 @@ function WikiTab({ projectId }: WikiTabProps) {
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!activePageId) throw new Error('No active page');
-      const res = await fetch(`/api/projects/${projectId}/wiki/${activePageId}`, {
+      const res = await fetch(`/api/workspaces/${workspaceId}/wiki/${activePageId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: editTitle.trim() || 'Untitled', content: editContent }),
@@ -287,8 +287,8 @@ function WikiTab({ projectId }: WikiTabProps) {
       return res.json() as Promise<WikiPageDetail>;
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'wiki'] });
-      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'wiki', activePageId] });
+      void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'wiki'] });
+      void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'wiki', activePageId] });
       setDirty(false);
       showToast('Wiki page saved', 'success', 2000);
     },
@@ -298,11 +298,11 @@ function WikiTab({ projectId }: WikiTabProps) {
   const deleteMutation = useMutation({
     mutationFn: async () => {
       if (!activePageId) throw new Error('No active page');
-      const res = await fetch(`/api/projects/${projectId}/wiki/${activePageId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/workspaces/${workspaceId}/wiki/${activePageId}`, { method: 'DELETE' });
       if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`);
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId, 'wiki'] });
+      void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'wiki'] });
       const remaining = pages.filter(p => p.id !== activePageId);
       setActivePageId(remaining.length > 0 ? remaining[0].id : null);
       showToast('Page deleted', 'success', 2000);
@@ -452,27 +452,27 @@ function WikiTab({ projectId }: WikiTabProps) {
 // ─── RAG Sources tab ──────────────────────────────────────────────────────────
 
 interface RagTabProps {
-  projectId: string;
+  workspaceId: string;
 }
 
-function RagTab({ projectId }: RagTabProps) {
-  const project = useProjectStore(s => s.getActiveProject());
+function RagTab({ workspaceId }: RagTabProps) {
+  const workspace = useWorkspaceStore(s => s.getActiveWorkspace());
 
-  const { data: docs = [] } = useQuery<ProjectDocument[]>({
-    queryKey: ['projects', projectId, 'documents'],
+  const { data: docs = [] } = useQuery<WorkspaceDocument[]>({
+    queryKey: ['workspaces', workspaceId, 'documents'],
     queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/documents`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/documents`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as ProjectDocument[] | { documents: ProjectDocument[] };
+      const data = await res.json() as WorkspaceDocument[] | { documents: WorkspaceDocument[] };
       return Array.isArray(data) ? data : (data.documents ?? []);
     },
     staleTime: 30_000,
   });
 
   const { data: wikiPages = [] } = useQuery<WikiPageSummary[]>({
-    queryKey: ['projects', projectId, 'wiki'],
+    queryKey: ['workspaces', workspaceId, 'wiki'],
     queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/wiki`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/wiki`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<WikiPageSummary[]>;
     },
@@ -480,7 +480,7 @@ function RagTab({ projectId }: RagTabProps) {
     retry: false,
   });
 
-  const techStack = project?.techStack as string[] | undefined;
+  const techStack = workspace?.techStack as string[] | undefined;
   const ragItems: Array<{ Icon: LucideIcon; name: string; status: string }> = [];
 
   if (techStack && techStack.length > 0) {
@@ -534,19 +534,19 @@ const KNOWLEDGE_TABS: { id: KnowledgeTab; Icon: LucideIcon; label: string }[] = 
   { id: 'rag',       Icon: Database,    label: 'RAG Sources' },
 ];
 
-interface ProjectKnowledgeProps {
-  projectId?: string;
+interface WorkspaceKnowledgeProps {
+  workspaceId?: string;
 }
 
-export function ProjectKnowledge({ projectId: projectIdProp }: ProjectKnowledgeProps = {}) {
-  const storeProjectId = useProjectStore(s => s.currentProjectId);
-  const projectId = projectIdProp ?? storeProjectId;
+export function WorkspaceKnowledge({ workspaceId: workspaceIdProp }: WorkspaceKnowledgeProps = {}) {
+  const storeWorkspaceId = useWorkspaceStore(s => s.currentWorkspaceId);
+  const workspaceId = workspaceIdProp ?? storeWorkspaceId;
   const [activeTab, setActiveTab] = useState<KnowledgeTab>('wiki');
 
-  if (!projectId) {
+  if (!workspaceId) {
     return (
       <div className="knowledge-view">
-        <div className="knowledge-empty">No project selected.</div>
+        <div className="knowledge-empty">No workspace selected.</div>
       </div>
     );
   }
@@ -568,9 +568,9 @@ export function ProjectKnowledge({ projectId: projectIdProp }: ProjectKnowledgeP
       </div>
 
       {/* Tab content */}
-      {activeTab === 'documents' && <DocumentsTab projectId={projectId} />}
-      {activeTab === 'wiki'      && <WikiTab projectId={projectId} />}
-      {activeTab === 'rag'       && <RagTab projectId={projectId} />}
+      {activeTab === 'documents' && <DocumentsTab workspaceId={workspaceId} />}
+      {activeTab === 'wiki'      && <WikiTab workspaceId={workspaceId} />}
+      {activeTab === 'rag'       && <RagTab workspaceId={workspaceId} />}
     </div>
   );
 }

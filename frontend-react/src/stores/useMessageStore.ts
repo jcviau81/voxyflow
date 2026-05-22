@@ -32,12 +32,12 @@ export interface MessageState {
   // replace=true replaces the entire store (use with care).
   setMessages: (newMessages: Message[], replace?: boolean) => void;
 
-  // Replace all messages that belong to a given session / card / project context,
+  // Replace all messages that belong to a given session / card / workspace context,
   // preserving messages from other contexts.  Used when reloading history from the backend.
   replaceSessionMessages: (
     newMessages: Message[],
     sessionId?: string,
-    projectId?: string,
+    workspaceId?: string,
     cardId?: string,
   ) => void;
 
@@ -48,7 +48,7 @@ export interface MessageState {
   setPendingAssistant: (sessionId: string, pending: boolean) => void;
 
   // Queries (non-reactive helpers)
-  getMessages: (projectId?: string, sessionId?: string) => Message[];
+  getMessages: (workspaceId?: string, sessionId?: string) => Message[];
 }
 
 export const useMessageStore = create<MessageState>()((set, get) => ({
@@ -97,12 +97,12 @@ export const useMessageStore = create<MessageState>()((set, get) => ({
     });
   },
 
-  replaceSessionMessages(newMessages, sessionId, projectId, cardId) {
+  replaceSessionMessages(newMessages, sessionId, workspaceId, cardId) {
     set((s) => {
       const kept = s.messages.filter((m) => {
         if (sessionId && m.sessionId === sessionId) return false;
         if (!sessionId && cardId && m.cardId === cardId) return false;
-        if (!sessionId && !cardId && projectId && m.projectId === projectId) return false;
+        if (!sessionId && !cardId && workspaceId && m.workspaceId === workspaceId) return false;
         return true;
       });
       return { messages: [...kept, ...newMessages] };
@@ -128,9 +128,9 @@ export const useMessageStore = create<MessageState>()((set, get) => ({
     });
   },
 
-  getMessages(projectId, sessionId) {
+  getMessages(workspaceId, sessionId) {
     let msgs = get().messages;
-    if (projectId) msgs = msgs.filter((m) => m.projectId === projectId);
+    if (workspaceId) msgs = msgs.filter((m) => m.workspaceId === workspaceId);
     if (sessionId) msgs = msgs.filter((m) => m.sessionId === sessionId);
     return msgs;
   },

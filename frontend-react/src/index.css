@@ -386,7 +386,7 @@ h1, h2, h3, h4, h5, h6 {
   font-style: italic;
 }
 
-/* Wiki editor — migrated to Tailwind in ProjectKnowledge.tsx */
+/* Wiki editor — migrated to Tailwind in WorkspaceKnowledge.tsx */
 
 /* ── Sidebar logo ── */
 .sidebar-logo-text {
@@ -474,8 +474,8 @@ h1, h2, h3 {
 }
 
 /* ============================================================
-   Dark purple theme — tab bar & project header
-   Target: .dark .tab-bar  /  .dark .project-header
+   Dark purple theme — tab bar & workspace header
+   Target: .dark .tab-bar  /  .dark .workspace-header
    Sidebar background is already handled by --sidebar var above.
    ============================================================ */
 
@@ -492,14 +492,14 @@ h1, h2, h3 {
   border-color: oklch(1 0 0 / 14%);
 }
 
-/* Project header (view-switcher bar) */
-.dark .project-header {
+/* Workspace header (view-switcher bar) */
+.dark .workspace-header {
   background-color: oklch(0.07 0.015 285);
   border-bottom-color: oklch(1 0 0 / 12%);
 }
 
-/* Active view tab in the project header */
-.dark .project-header__tab--active {
+/* Active view tab in the workspace header */
+.dark .workspace-header__tab--active {
   background-color: oklch(0.13 0.02 285) !important;
   color: oklch(0.93 0.04 290) !important;
 }

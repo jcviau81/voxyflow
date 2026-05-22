@@ -134,7 +134,7 @@
 - [preference] Don't use any 3.13 features.
 
 **LLM extracted:**
-- [decision] Python is pinned to 3.12 for the Voxyflow project — do not use any 3.13 features (conf=0.95)
+- [decision] Python is pinned to 3.12 for the Voxyflow workspace — do not use any 3.13 features (conf=0.95)
 - [decision] Project uses uv instead of pip for package management (chosen for speed) (conf=0.95)
 
 **Regex missed:** ['python', '3.12'], ['uv', 'pip', 'package']
@@ -200,7 +200,7 @@ Based on everything you've described across this conversatio
 - [fact] Moving Error Handling & Edge Cases to done.
 - [fact] <delegate>
 {"intent": "move_card", "summary": "Move 'Error Handling & Edge Cases' to done status", "
-- [fact] Based on the project state:
+- [fact] Based on the workspace state:
 
 **Weather Dashboard — Status Summary**
 
@@ -208,7 +208,7 @@ Based on everything you've described across this conversatio
 |--------|--
 
 **LLM extracted:**
-- [fact] Weather Dashboard project has 10 total tasks including: API Integration Setup, City Search UI, Weath (conf=0.75)
+- [fact] Weather Dashboard workspace has 10 total tasks including: API Integration Setup, City Search UI, Weath (conf=0.75)
 
 ## Verdict
 

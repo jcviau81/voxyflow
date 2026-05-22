@@ -47,8 +47,8 @@ export interface ChatInputProps {
   chatLevel: ChatLevel;
   /** Tab ID for session management */
   tabId: string;
-  /** Current project ID */
-  projectId?: string;
+  /** Current workspace ID */
+  workspaceId?: string;
   /** Card ID when in card-level chat */
   cardId?: string;
   /** Whether embedded in CardDetailModal (hides some controls) */
@@ -66,7 +66,7 @@ export interface ChatInputProps {
 export function ChatInput({
   chatLevel,
   tabId,
-  projectId,
+  workspaceId,
   cardId,
   embedded = false,
   onNewSession,
@@ -121,7 +121,7 @@ export function ChatInput({
   // Smart suggestions hook
   const suggestions = SmartSuggestions({
     chatLevel,
-    projectId,
+    workspaceId,
     onSelect: (text) => {
       if (textareaRef.current) {
         textareaRef.current.value = text;
@@ -167,7 +167,7 @@ export function ChatInput({
             '- `Ctrl+Shift+N` — New session',
             '- `Ctrl+Shift+F` — Search chat history',
           ].join('\n');
-          sendSystemInit(helpText, projectId, cardId, useSessionStore.getState().getActiveChatId(tabId));
+          sendSystemInit(helpText, workspaceId, cardId, useSessionStore.getState().getActiveChatId(tabId));
           break;
         }
         case '/agent': {
@@ -175,7 +175,7 @@ export function ChatInput({
           if (agentName) {
             sendMessage(
               `/agent ${agentName}`,
-              projectId,
+              workspaceId,
               cardId,
               useSessionStore.getState().getActiveChatId(tabId),
             );
@@ -183,7 +183,7 @@ export function ChatInput({
           break;
         }
         case '/meeting':
-          sendMessage('/meeting', projectId, cardId, useSessionStore.getState().getActiveChatId(tabId));
+          sendMessage('/meeting', workspaceId, cardId, useSessionStore.getState().getActiveChatId(tabId));
           break;
       }
 
@@ -191,7 +191,7 @@ export function ChatInput({
       textareaRef.current.value = '';
       autoResize();
     },
-    [projectId, cardId, tabId, sendMessage, sendSystemInit, onNewSession, onClearChat],
+    [workspaceId, cardId, tabId, sendMessage, sendSystemInit, onNewSession, onClearChat],
   );
 
   const slashMenu = useSlashMenu(executeSlashCommand);
@@ -231,14 +231,14 @@ export function ChatInput({
     }
 
     const sessionId = useSessionStore.getState().getActiveChatId(tabId);
-    sendMessage(content, projectId, cardId, sessionId);
+    sendMessage(content, workspaceId, cardId, sessionId);
 
     // Clear + reset textarea
     el.value = '';
     autoResize();
     el.focus();
     suggestionsRef.current.onUserTyping('');
-  }, [tabId, projectId, cardId, sendMessage, updateSessionTitle, autoResize]);
+  }, [tabId, workspaceId, cardId, sendMessage, updateSessionTitle, autoResize]);
 
   // ---------------------------------------------------------------------------
   // Keyboard handlers
@@ -321,12 +321,12 @@ export function ChatInput({
     if (!pendingPaste) return;
     sendMessage(
       `Please review this code:\n\`\`\`\n${pendingPaste}\n\`\`\``,
-      projectId,
+      workspaceId,
       cardId,
       useSessionStore.getState().getActiveChatId(tabId),
     );
     setPendingPaste(null);
-  }, [pendingPaste, projectId, cardId, tabId, sendMessage]);
+  }, [pendingPaste, workspaceId, cardId, tabId, sendMessage]);
 
   // ---------------------------------------------------------------------------
   // Emoji insertion

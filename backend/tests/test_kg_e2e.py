@@ -2,7 +2,7 @@
 
 Tests:
 1. KG MCP handlers (kg.add / kg.query / kg.timeline / kg.invalidate / kg.stats)
-2. KG project isolation via MCP handlers
+2. KG workspace isolation via MCP handlers
 3. Memory extraction format change (memories + entities)
 4. Lazy context loading L0/L1/L2 budget & layers
 5. L0 bridge (pinned KG cache → _build_l0_identity)
@@ -40,16 +40,16 @@ class TestKGMCPHandlers:
     """Test the 5 kg.* MCP handlers by calling them directly."""
 
     @pytest.fixture(autouse=True)
-    def _set_project_env(self):
-        """Set a unique project env for each test."""
+    def _set_workspace_env(self):
+        """Set a unique workspace env for each test."""
         self.pid = _pid()
-        prev = os.environ.get("VOXYFLOW_PROJECT_ID")
-        os.environ["VOXYFLOW_PROJECT_ID"] = self.pid
+        prev = os.environ.get("VOXYFLOW_WORKSPACE_ID")
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = self.pid
         yield
         if prev is None:
-            os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+            os.environ.pop("VOXYFLOW_WORKSPACE_ID", None)
         else:
-            os.environ["VOXYFLOW_PROJECT_ID"] = prev
+            os.environ["VOXYFLOW_WORKSPACE_ID"] = prev
 
     def _handler(self, name):
         from app.mcp_server import _get_system_handler
@@ -213,7 +213,7 @@ class TestKGMCPHandlers:
         assert result["active_attributes"] >= 1
 
     @pytest.mark.asyncio
-    async def test_kg_stats_empty_project(self):
+    async def test_kg_stats_empty_workspace(self):
         stats = self._handler("kg_stats")
         result = await stats({})
         assert result.get("success") is True
@@ -238,11 +238,11 @@ class TestKGMCPHandlers:
 
 
 # ============================================================================
-# 2. KG Project Isolation via MCP Handlers
+# 2. KG Workspace Isolation via MCP Handlers
 # ============================================================================
 
-class TestKGProjectIsolation:
-    """Verify KG tools scope to VOXYFLOW_PROJECT_ID — no cross-project leaks."""
+class TestKGWorkspaceIsolation:
+    """Verify KG tools scope to VOXYFLOW_WORKSPACE_ID — no cross-workspace leaks."""
 
     @pytest.mark.asyncio
     async def test_entities_isolated(self):
@@ -254,30 +254,30 @@ class TestKGProjectIsolation:
         pid_a = _pid()
         pid_b = _pid()
 
-        # Add entity in project A
-        os.environ["VOXYFLOW_PROJECT_ID"] = pid_a
+        # Add entity in workspace A
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = pid_a
         await add({"entity_name": "Redis", "entity_type": "technology"})
 
-        # Add entity in project B
-        os.environ["VOXYFLOW_PROJECT_ID"] = pid_b
+        # Add entity in workspace B
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = pid_b
         await add({"entity_name": "PostgreSQL", "entity_type": "technology"})
 
-        # Query project A — should only see Redis
-        os.environ["VOXYFLOW_PROJECT_ID"] = pid_a
+        # Query workspace A — should only see Redis
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = pid_a
         result = await query({})
         names = {e["name"] for e in result.get("entities", [])}
-        assert "Redis" in names, f"Redis missing from project A: {names}"
-        assert "PostgreSQL" not in names, f"PostgreSQL leaked into project A: {names}"
+        assert "Redis" in names, f"Redis missing from workspace A: {names}"
+        assert "PostgreSQL" not in names, f"PostgreSQL leaked into workspace A: {names}"
 
-        # Query project B — should only see PostgreSQL
-        os.environ["VOXYFLOW_PROJECT_ID"] = pid_b
+        # Query workspace B — should only see PostgreSQL
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = pid_b
         result = await query({})
         names = {e["name"] for e in result.get("entities", [])}
         assert "PostgreSQL" in names
-        assert "Redis" not in names, f"Redis leaked into project B: {names}"
+        assert "Redis" not in names, f"Redis leaked into workspace B: {names}"
 
         # Cleanup
-        os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+        os.environ.pop("VOXYFLOW_WORKSPACE_ID", None)
 
     @pytest.mark.asyncio
     async def test_relationships_isolated(self):
@@ -289,19 +289,19 @@ class TestKGProjectIsolation:
         pid_a = _pid()
         pid_b = _pid()
 
-        os.environ["VOXYFLOW_PROJECT_ID"] = pid_a
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = pid_a
         await add({
             "entity_name": "app",
             "entity_type": "component",
             "relationships": [{"predicate": "uses", "target": "Redis", "target_type": "technology"}],
         })
 
-        os.environ["VOXYFLOW_PROJECT_ID"] = pid_b
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = pid_b
         result = await query({"include_relationships": True})
         assert len(result.get("relationships", [])) == 0, \
-            f"Relationships from project A leaked to project B: {result.get('relationships')}"
+            f"Relationships from workspace A leaked to workspace B: {result.get('relationships')}"
 
-        os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+        os.environ.pop("VOXYFLOW_WORKSPACE_ID", None)
 
     @pytest.mark.asyncio
     async def test_stats_isolated(self):
@@ -313,14 +313,14 @@ class TestKGProjectIsolation:
         pid_a = _pid()
         pid_b = _pid()
 
-        os.environ["VOXYFLOW_PROJECT_ID"] = pid_a
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = pid_a
         await add({"entity_name": "Redis", "entity_type": "technology"})
 
-        os.environ["VOXYFLOW_PROJECT_ID"] = pid_b
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = pid_b
         result = await stats({})
-        assert result["entities"] == 0, f"Stats leaked from project A to B: {result}"
+        assert result["entities"] == 0, f"Stats leaked from workspace A to B: {result}"
 
-        os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+        os.environ.pop("VOXYFLOW_WORKSPACE_ID", None)
 
 
 # ============================================================================
@@ -474,7 +474,7 @@ class TestLazyContextLoading:
         """L0 returns None when KG is empty (backward compat)."""
         from app.services.memory_service import MemoryService
         ms = MemoryService()
-        result = ms._build_l0_identity("nonexistent-project")
+        result = ms._build_l0_identity("nonexistent-workspace")
         assert result is None
 
     def test_l0_identity_with_pinned(self):
@@ -494,13 +494,13 @@ class TestLazyContextLoading:
 
         result = ms._build_l0_identity(pid)
         assert result is not None
-        assert "**Project identity:**" in result
+        assert "**Workspace identity:**" in result
         assert "Redis" in result
         assert "auth" in result
 
     def test_layers_control_what_is_loaded(self):
         """With layers=(0,) only L0 runs; L1/L2 are skipped."""
-        from app.services.memory_service import MemoryService, _project_collection
+        from app.services.memory_service import MemoryService, _workspace_collection
 
         search_calls = []
 
@@ -520,7 +520,7 @@ class TestLazyContextLoading:
 
         # layers=(0,) — only L0, no ChromaDB searches
         search_calls.clear()
-        result = ms._build_chromadb_context(query="test", project_id=pid, layers=(0,))
+        result = ms._build_chromadb_context(query="test", workspace_id=pid, layers=(0,))
         assert len(search_calls) == 0, f"L0-only should not search ChromaDB, got {len(search_calls)} calls"
 
     def test_budget_caps_output(self):
@@ -546,7 +546,7 @@ class TestLazyContextLoading:
 
         # Small budget should limit output
         result = ms._build_chromadb_context(
-            query="test", project_id=pid,
+            query="test", workspace_id=pid,
             budget=100, layers=(2,),
         )
         if result:
@@ -576,7 +576,7 @@ class TestLazyContextLoading:
         ms = CompatMs()
         # Call with old-style params (no budget/layers)
         result = ms.build_memory_context(
-            project_id="proj-x",
+            workspace_id="proj-x",
             query="test",
         )
         # Should still return something
@@ -610,7 +610,7 @@ class TestL0Bridge:
         l0 = ms._build_l0_identity(pid)
         assert l0 is not None
         assert "Redis" in l0
-        assert "Project identity" in l0
+        assert "Workspace identity" in l0
 
     @pytest.mark.asyncio
     async def test_unpinned_entities_excluded(self):
@@ -656,13 +656,13 @@ class TestBackwardCompat:
         ms = OldStyleMs()
         result = ms._build_chromadb_context(
             query="test",
-            project_id="proj-test",
+            workspace_id="proj-test",
         )
         assert result is not None
         assert "Old memory" in result
 
     def test_isolation_unchanged(self):
-        """Project isolation rules still hold with new layer system."""
+        """Workspace isolation rules still hold with new layer system."""
         from app.services.memory_service import MemoryService, GLOBAL_COLLECTION
 
         captured_collections = []
@@ -680,15 +680,15 @@ class TestBackwardCompat:
 
         ms = IsolationMs()
 
-        # Project mode — should NEVER query global
+        # Workspace mode — should NEVER query global
         captured_collections.clear()
-        ms._build_chromadb_context(query="test", project_id="proj-x")
+        ms._build_chromadb_context(query="test", workspace_id="proj-x")
         assert GLOBAL_COLLECTION not in captured_collections, \
-            f"Project mode leaked global: {captured_collections}"
+            f"Workspace mode leaked global: {captured_collections}"
 
         # Card mode — should NEVER query global
         captured_collections.clear()
-        ms._build_chromadb_context(query="test", project_id="proj-x", card_id="card-1")
+        ms._build_chromadb_context(query="test", workspace_id="proj-x", card_id="card-1")
         assert GLOBAL_COLLECTION not in captured_collections, \
             f"Card mode leaked global: {captured_collections}"
 
@@ -744,8 +744,8 @@ class TestKGFullPipeline:
         from app.mcp_server import _get_system_handler
 
         pid = _pid()
-        prev = os.environ.get("VOXYFLOW_PROJECT_ID")
-        os.environ["VOXYFLOW_PROJECT_ID"] = pid
+        prev = os.environ.get("VOXYFLOW_WORKSPACE_ID")
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = pid
 
         try:
             add = _get_system_handler("kg_add")
@@ -809,9 +809,9 @@ class TestKGFullPipeline:
 
         finally:
             if prev is None:
-                os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+                os.environ.pop("VOXYFLOW_WORKSPACE_ID", None)
             else:
-                os.environ["VOXYFLOW_PROJECT_ID"] = prev
+                os.environ["VOXYFLOW_WORKSPACE_ID"] = prev
 
 
 # ============================================================================
@@ -822,15 +822,15 @@ class TestInputValidation:
     """Verify bounds checking, truncation, and error handling."""
 
     @pytest.fixture(autouse=True)
-    def _set_project_env(self):
+    def _set_workspace_env(self):
         self.pid = _pid()
-        prev = os.environ.get("VOXYFLOW_PROJECT_ID")
-        os.environ["VOXYFLOW_PROJECT_ID"] = self.pid
+        prev = os.environ.get("VOXYFLOW_WORKSPACE_ID")
+        os.environ["VOXYFLOW_WORKSPACE_ID"] = self.pid
         yield
         if prev is None:
-            os.environ.pop("VOXYFLOW_PROJECT_ID", None)
+            os.environ.pop("VOXYFLOW_WORKSPACE_ID", None)
         else:
-            os.environ["VOXYFLOW_PROJECT_ID"] = prev
+            os.environ["VOXYFLOW_WORKSPACE_ID"] = prev
 
     def _handler(self, name):
         from app.mcp_server import _get_system_handler

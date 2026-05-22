@@ -155,7 +155,7 @@ class PersistentChatMixin:
         use_tools: bool = False,
         mcp_role: str = "dispatcher",
         session_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         cwd: str = "",
     ) -> PersistentChatProcess:
@@ -166,7 +166,7 @@ class PersistentChatMixin:
             model, system_prompt,
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
             interactive=True,
-            project_id=project_id, card_id=card_id,
+            workspace_id=workspace_id, card_id=card_id,
             chat_id=chat_id,
         )
 
@@ -188,7 +188,7 @@ class PersistentChatMixin:
         _reg_id = new_cli_session_id()
         get_cli_session_registry().register(CliSession(
             id=_reg_id, pid=proc.pid, session_id=session_id,
-            chat_id=chat_id, project_id=project_id or None,
+            chat_id=chat_id, workspace_id=workspace_id or None,
             model=_model_flag(model), session_type="chat",
             started_at=time.time(), cancel_event=asyncio.Event(),
             _process=proc, last_activity=time.time(),
@@ -231,7 +231,7 @@ class PersistentChatMixin:
         use_tools: bool = False,
         mcp_role: str = "dispatcher",
         session_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
@@ -243,18 +243,18 @@ class PersistentChatMixin:
         """
         pcp = self._persistent_chats.get(chat_id)
 
-        # Guard-rail: enforce project_id consistency on reused persistent
+        # Guard-rail: enforce workspace_id consistency on reused persistent
         # processes. The MCP subprocess env is fixed at spawn time, so a
-        # chat_id reused with a different project_id would leak across project
+        # chat_id reused with a different workspace_id would leak across project
         # scopes via memory/knowledge handlers. We kill the stale subprocess
         # and fall through to respawn with the correct env.
-        if pcp and project_id:
+        if pcp and workspace_id:
             sess = get_cli_session_registry().get_by_chat_id(chat_id)
-            if sess and sess.project_id and sess.project_id != project_id:
+            if sess and sess.workspace_id and sess.workspace_id != workspace_id:
                 logger.error(
                     f"[CLI-persistent] PROJECT_ID DRIFT: chat_id={chat_id} "
-                    f"was spawned with project_id={sess.project_id!r} "
-                    f"but called with project_id={project_id!r} — "
+                    f"was spawned with workspace_id={sess.workspace_id!r} "
+                    f"but called with workspace_id={workspace_id!r} — "
                     f"killing stale subprocess to prevent context bleed"
                 )
                 await self.kill_persistent_chat(chat_id)
@@ -275,7 +275,7 @@ class PersistentChatMixin:
                 pcp = await self._spawn_persistent_chat(
                     chat_id=chat_id, model=model, system=system, messages=messages,
                     use_tools=use_tools, mcp_role=mcp_role,
-                    session_id=session_id, project_id=project_id, card_id=card_id,
+                    session_id=session_id, workspace_id=workspace_id, card_id=card_id,
                     cwd=cwd,
                 )
                 # Yield tokens from the first turn
@@ -361,7 +361,7 @@ class PersistentChatMixin:
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role,
                 session_id=session_id, chat_id=chat_id,
-                project_id=project_id, session_type=session_type,
+                workspace_id=workspace_id, session_type=session_type,
             ):
                 yield token
         finally:

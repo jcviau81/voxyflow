@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("voxyflow.orchestration")
 
 
-async def _count_cards_updated_today(project_id: str) -> int | None:
+async def _count_cards_updated_today(workspace_id: str) -> int | None:
     """How many cards in this project were created/updated since local midnight?
 
     Returns None on error (caller suppresses the line). Ignores the system-main
@@ -38,9 +38,9 @@ async def _count_cards_updated_today(project_id: str) -> int | None:
     """
     from datetime import datetime, timezone
     from sqlalchemy import select, func
-    from app.database import async_session, Card, SYSTEM_MAIN_PROJECT_ID
+    from app.database import async_session, Card, SYSTEM_MAIN_WORKSPACE_ID
 
-    if not project_id or project_id == SYSTEM_MAIN_PROJECT_ID:
+    if not workspace_id or workspace_id == SYSTEM_MAIN_WORKSPACE_ID:
         return None
     # Local midnight in server TZ (use UTC — servers typically run UTC; a few
     # hours skew here is acceptable for a heartbeat signal).
@@ -49,7 +49,7 @@ async def _count_cards_updated_today(project_id: str) -> int | None:
     async with async_session() as db:
         result = await db.execute(
             select(func.count(Card.id)).where(
-                Card.project_id == project_id,
+                Card.workspace_id == workspace_id,
                 Card.updated_at >= midnight,
             )
         )
@@ -60,14 +60,14 @@ async def _compute_ambient_blocks(
     worker_pools: dict,
     session_id: str | None,
     chat_id: str,
-    project_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> tuple[str, str, str]:
     """Build Live state + Worker activity blocks for the next user turn.
 
     Worker activity drains the per-chat completion buffer (see
     DeepWorkerPool.drain_worker_events). Live state reports active workers
     for this chat, their intents, the next scheduled job globally, and
-    today's card activity (if ``project_id`` given). Both blocks silently
+    today's card activity (if ``workspace_id`` given). Both blocks silently
     omit unavailable data.
     """
     live_state = ""
@@ -105,9 +105,9 @@ async def _compute_ambient_blocks(
         next_job = None
 
     cards_updated_today = None
-    if project_id:
+    if workspace_id:
         try:
-            cards_updated_today = await _count_cards_updated_today(project_id)
+            cards_updated_today = await _count_cards_updated_today(workspace_id)
         except Exception as e:
             logger.debug("count_cards_updated_today failed: %s", e)
             cards_updated_today = None
@@ -153,7 +153,7 @@ class LayerRunnersMixin:
         message_id: str,
         chat_id: str,
         project_name: str | None,
-        project_id: str | None,
+        workspace_id: str | None,
         chat_level: str,
         project_context: dict | None,
         card_context: dict | None,
@@ -184,7 +184,7 @@ class LayerRunnersMixin:
 
             live_state_block, worker_events_block, session_handoff_block = await _compute_ambient_blocks(
                 self._worker_pools, session_id, chat_id,
-                project_id=project_id,
+                workspace_id=workspace_id,
             )
 
             async for token in self._claude.chat_fast_stream(
@@ -194,7 +194,7 @@ class LayerRunnersMixin:
                 chat_level=chat_level,
                 project_context=project_context,
                 card_context=card_context,
-                project_id=project_id,
+                workspace_id=workspace_id,
                 project_names=project_names,
                 active_workers_context=active_workers_context,
                 session_id=session_id or "",
@@ -265,7 +265,7 @@ class LayerRunnersMixin:
                     model_label="fast",
                     session_id=session_id,
                     project_name=project_name,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     chat_level=chat_level,
                     project_context=project_context,
                     card_context=card_context,
@@ -323,7 +323,7 @@ class LayerRunnersMixin:
         message_id: str,
         chat_id: str,
         project_name: str | None,
-        project_id: str | None,
+        workspace_id: str | None,
         chat_level: str,
         project_context: dict | None,
         card_context: dict | None,
@@ -353,7 +353,7 @@ class LayerRunnersMixin:
             buffered_tokens: list[str] = [] if is_callback else []
             live_state_block, worker_events_block, session_handoff_block = await _compute_ambient_blocks(
                 self._worker_pools, session_id, chat_id,
-                project_id=project_id,
+                workspace_id=workspace_id,
             )
 
             async for token in self._claude.chat_deep_stream(
@@ -363,7 +363,7 @@ class LayerRunnersMixin:
                 chat_level=chat_level,
                 project_context=project_context,
                 card_context=card_context,
-                project_id=project_id,
+                workspace_id=workspace_id,
                 project_names=project_names,
                 active_workers_context=active_workers_context,
                 session_id=session_id or "",
@@ -427,7 +427,7 @@ class LayerRunnersMixin:
                     model_label="deep",
                     session_id=session_id,
                     project_name=project_name,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     chat_level=chat_level,
                     project_context=project_context,
                     card_context=card_context,

@@ -4,7 +4,7 @@
  * Cards are keyed by id in a Map-like record for O(1) lookups.
  * Persist middleware serializes to localStorage.
  *
- * SYSTEM_PROJECT_ID ('system-main') hosts Main Board cards.
+ * SYSTEM_WORKSPACE_ID ('system-main') hosts Main Board cards.
  */
 
 import { create } from 'zustand';
@@ -13,7 +13,7 @@ import { immer } from 'zustand/middleware/immer';
 import type { Card, CardStatus } from '../types';
 import { generateId } from '../lib/utils';
 
-export const SYSTEM_PROJECT_ID = 'system-main';
+export const SYSTEM_WORKSPACE_ID = 'system-main';
 
 export interface CardState {
   /** All cards keyed by id for O(1) access. */
@@ -28,8 +28,8 @@ export interface CardState {
   /** Bulk-replace all cards (e.g. from API sync). */
   setCards: (cards: Card[]) => void;
 
-  /** Replace cards for a single project, keeping other projects intact. */
-  setCardsForProject: (projectId: string, cards: Card[]) => void;
+  /** Replace cards for a single workspace, keeping other workspaces intact. */
+  setCardsForWorkspace: (workspaceId: string, cards: Card[]) => void;
 
   // Move / reorder
   moveCard: (cardId: string, newStatus: CardStatus) => void;
@@ -37,11 +37,11 @@ export interface CardState {
 
   // Queries (derived — not persisted)
   getCard: (id: string) => Card | undefined;
-  getCardsByProject: (projectId: string) => Card[];
-  getCardsByStatus: (projectId: string, status: CardStatus) => Card[];
+  getCardsByWorkspace: (workspaceId: string) => Card[];
+  getCardsByStatus: (workspaceId: string, status: CardStatus) => Card[];
   getAllCards: () => Card[];
 
-  // Main Board helpers (SYSTEM_PROJECT_ID)
+  // Main Board helpers (SYSTEM_WORKSPACE_ID)
   getMainBoardCards: () => Card[];
   setMainBoardCards: (cards: Card[]) => void;
 }
@@ -95,10 +95,10 @@ export const useCardStore = create<CardState>()(
         set({ cardsById });
       },
 
-      setCardsForProject: (projectId, cards) => {
+      setCardsForWorkspace: (workspaceId, cards) => {
         set((state) => {
           for (const [id, card] of Object.entries(state.cardsById)) {
-            if (card.projectId === projectId) delete state.cardsById[id];
+            if (card.workspaceId === workspaceId) delete state.cardsById[id];
           }
           for (const card of cards) {
             state.cardsById[card.id] = card;
@@ -126,20 +126,20 @@ export const useCardStore = create<CardState>()(
 
       getCard: (id) => get().cardsById[id],
 
-      getCardsByProject: (projectId) =>
-        Object.values(get().cardsById).filter((c) => c.projectId === projectId),
+      getCardsByWorkspace: (workspaceId) =>
+        Object.values(get().cardsById).filter((c) => c.workspaceId === workspaceId),
 
-      getCardsByStatus: (projectId, status) =>
+      getCardsByStatus: (workspaceId, status) =>
         Object.values(get().cardsById).filter(
-          (c) => c.projectId === projectId && c.status === status
+          (c) => c.workspaceId === workspaceId && c.status === status
         ),
 
       getAllCards: () => Object.values(get().cardsById),
 
       getMainBoardCards: () =>
-        Object.values(get().cardsById).filter((c) => c.projectId === SYSTEM_PROJECT_ID),
+        Object.values(get().cardsById).filter((c) => c.workspaceId === SYSTEM_WORKSPACE_ID),
 
-      setMainBoardCards: (cards) => get().setCardsForProject(SYSTEM_PROJECT_ID, cards),
+      setMainBoardCards: (cards) => get().setCardsForWorkspace(SYSTEM_WORKSPACE_ID, cards),
     })),
     {
       name: 'voxyflow_cards',

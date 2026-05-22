@@ -16,8 +16,8 @@ const MAX_SESSIONS = 5;
 
 export interface SessionTabBarProps {
   tabId: string;
-  scope?: 'general' | 'project' | 'card';
-  projectId?: string;
+  scope?: 'general' | 'workspace' | 'card';
+  workspaceId?: string;
   cardId?: string;
   onSessionSwitch?: (sessionId: string) => void;
 }
@@ -28,8 +28,8 @@ export interface SessionTabBarProps {
 
 export function SessionTabBar({
   tabId,
-  scope = 'project',
-  projectId,
+  scope = 'workspace',
+  workspaceId,
   cardId,
   onSessionSwitch,
 }: SessionTabBarProps) {
@@ -66,7 +66,7 @@ export function SessionTabBar({
   }, [historyOpen]);
 
   const fetchSessionHistory = useCallback(() => {
-    const prefix = cardId ? `card:${cardId}` : `project:${projectId || tabId}`;
+    const prefix = cardId ? `card:${cardId}` : `workspace:${workspaceId || tabId}`;
     setHistoryLoading(true);
     // Cap history to recent sessions — month-old chats are rarely what the
     // user wants to "restore", they just clutter the dropdown.
@@ -81,7 +81,7 @@ export function SessionTabBar({
       })
       .catch(() => setServerSessions([]))
       .finally(() => setHistoryLoading(false));
-  }, [tabId, projectId, cardId, sessions]);
+  }, [tabId, workspaceId, cardId, sessions]);
 
   const handleToggleHistory = useCallback(() => {
     if (!historyOpen) fetchSessionHistory();

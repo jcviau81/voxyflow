@@ -15,13 +15,13 @@ from .conftest import assert_card_status, assert_card_history_contains
 
 class TestRecurrenceReset:
     @pytest.mark.asyncio
-    async def test_recurring_card_resets_to_todo(self, client, test_project):
+    async def test_recurring_card_resets_to_todo(self, client, test_workspace):
         """A done recurring card with past recurrence_next gets reset to todo."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
 
         # Create a done recurring card with past recurrence_next
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": f"Recurring E2E {uuid.uuid4().hex[:6]}",
             "description": "Recurring test card",
             "status": "done",
@@ -40,17 +40,17 @@ class TestRecurrenceReset:
         await assert_card_status(client, cid, "todo")
 
     @pytest.mark.asyncio
-    async def test_no_copy_created(self, client, test_project):
+    async def test_no_copy_created(self, client, test_workspace):
         """Recurrence should reuse the same card, not create copies."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
 
         # Count cards before
-        r = await client.get(f"/api/projects/{pid}/cards")
+        r = await client.get(f"/api/workspaces/{pid}/cards")
         before = len(r.json()) if isinstance(r.json(), list) else len(r.json().get("cards", []))
 
         # Create recurring card
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": f"NoCopy E2E {uuid.uuid4().hex[:6]}",
             "status": "done",
             "recurring": True,
@@ -62,17 +62,17 @@ class TestRecurrenceReset:
         await _trigger_recurrence(client)
 
         # Count after — should be same + 1 (just the card we created)
-        r = await client.get(f"/api/projects/{pid}/cards")
+        r = await client.get(f"/api/workspaces/{pid}/cards")
         after = len(r.json()) if isinstance(r.json(), list) else len(r.json().get("cards", []))
         assert after == before + 1, f"Expected {before + 1} cards, got {after} (copy created?)"
 
     @pytest.mark.asyncio
-    async def test_recurrence_next_advanced(self, client, test_project):
+    async def test_recurrence_next_advanced(self, client, test_workspace):
         """After reset, recurrence_next should be advanced to the future."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
 
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": f"Advance E2E {uuid.uuid4().hex[:6]}",
             "status": "done",
             "recurring": True,
@@ -98,12 +98,12 @@ class TestRecurrenceReset:
             f"recurrence_next should be advanced: {new_next}"
 
     @pytest.mark.asyncio
-    async def test_recurrence_history_entry(self, client, test_project):
+    async def test_recurrence_history_entry(self, client, test_workspace):
         """Recurrence reset should create a CardHistory entry."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
 
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": f"History E2E {uuid.uuid4().hex[:6]}",
             "status": "done",
             "recurring": True,
@@ -118,12 +118,12 @@ class TestRecurrenceReset:
         await assert_card_history_contains(client, cid, "status", "todo", "Recurrence")
 
     @pytest.mark.asyncio
-    async def test_future_recurrence_not_triggered(self, client, test_project):
+    async def test_future_recurrence_not_triggered(self, client, test_workspace):
         """A card with recurrence_next in the future should not be reset."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
 
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": f"Future E2E {uuid.uuid4().hex[:6]}",
             "status": "done",
             "recurring": True,
@@ -139,12 +139,12 @@ class TestRecurrenceReset:
         await assert_card_status(client, cid, "done")
 
     @pytest.mark.asyncio
-    async def test_already_todo_no_duplicate_history(self, client, test_project):
+    async def test_already_todo_no_duplicate_history(self, client, test_workspace):
         """A recurring card already at todo should not get a duplicate history entry."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
 
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": f"AlreadyTodo E2E {uuid.uuid4().hex[:6]}",
             "status": "todo",
             "recurring": True,

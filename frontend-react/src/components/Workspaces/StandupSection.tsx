@@ -17,10 +17,10 @@ function renderMarkdown(text: string): string {
 }
 
 interface StandupSectionProps {
-  projectId: string;
+  workspaceId: string;
 }
 
-export function StandupSection({ projectId }: StandupSectionProps) {
+export function StandupSection({ workspaceId }: StandupSectionProps) {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -29,24 +29,24 @@ export function StandupSection({ projectId }: StandupSectionProps) {
 
   useEffect(() => {
     checkSchedule();
-  }, [projectId]);
+  }, [workspaceId]);
 
   async function checkSchedule() {
     try {
-      const resp = await fetch(`/api/projects/${projectId}/standup/schedule`);
+      const resp = await fetch(`/api/workspaces/${workspaceId}/standup/schedule`);
       if (resp.ok) {
         const data = await resp.json() as { enabled?: boolean };
         setScheduled(!!(data && data.enabled));
       }
     } catch (err) {
-      console.warn('[ProjectStats] Failed to load standup schedule:', err);
+      console.warn('[WorkspaceStats] Failed to load standup schedule:', err);
     }
   }
 
   async function generateStandup() {
     setLoading(true);
     try {
-      const resp = await fetch(`/api/projects/${projectId}/standup`, {
+      const resp = await fetch(`/api/workspaces/${workspaceId}/standup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -65,7 +65,7 @@ export function StandupSection({ projectId }: StandupSectionProps) {
 
   async function toggleSchedule(enabled: boolean) {
     try {
-      await fetch(`/api/projects/${projectId}/standup/schedule`, {
+      await fetch(`/api/workspaces/${workspaceId}/standup/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled, hour: 9, minute: 0 }),

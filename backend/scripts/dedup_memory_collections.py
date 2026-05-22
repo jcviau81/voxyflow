@@ -1,25 +1,25 @@
 """One-shot cleanup: dedupe IDs duplicated across `memory-global` and
-`memory-project-system-main`.
+`memory-workspace-system-main`.
 
 Why this exists
 ---------------
-Home (the general chat) has `VOXYFLOW_PROJECT_ID="system-main"`, so its
-`memory.search` queries both `memory-global` and `memory-project-system-main`
+Home (the general chat) has `VOXYFLOW_WORKSPACE_ID="system-main"`, so its
+`memory.search` queries both `memory-global` and `memory-workspace-system-main`
 (see `mcp_system_handlers.memory_search._current_collections`). An older
-migration path copied the legacy `memory-project-main` collection into both
+migration path copied the legacy `memory-workspace-main` collection into both
 of those without re-prefixing IDs, so the same `mem-XXXX` document now exists
 twice and surfaces twice in retrieval.
 
 Resolution policy
 -----------------
-Keep `memory-project-system-main` (consistent with where the current
+Keep `memory-workspace-system-main` (consistent with where the current
 `memory.save` handler writes for Home — see `mcp_system_handlers.memory_save`)
 and delete the duplicate from `memory-global`. `memory-global` is reserved for
-explicit cross-project saves; auto-extracted Home content does not belong
+explicit cross-workspace saves; auto-extracted Home content does not belong
 there.
 
 If a duplicated ID exists in `memory-global` with a *different* document body
-than the one in `memory-project-system-main`, we leave both untouched and
+than the one in `memory-workspace-system-main`, we leave both untouched and
 print a warning — that's a content collision, not a migration artifact, and a
 human needs to look at it.
 
@@ -42,7 +42,7 @@ import chromadb  # noqa: E402
 
 CHROMA_PATH = os.path.expanduser("~/.voxyflow/chroma")
 GLOBAL_COLLECTION = "memory-global"
-SYSTEM_MAIN_COLLECTION = "memory-project-system-main"
+SYSTEM_MAIN_COLLECTION = "memory-workspace-system-main"
 
 
 def _all_ids_with_docs(col) -> dict[str, str]:

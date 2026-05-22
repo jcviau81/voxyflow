@@ -23,9 +23,9 @@ Tier 2 — App settings (routes/settings.py, DB app_settings table):
                        Override: VOXYFLOW_DATA_DIR env var
                        Default: ~/.voxyflow  ← settings.json, voxyflow.db live here (never in the repo)
 
-  VOXYFLOW_WORKSPACE_DIR — workspace for projects and file operations
-                            Override: VOXYFLOW_WORKSPACE_DIR env var
-                            Default: ~/.voxyflow/workspace
+  VOXYFLOW_SANDBOX_DIR — workers' sandbox for file operations (cwd for system.exec)
+                          Override: VOXYFLOW_SANDBOX_DIR env var
+                          Default: ~/.voxyflow/sandbox
 """
 
 import logging
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # Canonical path constants — import these instead of recomputing in each module
 VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", str(Path.home() / ".voxyflow")))
 VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
-VOXYFLOW_WORKSPACE_DIR = Path(os.environ.get("VOXYFLOW_WORKSPACE_DIR", str(VOXYFLOW_DATA_DIR / "workspace")))
+VOXYFLOW_SANDBOX_DIR = Path(os.environ.get("VOXYFLOW_SANDBOX_DIR", str(VOXYFLOW_DATA_DIR / "sandbox")))
 SETTINGS_FILE = VOXYFLOW_DATA_DIR / "settings.json"  # lives in data dir (outside repo)
 
 # Resolve .env relative to the backend/ directory (works regardless of cwd)
@@ -162,7 +162,7 @@ class Settings(BaseSettings):
         # Ensure all directories exist
         VOXYFLOW_DIR.mkdir(parents=True, exist_ok=True)
         VOXYFLOW_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        VOXYFLOW_WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+        VOXYFLOW_SANDBOX_DIR.mkdir(parents=True, exist_ok=True)
         # Load claude_api_key from keyring → env if not already set
         if not self.claude_api_key or self.claude_api_key in ("placeholder", "not-needed"):
             keyring_key = _get_secret(

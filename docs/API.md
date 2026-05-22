@@ -2,7 +2,7 @@
 
 All REST endpoints are prefixed with `/api`. WebSocket is at `/ws`.
 
-> **Note:** The API is provider-agnostic. Any of the eight supported LLM backends — `cli` (default, Claude Max subscription), `anthropic`, `openai`, `groq`, `mistral`, `gemini`, `ollama`, `lmstudio` — can be configured per layer in Settings → Models. The CLI subprocess backend (`CLAUDE_USE_CLI=true`) is the default.
+> **Note:** The API is provider-agnostic. Any supported LLM backend — `cli` (Claude CLI), `codex` (Codex CLI), `anthropic`, `openai`, `openrouter`, `groq`, `mistral`, `gemini`, `ollama`, or `lmstudio` — can be configured per dispatcher layer and worker class in Settings > Models.
 
 ---
 
@@ -11,7 +11,7 @@ All REST endpoints are prefixed with `/api`. WebSocket is at `/ws`.
 1. [WebSocket](#websocket)
 2. [Health](#health)
 3. [Chats](#chats)
-4. [Projects](#projects)
+4. [Workspaces](#workspaces)
 5. [Cards & Agents](#cards--agents)
 6. [Documents (RAG)](#documents-rag)
 7. [Settings](#settings)
@@ -38,16 +38,16 @@ Primary real-time channel. One connection per browser session.
 |------|---------|-------------|
 | `ping` | `{}` | Keepalive |
 | `chat:message` | See below | Send a chat message through the Dispatcher + Workers pipeline |
-| `session:reset` | `{ projectId?, sessionId?, chatLevel? }` | Clear conversation history |
+| `session:reset` | `{ workspaceId?, sessionId?, chatLevel? }` | Clear conversation history |
 
 **`chat:message` payload:**
 ```json
 {
   "content": "string",
   "messageId": "string",
-  "projectId": "string | null",
+  "workspaceId": "string | null",
   "cardId": "string | null",
-  "chatLevel": "general | project | card",
+  "chatLevel": "general | workspace | card",
   "sessionId": "string",
   "mode": { "deep": true }
 }
@@ -123,7 +123,7 @@ Create a new chat.
 
 **Request:**
 ```json
-{ "title": "My Chat", "project_id": "uuid | null" }
+{ "title": "My Chat", "workspace_id": "uuid | null" }
 ```
 
 **Response:** `201` — `ChatResponse`
@@ -131,7 +131,7 @@ Create a new chat.
 {
   "id": "uuid",
   "title": "My Chat",
-  "project_id": null,
+  "workspace_id": null,
   "created_at": "2025-01-01T00:00:00Z",
   "updated_at": "2025-01-01T00:00:00Z",
   "messages": []
@@ -151,7 +151,7 @@ List chats with message counts.
 [{
   "id": "uuid",
   "title": "My Chat",
-  "project_id": null,
+  "workspace_id": null,
   "created_at": "...",
   "message_count": 42
 }]
@@ -186,11 +186,11 @@ Add a message to a chat.
 
 ---
 
-## Projects
+## Workspaces
 
 ### `GET /api/templates`
 
-List all built-in project templates.
+List all built-in workspace templates.
 
 **Response:** `200` — Array of templates
 ```json
@@ -206,7 +206,7 @@ List all built-in project templates.
 
 ### `POST /api/from-template/{template_id}`
 
-Create a new project pre-populated with cards from a built-in template.
+Create a new workspace pre-populated with cards from a built-in template.
 
 **Path param:** `template_id` — one of the IDs returned by `GET /api/templates`
 
@@ -215,40 +215,40 @@ Create a new project pre-populated with cards from a built-in template.
 { "title": "My API", "description": "Optional override" }
 ```
 
-**Response:** `201` — `{ "project": ProjectResponse, "cards_created": 8 }`
+**Response:** `201` — `{ "workspace": WorkspaceResponse, "cards_created": 8 }`
 
 ---
 
-### `GET /api/projects/{project_id}/export`
+### `GET /api/workspaces/{workspace_id}/export`
 
-Export a project and all its cards as a JSON payload (for backup/migration).
+Export a workspace and all its cards as a JSON payload (for backup/migration).
 
 **Response:** `200` — Full export object
 ```json
 {
   "version": "1",
   "exported_at": "2025-01-01T00:00:00Z",
-  "project": { ...ProjectResponse },
+  "workspace": { ...WorkspaceResponse },
   "cards": [ ...CardResponse ]
 }
 ```
 
 ---
 
-### `POST /api/projects/import`
+### `POST /api/workspaces/import`
 
-Import a project from an exported JSON payload. Creates a new project with new IDs.
+Import a workspace from an exported JSON payload. Creates a new workspace with new IDs.
 
 **Request:** Export payload object (from `GET /export`)
 
 **Response:** `201`
 ```json
-{ "project_id": "uuid", "cards_imported": 12 }
+{ "workspace_id": "uuid", "cards_imported": 12 }
 ```
 
 ---
 
-### `POST /api/projects/{project_id}/meeting-notes`
+### `POST /api/workspaces/{workspace_id}/meeting-notes`
 
 Extract action items from meeting notes using AI.
 
@@ -268,7 +268,7 @@ Extract action items from meeting notes using AI.
 
 ---
 
-### `POST /api/projects/{project_id}/meeting-notes/confirm`
+### `POST /api/workspaces/{workspace_id}/meeting-notes/confirm`
 
 Create cards from extracted meeting action items.
 
@@ -286,22 +286,22 @@ Create cards from extracted meeting action items.
 
 ---
 
-### `POST /api/projects/{project_id}/brief`
+### `POST /api/workspaces/{workspace_id}/brief`
 
-Generate a comprehensive AI project brief / PRD using the Opus model.
+Generate a comprehensive AI workspace brief / PRD using the Opus model.
 
 **Response:** `200`
 ```json
 {
-  "brief": "# Project Brief\n\n## Executive Summary\n..."
+  "brief": "# Workspace Brief\n\n## Executive Summary\n..."
 }
 ```
 
 ---
 
-### `POST /api/projects/{project_id}/health`
+### `POST /api/workspaces/{workspace_id}/health`
 
-Analyse project health and return a score, grade, strengths, issues, and recommendations.
+Analyse workspace health and return a score, grade, strengths, issues, and recommendations.
 
 **Response:** `200`
 ```json
@@ -316,7 +316,7 @@ Analyse project health and return a score, grade, strengths, issues, and recomme
 
 ---
 
-### `POST /api/projects/{project_id}/standup`
+### `POST /api/workspaces/{workspace_id}/standup`
 
 Generate a daily standup summary using the fast model.
 
@@ -332,19 +332,19 @@ Generate a daily standup summary using the fast model.
 
 ---
 
-### `GET /api/projects/{project_id}/standup/schedule`
+### `GET /api/workspaces/{workspace_id}/standup/schedule`
 
-Get the standup schedule for a project (null if not configured).
+Get the standup schedule for a workspace (null if not configured).
 
 **Response:** `200`
 ```json
-{ "project_id": "uuid", "cron": "0 9 * * 1-5", "timezone": "America/Toronto" }
+{ "workspace_id": "uuid", "cron": "0 9 * * 1-5", "timezone": "America/Toronto" }
 // or null
 ```
 
 ---
 
-### `POST /api/projects/{project_id}/standup/schedule`
+### `POST /api/workspaces/{workspace_id}/standup/schedule`
 
 Create or update the daily standup schedule.
 
@@ -357,7 +357,7 @@ Create or update the daily standup schedule.
 
 ---
 
-### `POST /api/projects/{project_id}/prioritize`
+### `POST /api/workspaces/{workspace_id}/prioritize`
 
 Smart prioritization: rule-based scoring + AI reasoning to rank the backlog.
 
@@ -379,13 +379,13 @@ Smart prioritization: rule-based scoring + AI reasoning to rank the backlog.
 
 ### Wiki Endpoints
 
-#### `GET /api/projects/{project_id}/wiki`
+#### `GET /api/workspaces/{workspace_id}/wiki`
 
 List all wiki pages (id, title, updated_at).
 
 **Response:** `200` — Array of `{ "id": "uuid", "title": "Architecture", "updated_at": "..." }`
 
-#### `POST /api/projects/{project_id}/wiki`
+#### `POST /api/workspaces/{workspace_id}/wiki`
 
 Create a new wiki page.
 
@@ -393,14 +393,14 @@ Create a new wiki page.
 
 **Response:** `201` — Full page object `{ "id", "title", "content", "created_at", "updated_at" }`
 
-#### `GET /api/projects/{project_id}/wiki/{page_id}`
+#### `GET /api/workspaces/{workspace_id}/wiki/{page_id}`
 
 Get full content of a wiki page.
 
 **Response:** `200` — Full page object  
 **Error:** `404`
 
-#### `PUT /api/projects/{project_id}/wiki/{page_id}`
+#### `PUT /api/workspaces/{workspace_id}/wiki/{page_id}`
 
 Update a wiki page's title and/or content.
 
@@ -408,7 +408,7 @@ Update a wiki page's title and/or content.
 
 **Response:** `200` — Updated page object
 
-#### `DELETE /api/projects/{project_id}/wiki/{page_id}`
+#### `DELETE /api/workspaces/{workspace_id}/wiki/{page_id}`
 
 Delete a wiki page.
 
@@ -418,9 +418,9 @@ Delete a wiki page.
 
 ### Sprint Endpoints
 
-#### `GET /api/projects/{project_id}/sprints`
+#### `GET /api/workspaces/{workspace_id}/sprints`
 
-List all sprints for a project with card counts.
+List all sprints for a workspace with card counts.
 
 **Response:** `200` — Array of SprintResponse
 ```json
@@ -435,7 +435,7 @@ List all sprints for a project with card counts.
 }]
 ```
 
-#### `POST /api/projects/{project_id}/sprints`
+#### `POST /api/workspaces/{workspace_id}/sprints`
 
 Create a new sprint.
 
@@ -443,25 +443,25 @@ Create a new sprint.
 
 **Response:** `201` — SprintResponse
 
-#### `PUT /api/projects/{project_id}/sprints/{sprint_id}`
+#### `PUT /api/workspaces/{workspace_id}/sprints/{sprint_id}`
 
 Update sprint name, goal, or dates.
 
 **Response:** `200` — Updated SprintResponse
 
-#### `DELETE /api/projects/{project_id}/sprints/{sprint_id}`
+#### `DELETE /api/workspaces/{workspace_id}/sprints/{sprint_id}`
 
 Delete a sprint. Cards in the sprint lose their sprint assignment.
 
 **Response:** `204`
 
-#### `POST /api/projects/{project_id}/sprints/{sprint_id}/start`
+#### `POST /api/workspaces/{workspace_id}/sprints/{sprint_id}/start`
 
 Activate a sprint. Only one sprint can be active at a time.
 
 **Response:** `200` — Updated SprintResponse
 
-#### `POST /api/projects/{project_id}/sprints/{sprint_id}/complete`
+#### `POST /api/workspaces/{workspace_id}/sprints/{sprint_id}/complete`
 
 Mark a sprint as completed.
 
@@ -469,9 +469,9 @@ Mark a sprint as completed.
 
 ---
 
-### `POST /api/projects`
+### `POST /api/workspaces`
 
-Create a new project.
+Create a new workspace.
 
 **Request:**
 ```json
@@ -483,23 +483,23 @@ Create a new project.
   "github_url": "https://github.com/your-org/voxyflow",
   "github_branch": "main",
   "github_language": "TypeScript",
-  "local_path": "~/projects/voxyflow"
+  "local_path": "~/workspaces/voxyflow"
 }
 ```
 
 All fields except `title` are optional.
 
-**Response:** `201` — `ProjectResponse`
+**Response:** `201` — `WorkspaceResponse`
 
 ---
 
-### `GET /api/projects`
+### `GET /api/workspaces`
 
-List all projects, ordered by `updated_at` desc.
+List all workspaces, ordered by `updated_at` desc.
 
 **Query params:** `status` (`active` | `archived`)
 
-**Response:** `200` — Array of `ProjectResponse`
+**Response:** `200` — Array of `WorkspaceResponse`
 ```json
 [{
   "id": "uuid",
@@ -514,23 +514,23 @@ List all projects, ordered by `updated_at` desc.
 
 ---
 
-### `GET /api/projects/{project_id}`
+### `GET /api/workspaces/{workspace_id}`
 
-Get a project with its cards.
+Get a workspace with its cards.
 
-**Response:** `200` — `ProjectWithCards` (includes `cards[]`)  
-**Error:** `404` — Project not found
+**Response:** `200` — `WorkspaceWithCards` (includes `cards[]`)  
+**Error:** `404` — Workspace not found
 
 ---
 
-### `PATCH /api/projects/{project_id}`
+### `PATCH /api/workspaces/{workspace_id}`
 
-Update project fields (partial update).
+Update workspace fields (partial update).
 
-**Request:** Any subset of project fields.
+**Request:** Any subset of workspace fields.
 
-**Response:** `200` — Updated `ProjectResponse`  
-**Error:** `404` — Project not found
+**Response:** `200` — Updated `WorkspaceResponse`  
+**Error:** `404` — Workspace not found
 
 ---
 
@@ -554,9 +554,9 @@ List all available agent personas.
 
 ---
 
-### `POST /api/projects/{project_id}/cards`
+### `POST /api/workspaces/{workspace_id}/cards`
 
-Create a card in a project.
+Create a card in a workspace.
 
 **Request:**
 ```json
@@ -575,13 +575,13 @@ Create a card in a project.
 All fields except `title` are optional. If `agent_type` is omitted, it's auto-detected.
 
 **Response:** `201` — `CardResponse`  
-**Error:** `404` — Project not found
+**Error:** `404` — Workspace not found
 
 ---
 
-### `GET /api/projects/{project_id}/cards`
+### `GET /api/workspaces/{workspace_id}/cards`
 
-List cards for a project, ordered by `position`.
+List cards for a workspace, ordered by `position`.
 
 **Query params:** `status` (filter by status), `agent_type` (filter by agent)
 
@@ -589,7 +589,7 @@ List cards for a project, ordered by `position`.
 ```json
 [{
   "id": "uuid",
-  "project_id": "uuid",
+  "workspace_id": "uuid",
   "title": "Add auth middleware",
   "description": "...",
   "status": "todo",
@@ -662,28 +662,28 @@ Delete a card.
 
 ### `POST /api/cards/{card_id}/duplicate`
 
-Duplicate a card within the same project. Title gets ` (copy)` appended; votes reset to 0.
+Duplicate a card within the same workspace. Title gets ` (copy)` appended; votes reset to 0.
 
 **Response:** `201` — New `CardResponse`
 
 ---
 
-### `POST /api/cards/{card_id}/clone-to/{target_project_id}`
+### `POST /api/cards/{card_id}/clone-to/{target_workspace_id}`
 
-Clone a card to another project. Title gets ` (cloned)` appended; checklist items are cloned; a `cloned_from` relation is created.
+Clone a card to another workspace. Title gets ` (cloned)` appended; checklist items are cloned; a `cloned_from` relation is created.
 
 **Response:** `201` — New `CardResponse`  
-**Error:** `400` — Card already in target project  
-**Error:** `404` — Card or project not found
+**Error:** `400` — Card already in target workspace  
+**Error:** `404` — Card or workspace not found
 
 ---
 
-### `POST /api/cards/{card_id}/move-to/{target_project_id}`
+### `POST /api/cards/{card_id}/move-to/{target_workspace_id}`
 
-Move a card (with all comments, attachments, checklist) to another project.
+Move a card (with all comments, attachments, checklist) to another workspace.
 
 **Response:** `200` — Updated `CardResponse`  
-**Error:** `400` — Card already in target project
+**Error:** `400` — Card already in target workspace
 
 ---
 
@@ -904,9 +904,9 @@ AI enrichment: generates description, checklist items, effort estimate, and tags
 
 ## Documents (RAG)
 
-### `POST /api/projects/{project_id}/documents`
+### `POST /api/workspaces/{workspace_id}/documents`
 
-Upload a document and index it into the project's RAG knowledge base.
+Upload a document and index it into the workspace's RAG knowledge base.
 
 **Content-Type:** `multipart/form-data`  
 **Body:** `file` field with the file to upload
@@ -921,7 +921,7 @@ Upload a document and index it into the project's RAG knowledge base.
 ```json
 {
   "id": "uuid",
-  "project_id": "uuid",
+  "workspace_id": "uuid",
   "filename": "README.md",
   "filetype": ".md",
   "size_bytes": 4096,
@@ -932,14 +932,14 @@ Upload a document and index it into the project's RAG knowledge base.
 ```
 
 **Error:** `415` — Unsupported file type  
-**Error:** `404` — Project not found  
+**Error:** `404` — Workspace not found  
 **Error:** `422` — Parse failed
 
 ---
 
-### `GET /api/projects/{project_id}/documents`
+### `GET /api/workspaces/{workspace_id}/documents`
 
-List all documents for a project.
+List all documents for a workspace.
 
 **Response:** `200`
 ```json
@@ -951,12 +951,12 @@ List all documents for a project.
 
 ---
 
-### `DELETE /api/projects/{project_id}/documents/{document_id}`
+### `DELETE /api/workspaces/{workspace_id}/documents/{document_id}`
 
 Delete a document and remove its chunks from ChromaDB.
 
 **Response:** `204` No Content  
-**Error:** `404` — Document or project not found
+**Error:** `404` — Document or workspace not found
 
 ---
 
@@ -1075,7 +1075,7 @@ Endpoints under `/api/models/*` expose the multi-provider abstraction. Source:
 `backend/app/routes/models.py`.
 
 ### `GET /api/models/providers`
-Lists the eight supported provider types with default URLs and capability hints.
+Lists the supported provider types with default URLs, local-provider flags, and capability hints.
 
 ### `GET /api/models/list`
 Dynamic model listing for a provider. Either query the provider directly:
@@ -1114,11 +1114,11 @@ or `{ "endpoint_id": "ep_1", "model": "llama3" }`.
 
 List all persisted sessions.
 
-**Query params:** `prefix` — Filter by chat_id prefix (e.g. `project:`)
+**Query params:** `prefix` — Filter by chat_id prefix (e.g. `workspace:`)
 
 **Response:**
 ```json
-[{ "chat_id": "project:uuid", "message_count": 42, "last_updated": "..." }]
+[{ "chat_id": "workspace:uuid", "message_count": 42, "last_updated": "..." }]
 ```
 
 ---
@@ -1132,7 +1132,7 @@ Get messages for a specific session.
 **Response:**
 ```json
 {
-  "chat_id": "project:uuid",
+  "chat_id": "workspace:uuid",
   "messages": [{ "role": "user", "content": "...", "timestamp": "..." }],
   "count": 42
 }
@@ -1144,7 +1144,7 @@ Get messages for a specific session.
 
 Clear (archive) a session's messages.
 
-**Response:** `200` — `{ "status": "cleared", "chat_id": "project:uuid" }`
+**Response:** `200` — `{ "status": "cleared", "chat_id": "workspace:uuid" }`
 
 ---
 
@@ -1217,11 +1217,11 @@ Validate a GitHub repository and return its info.
 
 Clone a repository locally.
 
-**Query params:** `owner`, `repo`, `target_dir` (optional, defaults to `~/projects/{repo}`)
+**Query params:** `owner`, `repo`, `target_dir` (optional, defaults to `~/workspaces/{repo}`)
 
 **Response:**
 ```json
-{ "status": "cloned", "path": "~/projects/voxyflow" }
+{ "status": "cloned", "path": "~/workspaces/voxyflow" }
 // or
 { "status": "already_exists", "path": "..." }
 ```
@@ -1234,12 +1234,12 @@ Clone a repository locally.
 
 Scan a directory and detect technologies.
 
-**Query params:** `project_path` — Path to scan (supports `~` expansion)
+**Query params:** `workspace_path` — Path to scan (supports `~` expansion)
 
 **Response:**
 ```json
 {
-  "path": "/home/user/projects/myapp",
+  "path": "/home/user/workspaces/myapp",
   "technologies": [
     { "name": "Python", "icon": "🐍", "category": "language", "source": "requirements.txt" },
     { "name": "FastAPI", "icon": "⚡", "category": "framework", "version": "0.115.0", "source": "requirements.txt" }
@@ -1264,7 +1264,7 @@ Execute a registered tool by name (for external/debugging use).
 {
   "name": "create_card",
   "params": {
-    "project_id": "uuid",
+    "workspace_id": "uuid",
     "title": "New card",
     "status": "todo"
   }
@@ -1291,11 +1291,11 @@ List all registered tools and their JSON Schema definitions.
 ```json
 [{
   "name": "create_card",
-  "description": "Create a new card in a project",
+  "description": "Create a new card in a workspace",
   "parameters": {
     "type": "object",
     "properties": {
-      "project_id": { "type": "string" },
+      "workspace_id": { "type": "string" },
       "title": { "type": "string" },
       "status": { "type": "string" }
     }
@@ -1318,7 +1318,7 @@ Dedicated voice pipeline WebSocket (per chat_id).
 {
   "type": "transcript",
   "text": "What should I build next?",
-  "project_id": "uuid"
+  "workspace_id": "uuid"
 }
 
 // Future: raw audio streaming
@@ -1369,7 +1369,7 @@ Log a completed or interrupted Pomodoro focus session.
 ```json
 {
   "card_id": "uuid | null",
-  "project_id": "uuid | null",
+  "workspace_id": "uuid | null",
   "duration_minutes": 25,
   "completed": true,
   "started_at": "2025-01-01T09:00:00Z",
@@ -1382,7 +1382,7 @@ Log a completed or interrupted Pomodoro focus session.
 {
   "id": "uuid",
   "card_id": "uuid",
-  "project_id": "uuid",
+  "workspace_id": "uuid",
   "duration_minutes": 25,
   "completed": true,
   "started_at": "2025-01-01T09:00:00Z",
@@ -1390,13 +1390,13 @@ Log a completed or interrupted Pomodoro focus session.
 }
 ```
 **Error:** `400` — Invalid duration or datetime format  
-**Error:** `404` — Card or project not found
+**Error:** `404` — Card or workspace not found
 
 ---
 
-### `GET /api/projects/{project_id}/focus`
+### `GET /api/workspaces/{workspace_id}/focus`
 
-Return focus session analytics for a project.
+Return focus session analytics for a workspace.
 
 **Response:** `200`
 ```json
@@ -1454,7 +1454,7 @@ Create a new job.
   "type": "rag_index",
   "schedule": "0 2 * * *",
   "enabled": true,
-  "payload": { "project_id": "uuid" }
+  "payload": { "workspace_id": "uuid" }
 }
 ```
 

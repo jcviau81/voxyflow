@@ -7,11 +7,11 @@
 ## Entity Relationship Overview
 
 ```
-Project 1───* Card
-Project 1───* WikiPage
-Project 1───* Document
-Project 1───* Sprint
-Project 1───* Chat
+Workspace 1───* Card
+Workspace 1───* WikiPage
+Workspace 1───* Document
+Workspace 1───* Sprint
+Workspace 1───* Chat
 
 Card 1───* TimeEntry
 Card 1───* ChecklistItem
@@ -23,14 +23,14 @@ Card *───1 Sprint (optional)
 Chat 1───* Message
 
 FocusSession *───1 Card (optional)
-FocusSession *───1 Project (optional)
+FocusSession *───1 Workspace (optional)
 ```
 
 ---
 
 ## Card
 
-The central entity. Everything is a Card — whether in the Home project (system) or in a regular Project.
+The central entity. Everything is a Card — whether in the Home workspace (system) or in a regular Workspace.
 
 ### SQLAlchemy Model
 
@@ -39,7 +39,7 @@ class CardTask(Base):
     __tablename__ = "cards"
 
     id              = Column(String, primary_key=True, default=uuid4)
-    project_id      = Column(String, ForeignKey("projects.id"), nullable=True)  # legacy: null = Home (now migrated to "system-main")
+    workspace_id      = Column(String, ForeignKey("workspaces.id"), nullable=True)  # legacy: null = Home (now migrated to "system-main")
     title           = Column(String, nullable=False)
     description     = Column(Text, default="")
     status          = Column(String, default="card")    # card|todo|in-progress|done|archived
@@ -91,7 +91,7 @@ class CardUpdate(BaseModel):        # All fields optional
 
 class CardResponse(BaseModel):
     id: str
-    project_id: str | None
+    workspace_id: str | None
     title: str
     description: str
     status: str
@@ -128,7 +128,7 @@ class CardResponse(BaseModel):
 
 | Related Entity | Relationship | Description |
 |---------------|-------------|-------------|
-| Project | Many-to-One | `project_id` — defaults to `"system-main"` (Home) for unassigned cards |
+| Workspace | Many-to-One | `workspace_id` — defaults to `"system-main"` (Home) for unassigned cards |
 | Sprint | Many-to-One (optional) | `sprint_id` — time-boxed grouping |
 | TimeEntry | One-to-Many | Logged time entries |
 | ChecklistItem | One-to-Many | Checklist items with completion |
@@ -138,21 +138,21 @@ class CardResponse(BaseModel):
 
 ---
 
-## Project
+## Workspace
 
 Container for cards, wiki pages, documents, and sprints.
 
 ### SQLAlchemy Model
 
 ```python
-class Project(Base):
-    __tablename__ = "projects"
+class Workspace(Base):
+    __tablename__ = "workspaces"
 
     id              = Column(String, primary_key=True, default=uuid4)
     title           = Column(String, nullable=False)
     description     = Column(Text, default="")
     status          = Column(String, default="active")   # active|archived
-    context         = Column(Text, default="")           # AI context for the project
+    context         = Column(Text, default="")           # AI context for the workspace
     github_repo     = Column(String, nullable=True)      # "owner/repo"
     github_url      = Column(String, nullable=True)
     github_branch   = Column(String, nullable=True)
@@ -165,7 +165,7 @@ class Project(Base):
 ### Pydantic Schemas
 
 ```python
-class ProjectCreate(BaseModel):
+class WorkspaceCreate(BaseModel):
     title: str
     description: str = ""
     context: str = ""
@@ -175,7 +175,7 @@ class ProjectCreate(BaseModel):
     github_language: str | None = None
     local_path: str | None = None
 
-class ProjectResponse(BaseModel):
+class WorkspaceResponse(BaseModel):
     id: str
     title: str
     description: str
@@ -189,7 +189,7 @@ class ProjectResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-class ProjectWithCards(ProjectResponse):
+class WorkspaceWithCards(WorkspaceResponse):
     cards: list[CardResponse]
 ```
 
@@ -197,8 +197,8 @@ class ProjectWithCards(ProjectResponse):
 
 | Related Entity | Relationship | Description |
 |---------------|-------------|-------------|
-| Card | One-to-Many | Project's task cards |
-| Chat | One-to-Many | Chat sessions within project |
+| Card | One-to-Many | Workspace's task cards |
+| Chat | One-to-Many | Chat sessions within workspace |
 | WikiPage | One-to-Many | Documentation pages |
 | Document | One-to-Many | Uploaded files for RAG |
 | Sprint | One-to-Many | Time-boxed card groups |
@@ -217,7 +217,7 @@ class Chat(Base):
 
     id          = Column(String, primary_key=True, default=uuid4)
     title       = Column(String, default="")
-    project_id  = Column(String, ForeignKey("projects.id"), nullable=True)
+    workspace_id  = Column(String, ForeignKey("workspaces.id"), nullable=True)
     created_at  = Column(DateTime, default=utcnow)
     updated_at  = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -246,7 +246,7 @@ Sessions are file-based (not DB), stored in `~/.voxyflow/data/sessions/`.
 | Context | Chat ID Format | Example |
 |---------|---------------|---------|
 | General | `general:{session_uuid}` | `general:a1b2c3d4` |
-| Project | `project:{project_id}` | `project:proj-xyz` |
+| Workspace | `workspace:{workspace_id}` | `workspace:proj-xyz` |
 | Card | `card:{card_id}` | `card:card-abc` |
 
 ### File Structure
@@ -255,8 +255,8 @@ Sessions are file-based (not DB), stored in `~/.voxyflow/data/sessions/`.
 ~/.voxyflow/data/sessions/
 ├── general/
 │   └── {session_uuid}.json
-├── project/
-│   └── {project_id}.json
+├── workspace/
+│   └── {workspace_id}.json
 └── card/
     └── {card_id}.json
 ```
@@ -267,14 +267,14 @@ Each file is a JSON array of message objects with atomic writes (temp file + ren
 
 ## WikiPage
 
-Markdown documentation pages per project.
+Markdown documentation pages per workspace.
 
 ```python
 class WikiPage(Base):
     __tablename__ = "wiki_pages"
 
     id          = Column(String, primary_key=True, default=uuid4)
-    project_id  = Column(String, ForeignKey("projects.id"), nullable=False)
+    workspace_id  = Column(String, ForeignKey("workspaces.id"), nullable=False)
     title       = Column(String, nullable=False)
     content     = Column(Text, default="")
     tags        = Column(String, default="")           # JSON-encoded array
@@ -293,7 +293,7 @@ class Document(Base):
     __tablename__ = "documents"
 
     id          = Column(String, primary_key=True, default=uuid4)
-    project_id  = Column(String, ForeignKey("projects.id"), nullable=False)
+    workspace_id  = Column(String, ForeignKey("workspaces.id"), nullable=False)
     filename    = Column(String, nullable=False)
     filetype    = Column(String, default="")
     size_bytes  = Column(Integer, default=0)
@@ -313,7 +313,7 @@ class Sprint(Base):
     __tablename__ = "sprints"
 
     id          = Column(String, primary_key=True, default=uuid4)
-    project_id  = Column(String, ForeignKey("projects.id"), nullable=False)
+    workspace_id  = Column(String, ForeignKey("workspaces.id"), nullable=False)
     name        = Column(String, nullable=False)
     goal        = Column(Text, default="")
     start_date  = Column(DateTime, nullable=True)
@@ -391,7 +391,7 @@ class CardHistory(Base):
 class FocusSession(Base):
     id               = Column(String, primary_key=True)
     card_id          = Column(String, nullable=True)
-    project_id       = Column(String, nullable=True)
+    workspace_id       = Column(String, nullable=True)
     duration_minutes = Column(Integer, nullable=False)
     completed        = Column(Boolean, default=False)
     started_at       = Column(DateTime, nullable=False)

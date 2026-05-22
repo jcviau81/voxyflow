@@ -85,10 +85,10 @@ class KnowledgeGraphService:
         self,
         name: str,
         entity_type: str,
-        project_id: str,
+        workspace_id: str,
         properties: Optional[dict] = None,
     ) -> str:
-        """Upsert an entity by (name, entity_type, project_id). Returns entity id.
+        """Upsert an entity by (name, entity_type, workspace_id). Returns entity id.
 
         Entities are not temporally scoped — they persist once created. Repeated
         calls with the same (name, type, project) update properties and
@@ -105,8 +105,8 @@ class KnowledgeGraphService:
             # Try to find existing
             row = (await db.execute(text(
                 "SELECT id FROM kg_entities "
-                "WHERE name = :name AND entity_type = :etype AND project_id = :pid"
-            ), {"name": name, "etype": entity_type, "pid": project_id})).fetchone()
+                "WHERE name = :name AND entity_type = :etype AND workspace_id = :pid"
+            ), {"name": name, "etype": entity_type, "pid": workspace_id})).fetchone()
 
             if row:
                 entity_id = row[0]
@@ -119,11 +119,11 @@ class KnowledgeGraphService:
 
             entity_id = new_uuid()
             await db.execute(text(
-                "INSERT INTO kg_entities (id, name, entity_type, project_id, properties, created_at, updated_at) "
+                "INSERT INTO kg_entities (id, name, entity_type, workspace_id, properties, created_at, updated_at) "
                 "VALUES (:id, :name, :etype, :pid, :props, :now, :now)"
             ), {
                 "id": entity_id, "name": name, "etype": entity_type,
-                "pid": project_id, "props": props_json, "now": now,
+                "pid": workspace_id, "props": props_json, "now": now,
             })
             await db.commit()
             return entity_id
@@ -205,7 +205,7 @@ class KnowledgeGraphService:
 
     async def query_entities(
         self,
-        project_id: str,
+        workspace_id: str,
         name: Optional[str] = None,
         entity_type: Optional[str] = None,
         as_of: Optional[datetime] = None,
@@ -218,8 +218,8 @@ class KnowledgeGraphService:
         The ``as_of`` parameter is accepted for API symmetry but currently
         only affects ``query_relationships()``.
         """
-        clauses = ["e.project_id = :pid"]
-        params: dict = {"pid": project_id, "lim": limit}
+        clauses = ["e.workspace_id = :pid"]
+        params: dict = {"pid": workspace_id, "lim": limit}
 
         if name:
             clauses.append("LOWER(e.name) LIKE :name")
@@ -245,7 +245,7 @@ class KnowledgeGraphService:
 
     async def query_relationships(
         self,
-        project_id: str,
+        workspace_id: str,
         entity_name: Optional[str] = None,
         predicate: Optional[str] = None,
         as_of: Optional[datetime] = None,
@@ -258,19 +258,19 @@ class KnowledgeGraphService:
         With ``as_of``, returns facts that were active at that instant:
         valid_from <= as_of AND (valid_to IS NULL OR valid_to > as_of).
         """
-        params: dict = {"pid": project_id, "lim": limit}
+        params: dict = {"pid": workspace_id, "lim": limit}
 
         if as_of:
             # Full temporal range: facts active at the given instant
             clauses = [
-                "s.project_id = :pid",
+                "s.workspace_id = :pid",
                 "t.valid_from <= :asof",
                 "(t.valid_to IS NULL OR t.valid_to > :asof)",
             ]
             params["asof"] = as_of
         else:
             # Current state only
-            clauses = ["s.project_id = :pid", "t.valid_to IS NULL"]
+            clauses = ["s.workspace_id = :pid", "t.valid_to IS NULL"]
 
         if entity_name:
             clauses.append("(LOWER(s.name) LIKE :ename OR LOWER(o.name) LIKE :ename)")
@@ -303,7 +303,7 @@ class KnowledgeGraphService:
 
     async def get_timeline(
         self,
-        project_id: str,
+        workspace_id: str,
         entity_name: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
@@ -314,7 +314,7 @@ class KnowledgeGraphService:
         each fact is still current (valid_to = None) or ended. Ordered by
         valid_from DESC (newest first).
         """
-        params: dict = {"pid": project_id, "lim": limit}
+        params: dict = {"pid": workspace_id, "lim": limit}
         name_filter = ""
         if entity_name:
             name_filter = "AND (LOWER(s.name) LIKE :ename OR LOWER(o.name) LIKE :ename)"
@@ -326,13 +326,13 @@ class KnowledgeGraphService:
             "FROM kg_triples t "
             "JOIN kg_entities s ON t.subject_id = s.id "
             "JOIN kg_entities o ON t.object_id = o.id "
-            f"WHERE s.project_id = :pid {name_filter} "
+            f"WHERE s.workspace_id = :pid {name_filter} "
             "UNION ALL "
             "SELECT 'attribute' AS kind, a.id, e.name AS subject, a.key AS predicate, a.value AS object, "
             "a.valid_from, a.valid_to, NULL AS confidence "
             "FROM kg_attributes a "
             "JOIN kg_entities e ON a.entity_id = e.id "
-            f"WHERE e.project_id = :pid {name_filter.replace('s.name', 'e.name').replace('o.name', 'e.name')} "
+            f"WHERE e.workspace_id = :pid {name_filter.replace('s.name', 'e.name').replace('o.name', 'e.name')} "
             "ORDER BY valid_from DESC LIMIT :lim"
         )
 
@@ -384,24 +384,24 @@ class KnowledgeGraphService:
     # Stats
     # ------------------------------------------------------------------
 
-    async def get_stats(self, project_id: str) -> dict:
+    async def get_stats(self, workspace_id: str) -> dict:
         """Return counts of entities, active triples, active attributes for a project."""
         async with async_session() as db:
             entities = (await db.execute(text(
-                "SELECT COUNT(*) FROM kg_entities WHERE project_id = :pid"
-            ), {"pid": project_id})).scalar() or 0
+                "SELECT COUNT(*) FROM kg_entities WHERE workspace_id = :pid"
+            ), {"pid": workspace_id})).scalar() or 0
 
             triples = (await db.execute(text(
                 "SELECT COUNT(*) FROM kg_triples t "
                 "JOIN kg_entities e ON t.subject_id = e.id "
-                "WHERE e.project_id = :pid AND t.valid_to IS NULL"
-            ), {"pid": project_id})).scalar() or 0
+                "WHERE e.workspace_id = :pid AND t.valid_to IS NULL"
+            ), {"pid": workspace_id})).scalar() or 0
 
             attributes = (await db.execute(text(
                 "SELECT COUNT(*) FROM kg_attributes a "
                 "JOIN kg_entities e ON a.entity_id = e.id "
-                "WHERE e.project_id = :pid AND a.valid_to IS NULL"
-            ), {"pid": project_id})).scalar() or 0
+                "WHERE e.workspace_id = :pid AND a.valid_to IS NULL"
+            ), {"pid": workspace_id})).scalar() or 0
 
         return {"entities": entities, "active_triples": triples, "active_attributes": attributes}
 
@@ -409,23 +409,23 @@ class KnowledgeGraphService:
     # Pinned context cache (sync-safe for L0)
     # ------------------------------------------------------------------
 
-    def get_pinned_context(self, project_id: str) -> list[dict]:
+    def get_pinned_context(self, workspace_id: str) -> list[dict]:
         """Sync-safe: return cached pinned entities. Async refresh populates the cache."""
-        entry = self._pinned_cache.get(project_id)
+        entry = self._pinned_cache.get(workspace_id)
         if entry and (time.time() - entry[0]) < self.CACHE_TTL:
             return entry[1]
         return []
 
-    async def refresh_pinned_cache(self, project_id: str):
+    async def refresh_pinned_cache(self, workspace_id: str):
         """Query DB for entities with pinned=true attribute and update in-memory cache."""
         async with async_session() as db:
             rows = (await db.execute(text(
                 "SELECT e.id, e.name, e.entity_type, a.value "
                 "FROM kg_entities e "
                 "JOIN kg_attributes a ON a.entity_id = e.id "
-                "WHERE e.project_id = :pid AND a.key = 'pinned' AND a.value = 'true' "
+                "WHERE e.workspace_id = :pid AND a.key = 'pinned' AND a.value = 'true' "
                 "AND a.valid_to IS NULL"
-            ), {"pid": project_id})).fetchall()
+            ), {"pid": workspace_id})).fetchall()
 
         pinned = [
             {"id": r[0], "name": r[1], "entity_type": r[2], "value": r[3]}
@@ -437,11 +437,11 @@ class KnowledgeGraphService:
                 "SELECT e.id, e.name, e.entity_type, a.value "
                 "FROM kg_entities e "
                 "JOIN kg_attributes a ON a.entity_id = e.id "
-                "WHERE e.project_id = :pid AND a.key = 'summary' "
+                "WHERE e.workspace_id = :pid AND a.key = 'summary' "
                 "AND a.valid_to IS NULL "
                 "AND EXISTS (SELECT 1 FROM kg_attributes p WHERE p.entity_id = e.id "
                 "  AND p.key = 'pinned' AND p.value = 'true' AND p.valid_to IS NULL)"
-            ), {"pid": project_id})).fetchall()
+            ), {"pid": workspace_id})).fetchall()
 
         for r in summary_rows:
             # Update value to summary text for pinned entities
@@ -450,7 +450,7 @@ class KnowledgeGraphService:
                     p["value"] = r[3]
                     break
 
-        self._pinned_cache[project_id] = (time.time(), pinned)
+        self._pinned_cache[workspace_id] = (time.time(), pinned)
 
     # ------------------------------------------------------------------
     # LLM extraction integration
@@ -459,7 +459,7 @@ class KnowledgeGraphService:
     async def extract_entities_from_llm_output(
         self,
         entities: list[dict],
-        project_id: str,
+        workspace_id: str,
     ) -> list[str]:
         """Process LLM-extracted entities into KG. Returns list of entity ids created/updated."""
         entity_ids = []
@@ -470,7 +470,7 @@ class KnowledgeGraphService:
                 continue
 
             try:
-                eid = await self.add_entity(name, etype, project_id)
+                eid = await self.add_entity(name, etype, workspace_id)
                 entity_ids.append(eid)
 
                 # Process relationships
@@ -481,7 +481,7 @@ class KnowledgeGraphService:
                     if not target_name:
                         continue
 
-                    target_id = await self.add_entity(target_name, target_type, project_id)
+                    target_id = await self.add_entity(target_name, target_type, workspace_id)
                     await self.add_triple(eid, predicate, target_id, source="auto")
 
             except (ValueError, SQLAlchemyError) as e:
@@ -491,9 +491,9 @@ class KnowledgeGraphService:
         # Refresh pinned cache if we touched this project
         if entity_ids:
             try:
-                await self.refresh_pinned_cache(project_id)
+                await self.refresh_pinned_cache(workspace_id)
             except SQLAlchemyError:
                 logger.debug("refresh_pinned_cache failed after extraction", exc_info=True)
 
-        logger.info(f"[KG] Extracted {len(entity_ids)} entities for project {project_id}")
+        logger.info(f"[KG] Extracted {len(entity_ids)} entities for project {workspace_id}")
         return entity_ids

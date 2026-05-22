@@ -21,8 +21,8 @@ from app.services.memory_service_constants import (
     GLOBAL_COLLECTION,
     MEMORY_DIR,
     MEMORY_FILE,
-    WORKSPACE_DIR,
-    _project_collection,
+    PERSONALITY_DIR,
+    _workspace_collection,
     _slugify,
 )
 
@@ -127,7 +127,7 @@ class MemoryContextMixin:
             meta.get("chat_id")
             or meta.get("card_id")
             or (f"card:{meta['card_id']}" if meta.get("card_id") else None)
-            or meta.get("project_id")
+            or meta.get("workspace_id")
             or meta.get("project")
             or "unknown"
         )
@@ -140,16 +140,16 @@ class MemoryContextMixin:
         """Render one retrieved fragment as an attributed bullet."""
         meta = dict(result.get("metadata") or {})
         # Backfill scope from the collection name for legacy entries that
-        # lack chat_id / project_id in metadata. Collection format is always
-        # ``memory-project-<project_id>`` (incl. "system-main") or the
+        # lack chat_id / workspace_id in metadata. Collection format is always
+        # ``memory-workspace-<workspace_id>`` (incl. "system-main") or the
         # reserved ``memory-global`` sentinel.
         collection = str(result.get("collection") or "")
-        has_scope = any(meta.get(k) for k in ("chat_id", "card_id", "project_id", "project"))
+        has_scope = any(meta.get(k) for k in ("chat_id", "card_id", "workspace_id", "workspace"))
         if not has_scope and collection:
-            if collection.startswith("memory-project-"):
-                meta["project_id"] = collection[len("memory-project-"):]
+            if collection.startswith("memory-workspace-"):
+                meta["workspace_id"] = collection[len("memory-workspace-"):]
             elif collection == "memory-global":
-                meta["project_id"] = "global"
+                meta["workspace_id"] = "global"
         prefix = self._attribution_prefix(meta)
         text = (result.get("text") or "").strip()
         combined = result.get("_combined_score")
@@ -204,7 +204,7 @@ class MemoryContextMixin:
     def build_memory_context(
         self,
         project_name: Optional[str] = None,
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         include_long_term: bool = True,
         include_daily: bool = True,
         query: Optional[str] = None,
@@ -223,7 +223,7 @@ class MemoryContextMixin:
         ``budget`` caps total estimated tokens across all layers.
         ``layers`` controls which tiers to load.
 
-        ``project_id`` is the UUID (or "system-main") that keys the Chroma
+        ``workspace_id`` is the UUID (or "system-main") that keys the Chroma
         collection. ``project_name`` is only used for display/section titles.
 
         Returns None if no memory available.
@@ -233,7 +233,7 @@ class MemoryContextMixin:
             return self._build_chromadb_context(
                 query=query,
                 project_name=project_name,
-                project_id=project_id,
+                workspace_id=workspace_id,
                 card_id=card_id,
                 include_long_term=include_long_term,
                 budget=budget,
@@ -247,16 +247,16 @@ class MemoryContextMixin:
             include_daily=include_daily,
         )
 
-    def _build_l0_identity(self, project_id: str) -> Optional[str]:
+    def _build_l0_identity(self, workspace_id: str) -> Optional[str]:
         """L0: Pinned KG entities — project identity. Sync-safe (reads from cache)."""
         try:
             from app.services.knowledge_graph_service import get_knowledge_graph_service
             kg = get_knowledge_graph_service()
-            pinned = kg.get_pinned_context(project_id or "system-main")
+            pinned = kg.get_pinned_context(workspace_id or "system-main")
             if not pinned:
                 return None
             lines = [f"- {e['name']} ({e['entity_type']}): {e['value']}" for e in pinned]
-            return "**Project identity:**\n" + "\n".join(lines)
+            return "**Workspace identity:**\n" + "\n".join(lines)
         except Exception:
             logger.debug("_build_l0_identity failed", exc_info=True)
             return None
@@ -268,7 +268,7 @@ class MemoryContextMixin:
     def _build_procedures_block(
         self,
         query: str,
-        project_id: Optional[str],
+        workspace_id: Optional[str],
         budget: int,
     ) -> tuple[Optional[str], set[str]]:
         """Procedural memory: reusable "how to do X" patterns.
@@ -283,10 +283,10 @@ class MemoryContextMixin:
         try:
             # General chat (no project / system-main) may have saved procedures
             # to GLOBAL_COLLECTION; project chats stay in their own collection.
-            if project_id and project_id != "system-main":
-                collections = [_project_collection(project_id)]
+            if workspace_id and workspace_id != "system-main":
+                collections = [_workspace_collection(workspace_id)]
             else:
-                collections = [GLOBAL_COLLECTION, _project_collection("system-main")]
+                collections = [GLOBAL_COLLECTION, _workspace_collection("system-main")]
             results = self.search_memory(
                 query=query,
                 collections=collections,
@@ -322,7 +322,7 @@ class MemoryContextMixin:
     def _build_l1_essentials(
         self,
         query: str,
-        project_id: Optional[str],
+        workspace_id: Optional[str],
         card_id: Optional[str],
         budget: int,
     ) -> tuple[Optional[str], set[str], set[str]]:
@@ -332,10 +332,10 @@ class MemoryContextMixin:
         The two sets feed L2 dedup so the same fact isn't echoed twice.
         """
         try:
-            if not project_id:
+            if not workspace_id:
                 return None, set(), set()
 
-            proj_col = _project_collection(project_id)
+            proj_col = _workspace_collection(workspace_id)
             results = self.search_memory(
                 query=query,
                 collections=[proj_col],
@@ -385,7 +385,7 @@ class MemoryContextMixin:
 
             if not lines:
                 return None, set(), set()
-            return f"**Key facts ({project_id}):**\n" + "\n".join(lines), ids_used, texts_used
+            return f"**Key facts ({workspace_id}):**\n" + "\n".join(lines), ids_used, texts_used
         except Exception as e:
             logger.debug(f"_build_l1_essentials failed: {e}")
             return None, set(), set()
@@ -394,7 +394,7 @@ class MemoryContextMixin:
         self,
         query: str,
         project_name: Optional[str],
-        project_id: Optional[str],
+        workspace_id: Optional[str],
         card_id: Optional[str],
         include_long_term: bool,
         budget: int,
@@ -409,7 +409,7 @@ class MemoryContextMixin:
         """
         L2_HARD_CAP = 3
         sections: list[str] = []
-        display_label = project_name or project_id or ""
+        display_label = project_name or workspace_id or ""
         l1_ids = l1_ids or set()
         l1_texts = l1_texts or set()
         remaining = budget
@@ -493,8 +493,8 @@ class MemoryContextMixin:
                 total_kept += 1
             return lines
 
-        if project_id and card_id:
-            proj_col = _project_collection(project_id)
+        if workspace_id and card_id:
+            proj_col = _workspace_collection(workspace_id)
             card_results = self.search_memory(
                 query=query, collections=[proj_col],
                 filters={"card_id": card_id}, limit=FETCH_N,
@@ -516,11 +516,11 @@ class MemoryContextMixin:
                     lines = _cap_results(proj_unique)
                     if lines:
                         sections.append(
-                            f"**Project memory ({display_label}):**\n" + "\n".join(lines)
+                            f"**Workspace memory ({display_label}):**\n" + "\n".join(lines)
                         )
 
-        elif project_id:
-            proj_col = _project_collection(project_id)
+        elif workspace_id:
+            proj_col = _workspace_collection(workspace_id)
             proj_results = self.search_memory(
                 query=query, collections=[proj_col], limit=FETCH_N,
             )
@@ -528,11 +528,11 @@ class MemoryContextMixin:
                 lines = _cap_results(proj_results)
                 if lines:
                     sections.append(
-                        f"**Project memory ({display_label}):**\n" + "\n".join(lines)
+                        f"**Workspace memory ({display_label}):**\n" + "\n".join(lines)
                     )
 
         else:
-            main_col = _project_collection("system-main")
+            main_col = _workspace_collection("system-main")
             search_cols = (
                 [main_col, GLOBAL_COLLECTION] if include_long_term else [main_col]
             )
@@ -550,7 +550,7 @@ class MemoryContextMixin:
         self,
         query: str,
         project_name: Optional[str] = None,
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         card_id: Optional[str] = None,
         include_long_term: bool = True,
         budget: int = 1500,
@@ -571,9 +571,9 @@ class MemoryContextMixin:
         proc_ids: set[str] = set()
 
         try:
-            # L0: Project identity from KG pinned cache
+            # L0: Workspace identity from KG pinned cache
             if 0 in layers:
-                l0 = self._build_l0_identity(project_id)
+                l0 = self._build_l0_identity(workspace_id)
                 if l0:
                     sections.append(l0)
                     remaining -= self._estimate_tokens(l0)
@@ -582,7 +582,7 @@ class MemoryContextMixin:
             # Separate section so Voxy can spot them when about to execute.
             if 1 in layers and remaining > 50:
                 proc, proc_ids = self._build_procedures_block(
-                    query, project_id, min(300, remaining),
+                    query, workspace_id, min(300, remaining),
                 )
                 if proc:
                     sections.append(proc)
@@ -591,7 +591,7 @@ class MemoryContextMixin:
             # L1: High-importance essentials (also returns IDs+texts for L2 dedup)
             if 1 in layers and remaining > 50:
                 l1, l1_ids, l1_texts = self._build_l1_essentials(
-                    query, project_id, card_id, min(400, remaining),
+                    query, workspace_id, card_id, min(400, remaining),
                 )
                 if l1:
                     sections.append(l1)
@@ -600,7 +600,7 @@ class MemoryContextMixin:
             # L2: Full semantic search — dedup by both ID (exact) and text (near-dup)
             if 2 in layers and remaining > 50:
                 l2 = self._build_l2_ondemand(
-                    query, project_name, project_id, card_id,
+                    query, project_name, workspace_id, card_id,
                     include_long_term, min(remaining, 800),
                     l1_ids=l1_ids | proc_ids,
                     l1_texts=l1_texts,
@@ -651,7 +651,7 @@ class MemoryContextMixin:
         if project_name:
             proj = self._load_project_memory(project_name)
             if proj:
-                sections.append(f"**Project notes ({project_name}):**\n{proj}")
+                sections.append(f"**Workspace notes ({project_name}):**\n{proj}")
 
         if not sections:
             return None
@@ -692,7 +692,7 @@ class MemoryContextMixin:
         return "\n\n".join(entries)
 
     def _load_project_memory(self, project_name: str) -> str:
-        """Load project-specific memory notes if they exist."""
+        """Load workspace-specific memory notes if they exist."""
         project_file = MEMORY_DIR / "projects" / f"{project_name}.md"
         if not project_file.exists():
             slug = _slugify(project_name)
@@ -742,7 +742,7 @@ class MemoryContextMixin:
                     "id": str(md_file),
                     "text": snippet,
                     "score": score,
-                    "metadata": {"file": str(md_file.relative_to(WORKSPACE_DIR))},
+                    "metadata": {"file": str(md_file.relative_to(PERSONALITY_DIR))},
                     "collection": "file-based",
                 })
             except OSError:

@@ -1,5 +1,5 @@
-// System project ID (main board)
-export const SYSTEM_PROJECT_ID = 'system-main';
+// System workspace ID (main board)
+export const SYSTEM_WORKSPACE_ID = 'system-main';
 
 // Streaming
 export const STREAMING_CHAR_DELAY = 15; // ms per character for simulated streaming

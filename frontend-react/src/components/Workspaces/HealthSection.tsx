@@ -12,7 +12,7 @@ interface HealthData {
 }
 
 interface HealthSectionProps {
-  projectId: string;
+  workspaceId: string;
 }
 
 const SCORE_COLOR: Record<string, string> = {
@@ -35,14 +35,14 @@ const ISSUE_COLOR: Record<string, string> = {
   info:     '#60a5fa',
 };
 
-export function HealthSection({ projectId }: HealthSectionProps) {
+export function HealthSection({ workspaceId }: HealthSectionProps) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<HealthData | null>(null);
 
   async function runHealthCheck() {
     setLoading(true);
     try {
-      const resp = await fetch(`/api/projects/${projectId}/health`, {
+      const resp = await fetch(`/api/workspaces/${workspaceId}/health`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -164,7 +164,7 @@ export function HealthSection({ projectId }: HealthSectionProps) {
 
           {data.issues.length === 0 && (
             <div className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: '#4ade80' }}>
-              <CheckCircle2 size={14} /> No issues detected — project looks healthy!
+              <CheckCircle2 size={14} /> No issues detected — workspace looks healthy!
             </div>
           )}
         </div>

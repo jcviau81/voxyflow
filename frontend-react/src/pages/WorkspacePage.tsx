@@ -1,42 +1,42 @@
 /**
- * ProjectPage — renders a project tab (or the home tab) with view switching.
+ * WorkspacePage — renders a workspace tab (or the home tab) with view switching.
  *
- * Used for both the home route (/) and project routes (/project/:id).
- * When no :id param is present, falls back to SYSTEM_PROJECT_ID (home project).
- * Home is a regular project — the only difference is it cannot be deleted.
+ * Used for both the home route (/) and workspace routes (/workspace/:id).
+ * When no :id param is present, falls back to SYSTEM_WORKSPACE_ID (home workspace).
+ * Home is a regular workspace — the only difference is it cannot be deleted.
  *
  * Views:
  *   - 'chat'      → ChatWindow
  *   - 'kanban'    → KanbanBoard
  *   - 'freeboard' → FreeBoard
- *   - 'knowledge' → ProjectKnowledge
- *   - 'projects'  → ProjectList (home only)
- *   - 'stats'     → ProjectStats (non-home only)
+ *   - 'knowledge' → WorkspaceKnowledge
+ *   - 'workspaces'  → WorkspaceList (home only)
+ *   - 'stats'     → WorkspaceStats (non-home only)
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { ChatWindow } from '../components/Chat/ChatWindow';
 import { KanbanBoard } from '../components/Kanban/KanbanBoard';
 import { FreeBoard } from '../components/Board/FreeBoard';
-import { ProjectKnowledge } from '../components/Projects/ProjectKnowledge';
-import { ProjectArchives } from '../components/Projects/ProjectArchives';
-import { ProjectStats } from '../components/Projects/ProjectStats';
-import { ProjectList } from '../components/Projects/ProjectList';
+import { WorkspaceKnowledge } from '../components/Workspaces/WorkspaceKnowledge';
+import { WorkspaceArchives } from '../components/Workspaces/WorkspaceArchives';
+import { WorkspaceStats } from '../components/Workspaces/WorkspaceStats';
+import { WorkspaceList } from '../components/Workspaces/WorkspaceList';
 import { useViewStore } from '../stores/useViewStore';
-import { useProjectStore } from '../stores/useProjectStore';
+import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import { useIsDesktop } from '../hooks/useIsDesktop';
-import { SYSTEM_PROJECT_ID } from '../lib/constants';
+import { SYSTEM_WORKSPACE_ID } from '../lib/constants';
 import { cn } from '../lib/utils';
 
-const ALL_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'knowledge', 'archives', 'projects', 'stats']);
+const ALL_VIEWS = new Set(['chat', 'kanban', 'freeboard', 'knowledge', 'archives', 'workspaces', 'stats']);
 
-export function ProjectPage() {
+export function WorkspacePage() {
   const { id: routeId } = useParams<{ id: string }>();
-  const id = routeId ?? SYSTEM_PROJECT_ID;
-  const isHome = id === SYSTEM_PROJECT_ID;
+  const id = routeId ?? SYSTEM_WORKSPACE_ID;
+  const isHome = id === SYSTEM_WORKSPACE_ID;
 
-  const selectCard = useProjectStore((s) => s.selectCard);
-  const getProject = useProjectStore((s) => s.getProject);
+  const selectCard = useWorkspaceStore((s) => s.selectCard);
+  const getWorkspace = useWorkspaceStore((s) => s.getWorkspace);
   const currentView = useViewStore((s) => s.currentView);
   const setView = useViewStore((s) => s.setView);
   const isDesktop = useIsDesktop();
@@ -80,15 +80,15 @@ export function ProjectPage() {
       setView('kanban');
     } else if (isHome && currentView === 'stats') {
       setView('kanban');
-    } else if (!isHome && currentView === 'projects') {
+    } else if (!isHome && currentView === 'workspaces') {
       setView('kanban');
     }
   }, [currentView, setView, isHome]);
 
-  // Validate non-home project exists
+  // Validate non-home workspace exists
   if (!isHome) {
-    const project = getProject(id);
-    if (!project) return <Navigate to="/" replace />;
+    const workspace = getWorkspace(id);
+    if (!workspace) return <Navigate to="/" replace />;
   }
 
   const rawView = ALL_VIEWS.has(currentView) ? currentView : 'kanban';
@@ -96,41 +96,41 @@ export function ProjectPage() {
 
   const handleCardClick = (cardId: string) => selectCard(cardId);
 
-  const chatLevel = isHome ? 'general' : 'project';
+  const chatLevel = isHome ? 'general' : 'workspace';
 
   const contentPanel = (
     <>
       {view === 'kanban' && (
-        <KanbanBoard key={id} projectId={id} onCardClick={handleCardClick} />
+        <KanbanBoard key={id} workspaceId={id} onCardClick={handleCardClick} />
       )}
       {view === 'freeboard' && (
-        <FreeBoard key={id} projectId={id} />
+        <FreeBoard key={id} workspaceId={id} />
       )}
       {view === 'knowledge' && (
-        <ProjectKnowledge projectId={id} />
+        <WorkspaceKnowledge workspaceId={id} />
       )}
       {view === 'archives' && (
-        <ProjectArchives projectId={id} />
+        <WorkspaceArchives workspaceId={id} />
       )}
-      {view === 'projects' && isHome && (
-        <ProjectList />
+      {view === 'workspaces' && isHome && (
+        <WorkspaceList />
       )}
       {view === 'stats' && !isHome && (
-        <ProjectStats />
+        <WorkspaceStats />
       )}
     </>
   );
 
   if (isDesktop) {
     return (
-      <div className={cn('project-page flex flex-col h-full w-full overflow-hidden', `project-page--${view}`)}>
+      <div className={cn('workspace-page flex flex-col h-full w-full overflow-hidden', `workspace-page--${view}`)}>
         <div id="board-header-slot" />
         <div ref={containerRef} className="flex flex-row flex-1 overflow-hidden">
           <div style={{ width: `${chatPct}%` }} className="min-w-70 flex flex-col">
             <ChatWindow
               tabId={id}
               chatLevel={chatLevel}
-              projectId={isHome ? undefined : id}
+              workspaceId={isHome ? undefined : id}
               className="flex-1"
             />
           </div>
@@ -148,13 +148,13 @@ export function ProjectPage() {
 
   // Mobile: single-view
   return (
-    <div className={cn('project-page flex flex-col h-full w-full overflow-hidden', `project-page--${view}`)}>
+    <div className={cn('workspace-page flex flex-col h-full w-full overflow-hidden', `workspace-page--${view}`)}>
       {view === 'chat' && (
         <div className="chat-view flex flex-col h-full">
           <ChatWindow
             tabId={id}
             chatLevel={chatLevel}
-            projectId={isHome ? undefined : id}
+            workspaceId={isHome ? undefined : id}
             className="flex-1"
           />
         </div>

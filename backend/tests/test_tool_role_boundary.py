@@ -34,7 +34,7 @@ FORBIDDEN_DISPATCHER_TOOLS = {
     # NOTE: the following are intentionally NOT forbidden — Voxyflow is
     # single-user local and these are instant DB / queue ops the dispatcher
     # needs inline:
-    #   * whole-entity *.delete and *.export (project/card/doc/wiki) —
+    #   * whole-entity *.delete and *.export (workspace/card/doc/wiki) —
     #     reversible via the undo journal (voxyflow.undo.*)
     #   * memory.delete — local Chroma op, scope-enforced via env var
     #   * task.steer — pairs with task.peek/cancel for worker control
@@ -103,32 +103,32 @@ def test_worker_gets_dangerous_tools():
     )
 
 
-def test_memory_save_schema_has_no_project_id():
-    """STRICT ISOLATION: memory.save must not expose project_id in its schema.
+def test_memory_save_schema_has_no_workspace_id():
+    """STRICT ISOLATION: memory.save must not expose workspace_id in its schema.
 
-    Scope is enforced server-side via VOXYFLOW_PROJECT_ID env var. A schema
-    that exposes project_id lets the LLM write cross-project — violates
-    CLAUDE.md §"Project Isolation" §3.
+    Scope is enforced server-side via VOXYFLOW_WORKSPACE_ID env var. A schema
+    that exposes workspace_id lets the LLM write cross-workspace — violates
+    CLAUDE.md §"Workspace Isolation" §3.
     """
     from app.mcp_server import _TOOL_DEFINITIONS
     mem_save = next((t for t in _TOOL_DEFINITIONS if t["name"] == "memory.save"), None)
     assert mem_save is not None, "memory.save tool definition missing"
     props = mem_save["inputSchema"].get("properties", {})
-    assert "project_id" not in props, (
-        "memory.save schema exposes project_id — the LLM must not override "
-        "project scope. Scope is enforced via VOXYFLOW_PROJECT_ID env var."
+    assert "workspace_id" not in props, (
+        "memory.save schema exposes workspace_id — the LLM must not override "
+        "workspace scope. Scope is enforced via VOXYFLOW_WORKSPACE_ID env var."
     )
 
 
-def test_knowledge_search_schema_has_no_project_id():
-    """STRICT ISOLATION: knowledge.search must not expose project_id."""
+def test_knowledge_search_schema_has_no_workspace_id():
+    """STRICT ISOLATION: knowledge.search must not expose workspace_id."""
     from app.mcp_server import _TOOL_DEFINITIONS
     ks = next((t for t in _TOOL_DEFINITIONS if t["name"] == "knowledge.search"), None)
     assert ks is not None, "knowledge.search tool definition missing"
     props = ks["inputSchema"].get("properties", {})
     required = ks["inputSchema"].get("required", [])
-    assert "project_id" not in props, (
-        "knowledge.search schema exposes project_id — scope must come from "
-        "VOXYFLOW_PROJECT_ID env var only."
+    assert "workspace_id" not in props, (
+        "knowledge.search schema exposes workspace_id — scope must come from "
+        "VOXYFLOW_WORKSPACE_ID env var only."
     )
-    assert "project_id" not in required
+    assert "workspace_id" not in required

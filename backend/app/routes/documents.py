@@ -2,9 +2,9 @@
 Documents API — upload, list, and delete project documents for RAG indexing.
 
 Routes:
-  POST   /api/projects/{project_id}/documents        Upload file (multipart/form-data)
-  GET    /api/projects/{project_id}/documents        List documents for project
-  DELETE /api/projects/{project_id}/documents/{id}  Delete document + remove from index
+  POST   /api/workspaces/{workspace_id}/documents        Upload file (multipart/form-data)
+  GET    /api/workspaces/{workspace_id}/documents        List documents for project
+  DELETE /api/workspaces/{workspace_id}/documents/{id}  Delete document + remove from index
 
 Phase 1: .txt and .md files.
 Phase 2: .pdf, .docx, .xlsx, .xls, .csv (registered via DocumentParserRegistry).
@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import Document, Project, get_db, new_uuid, utcnow
+from app.database import Document, Workspace, get_db, new_uuid, utcnow
 from app.models.document import DocumentListResponse, DocumentResponse
 from app.services.document_parser import UnsupportedFileType, get_document_parser_registry
 from app.services.rag_service import RAGService, get_rag_service
@@ -38,11 +38,11 @@ router = APIRouter(prefix="/api", tags=["documents"])
 # ---------------------------------------------------------------------------
 
 
-async def _get_project_or_404(project_id: str, db: AsyncSession) -> Project:
-    result = await db.execute(select(Project).where(Project.id == project_id))
+async def _get_project_or_404(workspace_id: str, db: AsyncSession) -> Workspace:
+    result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
     project = result.scalar_one_or_none()
     if project is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id!r} not found")
+        raise HTTPException(status_code=404, detail=f"Workspace {workspace_id!r} not found")
     return project
 
 
@@ -52,13 +52,13 @@ async def _get_project_or_404(project_id: str, db: AsyncSession) -> Project:
 
 
 @router.post(
-    "/projects/{project_id}/documents",
+    "/workspaces/{workspace_id}/documents",
     response_model=DocumentResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Upload a document and index it for RAG",
 )
 async def upload_document(
-    project_id: str,
+    workspace_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     rag: RAGService = Depends(get_rag_service),
@@ -70,7 +70,7 @@ async def upload_document(
     (exact support depends on installed dependencies — see DocumentParserRegistry).
     """
     # Validate project exists
-    await _get_project_or_404(project_id, db)
+    await _get_project_or_404(workspace_id, db)
 
     filename = file.filename or "unknown"
     ext = Path(filename).suffix.lower()
@@ -105,7 +105,7 @@ async def upload_document(
     now = utcnow()
     doc = Document(
         id=doc_id,
-        project_id=project_id,
+        workspace_id=workspace_id,
         filename=filename,
         filetype=ext,
         size_bytes=size_bytes,
@@ -117,7 +117,7 @@ async def upload_document(
     await db.flush()  # Get ID without committing yet
 
     # Index into ChromaDB (failure is non-fatal)
-    chunks_indexed = await rag.index_document(project_id, doc_id, parsed)
+    chunks_indexed = await rag.index_document(workspace_id, doc_id, parsed)
 
     # Update indexed_at timestamp if indexing succeeded
     if chunks_indexed > 0:
@@ -129,26 +129,26 @@ async def upload_document(
 
     logger.info(
         f"upload_document: filename={filename!r}, chunks={chunks_indexed}, "
-        f"project_id={project_id!r}, doc_id={doc_id!r}"
+        f"workspace_id={workspace_id!r}, doc_id={doc_id!r}"
     )
     return DocumentResponse.model_validate(doc)
 
 
 @router.get(
-    "/projects/{project_id}/documents",
+    "/workspaces/{workspace_id}/documents",
     response_model=DocumentListResponse,
     summary="List documents for a project",
 )
 async def list_documents(
-    project_id: str,
+    workspace_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """List all documents uploaded to a project."""
-    await _get_project_or_404(project_id, db)
+    await _get_project_or_404(workspace_id, db)
 
     result = await db.execute(
         select(Document)
-        .where(Document.project_id == project_id)
+        .where(Document.workspace_id == workspace_id)
         .order_by(Document.created_at.desc())
     )
     docs = result.scalars().all()
@@ -160,12 +160,12 @@ async def list_documents(
 
 
 @router.delete(
-    "/projects/{project_id}/documents/{document_id}",
+    "/workspaces/{workspace_id}/documents/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a document and remove it from the RAG index",
 )
 async def delete_document(
-    project_id: str,
+    workspace_id: str,
     document_id: str,
     db: AsyncSession = Depends(get_db),
     rag: RAGService = Depends(get_rag_service),
@@ -173,29 +173,29 @@ async def delete_document(
     """
     Delete a document record and remove its chunks from the ChromaDB index.
     """
-    await _get_project_or_404(project_id, db)
+    await _get_project_or_404(workspace_id, db)
 
     result = await db.execute(
         select(Document).where(
             Document.id == document_id,
-            Document.project_id == project_id,
+            Document.workspace_id == workspace_id,
         )
     )
     doc = result.scalar_one_or_none()
     if doc is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Document {document_id!r} not found in project {project_id!r}",
+            detail=f"Document {document_id!r} not found in project {workspace_id!r}",
         )
 
     # Remove from ChromaDB index first (non-fatal)
-    await rag.delete_document(project_id, document_id)
+    await rag.delete_document(workspace_id, document_id)
 
     # Remove from DB
     await db.delete(doc)
     await db.commit()
 
     logger.info(
-        f"delete_document: deleted doc_id={document_id!r}, project_id={project_id!r}"
+        f"delete_document: deleted doc_id={document_id!r}, workspace_id={workspace_id!r}"
     )
     # 204 No Content — no body returned

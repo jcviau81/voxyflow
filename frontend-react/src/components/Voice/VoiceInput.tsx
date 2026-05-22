@@ -14,7 +14,7 @@ import { useChatService } from '../../contexts/useChatService';
 import { useTabStore } from '../../stores/useTabStore';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useToastStore } from '../../stores/useToastStore';
-import { SYSTEM_PROJECT_ID } from '../../lib/constants';
+import { SYSTEM_WORKSPACE_ID } from '../../lib/constants';
 
 const WAKE_WORD_SEND_DELAY_MS = 3000;
 
@@ -103,7 +103,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
     if (!text) return;
 
     const activeTab = useTabStore.getState().getActiveTab();
-    const contextTabId = activeTab === 'main' ? SYSTEM_PROJECT_ID : activeTab;
+    const contextTabId = activeTab === 'main' ? SYSTEM_WORKSPACE_ID : activeTab;
     const sessionId = wakeWordSessionIdRef.current || useSessionStore.getState().getActiveChatId(contextTabId);
     chat.sendMessage(text, undefined, undefined, sessionId);
     eventBus.emit(VOICE_EVENTS.VOICE_MESSAGE_SENT);
@@ -176,7 +176,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
 
     if (next) {
       const activeTab = useTabStore.getState().getActiveTab();
-      const contextTabId = activeTab === 'main' ? SYSTEM_PROJECT_ID : activeTab;
+      const contextTabId = activeTab === 'main' ? SYSTEM_WORKSPACE_ID : activeTab;
       wakeWordSessionIdRef.current = useSessionStore.getState().getActiveChatId(contextTabId);
 
       ttsService.forceNative = true;
@@ -393,7 +393,7 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
           setWakeWordEnabled(true);
           // Start wake word asynchronously
           const activeTab = useTabStore.getState().getActiveTab();
-          const contextTabId = activeTab === 'main' ? SYSTEM_PROJECT_ID : activeTab;
+          const contextTabId = activeTab === 'main' ? SYSTEM_WORKSPACE_ID : activeTab;
           wakeWordSessionIdRef.current = useSessionStore.getState().getActiveChatId(contextTabId);
           ttsService.forceNative = true;
           wakeWordService.start().catch(() => {});

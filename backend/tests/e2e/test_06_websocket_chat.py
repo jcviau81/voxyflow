@@ -1,6 +1,6 @@
 """
 E2E: WebSocket chat — connection, ping/pong, all chat layers
-(general, project, card), streaming responses, session reset.
+(general, workspace, card), streaming responses, session reset.
 
 These tests require the LLM backend to be running (CLAUDE_USE_CLI=true).
 """
@@ -24,7 +24,7 @@ def _chat_payload(content: str, **kwargs) -> dict:
         "content": content,
         "messageId": f"e2e-{uuid.uuid4().hex[:8]}",
         "chatLevel": kwargs.get("chatLevel", "general"),
-        "projectId": kwargs.get("projectId"),
+        "workspaceId": kwargs.get("workspaceId"),
         "cardId": kwargs.get("cardId"),
         "sessionId": kwargs.get("sessionId", f"e2e-session-{uuid.uuid4().hex[:6]}"),
         "chatId": kwargs.get("chatId"),
@@ -113,18 +113,18 @@ class TestGeneralChat:
         assert got_model_status, "Expected at least one model:status event"
 
 
-class TestProjectChat:
+class TestWorkspaceChat:
     @pytest.mark.asyncio
-    async def test_project_chat(self, ws, client, test_project: dict):
-        """Send a chat message scoped to a project."""
-        pid = test_project["_id"]
+    async def test_workspace_chat(self, ws, client, test_workspace: dict):
+        """Send a chat message scoped to a workspace."""
+        pid = test_workspace["_id"]
         session_id = f"e2e-proj-{uuid.uuid4().hex[:6]}"
-        chat_id = f"project:{pid}"
+        chat_id = f"workspace:{pid}"
 
         payload = _chat_payload(
             "Liste les cartes de ce projet.",
-            chatLevel="project",
-            projectId=pid,
+            chatLevel="workspace",
+            workspaceId=pid,
             sessionId=session_id,
             chatId=chat_id,
         )
@@ -138,14 +138,14 @@ class TestCardChat:
     async def test_card_chat(self, ws, client, test_card: dict):
         """Send a chat message scoped to a specific card."""
         cid = test_card["_id"]
-        pid = test_card["_project_id"]
+        pid = test_card["_workspace_id"]
         session_id = f"e2e-card-{uuid.uuid4().hex[:6]}"
         chat_id = f"card:{cid}"
 
         payload = _chat_payload(
             "Qu'est-ce que cette carte fait?",
             chatLevel="card",
-            projectId=pid,
+            workspaceId=pid,
             cardId=cid,
             sessionId=session_id,
             chatId=chat_id,
@@ -157,18 +157,18 @@ class TestCardChat:
 
 class TestChatIdValidation:
     @pytest.mark.asyncio
-    async def test_mismatched_chatid_corrected(self, ws, client, test_project: dict):
-        """If frontend sends a chatId that doesn't match projectId, server corrects it."""
-        pid = test_project["_id"]
+    async def test_mismatched_chatid_corrected(self, ws, client, test_workspace: dict):
+        """If frontend sends a chatId that doesn't match workspaceId, server corrects it."""
+        pid = test_workspace["_id"]
         session_id = f"e2e-mismatch-{uuid.uuid4().hex[:6]}"
 
         # Send with wrong chatId
         payload = _chat_payload(
             "Test mismatch.",
-            chatLevel="project",
-            projectId=pid,
+            chatLevel="workspace",
+            workspaceId=pid,
             sessionId=session_id,
-            chatId="project:wrong-id",  # Mismatched
+            chatId="workspace:wrong-id",  # Mismatched
         )
         await ws_send(ws, "chat:message", payload)
 

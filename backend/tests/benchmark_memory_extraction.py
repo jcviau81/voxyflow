@@ -274,7 +274,7 @@ TEST_CONVERSATIONS = [
         "name": "EN: Version pinning decision",
         "lang": "en",
         "messages": [
-            {"role": "user", "content": "We're pinning Python to 3.12 for this project. Don't use any 3.13 features."},
+            {"role": "user", "content": "We're pinning Python to 3.12 for this workspace. Don't use any 3.13 features."},
             {"role": "assistant", "content": "Got it. Python 3.12 only."},
             {"role": "user", "content": "And we'll use uv instead of pip for package management. It's way faster."},
         ],
@@ -385,7 +385,7 @@ def _load_real_sessions(max_sessions: int = 3) -> list[dict]:
     sessions_dir = Path(os.path.expanduser("~/voxyflow/data/sessions"))
     real = []
 
-    for subdir in ["project", "card"]:
+    for subdir in ["workspace", "card"]:
         d = sessions_dir / subdir
         if not d.exists():
             continue

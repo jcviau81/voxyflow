@@ -11,9 +11,9 @@
 
 > ⚠️ **Alpha** — Early software. It works (I use it daily), but expect rough edges. Moving fast. **Contributors welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).**
 
-**Your personal AI assistant for getting projects done.**
+**Your personal AI assistant for getting workspaces done.**
 
-Select a card. Say "execute this." The AI reads the full context — project, description, checklist, linked files — and *does the work*. Not a generic chatbot. A personal agent that knows exactly where it is in your workflow.
+Select a card. Say "execute this." The AI reads the full context — workspace, description, checklist, linked files — and *does the work*. Not a generic chatbot. A personal agent that knows exactly where it is in your workflow.
 
 Built as a Progressive Web App. Runs locally. No cloud lock-in.
 
@@ -26,11 +26,11 @@ Most tools solve half the problem:
 | Tool | What it does well | What's missing |
 |------|-------------------|----------------|
 | **Linear / Jira** | Organizes your work | Can't execute anything |
-| **Cursor / Copilot** | Executes code tasks | No idea what your project is or what needs doing |
-| **ChatGPT / Claude** | Answers questions | Generic — zero project context, freezes while working |
+| **Cursor / Copilot** | Executes code tasks | No idea what your workspace is or what needs doing |
+| **ChatGPT / Claude** | Answers questions | Generic — zero workspace context, freezes while working |
 
-**Voxyflow is the bridge.** It's your kanban board *and* your execution engine — with the full context of your project always available to the AI.
-Voxiflow infrastructure proposes a **Non-blocking chat layer**, which is always available for your conversations, brainstorming, manage and execute tasks using its workers to move forward with your projects.
+**Voxyflow is the bridge.** It's your kanban board *and* your execution engine — with the full context of your workspace always available to the AI.
+Voxyflow provides a **non-blocking chat layer** that stays available for conversation and planning while workers execute tasks in the background.
 
 > Think: **Linear + Cursor in one app**, on your own machine, with no subscription or cloud lock-in.
 
@@ -40,11 +40,11 @@ Voxiflow infrastructure proposes a **Non-blocking chat layer**, which is always 
 
 Every card in Voxyflow is a rich context object: title, description, priority, checklist, attachments, comments, history, relations.
 
-When you click a card and say **"execute this"**, the AI doesn't just see a card title — it gets the **full card context**, the **project context**, and your **personality/memory files**. It knows what the card is for, what's been done, and what needs doing next.
+When you click a card and say **"execute this"**, the AI doesn't just see a card title — it gets the **full card context**, the **workspace context**, and your **personality/memory files**. It knows what the card is for, what's been done, and what needs doing next.
 
 ```
-General Chat  →  Project Chat  →  Card Chat
-   (broad)       (project context)   (execute this exact task)
+General Chat  →  Workspace Chat  →  Card Chat
+   (broad)       (workspace context)   (execute this exact task)
 ```
 
 At the card level, the agent has maximum context and minimum ambiguity. It doesn't ask what you mean — it executes.
@@ -63,7 +63,9 @@ You ─────────────────────────�
    Worker ──── working in background (30s, 2min, 5min) ───┘
 ```
 
-The **Dispatcher** (Chat Agent) handles your conversation — always responsive, zero tools, pure dialogue. When it detects a task, it spawns a **Worker** in the background. The Worker executes (research, CRUD, code, whatever), and when it's done, the result arrives in your conversation naturally.
+The **Dispatcher** (Chat Agent) handles your conversation and lightweight state inspection through role-scoped tools. When it detects a task, it spawns a **Worker** in the background. The Worker executes (research, CRUD, code, file ops, web, git, etc.), and when it's done, the result arrives in your conversation naturally.
+
+Codex CLI dispatchers use a stricter read-only tool profile so their default reflex is to inspect state and delegate execution to workers.
 
 You never wait. You keep talking, thinking, planning — and results show up when they're ready.
 
@@ -90,8 +92,10 @@ You never wait. You keep talking, thinking, planning — and results show up whe
 ┌────────────▼────────────────────┐
 │  LLM Providers (per-layer)      │
 │  ├─ Claude CLI (claude -p)      │
+│  ├─ Codex CLI (codex exec)      │
 │  ├─ Anthropic API (native SDK)  │
-│  ├─ OpenAI / Groq / Mistral     │
+│  ├─ OpenAI / OpenRouter         │
+│  ├─ Groq / Mistral              │
 │  ├─ Google Gemini                │
 │  ├─ Ollama / LM Studio (local)  │
 │  └─ Any OpenAI-compatible API   │
@@ -109,28 +113,28 @@ You never wait. You keep talking, thinking, planning — and results show up whe
 
 ### ⚡ Dispatcher + Workers (Non-Blocking)
 
-- **Chat Agent (Dispatcher)** — Pure conversation. No tools. Always responsive. Dispatches work to Workers.
+- **Chat Agent (Dispatcher)** — Conversation plus lightweight role-scoped tools. Always responsive. Dispatches execution work to Workers.
 - **Workers** — Background agents that execute real tasks (CRUD, research, code, file ops).
   - Routed by model: fast layer (simple CRUD), deep layer (complex multi-step)
 - Results arrive in conversation when ready — no polling, no waiting, no frozen UI
 
 ### 🔌 Multi-Provider LLM
 
-- **8 providers supported**: Claude CLI, Anthropic API, OpenAI, Ollama, Groq, Mistral, Gemini, LM Studio
-- **Per-layer configuration** — Use a different provider/model for each layer (Fast/Deep)
+- **10 providers supported**: Claude CLI, Codex CLI, Anthropic API, OpenAI, OpenRouter, Ollama, Groq, Mistral, Gemini, LM Studio
+- **Per-layer and per-worker configuration** — Use a different provider/model for each dispatcher layer and worker class
 - **Named Endpoints ("My Machines")** — Save and manage local or remote LLM servers
 - **Capability registry** — 80+ models with tool-use, vision, and context window flags
 - **Model discovery API** — Live reachability probes, dynamic model listing per provider
 
-### 📋 Project Management
+### 📋 Workspace Management
 
 - **Kanban Board** — Drag-and-drop columns: Backlog → Todo → In Progress → Done
 - **Stats Dashboard** — Progress charts, velocity metrics, AI standup, health score
-- **Wiki** — Markdown documentation pages per project
+- **Wiki** — Markdown documentation pages per workspace
 - **Knowledge / RAG** — Upload documents (txt, md, pdf, docx, xlsx) for AI context injection
 - **GitHub Integration** — Link repos, auth via `gh` CLI or PAT
-- **Tech Stack Detection** — Auto-detect project technologies
-- **Export / Import** — Full project snapshots as JSON
+- **Tech Stack Detection** — Auto-detect workspace technologies
+- **Export / Import** — Full workspace snapshots as JSON
 
 ### 🃏 Cards
 
@@ -150,7 +154,7 @@ Cards are the core unit of everything:
 
 ### 📝 Main Board (FreeBoard)
 
-Untracked sticky-note cards outside any project. Color-coded (6 colors). Same card model — unified data.
+Untracked sticky-note cards outside any workspace. Color-coded (6 colors). Same card model — unified data.
 
 ### 🤖 Agent Personas (6 Specialists)
 
@@ -185,21 +189,21 @@ Customizable personality files in `personality/`:
 
 Editable directly or via **Settings → Personality** in the UI.
 
-### 🔧 MCP Server (~60 tools)
+### 🔧 MCP Server (100+ tools)
 
 Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server — two transport modes:
 
 - **SSE** — For web clients (`/api/mcp/`)
 - **Stdio** — For Claude Code, Cursor, and other MCP clients
 
-Tools span: card CRUD, project management, wiki, AI operations, web search, file ops, git, tmux, scheduler jobs.
+Tools span: card CRUD, workspace management, wiki, AI operations, web search, file ops, git, tmux, scheduler jobs, worker lifecycle, memory, and knowledge graph operations. Tool access is role-scoped in `backend/app/tools/registry.py`.
 
 ### ⏰ Scheduler
 
 - **Heartbeat** — Periodic health checks
 - **RAG Indexing** — Auto-index uploaded documents
 - **Recurring Cards** — Scheduled execution of cards on schedule (checks every 5 minutes)
-- **Board Run** — Scheduled execution of a Kanban board in a project (cron-based)
+- **Board Run** — Scheduled execution of a Kanban board in a workspace (cron-based)
 - **Custom Jobs** — Create via Settings → Jobs or API
 
 ---
@@ -214,7 +218,7 @@ cd voxyflow
 cd backend
 python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # set CLAUDE_USE_CLI=true, install claude CLI first
+cp .env.example .env   # configure Claude CLI, Codex CLI, or another provider in Settings
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Frontend (separate terminal)
@@ -226,7 +230,7 @@ Full installation guide: [docs/SETUP.md](docs/SETUP.md)
 
 ---
 
-## Project Structure
+## Workspace Structure
 
 ```
 voxyflow/
@@ -235,14 +239,14 @@ voxyflow/
 │   │   ├── main.py                     # FastAPI app, startup, CORS
 │   │   ├── config.py                   # Settings (env vars + keyring)
 │   │   ├── database.py                 # SQLAlchemy async models
-│   │   ├── mcp_server.py               # MCP tool definitions (~60 tools)
+│   │   ├── mcp_server.py               # MCP tool definitions (100+ tools)
 │   │   ├── mcp_stdio.py                # MCP stdio transport entry point
 │   │   ├── routes/                     # API endpoints
 │   │   └── services/                   # Business logic
 │   │       ├── claude_service.py       # LLM orchestration (4 layers)
 │   │       ├── chat_orchestration.py   # Dispatcher + delegate parsing
 │   │       ├── personality_service.py  # System prompt builder
-│   │       ├── llm/                    # CLI / SDK / proxy backends
+│   │       ├── llm/                    # CLI / SDK / OpenAI-compatible backends
 │   │       ├── orchestration/          # Worker pool, session timeline
 │   │       ├── rag_service.py          # ChromaDB vector search
 │   │       ├── memory_service.py       # Persistent cross-session memory
@@ -284,7 +288,7 @@ voxyflow/
 | **Frontend** | React 19, TypeScript, Vite, Zustand, TanStack Query, Tailwind CSS |
 | **Backend** | Python 3.12+, FastAPI, SQLAlchemy (async), Pydantic |
 | **Database** | SQLite (aiosqlite) |
-| **AI** | Multi-provider: Claude CLI, Anthropic API, OpenAI, Ollama, Groq, Mistral, Gemini, LM Studio |
+| **AI** | Multi-provider: Claude CLI, Codex CLI, Anthropic API, OpenAI, OpenRouter, Ollama, Groq, Mistral, Gemini, LM Studio |
 | **RAG** | ChromaDB + sentence-transformers (intfloat/multilingual-e5-large) |
 | **TTS** | XTTS v2 (GPU, optional) with browser speechSynthesis fallback |
 | **STT** | Web Speech API (browser) / Whisper WASM (local, no server) |
@@ -306,6 +310,7 @@ voxyflow/
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture deep-dive |
 | [API.md](docs/API.md) | REST & WebSocket API reference |
+| [CODEX_CLI.md](docs/CODEX_CLI.md) | Native OpenAI Codex CLI provider, MCP loading, model guidance |
 
 ---
 

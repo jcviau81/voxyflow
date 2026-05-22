@@ -106,7 +106,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         content: str,
         message_id: str,
         chat_id: str,
-        project_id: str | None,
+        workspace_id: str | None,
         layers: dict[str, bool] | None = None,
         chat_level: str = "general",
         is_callback: bool = False,
@@ -127,7 +127,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         async with self._get_chat_lock(chat_id):
             return await self._handle_message_inner(
                 websocket=websocket, content=content, message_id=message_id,
-                chat_id=chat_id, project_id=project_id, layers=layers,
+                chat_id=chat_id, workspace_id=workspace_id, layers=layers,
                 chat_level=chat_level, is_callback=is_callback,
                 callback_depth=callback_depth, card_id=card_id, session_id=session_id,
                 role=role, autonomy_directive_path=autonomy_directive_path,
@@ -139,7 +139,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         content: str,
         message_id: str,
         chat_id: str,
-        project_id: str | None,
+        workspace_id: str | None,
         layers: dict[str, bool] | None = None,
         chat_level: str = "general",
         is_callback: bool = False,
@@ -154,7 +154,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
 
         # Resolve project/card context from the database
         project_context, card_context, project_names = await self._resolve_context(
-            project_id=project_id,
+            workspace_id=workspace_id,
             card_id=card_id,
             chat_level=chat_level,
         )
@@ -188,7 +188,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 message_id=message_id,
                 chat_id=chat_id,
                 project_name=project_name,
-                project_id=project_id,
+                workspace_id=workspace_id,
                 chat_level=chat_level,
                 project_context=project_context,
                 card_context=card_context,
@@ -206,7 +206,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 message_id=message_id,
                 chat_id=chat_id,
                 project_name=project_name,
-                project_id=project_id,
+                workspace_id=workspace_id,
                 chat_level=chat_level,
                 project_context=project_context,
                 card_context=card_context,
@@ -242,7 +242,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                         chat_level=chat_level,
                         project_context=project_context,
                         card_context=card_context,
-                        project_id=project_id,
+                        workspace_id=workspace_id,
                         chat_id=chat_id,
                         callback_depth=child_callback_depth,
                     )
@@ -267,7 +267,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                             chat_level=chat_level,
                             project_context=project_context,
                             card_context=card_context,
-                            project_id=project_id,
+                            workspace_id=workspace_id,
                             chat_id=chat_id,
                             callback_depth=child_callback_depth,
                         )
@@ -282,7 +282,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     chat_id=chat_id,
                     user_message=content,
                     project_name=project_name,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                 )
             )
             _bg_tasks.append(_t)
@@ -538,7 +538,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         chat_id: str,
         user_message: str,
         project_name: str | None = None,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         """Background-safe wrapper for memory auto-extraction."""
         try:
@@ -555,7 +555,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             stored = await memory.auto_extract_memories(
                 chat_id=chat_id,
                 messages=recent,
-                project_id=project_id,
+                workspace_id=workspace_id,
             )
             if stored:
                 logger.info(f"[Orchestrator] Auto-extracted {len(stored)} memories from chat {chat_id}")
@@ -657,7 +657,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         chat_level: str = "general",
         project_context: dict | None = None,
         card_context: dict | None = None,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
         chat_id: str | None = None,
         callback_depth: int = 0,
     ) -> None:
@@ -680,7 +680,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     data=data,
                     websocket=websocket,
                     session_id=session_id,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     chat_id=chat_id,
                 )
             else:
@@ -781,8 +781,8 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     "card_id": card_id,
                     "dispatcher_chat_id": chat_id,
                     **data,  # Include all fields from delegate_action
-                    # Fallback chain: delegate.data['project_id'] → session project_id → None
-                    "project_id": data.get("project_id") or project_id,
+                    # Fallback chain: delegate.data['workspace_id'] → session workspace_id → None
+                    "workspace_id": data.get("workspace_id") or workspace_id,
                 }
                 if _worker_class_id_override:
                     event_data["worker_class_id"] = _worker_class_id_override
@@ -823,7 +823,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         chat_level: str = "general",
         project_context: dict | None = None,
         card_context: dict | None = None,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
         chat_id: str | None = None,
         callback_depth: int = 0,
     ) -> None:
@@ -853,7 +853,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     data=data,
                     websocket=websocket,
                     session_id=session_id,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     chat_id=chat_id,
                 )
             else:
@@ -954,8 +954,8 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                         "card_id": card_id,
                         "dispatcher_chat_id": chat_id,
                         **data,  # Include original delegate data
-                        # Fallback chain: delegate.data['project_id'] → session project_id → None
-                        "project_id": data.get("project_id") or project_id,
+                        # Fallback chain: delegate.data['workspace_id'] → session workspace_id → None
+                        "workspace_id": data.get("workspace_id") or workspace_id,
                     }
                     if _worker_class_id_override:
                         event_data["worker_class_id"] = _worker_class_id_override
@@ -990,7 +990,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         data: dict,
         websocket: "WebSocket",
         session_id: str,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
         chat_id: str | None = None,
     ) -> None:
         """Execute a direct (model='direct') action inline — no worker, no LLM.
@@ -1006,7 +1006,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             # Store delegate data so we can execute after user confirms
             self._pending_confirms[task_id] = {
                 "data": data,
-                "project_id": project_id,
+                "workspace_id": workspace_id,
                 "session_id": session_id,
             }
             try:
@@ -1041,7 +1041,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             logger.warning(f"[DirectExecutor] Failed to send action:started: {e}")
 
         # --- Execute ---
-        result = await DirectExecutor.execute(data, project_id=project_id)
+        result = await DirectExecutor.execute(data, workspace_id=workspace_id)
 
         # --- Notify: action completed ---
         try:
@@ -1082,7 +1082,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             try:
                 from app.services.ws_broadcast import ws_broadcast
                 ws_broadcast.emit_sync("cards:changed", {
-                    "projectId": project_id or "system-main",
+                    "projectId": workspace_id or "system-main",
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
@@ -1119,8 +1119,8 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     content=callback_msg,
                     message_id=callback_message_id,
                     chat_id=chat_id,
-                    project_id=project_id,
-                    chat_level="project" if project_id else "general",
+                    workspace_id=workspace_id,
+                    chat_level="project" if workspace_id else "general",
                     session_id=session_id,
                     is_callback=True,
                     callback_depth=0,
@@ -1268,7 +1268,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
 
         # User confirmed — execute the action (skip the confirmation gate this time)
         data = pending["data"]
-        project_id = pending["project_id"]
+        workspace_id = pending["workspace_id"]
         session_id = pending["session_id"]
 
         # Re-use the same task_id so frontend can correlate
@@ -1287,7 +1287,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             })
         except Exception as e:
             logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
-        result = await DirectExecutor.execute(data, project_id=project_id)
+        result = await DirectExecutor.execute(data, workspace_id=workspace_id)
 
         # Notify: action completed
         try:
@@ -1310,7 +1310,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             try:
                 from app.services.ws_broadcast import ws_broadcast
                 ws_broadcast.emit_sync("cards:changed", {
-                    "projectId": project_id or "system-main",
+                    "projectId": workspace_id or "system-main",
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
@@ -1339,7 +1339,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
 
     async def _resolve_context(
         self,
-        project_id: str | None,
+        workspace_id: str | None,
         card_id: str | None,
         chat_level: str,
     ) -> tuple[dict | None, dict | None, list[str]]:
@@ -1347,40 +1347,40 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
 
         Returns (project_context, card_context, project_names).
         project_names is always an empty list — the dispatcher calls
-        voxyflow.project.list on demand instead of receiving the full roll.
+        voxyflow.workspace.list on demand instead of receiving the full roll.
         """
         project_context = None
         card_context = None
         project_names: list[str] = []
 
-        # #8 card_id inherit: if we have a card but no project_id, look up
+        # #8 card_id inherit: if we have a card but no workspace_id, look up
         # the parent project so the card chat gets project-level context too
         # (board state, tech stack, github). Without this, Voxy in card chat
         # sees only the card and hallucinates the surrounding world.
-        if card_id and not project_id:
+        if card_id and not workspace_id:
             try:
                 from app.database import async_session, Card
                 from sqlalchemy import select
                 async with async_session() as db:
-                    r = await db.execute(select(Card.project_id).where(Card.id == card_id))
+                    r = await db.execute(select(Card.workspace_id).where(Card.id == card_id))
                     parent = r.scalar_one_or_none()
                     if parent:
-                        project_id = parent
+                        workspace_id = parent
             except Exception as e:
                 logger.warning(f"_resolve_context: card->project lookup failed: {e}")
 
-        if project_id:
+        if workspace_id:
             try:
-                from app.database import async_session, Project, Card
+                from app.database import async_session, Workspace, Card
                 from sqlalchemy import select
                 async with async_session() as db:
-                    result = await db.execute(select(Project).where(Project.id == project_id))
+                    result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
                     proj = result.scalar_one_or_none()
                     if proj:
                         # Fetch non-archived cards for this project (for dynamic state counts)
                         cards_result = await db.execute(
                             select(Card).where(
-                                Card.project_id == project_id,
+                                Card.workspace_id == workspace_id,
                                 Card.archived_at.is_(None),
                             )
                         )

@@ -23,7 +23,7 @@ router = APIRouter(prefix="/chats", tags=["chats"])
 
 @router.post("", response_model=ChatResponse, status_code=201)
 async def create_chat(body: ChatCreate, db: AsyncSession = Depends(get_db)):
-    chat = Chat(id=new_uuid(), title=body.title, project_id=body.project_id)
+    chat = Chat(id=new_uuid(), title=body.title, workspace_id=body.workspace_id)
     db.add(chat)
     await db.commit()
 
@@ -57,7 +57,7 @@ async def list_chats(
             ChatListItem(
                 id=chat.id,
                 title=chat.title,
-                project_id=chat.project_id,
+                workspace_id=chat.workspace_id,
                 created_at=chat.created_at,
                 message_count=msg_count,
             )

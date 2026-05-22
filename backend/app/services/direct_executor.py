@@ -10,7 +10,7 @@ Usage:
     from app.services.direct_executor import DirectExecutor
 
     executor = DirectExecutor()
-    result = await executor.execute("card.create", params, project_id)
+    result = await executor.execute("card.create", params, workspace_id)
 """
 
 import logging
@@ -40,15 +40,15 @@ DIRECT_ACTION_MAP: dict[str, str] = {
     "delete_card": "voxyflow.card.delete",
     "list_cards": "voxyflow.card.list",
     "get_card": "voxyflow.card.get",
-    # Project CRUD
-    "project.list": "voxyflow.project.list",
-    "project.get": "voxyflow.project.get",
-    "project.create": "voxyflow.project.create",
-    "project.delete": "voxyflow.project.delete",
-    "list_projects": "voxyflow.project.list",
-    "get_project": "voxyflow.project.get",
-    "create_project": "voxyflow.project.create",
-    "delete_project": "voxyflow.project.delete",
+    # Workspace CRUD
+    "project.list": "voxyflow.workspace.list",
+    "project.get": "voxyflow.workspace.get",
+    "project.create": "voxyflow.workspace.create",
+    "project.delete": "voxyflow.workspace.delete",
+    "list_projects": "voxyflow.workspace.list",
+    "get_project": "voxyflow.workspace.get",
+    "create_project": "voxyflow.workspace.create",
+    "delete_project": "voxyflow.workspace.delete",
     # Wiki read
     "wiki.list": "voxyflow.wiki.list",
     "wiki.get": "voxyflow.wiki.get",
@@ -131,7 +131,7 @@ class DirectExecutor:
     @staticmethod
     async def _resolve_card_by_title(
         title: str,
-        project_id: str,
+        workspace_id: str,
     ) -> str | None:
         """Look up a card_id by title within a project.
 
@@ -146,7 +146,7 @@ class DirectExecutor:
             return None
 
         try:
-            result = await _call_api(list_tool, {"project_id": project_id})
+            result = await _call_api(list_tool, {"workspace_id": workspace_id})
         except Exception:
             logger.exception("[DirectExecutor] card.list failed during title lookup")
             return None
@@ -162,12 +162,12 @@ class DirectExecutor:
         matches = [c for c in cards if c.get("title", "").strip().lower() == search_title]
 
         if not matches:
-            logger.info(f"[DirectExecutor] No card found with title '{title}' in project {project_id}")
+            logger.info(f"[DirectExecutor] No card found with title '{title}' in project {workspace_id}")
             return None
 
         if len(matches) > 1:
             logger.warning(
-                f"[DirectExecutor] {len(matches)} cards match title '{title}' in project {project_id}, "
+                f"[DirectExecutor] {len(matches)} cards match title '{title}' in project {workspace_id}, "
                 f"using first: {matches[0].get('id')}"
             )
 
@@ -178,13 +178,13 @@ class DirectExecutor:
     @staticmethod
     async def execute(
         delegate_data: dict,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute a direct CRUD action and return the result.
 
         Args:
             delegate_data: The full delegate dict with action, params, etc.
-            project_id: The current project context (injected into params if needed).
+            workspace_id: The current project context (injected into params if needed).
 
         Returns:
             {
@@ -222,30 +222,30 @@ class DirectExecutor:
         # Build the params to pass to the MCP tool
         params = dict(delegate_data.get("params", {}))
 
-        # Hard-scope project_id to the current chat's project. Mirrors the
-        # invariant enforced by `_build_url_and_payload` (via VOXYFLOW_PROJECT_ID
+        # Hard-scope workspace_id to the current chat's project. Mirrors the
+        # invariant enforced by `_build_url_and_payload` (via VOXYFLOW_WORKSPACE_ID
         # env) for the MCP subprocess path. DirectExecutor runs in the backend
         # process where that env is not set, so we enforce it explicitly here —
-        # otherwise a stray / guessed project_id from the LLM leaks cards into
+        # otherwise a stray / guessed workspace_id from the LLM leaks cards into
         # the wrong project (typically Home / system-main when the dispatcher
         # misreads its context).
         tool_schema = tool_def.get("inputSchema", {})
         required_fields = tool_schema.get("required", [])
-        if "project_id" in tool_schema.get("properties", {}) or "project_id" in required_fields:
-            if project_id:
-                llm_pid = params.get("project_id")
-                if llm_pid and llm_pid != project_id:
+        if "workspace_id" in tool_schema.get("properties", {}) or "workspace_id" in required_fields:
+            if workspace_id:
+                llm_pid = params.get("workspace_id")
+                if llm_pid and llm_pid != workspace_id:
                     logger.warning(
-                        f"[DirectExecutor] Ignoring LLM-supplied project_id={llm_pid!r}; "
-                        f"forcing current chat scope {project_id!r}"
+                        f"[DirectExecutor] Ignoring LLM-supplied workspace_id={llm_pid!r}; "
+                        f"forcing current chat scope {workspace_id!r}"
                     )
-                params["project_id"] = project_id
-            elif "project_id" in required_fields and "project_id" not in params:
+                params["workspace_id"] = workspace_id
+            elif "workspace_id" in required_fields and "workspace_id" not in params:
                 return {
                     "success": False,
                     "action": action,
                     "mcp_tool": mcp_tool_name,
-                    "error": "project_id required but not available",
+                    "error": "workspace_id required but not available",
                     "duration_ms": 0,
                 }
 
@@ -258,9 +258,9 @@ class DirectExecutor:
                 or params.pop("title", None)
                 or params.pop("name", None)
             )
-            if card_title and project_id:
+            if card_title and workspace_id:
                 logger.info(f"[DirectExecutor] card_id missing for {action}, resolving by title: '{card_title}'")
-                resolved_id = await DirectExecutor._resolve_card_by_title(card_title, project_id)
+                resolved_id = await DirectExecutor._resolve_card_by_title(card_title, workspace_id)
                 if resolved_id:
                     params["card_id"] = resolved_id
                 else:
@@ -284,7 +284,7 @@ class DirectExecutor:
                     "success": False,
                     "action": action,
                     "mcp_tool": mcp_tool_name,
-                    "error": "Cannot resolve card by title: no project_id available",
+                    "error": "Cannot resolve card by title: no workspace_id available",
                     "duration_ms": 0,
                 }
 

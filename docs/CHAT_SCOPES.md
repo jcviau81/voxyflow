@@ -11,15 +11,15 @@ Voxyflow has three chat levels. The level is determined automatically by what th
 ```
 ┌─────────────────────────────────────────────┐
 │  GENERAL CHAT (Home)                        │
-│  Home tab active. System project context.  │
-│  Broad scope: all projects + Home cards.    │
+│  Home tab active. System workspace context.  │
+│  Broad scope: all workspaces + Home cards.    │
 ├─────────────────────────────────────────────┤
 │  PROJECT CHAT                               │
-│  Project tab selected. No card selected.    │
-│  Scoped to one project and its cards.       │
+│  Workspace tab selected. No card selected.    │
+│  Scoped to one workspace and its cards.       │
 ├─────────────────────────────────────────────┤
 │  CARD CHAT                                  │
-│  Card selected within a project.            │
+│  Card selected within a workspace.            │
 │  Focused on one specific card/task.         │
 └─────────────────────────────────────────────┘
 ```
@@ -31,9 +31,9 @@ Voxyflow has three chat levels. The level is determined automatically by what th
 The frontend determines chat level with this logic:
 
 ```typescript
-getChatLevel(): 'general' | 'project' | 'card' {
+getChatLevel(): 'general' | 'workspace' | 'card' {
     if (selectedCardId) return 'card'
-    if (activeTab !== 'main') return 'project'
+    if (activeTab !== 'main') return 'workspace'
     return 'general'
 }
 ```
@@ -44,11 +44,11 @@ The `chatLevel` is sent with every WebSocket message to the backend.
 
 ## General Chat
 
-**Trigger:** No project selected. Active tab is `main`.
+**Trigger:** No workspace selected. Active tab is `main`.
 
 ### What Voxy Can Do
-- Create/list/manage Home cards (cards in the system project)
-- Create/list/manage projects
+- Create/list/manage Home cards (cards in the system workspace)
+- Create/list/manage workspaces
 - Web search, file operations, system commands
 - General conversation
 - Job scheduling
@@ -56,7 +56,7 @@ The `chatLevel` is sent with every WebSocket message to the backend.
 ### Tools Available (Fast layer)
 From `_GENERAL_CONTEXT_TOOLS`:
 - `voxyflow.card.create_unassigned`, `voxyflow.card.list_unassigned`
-- `voxyflow.project.create`, `voxyflow.project.list`, `voxyflow.project.get`
+- `voxyflow.workspace.create`, `voxyflow.workspace.list`, `voxyflow.workspace.get`
 - `voxyflow.health`
 - `system.exec`, `web.search`, `web.fetch`
 - `file.read`, `file.write`, `file.list`
@@ -66,9 +66,9 @@ From `_GENERAL_CONTEXT_TOOLS`:
 - `voxyflow.doc.list`, `voxyflow.doc.delete`
 
 ### Session Model
-- Separate `generalSessions[]` array (not tied to project sessions)
+- Separate `generalSessions[]` array (not tied to workspace sessions)
 - Chat ID format: `general:{sessionId}`
-- Multiple sessions supported (separate from project/card sessions)
+- Multiple sessions supported (separate from workspace/card sessions)
 
 ### WelcomePrompt
 
@@ -76,27 +76,27 @@ From `_GENERAL_CONTEXT_TOOLS`:
 🔥 Hey! Qu'est-ce qu'on fait?
 
 [💬 Just chatting]
-[🏗️ Work on an existing project]
-[💡 Brainstorm a new project]
+[🏗️ Work on an existing workspace]
+[💡 Brainstorm a new workspace]
 [📋 Review my tasks]
 
 Or just start typing...
 ```
 
 ### SmartSuggestions
-- "Create a new project"
+- "Create a new workspace"
 - "What can you help me with?"
-- "Show my projects"
+- "Show my workspaces"
 
 ---
 
-## Project Chat
+## Workspace Chat
 
-**Trigger:** A project tab is active. No card is selected.
+**Trigger:** A workspace tab is active. No card is selected.
 
 ### What Voxy Can Do
 Everything from General, PLUS:
-- Create/list/update/move project cards
+- Create/list/update/move workspace cards
 - Manage wiki pages
 - Manage documents (RAG)
 - AI operations (standup, brief, health, prioritize)
@@ -105,29 +105,29 @@ Everything from General, PLUS:
 
 ### Tools Available
 All tools EXCEPT: `voxyflow.card.create_unassigned`, `voxyflow.card.list_unassigned`
-(Home / unassigned-card tools are excluded — you're in a project context)
+(Home / unassigned-card tools are excluded — you're in a workspace context)
 
 ### Context Injection
-- Project details (title, description, context) injected into system prompt
-- Project cards summary included for awareness
-- RAG context from project documents if available
+- Workspace details (title, description, context) injected into system prompt
+- Workspace cards summary included for awareness
+- RAG context from workspace documents if available
 
 ### Session Model
-- Sessions stored in `appState.sessions[projectId]`
-- Up to 5 sessions per project
-- Chat ID format: `project:{projectId}`
+- Sessions stored in `appState.sessions[workspaceId]`
+- Up to 5 sessions per workspace
+- Chat ID format: `workspace:{workspaceId}`
 - Session tab bar visible below header
 
 ### WelcomePrompt
 
 ```
-[emoji] Project Name
+[emoji] Workspace Name
 📊 X in progress, Y todo
 
 [▶️ Resume: Card 1]     (for each in-progress card)
 [📋 Work on an existing task]
 [💡 Brainstorm a new task]
-[💬 Just chat about the project]
+[💬 Just chat about the workspace]
 
 Or just start typing...
 ```
@@ -135,17 +135,17 @@ Or just start typing...
 ### SmartSuggestions
 - "Create a card"
 - "Show the kanban board"
-- "What's the project status?"
-- "Help me with {ProjectName}"
+- "What's the workspace status?"
+- "Help me with {WorkspaceName}"
 
 ---
 
 ## Card Chat
 
-**Trigger:** A card is selected (within a project).
+**Trigger:** A card is selected (within a workspace).
 
 ### What Voxy Can Do
-Everything from Project, PLUS:
+Everything from Workspace, PLUS:
 - Focused context on the specific card
 - Card implementation assistance
 - Agent-specific guidance (based on assigned agent)
@@ -154,11 +154,11 @@ Everything from Project, PLUS:
 - Comment management
 
 ### Tools Available
-ALL tools — no filtering. Card level has full access.
+Tool access is role-scoped, not scope-scoped. Card chat receives richer card/workspace context, but the dispatcher still uses its configured dispatcher tool profile. Workers spawned from card chat receive `TOOLS_WORKER`. Codex dispatchers use the stricter read-only `TOOLS_DISPATCHER_CODEX` profile and delegate action work.
 
 ### Context Injection
 - Card details (title, description, status, priority, agent, checklist) in system prompt
-- Project context included
+- Workspace context included
 - Agent persona system prompt if agent assigned
 - Dependencies and relations included
 
@@ -198,13 +198,13 @@ Tags: #tag1 #tag2
 ### What Happens When the User Navigates
 
 ```
-User clicks project tab / card / main tab
+User clicks workspace tab / card / main tab
     │
     ▼
 appState updates:
-  - switchTab(tabId)       → changes activeTab, currentProjectId
+  - switchTab(tabId)       → changes activeTab, currentWorkspaceId
   - selectCard(cardId)     → changes selectedCardId
-  - selectProject(null)    → clears to main
+  - selectWorkspace(null)    → clears to main
     │
     ▼
 EventBus emits:
@@ -225,7 +225,7 @@ getChatLevel() recalculates context
     ▼
 shouldRenderMessage() filters messages:
   - General:  message.sessionId === activeGeneralSessionId
-  - Project:  message.sessionId === activeChatId(tabId)
+  - Workspace:  message.sessionId === activeChatId(tabId)
   - Card:     message.sessionId === activeChatId(cardId)
     │
     ▼
@@ -238,7 +238,7 @@ showWelcomePrompt() renders context-aware welcome
 ### Key Rules
 1. **Context is automatic** — determined by `getChatLevel()`, never set manually
 2. **Messages are isolated** — each context only shows its own messages
-3. **Sessions are per-context** — general, project, and card each have independent sessions
+3. **Sessions are per-context** — general, workspace, and card each have independent sessions
 4. **History is persistent** — switching contexts doesn't lose history
 5. **Welcome prompt adapts** — shows different content per level
 
@@ -248,12 +248,12 @@ showWelcomePrompt() renders context-aware welcome
 
 The dispatcher (Fast layer) routes intents differently based on chat level:
 
-| Intent | General | Project | Card |
+| Intent | General | Workspace | Card |
 |--------|---------|---------|------|
-| "Create a card" | → Ask which project or default to Home | → Create in current project | → Create sub-task or ask |
-| "Show status" | → List all projects | → Show project kanban | → Show card details |
-| "Search for X" | → Web search or cross-project | → Search within project | → Search related to card |
-| "Help me build" | → Ask what to build | → Work on project tasks | → Implement card |
+| "Create a card" | → Ask which workspace or default to Home | → Create in current workspace | → Create sub-task or ask |
+| "Show status" | → List all workspaces | → Show workspace kanban | → Show card details |
+| "Search for X" | → Web search or cross-workspace | → Search within workspace | → Search related to card |
+| "Help me build" | → Ask what to build | → Work on workspace tasks | → Implement card |
 
 ---
 
@@ -266,8 +266,8 @@ The backend receives `chatLevel` in the WebSocket `chat:message` payload:
   "type": "chat:message",
   "payload": {
     "content": "user message",
-    "chatLevel": "general|project|card",
-    "projectId": "string|null",
+    "chatLevel": "general|workspace|card",
+    "workspaceId": "string|null",
     "cardId": "string|null",
     "sessionId": "string",
     "messageId": "string",
@@ -280,7 +280,7 @@ The backend uses `chatLevel` to:
 1. Build the system prompt (personality + context injection)
 2. Filter available tools (via `ToolPromptBuilder.build_tool_prompt(layer, chat_level)`)
 3. Route the chat to the correct session file
-4. Include relevant project/card data in the AI context
+4. Include relevant workspace/card data in the AI context
 
 ---
 

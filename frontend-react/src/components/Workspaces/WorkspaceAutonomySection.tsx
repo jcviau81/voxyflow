@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useToastStore } from '../../stores/useToastStore';
 import {
-  useDisableProjectAutonomy,
-  useProjectAutonomy,
-  useRunProjectAutonomyNow,
-  useUpsertProjectAutonomy,
-} from '../../hooks/api/useProjectAutonomy';
+  useDisableWorkspaceAutonomy,
+  useWorkspaceAutonomy,
+  useRunWorkspaceAutonomyNow,
+  useUpsertWorkspaceAutonomy,
+} from '../../hooks/api/useWorkspaceAutonomy';
 
 interface Props {
-  projectId: string;
+  workspaceId: string;
 }
 
 const SCHEDULE_OPTIONS = [
@@ -20,8 +20,8 @@ const SCHEDULE_OPTIONS = [
   { value: 'every_day', label: 'Every day' },
 ];
 
-// Mirror of backend/app/services/project_autonomy.py:_DEFAULT_DIRECTIVE.
-// Pre-fills the textarea when a project has no heartbeat yet, so the user
+// Mirror of backend/app/services/workspace_autonomy.py:_DEFAULT_DIRECTIVE.
+// Pre-fills the textarea when a workspace has no heartbeat yet, so the user
 // sees a working baseline instead of an empty field.
 const DEFAULT_DIRECTIVE =
   'Check worker status via workers.list.\n' +
@@ -30,12 +30,12 @@ const DEFAULT_DIRECTIVE =
   'move it to in-progress and delegate an opus worker with a focused brief.\n' +
   'Otherwise, log [AUTONOMY-NOOP] with the reason.\n';
 
-export function ProjectAutonomySection({ projectId }: Props) {
+export function WorkspaceAutonomySection({ workspaceId }: Props) {
   const { showToast } = useToastStore();
-  const { data, isLoading } = useProjectAutonomy(projectId);
-  const upsert = useUpsertProjectAutonomy();
-  const disable = useDisableProjectAutonomy();
-  const runNow = useRunProjectAutonomyNow();
+  const { data, isLoading } = useWorkspaceAutonomy(workspaceId);
+  const upsert = useUpsertWorkspaceAutonomy();
+  const disable = useDisableWorkspaceAutonomy();
+  const runNow = useRunWorkspaceAutonomyNow();
 
   const [enabled, setEnabled] = useState(false);
   const [schedule, setSchedule] = useState('every_5min');
@@ -47,7 +47,7 @@ export function ProjectAutonomySection({ projectId }: Props) {
     setEnabled(data.enabled);
     setSchedule(data.schedule || 'every_5min');
     // Pre-fill the default directive only when the heartbeat has never been
-    // configured for this project (no job on disk, no directive yet). Once a
+    // configured for this workspace (no job on disk, no directive yet). Once a
     // user has saved or cleared it, respect their choice — don't overwrite.
     if (!data.job_exists && !(data.directive || '').trim()) {
       setDirective(DEFAULT_DIRECTIVE);
@@ -60,7 +60,7 @@ export function ProjectAutonomySection({ projectId }: Props) {
 
   const onSave = async () => {
     try {
-      await upsert.mutateAsync({ projectId, enabled, schedule, directive });
+      await upsert.mutateAsync({ workspaceId, enabled, schedule, directive });
       showToast(enabled ? 'Autonomy saved' : 'Autonomy paused', 'success');
       setDirty(false);
     } catch (e) {
@@ -70,7 +70,7 @@ export function ProjectAutonomySection({ projectId }: Props) {
 
   const onRunNow = async () => {
     try {
-      const res = await runNow.mutateAsync(projectId);
+      const res = await runNow.mutateAsync(workspaceId);
       const status = res?.result?.status ?? 'ok';
       if (status === 'skipped') {
         showToast('Heartbeat skipped — no directive below the divider', 'info');
@@ -85,9 +85,9 @@ export function ProjectAutonomySection({ projectId }: Props) {
   };
 
   const onRemove = async () => {
-    if (!confirm('Remove the autonomy heartbeat for this project?')) return;
+    if (!confirm('Remove the autonomy heartbeat for this workspace?')) return;
     try {
-      await disable.mutateAsync(projectId);
+      await disable.mutateAsync(workspaceId);
       showToast('Autonomy removed', 'success');
     } catch (e) {
       showToast(`Could not remove autonomy: ${(e as Error).message}`, 'error');
@@ -101,9 +101,9 @@ export function ProjectAutonomySection({ projectId }: Props) {
     <div className="form-group space-y-3 border border-border rounded-md p-3 bg-muted/20">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm font-medium text-foreground">Project Autonomy</div>
+          <div className="text-sm font-medium text-foreground">Workspace Autonomy</div>
           <p className="text-xs text-muted-foreground">
-            Run a scheduled heartbeat with this project's memory, KG, and ledger scope.
+            Run a scheduled heartbeat with this workspace's memory, KG, and ledger scope.
             Voxy reads the directive below the <code>---</code> divider; an empty directive is a no-op.
           </p>
         </div>
@@ -213,4 +213,4 @@ export function ProjectAutonomySection({ projectId }: Props) {
   );
 }
 
-export default ProjectAutonomySection;
+export default WorkspaceAutonomySection;

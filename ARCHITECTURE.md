@@ -2,7 +2,7 @@
 
 ## Overview
 
-Voxyflow is a **voice-first project management assistant** powered by Claude. It combines natural voice interaction with intelligent project management through a Dispatcher + Workers architecture.
+Voxyflow is a **voice-first workspace management assistant** powered by configurable LLM providers. It combines natural voice interaction with intelligent workspace management through a Dispatcher + Workers architecture.
 
 ## System Architecture
 
@@ -45,8 +45,8 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 │  └─────────────────────────┘                         │
 │                                                   │
 │  ┌─────────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │ CLI Backend │ │ Memory   │ │ Personality  │  │
-│  │ (claude -p) │ │ Service  │ │ Service      │  │
+│  │ CLI Backends│ │ Memory   │ │ Personality  │  │
+│  │ claude/codex│ │ Service  │ │ Service      │  │
 │  └─────────────┘ └──────────┘ └──────────────┘  │
 └─────────────────────────────────────────────────┘
 ```
@@ -55,8 +55,9 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 
 **The conversation is never blocked by running tasks.**
 
-- The **Chat Agent (Dispatcher)** has inline tools (card CRUD, memory, knowledge search) for fast operations, and emits `<delegate>` blocks for complex tasks.
-- **Workers** run in the background via `claude -p` subprocesses with full MCP tool access (~60 tools), and report results via WebSocket.
+- The **Chat Agent (Dispatcher)** has role-scoped inline tools for fast operations, and emits `<delegate>` blocks for complex tasks.
+- **Workers** run in the background through the selected local CLI/provider path with full MCP tool access (100+ definitions), and report results via WebSocket.
+- **Codex CLI dispatchers** use the `dispatcher_codex` MCP role: read-only inspection plus delegation.
 
 ## Key Design Decisions
 
@@ -66,12 +67,12 @@ Voxyflow is a **voice-first project management assistant** powered by Claude. It
 - **TTS:** XTTS v2 server (optional, GPU-accelerated, sentence-by-sentence SSE streaming) with browser speechSynthesis fallback
 - **Wake word:** "Voxy" triggers continuous recording mode without touching the keyboard
 
-### LLM Backend — CLI Subprocess (Active)
-- Spawns `claude -p` subprocesses using Claude Max subscription
-- Chat layers: streaming via `--output-format stream-json`
-- Workers: non-streaming with `--mcp-config` for full MCP tool access (~60 tools)
-- Permissions: `--permission-mode bypassPermissions` (MCP tools are our own REST API)
-- Alternative paths available: Native Anthropic SDK, OpenAI-compatible proxy (deprecated)
+### LLM Backend — Provider Abstraction + Local CLI
+- Dispatcher layers and worker classes can each select their own provider/model.
+- Local CLI paths include Claude CLI (`claude -p`) and Codex CLI (`codex exec --json`).
+- Claude CLI uses `--mcp-config`; Codex CLI injects Voxyflow MCP servers per call with `-c mcp_servers.*` overrides.
+- Native/cloud paths include Anthropic SDK and OpenAI-compatible providers: OpenAI, OpenRouter, Groq, Mistral, Gemini, Ollama, and LM Studio.
+- Workers get full MCP access; Codex dispatchers use a stricter read-only dispatcher role and delegate action work.
 
 ### React Frontend
 - React 19 + TypeScript + Vite (PWA via vite-plugin-pwa)
@@ -94,7 +95,7 @@ Auto-routing detects the best agent from card title/description via two-pass key
 All card data on the frontend flows through `useCardStore` (`frontend-react/src/stores/useCardStore.ts`), a centralized Map-based singleton. Components subscribe to global or per-card changes and re-render automatically. This replaces ad-hoc fetching patterns and eliminates stale data.
 
 ### WebSocket Live Sync (`cards:changed`)
-When any card is mutated via REST (create/update/move/delete), the backend broadcasts a `cards:changed` event to all connected WebSocket clients via `WSBroadcast` (`backend/app/services/ws_broadcast.py`). The frontend receives this, re-fetches the affected project's cards, and updates the ReactiveCardStore — giving real-time multi-tab sync and instant worker feedback.
+When any card is mutated via REST (create/update/move/delete), the backend broadcasts a `cards:changed` event to all connected WebSocket clients via `WSBroadcast` (`backend/app/services/ws_broadcast.py`). The frontend receives this, re-fetches the affected workspace's cards, and updates the ReactiveCardStore — giving real-time multi-tab sync and instant worker feedback.
 
 ### Card Execution Pipeline (E2E)
 Cards can be **executed**: "Execute" button → `POST /api/cards/{id}/execute` → backend builds a `[CARD EXECUTION]` prompt → sent through the 3-layer pipeline → Fast/Deep layer responds + workers execute with full tools → worker result auto-appended to card description → card moved to "done" → `cards:changed` broadcast → frontend modal updates in real-time via ReactiveCardStore.
@@ -104,7 +105,7 @@ Every card is auto-routed to a specialized agent type via two-pass keyword scori
 
 ### Memory & Context
 - Conversation history persisted in SQLite
-- Per-project context windows
+- Per-workspace context windows
 - Personality consistency via SOUL.md injection
 - Cross-session memory via memory service
 
@@ -123,14 +124,14 @@ Every card is auto-routed to a specialized agent type via two-pass keyword scori
 - **Backend:** FastAPI (uvicorn on port 8000) via systemd user unit
 - **Database:** SQLite at `~/.voxyflow/voxyflow.db` (single-file, no external DB needed)
 - **TTS:** XTTS v2 server (systemd user unit, GPU, port 5500)
-- **LLM:** CLI subprocess (`claude -p`) using Claude Max subscription — no API key needed
+- **LLM:** Configurable per layer/worker. Local CLI options include Claude CLI and Codex CLI; API providers are configured in Settings > Models.
 
 ## Directory Structure
 
 ```
 voxyflow/
 ├── ARCHITECTURE.md
-├── CLAUDE.md                    # Project context for Claude Code
+├── CLAUDE.md                    # Workspace context for Claude Code
 ├── personality/                 # System prompt files (loaded by personality_service)
 │   ├── SOUL.md                  # Core personality
 │   ├── IDENTITY.md              # Identity priming
@@ -148,26 +149,27 @@ voxyflow/
 │       ├── main.py              # FastAPI app + WebSocket handlers
 │       ├── config.py            # Settings (env vars + keyring)
 │       ├── database.py          # SQLAlchemy models
-│       ├── mcp_server.py        # MCP tool definitions (~60 tools)
+│       ├── mcp_server.py        # MCP tool definitions (100+ tools)
 │       ├── models/              # Pydantic schemas
 │       ├── routes/              # REST API endpoints
 │       └── services/
-│           ├── claude_service.py       # ClaudeService singleton (4 layers)
+│           ├── claude_service.py       # LLM orchestration singleton
 │           ├── chat_orchestration.py   # Orchestrator, delegate parsing
 │           ├── personality_service.py  # System prompt builder
 │           ├── board_executor.py       # Sequential board execution
 │           └── llm/
-│               ├── cli_backend.py      # CLI subprocess management
-│               ├── api_caller.py       # API dispatch hub
-│               └── client_factory.py   # SDK client creation
+│               ├── cli_backend.py      # Claude CLI subprocess management
+│               ├── codex_backend.py    # Codex CLI subprocess management
+│               ├── api_caller.py       # Provider dispatch hub
+│               └── provider_factory.py # Provider metadata/factory
 └── frontend-react/
     ├── package.json
     ├── vite.config.ts
     └── src/
         ├── App.tsx
-        ├── types/               # Card, Project, Message types
-        ├── stores/              # Zustand stores (cards, messages, projects)
-        ├── hooks/api/           # TanStack Query hooks (useCards, useProjects)
+        ├── types/               # Card, Workspace, Message types
+        ├── stores/              # Zustand stores (cards, messages, workspaces)
+        ├── hooks/api/           # TanStack Query hooks (useCards, useWorkspaces)
         ├── services/            # TTS, WebSocket, utilities
         ├── contexts/            # ChatProvider
         ├── providers/           # WebSocketProvider
@@ -176,5 +178,5 @@ voxyflow/
         │   ├── Kanban/          # KanbanBoard, KanbanCard
         │   ├── Board/           # FreeBoard (Main Board grid view)
         │   └── Settings/        # VoicePanel, AboutPanel
-        └── pages/               # MainPage, ProjectPage, JobsPage
+        └── pages/               # MainPage, WorkspacePage, JobsPage
 ```

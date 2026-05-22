@@ -1,13 +1,13 @@
 /**
  * Application router — matches the navigation model of the vanilla frontend.
  *
- * ViewMode in the vanilla app: 'chat' | 'kanban' | 'freeboard' | 'projects' |
+ * ViewMode in the vanilla app: 'chat' | 'kanban' | 'freeboard' | 'workspaces' |
  * 'settings' | 'stats' | 'roadmap' | 'wiki' | 'docs' | 'knowledge'
  *
  * Route mapping:
  *   /onboarding     → First-launch setup (shown when onboarding_complete is false)
  *   /               → Main tab (chat + kanban + freeboard accessible via tab state)
- *   /project/:id    → Project tab (kanban/chat/stats/roadmap/wiki/docs/knowledge)
+ *   /workspace/:id    → Workspace tab (kanban/chat/stats/roadmap/wiki/docs/knowledge)
  *   /settings       → Settings page
  */
 import { createBrowserRouter, Navigate } from 'react-router-dom';
@@ -16,8 +16,8 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { OnboardingGuard } from './components/OnboardingGuard';
 
 import { SettingsPage } from './components/Settings/SettingsPage';
-import { ProjectList } from './components/Projects';
-import { ProjectPage } from './pages/ProjectPage';
+import { WorkspaceList } from './components/Workspaces';
+import { WorkspacePage } from './pages/WorkspacePage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { JobsPage } from './pages/JobsPage';
 
@@ -39,9 +39,9 @@ export const router = createBrowserRouter([
       </OnboardingGuard>
     ),
     children: [
-      { index: true, element: <ProjectPage /> },
-      { path: 'projects', element: <ProjectList /> },
-      { path: 'project/:id', element: <ProjectPage /> },
+      { index: true, element: <WorkspacePage /> },
+      { path: 'workspaces', element: <WorkspaceList /> },
+      { path: 'workspace/:id', element: <WorkspacePage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'jobs', element: <JobsPage /> },
       { path: '*', element: <NotFound /> },

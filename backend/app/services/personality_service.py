@@ -200,7 +200,7 @@ class PersonalityService:
         )
 
     def build_project_chat_init(self, project: dict) -> str:
-        """Build the static Chat Init block for Project Chat mode.
+        """Build the static Chat Init block for Workspace Chat mode.
 
         Dynamic details (description, card counts, recent activity) are intentionally
         omitted here to keep the system prompt cacheable. Inject them via
@@ -210,7 +210,7 @@ class PersonalityService:
         bot_name = self.get_bot_name()
 
         return (
-            f"## Project: {name}\n"
+            f"## Workspace: {name}\n"
             f"You are {bot_name}, working on **{name}**. This is your context right now — you know this project, you're inside it.\n\n"
             f"You can create cards, move them, update them, assign agents, write wiki pages. "
             f"When the user asks you to do something in this project, do it — don't explain that you can. "
@@ -284,10 +284,10 @@ class PersonalityService:
             parts.append(session_handoff.rstrip())
 
         if chat_level in ("project", "general") and project:
-            # Project chat: inject full project state.
-            # Main/general chat with no project pulls the list via voxyflow.project.list on demand.
+            # Workspace chat: inject full project state.
+            # Main/general chat with no project pulls the list via voxyflow.workspace.list on demand.
             name = project.get("title", "Untitled")
-            project_id = project.get("id") or ""
+            workspace_id = project.get("id") or ""
             description = project.get("description") or "No description"
             tech_stack = project.get("tech_stack") or "Not specified"
             github_url = project.get("github_url") or "Not linked"
@@ -373,9 +373,9 @@ class PersonalityService:
             blocks_joined = f"{in_progress_block}\n{todo_block}\n{backlog_block}"
             if attention_block:
                 blocks_joined += f"\n{attention_block}"
-            id_line = f"Project ID: {project_id}\n" if project_id else ""
+            id_line = f"Workspace ID: {workspace_id}\n" if workspace_id else ""
             parts.append(
-                f"## Project Context: {name} (LIVE — this overrides any earlier data in the conversation)\n"
+                f"## Workspace Context: {name} (LIVE — this overrides any earlier data in the conversation)\n"
                 f"{id_line}"
                 f"Description: {description}\n"
                 f"Tech Stack: {tech_stack}\n"
@@ -473,7 +473,7 @@ class PersonalityService:
         return "\n\n".join(sections)
 
     def build_project_prompt(self, project: dict) -> str:
-        """Build STATIC system prompt for Project Chat — scoped to one project.
+        """Build STATIC system prompt for Workspace Chat — scoped to one project.
 
         Dynamic project details (description, recent cards) must be injected
         via build_dynamic_context_block().
@@ -636,7 +636,7 @@ class PersonalityService:
         else:
             base = self.build_general_prompt()
 
-        mode_label = f"Project Chat: {project.get('title', 'Home')}" if project else "Home Chat"
+        mode_label = f"Workspace Chat: {project.get('title', 'Home')}" if project else "Home Chat"
         if tier == "deep":
             style = "Opus — thoughtful, precise, depth when helpful."
         else:
@@ -927,8 +927,8 @@ class PersonalityService:
             "- Before delegating again on the same card: call `voxyflow.workers.list` — if a\n"
             "  worker is still active for that card, wait for it. The dispatcher will refuse\n"
             "  to spawn a parallel one anyway.\n\n"
-            "**Project scoping is automatic**: memory/knowledge tools are scoped to the current "
-            "project by the runtime. Don't pass project_id manually. Main/general chat falls back "
+            "**Workspace scoping is automatic**: memory/knowledge tools are scoped to the current "
+            "project by the runtime. Don't pass workspace_id manually. Main/general chat falls back "
             "to global + system-main memory.\n\n"
             "**Inline memory.search is expected, not stalling.** If you need a fact you don't "
             "have, call it mid-response — that's normal. Don't self-censor or apologise for a "
@@ -1073,9 +1073,9 @@ class PersonalityService:
         """Build context section for worker prompts with full IDs and details."""
         parts = []
         if chat_level == "card" and card and project:
-            parts.append(f"Project: {project.get('title', '?')} (project_id: {project.get('id', '?')})")
+            parts.append(f"Workspace: {project.get('title', '?')} (workspace_id: {project.get('id', '?')})")
             if project.get("local_path"):
-                parts.append(f"Project workspace: {project['local_path']} (CWD is set here)")
+                parts.append(f"Workspace workspace: {project['local_path']} (CWD is set here)")
             parts.append(f"Card: {card.get('title', '?')} (card_id: {card.get('id', '?')})")
             parts.append(f"Card status: {card.get('status', '?')} | Priority: {card.get('priority', '?')}")
             if card.get("description"):
@@ -1083,28 +1083,28 @@ class PersonalityService:
             parts.append(
                 f"\nYou are operating on this specific card. "
                 f"Use card_id={card.get('id', '?')} for any card operations. "
-                f"Use project_id={project.get('id', '?')} for any project operations. "
+                f"Use workspace_id={project.get('id', '?')} for any project operations. "
                 f"Do NOT ask the user which card — you already know."
             )
             return "\n".join(parts)
         elif project:
-            parts.append(f"Project: {project.get('title', '?')} (project_id: {project.get('id', '?')})")
+            parts.append(f"Workspace: {project.get('title', '?')} (workspace_id: {project.get('id', '?')})")
             if project.get("local_path"):
-                parts.append(f"Project workspace: {project['local_path']} (CWD is set here)")
+                parts.append(f"Workspace workspace: {project['local_path']} (CWD is set here)")
             if project.get("description"):
                 parts.append(f"Description: {project['description'][:200]}")
             parts.append(
                 f"\nYou are operating in this project's context. "
-                f"Use project_id={project.get('id', '?')} for any project/card operations. "
+                f"Use workspace_id={project.get('id', '?')} for any project/card operations. "
                 f"Do NOT ask the user which project — you already know."
             )
             return "\n".join(parts)
-        from app.config import VOXYFLOW_WORKSPACE_DIR
-        ws_dir = str(VOXYFLOW_WORKSPACE_DIR)
+        from app.config import VOXYFLOW_SANDBOX_DIR
+        sb_dir = str(VOXYFLOW_SANDBOX_DIR)
         return (
-            "Context: Home project (default workspace, project_id=system-main)\n"
-            f"Workspace: {ws_dir}\n"
-            f"CWD is set to {ws_dir} — use relative paths for workspace files.\n"
+            "Context: Home project (default workspace, workspace_id=system-main)\n"
+            f"Sandbox: {sb_dir}\n"
+            f"CWD is set to {sb_dir} — use relative paths for sandbox files.\n"
             "Voxyflow app codebase: ~/voxyflow/ (do NOT write project files here)."
         )
 

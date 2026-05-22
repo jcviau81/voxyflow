@@ -29,7 +29,7 @@ class WorkerSession:
     """Single worker session entry."""
 
     __slots__ = (
-        "task_id", "session_id", "chat_id", "project_id", "card_id", "status", "model", "intent",
+        "task_id", "session_id", "chat_id", "workspace_id", "card_id", "status", "model", "intent",
         "summary", "start_time", "end_time", "result_summary", "artifact_path", "worker_class",
     )
 
@@ -38,7 +38,7 @@ class WorkerSession:
         task_id: str,
         session_id: str,
         chat_id: Optional[str] = None,
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         card_id: Optional[str] = None,
         status: str = "running",
         model: str = "sonnet",
@@ -53,7 +53,7 @@ class WorkerSession:
         self.task_id = task_id
         self.session_id = session_id
         self.chat_id = chat_id
-        self.project_id = project_id
+        self.workspace_id = workspace_id
         self.card_id = card_id
         self.status = status
         self.model = model
@@ -70,7 +70,7 @@ class WorkerSession:
             "task_id": self.task_id,
             "session_id": self.session_id,
             "chat_id": self.chat_id,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "card_id": self.card_id,
             "status": self.status,
             "model": self.model,
@@ -89,7 +89,7 @@ class WorkerSession:
             task_id=data["task_id"],
             session_id=data["session_id"],
             chat_id=data.get("chat_id"),
-            project_id=data.get("project_id"),
+            workspace_id=data.get("workspace_id"),
             card_id=data.get("card_id"),
             status=data.get("status", "running"),
             model=data.get("model", "sonnet"),
@@ -183,7 +183,7 @@ class WorkerSessionStore:
         task_id: str,
         session_id: str,
         chat_id: Optional[str] = None,
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         card_id: Optional[str] = None,
         model: str = "sonnet",
         intent: str = "unknown",
@@ -195,7 +195,7 @@ class WorkerSessionStore:
             task_id=task_id,
             session_id=session_id,
             chat_id=chat_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             card_id=card_id,
             status="running",
             model=model,
@@ -282,16 +282,16 @@ class WorkerSessionStore:
 
     def get_sessions_by_project(
         self,
-        project_id: str,
+        workspace_id: str,
         include_old: bool = False,
     ) -> list[dict]:
-        """Get sessions filtered by project_id (stable across WS reconnects)."""
+        """Get sessions filtered by workspace_id (stable across WS reconnects)."""
         self._refresh_from_disk()
         self.check_timeouts()
         now = time.time()
         results = []
         for session in self._sessions.values():
-            if session.project_id != project_id:
+            if session.workspace_id != workspace_id:
                 continue
             if not self._is_visible(session, now, include_old):
                 continue

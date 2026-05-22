@@ -1,8 +1,8 @@
 /**
- * PageHeader — top bar for full-page views (Settings, Jobs, Projects).
+ * PageHeader — top bar for full-page views (Settings, Jobs, Workspaces).
  *
  * Shows a hamburger menu (mobile), page title, and close button that
- * navigates back to the last project/main view.
+ * navigates back to the last workspace/main view.
  */
 
 import { useNavigate } from 'react-router-dom';

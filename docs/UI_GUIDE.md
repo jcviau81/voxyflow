@@ -11,7 +11,7 @@
 3. [Kanban View](#3-kanban-view)
 4. [Backlog View](#4-backlog-view)
 5. [Knowledge View (Documents, Wiki, RAG)](#5-knowledge-view-documents-wiki-rag)
-6. [Stats View (projects only)](#6-stats-view-projects-only)
+6. [Stats View (workspaces only)](#6-stats-view-workspaces-only)
 7. [Card Detail Modal](#7-card-detail-modal)
 8. [Opportunities and Notifications](#8-opportunities-and-notifications)
 9. [WorkerPanel — Worker Monitoring](#9-workerpanel--worker-monitoring)
@@ -30,7 +30,7 @@ The interface is made up of four fixed areas:
 
 - **Sidebar** — left column, main navigation
 - **TabBar** — horizontal bar at the top, open tabs
-- **ProjectHeader** — below the TabBar, project title and view tabs
+- **WorkspaceHeader** — below the TabBar, workspace title and view tabs
 - **Main content** — central area, changes depending on the active view
 - **Right drawers** — sliding panels (Opportunities, Notifications)
 
@@ -43,18 +43,18 @@ The sidebar is the main navigation column, toggled with `Ctrl+B` to show or hide
 | Section | Description |
 |---------|-------------|
 | Logo | Voxyflow — application identifier |
-| Home | Link to the main tab (🏠 general view, system project) |
+| Home | Link to the main tab (🏠 general view, system workspace) |
 | Jobs | Link to the scheduled tasks management page |
-| Projects | Link to the full project list |
-| Favorites | Projects marked as favorites, with a colored progress dot |
-| New Project | Quick project creation button |
+| Workspaces | Link to the full workspace list |
+| Favorites | Workspaces marked as favorites, with a colored progress dot |
+| New Workspace | Quick workspace creation button |
 | WorkerPanel | Tree of active sessions and workers (see section 9) |
 | Connection status | Colored dot: green = connected, yellow = reconnecting, red = disconnected |
 | Footer | Notification bell, theme toggle, Settings, Documentation, Help |
 
 **Progress dots (favorites):**
 
-Each favorite project displays a colored dot indicating overall progress:
+Each favorite workspace displays a colored dot indicating overall progress:
 - Green: 100% of cards completed
 - Yellow: 50% or more completed
 - Blue: at least one card completed
@@ -73,21 +73,21 @@ On hover, a tooltip shows the details: number of cards, done, in progress, perce
 
 The TabBar is the horizontal bar at the top of the screen. It manages open tabs.
 
-- **Home tab** (🏠) — always present, cannot be closed, gives access to the system project's general views
-- **Project tabs** — open when clicking on a project (sidebar or list), closable with `×` or `Ctrl+W`
-- **"+" button** — opens the project list to add a tab
+- **Home tab** (🏠) — always present, cannot be closed, gives access to the system workspace's general views
+- **Workspace tabs** — open when clicking on a workspace (sidebar or list), closable with `×` or `Ctrl+W`
+- **"+" button** — opens the workspace list to add a tab
 - **Opportunities badge** — shows the number of pending AI suggestions
 - **Bell** — quick access to notifications
 
 Navigate between tabs: `Ctrl+Tab`
 
-### ProjectHeader
+### WorkspaceHeader
 
-Displayed below the TabBar when a project or Home is active. Contains:
-- Emoji and project name (or "Home" for the main tab)
+Displayed below the TabBar when a workspace or Home is active. Contains:
+- Emoji and workspace name (or "Home" for the main tab)
 - View tabs depending on context:
   - **Home**: Chat, Kanban, Board, Knowledge
-  - **Project**: Chat, Kanban, Board, Knowledge, Stats
+  - **Workspace**: Chat, Kanban, Board, Knowledge, Stats
 
 Clicking a view tab changes the main content without switching tabs.
 
@@ -97,8 +97,8 @@ Clicking a view tab changes the main content without switching tabs.
 
 ### Access
 
-- **General chat**: Home tab → "Chat" tab in the ProjectHeader
-- **Project chat**: a project tab → "Chat" tab
+- **General chat**: Home tab → "Chat" tab in the WorkspaceHeader
+- **Workspace chat**: a workspace tab → "Chat" tab
 - **Card chat**: from the Card Detail Modal (center column)
 
 ### Chat Contexts — The 3 Levels
@@ -107,9 +107,9 @@ The chat context changes automatically based on what is selected in the interfac
 
 | Level | Trigger | What Voxy can do |
 |-------|---------|------------------|
-| **General** | Home tab active, no card selected | Manage Home cards, create projects, web search, system commands, schedule jobs |
-| **Project** | A project tab active, no card selected | Everything the general level does + manage project cards, wiki, documents, AI operations (standup, brief, health, prioritize) |
-| **Card** | A card is open in the Card Detail Modal | Everything the project level does + targeted task assistance, checklist management, implementation |
+| **General** | Home tab active, no card selected | Manage Home cards, create workspaces, web search, system commands, schedule jobs |
+| **Workspace** | A workspace tab active, no card selected | Everything the general level does + manage workspace cards, wiki, documents, AI operations (standup, brief, health, prioritize) |
+| **Card** | A card is open in the Card Detail Modal | Everything the workspace level does + targeted task assistance, checklist management, implementation |
 
 Each level has its own isolated history. Switching contexts does not delete the previous history.
 
@@ -127,13 +127,13 @@ Each level has its own isolated history. Switching contexts does not delete the 
 
 Each context displays a tailored welcome message with quick action buttons:
 
-- **General**: "Hey! What are we doing?" + 4 options (Just chatting, Work on a project, Brainstorm, Review tasks)
-- **Project**: project name + status (X in progress, Y todo) + resume buttons for in-progress cards
+- **General**: "Hey! What are we doing?" + 4 options (Just chatting, Work on a workspace, Brainstorm, Review tasks)
+- **Workspace**: workspace name + status (X in progress, Y todo) + resume buttons for in-progress cards
 - **Card**: card title + assigned agent + status + priority + targeted actions (Start working, Enrich, Research, Edit, Discuss)
 
 ### Sessions
 
-Each context (general, project, card) supports multiple independent sessions, accessible via the SessionTabBar. A session = a separate conversation thread. Limit: 5 sessions per context.
+Each context (general, workspace, card) supports multiple independent sessions, accessible via the SessionTabBar. A session = a separate conversation thread. Limit: 5 sessions per context.
 
 Session actions:
 - Create a new session: `/new` or "+" button in the SessionTabBar
@@ -150,7 +150,7 @@ Type `/` in the input field to trigger a command:
 | `/help` | Shows help for available commands |
 | `/agent [name]` | Changes the active AI agent for the session |
 | `/meeting` | Launches a meeting note-taking assistant |
-| `/standup` | Generates a standup from the active project's cards |
+| `/standup` | Generates a standup from the active workspace's cards |
 
 ### Keyboard Shortcuts (Chat View)
 
@@ -165,8 +165,8 @@ Type `/` in the input field to trigger a command:
 
 ### Access
 
-- Home tab → "Kanban" in the ProjectHeader
-- A project tab → "Kanban"
+- Home tab → "Kanban" in the WorkspaceHeader
+- A workspace tab → "Kanban"
 
 ### What It Shows
 
@@ -196,8 +196,8 @@ Each card displays: title, priority, assigned agent, tags, and visual indicators
 
 ### Access
 
-- Home tab → "Backlog" in the ProjectHeader
-- A project tab → "Backlog"
+- Home tab → "Backlog" in the WorkspaceHeader
+- A workspace tab → "Backlog"
 
 ### What It Shows
 
@@ -218,8 +218,8 @@ A whiteboard-style space with colored sticky notes. Each note is independent fro
 
 ### Access
 
-- Home tab → "Knowledge" in the ProjectHeader
-- A project tab → "Knowledge"
+- Home tab → "Knowledge" in the WorkspaceHeader
+- A workspace tab → "Knowledge"
 
 ### What It Shows
 
@@ -234,11 +234,11 @@ Actions:
 - View the list of indexed documents with their status
 - Delete a document
 
-Uploaded documents are automatically indexed into the RAG collection for the current context (general or project), allowing Voxy to cite them when answering questions.
+Uploaded documents are automatically indexed into the RAG collection for the current context (general or workspace), allowing Voxy to cite them when answering questions.
 
 #### Wiki
 
-Editable markdown pages, organized by project. Each project has its own wiki.
+Editable markdown pages, organized by workspace. Each workspace has its own wiki.
 
 Actions:
 - Create a new page
@@ -255,15 +255,15 @@ Vector collection dashboard:
 
 ---
 
-## 6. Stats View (projects only)
+## 6. Stats View (workspaces only)
 
 ### Access
 
-A project tab → "Stats" in the ProjectHeader. This view is not available in the Home tab.
+A workspace tab → "Stats" in the WorkspaceHeader. This view is not available in the Home tab.
 
 ### What It Shows
 
-An analytics dashboard for the project, organized into sections:
+An analytics dashboard for the workspace, organized into sections:
 
 | Section | Content |
 |---------|---------|
@@ -271,8 +271,8 @@ An analytics dashboard for the project, organized into sections:
 | **Distribution** | Card distribution by column (Backlog / Todo / In Progress / Done) |
 | **Velocity** | Velocity charts over recent periods |
 | **Standup** | Auto-generated daily summary. "Generate" button to launch the AI |
-| **Brief** | AI-generated executive summary of the project |
-| **Health** | Project health score + prioritized recommendations |
+| **Brief** | AI-generated executive summary of the workspace |
+| **Health** | Workspace health score + prioritized recommendations |
 | **Priority** | AI-prioritized backlog — cards to tackle first based on dependencies and value |
 | **Focus** | Pomodoro statistics — focus time, completed sessions |
 
@@ -307,7 +307,7 @@ Clicking on any card (Kanban or Backlog) opens the Card Detail Modal.
 | **AgentSelector** | Choose which AI agent is assigned to the card |
 | **Tags** | Add/remove free-form tags |
 | **Color** | 6 background colors for the card |
-| **ProjectPicker** | Move the card to another project |
+| **WorkspacePicker** | Move the card to another workspace |
 | **RecurrenceSection** | Set up recurrence: 15min, 30min, hourly, 6hours, daily, weekdays, weekly, biweekly, monthly, or custom cron |
 | **ChecklistSection** | Internal task list for the card, with a progress bar |
 | **AttachmentsSection** | Drag-and-drop attachments |
@@ -330,10 +330,10 @@ Clicking on any card (Kanban or Backlog) opens the Card Detail Modal.
 
 **Access**: badge in the TabBar (number of pending suggestions), or via the dedicated button.
 
-**What it shows**: card suggestions automatically generated by the AI. The system analyzes the project context and proposes missing tasks, risks, or actions to take.
+**What it shows**: card suggestions automatically generated by the AI. The system analyzes the workspace context and proposes missing tasks, risks, or actions to take.
 
 **Actions**:
-- **Create Card** — directly creates the suggested card in the project
+- **Create Card** — directly creates the suggested card in the workspace
 - **Dismiss** — ignores the suggestion
 
 ### Notifications Drawer
@@ -365,11 +365,11 @@ The WorkerPanel is built into the sidebar, below the main navigation section. It
 A hierarchical tree of ongoing activities:
 
 ```
-Project A
+Workspace A
   └── Session #1
         ├── Worker: [claude] Enriching card "Build auth module"  [2m 14s]  running
         └── Worker: [haiku] Indexing document                   [0m 45s]  done
-Project B
+Workspace B
   └── Session #2
         └── Worker: [opus] Deep analysis                        [5m 02s]  running
 ```
@@ -406,7 +406,7 @@ Full configuration page, with an internal navigation sidebar on the left and 9 p
 | **Voice & STT** | Voice recognition configuration (STT engine) |
 | **GitHub** | GitHub integration: token, default repo |
 | **Workspace** | Workspace settings |
-| **Data** | Data export and import (projects, cards, history) |
+| **Data** | Data export and import (workspaces, cards, history) |
 | **Jobs** | Scheduled task scheduler (alias for the Jobs panel) |
 | **About** | Version, system information, licenses |
 
@@ -483,7 +483,7 @@ List of all scheduled tasks (jobs). Each job can be triggered manually or run on
 |----------|--------|
 | `Ctrl+B` | Show / hide the sidebar |
 | `Ctrl+K` | Open the command palette |
-| `Ctrl+W` | Close the active project tab (not applicable to the Home tab) |
+| `Ctrl+W` | Close the active workspace tab (not applicable to the Home tab) |
 | `Ctrl+Tab` | Navigate to the next tab |
 | `Alt+V` (held) | Push-to-Talk — voice input in chat |
 | `Ctrl+Shift+F` | Search in the active chat history |

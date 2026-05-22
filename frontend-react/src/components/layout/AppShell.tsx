@@ -3,10 +3,10 @@
  *
  *   .app-container
  *     .app-layout
- *       aside.sidebar-container      ← Sidebar (nav + projects + footer)
+ *       aside.sidebar-container      ← Sidebar (nav + workspaces + footer)
  *       .main-area
  *         .tab-bar-container         ← TabBar (session tabs + panel triggers)
- *         .project-header-container  ← ProjectHeader (view tabs: kanban/chat/stats…)
+ *         .workspace-header-container  ← WorkspaceHeader (view tabs: kanban/chat/stats…)
  *         main.main-content          ← <Outlet /> (routed page)
  *     NotificationsPanel drawer (fixed, toggled from TabBar)
  */
@@ -15,65 +15,65 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '../../lib/utils';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { useViewStore } from '../../stores/useViewStore';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useTabStore } from '../../stores/useTabStore';
 import { CardDetailModal } from '../CardDetail';
 import { Sidebar } from '../Navigation/Sidebar';
 import { TabBar } from '../Navigation/TabBar';
-import { ProjectHeader, ProjectForm } from '../Projects';
+import { WorkspaceHeader, WorkspaceForm } from '../Workspaces';
 import { NotificationsPanel } from '../RightPanel/NotificationsPanel';
-import { useProjects } from '../../hooks/api/useProjects';
+import { useWorkspaces } from '../../hooks/api/useWorkspaces';
 import { useWorkerSync } from '../../hooks/useWorkerSync';
 
 type OpenPanel = 'notifications' | null;
 
 export function AppShell() {
   const location = useLocation();
-  const isFullPage = ['/settings', '/jobs', '/projects'].includes(location.pathname);
+  const isFullPage = ['/settings', '/jobs', '/workspaces'].includes(location.pathname);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
-  const [editProjectId, setEditProjectId] = useState<string | null>(null);
+  const [editWorkspaceId, setEditWorkspaceId] = useState<string | null>(null);
   const theme = useThemeStore((s) => s.theme);
 
   // Wire WS → worker store (must be inside WebSocketProvider)
   useWorkerSync();
 
-  // Sync TanStack Query projects → Zustand store so Sidebar/Nav can read from store
-  const { data: projects } = useProjects();
-  const projectsRef = useRef(projects);
+  // Sync TanStack Query workspaces → Zustand store so Sidebar/Nav can read from store
+  const { data: workspaces } = useWorkspaces();
+  const workspacesRef = useRef(workspaces);
 
   useEffect(() => {
-    if (projects && projects !== projectsRef.current) {
-      projectsRef.current = projects;
-      useProjectStore.getState().setProjects(projects);
+    if (workspaces && workspaces !== workspacesRef.current) {
+      workspacesRef.current = workspaces;
+      useWorkspaceStore.getState().setWorkspaces(workspaces);
     }
-  }, [projects]);
+  }, [workspaces]);
 
   // ── URL → store sync (single source of truth) ──
   useEffect(() => {
-    const match = location.pathname.match(/^\/project\/(.+)$/);
-    const projectId = match?.[1] ?? null;
+    const match = location.pathname.match(/^\/workspace\/(.+)$/);
+    const workspaceId = match?.[1] ?? null;
 
-    const pStore = useProjectStore.getState();
+    const pStore = useWorkspaceStore.getState();
     const tStore = useTabStore.getState();
 
-    if (projectId) {
-      // Sync project store from URL
-      if (pStore.currentProjectId !== projectId) {
-        pStore.selectProject(projectId);
+    if (workspaceId) {
+      // Sync workspace store from URL
+      if (pStore.currentWorkspaceId !== workspaceId) {
+        pStore.selectWorkspace(workspaceId);
       }
       // Ensure tab exists and is active
-      const tabExists = tStore.openTabs.some((t) => t.id === projectId);
+      const tabExists = tStore.openTabs.some((t) => t.id === workspaceId);
       if (!tabExists) {
-        const project = pStore.getProject(projectId);
-        tStore.openProjectTab(projectId, project?.name ?? 'Project', project?.emoji);
-      } else if (tStore.activeTab !== projectId) {
-        tStore.switchTab(projectId);
+        const workspace = pStore.getWorkspace(workspaceId);
+        tStore.openWorkspaceTab(workspaceId, workspace?.name ?? 'Workspace', workspace?.emoji);
+      } else if (tStore.activeTab !== workspaceId) {
+        tStore.switchTab(workspaceId);
       }
     } else {
-      // Main page or non-project route
-      if (pStore.currentProjectId !== null) {
-        pStore.selectProject(null);
+      // Main page or non-workspace route
+      if (pStore.currentWorkspaceId !== null) {
+        pStore.selectWorkspace(null);
       }
       if (tStore.activeTab !== 'main') {
         tStore.switchTab('main');
@@ -133,7 +133,7 @@ export function AppShell() {
                 onPanelToggle={handlePanelToggle}
                 onSidebarToggle={toggleSidebar}
               />
-              <ProjectHeader onOpenProjectProperties={setEditProjectId} />
+              <WorkspaceHeader onOpenWorkspaceProperties={setEditWorkspaceId} />
             </>
           )}
           <main className="main-content flex-1 overflow-auto">
@@ -163,12 +163,12 @@ export function AppShell() {
       {/* Global card detail modal */}
       <CardDetailModal />
 
-      {/* Project properties modal */}
-      {editProjectId && (
-        <ProjectForm
+      {/* Workspace properties modal */}
+      {editWorkspaceId && (
+        <WorkspaceForm
           mode="edit"
-          project={useProjectStore.getState().getProject(editProjectId)}
-          onClose={() => setEditProjectId(null)}
+          workspace={useWorkspaceStore.getState().getWorkspace(editWorkspaceId)}
+          onClose={() => setEditWorkspaceId(null)}
         />
       )}
     </div>

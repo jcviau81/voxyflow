@@ -1,20 +1,20 @@
 import { useState, useRef, useEffect } from 'react';
 import { Rocket, Folder } from 'lucide-react';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useMoveCard } from '../../hooks/api/useCards';
 import { useToastStore } from '../../stores/useToastStore';
-import { SYSTEM_PROJECT_ID } from '../../lib/constants';
+import { SYSTEM_WORKSPACE_ID } from '../../lib/constants';
 
-interface ProjectPickerProps {
+interface WorkspacePickerProps {
   cardId: string;
   onMoved: () => void;
 }
 
-export function ProjectPicker({ cardId, onMoved }: ProjectPickerProps) {
+export function WorkspacePicker({ cardId, onMoved }: WorkspacePickerProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const projects = useProjectStore((s) => s.projects).filter(
-    (p) => p.id !== SYSTEM_PROJECT_ID && !p.archived,
+  const workspaces = useWorkspaceStore((s) => s.workspaces).filter(
+    (p) => p.id !== SYSTEM_WORKSPACE_ID && !p.archived,
   );
   const moveCard = useMoveCard();
   const showToast = useToastStore((s) => s.showToast);
@@ -31,13 +31,13 @@ export function ProjectPicker({ cardId, onMoved }: ProjectPickerProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const handleSelect = (projectId: string, projectName: string) => {
+  const handleSelect = (workspaceId: string, workspaceName: string) => {
     setOpen(false);
     moveCard.mutate(
-      { cardId, targetProjectId: projectId, sourceProjectId: SYSTEM_PROJECT_ID },
+      { cardId, targetWorkspaceId: workspaceId, sourceWorkspaceId: SYSTEM_WORKSPACE_ID },
       {
         onSuccess: () => {
-          showToast(`Card moved to ${projectName}`, 'success');
+          showToast(`Card moved to ${workspaceName}`, 'success');
           onMoved();
         },
         onError: () => {
@@ -55,15 +55,15 @@ export function ProjectPicker({ cardId, onMoved }: ProjectPickerProps) {
         className="flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
       >
         <Rocket className="h-3.5 w-3.5" />
-        Assign to Project
+        Assign to Workspace
       </button>
 
       {open && (
         <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-popover py-1 shadow-lg">
-          {projects.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-muted-foreground">No projects yet</div>
+          {workspaces.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">No workspaces yet</div>
           ) : (
-            projects.map((p) => (
+            workspaces.map((p) => (
               <button
                 key={p.id}
                 type="button"

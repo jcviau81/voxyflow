@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useCards } from '../../hooks/api/useCards';
 import { StatsGrid } from './StatsGrid';
@@ -9,24 +9,24 @@ import { HealthSection } from './HealthSection';
 import { PrioritySection } from './PrioritySection';
 import { FocusSection, type FocusAnalytics } from './FocusSection';
 
-export function ProjectStats() {
-  const currentProjectId = useProjectStore(s => s.currentProjectId);
-  const project = useProjectStore(s => s.getActiveProject());
+export function WorkspaceStats() {
+  const currentWorkspaceId = useWorkspaceStore(s => s.currentWorkspaceId);
+  const workspace = useWorkspaceStore(s => s.getActiveWorkspace());
   // Access the raw array reference (stable) — slicing inside the selector creates
   // a new reference every call, causing Zustand to loop infinitely.
   const rawActivities = useNotificationStore(s =>
-    currentProjectId ? s.activities[currentProjectId] : null
+    currentWorkspaceId ? s.activities[currentWorkspaceId] : null
   );
   const activities = rawActivities?.slice(0, 50) ?? [];
 
-  const { data: cards = [] } = useCards(currentProjectId ?? '');
+  const { data: cards = [] } = useCards(currentWorkspaceId ?? '');
 
   const [focusAnalytics, setFocusAnalytics] = useState<FocusAnalytics | null>(null);
 
-  if (!currentProjectId) {
+  if (!currentWorkspaceId) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        No project selected.
+        No workspace selected.
       </div>
     );
   }
@@ -39,19 +39,19 @@ export function ProjectStats() {
         focusAnalytics={focusAnalytics}
       />
 
-      <StandupSection projectId={currentProjectId} />
+      <StandupSection workspaceId={currentWorkspaceId} />
 
       <BriefSection
-        projectId={currentProjectId}
-        projectName={project?.name ?? 'project'}
+        workspaceId={currentWorkspaceId}
+        workspaceName={workspace?.name ?? 'workspace'}
       />
 
-      <HealthSection projectId={currentProjectId} />
+      <HealthSection workspaceId={currentWorkspaceId} />
 
-      <PrioritySection projectId={currentProjectId} cards={cards} />
+      <PrioritySection workspaceId={currentWorkspaceId} cards={cards} />
 
       <FocusSection
-        projectId={currentProjectId}
+        workspaceId={currentWorkspaceId}
         onAnalyticsLoaded={setFocusAnalytics}
       />
     </div>

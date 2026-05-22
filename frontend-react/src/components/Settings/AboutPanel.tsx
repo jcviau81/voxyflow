@@ -130,7 +130,7 @@ export function AboutPanel() {
       {/* Version info */}
       <div className="text-sm text-muted-foreground leading-relaxed">
         <div className="font-medium text-foreground">Voxyflow</div>
-        <div>Voice-first project assistant</div>
+        <div>Voice-first workspace assistant</div>
         <div className="mt-1 font-mono text-xs">Version: 1.0.0</div>
       </div>
 

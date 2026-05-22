@@ -1,16 +1,16 @@
 """
 E2E: Full integration flow — tests a realistic user workflow end-to-end:
 
-1. Create project
+1. Create workspace
 2. Create cards in various statuses
 3. Create wiki page
-4. Chat with Voxy about the project (WS)
+4. Chat with Voxy about the workspace (WS)
 5. Verify workers list
 6. Move cards around the board
 7. Add checklist, comments, time entries
 8. Verify session history persists
 9. Verify card history recorded
-10. Export project
+10. Export workspace
 11. Cleanup
 
 This test exercises the full stack: REST + WebSocket + LLM + persistence.
@@ -31,14 +31,14 @@ from .conftest import (
 
 
 @pytest.mark.asyncio
-async def test_full_project_lifecycle(client: httpx.AsyncClient):
-    """Full project + card + wiki lifecycle without LLM (REST only)."""
+async def test_full_workspace_lifecycle(client: httpx.AsyncClient):
+    """Full workspace + card + wiki lifecycle without LLM (REST only)."""
     tag = uuid.uuid4().hex[:6]
     pid = None
 
     try:
-        # 1. Create project
-        r = await client.post("/api/projects", json={
+        # 1. Create workspace
+        r = await client.post("/api/workspaces", json={
             "title": f"FullFlow_{tag}",
             "description": "Full E2E flow test",
         })
@@ -49,7 +49,7 @@ async def test_full_project_lifecycle(client: httpx.AsyncClient):
         # 2. Create multiple cards with different statuses
         card_ids = []
         for i, status in enumerate(["backlog", "todo", "in-progress", "done"]):
-            r = await client.post(f"/api/projects/{pid}/cards", json={
+            r = await client.post(f"/api/workspaces/{pid}/cards", json={
                 "title": f"Flow Card {i} ({status})",
                 "description": f"Card at status {status}",
                 "status": status,
@@ -58,7 +58,7 @@ async def test_full_project_lifecycle(client: httpx.AsyncClient):
             if r.status_code == 500:
                 # SQLite WAL contention — retry once after short delay
                 await asyncio.sleep(0.3)
-                r = await client.post(f"/api/projects/{pid}/cards", json={
+                r = await client.post(f"/api/workspaces/{pid}/cards", json={
                     "title": f"Flow Card {i} ({status})",
                     "description": f"Card at status {status}",
                     "status": status,
@@ -69,15 +69,15 @@ async def test_full_project_lifecycle(client: httpx.AsyncClient):
             card_ids.append(cid)
 
         # 3. Create wiki page
-        r = await client.post(f"/api/projects/{pid}/wiki", json={
-            "title": "Project Documentation",
-            "content": "# Full Flow Test\nDocumentation for the flow test project.",
+        r = await client.post(f"/api/workspaces/{pid}/wiki", json={
+            "title": "Workspace Documentation",
+            "content": "# Full Flow Test\nDocumentation for the flow test workspace.",
         })
         assert r.status_code in (200, 201)
         wiki_id = r.json().get("id")
 
         # 4. Verify all cards are listed
-        r = await client.get(f"/api/projects/{pid}/cards")
+        r = await client.get(f"/api/workspaces/{pid}/cards")
         assert r.status_code == 200
         cards = r.json()
         assert len(cards) >= 4
@@ -157,51 +157,51 @@ async def test_full_project_lifecycle(client: httpx.AsyncClient):
         assert r.status_code in (200, 201)
 
         # 15. Update wiki
-        r = await client.put(f"/api/projects/{pid}/wiki/{wiki_id}", json={
+        r = await client.put(f"/api/workspaces/{pid}/wiki/{wiki_id}", json={
             "title": "Updated Documentation",
             "content": "# Updated\nNow with more content.",
         })
         assert r.status_code == 200
 
-        # 16. Export project
-        r = await client.get(f"/api/projects/{pid}/export")
+        # 16. Export workspace
+        r = await client.get(f"/api/workspaces/{pid}/export")
         assert r.status_code == 200
         export = r.json()
-        assert "project" in export
+        assert "workspace" in export
         assert "cards" in export
         assert len(export["cards"]) >= 4
 
-        # 17. Verify project detail includes cards
-        r = await client.get(f"/api/projects/{pid}")
+        # 17. Verify workspace detail includes cards
+        r = await client.get(f"/api/workspaces/{pid}")
         assert r.status_code == 200
 
-        # 18. Archive project
-        r = await client.post(f"/api/projects/{pid}/archive")
+        # 18. Archive workspace
+        r = await client.post(f"/api/workspaces/{pid}/archive")
         assert r.status_code == 200
-        r = await client.get(f"/api/projects/{pid}")
+        r = await client.get(f"/api/workspaces/{pid}")
         assert r.json()["status"] == "archived"
 
-        # 19. Restore project
-        r = await client.post(f"/api/projects/{pid}/restore")
+        # 19. Restore workspace
+        r = await client.post(f"/api/workspaces/{pid}/restore")
         assert r.status_code == 200
 
     finally:
         # Cleanup
         if pid:
-            await client.delete(f"/api/projects/{pid}")
+            await client.delete(f"/api/workspaces/{pid}")
 
 
 @pytest.mark.asyncio
 async def test_full_chat_flow():
-    """Full chat flow: WS connect → general chat → project chat → verify response."""
+    """Full chat flow: WS connect → general chat → workspace chat → verify response."""
     import websockets
 
     tag = uuid.uuid4().hex[:6]
     pid = None
 
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=15) as client:
-        # Create a test project
-        r = await client.post("/api/projects", json={
+        # Create a test workspace
+        r = await client.post("/api/workspaces", json={
             "title": f"ChatFlow_{tag}",
             "description": "Chat flow test",
         })
@@ -209,7 +209,7 @@ async def test_full_chat_flow():
         pid = r.json().get("id")
 
         # Create a card in it
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": "Chat test card",
             "status": "todo",
         })
@@ -233,10 +233,10 @@ async def test_full_chat_flow():
             response = await ws_collect_chat_response(ws, timeout=LLM_TIMEOUT)
             assert len(response) > 0, "General chat produced empty response"
 
-            # 3. Project chat
+            # 3. Workspace chat
             await ws_send(ws, "session:reset", {
-                "chatLevel": "project",
-                "projectId": pid,
+                "chatLevel": "workspace",
+                "workspaceId": pid,
                 "sessionId": f"e2e-projchat-{tag}",
             })
             # Wait for reset ack
@@ -250,54 +250,54 @@ async def test_full_chat_flow():
             await ws_send(ws, "chat:message", {
                 "content": "Combien de cartes dans ce projet?",
                 "messageId": f"e2e-msg-{tag}-2",
-                "chatLevel": "project",
-                "projectId": pid,
+                "chatLevel": "workspace",
+                "workspaceId": pid,
                 "sessionId": f"e2e-projchat-{tag}",
-                "chatId": f"project:{pid}",
+                "chatId": f"workspace:{pid}",
             })
             response = await ws_collect_chat_response(ws, timeout=LLM_TIMEOUT)
-            assert len(response) > 0, "Project chat produced empty response"
+            assert len(response) > 0, "Workspace chat produced empty response"
 
     finally:
         async with httpx.AsyncClient(base_url=BASE_URL, timeout=10) as client:
             if pid:
-                await client.delete(f"/api/projects/{pid}")
+                await client.delete(f"/api/workspaces/{pid}")
 
 
 @pytest.mark.asyncio
-async def test_cross_project_card_isolation(client: httpx.AsyncClient):
-    """Cards in project A must not appear when listing project B's cards."""
+async def test_cross_workspace_card_isolation(client: httpx.AsyncClient):
+    """Cards in workspace A must not appear when listing workspace B's cards."""
     tag = uuid.uuid4().hex[:6]
 
-    # Create two projects
-    r = await client.post("/api/projects", json={"title": f"IsoA_{tag}"})
+    # Create two workspaces
+    r = await client.post("/api/workspaces", json={"title": f"IsoA_{tag}"})
     pid_a = r.json().get("id")
-    r = await client.post("/api/projects", json={"title": f"IsoB_{tag}"})
+    r = await client.post("/api/workspaces", json={"title": f"IsoB_{tag}"})
     pid_b = r.json().get("id")
 
     try:
         # Create card in A
-        r = await client.post(f"/api/projects/{pid_a}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid_a}/cards", json={
             "title": f"SecretCardA_{tag}",
             "status": "todo",
         })
         card_a_id = r.json().get("id")
 
         # List cards in B — should not see A's card
-        r = await client.get(f"/api/projects/{pid_b}/cards")
+        r = await client.get(f"/api/workspaces/{pid_b}/cards")
         cards_b = r.json()
         ids_b = [c["id"] for c in cards_b]
-        assert card_a_id not in ids_b, "Card from project A leaked into project B"
+        assert card_a_id not in ids_b, "Card from workspace A leaked into workspace B"
 
         # Also verify A has its card
-        r = await client.get(f"/api/projects/{pid_a}/cards")
+        r = await client.get(f"/api/workspaces/{pid_a}/cards")
         cards_a = r.json()
         ids_a = [c["id"] for c in cards_a]
         assert card_a_id in ids_a
 
     finally:
-        await client.delete(f"/api/projects/{pid_a}")
-        await client.delete(f"/api/projects/{pid_b}")
+        await client.delete(f"/api/workspaces/{pid_a}")
+        await client.delete(f"/api/workspaces/{pid_b}")
 
 
 @pytest.mark.asyncio
@@ -305,8 +305,8 @@ async def test_session_persistence(client: httpx.AsyncClient):
     """Verify that session creation, get, and deletion flow works cleanly."""
     tag = uuid.uuid4().hex[:6]
 
-    # Create project
-    r = await client.post("/api/projects", json={"title": f"SessPers_{tag}"})
+    # Create workspace
+    r = await client.post("/api/workspaces", json={"title": f"SessPers_{tag}"})
     pid = r.json().get("id")
 
     try:
@@ -314,7 +314,7 @@ async def test_session_persistence(client: httpx.AsyncClient):
         sessions = []
         for i in range(3):
             r = await client.post("/api/sessions", json={
-                "project_id": pid,
+                "workspace_id": pid,
                 "title": f"Session {i}",
             })
             assert r.status_code in (200, 201)
@@ -344,4 +344,4 @@ async def test_session_persistence(client: httpx.AsyncClient):
                 await client.delete(f"/api/sessions/{sid}")
             except Exception:
                 pass
-        await client.delete(f"/api/projects/{pid}")
+        await client.delete(f"/api/workspaces/{pid}")

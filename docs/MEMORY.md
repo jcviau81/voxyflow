@@ -13,8 +13,8 @@ Voxyflow has 4 memory/persistence layers:
 | System | Technology | Scope | Purpose |
 |--------|-----------|-------|---------|
 | **Chat Sessions** | File-based JSON | Per-context | Conversation history |
-| **RAG** | ChromaDB | Per-project | Document retrieval, knowledge base |
-| **Semantic Memory** | ChromaDB | Global + per-project | Decisions, lessons, preferences |
+| **RAG** | ChromaDB | Per-workspace | Document retrieval, knowledge base |
+| **Semantic Memory** | ChromaDB | Global + per-workspace | Decisions, lessons, preferences |
 | **Personality Files** | Markdown | Global | Core identity, operating rules |
 
 ---
@@ -33,7 +33,7 @@ Voxyflow has 4 memory/persistence layers:
 | Chat ID | File Path |
 |---------|-----------|
 | `general:abc123` | `sessions/general/abc123.json` |
-| `project:proj-xyz` | `sessions/project/proj-xyz.json` |
+| `workspace:proj-xyz` | `sessions/workspace/proj-xyz.json` |
 | `card:card-abc` | `sessions/card/card-abc.json` |
 
 ### Operations
@@ -43,7 +43,7 @@ Voxyflow has 4 memory/persistence layers:
 | `save_message(chat_id, message)` | Append message to session file |
 | `load_session(chat_id)` | Load all messages for a session |
 | `get_recent_messages(chat_id, limit)` | Get last N messages |
-| `get_history_for_claude(chat_id, limit)` | Format messages for Claude API |
+| `get_history_for_claude(chat_id, limit)` | Format messages for LLM provider |
 | `clear_session(chat_id)` | Archive session (timestamped backup), create fresh file |
 
 ### Session Lifecycle
@@ -64,7 +64,7 @@ Voxyflow has 4 memory/persistence layers:
 
 ### How It Works
 
-ChromaDB-backed retrieval-augmented generation for project knowledge.
+ChromaDB-backed retrieval-augmented generation for workspace knowledge.
 
 - **Embedding model:** `intfloat/multilingual-e5-large` (~470MB, local, no API calls)
 - **Persistence:** `~/.voxyflow/chroma/`
@@ -72,41 +72,41 @@ ChromaDB-backed retrieval-augmented generation for project knowledge.
 - **Cross-lingual:** Native — the model maps 100+ languages into a shared vector space, so FR queries retrieve EN documents and vice versa without translation
 - **Graceful degradation:** If `chromadb` not installed, RAG silently disables
 
-### Per-Project Collections
+### Per-Workspace Collections
 
-Each project gets 3 ChromaDB collections:
+Each workspace gets 3 ChromaDB collections:
 
 | Collection | Name Pattern | Content |
 |-----------|-------------|---------|
-| **Documents** | `voxyflow_project_{id}_docs` | Uploaded files (PDF, text, code) |
-| **History** | `voxyflow_project_{id}_history` | Conversation history embeddings |
-| **Workspace** | `voxyflow_project_{id}_workspace` | Cards, board data, project metadata |
+| **Documents** | `voxyflow_workspace_{id}_docs` | Uploaded files (PDF, text, code) |
+| **History** | `voxyflow_workspace_{id}_history` | Conversation history embeddings |
+| **Workspace** | `voxyflow_workspace_{id}_workspace` | Cards, board data, workspace metadata |
 
 ### What Gets Embedded
 
 | Source | When | What |
 |--------|------|------|
-| Document upload | On `POST /api/projects/{id}/documents` | File chunked into segments, each embedded |
-| RAG indexer job | Every 15 minutes (scheduler) | Re-indexes active project data |
+| Document upload | On `POST /api/workspaces/{id}/documents` | File chunked into segments, each embedded |
+| RAG indexer job | Every 15 minutes (scheduler) | Re-indexes active workspace data |
 | Conversation | During chat (if enabled) | Message content embedded into history collection |
 
 ### How Context Is Built
 
-When a user sends a message in a project context:
+When a user sends a message in a workspace context:
 
-1. Message text is used as a similarity query against project collections
+1. Message text is used as a similarity query against workspace collections
 2. Top-K relevant chunks retrieved from documents, history, workspace
 3. Chunks below the `0.82` cosine similarity cutoff are discarded
 4. Retrieved context injected into the system prompt under a "Relevant Context" section
-5. LLM uses this context to give informed, project-aware responses
+5. LLM uses this context to give informed, workspace-aware responses
 
 ### Operations
 
 | Method | What It Does |
 |--------|-------------|
-| `index_document(project_id, doc)` | Chunk and embed document |
-| `delete_document(project_id, doc_id)` | Remove from index |
-| `query(project_id, text, k)` | Similarity search across collections |
+| `index_document(workspace_id, doc)` | Chunk and embed document |
+| `delete_document(workspace_id, doc_id)` | Remove from index |
+| `query(workspace_id, text, k)` | Similarity search across collections |
 | `enabled` | Property: whether ChromaDB is available |
 
 ---
@@ -129,26 +129,26 @@ ChromaDB-backed hierarchical memory with file-based fallback.
 
 ### Collections
 
-Collections are keyed by **project UUID** (never slug or title — slugs change on
+Collections are keyed by **workspace UUID** (never slug or title — slugs change on
 rename and would orphan data). The special `system-main` pseudo-id is used for
-the general / main chat when no project is selected.
+the general / main chat when no workspace is selected.
 
 | Collection | Scope | Content |
 |-----------|-------|---------|
-| `memory-global` | Cross-project | Universal decisions, preferences, lessons. **General chat only** — project chats never query this collection. |
-| `memory-project-{project_id}` | Per-project | Project-specific context and decisions. Keyed by the project UUID. |
-| `memory-project-system-main` | General chat | Per-"project" store for the general chat pseudo-project |
+| `memory-global` | Cross-workspace | Universal decisions, preferences, lessons. **General chat only** — workspace chats never query this collection. |
+| `memory-workspace-{workspace_id}` | Per-workspace | Workspace-specific context and decisions. Keyed by the workspace UUID. |
+| `memory-workspace-system-main` | General chat | Per-"workspace" store for the general chat pseudo-workspace |
 
-Invariants (see CLAUDE.md §"Project Isolation" and
+Invariants (see CLAUDE.md §"Workspace Isolation" and
 `backend/scripts/smoke_test_isolation.py`):
 
 - `search_memory()` requires explicit `collections=[...]` — there is no silent
   global fallback.
 - MCP tools (`memory.search`, `memory.save`, `knowledge.search`) auto-scope via
-  the `VOXYFLOW_PROJECT_ID` env var set by `cli_backend._build_mcp_config(...)`.
-  The schemas **do not expose** `project_id` — the LLM cannot override scope.
-- `chat_id` is server-canonical (`card:{card_id}`, `project:{project_id}`,
-  `project:{SYSTEM_MAIN_PROJECT_ID}`). A stale or spoofed frontend `chatId` is
+  the `VOXYFLOW_WORKSPACE_ID` env var set by `cli_backend._build_mcp_config(...)`.
+  The schemas **do not expose** `workspace_id` — the LLM cannot override scope.
+- `chat_id` is server-canonical (`card:{card_id}`, `workspace:{workspace_id}`,
+  `workspace:{SYSTEM_MAIN_WORKSPACE_ID}`). A stale or spoofed frontend `chatId` is
   rejected and replaced.
 
 ### Memory Types
@@ -158,7 +158,7 @@ Invariants (see CLAUDE.md §"Project Isolation" and
 | `decision` | Architectural or strategic decisions made |
 | `preference` | User preferences and working style |
 | `lesson` | Lessons learned from past work |
-| `fact` | Factual information about the project/user |
+| `fact` | Factual information about the workspace/user |
 | `context` | Background context for ongoing work |
 
 ### Importance Levels
@@ -213,11 +213,11 @@ For every chat message, the system prompt is assembled:
 4. Load AGENTS.md → operating rules
 5. Apply tone/warmth modifiers from settings.json
 6. Add chat-level context:
-   - General: project list, Home cards summary
-   - Project: project details, cards, wiki
+   - General: workspace list, Home cards summary
+   - Workspace: workspace details, cards, wiki
    - Card: card details, agent persona, checklist
 7. Add tool definitions (filtered by layer + chat_level)
-8. Add RAG context (if project level, if available)
+8. Add RAG context (if workspace level, if available)
 9. Add session history (last 20 or 100 messages)
 ```
 
@@ -230,7 +230,7 @@ For every chat message, the system prompt is assembled:
 | Context | Storage | Max Sessions | Session ID Source |
 |---------|---------|-------------|------------------|
 | General | `generalSessions[]` | Separate | `general:{uuid}` |
-| Project | `sessions[projectId]` | 5 per project | `project:{projectId}::{uuid}` |
+| Workspace | `sessions[workspaceId]` | 5 per workspace | `workspace:{workspaceId}::{uuid}` |
 | Card | `sessions[cardId]` | 5 per card | `card:{cardId}::{uuid}` |
 
 ### Session Operations

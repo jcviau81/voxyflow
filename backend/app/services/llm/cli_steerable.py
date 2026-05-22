@@ -58,7 +58,7 @@ class SteerableMixin:
         use_tools: bool = True,
         mcp_role: str = "worker",
         voxyflow_dev_task: bool = False,
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         chat_id: str = "",
         worker_id: str = "",
@@ -89,7 +89,7 @@ class SteerableMixin:
                 self._build_mcp_config(
                     role=mcp_role,
                     voxyflow_dev_task=voxyflow_dev_task,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     card_id=card_id,
                     chat_id=chat_id,
                     worker_id=worker_id,
@@ -114,7 +114,7 @@ class SteerableMixin:
         tool_callback: Optional[Callable] = None,
         session_id: str = "",
         chat_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
@@ -136,7 +136,7 @@ class SteerableMixin:
         args = self._build_args_steerable(
             model, system_prompt, use_tools=use_tools, mcp_role=mcp_role,
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),
-            project_id=project_id, card_id=card_id,
+            workspace_id=workspace_id, card_id=card_id,
             chat_id=chat_id,
             worker_id=(task_id or (session_id if session_type == "worker" else "")),
         )
@@ -166,7 +166,7 @@ class SteerableMixin:
         _reg_id = new_cli_session_id()
         get_cli_session_registry().register(CliSession(
             id=_reg_id, pid=proc.pid, session_id=session_id,
-            chat_id=chat_id, project_id=project_id or None,
+            chat_id=chat_id, workspace_id=workspace_id or None,
             model=_model_flag(model), session_type=session_type,
             started_at=time.time(), cancel_event=_cancel, _process=proc,
             task_id=task_id, steer_queue=_steer_q,

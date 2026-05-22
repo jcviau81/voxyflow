@@ -6,14 +6,14 @@
 
 ## Cards
 
-### Project Cards
+### Workspace Cards
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/projects/{project_id}/cards` | Create a card in a project |
-| `GET` | `/api/projects/{project_id}/cards` | List all cards for a project |
+| `POST` | `/api/workspaces/{workspace_id}/cards` | Create a card in a workspace |
+| `GET` | `/api/workspaces/{workspace_id}/cards` | List all cards for a workspace |
 
-**POST /api/projects/{project_id}/cards**
+**POST /api/workspaces/{workspace_id}/cards**
 ```json
 // Request
 {
@@ -31,13 +31,13 @@
 // Response: CardResponse (see DATA_MODEL.md)
 ```
 
-**GET /api/projects/{project_id}/cards**
+**GET /api/workspaces/{workspace_id}/cards**
 - Query params: `status` (filter), `agent_type` (filter)
 - Response: `CardResponse[]`
 
 ### Home Cards (legacy "unassigned" path)
 
-These endpoints proxy to the system Home project (`project_id="system-main"`).
+These endpoints proxy to the system Home workspace (`workspace_id="system-main"`).
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -62,9 +62,9 @@ These endpoints proxy to the system Home project (`project_id="system-main"`).
 | `GET` | `/api/cards/{card_id}` | Get card details |
 | `PATCH` | `/api/cards/{card_id}` | Update card fields |
 | `DELETE` | `/api/cards/{card_id}` | Delete card (irreversible) |
-| `PATCH` | `/api/cards/{card_id}/assign/{project_id}` | Move card to a project |
-| `PATCH` | `/api/cards/{card_id}/unassign` | Move card back to Home (system project) |
-| `POST` | `/api/cards/{card_id}/duplicate` | Duplicate card in same project |
+| `PATCH` | `/api/cards/{card_id}/assign/{workspace_id}` | Move card to a workspace |
+| `PATCH` | `/api/cards/{card_id}/unassign` | Move card back to Home (system workspace) |
+| `POST` | `/api/cards/{card_id}/duplicate` | Duplicate card in same workspace |
 | `POST` | `/api/cards/{card_id}/enrich` | AI-enrich card description |
 
 **PATCH /api/cards/{card_id}**
@@ -108,23 +108,23 @@ Response: `[{type, name, emoji, description, strengths, keywords}]`
 
 ---
 
-## Projects
+## Workspaces
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/projects` | Create project |
-| `GET` | `/api/projects` | List all projects |
-| `GET` | `/api/projects/{project_id}` | Get project with cards |
-| `PATCH` | `/api/projects/{project_id}` | Update project |
-| `DELETE` | `/api/projects/{project_id}` | Delete project (irreversible) |
-| `POST` | `/api/projects/{project_id}/archive` | Archive project |
-| `POST` | `/api/projects/{project_id}/restore` | Restore archived project |
-| `GET` | `/api/projects/{project_id}/export` | Export project as JSON |
-| `POST` | `/api/projects/import` | Import project from JSON |
-| `GET` | `/api/projects/templates` | List project templates |
-| `POST` | `/api/projects/from-template/{template_id}` | Create from template |
+| `POST` | `/api/workspaces` | Create workspace |
+| `GET` | `/api/workspaces` | List all workspaces |
+| `GET` | `/api/workspaces/{workspace_id}` | Get workspace with cards |
+| `PATCH` | `/api/workspaces/{workspace_id}` | Update workspace |
+| `DELETE` | `/api/workspaces/{workspace_id}` | Delete workspace (irreversible) |
+| `POST` | `/api/workspaces/{workspace_id}/archive` | Archive workspace |
+| `POST` | `/api/workspaces/{workspace_id}/restore` | Restore archived workspace |
+| `GET` | `/api/workspaces/{workspace_id}/export` | Export workspace as JSON |
+| `POST` | `/api/workspaces/import` | Import workspace from JSON |
+| `GET` | `/api/workspaces/templates` | List workspace templates |
+| `POST` | `/api/workspaces/from-template/{template_id}` | Create from template |
 
-**POST /api/projects**
+**POST /api/workspaces**
 ```json
 {
   "title": "string (required)",
@@ -138,9 +138,9 @@ Response: `[{type, name, emoji, description, strengths, keywords}]`
 }
 ```
 
-**GET /api/projects**
+**GET /api/workspaces**
 - Query params: `status` (active|archived), `archived` (bool)
-- Response: `ProjectResponse[]`
+- Response: `WorkspaceResponse[]`
 
 **Templates:** software, research, content, bugfix, launch
 
@@ -150,13 +150,13 @@ Response: `[{type, name, emoji, description, strengths, keywords}]`
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/projects/{project_id}/documents` | Upload document (multipart) |
-| `GET` | `/api/projects/{project_id}/documents` | List project documents |
-| `DELETE` | `/api/projects/{project_id}/documents/{document_id}` | Delete document |
+| `POST` | `/api/workspaces/{workspace_id}/documents` | Upload document (multipart) |
+| `GET` | `/api/workspaces/{workspace_id}/documents` | List workspace documents |
+| `DELETE` | `/api/workspaces/{workspace_id}/documents/{document_id}` | Delete document |
 
 **POST** accepts multipart file upload. Document is chunked and indexed in ChromaDB.
 
-Response: `DocumentResponse` with `{id, project_id, filename, filetype, size_bytes, chunk_count, created_at, indexed_at}`
+Response: `DocumentResponse` with `{id, workspace_id, filename, filetype, size_bytes, chunk_count, created_at, indexed_at}`
 
 ---
 
@@ -164,12 +164,12 @@ Response: `DocumentResponse` with `{id, project_id, filename, filetype, size_byt
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/projects/{project_id}/wiki` | List wiki pages |
-| `POST` | `/api/projects/{project_id}/wiki` | Create wiki page |
-| `GET` | `/api/projects/{project_id}/wiki/{page_id}` | Get wiki page |
-| `PUT` | `/api/projects/{project_id}/wiki/{page_id}` | Update wiki page |
+| `GET` | `/api/workspaces/{workspace_id}/wiki` | List wiki pages |
+| `POST` | `/api/workspaces/{workspace_id}/wiki` | Create wiki page |
+| `GET` | `/api/workspaces/{workspace_id}/wiki/{page_id}` | Get wiki page |
+| `PUT` | `/api/workspaces/{workspace_id}/wiki/{page_id}` | Update wiki page |
 
-**POST /api/projects/{project_id}/wiki**
+**POST /api/workspaces/{workspace_id}/wiki**
 ```json
 {
   "title": "string (required)",
@@ -198,7 +198,7 @@ Response: `DocumentResponse` with `{id, project_id, filename, filetype, size_byt
 - Response: `{chat_id, messages: [], count}`
 
 **GET /api/sessions/search/messages**
-- Query params: `q` (search query), `project_id`, `limit` (default: 20)
+- Query params: `q` (search query), `workspace_id`, `limit` (default: 20)
 - Response: `[{message_id, chat_id, role, content, snippet, created_at}]`
 
 ---
@@ -247,10 +247,10 @@ Response: `DocumentResponse` with `{id, project_id, filename, filetype, size_byt
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/projects/{project_id}/standup` | Generate AI standup report |
-| `POST` | `/api/projects/{project_id}/brief` | Generate AI project brief (Opus) |
-| `POST` | `/api/projects/{project_id}/health` | AI project health check |
-| `POST` | `/api/projects/{project_id}/prioritize` | AI card prioritization |
+| `POST` | `/api/workspaces/{workspace_id}/standup` | Generate AI standup report |
+| `POST` | `/api/workspaces/{workspace_id}/brief` | Generate AI workspace brief (Opus) |
+| `POST` | `/api/workspaces/{workspace_id}/health` | AI workspace health check |
+| `POST` | `/api/workspaces/{workspace_id}/prioritize` | AI card prioritization |
 | `POST` | `/api/code/review` | AI code review |
 
 **POST /api/code/review**
@@ -259,7 +259,7 @@ Response: `DocumentResponse` with `{id, project_id, filename, filetype, size_byt
   "code": "string (required)",
   "language": "string",
   "context": "string",
-  "project_id": "string"
+  "workspace_id": "string"
 }
 ```
 
@@ -295,7 +295,7 @@ Response: `DocumentResponse` with `{id, project_id, filename, filetype, size_byt
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/api/focus-sessions` | Create focus session |
-| `GET` | `/api/projects/{project_id}/focus` | Get project focus analytics |
+| `GET` | `/api/workspaces/{workspace_id}/focus` | Get workspace focus analytics |
 
 ---
 
@@ -305,7 +305,7 @@ Response: `DocumentResponse` with `{id, project_id, filename, filetype, size_byt
 |--------|------|---------|
 | `GET` | `/api/tech/detect` | Detect tech stack from path |
 
-Query params: `project_path` (filesystem path)
+Query params: `workspace_path` (filesystem path)
 
 ---
 

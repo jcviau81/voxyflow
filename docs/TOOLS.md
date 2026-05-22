@@ -6,15 +6,15 @@
 
 ## Tool Categories
 
-Voxyflow exposes ~100 MCP tools defined in `backend/app/mcp_server.py`. Broad grouping:
+Voxyflow exposes 100+ MCP tool definitions. Broad grouping:
 
 | Category | Prefix | Purpose |
 |----------|--------|---------|
-| voxyflow | `voxyflow.*` | Cards, projects, wiki, docs, jobs, AI ops, worker lifecycle, session/ledger |
+| voxyflow | `voxyflow.*` | Cards, workspaces, wiki, docs, jobs, AI ops, worker lifecycle, session/ledger |
 | memory | `memory.*` | Long-term memory search/save/delete/get |
 | knowledge | `knowledge.*` | RAG knowledge base search |
-| kg | `kg.*` | Knowledge-graph triples/attributes (worker-only) |
-| task | `task.*` | Worker supervision (peek / cancel / steer) |
+| kg | `kg.*` | Knowledge-graph triples/attributes; dispatcher profiles get selected safe query/write operations |
+| task | `task.*` | Worker supervision (`peek`, `cancel`, `steer`) |
 | system | `system.*` | Shell command execution (worker-only) |
 | web | `web.*` | Web search / page fetching (worker-only) |
 | file | `file.*` | Filesystem read/write/patch/list (worker-only) |
@@ -30,32 +30,40 @@ Counts drift as tools are added — the source of truth is `_TOOL_DEFINITIONS` i
 ## Role-Based Access Control
 
 Tool access is gated by **role**, not by model tier. Fast and Deep dispatchers
-get the **same** tool set — the Haiku vs Opus choice is purely model selection.
-Workers run in background subprocesses and get the full MCP surface.
+normally get the same tool set; the model choice is purely model selection.
+Codex CLI dispatchers intentionally use a stricter read-only role. Workers run
+in background subprocesses and get the full MCP surface.
 
 | Role | Access | What it can do |
 |------|--------|----------------|
-| **Dispatcher** (fast + deep chat) | `TOOLS_DISPATCHER` | Read ops, basic card/project CRUD, memory search/save, worker monitoring. Never blocks. |
-| **Worker** | `TOOLS_WORKER` (= dispatcher + everything else) | Exec, file/git/tmux, web, AI ops, destructive deletes, worker lifecycle. |
+| **Dispatcher** (fast + deep chat) | `TOOLS_DISPATCHER` | Read ops, instant CRUD, memory/KG operations, worker monitoring/control. Never blocks on heavy work. |
+| **Codex dispatcher** | `TOOLS_DISPATCHER_CODEX` | Read-only inspection, memory/knowledge search, KG query/timeline/stats, worker result reads, task peek. Delegates action work. |
+| **Worker** | `TOOLS_WORKER` | Exec, file/git/tmux, web, AI ops, destructive actions, worker lifecycle. |
 
-Source of truth: `TOOLS_DISPATCHER` / `TOOLS_WORKER` in
-`backend/app/tools/registry.py`. The invariant (enforced by
-`backend/tests/test_tool_role_boundary.py`): dispatcher is a strict subset of
-worker, and none of `system.exec`, `file.write`, `file.patch`, `git.commit`,
-`web.*`, `tmux.run/send/new/kill`, `memory.delete`, `kg.invalidate`, `task.steer`,
-or any `*.delete` / `*.export` may leak into the dispatcher set.
+Source of truth: `TOOLS_DISPATCHER`, `TOOLS_DISPATCHER_CODEX`, and
+`TOOLS_WORKER` in `backend/app/tools/registry.py`. The boundary invariant is:
+heavy execution tools (`system.*`, `file.*`, `git.*`, `web.*`, `tmux.*`,
+`tools.load`, worker lifecycle tools, and heavy AI operations) stay worker-only.
+Codex dispatcher tools must remain read-only and delegation-oriented.
 
-### Dispatcher surface (high-level)
+### Standard dispatcher surface (high-level)
 
-Read: `health`, `project.list/get`, `card.list/get/list_unassigned/list_archived`,
+Read: `health`, `workspace.list/get`, `card.list/get/list_unassigned/list_archived`,
 `wiki.list/get`, `doc.list`, `jobs.list`, `heartbeat.read/write`, `memory.search`,
 `knowledge.search`, `workers.list/get_result/read_artifact`.
-Create/update: `card.create/update/move/archive/create_unassigned`,
-`project.create`, `memory.save`, `jobs.create/update/delete`.
+Create/update/control: card/workspace/wiki CRUD, card sub-resources, memory save/delete,
+KG add/query/timeline/invalidate/stats, jobs CRUD, autonomy controls, undo apply,
+worker monitor/control, and endpoint CRUD.
+
+### Codex dispatcher surface (high-level)
+
+Read-only: workspace/card/wiki/doc/job/session/endpoint/undo reads, memory and
+knowledge search, KG query/timeline/stats, worker result reads, and `task.peek`.
+It should inspect state and emit `<delegate>` when work needs actions.
 
 ### Worker-only (representative)
 
-`system.exec`, `file.*`, `git.*`, `tmux.*`, `web.*`, `kg.*`, `voxyflow.ai.*`,
+`system.exec`, `file.*`, `git.*`, `tmux.*`, `web.*`, `voxyflow.ai.*`,
 `voxyflow.worker.claim`, `voxyflow.worker.complete`, `tools.load`.
 
 ---
@@ -65,7 +73,7 @@ Create/update: `card.create/update/move/archive/create_unassigned`,
 ### Voxyflow — Card Operations
 
 #### voxyflow.card.create_unassigned
-Create a card in the Home project (`project_id="system-main"`). Legacy "unassigned" name kept for back-compat.
+Create a card in the Home workspace (`workspace_id="system-main"`). Legacy "unassigned" name kept for back-compat.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | content | string | yes | Title/text content |
@@ -73,13 +81,13 @@ Create a card in the Home project (`project_id="system-main"`). Legacy "unassign
 | description | string | no | Longer description/body |
 
 #### voxyflow.card.list_unassigned
-List all cards in the Home project. No parameters.
+List all cards in the Home workspace. No parameters.
 
 #### voxyflow.card.create
-Create a card in a project.
+Create a card in a workspace.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 | title | string | yes | Card title |
 | description | string | no | Card description |
 | status | string | no | card, todo, in-progress, done (default: card) |
@@ -87,10 +95,10 @@ Create a card in a project.
 | agent_type | string | no | general, researcher, coder, designer, architect, writer, qa |
 
 #### voxyflow.card.list
-List all cards for a project.
+List all cards for a workspace.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
 #### voxyflow.card.get
 Get details of a specific card.
@@ -122,7 +130,7 @@ Delete a card (irreversible).
 | card_id | string | yes | Card ID |
 
 #### voxyflow.card.duplicate
-Duplicate a card within the same project.
+Duplicate a card within the same workspace.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | card_id | string | yes | Card ID |
@@ -177,66 +185,66 @@ Delete a checklist item.
 
 ---
 
-### Voxyflow — Project Operations
+### Voxyflow — Workspace Operations
 
-#### voxyflow.project.create
-Create a new project.
+#### voxyflow.workspace.create
+Create a new workspace.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| title | string | yes | Project name |
-| description | string | no | Project description |
+| title | string | yes | Workspace name |
+| description | string | no | Workspace description |
 | tech_stack | string | no | Technology stack (comma-separated) |
 | github_url | string | no | GitHub repository URL |
 | github_repo | string | no | GitHub repo in owner/repo format |
 | local_path | string | no | Local filesystem path |
 
-#### voxyflow.project.list
-List all projects. No parameters.
+#### voxyflow.workspace.list
+List all workspaces. No parameters.
 
-#### voxyflow.project.get
-Get project details including cards.
+#### voxyflow.workspace.get
+Get workspace details including cards.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
-#### voxyflow.project.delete
-Delete a project and all its cards (irreversible).
+#### voxyflow.workspace.delete
+Delete a workspace and all its cards (irreversible).
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
-#### voxyflow.project.update
-Update a project's fields (title, description, status, context, github_url, etc).
+#### voxyflow.workspace.update
+Update a workspace's fields (title, description, status, context, github_url, etc).
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 | title | string | no | New title |
 | description | string | no | New description |
 | status | string | no | active, archived |
-| context | string | no | Project context for AI |
+| context | string | no | Workspace context for AI |
 | github_url | string | no | GitHub URL |
 
-#### voxyflow.project.export
-Export a project as JSON snapshot.
+#### voxyflow.workspace.export
+Export a workspace as JSON snapshot.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
 ---
 
 ### Voxyflow — Wiki Operations
 
 #### voxyflow.wiki.list
-List all wiki pages for a project.
+List all wiki pages for a workspace.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
 #### voxyflow.wiki.create
 Create a new wiki page.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 | title | string | yes | Page title |
 | content | string | yes | Page content (Markdown) |
 | tags | array | no | Optional tags |
@@ -245,14 +253,14 @@ Create a new wiki page.
 Get wiki page content.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 | page_id | string | yes | Wiki page ID |
 
 #### voxyflow.wiki.update
 Update a wiki page.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 | page_id | string | yes | Wiki page ID |
 | title | string | no | New title |
 | content | string | no | New content (Markdown) |
@@ -266,25 +274,25 @@ Update a wiki page.
 Generate AI daily standup report (done, in-progress, blocked).
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
 #### voxyflow.ai.brief
-Generate comprehensive AI project brief (uses Opus).
+Generate comprehensive AI workspace brief (uses Opus).
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
 #### voxyflow.ai.health
-AI project health check — risks, blockers, velocity.
+AI workspace health check — risks, blockers, velocity.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
 #### voxyflow.ai.prioritize
 AI smart-prioritize cards by value, complexity, dependencies.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
 #### voxyflow.ai.review_code
 AI code review with feedback.
@@ -293,7 +301,7 @@ AI code review with feedback.
 | code | string | yes | Code snippet to review |
 | language | string | no | Programming language |
 | context | string | no | Additional context |
-| project_id | string | no | Optional project context |
+| workspace_id | string | no | Optional workspace context |
 
 ---
 
@@ -303,13 +311,13 @@ AI code review with feedback.
 System health status. No parameters.
 
 #### voxyflow.doc.list
-List all documents for a project.
+List all documents for a workspace.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 
 #### voxyflow.doc.delete
-Delete a document from a project.
+Delete a document from a workspace.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | document_id | string | yes | Document ID |
@@ -350,7 +358,7 @@ No parameters.
 
 #### voxyflow.workers.list
 List recent worker tasks from the Worker Ledger. Auto-scoped to the current
-project via `VOXYFLOW_PROJECT_ID`; pass `scope="all"` to cross projects.
+workspace via `VOXYFLOW_WORKSPACE_ID`; pass `scope="all"` to cross workspaces.
 
 #### voxyflow.workers.get_result
 Get the full details and result of a specific worker task.
@@ -420,7 +428,7 @@ still accepts the completion.
 ### Memory & Knowledge Tools
 
 #### memory.search
-Semantic search across Voxy's long-term memory (global + project).
+Semantic search across Voxy's long-term memory (global + workspace).
 Returns `id`, `text`, `score`, `collection` per result, plus pagination metadata (`offset`, `limit`, `count`, `has_more`).
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -435,7 +443,7 @@ Save a fact, decision, preference, or lesson to long-term memory.
 | text | string | yes | Information to remember |
 | type | string | no | decision, preference, lesson, fact, context (default: fact) |
 | importance | string | no | high, medium, low (default: medium) |
-| project_id | string | no | Scope memory to a project (default: global) |
+| workspace_id | string | no | Scope memory to a workspace (default: global) |
 
 #### memory.delete
 Delete a specific memory entry by ID.
@@ -451,10 +459,10 @@ List recent chat sessions with title, last message, and message count.
 | limit | integer | no | Number of sessions to return (default 10, max 50) |
 
 #### knowledge.search
-Search the project knowledge base (RAG) for relevant context.
+Search the workspace knowledge base (RAG) for relevant context.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| project_id | string | yes | Project ID |
+| workspace_id | string | yes | Workspace ID |
 | query | string | yes | Search query |
 
 ---
@@ -669,7 +677,7 @@ These are parsed by `ChatOrchestrator`, converted to `ActionIntent` objects, and
 >
 > When a delegate has `model: "direct"`, the `DirectExecutor` calls the MCP tool handler inline — no `ActionIntent` is emitted, no worker is spawned, no LLM is involved. It's atomic CRUD, equivalent to a direct REST API call.
 >
-> Only delegates with `model: "haiku"` / `"sonnet"` / `"opus"` go through the full `SessionEventBus` → `DeepWorkerPool` → `ClaudeService.execute_worker_task()` pipeline.
+> Only delegates with `model: "haiku"` / `"sonnet"` / `"opus"` go through the full `SessionEventBus` → `DeepWorkerPool` → `ClaudeService.execute_worker_task()` pipeline. The class name is historical; it now routes through the selected provider.
 
 ---
 
@@ -678,10 +686,10 @@ These are parsed by `ChatOrchestrator`, converted to `ActionIntent` objects, and
 The same tools are exposed via MCP (Model Context Protocol) for external AI clients:
 
 - **SSE transport** — `/mcp/sse` for web clients
-- **Stdio transport** — `backend/mcp_stdio.py` for Claude Code, Cursor, etc.
+- **Stdio transport** — `backend/mcp_stdio.py` for Claude Code, Codex CLI, Cursor, etc.
 
 MCP tools are thin HTTP wrappers over the REST API. System tools (`system.exec`, `file.*`, `git.*`, `tmux.*`, `web.*`) execute directly via async handlers without going through REST.
 
 ---
 
-_66 MCP tools (47 dispatcher + 19 worker-only). See `backend/app/mcp_server.py` for the authoritative list._
+_100+ MCP tool definitions. See `backend/app/mcp_server.py` for schemas and `backend/app/tools/registry.py` for role access._

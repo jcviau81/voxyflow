@@ -19,11 +19,11 @@ import type { Message } from '../../types';
 function resolveChatId(opts: {
   sessionId?: string;
   cardId?: string;
-  projectId?: string;
+  workspaceId?: string;
 }): string | null {
   if (opts.sessionId) return opts.sessionId;
   if (opts.cardId) return `card:${opts.cardId}`;
-  if (opts.projectId) return `project:${opts.projectId}`;
+  if (opts.workspaceId) return `workspace:${opts.workspaceId}`;
   return null;
 }
 
@@ -34,8 +34,8 @@ function resolveChatId(opts: {
 export interface MessageListProps {
   /** Filter messages to this session (required for multi-session support) */
   sessionId?: string;
-  /** Filter messages to this project */
-  projectId?: string;
+  /** Filter messages to this workspace */
+  workspaceId?: string;
   /** Filter messages to this card (card-level chat) */
   cardId?: string;
   /** Rendered inside the welcome empty state slot when there are no messages */
@@ -52,7 +52,7 @@ export interface MessageListProps {
 
 export function MessageList({
   sessionId,
-  projectId,
+  workspaceId,
   cardId,
   emptySlot,
   loading = false,
@@ -68,9 +68,9 @@ export function MessageList({
   const messages = useMemo(() => {
     if (sessionId) return allMessages.filter((m) => m.sessionId === sessionId);
     if (cardId) return allMessages.filter((m) => m.cardId === cardId);
-    if (projectId) return allMessages.filter((m) => m.projectId === projectId);
+    if (workspaceId) return allMessages.filter((m) => m.workspaceId === workspaceId);
     return allMessages;
-  }, [allMessages, sessionId, cardId, projectId]);
+  }, [allMessages, sessionId, cardId, workspaceId]);
 
   const { registerCallbacks } = useChatService();
 
@@ -221,7 +221,7 @@ export function MessageList({
       const target = useMessageStore.getState().messages.find((m) => m.id === messageId);
       if (!target) return;
 
-      const chatId = resolveChatId({ sessionId, cardId, projectId });
+      const chatId = resolveChatId({ sessionId, cardId, workspaceId });
       if (!chatId) {
         showToast('Cannot delete message — no chat context', 'error');
         return;
@@ -244,7 +244,7 @@ export function MessageList({
         addMessage({
           role: target.role,
           content: target.content,
-          projectId: target.projectId,
+          workspaceId: target.workspaceId,
           sessionId: target.sessionId,
           cardId: target.cardId,
           model: target.model,
@@ -252,7 +252,7 @@ export function MessageList({
         });
       }
     },
-    [sessionId, cardId, projectId, removeMessage, addMessage, showToast],
+    [sessionId, cardId, workspaceId, removeMessage, addMessage, showToast],
   );
 
   const lastMessage = messages[messages.length - 1];

@@ -1,13 +1,13 @@
 # Voxyflow Backend
 
-FastAPI backend for Voxyflow — voice-first project management assistant.
+FastAPI backend for Voxyflow — voice-first workspace management assistant.
 
 ## Stack
 
 - **Python 3.12+**
 - **FastAPI** — async web framework
 - **SQLite** — lightweight persistent storage
-- **Claude API** — AI conversation engine
+- **Multi-provider LLM** — Claude CLI, Codex CLI, native SDK, or OpenAI-compatible providers
 - **Pydantic** — data validation
 
 ## Structure
@@ -23,19 +23,19 @@ backend/
     ├── models/
     │   ├── card.py          # Kanban card models
     │   ├── chat.py          # Chat/message models
-    │   ├── project.py       # Project models
+    │   ├── workspace.py       # Workspace models
     │   └── voice.py         # Voice/STT models
     ├── routes/
     │   ├── cards.py         # Card CRUD endpoints
     │   ├── chats.py         # Chat endpoints
-    │   ├── projects.py      # Project endpoints
+    │   ├── workspaces.py      # Workspace endpoints
     │   └── voice.py         # Voice/TTS endpoints
     └── services/
         ├── agent_personas.py    # 7 specialist personas
         ├── agent_router.py      # Intent → agent routing
         ├── agent_router.py      # Agent routing
-        ├── chat_service.py      # Chat orchestration
-        ├── claude_service.py    # Claude API client
+        ├── chat_orchestration.py # Dispatcher/worker orchestration
+        ├── claude_service.py    # LLM orchestration singleton
         ├── memory_service.py    # Conversation memory
         ├── personality_service.py # SOUL.md personality
         └── tts_service.py       # Text-to-speech
@@ -43,7 +43,7 @@ backend/
 
 ## 🔐 API Key Setup
 
-API keys are only needed for the direct-SDK / non-CLI providers. The preferred path is the **Settings UI** (Settings → Models → Add Machine); keys entered there are saved to the app database.
+API keys are only needed for direct-SDK / non-CLI providers. The preferred path is the **Settings UI** (Settings → Models → Add Machine); keys entered there are saved to the app database.
 
 For env/keyring setup instead:
 
@@ -78,23 +78,38 @@ pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your Claude API key
+# Configure provider settings in Settings > Models or .env
 
 # Run development server
 uvicorn app.main:app --reload --port 8000
 ```
+
+## Upgrading
+
+If you're updating an existing install across the **project → workspace rename**
+(2026-05), stop the backend and run the one-shot migration before starting it
+again:
+
+```bash
+cd backend
+./venv/bin/python -m scripts.migrate_project_to_workspace             # dry-run
+./venv/bin/python -m scripts.migrate_project_to_workspace --apply --backup
+```
+
+It renames the SQLite table/columns, ChromaDB collections, and the on-disk
+sandbox layout. Idempotent — re-running after success is a no-op.
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/chat` | Send message, get AI response |
-| GET | `/api/chat/history/{project_id}` | Get chat history |
+| GET | `/api/chat/history/{workspace_id}` | Get chat history |
 | POST | `/api/voice/transcribe` | Transcribe audio |
 | POST | `/api/voice/synthesize` | Text-to-speech |
-| GET | `/api/projects` | List projects |
-| POST | `/api/projects` | Create project |
-| GET | `/api/cards/{project_id}` | Get project cards |
+| GET | `/api/workspaces` | List workspaces |
+| POST | `/api/workspaces` | Create workspace |
+| GET | `/api/cards/{workspace_id}` | Get workspace cards |
 | POST | `/api/cards` | Create card |
 | PATCH | `/api/cards/{id}` | Update card |
 
@@ -108,7 +123,7 @@ The backend routes messages to specialized AI agents:
 - 📊 **Analyst** — Data & metrics
 - 🧪 **Tester** — Testing & QA
 - 🛡️ **Security** — Security review
-- 🎯 **Project Manager** — Planning & coordination
+- 🎯 **Workspace Manager** — Planning & coordination
 
 ## Environment Variables
 

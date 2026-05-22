@@ -11,22 +11,22 @@ interface FocusAnalytics {
 }
 
 interface FocusSectionProps {
-  projectId: string;
+  workspaceId: string;
   onAnalyticsLoaded?: (analytics: FocusAnalytics | null) => void;
 }
 
-export function FocusSection({ projectId, onAnalyticsLoaded }: FocusSectionProps) {
+export function FocusSection({ workspaceId, onAnalyticsLoaded }: FocusSectionProps) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<FocusAnalytics | null>(null);
 
   useEffect(() => {
     loadAnalytics();
-  }, [projectId]);
+  }, [workspaceId]);
 
   async function loadAnalytics() {
     setLoading(true);
     try {
-      const resp = await fetch(`/api/projects/${projectId}/focus`);
+      const resp = await fetch(`/api/workspaces/${workspaceId}/focus`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const analytics = await resp.json() as FocusAnalytics;
       setData(analytics);

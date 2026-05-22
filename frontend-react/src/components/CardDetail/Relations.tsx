@@ -63,10 +63,10 @@ const STATUS_DOT: Record<string, string> = {
 
 interface Props {
   cardId: string;
-  projectId?: string;
+  workspaceId?: string;
 }
 
-export function RelationsSection({ cardId, projectId }: Props) {
+export function RelationsSection({ cardId, workspaceId }: Props) {
   const { data: relations = [], isLoading } = useRelations(cardId);
   const addRelation = useAddRelation();
   const deleteRelation = useDeleteRelation();
@@ -85,18 +85,18 @@ export function RelationsSection({ cardId, projectId }: Props) {
     [relations],
   );
 
-  const projectCards = useMemo(
-    () => projectId
-      ? Object.values(cardsById).filter((c) => c.projectId === projectId && c.id !== cardId && !relatedIds.has(c.id))
+  const workspaceCards = useMemo(
+    () => workspaceId
+      ? Object.values(cardsById).filter((c) => c.workspaceId === workspaceId && c.id !== cardId && !relatedIds.has(c.id))
       : [],
-    [cardsById, projectId, cardId, relatedIds],
+    [cardsById, workspaceId, cardId, relatedIds],
   );
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return projectCards;
+    if (!search.trim()) return workspaceCards;
     const q = search.toLowerCase();
-    return projectCards.filter((c) => c.title.toLowerCase().includes(q));
-  }, [projectCards, search]);
+    return workspaceCards.filter((c) => c.title.toLowerCase().includes(q));
+  }, [workspaceCards, search]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -175,7 +175,7 @@ export function RelationsSection({ cardId, projectId }: Props) {
       </div>
 
       {/* Add relation */}
-      {projectCards.length > 0 || search ? (
+      {workspaceCards.length > 0 || search ? (
         <div className="space-y-1" ref={containerRef}>
           <div className="flex items-center gap-1">
             <select
@@ -226,7 +226,7 @@ export function RelationsSection({ cardId, projectId }: Props) {
           </div>
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground/60">No other cards in this project</p>
+        <p className="text-xs text-muted-foreground/60">No other cards in this workspace</p>
       )}
     </div>
   );

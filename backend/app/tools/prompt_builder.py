@@ -24,7 +24,7 @@ _GENERAL_CONTEXT_TOOLS = {
     "voxyflow.card.create_unassigned", "voxyflow.card.list_unassigned",
     "voxyflow.card.create", "voxyflow.card.list", "voxyflow.card.get",
     "voxyflow.card.update", "voxyflow.card.move", "voxyflow.card.archive",
-    "voxyflow.project.create", "voxyflow.project.list", "voxyflow.project.get",
+    "voxyflow.workspace.create", "voxyflow.workspace.list", "voxyflow.workspace.get",
     "voxyflow.health",
     "voxyflow.jobs.list", "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
     "voxyflow.heartbeat.read", "voxyflow.heartbeat.write",
@@ -92,7 +92,7 @@ class ToolPromptBuilder:
         """Apply chat_level context filtering."""
         if chat_level == "general":
             return [t for t in tools if t.name in _GENERAL_CONTEXT_TOOLS]
-        elif chat_level == "project":
+        elif chat_level == "workspace":
             return [t for t in tools if t.name not in _PROJECT_EXCLUDED_TOOLS]
         else:
             # card level — all tools pass

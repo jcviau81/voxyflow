@@ -28,7 +28,7 @@ class CliSession:
     pid: int
     session_id: str
     chat_id: str
-    project_id: Optional[str]
+    workspace_id: Optional[str]
     model: str
     session_type: str  # "chat" | "worker"
     started_at: float
@@ -64,7 +64,7 @@ class CliSessionRegistry:
             "id": session.id,
             "pid": session.pid,
             "chatId": session.chat_id,
-            "projectId": session.project_id,
+            "projectId": session.workspace_id,
             "model": session.model,
             "type": session.session_type,
             "startedAt": session.started_at,
@@ -81,7 +81,7 @@ class CliSessionRegistry:
                 "id": removed.id,
                 "pid": removed.pid,
                 "chatId": removed.chat_id,
-                "projectId": removed.project_id,
+                "projectId": removed.workspace_id,
                 "taskId": removed.task_id,
             })
 
@@ -202,7 +202,7 @@ def get_cli_session_registry() -> CliSessionRegistry:
 async def register_logical_chat_session(
     *,
     chat_id: str,
-    project_id: Optional[str],
+    workspace_id: Optional[str],
     model: str,
     session_type: str = "chat",
     task_id: str = "",
@@ -221,7 +221,7 @@ async def register_logical_chat_session(
         pid=0,
         session_id="",
         chat_id=chat_id,
-        project_id=project_id or None,
+        workspace_id=workspace_id or None,
         model=model,
         session_type=session_type,
         started_at=time.time(),

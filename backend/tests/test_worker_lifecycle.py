@@ -415,8 +415,8 @@ def _make_event(task_id="T1", chat_id="chat-1", callback_depth=0):
         model="fast",
         data={
             "dispatcher_chat_id": chat_id,
-            "project_id": "proj-1",
-            "chat_level": "project",
+            "workspace_id": "proj-1",
+            "chat_level": "workspace",
         },
         callback_depth=callback_depth,
     )
