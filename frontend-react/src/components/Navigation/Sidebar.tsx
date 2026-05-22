@@ -3,9 +3,9 @@
  *
  * Sections (top → bottom):
  *   1. Brand (Voxyflow)
- *   2. Main / Jobs / Projects nav links
- *   3. Favorites — starred projects with progress dots
- *   4. New Project button
+ *   2. Main / Jobs / Workspaces nav links
+ *   3. Favorites — starred workspaces with progress dots
+ *   4. New Workspace button
  *   5. Sessions — WorkerPanel (CLI sessions + workers)
  *   6. Connection status
  *   7. Footer: notification bell, theme toggle, Settings, Docs, Help
@@ -31,13 +31,13 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { WorkerPanel } from './WorkerPanel';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useTabStore } from '../../stores/useTabStore';
-import { useCardStore, SYSTEM_PROJECT_ID } from '../../stores/useCardStore';
+import { useCardStore, SYSTEM_WORKSPACE_ID } from '../../stores/useCardStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { useWS } from '../../providers/WebSocketProvider';
-import type { Project } from '../../types';
+import type { Workspace } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -75,22 +75,22 @@ const CONNECTION_DOT_CLASS = {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function ProjectItem({
-  project,
+function WorkspaceItem({
+  workspace,
   isActive,
 }: {
-  project: Project;
+  workspace: Workspace;
   isActive: boolean;
 }) {
   const navigate = useNavigate();
   const cardsById = useCardStore((s) => s.cardsById);
   const cards = useMemo(
-    () => Object.values(cardsById).filter((c) => c.projectId === project.id),
-    [cardsById, project.id],
+    () => Object.values(cardsById).filter((c) => c.workspaceId === workspace.id),
+    [cardsById, workspace.id],
   );
   const openTabs = useTabStore((s) => s.openTabs);
 
-  const isTabOpen = openTabs.some((t) => t.id === project.id);
+  const isTabOpen = openTabs.some((t) => t.id === workspace.id);
 
   const total = cards.length;
   const done = cards.filter((c) => c.status === 'done').length;
@@ -106,8 +106,8 @@ function ProjectItem({
       : 'No cards yet';
 
   const handleClick = () => {
-    // Navigate only — AppShell syncs tab + project stores from URL
-    navigate(`/project/${project.id}`);
+    // Navigate only — AppShell syncs tab + workspace stores from URL
+    navigate(`/workspace/${workspace.id}`);
   };
 
   return (
@@ -119,16 +119,16 @@ function ProjectItem({
       )}
       
       title={tooltip}
-      data-testid={`sidebar-project-${project.id}`}
+      data-testid={`sidebar-workspace-${workspace.id}`}
       onClick={handleClick}
     >
       
       <span>
-        {project.emoji || <Star size={14} className="shrink-0" /> }
+        {workspace.emoji || <Star size={14} className="shrink-0" /> }
       </span>
       
-      {/* Project name */}
-      <span>{project.name}</span>
+      {/* Workspace name */}
+      <span>{workspace.name}</span>
 
       {/* Progress dot */}
       <span
@@ -144,7 +144,7 @@ function ProjectItem({
 
 export function Sidebar({ isOpen, onToggle }: SidebarProps) {
   // Stores
-  const projects = useProjectStore((s) => s.projects);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeTab = useTabStore((s) => s.activeTab);
   const notificationUnreadCount = useNotificationStore((s) => s.notificationUnreadCount);
   const theme = useThemeStore((s) => s.theme);
@@ -152,8 +152,8 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
   const { connectionState } = useWS();
 
   // Derived data
-  const activeProjects = projects.filter((p) => !p.archived && p.id !== SYSTEM_PROJECT_ID);
-  const favoriteProjects = activeProjects.filter((p) => p.isFavorite);
+  const activeWorkspaces = workspaces.filter((p) => !p.archived && p.id !== SYSTEM_WORKSPACE_ID);
+  const favoriteWorkspaces = activeWorkspaces.filter((p) => p.isFavorite);
 
   // ── Keyboard shortcut Ctrl+B ───────────────────────────────────────────────
 
@@ -214,10 +214,10 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           </NavLink>
 
           {/* ── Favorites ── */}
-          {favoriteProjects.length > 0 && favoriteProjects.map((proj) => (
-            <ProjectItem
+          {favoriteWorkspaces.length > 0 && favoriteWorkspaces.map((proj) => (
+            <WorkspaceItem
               key={proj.id}
-              project={proj}
+              workspace={proj}
               isActive={activeTab === proj.id}
             />
           ))}
@@ -234,14 +234,14 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           </NavLink>
 
           <NavLink
-            to="/projects"
+            to="/workspaces"
             className={({ isActive }) =>
               cn(NAV_ITEM, isActive && 'bg-accent text-accent-foreground font-medium')
             }
-            data-testid="sidebar-projects"
+            data-testid="sidebar-workspaces"
           >
             <Folder size={14} className="shrink-0" />
-            <span>Projects</span>
+            <span>Workspaces</span>
           </NavLink>
 
         </div>

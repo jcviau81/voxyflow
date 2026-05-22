@@ -163,7 +163,7 @@ export function OnboardingPage() {
           <div className="text-4xl">🎙️</div>
           <h1 className="text-2xl font-bold">Welcome to Voxyflow</h1>
           <p className="text-sm text-muted-foreground">
-            Your voice-first project assistant. Let's get you set up.
+            Your voice-first workspace assistant. Let's get you set up.
           </p>
         </div>
 

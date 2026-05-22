@@ -24,8 +24,8 @@ class TestIsDirectEligible:
         "create_card", "update_card", "move_card", "delete_card",
         # New actions
         "card.get", "get_card", "list_cards",
-        "project.list", "project.get", "project.create", "project.delete",
-        "list_projects", "get_project", "create_project", "delete_project",
+        "workspace.list", "workspace.get", "workspace.create", "workspace.delete",
+        "list_workspaces", "get_workspace", "create_workspace", "delete_workspace",
         "wiki.list", "wiki.get", "list_wiki", "get_wiki",
         "jobs.list", "list_jobs", "health",
     ])
@@ -40,7 +40,7 @@ class TestIsDirectEligible:
         data = {"model": "direct", "action": action, "params": {"q": "x"}}
         assert DirectExecutor.is_direct_eligible(data) is False
 
-    @pytest.mark.parametrize("action", ["health", "project.list", "list_projects", "jobs.list", "list_jobs"])
+    @pytest.mark.parametrize("action", ["health", "workspace.list", "list_workspaces", "jobs.list", "list_jobs"])
     def test_no_param_actions_eligible_without_params(self, action):
         """Actions that need no params should be eligible even with empty/missing params."""
         data = {"model": "direct", "action": action}
@@ -74,7 +74,7 @@ class TestNeedsConfirmation:
     """Tests for DirectExecutor.needs_confirmation()."""
 
     @pytest.mark.parametrize("action", [
-        "card.delete", "delete_card", "project.delete", "delete_project",
+        "card.delete", "delete_card", "workspace.delete", "delete_workspace",
     ])
     def test_delete_actions_need_confirmation(self, action):
         assert DirectExecutor.needs_confirmation({"action": action}) is True
@@ -82,8 +82,8 @@ class TestNeedsConfirmation:
     @pytest.mark.parametrize("action", [
         "card.create", "card.update", "card.move", "card.list", "card.get",
         "create_card", "update_card", "move_card", "list_cards", "get_card",
-        "project.list", "project.get", "project.create",
-        "list_projects", "get_project", "create_project",
+        "workspace.list", "workspace.get", "workspace.create",
+        "list_workspaces", "get_workspace", "create_workspace",
         "wiki.list", "wiki.get", "list_wiki", "get_wiki",
         "jobs.list", "list_jobs", "health",
     ])
@@ -103,9 +103,9 @@ class TestExecute:
         tool_def = {
             "name": "voxyflow.card.create",
             "inputSchema": {
-                "required": ["project_id", "title"],
+                "required": ["workspace_id", "title"],
                 "properties": {
-                    "project_id": {"type": "string"},
+                    "workspace_id": {"type": "string"},
                     "title": {"type": "string"},
                 },
             },
@@ -120,7 +120,7 @@ class TestExecute:
         call_api.return_value = {"id": "card-123", "title": "Test"}
 
         data = {"action": "card.create", "params": {"title": "Test"}}
-        result = await DirectExecutor.execute(data, project_id="proj-1")
+        result = await DirectExecutor.execute(data, workspace_id="proj-1")
 
         assert result["success"] is True
         assert result["action"] == "card.create"
@@ -128,37 +128,37 @@ class TestExecute:
         assert result["result"] == {"id": "card-123", "title": "Test"}
         assert result["duration_ms"] >= 0
 
-        call_api.assert_called_once_with(tool_def, {"title": "Test", "project_id": "proj-1"})
+        call_api.assert_called_once_with(tool_def, {"title": "Test", "workspace_id": "proj-1"})
 
     @pytest.mark.asyncio
-    async def test_execute_auto_injects_project_id(self, mock_mcp):
+    async def test_execute_auto_injects_workspace_id(self, mock_mcp):
         _, call_api, tool_def = mock_mcp
         call_api.return_value = {"ok": True}
 
         data = {"action": "card.create", "params": {"title": "New Card"}}
-        await DirectExecutor.execute(data, project_id="my-proj")
+        await DirectExecutor.execute(data, workspace_id="my-proj")
 
         called_params = call_api.call_args[0][1]
-        assert called_params["project_id"] == "my-proj"
+        assert called_params["workspace_id"] == "my-proj"
 
     @pytest.mark.asyncio
-    async def test_execute_overrides_llm_supplied_project_id(self, mock_mcp):
-        """LLM-supplied project_id must be overridden by the current chat scope.
+    async def test_execute_overrides_llm_supplied_workspace_id(self, mock_mcp):
+        """LLM-supplied workspace_id must be overridden by the current chat scope.
 
-        Mirrors the VOXYFLOW_PROJECT_ID invariant enforced by the MCP
+        Mirrors the VOXYFLOW_WORKSPACE_ID invariant enforced by the MCP
         subprocess path — DirectExecutor runs in the backend process where
         that env is not set, so it enforces the same rule explicitly.
-        Otherwise a stray/guessed project_id from the LLM leaks cards into
-        the wrong project (e.g. Home instead of the active project).
+        Otherwise a stray/guessed workspace_id from the LLM leaks cards into
+        the wrong workspace (e.g. Home instead of the active workspace).
         """
         _, call_api, tool_def = mock_mcp
         call_api.return_value = {"ok": True}
 
-        data = {"action": "card.create", "params": {"title": "X", "project_id": "explicit"}}
-        await DirectExecutor.execute(data, project_id="context-proj")
+        data = {"action": "card.create", "params": {"title": "X", "workspace_id": "explicit"}}
+        await DirectExecutor.execute(data, workspace_id="context-proj")
 
         called_params = call_api.call_args[0][1]
-        assert called_params["project_id"] == "context-proj"
+        assert called_params["workspace_id"] == "context-proj"
 
     @pytest.mark.asyncio
     async def test_execute_error_when_api_raises(self, mock_mcp):
@@ -166,7 +166,7 @@ class TestExecute:
         call_api.side_effect = RuntimeError("connection refused")
 
         data = {"action": "card.create", "params": {"title": "X"}}
-        result = await DirectExecutor.execute(data, project_id="proj-1")
+        result = await DirectExecutor.execute(data, workspace_id="proj-1")
 
         assert result["success"] is False
         assert "connection refused" in result["error"]
@@ -181,18 +181,18 @@ class TestExecute:
         assert "not in direct whitelist" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_execute_missing_project_id_returns_error(self):
+    async def test_execute_missing_workspace_id_returns_error(self):
         tool_def = {
             "name": "voxyflow.card.create",
-            "inputSchema": {"required": ["project_id"], "properties": {}},
+            "inputSchema": {"required": ["workspace_id"], "properties": {}},
         }
         with patch("app.mcp_server._find_tool", return_value=tool_def), \
              patch("app.mcp_server._call_api", new_callable=AsyncMock):
             data = {"action": "card.create", "params": {"title": "X"}}
-            result = await DirectExecutor.execute(data, project_id=None)
+            result = await DirectExecutor.execute(data, workspace_id=None)
 
             assert result["success"] is False
-            assert "project_id required" in result["error"]
+            assert "workspace_id required" in result["error"]
 
     @pytest.mark.asyncio
     async def test_execute_tool_not_found(self):
@@ -204,37 +204,37 @@ class TestExecute:
             assert "not found" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_execute_card_list_auto_injects_project_id(self):
-        """card.list should auto-inject project_id from context."""
+    async def test_execute_card_list_auto_injects_workspace_id(self):
+        """card.list should auto-inject workspace_id from context."""
         tool_def = {
             "name": "voxyflow.card.list",
             "inputSchema": {
-                "required": ["project_id"],
-                "properties": {"project_id": {"type": "string"}},
+                "required": ["workspace_id"],
+                "properties": {"workspace_id": {"type": "string"}},
             },
         }
         with patch("app.mcp_server._find_tool", return_value=tool_def), \
              patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value=[]) as call_api:
             data = {"action": "card.list", "params": {}}
-            result = await DirectExecutor.execute(data, project_id="proj-abc")
+            result = await DirectExecutor.execute(data, workspace_id="proj-abc")
 
             assert result["success"] is True
-            call_api.assert_called_once_with(tool_def, {"project_id": "proj-abc"})
+            call_api.assert_called_once_with(tool_def, {"workspace_id": "proj-abc"})
 
     @pytest.mark.asyncio
-    async def test_execute_project_list_no_params(self):
-        """project.list needs no params at all."""
+    async def test_execute_workspace_list_no_params(self):
+        """workspace.list needs no params at all."""
         tool_def = {
-            "name": "voxyflow.project.list",
+            "name": "voxyflow.workspace.list",
             "inputSchema": {"properties": {}},
         }
         with patch("app.mcp_server._find_tool", return_value=tool_def), \
              patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value=[{"id": "p1"}]) as call_api:
-            data = {"action": "project.list", "params": {}}
+            data = {"action": "workspace.list", "params": {}}
             result = await DirectExecutor.execute(data)
 
             assert result["success"] is True
-            assert result["mcp_tool"] == "voxyflow.project.list"
+            assert result["mcp_tool"] == "voxyflow.workspace.list"
             call_api.assert_called_once_with(tool_def, {})
 
     @pytest.mark.asyncio
@@ -273,28 +273,28 @@ class TestExecute:
             call_api.assert_called_once_with(tool_def, {"card_id": "c1"})
 
     @pytest.mark.asyncio
-    async def test_execute_wiki_list_auto_injects_project_id(self):
-        """wiki.list should auto-inject project_id from context."""
+    async def test_execute_wiki_list_auto_injects_workspace_id(self):
+        """wiki.list should auto-inject workspace_id from context."""
         tool_def = {
             "name": "voxyflow.wiki.list",
             "inputSchema": {
-                "required": ["project_id"],
-                "properties": {"project_id": {"type": "string"}},
+                "required": ["workspace_id"],
+                "properties": {"workspace_id": {"type": "string"}},
             },
         }
         with patch("app.mcp_server._find_tool", return_value=tool_def), \
              patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value=[]) as call_api:
             data = {"action": "wiki.list", "params": {}}
-            result = await DirectExecutor.execute(data, project_id="proj-xyz")
+            result = await DirectExecutor.execute(data, workspace_id="proj-xyz")
 
             assert result["success"] is True
-            call_api.assert_called_once_with(tool_def, {"project_id": "proj-xyz"})
+            call_api.assert_called_once_with(tool_def, {"workspace_id": "proj-xyz"})
 
     @pytest.mark.asyncio
-    async def test_execute_project_create_with_params(self):
-        """project.create passes title and optional description."""
+    async def test_execute_workspace_create_with_params(self):
+        """workspace.create passes title and optional description."""
         tool_def = {
-            "name": "voxyflow.project.create",
+            "name": "voxyflow.workspace.create",
             "inputSchema": {
                 "required": ["title"],
                 "properties": {
@@ -305,30 +305,30 @@ class TestExecute:
         }
         with patch("app.mcp_server._find_tool", return_value=tool_def), \
              patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value={"id": "p-new"}) as call_api:
-            data = {"action": "project.create", "params": {"title": "New Project", "description": "Desc"}}
+            data = {"action": "workspace.create", "params": {"title": "New Workspace", "description": "Desc"}}
             result = await DirectExecutor.execute(data)
 
             assert result["success"] is True
-            assert result["mcp_tool"] == "voxyflow.project.create"
-            call_api.assert_called_once_with(tool_def, {"title": "New Project", "description": "Desc"})
+            assert result["mcp_tool"] == "voxyflow.workspace.create"
+            call_api.assert_called_once_with(tool_def, {"title": "New Workspace", "description": "Desc"})
 
     @pytest.mark.asyncio
-    async def test_execute_project_delete_needs_project_id(self):
-        """project.delete should work with explicit project_id in params."""
+    async def test_execute_workspace_delete_needs_workspace_id(self):
+        """workspace.delete should work with explicit workspace_id in params."""
         tool_def = {
-            "name": "voxyflow.project.delete",
+            "name": "voxyflow.workspace.delete",
             "inputSchema": {
-                "required": ["project_id"],
-                "properties": {"project_id": {"type": "string"}},
+                "required": ["workspace_id"],
+                "properties": {"workspace_id": {"type": "string"}},
             },
         }
         with patch("app.mcp_server._find_tool", return_value=tool_def), \
              patch("app.mcp_server._call_api", new_callable=AsyncMock, return_value={"success": True}) as call_api:
-            data = {"action": "project.delete", "params": {"project_id": "proj-del"}}
+            data = {"action": "workspace.delete", "params": {"workspace_id": "proj-del"}}
             result = await DirectExecutor.execute(data)
 
             assert result["success"] is True
-            call_api.assert_called_once_with(tool_def, {"project_id": "proj-del"})
+            call_api.assert_called_once_with(tool_def, {"workspace_id": "proj-del"})
 
 
 # ===================================================================
@@ -373,7 +373,7 @@ class TestExecuteDirectAction:
                 data={"action": "card.create", "params": {"title": "Test"}},
                 websocket=ws,
                 session_id="sess-1",
-                project_id="proj-1",
+                workspace_id="proj-1",
             )
 
         # Should have sent: action:started, action:completed, chat:response
@@ -398,7 +398,7 @@ class TestExecuteDirectAction:
             data=data,
             websocket=ws,
             session_id="sess-1",
-            project_id="proj-1",
+            workspace_id="proj-1",
         )
 
         # Should send confirm_required, NOT action:started
@@ -413,7 +413,7 @@ class TestExecuteDirectAction:
         assert len(orch._pending_confirms) == 1
         task_id = list(orch._pending_confirms.keys())[0]
         assert orch._pending_confirms[task_id]["data"] == data
-        assert orch._pending_confirms[task_id]["project_id"] == "proj-1"
+        assert orch._pending_confirms[task_id]["workspace_id"] == "proj-1"
 
     @pytest.mark.asyncio
     async def test_delete_confirmation_message_content(self):
@@ -444,7 +444,7 @@ class TestHandleActionConfirm:
         task_id = "direct-abc12345"
         orch._pending_confirms[task_id] = {
             "data": {"action": "card.delete", "params": {"card_id": "c1"}},
-            "project_id": "proj-1",
+            "workspace_id": "proj-1",
             "session_id": "sess-1",
         }
 
@@ -480,7 +480,7 @@ class TestHandleActionConfirm:
         task_id = "direct-cancel01"
         orch._pending_confirms[task_id] = {
             "data": {"action": "card.delete", "params": {"card_id": "c1"}},
-            "project_id": "proj-1",
+            "workspace_id": "proj-1",
             "session_id": "sess-1",
         }
 

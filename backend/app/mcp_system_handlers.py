@@ -58,7 +58,7 @@ def build_handlers(
     _active_scopes = active_scopes
     _get_http_client = get_http_client
     _enforce_task_scope = enforce_task_scope
-    _current_project_scope = current_project_scope
+    _current_workspace_scope = current_project_scope
     types = types_module
 
     from app.tools.system_tools import (
@@ -83,7 +83,7 @@ def build_handlers(
         from app.services.memory_service import (
             get_memory_service,
             GLOBAL_COLLECTION,
-            _project_collection,
+            _workspace_collection,
         )
         query = params.get("query", "")
         if not query:
@@ -92,13 +92,13 @@ def build_handlers(
         offset = params.get("offset", 0)
         scope = (params.get("scope") or "current").strip()
 
-        env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
-        project_id = env_project_id
+        env_workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        workspace_id = env_workspace_id
 
         def _current_collections() -> list[str]:
-            if project_id and project_id != "system-main":
-                return [_project_collection(project_id)]
-            return [GLOBAL_COLLECTION, _project_collection("system-main")]
+            if workspace_id and workspace_id != "system-main":
+                return [_workspace_collection(workspace_id)]
+            return [GLOBAL_COLLECTION, _workspace_collection("system-main")]
 
         resolved_scope = scope
         if scope == "current":
@@ -112,11 +112,11 @@ def build_handlers(
             other_id = scope[len("other:"):].strip()
             if not other_id:
                 return {"error": "scope 'other:' requires a project id"}
-            if other_id == project_id:
+            if other_id == workspace_id:
                 collections = _current_collections()
                 resolved_scope = "current"
             else:
-                collections = [_project_collection(other_id)]
+                collections = [_workspace_collection(other_id)]
         else:
             logger.warning(
                 f"[mcp.memory.search] unknown scope={scope!r}, falling back to current"
@@ -124,7 +124,7 @@ def build_handlers(
             collections = _current_collections()
             resolved_scope = "current"
         logger.info(
-            f"[mcp.memory.search] project_id={project_id!r} scope={resolved_scope!r} "
+            f"[mcp.memory.search] workspace_id={workspace_id!r} scope={resolved_scope!r} "
             f"collections={collections}"
         )
 
@@ -168,19 +168,19 @@ def build_handlers(
     async def knowledge_search(params: dict) -> dict:
         """RAG search on project knowledge base — on-demand tool.
 
-        Scope is enforced by VOXYFLOW_PROJECT_ID env var. The LLM
-        cannot override it; params.project_id is ignored if present
+        Scope is enforced by VOXYFLOW_WORKSPACE_ID env var. The LLM
+        cannot override it; params.workspace_id is ignored if present
         (it was removed from the schema but defensive-coded here).
         """
         from app.services.rag_service import get_rag_service
-        env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
-        project_id = env_project_id or "system-main"
+        env_workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        workspace_id = env_workspace_id or "system-main"
         query = params.get("query", "")
         if not query:
             return {"error": "query is required"}
-        logger.info(f"[mcp.knowledge.search] project_id={project_id!r}")
+        logger.info(f"[mcp.knowledge.search] workspace_id={workspace_id!r}")
         try:
-            result = await get_rag_service().build_rag_context(project_id, query)
+            result = await get_rag_service().build_rag_context(workspace_id, query)
             return {"result": result or "No relevant knowledge found."}
         except Exception as e:
             return {"error": str(e)}
@@ -188,14 +188,14 @@ def build_handlers(
     async def memory_save(params: dict) -> dict:
         """Store a memory entry in Voxy's long-term memory (ChromaDB or file fallback).
 
-        STRICT ISOLATION: scope is enforced by VOXYFLOW_PROJECT_ID env var.
-        The LLM cannot cross-save into another project — project_id is not
+        STRICT ISOLATION: scope is enforced by VOXYFLOW_WORKSPACE_ID env var.
+        The LLM cannot cross-save into another project — workspace_id is not
         in the schema and any param value is ignored.
         """
         from app.services.memory_service import (
             get_memory_service,
             GLOBAL_COLLECTION,
-            _project_collection,
+            _workspace_collection,
         )
         text = params.get("text", "").strip()
         if not text:
@@ -203,17 +203,17 @@ def build_handlers(
         mem_type = params.get("type", "fact")
         importance = params.get("importance", "medium")
 
-        env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
-        project_id = env_project_id
+        env_workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        workspace_id = env_workspace_id
 
-        if project_id and project_id != "system-main":
-            collection = _project_collection(project_id)
-        elif project_id == "system-main":
-            collection = _project_collection("system-main")
+        if workspace_id and workspace_id != "system-main":
+            collection = _workspace_collection(workspace_id)
+        elif workspace_id == "system-main":
+            collection = _workspace_collection("system-main")
         else:
             collection = GLOBAL_COLLECTION
         logger.info(
-            f"[mcp.memory.save] project_id={project_id!r} collection={collection}"
+            f"[mcp.memory.save] workspace_id={workspace_id!r} collection={collection}"
         )
 
         from datetime import datetime, timezone
@@ -244,8 +244,8 @@ def build_handlers(
             meta["worker_id"] = worker_id
         if chat_id:
             meta["chat_id"] = chat_id
-        if project_id:
-            meta["project_id"] = project_id
+        if workspace_id:
+            meta["workspace_id"] = workspace_id
         try:
             ms = get_memory_service()
             doc_id = ms.store_memory(
@@ -285,7 +285,7 @@ def build_handlers(
         old "success but orphan copy left behind" bug that existed when an
         ID was present in multiple scope collections (e.g. Home, where
         legacy migration duplicated docs across `memory-global` and
-        `memory-project-system-main`).
+        `memory-workspace-system-main`).
 
         Pass an explicit `collection` to target a single collection (used
         by the undo journal, which records the exact write target).
@@ -293,7 +293,7 @@ def build_handlers(
         from app.services.memory_service import (
             get_memory_service,
             GLOBAL_COLLECTION,
-            _project_collection,
+            _workspace_collection,
         )
         doc_id = params.get("id", "").strip()
         if not doc_id:
@@ -314,11 +314,11 @@ def build_handlers(
                     }
                 return {"success": False, "error": f"Failed to delete memory {doc_id}"}
 
-            env_project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
-            if env_project_id and env_project_id != "system-main":
-                scope_collections = [_project_collection(env_project_id)]
+            env_workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+            if env_workspace_id and env_workspace_id != "system-main":
+                scope_collections = [_workspace_collection(env_workspace_id)]
             else:
-                scope_collections = [GLOBAL_COLLECTION, _project_collection("system-main")]
+                scope_collections = [GLOBAL_COLLECTION, _workspace_collection("system-main")]
 
             deleted_from = ms.delete_memory_cascade(doc_id, scope_collections)
             if not deleted_from:
@@ -488,7 +488,7 @@ def build_handlers(
         import time
         from app.services.cli_session_registry import get_cli_session_registry
         registry = get_cli_session_registry()
-        current_pid, scoped = _current_project_scope()
+        current_pid, scoped = _current_workspace_scope()
         scope = (params.get("scope") or "").lower()
         now = time.time()
 
@@ -497,20 +497,20 @@ def build_handlers(
             filtered = all_sessions
             scope_label = "all"
         else:
-            filtered = [s for s in all_sessions if (s.project_id or "") == current_pid]
+            filtered = [s for s in all_sessions if (s.workspace_id or "") == current_pid]
             scope_label = "project"
 
         return {
             "success": True,
             "scope": scope_label,
-            "project_id": current_pid if scope_label == "project" else None,
+            "workspace_id": current_pid if scope_label == "project" else None,
             "sessions": [
                 {
                     "id": s.id,
                     "pid": s.pid,
                     "sessionId": s.session_id,
                     "chatId": s.chat_id,
-                    "projectId": s.project_id,
+                    "projectId": s.workspace_id,
                     "model": s.model,
                     "type": s.session_type,
                     "startedAt": s.started_at,
@@ -532,7 +532,7 @@ def build_handlers(
             store = get_worker_session_store()
             session_id = params.get("session_id")
 
-            current_pid, scoped = _current_project_scope()
+            current_pid, scoped = _current_workspace_scope()
             scope = (params.get("scope") or "").lower()
             if scope == "all" or not scoped:
                 filter_pid: str | None = None
@@ -543,7 +543,7 @@ def build_handlers(
 
             sessions = store.get_sessions(session_id=session_id)
             if filter_pid:
-                sessions = [s for s in sessions if (s.get("project_id") or "") == filter_pid]
+                sessions = [s for s in sessions if (s.get("workspace_id") or "") == filter_pid]
             status_filter = params.get("status")
             if status_filter:
                 sessions = [s for s in sessions if s.get("status") == status_filter]
@@ -553,7 +553,7 @@ def build_handlers(
             base = {
                 "success": True,
                 "scope": scope_label,
-                "project_id": filter_pid,
+                "workspace_id": filter_pid,
                 "count": len(sessions),
             }
             if not sessions:
@@ -594,7 +594,7 @@ def build_handlers(
                             session = {
                                 "task_id": row.id,
                                 "session_id": row.session_id,
-                                "project_id": row.project_id,
+                                "workspace_id": row.workspace_id,
                                 "card_id": row.card_id,
                                 "intent": row.action,
                                 "model": row.model,
@@ -619,7 +619,7 @@ def build_handlers(
                         "status": meta.get("status") or "completed",
                         "intent": meta.get("intent"),
                         "model": meta.get("model"),
-                        "project_id": meta.get("project_id"),
+                        "workspace_id": meta.get("workspace_id"),
                         "card_id": meta.get("card_id"),
                         "session_id": meta.get("session_id"),
                         "summary": (
@@ -725,7 +725,7 @@ def build_handlers(
     async def kg_add(params: dict) -> dict:
         """Add entity + optional relationships/attributes to the KG."""
         from app.services.knowledge_graph_service import get_knowledge_graph_service
-        project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip() or "system-main"
         kg = get_knowledge_graph_service()
 
         entity_name = _kg_truncate(params.get("entity_name"), _KG_MAX_NAME)
@@ -734,7 +734,7 @@ def build_handlers(
             return {"error": "entity_name and entity_type are required"}
 
         try:
-            eid = await kg.add_entity(entity_name, entity_type, project_id)
+            eid = await kg.add_entity(entity_name, entity_type, workspace_id)
             result: dict = {"success": True, "entity_id": eid, "entity_name": entity_name}
 
             # Relationships
@@ -745,7 +745,7 @@ def build_handlers(
                 predicate = _kg_truncate(rel.get("predicate"), _KG_MAX_NAME) or "related_to"
                 if not target:
                     continue
-                tid = await kg.add_entity(target, target_type, project_id)
+                tid = await kg.add_entity(target, target_type, workspace_id)
                 triple_id = await kg.add_triple(eid, predicate, tid, source="chat")
                 rels_added.append({"triple_id": triple_id, "predicate": predicate, "target": target})
 
@@ -764,8 +764,8 @@ def build_handlers(
             if attrs_added:
                 result["attributes"] = attrs_added
 
-            await kg.refresh_pinned_cache(project_id)
-            logger.info(f"[mcp.kg.add] project={project_id} entity={entity_name!r} rels={len(rels_added)} attrs={len(attrs_added)}")
+            await kg.refresh_pinned_cache(workspace_id)
+            logger.info(f"[mcp.kg.add] project={workspace_id} entity={entity_name!r} rels={len(rels_added)} attrs={len(attrs_added)}")
             return result
         except Exception as e:
             logger.error(f"[mcp.kg.add] failed: {e}")
@@ -774,7 +774,7 @@ def build_handlers(
     async def kg_query(params: dict) -> dict:
         """Search entities and relationships in the KG."""
         from app.services.knowledge_graph_service import get_knowledge_graph_service
-        project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip() or "system-main"
         kg = get_knowledge_graph_service()
 
         name = params.get("name")
@@ -790,14 +790,14 @@ def build_handlers(
                 return {"error": f"Invalid as_of datetime: {as_of_str!r}"}
 
         try:
-            entities = await kg.query_entities(project_id, name=name, entity_type=entity_type, as_of=as_of, limit=limit)
+            entities = await kg.query_entities(workspace_id, name=name, entity_type=entity_type, as_of=as_of, limit=limit)
             result: dict = {"entities": entities, "count": len(entities)}
 
             if include_rels and entities:
-                rels = await kg.query_relationships(project_id, entity_name=name, limit=limit)
+                rels = await kg.query_relationships(workspace_id, entity_name=name, limit=limit)
                 result["relationships"] = rels
 
-            logger.info(f"[mcp.kg.query] project={project_id} name={name!r} found={len(entities)}")
+            logger.info(f"[mcp.kg.query] project={workspace_id} name={name!r} found={len(entities)}")
             return result
         except Exception as e:
             logger.error(f"[mcp.kg.query] failed: {e}")
@@ -806,15 +806,15 @@ def build_handlers(
     async def kg_timeline(params: dict) -> dict:
         """Chronological entity history."""
         from app.services.knowledge_graph_service import get_knowledge_graph_service
-        project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip() or "system-main"
         kg = get_knowledge_graph_service()
 
         entity_name = params.get("entity_name")
         limit = _kg_clamp_limit(params.get("limit"), 50)
 
         try:
-            events = await kg.get_timeline(project_id, entity_name=entity_name, limit=limit)
-            logger.info(f"[mcp.kg.timeline] project={project_id} entity={entity_name!r} events={len(events)}")
+            events = await kg.get_timeline(workspace_id, entity_name=entity_name, limit=limit)
+            logger.info(f"[mcp.kg.timeline] project={workspace_id} entity={entity_name!r} events={len(events)}")
             return {"events": events, "count": len(events)}
         except Exception as e:
             logger.error(f"[mcp.kg.timeline] failed: {e}")
@@ -823,7 +823,7 @@ def build_handlers(
     async def kg_invalidate(params: dict) -> dict:
         """Mark a triple or attribute as ended."""
         from app.services.knowledge_graph_service import get_knowledge_graph_service
-        project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip() or "system-main"
         kg = get_knowledge_graph_service()
 
         triple_id = params.get("triple_id")
@@ -834,8 +834,8 @@ def build_handlers(
 
         try:
             ok = await kg.invalidate(triple_id=triple_id, attribute_id=attribute_id)
-            await kg.refresh_pinned_cache(project_id)
-            logger.info(f"[mcp.kg.invalidate] project={project_id} triple={triple_id} attr={attribute_id} ok={ok}")
+            await kg.refresh_pinned_cache(workspace_id)
+            logger.info(f"[mcp.kg.invalidate] project={workspace_id} triple={triple_id} attr={attribute_id} ok={ok}")
             return {"success": ok, "invalidated": triple_id or attribute_id}
         except Exception as e:
             logger.error(f"[mcp.kg.invalidate] failed: {e}")
@@ -844,13 +844,13 @@ def build_handlers(
     async def kg_stats(params: dict) -> dict:
         """KG counts for the current project."""
         from app.services.knowledge_graph_service import get_knowledge_graph_service
-        project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip() or "system-main"
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip() or "system-main"
         kg = get_knowledge_graph_service()
 
         try:
-            stats = await kg.get_stats(project_id)
-            logger.info(f"[mcp.kg.stats] project={project_id} stats={stats}")
-            return {"success": True, "project_id": project_id, **stats}
+            stats = await kg.get_stats(workspace_id)
+            logger.info(f"[mcp.kg.stats] project={workspace_id} stats={stats}")
+            return {"success": True, "workspace_id": workspace_id, **stats}
         except Exception as e:
             logger.error(f"[mcp.kg.stats] failed: {e}")
             return {"error": str(e)}
@@ -886,10 +886,10 @@ def build_handlers(
 
             chat_id = (params.get("chat_id") or "").strip()
             if not chat_id:
-                project_id = os.environ.get("VOXYFLOW_PROJECT_ID", "")
-                chat_id = f"project:{project_id}" if project_id else ""
+                workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "")
+                chat_id = f"project:{workspace_id}" if workspace_id else ""
             if not chat_id:
-                return {"success": False, "error": "chat_id required (or set VOXYFLOW_PROJECT_ID env var)"}
+                return {"success": False, "error": "chat_id required (or set VOXYFLOW_WORKSPACE_ID env var)"}
 
             last_n = min(max(int(params.get("last_n_messages", 200) or 200), 10), 500)
             focus = params.get("focus", "all")

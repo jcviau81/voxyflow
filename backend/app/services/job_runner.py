@@ -239,7 +239,7 @@ async def _cleanup_job_session(chat_id: str, session_id: str) -> None:
         logger.warning(f"[Jobs] Session cleanup failed: {e}")
 
 
-def _emit_job_session(job: dict, chat_id: str, project_id: str | None = None) -> None:
+def _emit_job_session(job: dict, chat_id: str, workspace_id: str | None = None) -> None:
     """Broadcast job:session:started so the frontend can label scheduler sessions."""
     try:
         from app.services.ws_broadcast import ws_broadcast
@@ -248,7 +248,7 @@ def _emit_job_session(job: dict, chat_id: str, project_id: str | None = None) ->
             "jobId": job.get("id"),
             "jobName": job.get("name"),
             "jobType": job.get("type"),
-            "projectId": project_id,
+            "projectId": workspace_id,
         })
     except Exception as e:
         logger.debug(f"[Jobs] Could not emit job:session:started: {e}")
@@ -263,23 +263,23 @@ async def _run_rag_index(job: dict, payload: dict) -> dict:
     """Run a RAG index job for specific projects or all active projects.
 
     Payload keys (all optional):
-      - project_ids: list[str]  → scope to these projects
-      - project_id:  str        → legacy single-project scope
+      - workspace_ids: list[str]  → scope to these projects
+      - workspace_id:  str        → legacy single-project scope
     Neither set → reindex all projects with recent activity (builtin sweep).
     """
-    project_ids: list[str] = []
-    raw_ids = payload.get("project_ids")
+    workspace_ids: list[str] = []
+    raw_ids = payload.get("workspace_ids")
     if isinstance(raw_ids, list):
-        project_ids.extend(str(x) for x in raw_ids if x)
-    single = payload.get("project_id")
+        workspace_ids.extend(str(x) for x in raw_ids if x)
+    single = payload.get("workspace_id")
     if isinstance(single, str) and single:
-        project_ids.append(single)
+        workspace_ids.append(single)
 
     from app.services.scheduler_service import get_scheduler_service
 
     svc = get_scheduler_service()
-    await svc._rag_index_job(project_ids=project_ids or None)
-    scope = ", ".join(project_ids) if project_ids else "all active"
+    await svc._rag_index_job(workspace_ids=workspace_ids or None)
+    scope = ", ".join(workspace_ids) if workspace_ids else "all active"
     return {"status": "ok", "message": f"RAG index triggered (scope={scope})"}
 
 
@@ -317,16 +317,16 @@ async def _run_reminder(job: dict, payload: dict) -> dict:
 
 async def _run_execute_board(job: dict, payload: dict) -> dict:
     """Execute all matching cards from a project board."""
-    project_id = payload.get("project_id")
-    if not project_id:
-        return {"status": "error", "message": "Missing project_id in payload"}
+    workspace_id = payload.get("workspace_id")
+    if not workspace_id:
+        return {"status": "error", "message": "Missing workspace_id in payload"}
 
     statuses = payload.get("statuses", ["todo"])
-    logger.info(f"[Jobs][ExecuteBoard] Starting board run for project={project_id}, statuses={statuses}")
+    logger.info(f"[Jobs][ExecuteBoard] Starting board run for project={workspace_id}, statuses={statuses}")
 
     from app.services.board_executor import build_execution_plan, execute_board
 
-    plan = await build_execution_plan(project_id, statuses)
+    plan = await build_execution_plan(workspace_id, statuses)
     if not plan.cards:
         return {"status": "ok", "message": "No cards to execute"}
 
@@ -335,12 +335,12 @@ async def _run_execute_board(job: dict, payload: dict) -> dict:
     session_id = f"job-{job.get('id', str(uuid4()))}"
     chat_id = f"job:{plan.execution_id}"
 
-    _emit_job_session(job, chat_id, project_id)
+    _emit_job_session(job, chat_id, workspace_id)
 
     try:
         await execute_board(
             execution_id=plan.execution_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             cards=plan.cards,
             websocket=_BroadcastWS(),
             orchestrator=_orchestrator,
@@ -359,8 +359,8 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
     if not card_id:
         return {"status": "error", "message": "Missing card_id in payload"}
 
-    project_id = payload.get("project_id")
-    logger.info(f"[Jobs][ExecuteCard] Executing card={card_id}, project={project_id or 'none'}")
+    workspace_id = payload.get("workspace_id")
+    logger.info(f"[Jobs][ExecuteCard] Executing card={card_id}, project={workspace_id or 'none'}")
 
     from app.services.board_executor import _build_card_prompt
     from app.main import _orchestrator
@@ -371,7 +371,7 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
     chat_id = f"job:{job.get('id')}-{uuid4().hex[:8]}"
     message_id = f"exec-card-{uuid4().hex[:8]}"
 
-    _emit_job_session(job, chat_id, project_id)
+    _emit_job_session(job, chat_id, workspace_id)
 
     try:
         bg_tasks = await _orchestrator.handle_message(
@@ -379,8 +379,8 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
             content=prompt,
             message_id=message_id,
             chat_id=chat_id,
-            project_id=project_id,
-            chat_level="project" if project_id else "general",
+            workspace_id=workspace_id,
+            chat_level="project" if workspace_id else "general",
             card_id=card_id,
             session_id=session_id,
         )
@@ -399,14 +399,14 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
 async def _run_agent_task(job: dict, payload: dict) -> dict:
     """Execute a freeform instruction through the chat pipeline.
 
-    Project heartbeats (jobs flagged ``project_heartbeat`` with a ``project_id``)
+    Workspace heartbeats (jobs flagged ``project_heartbeat`` with a ``workspace_id``)
     are routed through the dedicated autonomy runner instead of the interactive
     dispatcher — same toolset, but without the 'wait for go' gate.
     """
     is_heartbeat = bool(
         payload.get("project_heartbeat") or job.get("project_heartbeat")
     )
-    if is_heartbeat and payload.get("project_id"):
+    if is_heartbeat and payload.get("workspace_id"):
         return await _run_autonomy_tick(job, payload)
 
     instruction = payload.get("instruction") or payload.get("instructions")
@@ -420,8 +420,8 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
     if gated is not None:
         return gated
 
-    project_id = payload.get("project_id")
-    logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (project={project_id or 'none'})")
+    workspace_id = payload.get("workspace_id")
+    logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (project={workspace_id or 'none'})")
 
     from app.main import _orchestrator
 
@@ -429,7 +429,7 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
     chat_id = f"job:{job.get('id')}-{uuid4().hex[:8]}"
     message_id = f"agent-task-{uuid4().hex[:8]}"
 
-    _emit_job_session(job, chat_id, project_id)
+    _emit_job_session(job, chat_id, workspace_id)
 
     try:
         bg_tasks = await _orchestrator.handle_message(
@@ -437,8 +437,8 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
             content=instruction,
             message_id=message_id,
             chat_id=chat_id,
-            project_id=project_id,
-            chat_level="project" if project_id else "general",
+            workspace_id=workspace_id,
+            chat_level="project" if workspace_id else "general",
             session_id=session_id,
         )
 
@@ -493,17 +493,17 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
     the standard ``task:cancel`` WS flow.
     """
     import time
-    project_id = payload.get("project_id")
-    if not project_id:
-        return {"status": "error", "message": "autonomy tick requires project_id"}
+    workspace_id = payload.get("workspace_id")
+    if not workspace_id:
+        return {"status": "error", "message": "autonomy tick requires workspace_id"}
 
     gated = _check_payload_gate(job, payload)
     if gated is not None:
         return gated
 
-    from app.services.project_autonomy import heartbeat_file, read_directive
-    directive_path = str(heartbeat_file(project_id))
-    directive = read_directive(project_id)
+    from app.services.workspace_autonomy import heartbeat_file, read_directive
+    directive_path = str(heartbeat_file(workspace_id))
+    directive = read_directive(workspace_id)
 
     instruction = payload.get("instruction") or "autonomy-tick"
     if isinstance(instruction, list):
@@ -523,7 +523,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
     # so reruns of the same job don't collide in the session store.
     task_id = f"autonomy-{job_id}-{uuid4().hex[:8]}"
 
-    _emit_job_session(job, chat_id, project_id)
+    _emit_job_session(job, chat_id, workspace_id)
 
     # Register in the worker session store so the Worker Panel sees it.
     # Job names for heartbeats are already "Heartbeat — <project>"; the panel
@@ -537,7 +537,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
             task_id=task_id,
             session_id=session_id,
             chat_id=chat_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             card_id=None,
             model=model_label,
             intent="autonomy",
@@ -546,7 +546,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
         )
         await _emit_ws("task:started", {
             "taskId": task_id,
-            "projectId": project_id,
+            "projectId": workspace_id,
             "cardId": None,
             "chatId": chat_id,
             "sessionId": session_id,
@@ -565,7 +565,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
     status = "completed"
     error_msg: str | None = None
     logger.info(
-        f"[autonomy-tick] start project={project_id} job={job_id} "
+        f"[autonomy-tick] start project={workspace_id} job={job_id} "
         f"session={session_id} task={task_id}"
     )
 
@@ -575,7 +575,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
             content=user_message,
             message_id=message_id,
             chat_id=chat_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             chat_level="project",
             session_id=session_id,
             role="autonomy",
@@ -632,7 +632,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
         })
 
     logger.info(
-        f"[autonomy-tick] end project={project_id} job={job_id} "
+        f"[autonomy-tick] end project={workspace_id} job={job_id} "
         f"duration={duration:.2f}s spawned={spawned} status={status}"
     )
 
@@ -646,7 +646,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
                 f"Autonomy cycle {body_status} "
                 f"({duration:.1f}s, {spawned} delegate{'s' if spawned != 1 else ''})."
             ),
-            url=f"/project/{project_id}",
+            url=f"/project/{workspace_id}",
             tag=f"autonomy-{job_id}",
         ))
     except Exception as _push_err:

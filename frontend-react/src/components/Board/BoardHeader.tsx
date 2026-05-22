@@ -403,10 +403,10 @@ export function BoardHeader({
       <Button variant="outline" size="sm" className="h-6 px-2 shrink-0" title="View dependency graph" onClick={onDepGraph}>
         <Link2 size={12} className="text-sky-400" />
       </Button>
-      <Button variant="outline" size="sm" className="h-6 px-2 shrink-0" title="Export project as JSON" onClick={onExport}>
+      <Button variant="outline" size="sm" className="h-6 px-2 shrink-0" title="Export workspace as JSON" onClick={onExport}>
         <Upload size={12} className="text-violet-400" />
       </Button>
-      <Button variant="outline" size="sm" className="h-6 px-2 shrink-0" title="Import project from JSON" onClick={() => importInputRef.current?.click()}>
+      <Button variant="outline" size="sm" className="h-6 px-2 shrink-0" title="Import workspace from JSON" onClick={() => importInputRef.current?.click()}>
         <Download size={12} className="text-blue-400" />
       </Button>
       <input

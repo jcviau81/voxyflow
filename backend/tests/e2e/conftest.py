@@ -70,12 +70,12 @@ _E2E_JOB_NAME_PREFIXES: tuple[str, ...] = (
 
 @pytest.fixture(autouse=True, scope="session")
 def _sweep_stale_e2e_jobs(_require_backend):
-    """Delete stray E2E jobs/projects left over from previous failed runs.
+    """Delete stray E2E jobs/workspaces left over from previous failed runs.
 
     Tests in test_10_jobs.py create jobs via POST /api/jobs and delete them
-    at the end of each test; the test_project fixture creates throwaway
-    projects with title prefix 'E2E_Test_'. When a test fails mid-run the
-    delete is skipped and the job/project stays on disk — scheduled, and in
+    at the end of each test; the test_workspace fixture creates throwaway
+    workspaces with title prefix 'E2E_Test_'. When a test fails mid-run the
+    delete is skipped and the job/workspace stays on disk — scheduled, and in
     the case of rag_index jobs, contributing to event-loop stalls every
     few minutes. This fixture wipes both on session start AND at teardown.
     """
@@ -105,71 +105,71 @@ def _sweep_stale_e2e_jobs(_require_backend):
             print(f"[conftest] {label}: swept {removed} stale E2E job(s)")
         return removed
 
-    def _sweep_projects(label: str) -> int:
+    def _sweep_workspaces(label: str) -> int:
         try:
-            r = _httpx.get(f"{BASE_URL}/api/projects", timeout=5)
+            r = _httpx.get(f"{BASE_URL}/api/workspaces", timeout=5)
             if r.status_code != 200:
                 return 0
             payload = r.json()
-            projects = payload if isinstance(payload, list) else payload.get("projects", [])
+            workspaces = payload if isinstance(payload, list) else payload.get("workspaces", [])
         except Exception:
             return 0
 
         removed = 0
-        for p in projects:
+        for p in workspaces:
             title = (p.get("title") or "").strip()
             if not title.startswith("E2E_Test_"):
                 continue
             try:
-                dr = _httpx.delete(f"{BASE_URL}/api/projects/{p.get('id')}", timeout=15)
+                dr = _httpx.delete(f"{BASE_URL}/api/workspaces/{p.get('id')}", timeout=15)
                 if dr.status_code in (200, 204):
                     removed += 1
             except Exception:
                 pass
         if removed:
-            print(f"[conftest] {label}: swept {removed} stale E2E project(s)")
+            print(f"[conftest] {label}: swept {removed} stale E2E workspace(s)")
         return removed
 
     _sweep_jobs("pre-session")
-    _sweep_projects("pre-session")
+    _sweep_workspaces("pre-session")
     yield
     _sweep_jobs("post-session")
-    _sweep_projects("post-session")
+    _sweep_workspaces("post-session")
 
 
 # ---------------------------------------------------------------------------
-# Test project lifecycle (create → yield → cleanup)
+# Test workspace lifecycle (create → yield → cleanup)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-async def test_project(client: httpx.AsyncClient):
-    """Create a throwaway project and clean it up after the test."""
+async def test_workspace(client: httpx.AsyncClient):
+    """Create a throwaway workspace and clean it up after the test."""
     tag = uuid.uuid4().hex[:8]
-    r = await client.post("/api/projects", json={
+    r = await client.post("/api/workspaces", json={
         "title": f"E2E_Test_{tag}",
         "description": "Automated E2E test — safe to delete",
     })
-    assert r.status_code in (200, 201), f"Failed to create project: {r.status_code} {r.text}"
-    project = r.json()
-    pid = project.get("id") or project.get("project", {}).get("id")
-    assert pid, f"No project id: {project}"
-    project["_id"] = pid
+    assert r.status_code in (200, 201), f"Failed to create workspace: {r.status_code} {r.text}"
+    workspace = r.json()
+    pid = workspace.get("id") or workspace.get("workspace", {}).get("id")
+    assert pid, f"No workspace id: {workspace}"
+    workspace["_id"] = pid
 
-    yield project
+    yield workspace
 
     # Cleanup — best effort
     try:
-        await client.delete(f"/api/projects/{pid}")
+        await client.delete(f"/api/workspaces/{pid}")
     except Exception:
         pass
 
 
 @pytest.fixture
-async def test_card(client: httpx.AsyncClient, test_project: dict):
-    """Create a throwaway card inside the test project."""
-    pid = test_project["_id"]
+async def test_card(client: httpx.AsyncClient, test_workspace: dict):
+    """Create a throwaway card inside the test workspace."""
+    pid = test_workspace["_id"]
     tag = uuid.uuid4().hex[:8]
-    r = await client.post(f"/api/projects/{pid}/cards", json={
+    r = await client.post(f"/api/workspaces/{pid}/cards", json={
         "title": f"E2E Card {tag}",
         "description": "Test card for E2E",
         "status": "todo",
@@ -180,7 +180,7 @@ async def test_card(client: httpx.AsyncClient, test_project: dict):
     card_id = card.get("id") or card.get("card", {}).get("id")
     assert card_id, f"No card id: {card}"
     card["_id"] = card_id
-    card["_project_id"] = pid
+    card["_workspace_id"] = pid
     return card
 
 
@@ -317,9 +317,9 @@ async def assert_card_history_contains(
     return match[0]
 
 
-async def count_project_cards(client, project_id: str) -> int:
-    """Return count of cards in a project."""
-    r = await client.get(f"/api/projects/{project_id}/cards")
+async def count_workspace_cards(client, workspace_id: str) -> int:
+    """Return count of cards in a workspace."""
+    r = await client.get(f"/api/workspaces/{workspace_id}/cards")
     assert r.status_code == 200
     data = r.json()
     cards = data.get("cards", data) if isinstance(data, dict) else data
@@ -332,7 +332,7 @@ def chat_payload(content: str, **kwargs) -> dict:
         "content": content,
         "messageId": f"e2e-{uuid.uuid4().hex[:8]}",
         "chatLevel": kwargs.get("chatLevel", "general"),
-        "projectId": kwargs.get("projectId"),
+        "workspaceId": kwargs.get("workspaceId"),
         "cardId": kwargs.get("cardId"),
         "sessionId": kwargs.get("sessionId", f"e2e-{uuid.uuid4().hex[:6]}"),
         "chatId": kwargs.get("chatId"),
@@ -344,11 +344,11 @@ def chat_payload(content: str, **kwargs) -> dict:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-async def test_card_done(client: httpx.AsyncClient, test_project: dict):
-    """Create a card with status='done' in the test project."""
-    pid = test_project["_id"]
+async def test_card_done(client: httpx.AsyncClient, test_workspace: dict):
+    """Create a card with status='done' in the test workspace."""
+    pid = test_workspace["_id"]
     tag = uuid.uuid4().hex[:8]
-    r = await client.post(f"/api/projects/{pid}/cards", json={
+    r = await client.post(f"/api/workspaces/{pid}/cards", json={
         "title": f"Done Card {tag}",
         "description": "Card already done",
         "status": "done",
@@ -356,5 +356,5 @@ async def test_card_done(client: httpx.AsyncClient, test_project: dict):
     assert r.status_code in (200, 201)
     card = r.json()
     card["_id"] = card.get("id")
-    card["_project_id"] = pid
+    card["_workspace_id"] = pid
     return card

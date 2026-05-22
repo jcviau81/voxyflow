@@ -24,7 +24,7 @@ def _project_card(card: dict) -> dict:
 
 
 def _minimize_card_list(data):
-    """Project card list responses to the minimal fields an LLM actually needs.
+    """Workspace card list responses to the minimal fields an LLM actually needs.
 
     Full ``CardResponse`` carries description, files, time sums, checklist
     progress, watchers, etc. — a project with ~200 cards balloons the tool
@@ -94,7 +94,7 @@ _TOOL_DEFINITIONS: list[dict] = [
 
     # ---- Projects ----------------------------------------------------------
     {
-        "name": "voxyflow.project.create",
+        "name": "voxyflow.workspace.create",
         "description": "Create a new project.",
         "inputSchema": {
             "type": "object",
@@ -108,94 +108,94 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "local_path": {"type": "string"},
             },
         },
-        "_http": ("POST", "/api/projects", None),
+        "_http": ("POST", "/api/workspaces", None),
     },
     {
-        "name": "voxyflow.project.list",
+        "name": "voxyflow.workspace.list",
         "description": "List all projects.",
         "inputSchema": {
             "type": "object",
             "properties": {},
         },
-        "_http": ("GET", "/api/projects", None),
+        "_http": ("GET", "/api/workspaces", None),
     },
     {
-        "name": "voxyflow.project.get",
+        "name": "voxyflow.workspace.get",
         "description": "Get a project with its cards.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string"},
+                "workspace_id": {"type": "string"},
             },
         },
-        "_http": ("GET", "/api/projects/{project_id}", None),
+        "_http": ("GET", "/api/workspaces/{workspace_id}", None),
     },
     {
-        "name": "voxyflow.project.delete",
+        "name": "voxyflow.workspace.delete",
         "description": "Delete a project and all its cards (irreversible).",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID to delete"},
+                "workspace_id": {"type": "string", "description": "Workspace ID to delete"},
             },
         },
-        "_http": ("DELETE", "/api/projects/{project_id}", None),
+        "_http": ("DELETE", "/api/workspaces/{workspace_id}", None),
     },
     {
-        "name": "voxyflow.project.update",
+        "name": "voxyflow.workspace.update",
         "description": "Update an existing project (title, description, status, context, github_url, etc.).",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID to update"},
+                "workspace_id": {"type": "string", "description": "Workspace ID to update"},
                 "title": {"type": "string", "description": "New project title"},
                 "description": {"type": "string", "description": "New project description"},
-                "status": {"type": "string", "enum": ["active", "archived"], "description": "Project status"},
+                "status": {"type": "string", "enum": ["active", "archived"], "description": "Workspace status"},
                 "context": {"type": "string", "description": "Additional context for the AI"},
                 "github_url": {"type": "string", "description": "GitHub repository URL"},
                 "local_path": {"type": "string", "description": "Local filesystem path"},
             },
         },
-        "_http": ("PATCH", "/api/projects/{project_id}", None),
+        "_http": ("PATCH", "/api/workspaces/{workspace_id}", None),
     },
     {
-        "name": "voxyflow.project.export",
+        "name": "voxyflow.workspace.export",
         "description": "Export a project as a JSON snapshot (all cards, wiki, metadata).",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID to export"},
+                "workspace_id": {"type": "string", "description": "Workspace ID to export"},
             },
         },
-        "_http": ("GET", "/api/projects/{project_id}/export", None),
+        "_http": ("GET", "/api/workspaces/{workspace_id}/export", None),
     },
     {
-        "name": "voxyflow.project.archive",
+        "name": "voxyflow.workspace.archive",
         "description": "Archive a project (hide from main list, keep all data).",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID to archive"},
+                "workspace_id": {"type": "string", "description": "Workspace ID to archive"},
             },
         },
-        "_http": ("POST", "/api/projects/{project_id}/archive", None),
+        "_http": ("POST", "/api/workspaces/{workspace_id}/archive", None),
     },
     {
-        "name": "voxyflow.project.restore",
+        "name": "voxyflow.workspace.restore",
         "description": "Restore an archived project back to active status.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID to restore"},
+                "workspace_id": {"type": "string", "description": "Workspace ID to restore"},
             },
         },
-        "_http": ("POST", "/api/projects/{project_id}/restore", None),
+        "_http": ("POST", "/api/workspaces/{workspace_id}/restore", None),
     },
 
     # ---- Cards -------------------------------------------------------------
@@ -204,9 +204,9 @@ _TOOL_DEFINITIONS: list[dict] = [
         "description": "Create a new card in a project.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id", "title"],
+            "required": ["workspace_id", "title"],
             "properties": {
-                "project_id": {"type": "string"},
+                "workspace_id": {"type": "string"},
                 "title": {"type": "string"},
                 "description": {"type": "string"},
                 "status": {
@@ -226,14 +226,14 @@ _TOOL_DEFINITIONS: list[dict] = [
                 },
             },
         },
-        "_http": ("POST", "/api/projects/{project_id}/cards", None),
+        "_http": ("POST", "/api/workspaces/{workspace_id}/cards", None),
     },
     {
         "name": "voxyflow.card.list",
         "description": (
             "List active (non-archived) cards for the current project. "
-            "project_id is auto-scoped from the active chat context "
-            "(VOXYFLOW_PROJECT_ID) — omit it in project chats. In general chat "
+            "workspace_id is auto-scoped from the active chat context "
+            "(VOXYFLOW_WORKSPACE_ID) — omit it in project chats. In general chat "
             "it defaults to the Main Board. Archived cards are excluded; use "
             "card.list_archived for those. Returns minimal fields (id, title, "
             "status, priority, position, assignee, agent_type)."
@@ -241,13 +241,13 @@ _TOOL_DEFINITIONS: list[dict] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {
+                "workspace_id": {
                     "type": "string",
                     "description": "Optional — normally auto-injected; only pass a UUID to override.",
                 },
             },
         },
-        "_http": ("GET", "/api/projects/{project_id}/cards", None),
+        "_http": ("GET", "/api/workspaces/{workspace_id}/cards", None),
         "_post_process": _minimize_card_list,
     },
     {
@@ -364,20 +364,20 @@ _TOOL_DEFINITIONS: list[dict] = [
     {
         "name": "voxyflow.card.list_archived",
         "description": (
-            "List archived cards for the current project. project_id is "
-            "auto-scoped from VOXYFLOW_PROJECT_ID; omit it in project chats. "
+            "List archived cards for the current project. workspace_id is "
+            "auto-scoped from VOXYFLOW_WORKSPACE_ID; omit it in project chats. "
             "Returns minimal fields only."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {
+                "workspace_id": {
                     "type": "string",
                     "description": "Optional — normally auto-injected; only pass a UUID to override.",
                 },
             },
         },
-        "_http": ("GET", "/api/projects/{project_id}/cards/archived", None),
+        "_http": ("GET", "/api/workspaces/{workspace_id}/cards/archived", None),
         "_post_process": _minimize_card_list_archived,
     },
     {
@@ -563,69 +563,69 @@ _TOOL_DEFINITIONS: list[dict] = [
         "description": "List wiki pages for a project.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string"},
+                "workspace_id": {"type": "string"},
             },
         },
-        "_http": ("GET", "/api/projects/{project_id}/wiki", None),
+        "_http": ("GET", "/api/workspaces/{workspace_id}/wiki", None),
     },
     {
         "name": "voxyflow.wiki.create",
         "description": "Create a new wiki page for a project.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id", "title", "content"],
+            "required": ["workspace_id", "title", "content"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "workspace_id": {"type": "string", "description": "Workspace ID"},
                 "title": {"type": "string", "description": "Page title"},
                 "content": {"type": "string", "description": "Page content (Markdown)"},
                 "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags"},
             },
         },
-        "_http": ("POST", "/api/projects/{project_id}/wiki", None),
+        "_http": ("POST", "/api/workspaces/{workspace_id}/wiki", None),
     },
     {
         "name": "voxyflow.wiki.get",
         "description": "Get a wiki page.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id", "page_id"],
+            "required": ["workspace_id", "page_id"],
             "properties": {
-                "project_id": {"type": "string"},
+                "workspace_id": {"type": "string"},
                 "page_id": {"type": "string"},
             },
         },
-        "_http": ("GET", "/api/projects/{project_id}/wiki/{page_id}", None),
+        "_http": ("GET", "/api/workspaces/{workspace_id}/wiki/{page_id}", None),
     },
     {
         "name": "voxyflow.wiki.update",
         "description": "Update an existing wiki page.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id", "page_id"],
+            "required": ["workspace_id", "page_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "workspace_id": {"type": "string", "description": "Workspace ID"},
                 "page_id": {"type": "string", "description": "Wiki page ID"},
                 "title": {"type": "string", "description": "New title"},
                 "content": {"type": "string", "description": "New content (Markdown)"},
                 "tags": {"type": "array", "items": {"type": "string"}, "description": "Updated tags"},
             },
         },
-        "_http": ("PUT", "/api/projects/{project_id}/wiki/{page_id}", None),
+        "_http": ("PUT", "/api/workspaces/{workspace_id}/wiki/{page_id}", None),
     },
     {
         "name": "voxyflow.wiki.delete",
         "description": "Delete a wiki page.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id", "page_id"],
+            "required": ["workspace_id", "page_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "workspace_id": {"type": "string", "description": "Workspace ID"},
                 "page_id": {"type": "string", "description": "Wiki page ID to delete"},
             },
         },
-        "_http": ("DELETE", "/api/projects/{project_id}/wiki/{page_id}", None),
+        "_http": ("DELETE", "/api/workspaces/{workspace_id}/wiki/{page_id}", None),
     },
 
     # ---- AI ----------------------------------------------------------------
@@ -634,48 +634,48 @@ _TOOL_DEFINITIONS: list[dict] = [
         "description": "Generate an AI daily standup report for a project (what's done, in-progress, blocked).",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "workspace_id": {"type": "string", "description": "Workspace ID"},
             },
         },
-        "_http": ("POST", "/api/projects/{project_id}/standup", None),
+        "_http": ("POST", "/api/workspaces/{workspace_id}/standup", None),
     },
     {
         "name": "voxyflow.ai.brief",
         "description": "Generate a comprehensive AI project brief using the most capable model (Opus).",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "workspace_id": {"type": "string", "description": "Workspace ID"},
             },
         },
-        "_http": ("POST", "/api/projects/{project_id}/brief", None),
+        "_http": ("POST", "/api/workspaces/{workspace_id}/brief", None),
     },
     {
         "name": "voxyflow.ai.health",
         "description": "Run an AI project health check — assess risks, blockers, and team velocity.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "workspace_id": {"type": "string", "description": "Workspace ID"},
             },
         },
-        "_http": ("POST", "/api/projects/{project_id}/health", None),
+        "_http": ("POST", "/api/workspaces/{workspace_id}/health", None),
     },
     {
         "name": "voxyflow.ai.prioritize",
         "description": "Use AI to smart-prioritize cards in a project based on value, complexity, and dependencies.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "workspace_id": {"type": "string", "description": "Workspace ID"},
             },
         },
-        "_http": ("POST", "/api/projects/{project_id}/prioritize", None),
+        "_http": ("POST", "/api/workspaces/{workspace_id}/prioritize", None),
     },
     {
         "name": "voxyflow.ai.review_code",
@@ -687,7 +687,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "code": {"type": "string", "description": "Code snippet to review"},
                 "language": {"type": "string", "description": "Programming language (optional)"},
                 "context": {"type": "string", "description": "Additional context for the review"},
-                "project_id": {"type": "string", "description": "Optional project context"},
+                "workspace_id": {"type": "string", "description": "Optional project context"},
             },
         },
         "_http": ("POST", "/api/code/review", None),
@@ -699,25 +699,25 @@ _TOOL_DEFINITIONS: list[dict] = [
         "description": "List documents attached to a project.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string"},
+                "workspace_id": {"type": "string"},
             },
         },
-        "_http": ("GET", "/api/projects/{project_id}/documents", None),
+        "_http": ("GET", "/api/workspaces/{workspace_id}/documents", None),
     },
     {
         "name": "voxyflow.doc.delete",
         "description": "Delete a document from a project.",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id", "document_id"],
+            "required": ["workspace_id", "document_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "workspace_id": {"type": "string", "description": "Workspace ID"},
                 "document_id": {"type": "string", "description": "Document ID to delete"},
             },
         },
-        "_http": ("DELETE", "/api/projects/{project_id}/documents/{document_id}", None),
+        "_http": ("DELETE", "/api/workspaces/{workspace_id}/documents/{document_id}", None),
     },
 
     # ---- Focus Sessions ----------------------------------------------------
@@ -729,7 +729,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             "required": ["duration_minutes", "completed", "started_at", "ended_at"],
             "properties": {
                 "card_id": {"type": "string", "description": "Card ID (optional)"},
-                "project_id": {"type": "string", "description": "Project ID (optional)"},
+                "workspace_id": {"type": "string", "description": "Workspace ID (optional)"},
                 "duration_minutes": {"type": "integer", "description": "Session duration in minutes"},
                 "completed": {"type": "boolean", "description": "Whether the session was completed"},
                 "started_at": {"type": "string", "description": "ISO datetime when session started"},
@@ -743,12 +743,12 @@ _TOOL_DEFINITIONS: list[dict] = [
         "description": "Get focus session analytics for a project (totals, by card, by day).",
         "inputSchema": {
             "type": "object",
-            "required": ["project_id"],
+            "required": ["workspace_id"],
             "properties": {
-                "project_id": {"type": "string", "description": "Project ID"},
+                "workspace_id": {"type": "string", "description": "Workspace ID"},
             },
         },
-        "_http": ("GET", "/api/projects/{project_id}/focus", None),
+        "_http": ("GET", "/api/workspaces/{workspace_id}/focus", None),
     },
 
     # ---- CLI Sessions ------------------------------------------------------
@@ -838,7 +838,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                    "description": "Workspace-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
                 },
             },
         },
@@ -856,7 +856,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                    "description": "Workspace-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
                 },
             },
         },
@@ -919,11 +919,11 @@ _TOOL_DEFINITIONS: list[dict] = [
         "name": "voxyflow.jobs.create",
         "description": (
             "Create a scheduled job. Types & payloads: "
-            "agent_task {instruction, project_id?}; "
-            "execute_board {project_id, statuses?}; "
-            "execute_card {card_id, project_id?}; "
+            "agent_task {instruction, workspace_id?}; "
+            "execute_board {workspace_id, statuses?}; "
+            "execute_card {card_id, workspace_id?}; "
             "reminder {message}; "
-            "rag_index {project_id?, path?}. "
+            "rag_index {workspace_id?, path?}. "
             "Schedule: cron or shorthand (every_5min, every_1h, every_day)."
         ),
         "inputSchema": {
@@ -1003,26 +1003,26 @@ _TOOL_DEFINITIONS: list[dict] = [
 
     # ======================================================================
     # PROJECT AUTONOMY — per-project heartbeat (distinct from the GLOBAL one)
-    # Reads/writes ~/.voxyflow/workspace/projects/{project_id}/heartbeat.md and
+    # Reads/writes ~/.voxyflow/workspace/projects/{workspace_id}/heartbeat.md and
     # manages a dedicated ``agent_task`` job that runs on its own schedule with
-    # project-scoped memory / KG / MCP. In a project chat, project_id is
-    # auto-injected from VOXYFLOW_PROJECT_ID — Voxy does not need to pass it.
+    # project-scoped memory / KG / MCP. In a project chat, workspace_id is
+    # auto-injected from VOXYFLOW_WORKSPACE_ID — Voxy does not need to pass it.
     # ======================================================================
 
     {
         "name": "voxyflow.autonomy.status",
         "description": (
             "Return the project's autonomy state: {enabled, schedule, next_run, "
-            "directive, file_path, actionable}. In a project chat, project_id is "
+            "directive, file_path, actionable}. In a project chat, workspace_id is "
             "injected from the current project and must not be passed."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {"type": "string", "description": "Project UUID (only needed from general chat)"},
+                "workspace_id": {"type": "string", "description": "Workspace UUID (only needed from general chat)"},
             },
         },
-        "_http": ("GET", "/api/projects/{project_id}/autonomy", None),
+        "_http": ("GET", "/api/workspaces/{workspace_id}/autonomy", None),
     },
     {
         "name": "voxyflow.autonomy.enable",
@@ -1036,13 +1036,13 @@ _TOOL_DEFINITIONS: list[dict] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {"type": "string", "description": "Project UUID (only needed from general chat)"},
+                "workspace_id": {"type": "string", "description": "Workspace UUID (only needed from general chat)"},
                 "enabled": {"type": "boolean", "description": "Default true"},
                 "schedule": {"type": "string", "description": "Cron or shorthand (default every_5min)"},
                 "directive": {"type": "string", "description": "Content written below the '---' divider. Empty string clears it."},
             },
         },
-        "_http": ("PUT", "/api/projects/{project_id}/autonomy", None),
+        "_http": ("PUT", "/api/workspaces/{workspace_id}/autonomy", None),
     },
     {
         "name": "voxyflow.autonomy.disable",
@@ -1050,10 +1050,10 @@ _TOOL_DEFINITIONS: list[dict] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {"type": "string", "description": "Project UUID (only needed from general chat)"},
+                "workspace_id": {"type": "string", "description": "Workspace UUID (only needed from general chat)"},
             },
         },
-        "_http": ("DELETE", "/api/projects/{project_id}/autonomy", None),
+        "_http": ("DELETE", "/api/workspaces/{workspace_id}/autonomy", None),
     },
     {
         "name": "voxyflow.autonomy.run_now",
@@ -1061,10 +1061,10 @@ _TOOL_DEFINITIONS: list[dict] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {"type": "string", "description": "Project UUID (only needed from general chat)"},
+                "workspace_id": {"type": "string", "description": "Workspace UUID (only needed from general chat)"},
             },
         },
-        "_http": ("POST", "/api/projects/{project_id}/autonomy/run", None),
+        "_http": ("POST", "/api/workspaces/{workspace_id}/autonomy/run", None),
     },
 
     # ======================================================================
@@ -1460,7 +1460,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         "description": (
             "Search long-term memory. Default scope is the current project only "
             "(isolation preserved). Pass `scope='global'` for the shared global "
-            "collection or `scope='other:<project_id>'` to query a specific other "
+            "collection or `scope='other:<workspace_id>'` to query a specific other "
             "project explicitly — only use a cross-project scope when the user "
             "asks for it (e.g. \"check what was said in project X about Y\")."
         ),
@@ -1476,7 +1476,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                     "description": (
                         "Retrieval scope. 'current' (default) = this project only. "
                         "'global' = shared cross-project memory. "
-                        "'other:<project_id>' = one specific other project. "
+                        "'other:<workspace_id>' = one specific other project. "
                         "'current+global' = this project plus global."
                     ),
                 },
@@ -1487,8 +1487,8 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
 
     # ---- Memory Save (write to long-term memory) ----------------------------
-    # Scope is enforced by VOXYFLOW_PROJECT_ID env var at runtime. The LLM
-    # cannot override it — project_id is deliberately NOT in the schema.
+    # Scope is enforced by VOXYFLOW_WORKSPACE_ID env var at runtime. The LLM
+    # cannot override it — workspace_id is deliberately NOT in the schema.
     {
         "name": "memory.save",
         "description": (
@@ -1532,7 +1532,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
 
     # ---- Knowledge Base (on-demand RAG) ------------------------------------
-    # Scope is enforced by VOXYFLOW_PROJECT_ID env var at runtime.
+    # Scope is enforced by VOXYFLOW_WORKSPACE_ID env var at runtime.
     {
         "name": "knowledge.search",
         "description": "Search the current project's knowledge base (RAG) for background context.",
@@ -1743,7 +1743,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Project-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                    "description": "Workspace-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
                 },
             },
         },

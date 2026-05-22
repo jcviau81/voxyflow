@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, FocusSession, Card, Project, new_uuid
+from app.database import get_db, FocusSession, Card, Workspace, new_uuid
 
 router = APIRouter(prefix="/api", tags=["focus-sessions"])
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["focus-sessions"])
 
 class FocusSessionCreate(BaseModel):
     card_id: str | None = None
-    project_id: str | None = None
+    workspace_id: str | None = None
     duration_minutes: int
     completed: bool
     started_at: str  # ISO datetime string
@@ -28,7 +28,7 @@ class FocusSessionCreate(BaseModel):
 class FocusSessionResponse(BaseModel):
     id: str
     card_id: str | None
-    project_id: str | None
+    workspace_id: str | None
     duration_minutes: int
     completed: bool
     started_at: str
@@ -76,10 +76,10 @@ async def create_focus_session(
         if not card:
             raise HTTPException(404, f"Card {body.card_id!r} not found")
 
-    if body.project_id:
-        project = await db.get(Project, body.project_id)
+    if body.workspace_id:
+        project = await db.get(Workspace, body.workspace_id)
         if not project:
-            raise HTTPException(404, f"Project {body.project_id!r} not found")
+            raise HTTPException(404, f"Workspace {body.workspace_id!r} not found")
 
     try:
         started_at = datetime.fromisoformat(body.started_at.replace("Z", "+00:00"))
@@ -90,7 +90,7 @@ async def create_focus_session(
     session = FocusSession(
         id=new_uuid(),
         card_id=body.card_id,
-        project_id=body.project_id,
+        workspace_id=body.workspace_id,
         duration_minutes=body.duration_minutes,
         completed=body.completed,
         started_at=started_at,
@@ -103,7 +103,7 @@ async def create_focus_session(
     return FocusSessionResponse(
         id=session.id,
         card_id=session.card_id,
-        project_id=session.project_id,
+        workspace_id=session.workspace_id,
         duration_minutes=session.duration_minutes,
         completed=session.completed,
         started_at=session.started_at.isoformat(),
@@ -112,21 +112,21 @@ async def create_focus_session(
 
 
 # ---------------------------------------------------------------------------
-# GET /api/projects/{id}/focus — analytics
+# GET /api/workspaces/{id}/focus — analytics
 # ---------------------------------------------------------------------------
 
-@router.get("/projects/{project_id}/focus", response_model=FocusAnalyticsResponse)
+@router.get("/workspaces/{workspace_id}/focus", response_model=FocusAnalyticsResponse)
 async def get_project_focus_analytics(
-    project_id: str,
+    workspace_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """Return focus session analytics for a project (all time for totals, last 7 days for by_day)."""
-    project = await db.get(Project, project_id)
+    project = await db.get(Workspace, workspace_id)
     if not project:
-        raise HTTPException(404, "Project not found.")
+        raise HTTPException(404, "Workspace not found.")
 
     # Fetch all sessions for this project
-    stmt = select(FocusSession).where(FocusSession.project_id == project_id)
+    stmt = select(FocusSession).where(FocusSession.workspace_id == workspace_id)
     result = await db.execute(stmt)
     sessions = result.scalars().all()
 

@@ -7,12 +7,12 @@ const MAX_SESSIONS_PER_TAB = 5;
 
 /**
  * Map scope to the canonical chatId prefix used by the backend.
- * Backend always uses "project:" for both project and general chats,
+ * Backend always uses "workspace:" for both workspace and general chats,
  * and "card:" for card chats. We must match this exactly or the
  * backend will reject our chatId and store messages under a different key.
  */
-function chatIdPrefix(scope: 'general' | 'project' | 'card'): string {
-  return scope === 'card' ? 'card' : 'project';
+function chatIdPrefix(scope: 'general' | 'workspace' | 'card'): string {
+  return scope === 'card' ? 'card' : 'workspace';
 }
 
 export interface SessionState {
@@ -22,7 +22,7 @@ export interface SessionState {
   activeSession: Record<string, string>;
 
   // Local session creation (synchronous fallback)
-  createSession: (tabId: string, scope?: 'general' | 'project' | 'card') => SessionInfo;
+  createSession: (tabId: string, scope?: 'general' | 'workspace' | 'card') => SessionInfo;
 
   // Add a server-created session (POST /api/sessions returned a stable chatId)
   addServerSession: (tabId: string, chatId: string, title: string) => SessionInfo;
@@ -34,13 +34,13 @@ export interface SessionState {
   closeSession: (tabId: string, sessionId: string) => void;
 
   // Replace all sessions with a single fresh Session 1 (used when resetting the last session)
-  resetLastSession: (tabId: string, scope?: 'general' | 'project' | 'card') => SessionInfo;
+  resetLastSession: (tabId: string, scope?: 'general' | 'workspace' | 'card') => SessionInfo;
 
   // Set the active session for a tabId
   setActiveSession: (tabId: string, sessionId: string) => void;
 
   // Get sessions for a tabId, auto-creating an initial session if none exist
-  getSessions: (tabId: string, scope?: 'general' | 'project' | 'card') => SessionInfo[];
+  getSessions: (tabId: string, scope?: 'general' | 'workspace' | 'card') => SessionInfo[];
 
   // Get the active SessionInfo for a tabId
   getActiveSession: (tabId: string) => SessionInfo;
@@ -64,7 +64,7 @@ export const useSessionStore = create<SessionState>()(
       sessions: {},
       activeSession: {},
 
-      createSession: (tabId, scope = 'project') => {
+      createSession: (tabId, scope = 'workspace') => {
         const existing = get().sessions[tabId] || [];
         if (existing.length >= MAX_SESSIONS_PER_TAB) {
           return existing[existing.length - 1];
@@ -166,7 +166,7 @@ export const useSessionStore = create<SessionState>()(
         });
       },
 
-      resetLastSession: (tabId, scope = 'project') => {
+      resetLastSession: (tabId, scope = 'workspace') => {
         // Replace ALL sessions for this tab with a single fresh Session 1
         const chatId = `${chatIdPrefix(scope)}:${tabId}`;
         const session: SessionInfo = {
@@ -197,7 +197,7 @@ export const useSessionStore = create<SessionState>()(
         }));
       },
 
-      getSessions: (tabId, scope = 'project') => {
+      getSessions: (tabId, scope = 'workspace') => {
         const sessions = get().sessions[tabId];
         if (!sessions || sessions.length === 0) {
           get().createSession(tabId, scope);
@@ -260,11 +260,11 @@ export const useSessionStore = create<SessionState>()(
       migrate: (persisted, version) => {
         const state = persisted as { sessions: Record<string, SessionInfo[]>; activeSession: Record<string, string> };
         if (version === 0) {
-          // v0 → v1: rewrite "general:" chatId prefixes to "project:" to match backend canonical format
+          // v0 → v1: rewrite "general:" chatId prefixes to "workspace:" to match backend canonical format
           for (const tabId of Object.keys(state.sessions)) {
             state.sessions[tabId] = state.sessions[tabId].map((s) => ({
               ...s,
-              chatId: s.chatId.replace(/^general:/, 'project:'),
+              chatId: s.chatId.replace(/^general:/, 'workspace:'),
             }));
           }
         }

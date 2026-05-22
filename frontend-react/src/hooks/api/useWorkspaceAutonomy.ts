@@ -23,28 +23,28 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const autonomyKeys = {
-  status: (projectId: string) => ['project-autonomy', projectId] as const,
+  status: (workspaceId: string) => ['workspace-autonomy', workspaceId] as const,
 };
 
-export function useProjectAutonomy(projectId: string | undefined) {
+export function useWorkspaceAutonomy(workspaceId: string | undefined) {
   return useQuery({
-    queryKey: projectId ? autonomyKeys.status(projectId) : ['project-autonomy', 'none'],
-    queryFn: () => apiFetch<AutonomyStatus>(`/api/projects/${projectId}/autonomy`),
-    enabled: !!projectId,
+    queryKey: workspaceId ? autonomyKeys.status(workspaceId) : ['workspace-autonomy', 'none'],
+    queryFn: () => apiFetch<AutonomyStatus>(`/api/workspaces/${workspaceId}/autonomy`),
+    enabled: !!workspaceId,
     staleTime: 10_000,
   });
 }
 
-export function useUpsertProjectAutonomy() {
+export function useUpsertWorkspaceAutonomy() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
-      projectId,
+      workspaceId,
       enabled,
       schedule,
       directive,
     }: {
-      projectId: string;
+      workspaceId: string;
       enabled: boolean;
       schedule?: string;
       directive?: string;
@@ -53,7 +53,7 @@ export function useUpsertProjectAutonomy() {
       if (schedule !== undefined) body.schedule = schedule;
       if (directive !== undefined) body.directive = directive;
       return apiFetch<AutonomyStatus & { job?: unknown }>(
-        `/api/projects/${projectId}/autonomy`,
+        `/api/workspaces/${workspaceId}/autonomy`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -61,33 +61,33 @@ export function useUpsertProjectAutonomy() {
         },
       );
     },
-    onSuccess: (_d, { projectId }) => {
-      qc.invalidateQueries({ queryKey: autonomyKeys.status(projectId) });
+    onSuccess: (_d, { workspaceId }) => {
+      qc.invalidateQueries({ queryKey: autonomyKeys.status(workspaceId) });
     },
   });
 }
 
-export function useDisableProjectAutonomy() {
+export function useDisableWorkspaceAutonomy() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (projectId: string) =>
-      apiFetch<void>(`/api/projects/${projectId}/autonomy`, { method: 'DELETE' }),
-    onSuccess: (_d, projectId) => {
-      qc.invalidateQueries({ queryKey: autonomyKeys.status(projectId) });
+    mutationFn: async (workspaceId: string) =>
+      apiFetch<void>(`/api/workspaces/${workspaceId}/autonomy`, { method: 'DELETE' }),
+    onSuccess: (_d, workspaceId) => {
+      qc.invalidateQueries({ queryKey: autonomyKeys.status(workspaceId) });
     },
   });
 }
 
-export function useRunProjectAutonomyNow() {
+export function useRunWorkspaceAutonomyNow() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (projectId: string) =>
-      apiFetch<{ project_id: string; result: { status: string; message?: string } }>(
-        `/api/projects/${projectId}/autonomy/run`,
+    mutationFn: async (workspaceId: string) =>
+      apiFetch<{ workspace_id: string; result: { status: string; message?: string } }>(
+        `/api/workspaces/${workspaceId}/autonomy/run`,
         { method: 'POST' },
       ),
-    onSuccess: (_d, projectId) => {
-      qc.invalidateQueries({ queryKey: autonomyKeys.status(projectId) });
+    onSuccess: (_d, workspaceId) => {
+      qc.invalidateQueries({ queryKey: autonomyKeys.status(workspaceId) });
     },
   });
 }

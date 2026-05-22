@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Project, ProjectFormData } from '../../types';
+import type { Workspace, WorkspaceFormData } from '../../types';
 
 const API = '';
 
@@ -12,7 +12,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function mapRawProject(p: Record<string, unknown>): Project {
+function mapRawWorkspace(p: Record<string, unknown>): Workspace {
   return {
     id: p.id as string,
     name: ((p.name ?? p.title) ?? 'Untitled') as string,
@@ -27,7 +27,7 @@ function mapRawProject(p: Record<string, unknown>): Project {
     isSystem: (p.is_system as boolean) ?? false,
     deletable: p.deletable !== undefined ? (p.deletable as boolean) : true,
     isFavorite: (p.is_favorite as boolean) ?? false,
-    techStack: p.tech_stack as Project['techStack'],
+    techStack: p.tech_stack as Workspace['techStack'],
     githubRepo: p.github_repo as string | undefined,
     githubUrl: p.github_url as string | undefined,
     githubBranch: p.github_branch as string | undefined,
@@ -39,29 +39,29 @@ function mapRawProject(p: Record<string, unknown>): Project {
 
 // --- Query keys ---
 
-export const projectKeys = {
-  all: ['projects'] as const,
-  lists: () => ['projects', 'list'] as const,
-  active: () => ['projects', 'list', 'active'] as const,
-  archived: () => ['projects', 'list', 'archived'] as const,
-  detail: (id: string) => ['projects', id] as const,
-  templates: () => ['projects', 'templates'] as const,
+export const workspaceKeys = {
+  all: ['workspaces'] as const,
+  lists: () => ['workspaces', 'list'] as const,
+  active: () => ['workspaces', 'list', 'active'] as const,
+  archived: () => ['workspaces', 'list', 'archived'] as const,
+  detail: (id: string) => ['workspaces', id] as const,
+  templates: () => ['workspaces', 'templates'] as const,
 
 };
 
 // --- Queries ---
 
-export function useProjects() {
+export function useWorkspaces() {
   return useQuery({
-    queryKey: projectKeys.active(),
+    queryKey: workspaceKeys.active(),
     queryFn: async () => {
       const [activeRaw, archivedRaw] = await Promise.all([
-        apiFetch<Record<string, unknown>[]>('/api/projects?archived=false'),
-        apiFetch<Record<string, unknown>[]>('/api/projects?archived=true').catch(() => [] as Record<string, unknown>[]),
+        apiFetch<Record<string, unknown>[]>('/api/workspaces?archived=false'),
+        apiFetch<Record<string, unknown>[]>('/api/workspaces?archived=true').catch(() => [] as Record<string, unknown>[]),
       ]);
       const all = [
-        ...activeRaw.map(mapRawProject),
-        ...archivedRaw.map(mapRawProject),
+        ...activeRaw.map(mapRawWorkspace),
+        ...archivedRaw.map(mapRawWorkspace),
       ];
       return all;
     },
@@ -69,10 +69,10 @@ export function useProjects() {
   });
 }
 
-export function useProjectTemplates() {
+export function useWorkspaceTemplates() {
   return useQuery({
-    queryKey: projectKeys.templates(),
-    queryFn: () => apiFetch<Array<{ id: string; name: string; emoji: string; description: string; color: string; cards: unknown[] }>>('/api/projects/templates'),
+    queryKey: workspaceKeys.templates(),
+    queryFn: () => apiFetch<Array<{ id: string; name: string; emoji: string; description: string; color: string; cards: unknown[] }>>('/api/workspaces/templates'),
     staleTime: 5 * 60_000,
   });
 }
@@ -80,7 +80,7 @@ export function useProjectTemplates() {
 
 // --- Mutations ---
 
-export function useCreateProject() {
+export function useCreateWorkspace() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (data: {
@@ -101,23 +101,23 @@ export function useCreateProject() {
       if (data.githubUrl) body.github_url = data.githubUrl;
       if (data.githubBranch) body.github_branch = data.githubBranch;
       if (data.githubLanguage) body.github_language = data.githubLanguage;
-      const raw = await apiFetch<Record<string, unknown>>('/api/projects', {
+      const raw = await apiFetch<Record<string, unknown>>('/api/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      return mapRawProject(raw);
+      return mapRawWorkspace(raw);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.lists() });
+      qc.invalidateQueries({ queryKey: workspaceKeys.lists() });
     },
   });
 }
 
-export function useUpdateProject() {
+export function useUpdateWorkspace() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<ProjectFormData & Project> }) => {
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<WorkspaceFormData & Workspace> }) => {
       const body: Record<string, unknown> = {};
       if (updates.name !== undefined) body.title = updates.name;
       if (updates.title !== undefined) body.title = updates.title;
@@ -129,40 +129,40 @@ export function useUpdateProject() {
       if (updates.githubLanguage !== undefined) body.github_language = updates.githubLanguage;
       if (updates.inheritMainContext !== undefined) body.inherit_main_context = updates.inheritMainContext;
 
-      const raw = await apiFetch<Record<string, unknown>>(`/api/projects/${id}`, {
+      const raw = await apiFetch<Record<string, unknown>>(`/api/workspaces/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      return mapRawProject(raw);
+      return mapRawWorkspace(raw);
     },
     onSuccess: (_data, { id }) => {
-      qc.invalidateQueries({ queryKey: projectKeys.detail(id) });
-      qc.invalidateQueries({ queryKey: projectKeys.lists() });
+      qc.invalidateQueries({ queryKey: workspaceKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: workspaceKeys.lists() });
     },
   });
 }
 
-export function useDeleteProject() {
+export function useDeleteWorkspace() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      await fetch(`${API}/api/projects/${id}`, { method: 'DELETE' });
+      await fetch(`${API}/api/workspaces/${id}`, { method: 'DELETE' });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.lists() });
+      qc.invalidateQueries({ queryKey: workspaceKeys.lists() });
     },
   });
 }
 
-export function useArchiveProject() {
+export function useArchiveWorkspace() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, restore = false }: { id: string; restore?: boolean }) => {
-      await apiFetch(`/api/projects/${id}/${restore ? 'restore' : 'archive'}`, { method: 'POST' });
+      await apiFetch(`/api/workspaces/${id}/${restore ? 'restore' : 'archive'}`, { method: 'POST' });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.lists() });
+      qc.invalidateQueries({ queryKey: workspaceKeys.lists() });
     },
   });
 }
@@ -170,46 +170,46 @@ export function useArchiveProject() {
 export function useToggleFavorite() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (projectId: string) => {
-      const data = await apiFetch<{ is_favorite: boolean }>(`/api/projects/${projectId}/favorite`, { method: 'PATCH' });
+    mutationFn: async (workspaceId: string) => {
+      const data = await apiFetch<{ is_favorite: boolean }>(`/api/workspaces/${workspaceId}/favorite`, { method: 'PATCH' });
       return data.is_favorite;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.lists() });
+      qc.invalidateQueries({ queryKey: workspaceKeys.lists() });
     },
   });
 }
 
-export function useExportProject() {
+export function useExportWorkspace() {
   return useMutation({
-    mutationFn: (projectId: string) => apiFetch<unknown>(`/api/projects/${projectId}/export`),
+    mutationFn: (workspaceId: string) => apiFetch<unknown>(`/api/workspaces/${workspaceId}/export`),
   });
 }
 
-export function useImportProject() {
+export function useImportWorkspace() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: unknown) =>
-      apiFetch<{ project_id: string; project_title: string; cards_imported: number }>('/api/projects/import', {
+      apiFetch<{ workspace_id: string; workspace_title: string; cards_imported: number }>('/api/workspaces/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.lists() });
+      qc.invalidateQueries({ queryKey: workspaceKeys.lists() });
     },
   });
 }
 
-export function useCreateProjectFromTemplate() {
+export function useCreateWorkspaceFromTemplate() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ templateId, data }: {
       templateId: string;
       data: { title: string; description?: string; emoji?: string; color?: string };
     }) => {
-      return apiFetch<{ project_id: string; project_title: string; cards_imported: number; template_emoji: string; template_color: string }>(
-        `/api/projects/from-template/${templateId}`,
+      return apiFetch<{ workspace_id: string; workspace_title: string; cards_imported: number; template_emoji: string; template_color: string }>(
+        `/api/workspaces/from-template/${templateId}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -218,16 +218,16 @@ export function useCreateProjectFromTemplate() {
       );
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.lists() });
+      qc.invalidateQueries({ queryKey: workspaceKeys.lists() });
     },
   });
 }
 
 export function useExecuteBoardPlan() {
   return useMutation({
-    mutationFn: (projectId: string) =>
+    mutationFn: (workspaceId: string) =>
       apiFetch<{ executionId: string; cards: Array<{ id: string; title: string; status: string; position: number }>; total: number }>(
-        `/api/projects/${projectId}/boards/execute`,
+        `/api/workspaces/${workspaceId}/boards/execute`,
         { method: 'POST' }
       ),
   });

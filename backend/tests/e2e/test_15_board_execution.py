@@ -15,7 +15,7 @@ import httpx
 
 from .conftest import (
     ws_send, ws_recv_until, ws_collect_events, ws_collect_chat_response,
-    assert_card_status, assert_card_history_contains, count_project_cards,
+    assert_card_status, assert_card_history_contains, count_workspace_cards,
     chat_payload, WS_URL, LLM_TIMEOUT, REST_TIMEOUT,
 )
 
@@ -26,12 +26,12 @@ from .conftest import (
 
 class TestSingleCardExecution:
     @pytest.mark.asyncio
-    async def test_card_execute_moves_through_lifecycle(self, ws, client, test_project):
+    async def test_card_execute_moves_through_lifecycle(self, ws, client, test_workspace):
         """card:execute should move a card: todo → in-progress → done."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
 
         # Create a card with enough description for the worker
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": f"Execute E2E {uuid.uuid4().hex[:6]}",
             "description": "Dis simplement 'tâche terminée' et rien d'autre.",
             "status": "todo",
@@ -43,7 +43,7 @@ class TestSingleCardExecution:
 
         await ws_send(ws, "card:execute", {
             "cardId": cid,
-            "projectId": pid,
+            "workspaceId": pid,
             "sessionId": session_id,
         })
 
@@ -69,11 +69,11 @@ class TestSingleCardExecution:
             await assert_card_history_contains(client, cid, "status", "in-progress", "System")
 
     @pytest.mark.asyncio
-    async def test_card_execute_appends_result(self, ws, client, test_project):
+    async def test_card_execute_appends_result(self, ws, client, test_workspace):
         """After execution, the card description should contain the result."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
 
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": f"Result E2E {uuid.uuid4().hex[:6]}",
             "description": "Dis 'résultat du worker' exactement.",
             "status": "todo",
@@ -84,7 +84,7 @@ class TestSingleCardExecution:
 
         await ws_send(ws, "card:execute", {
             "cardId": cid,
-            "projectId": pid,
+            "workspaceId": pid,
             "sessionId": session_id,
         })
 
@@ -108,14 +108,14 @@ class TestSingleCardExecution:
 
 class TestBoardExecution:
     @pytest.mark.asyncio
-    async def test_kanban_execute_runs_todo_cards(self, ws, client, test_project):
+    async def test_kanban_execute_runs_todo_cards(self, ws, client, test_workspace):
         """kanban:execute:start should execute all todo cards on the board."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
 
         # Create 2 todo cards
         card_ids = []
         for i in range(2):
-            r = await client.post(f"/api/projects/{pid}/cards", json={
+            r = await client.post(f"/api/workspaces/{pid}/cards", json={
                 "title": f"Board E2E {i} {uuid.uuid4().hex[:6]}",
                 "description": f"Tâche simple #{i}: dis 'fait' et rien d'autre.",
                 "status": "todo",
@@ -126,7 +126,7 @@ class TestBoardExecution:
         session_id = f"e2e-board-{uuid.uuid4().hex[:6]}"
 
         await ws_send(ws, "kanban:execute:start", {
-            "projectId": pid,
+            "workspaceId": pid,
             "sessionId": session_id,
             "statuses": ["todo"],
         })

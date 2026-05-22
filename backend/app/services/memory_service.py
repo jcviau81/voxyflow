@@ -2,7 +2,7 @@
 
 Collections:
   memory-global                    ← user preferences, cross-project decisions, lessons learned
-  memory-project-{project_id}      ← project-specific decisions, bugs, tech choices, context
+  memory-workspace-{workspace_id}      ← workspace-specific decisions, bugs, tech choices, context
                                     (keyed by project UUID, not slug — isolation-safe)
 
 ChromaDB persists to ~/.voxyflow/chroma/ (shared PersistentClient with RAG service).
@@ -47,7 +47,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 from app.services.memory_service_constants import (
-    WORKSPACE_DIR,
+    PERSONALITY_DIR,
     MEMORY_FILE,
     MEMORY_DIR,
     GLOBAL_COLLECTION,
@@ -57,7 +57,7 @@ from app.services.memory_service_constants import (
     _classify_text,
     _format_messages_for_extraction,
     _slugify,
-    _project_collection,
+    _workspace_collection,
     _MEMORY_EXTRACTION_SYSTEM,
     _MEMORY_EXTRACTION_USER_TEMPLATE,
 )
@@ -77,7 +77,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
 
     Memory hierarchy:
     - memory-global: user preferences, cross-project decisions, lessons learned
-    - memory-project-{slug}: project-specific decisions, bugs, tech choices
+    - memory-workspace-{slug}: workspace-specific decisions, bugs, tech choices
 
     Falls back to file-based memory (MEMORY.md, daily .md files) if ChromaDB
     is unavailable or not installed.
@@ -339,13 +339,13 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             meta.setdefault("importance", "medium")
             # Attribution defaults (caller can override).
             meta.setdefault("speaker", "unknown")
-            # chat_id / project_id: prefer caller metadata, fall back to env.
+            # chat_id / workspace_id: prefer caller metadata, fall back to env.
             env_chat = os.environ.get("VOXYFLOW_CHAT_ID", "") or ""
-            env_project = os.environ.get("VOXYFLOW_PROJECT_ID", "") or ""
+            env_project = os.environ.get("VOXYFLOW_WORKSPACE_ID", "") or ""
             if env_chat and "chat_id" not in meta:
                 meta["chat_id"] = env_chat
-            if env_project and "project_id" not in meta:
-                meta["project_id"] = env_project
+            if env_project and "workspace_id" not in meta:
+                meta["workspace_id"] = env_project
             # ChromaDB metadata values must be str, int, float, or bool
             # Remove None values
             meta = {k: v for k, v in meta.items() if v is not None}
@@ -379,7 +379,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
         collection is provided — prevents the legacy "delete reports success
         but leaves an orphaned copy in another collection of the same scope"
         bug (Home: same id duped across `memory-global` and
-        `memory-project-system-main` from the old migration).
+        `memory-workspace-system-main` from the old migration).
         """
         if not self._chromadb_enabled:
             return []
@@ -398,17 +398,17 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
                 logger.warning(f"delete_memory_cascade: error in {name}: {e}")
         return deleted_from
 
-    def drop_project_collection(self, project_id: str) -> bool:
-        """Drop the memory-project-{project_id} ChromaDB collection."""
+    def drop_workspace_collection(self, workspace_id: str) -> bool:
+        """Drop the memory-workspace-{workspace_id} ChromaDB collection."""
         if not self._chromadb_enabled:
             return False
-        name = _project_collection(project_id)
+        name = _workspace_collection(workspace_id)
         try:
             self._client.delete_collection(name)
-            logger.info(f"drop_project_collection: dropped {name}")
+            logger.info(f"drop_workspace_collection: dropped {name}")
             return True
         except Exception as e:
-            logger.debug(f"drop_project_collection: could not drop {name}: {e}")
+            logger.debug(f"drop_workspace_collection: could not drop {name}: {e}")
             return False
 
     def search_memory(
@@ -546,7 +546,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             return False
 
     async def update_project_memory(self, project_name: str, content: str) -> bool:
-        """Update or create a project-specific memory file."""
+        """Update or create a workspace-specific memory file."""
         slug = _slugify(project_name)
         project_dir = MEMORY_DIR / "projects"
         project_file = project_dir / f"{slug}.md"
@@ -643,7 +643,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
                 except (OSError, UnicodeDecodeError):
                     logger.exception("migrate_from_files: failed to process %s", md_file)
 
-            # Migrate project-specific files
+            # Migrate workspace-specific files
             projects_dir = MEMORY_DIR / "projects"
             if projects_dir.exists():
                 for proj_file in projects_dir.glob("*.md"):
@@ -653,7 +653,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
                             continue
 
                         project_slug = proj_file.stem
-                        proj_col = _project_collection(project_slug)
+                        proj_col = _workspace_collection(project_slug)
 
                         chunks = [c.strip() for c in content.split("\n\n") if c.strip() and len(c.strip()) > 20]
                         for chunk in chunks:

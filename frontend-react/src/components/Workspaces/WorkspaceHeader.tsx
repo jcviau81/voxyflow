@@ -1,23 +1,23 @@
 import { Home, MessageSquare, LayoutGrid, Pin, Brain, BarChart2, Pencil, Archive, Zap } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useTabStore } from '../../stores/useTabStore';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useViewStore } from '../../stores/useViewStore';
 import { useIsDesktop } from '../../hooks/useIsDesktop';
 import { useToastStore } from '../../stores/useToastStore';
 import {
-  useProjectAutonomy,
-  useUpsertProjectAutonomy,
-} from '../../hooks/api/useProjectAutonomy';
+  useWorkspaceAutonomy,
+  useUpsertWorkspaceAutonomy,
+} from '../../hooks/api/useWorkspaceAutonomy';
 import type { ViewMode } from '../../types';
 
-interface ProjectTab {
+interface WorkspaceTab {
   view: ViewMode;
   icon: React.ReactNode;
   label: string;
 }
 
-const PROJECT_TABS: ProjectTab[] = [
+const PROJECT_TABS: WorkspaceTab[] = [
   { view: 'chat',      icon: <MessageSquare size={13} />, label: 'Chat' },
   { view: 'kanban',    icon: <LayoutGrid size={13} />,    label: 'Kanban' },
   { view: 'freeboard', icon: <Pin size={13} />,           label: 'Backlog' },
@@ -29,33 +29,33 @@ const PROJECT_TABS: ProjectTab[] = [
 // Main tab only shows a subset of views
 const MAIN_VIEWS: ViewMode[] = ['chat', 'kanban', 'freeboard', 'knowledge', 'archives'];
 
-interface ProjectHeaderProps {
-  onOpenProjectProperties?: (projectId: string) => void;
+interface WorkspaceHeaderProps {
+  onOpenWorkspaceProperties?: (workspaceId: string) => void;
 }
 
-export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
+export function WorkspaceHeader({ onOpenWorkspaceProperties }: WorkspaceHeaderProps) {
   const activeTab = useTabStore((s) => s.activeTab);
-  const currentProjectId = useProjectStore((s) => s.currentProjectId);
-  const getProject = useProjectStore((s) => s.getProject);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const getWorkspace = useWorkspaceStore((s) => s.getWorkspace);
   const currentView = useViewStore((s) => s.currentView);
   const setView = useViewStore((s) => s.setView);
   const isDesktop = useIsDesktop();
   const { showToast } = useToastStore();
 
   const isMainTab = activeTab === 'main';
-  const project = currentProjectId ? getProject(currentProjectId) : undefined;
+  const workspace = currentWorkspaceId ? getWorkspace(currentWorkspaceId) : undefined;
 
-  // Autonomy toggle — Home uses the system-main project, regular project tabs use the active one.
-  const autonomyProjectId = isMainTab ? 'system-main' : currentProjectId ?? undefined;
-  const { data: autonomy } = useProjectAutonomy(autonomyProjectId);
-  const upsertAutonomy = useUpsertProjectAutonomy();
+  // Autonomy toggle — Home uses the system-main workspace, regular workspace tabs use the active one.
+  const autonomyWorkspaceId = isMainTab ? 'system-main' : currentWorkspaceId ?? undefined;
+  const { data: autonomy } = useWorkspaceAutonomy(autonomyWorkspaceId);
+  const upsertAutonomy = useUpsertWorkspaceAutonomy();
 
   const toggleAutonomy = async () => {
-    if (!autonomyProjectId) return;
+    if (!autonomyWorkspaceId) return;
     const next = !(autonomy?.enabled ?? false);
     try {
       await upsertAutonomy.mutateAsync({
-        projectId: autonomyProjectId,
+        workspaceId: autonomyWorkspaceId,
         enabled: next,
         schedule: autonomy?.schedule,
         directive: autonomy?.directive,
@@ -67,10 +67,10 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
   };
 
   const autonomyOn = autonomy?.enabled ?? false;
-  const autonomyDisabled = !autonomyProjectId || upsertAutonomy.isPending || !autonomy;
+  const autonomyDisabled = !autonomyWorkspaceId || upsertAutonomy.isPending || !autonomy;
 
-  // Hidden when on a project tab but no project is loaded
-  if (!isMainTab && !project) {
+  // Hidden when on a workspace tab but no workspace is loaded
+  if (!isMainTab && !workspace) {
     return null;
   }
 
@@ -85,27 +85,27 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
 
   return (
     <div
-      className="project-header flex items-center justify-between px-4 py-1 border-b border-border bg-background shrink-0"
-      data-testid="project-header"
+      className="workspace-header flex items-center justify-between px-4 py-1 border-b border-border bg-background shrink-0"
+      data-testid="workspace-header"
     >
-      {/* Left: project emoji + name */}
+      {/* Left: workspace emoji + name */}
       {isMainTab ? (
-        <div className="project-header__title flex items-center gap-1.5">
+        <div className="workspace-header__title flex items-center gap-1.5">
           <Home size={15} className="text-muted-foreground" />
-          <span className="project-header__name text-sm font-medium text-foreground">Home</span>
+          <span className="workspace-header__name text-sm font-medium text-foreground">Home</span>
         </div>
       ) : (
-        <div className="project-header__title flex items-center gap-1.5">
-          <span className="project-header__emoji text-base">{project!.emoji || '📁'}</span>
-          <span className="project-header__name text-sm font-medium text-foreground">
-            {project!.name}
+        <div className="workspace-header__title flex items-center gap-1.5">
+          <span className="workspace-header__emoji text-base">{workspace!.emoji || '📁'}</span>
+          <span className="workspace-header__name text-sm font-medium text-foreground">
+            {workspace!.name}
           </span>
           <button
             className="gap-1.5 p-1 rounded hover:bg-accent transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
-            title="Project properties"
+            title="Workspace properties"
             onClick={() => {
-              if (currentProjectId) {
-                onOpenProjectProperties?.(currentProjectId);
+              if (currentWorkspaceId) {
+                onOpenWorkspaceProperties?.(currentWorkspaceId);
               }
             }}
           >
@@ -134,7 +134,7 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
             'flex items-center gap-1.5 text-[11px] font-medium select-none',
             autonomyDisabled ? 'opacity-50 cursor-wait' : 'cursor-pointer',
           )}
-          data-testid="project-header-autonomy-toggle"
+          data-testid="workspace-header-autonomy-toggle"
         >
           <Zap
             size={12}
@@ -160,7 +160,7 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
             />
           </span>
         </button>
-      <nav className="project-header__tabs flex items-center gap-1">
+      <nav className="workspace-header__tabs flex items-center gap-1">
         {visibleTabs.map((tab) => {
           const isActive = currentView === tab.view;
           return (
@@ -171,9 +171,9 @@ export function ProjectHeader({ onOpenProjectProperties }: ProjectHeaderProps) {
                 if (currentView !== tab.view) setView(tab.view);
               }}
               className={cn(
-                'project-header__tab flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors cursor-pointer',
+                'workspace-header__tab flex items-center gap-1.5 px-3 py-1 text-xs rounded transition-colors cursor-pointer',
                 isActive
-                  ? 'project-header__tab--active bg-accent text-accent-foreground font-medium'
+                  ? 'workspace-header__tab--active bg-accent text-accent-foreground font-medium'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
               )}
             >

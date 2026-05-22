@@ -1,6 +1,6 @@
-"""Smoke test — project autonomy heartbeat layer.
+"""Smoke test — workspace autonomy heartbeat layer.
 
-Verifies that project heartbeats are routed through the dedicated autonomy
+Verifies that workspace heartbeats are routed through the dedicated autonomy
 runner (dispatcher-shaped, no 'wait for go' gate), not the interactive
 dispatcher that paralyses them when no user is present.
 
@@ -35,17 +35,17 @@ def test(name):
     return decorator
 
 
-@test("autonomy prompt — includes operating rules, project, directive path")
+@test("autonomy prompt — includes operating rules, workspace, directive path")
 def test_autonomy_prompt_shape():
     from app.services.personality_service import PersonalityService
     ps = PersonalityService()
     p = ps.build_autonomy_prompt(
-        project={"id": "proj-1", "title": "TestProj"},
+        workspace={"id": "proj-1", "title": "TestProj"},
         directive_path="/tmp/heartbeat.md",
         native_tools="cli_mcp",
     )
     assert "Autonomy Heartbeat" in p, "missing autonomy header"
-    assert "TestProj" in p, "missing project title"
+    assert "TestProj" in p, "missing workspace title"
     assert "/tmp/heartbeat.md" in p, "missing directive path"
     assert "AUTONOMY-NOOP" in p, "missing no-op sentinel"
     assert "No user is present" in p, "missing no-user-present clause"
@@ -62,7 +62,7 @@ def test_prompts_differ():
     ps = PersonalityService()
     dp = ps.build_fast_prompt(chat_level="general", native_tools="cli_mcp")
     ap = ps.build_autonomy_prompt(
-        project={"id": "p", "title": "X"},
+        workspace={"id": "p", "title": "X"},
         directive_path="/tmp/h.md",
         native_tools="cli_mcp",
     )
@@ -77,8 +77,8 @@ def test_prompts_differ():
 @test("default heartbeat file — seeded with an actionable directive, not empty")
 def test_default_directive_not_empty():
     import re
-    from app.services.project_autonomy import _DEFAULT_PREAMBLE, DIVIDER
-    rendered = _DEFAULT_PREAMBLE.format(title="Any Project")
+    from app.services.workspace_autonomy import _DEFAULT_PREAMBLE, DIVIDER
+    rendered = _DEFAULT_PREAMBLE.format(title="Any Workspace")
     assert DIVIDER in rendered, "divider missing from seeded preamble"
     below = rendered.split(DIVIDER, 1)[1]
     stripped = re.sub(r"<!--.*?-->", "", below, flags=re.DOTALL).strip()
@@ -89,14 +89,14 @@ def test_default_directive_not_empty():
         "default directive should tell the model how to no-op instead of brainstorming"
 
 
-@test("build_job_dict — carries project_heartbeat flag in payload and top-level")
+@test("build_job_dict — carries workspace_heartbeat flag in payload and top-level")
 def test_job_dict_flag_both_places():
-    from app.services.project_autonomy import build_job_dict
+    from app.services.workspace_autonomy import build_job_dict
     jd = build_job_dict("proj-42", "ProjFortyTwo")
-    assert jd.get("project_heartbeat") is True, "top-level flag missing"
-    assert jd["payload"].get("project_heartbeat") is True, \
+    assert jd.get("workspace_heartbeat") is True, "top-level flag missing"
+    assert jd["payload"].get("workspace_heartbeat") is True, \
         "payload flag missing — _run_agent_task would not route to autonomy"
-    assert jd["payload"].get("project_id") == "proj-42"
+    assert jd["payload"].get("workspace_id") == "proj-42"
     assert jd["payload"].get("gate", {}).get("type") == "file_has_directive"
 
 
@@ -110,16 +110,16 @@ def test_heartbeat_routing():
     async def fake_autonomy_tick(job, payload):
         captured["called"] = True
         captured["job_id"] = job.get("id")
-        captured["project_id"] = payload.get("project_id")
+        captured["workspace_id"] = payload.get("workspace_id")
         return {"status": "ok", "message": "fake autonomy"}
 
     original = jr._run_autonomy_tick
     jr._run_autonomy_tick = fake_autonomy_tick
     try:
-        job = {"id": "hb-1", "name": "Heartbeat", "project_heartbeat": True}
+        job = {"id": "hb-1", "name": "Heartbeat", "workspace_heartbeat": True}
         payload = {
-            "project_heartbeat": True,
-            "project_id": "proj-xyz",
+            "workspace_heartbeat": True,
+            "workspace_id": "proj-xyz",
             "instruction": "tick",
         }
         result = asyncio.run(jr._run_agent_task(job, payload))
@@ -127,7 +127,7 @@ def test_heartbeat_routing():
         jr._run_autonomy_tick = original
 
     assert captured.get("called"), "heartbeat job did NOT route to _run_autonomy_tick"
-    assert captured.get("project_id") == "proj-xyz"
+    assert captured.get("workspace_id") == "proj-xyz"
     assert result["status"] == "ok"
 
 
@@ -146,7 +146,7 @@ def test_non_heartbeat_stays_on_dispatcher():
     jr._run_autonomy_tick = trap_autonomy
     try:
         job = {"id": "adhoc-1", "name": "Ad hoc"}
-        payload = {"instruction": "do a thing"}  # no project_heartbeat
+        payload = {"instruction": "do a thing"}  # no workspace_heartbeat
         # We can't easily run the real dispatcher here without the app — just
         # verify we didn't divert to autonomy. We stub handle_message via main.
         import types

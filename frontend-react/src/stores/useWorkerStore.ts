@@ -12,7 +12,7 @@ import { immer } from 'zustand/middleware/immer';
 
 export interface WorkerInfo {
   taskId: string;
-  projectId: string | null;
+  workspaceId: string | null;
   cardId: string | null;
   chatId: string | null;
   action: string;
@@ -38,7 +38,7 @@ export interface CliSessionInfo {
   id: string;
   pid: number;
   chatId: string;
-  projectId: string | null;
+  workspaceId: string | null;
   model: string;
   type: 'chat' | 'worker';
   startedAt: number;
@@ -60,7 +60,7 @@ export interface WorkerState {
   _dismissed: Record<string, true>;
 
   // Snapshot
-  loadSnapshot: (projectId: string | null) => Promise<void>;
+  loadSnapshot: (workspaceId: string | null) => Promise<void>;
 
   // WS event handlers
   handleTaskStarted: (payload: Record<string, unknown>) => void;
@@ -78,7 +78,7 @@ export interface WorkerState {
   purgeExpired: () => void;
 
   // Selectors (computed from state)
-  getWorkersByProject: (projectId: string) => WorkerInfo[];
+  getWorkersByWorkspace: (workspaceId: string) => WorkerInfo[];
   getWorkersByCard: (cardId: string) => WorkerInfo[];
   getGeneralWorkers: () => WorkerInfo[];
   getActiveCount: () => number;
@@ -118,9 +118,9 @@ export const useWorkerStore = create<WorkerState>()(
 
     // ── Snapshot ──────────────────────────────────────────────────────────
 
-    async loadSnapshot(projectId: string | null) {
+    async loadSnapshot(workspaceId: string | null) {
       try {
-        const params = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+        const params = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
         const res = await fetch(`/api/workers/snapshot${params}`);
         if (!res.ok) return;
         const data = await res.json();
@@ -137,7 +137,7 @@ export const useWorkerStore = create<WorkerState>()(
             }
             nextWorkers[w.taskId] = {
               taskId: w.taskId,
-              projectId: w.projectId ?? null,
+              workspaceId: w.workspaceId ?? null,
               cardId: w.cardId ?? null,
               chatId: w.chatId ?? null,
               action: w.action || 'unknown',
@@ -172,7 +172,7 @@ export const useWorkerStore = create<WorkerState>()(
               id: cs.id,
               pid: cs.pid,
               chatId: cs.chatId,
-              projectId: cs.projectId ?? null,
+              workspaceId: cs.workspaceId ?? null,
               model: cs.model,
               type: cs.type as 'chat' | 'worker',
               startedAt: cs.startedAt,
@@ -196,7 +196,7 @@ export const useWorkerStore = create<WorkerState>()(
         if (state.workers[taskId]) return; // already tracked
         state.workers[taskId] = {
           taskId,
-          projectId: (payload.projectId as string) ?? null,
+          workspaceId: (payload.workspaceId as string) ?? null,
           cardId: (payload.cardId as string) ?? null,
           chatId: (payload.chatId as string) ?? null,
           action: (payload.intent as string) || 'unknown',
@@ -272,7 +272,7 @@ export const useWorkerStore = create<WorkerState>()(
           id,
           pid: (payload.pid as number) ?? 0,
           chatId: (payload.chatId as string) ?? '',
-          projectId: (payload.projectId as string) ?? null,
+          workspaceId: (payload.workspaceId as string) ?? null,
           model: (payload.model as string) ?? 'sonnet',
           type: (payload.type as 'chat' | 'worker') ?? 'worker',
           startedAt: (payload.startedAt as number) ?? Date.now() / 1000,
@@ -341,8 +341,8 @@ export const useWorkerStore = create<WorkerState>()(
 
     // ── Selectors ────────────────────────────────────────────────────────
 
-    getWorkersByProject(projectId: string) {
-      return Object.values(get().workers).filter((w) => w.projectId === projectId);
+    getWorkersByWorkspace(workspaceId: string) {
+      return Object.values(get().workers).filter((w) => w.workspaceId === workspaceId);
     },
 
     getWorkersByCard(cardId: string) {
@@ -350,7 +350,7 @@ export const useWorkerStore = create<WorkerState>()(
     },
 
     getGeneralWorkers() {
-      return Object.values(get().workers).filter((w) => !w.projectId);
+      return Object.values(get().workers).filter((w) => !w.workspaceId);
     },
 
     getActiveCount() {

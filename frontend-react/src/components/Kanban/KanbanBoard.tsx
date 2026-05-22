@@ -26,10 +26,10 @@ import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import type { Card, CardStatus } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useCards, useDeleteCard, usePatchCard, useReorderCards, useCreateCard, useArchiveCard } from '../../hooks/api/useCards';
-import { useExportProject, useImportProject, useExecuteBoardPlan } from '../../hooks/api/useProjects';
+import { useExportWorkspace, useImportWorkspace, useExecuteBoardPlan } from '../../hooks/api/useWorkspaces';
 import { useWS } from '../../providers/WebSocketProvider';
 import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 import { KanbanCard } from './KanbanCard';
@@ -477,41 +477,41 @@ function ExecutionProgress({ index, total, cardTitle, onStop }: ExecutionProgres
 // ── Main KanbanBoard Component ─────────────────────────────────────────────────
 
 export interface KanbanBoardProps {
-  projectId?: string;
+  workspaceId?: string;
   onCardClick?: (cardId: string) => void;
 }
 
-export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoardProps) {
-  const storeProjectId = useProjectStore((s) => s.currentProjectId);
-  const selectCard = useProjectStore((s) => s.selectCard);
-  const projectId = projectIdProp ?? storeProjectId;
+export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: KanbanBoardProps) {
+  const storeWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const selectCard = useWorkspaceStore((s) => s.selectCard);
+  const workspaceId = workspaceIdProp ?? storeWorkspaceId;
   const cardsById = useCardStore((s) => s.cardsById);
-  const setCardsForProject = useCardStore((s) => s.setCardsForProject);
+  const setCardsForWorkspace = useCardStore((s) => s.setCardsForWorkspace);
   const updateCardStore = useCardStore((s) => s.updateCard);
   const deleteCardStore = useCardStore((s) => s.deleteCard);
   const showToast = useToastStore((s) => s.showToast);
 
   // API hooks
-  const { data: fetchedCards } = useCards(projectId ?? '');
+  const { data: fetchedCards } = useCards(workspaceId ?? '');
   const createCard = useCreateCard();
   const patchCard = usePatchCard();
   const reorderCards = useReorderCards();
-  const exportProject = useExportProject();
-  const importProject = useImportProject();
+  const exportWorkspace = useExportWorkspace();
+  const importWorkspace = useImportWorkspace();
   const executeBoardPlan = useExecuteBoardPlan();
   const deleteCardMut = useDeleteCard();
   const archiveCardMut = useArchiveCard();
   const { send: wsSend, subscribe } = useWS();
 
   // Worker execution status — poll every 3s to show per-card activity badges
-  const { isCardActive } = useWorkerStatus(projectId ?? '');
+  const { isCardActive } = useWorkerStatus(workspaceId ?? '');
 
   // Sync fetched cards into Zustand store
   useEffect(() => {
-    if (projectId && fetchedCards) {
-      setCardsForProject(projectId, fetchedCards);
+    if (workspaceId && fetchedCards) {
+      setCardsForWorkspace(workspaceId, fetchedCards);
     }
-  }, [projectId, fetchedCards, setCardsForProject]);
+  }, [workspaceId, fetchedCards, setCardsForWorkspace]);
 
   // ── Filter state ─────────────────────────────────────────────────────────
 
@@ -522,14 +522,14 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [columnSorts, setColumnSorts] = useState<Record<string, SortOption>>({});
 
-  // Reset filters on project change
+  // Reset filters on workspace change
   useEffect(() => {
     setSearchInput('');
     setPriorityFilter(null);
     setAgentFilter(null);
     setTagFilter(null);
     setColumnSorts({});
-  }, [projectId]);
+  }, [workspaceId]);
 
   // ── Select mode ──────────────────────────────────────────────────────────
 
@@ -593,27 +593,27 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
 
   // ── Cards by column ──────────────────────────────────────────────────────
 
-  const projectCards = useMemo(() => {
-    if (!projectId) return [];
+  const workspaceCards = useMemo(() => {
+    if (!workspaceId) return [];
     return Object.values(cardsById)
-      .filter((c) => c.projectId === projectId && !c.archivedAt)
+      .filter((c) => c.workspaceId === workspaceId && !c.archivedAt)
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-  }, [cardsById, projectId]);
+  }, [cardsById, workspaceId]);
 
   const cardsByColumn = useMemo(() => {
     const map: Record<string, Card[]> = {};
     for (const status of COLUMN_STATUSES) {
-      map[status] = projectCards.filter((c) => c.status === status);
+      map[status] = workspaceCards.filter((c) => c.status === status);
     }
     return map;
-  }, [projectCards]);
+  }, [workspaceCards]);
 
   // All unique tags for tag filter chips
   const allTags = useMemo(() => {
     const tags = new Set<string>();
-    projectCards.forEach((c) => c.tags.forEach((t) => { if (t) tags.add(t); }));
+    workspaceCards.forEach((c) => c.tags.forEach((t) => { if (t) tags.add(t); }));
     return Array.from(tags).sort();
-  }, [projectCards]);
+  }, [workspaceCards]);
 
   // Filter match count
   const filterMatchInfo = useMemo(() => {
@@ -690,7 +690,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       const { active, over } = event;
 
       const activeCardData = active.data.current?.card as Card | undefined;
-      if (!activeCardData || !projectId) return;
+      if (!activeCardData || !workspaceId) return;
 
       const targetStatus = resolveTargetStatus(over);
 
@@ -708,7 +708,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
           await patchCard.mutateAsync({
             cardId: activeCardData.id,
             updates: { status: targetStatus },
-            projectId,
+            workspaceId,
           });
         } catch {
           // Roll back the optimistic status change applied in handleDragOver.
@@ -719,7 +719,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         // If moved to Done, insert at the top of the Done column
         if (targetStatus === 'done') {
           const freshDoneCards = Object.values(useCardStore.getState().cardsById)
-            .filter((c) => c.projectId === projectId && !c.archivedAt && c.status === 'done')
+            .filter((c) => c.workspaceId === workspaceId && !c.archivedAt && c.status === 'done')
             .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
           const doneIds = [
             activeCardData.id,
@@ -753,7 +753,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
         }
       }
     },
-    [projectId, patchCard, reorderCards, cardsByColumn, resolveTargetStatus, showToast],
+    [workspaceId, patchCard, reorderCards, cardsByColumn, resolveTargetStatus, showToast],
   );
 
   // ── Action handlers ──────────────────────────────────────────────────────
@@ -766,12 +766,12 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
   );
 
   const handleNewCard = useCallback(async () => {
-    if (!projectId) {
-      showToast('Select a project first', 'info');
+    if (!workspaceId) {
+      showToast('Select a workspace first', 'info');
       return;
     }
     try {
-      const newCard = await createCard.mutateAsync({ projectId, title: 'New card', status: 'todo' });
+      const newCard = await createCard.mutateAsync({ workspaceId, title: 'New card', status: 'todo' });
       useCardStore.setState((state) => ({
         cardsById: { ...state.cardsById, [newCard.id]: newCard },
       }));
@@ -779,40 +779,40 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     } catch {
       showToast('Failed to create card', 'error');
     }
-  }, [projectId, createCard, selectCard, showToast]);
+  }, [workspaceId, createCard, selectCard, showToast]);
 
   const handleExport = useCallback(async () => {
-    if (!projectId) {
-      showToast('Select a project first', 'info');
+    if (!workspaceId) {
+      showToast('Select a workspace first', 'info');
       return;
     }
     try {
-      const data = await exportProject.mutateAsync(projectId);
+      const data = await exportWorkspace.mutateAsync(workspaceId);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `project-${projectId}.json`;
+      a.download = `workspace-${workspaceId}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('✅ Project exported', 'success');
+      showToast('✅ Workspace exported', 'success');
     } catch {
       showToast('Export failed', 'error');
     }
-  }, [projectId, exportProject, showToast]);
+  }, [workspaceId, exportWorkspace, showToast]);
 
   const handleImport = useCallback(
     async (file: File) => {
       try {
         const text = await file.text();
         const data = JSON.parse(text) as unknown;
-        const result = await importProject.mutateAsync(data);
-        showToast(`✅ Project imported: ${result.project_title}`, 'success');
+        const result = await importWorkspace.mutateAsync(data);
+        showToast(`✅ Workspace imported: ${result.workspace_title}`, 'success');
       } catch {
         showToast('Import failed — check file format', 'error');
       }
     },
-    [importProject, showToast],
+    [importWorkspace, showToast],
   );
 
   const handleExecuteBoard = useCallback(async () => {
@@ -821,13 +821,13 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       return;
     }
 
-    if (!projectId) {
-      showToast('Select a project first', 'info');
+    if (!workspaceId) {
+      showToast('Select a workspace first', 'info');
       return;
     }
 
     try {
-      const plan = await executeBoardPlan.mutateAsync(projectId);
+      const plan = await executeBoardPlan.mutateAsync(workspaceId);
       if (!plan || plan.total === 0) {
         showToast('No todo/in-progress cards to execute', 'info');
         return;
@@ -842,11 +842,11 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
 
       // Start execution via WebSocket
       const sessionId = 'board-exec-' + Date.now();
-      wsSend('kanban:execute:start', { projectId, sessionId });
+      wsSend('kanban:execute:start', { workspaceId, sessionId });
     } catch {
       showToast('Failed to get execution plan', 'error');
     }
-  }, [executionActive, executionId, projectId, executeBoardPlan, showToast, wsSend]);
+  }, [executionActive, executionId, workspaceId, executeBoardPlan, showToast, wsSend]);
 
   const resetExecution = useCallback(() => {
     setExecutionActive(false);
@@ -878,13 +878,13 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
     (status: CardStatus) => {
       selectedIds.forEach((id) => {
         updateCardStore(id, { status });
-        patchCard.mutate({ cardId: id, updates: { status }, projectId: projectId ?? undefined });
+        patchCard.mutate({ cardId: id, updates: { status }, workspaceId: workspaceId ?? undefined });
       });
       // If moving to Done, insert selected cards at the top of the Done column
       if (status === 'done') {
         const selectedArr = Array.from(selectedIds);
         const currentDoneCards = Object.values(useCardStore.getState().cardsById)
-          .filter((c) => c.projectId === projectId && !c.archivedAt && c.status === 'done')
+          .filter((c) => c.workspaceId === workspaceId && !c.archivedAt && c.status === 'done')
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
         const doneIds = [
           ...selectedArr,
@@ -896,27 +896,27 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
       clearSelection();
     },
-    [selectedIds, patchCard, reorderCards, updateCardStore, showToast, clearSelection, projectId],
+    [selectedIds, patchCard, reorderCards, updateCardStore, showToast, clearSelection, workspaceId],
   );
 
   const handleBulkArchive = useCallback(() => {
     selectedIds.forEach((id) => {
       deleteCardStore(id);
-      archiveCardMut.mutate({ cardId: id, projectId: projectId ?? undefined });
+      archiveCardMut.mutate({ cardId: id, workspaceId: workspaceId ?? undefined });
     });
     showToast(`Archived ${selectedIds.size} cards`, 'success');
     clearSelection();
-  }, [selectedIds, archiveCardMut, deleteCardStore, showToast, clearSelection, projectId]);
+  }, [selectedIds, archiveCardMut, deleteCardStore, showToast, clearSelection, workspaceId]);
 
   const handleBulkDelete = useCallback(() => {
     if (!confirm(`Delete ${selectedIds.size} cards permanently? This cannot be undone.`)) return;
     selectedIds.forEach((id) => {
       deleteCardStore(id);
-      deleteCardMut.mutate({ cardId: id, projectId: projectId ?? undefined });
+      deleteCardMut.mutate({ cardId: id, workspaceId: workspaceId ?? undefined });
     });
     showToast(`Deleted ${selectedIds.size} cards`, 'success');
     clearSelection();
-  }, [selectedIds, deleteCardMut, deleteCardStore, projectId, showToast, clearSelection]);
+  }, [selectedIds, deleteCardMut, deleteCardStore, workspaceId, showToast, clearSelection]);
 
   const handleCardClickInternal = useCallback(
     (cardId: string) => {
@@ -927,10 +927,10 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  if (!projectId) {
+  if (!workspaceId) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-        Select a project to view its board
+        Select a workspace to view its board
       </div>
     );
   }
@@ -1034,7 +1034,7 @@ export function KanbanBoard({ projectId: projectIdProp, onCardClick }: KanbanBoa
       {/* Dependency graph overlay */}
       {depGraphOpen && (
         <DepGraphOverlay
-          cards={projectCards}
+          cards={workspaceCards}
           cardsById={cardsById}
           onClose={() => setDepGraphOpen(false)}
         />

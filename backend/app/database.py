@@ -119,7 +119,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS focus_sessions (
                 id TEXT PRIMARY KEY,
                 card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
-                project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
                 duration_minutes INTEGER NOT NULL,
                 completed BOOLEAN NOT NULL DEFAULT 0,
                 started_at DATETIME NOT NULL,
@@ -133,46 +133,46 @@ async def init_db():
                 value TEXT NOT NULL
             )
         """))
-        # Migrate: add is_system / deletable columns to projects if missing
-        proj_result = await conn.execute(text("PRAGMA table_info(projects)"))
-        proj_columns = {row[1] for row in proj_result.fetchall()}
-        if "is_system" not in proj_columns:
-            await conn.execute(text("ALTER TABLE projects ADD COLUMN is_system BOOLEAN NOT NULL DEFAULT 0"))
-        if "deletable" not in proj_columns:
-            await conn.execute(text("ALTER TABLE projects ADD COLUMN deletable BOOLEAN NOT NULL DEFAULT 1"))
-        if "is_favorite" not in proj_columns:
-            await conn.execute(text("ALTER TABLE projects ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT 0"))
-        if "inherit_main_context" not in proj_columns:
-            await conn.execute(text("ALTER TABLE projects ADD COLUMN inherit_main_context BOOLEAN NOT NULL DEFAULT 1"))
+        # Migrate: add is_system / deletable columns to workspaces if missing
+        ws_result = await conn.execute(text("PRAGMA table_info(workspaces)"))
+        ws_columns = {row[1] for row in ws_result.fetchall()}
+        if "is_system" not in ws_columns:
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN is_system BOOLEAN NOT NULL DEFAULT 0"))
+        if "deletable" not in ws_columns:
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN deletable BOOLEAN NOT NULL DEFAULT 1"))
+        if "is_favorite" not in ws_columns:
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT 0"))
+        if "inherit_main_context" not in ws_columns:
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN inherit_main_context BOOLEAN NOT NULL DEFAULT 1"))
 
-        # Ensure the system "Home" project exists (formerly "Main", briefly "Global")
+        # Ensure the system "Home" workspace exists (formerly "Main", briefly "Global")
         SYSTEM_MAIN_ID = "system-main"
         from pathlib import Path as _Path
-        HOME_LOCAL_PATH = str(_Path.home() / ".voxyflow" / "workspace" / "projects" / "system-home")
+        HOME_LOCAL_PATH = str(_Path.home() / ".voxyflow" / "sandbox" / "workspaces" / "system-home")
         OLD_HOME_LOCAL_PATH = str(_Path.home() / ".voxyflow" / "workspace")
-        existing = await conn.execute(text("SELECT id FROM projects WHERE id = :id"), {"id": SYSTEM_MAIN_ID})
+        existing = await conn.execute(text("SELECT id FROM workspaces WHERE id = :id"), {"id": SYSTEM_MAIN_ID})
         if existing.fetchone() is None:
             await conn.execute(text(
-                "INSERT INTO projects (id, title, description, status, context, local_path, is_system, deletable, is_favorite, inherit_main_context, created_at, updated_at) "
+                "INSERT INTO workspaces (id, title, description, status, context, local_path, is_system, deletable, is_favorite, inherit_main_context, created_at, updated_at) "
                 "VALUES (:id, :title, :desc, 'active', '', :lp, 1, 0, 0, 1, :now, :now)"
             ), {"id": SYSTEM_MAIN_ID, "title": "Home", "desc": "Default workspace", "lp": HOME_LOCAL_PATH, "now": utcnow().isoformat()})
         else:
-            # Rename system project to "Home" if it still has a previous default name.
+            # Rename system workspace to "Home" if it still has a previous default name.
             await conn.execute(text(
-                "UPDATE projects SET title = 'Home' WHERE id = :id AND title IN ('Main', 'Global')"
+                "UPDATE workspaces SET title = 'Home' WHERE id = :id AND title IN ('Main', 'Global')"
             ), {"id": SYSTEM_MAIN_ID})
             # Backfill local_path: empty/null OR pointing at the old default (workspace root).
             await conn.execute(text(
-                "UPDATE projects SET local_path = :lp "
+                "UPDATE workspaces SET local_path = :lp "
                 "WHERE id = :id AND (local_path IS NULL OR local_path = '' OR local_path = :old)"
             ), {"id": SYSTEM_MAIN_ID, "lp": HOME_LOCAL_PATH, "old": OLD_HOME_LOCAL_PATH})
 
         # Make sure the directory exists so workers can chdir into it on first launch.
         _Path(HOME_LOCAL_PATH).mkdir(parents=True, exist_ok=True)
 
-        # Migrate all cards with project_id = NULL → system-main
+        # Migrate all cards with workspace_id = NULL → system-main
         await conn.execute(text(
-            "UPDATE cards SET project_id = :pid WHERE project_id IS NULL"
+            "UPDATE cards SET workspace_id = :pid WHERE workspace_id IS NULL"
         ), {"pid": SYSTEM_MAIN_ID})
 
         # Ensure worker_tasks table exists (Worker Ledger)
@@ -180,7 +180,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS worker_tasks (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
-                project_id TEXT,
+                workspace_id TEXT,
                 action TEXT NOT NULL,
                 description TEXT NOT NULL,
                 model TEXT NOT NULL,
@@ -209,15 +209,15 @@ async def init_db():
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 entity_type TEXT NOT NULL,
-                project_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
                 properties TEXT,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL
             )
         """))
         await conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_kg_entity_name_type_project "
-            "ON kg_entities (name, entity_type, project_id)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_kg_entity_name_type_workspace "
+            "ON kg_entities (name, entity_type, workspace_id)"
         ))
 
         await conn.execute(text("""
@@ -280,7 +280,7 @@ async def init_db():
 # Constants
 # ---------------------------------------------------------------------------
 
-SYSTEM_MAIN_PROJECT_ID = "system-main"
+SYSTEM_MAIN_WORKSPACE_ID = "system-main"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -331,12 +331,12 @@ class Chat(Base):
 
     id = Column(String, primary_key=True, default=new_uuid)
     title = Column(String, default="New Chat")
-    project_id = Column(String, ForeignKey("projects.id"), nullable=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan", order_by="Message.created_at")
-    project = relationship("Project", back_populates="chats")
+    workspace = relationship("Workspace", back_populates="chats")
 
 
 class Message(Base):
@@ -355,43 +355,43 @@ class Message(Base):
     chat = relationship("Chat", back_populates="messages")
 
 
-class Project(Base):
-    __tablename__ = "projects"
+class Workspace(Base):
+    __tablename__ = "workspaces"
 
     id = Column(String, primary_key=True, default=new_uuid)
     title = Column(String, nullable=False)
     description = Column(Text, default="")
     status = Column(String, default="active")  # active | archived
     context = Column(Text, default="")  # relevant docs, requirements summary
-    is_system = Column(Boolean, default=False)  # True for the built-in "Main" project
-    deletable = Column(Boolean, default=True)   # False for system projects
+    is_system = Column(Boolean, default=False)  # True for the built-in "Home" workspace
+    deletable = Column(Boolean, default=True)   # False for system workspaces
     github_repo = Column(String, nullable=True)      # "owner/repo"
     github_url = Column(String, nullable=True)        # "https://github.com/owner/repo"
     github_branch = Column(String, nullable=True)     # "main"
     github_language = Column(String, nullable=True)    # "TypeScript"
     local_path = Column(String, nullable=True)         # "~/projects/voxyflow"
     is_favorite = Column(Boolean, default=False, nullable=False)  # User-pinned favorite
-    inherit_main_context = Column(Boolean, default=True, nullable=False)  # Include Main project RAG context
+    inherit_main_context = Column(Boolean, default=True, nullable=False)  # Include Home workspace RAG context
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
-    chats = relationship("Chat", back_populates="project")
-    cards = relationship("Card", back_populates="project", cascade="all, delete-orphan")
-    documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
-    wiki_pages = relationship("WikiPage", back_populates="project", cascade="all, delete-orphan")
+    chats = relationship("Chat", back_populates="workspace")
+    cards = relationship("Card", back_populates="workspace", cascade="all, delete-orphan")
+    documents = relationship("Document", back_populates="workspace", cascade="all, delete-orphan")
+    wiki_pages = relationship("WikiPage", back_populates="workspace", cascade="all, delete-orphan")
 
 
 class WikiPage(Base):
     __tablename__ = "wiki_pages"
 
     id = Column(String, primary_key=True, default=new_uuid)
-    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=False, default="Untitled Page")
     content = Column(Text, default="")  # markdown content
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
-    project = relationship("Project", back_populates="wiki_pages")
+    workspace = relationship("Workspace", back_populates="wiki_pages")
 
 
 
@@ -399,7 +399,7 @@ class Card(Base):
     __tablename__ = "cards"
 
     id = Column(String, primary_key=True, default=new_uuid)
-    project_id = Column(String, ForeignKey("projects.id"), nullable=True)  # system-main = Main Board
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=True)  # system-main = Main Board
     title = Column(String, nullable=False)
     description = Column(Text, default="")
     status = Column(String, default="backlog")  # backlog | todo | in-progress | done | archived
@@ -424,7 +424,7 @@ class Card(Base):
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
-    project = relationship("Project", back_populates="cards")
+    workspace = relationship("Workspace", back_populates="cards")
     source_message = relationship("Message", foreign_keys=[source_message_id])
 
     dependencies = relationship(
@@ -513,14 +513,14 @@ class FocusSession(Base):
 
     id = Column(String, primary_key=True, default=new_uuid)
     card_id = Column(String, ForeignKey("cards.id", ondelete="SET NULL"), nullable=True)
-    project_id = Column(String, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True)
     duration_minutes = Column(Integer, nullable=False)
     completed = Column(Boolean, nullable=False, default=False)  # True if ran to completion, False if interrupted
     started_at = Column(DateTime, nullable=False)
     ended_at = Column(DateTime, nullable=False)
 
     card = relationship("Card", foreign_keys=[card_id])
-    project = relationship("Project", foreign_keys=[project_id])
+    workspace = relationship("Workspace", foreign_keys=[workspace_id])
 
 
 class WorkerTask(Base):
@@ -528,7 +528,7 @@ class WorkerTask(Base):
 
     id = Column(String, primary_key=True, default=new_uuid)
     session_id = Column(String, nullable=False)
-    project_id = Column(String, nullable=True)
+    workspace_id = Column(String, nullable=True)
     card_id = Column(String, nullable=True)          # optional card this task operates on
     action = Column(String, nullable=False)          # e.g. "fix_bug", "implement_feature"
     description = Column(Text, nullable=False)       # human-readable task description
@@ -557,7 +557,7 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(String, primary_key=True, default=new_uuid)
-    project_id = Column(String, ForeignKey("projects.id"), nullable=False)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
     filename = Column(String, nullable=False)
     filetype = Column(String, nullable=False)   # ".txt", ".md", etc.
     size_bytes = Column(Integer, nullable=False, default=0)
@@ -565,7 +565,7 @@ class Document(Base):
     created_at = Column(DateTime, default=utcnow)
     indexed_at = Column(DateTime, nullable=True)
 
-    project = relationship("Project", back_populates="documents")
+    workspace = relationship("Workspace", back_populates="documents")
 
 
 # ---------------------------------------------------------------------------
@@ -582,14 +582,14 @@ class KGEntity(Base):
     """Named thing in the KG (person, technology, component, concept, decision).
 
     Not temporally scoped — once created, an entity persists. updated_at
-    tracks the last upsert. Unique on (name, entity_type, project_id).
+    tracks the last upsert. Unique on (name, entity_type, workspace_id).
     """
     __tablename__ = "kg_entities"
 
     id = Column(String, primary_key=True, default=new_uuid)
     name = Column(String, nullable=False)
     entity_type = Column(String, nullable=False)  # person|technology|component|concept|decision
-    project_id = Column(String, nullable=False)    # not FK — may be "system-main"
+    workspace_id = Column(String, nullable=False)    # not FK — may be "system-main"
     properties = Column(Text, nullable=True)        # JSON text
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

@@ -2,7 +2,7 @@
 
 Snapshot review of the Voxyflow codebase (~79 backend Python files, 121 TS/TSX frontend files, ~15k LOC in `backend/app/services/` alone). Findings are grouped by severity and ordered as an action plan. Each item carries the file:line reference needed to act on it.
 
-**Overall grade: B+.** Solid separation of concerns, thoughtful project isolation, comprehensive tool surface — let down by monolithic core files, inverted module boundaries, missing tests around the LLM layer, and REST paths that skip the auth/isolation guards the WS path enforces.
+**Overall grade: B+.** Solid separation of concerns, thoughtful workspace isolation, comprehensive tool surface — let down by monolithic core files, inverted module boundaries, missing tests around the LLM layer, and REST paths that skip the auth/isolation guards the WS path enforces.
 
 ---
 
@@ -18,16 +18,16 @@ Snapshot review of the Voxyflow codebase (~79 backend Python files, 121 TS/TSX f
 ### Security / isolation
 
 - [x] **H3. Derive `chat_id` server-side in REST routes** — `backend/app/routes/chats.py:82-107`, `backend/app/routes/cards.py`
-  CLAUDE.md §Project Isolation §4 mandates server-canonical `chat_id`. `main.py` enforces on the WS path but every `/api/chats/*` REST route accepts the client value. Add the same derivation to REST; reject mismatches. _Shipped `chat_id_utils.resolve_chat_id()`; WS path + smoke test updated. REST surface still relies on DB UUIDs — true coverage requires H4._
+  CLAUDE.md §Workspace Isolation §4 mandates server-canonical `chat_id`. `main.py` enforces on the WS path but every `/api/chats/*` REST route accepts the client value. Add the same derivation to REST; reject mismatches. _Shipped `chat_id_utils.resolve_chat_id()`; WS path + smoke test updated. REST surface still relies on DB UUIDs — true coverage requires H4._
 - [x] **H4. Add auth to sensitive endpoints** — `backend/app/services/auth_service.py`, `backend/app/routes/auth.py`
   Shipped bearer-token defense-in-depth: token auto-generated at `~/.voxyflow/auth_token` (0600), served to same-origin frontend via `GET /api/auth/bootstrap`, gated `PUT /api/settings`, personality file writes, `POST /api/backup/trigger`, and destructive `/api/github/*` routes with `Depends(verify_auth)`. Frontend `lib/authClient.ts` wraps protected fetches. Network posture tightened in lockstep: systemd unit binds uvicorn to `127.0.0.1:8000`; Caddyfile uses explicit `bind 100.96.26.98 127.0.0.1` (TCP-layer, not host-header) so LAN (192.168.1.x) can no longer reach port 18789 even with spoofed Host.
 - [x] **H5. Harden `system.exec` blocklist + workspace confinement** — `backend/app/tools/system_tools.py:246-248`
-  Substring-based blocklist is bypassable (`\rm`, env indirection) and hits false positives. Switch to regex/argv-based checks. Add an explicit "cwd must be under project workspace" assertion — currently a worker can walk out of the project root.
+  Substring-based blocklist is bypassable (`\rm`, env indirection) and hits false positives. Switch to regex/argv-based checks. Add an explicit "cwd must be under workspace workspace" assertion — currently a worker can walk out of the workspace root.
 
 ### Dead / broken tools
 
-- [x] **H6. Register or delete `voxyflow.project.update`** — `backend/app/mcp_server.py:163-179` vs `backend/app/tools/registry.py`
-  Schema and `_http` handler exist, but the tool is in neither `TOOLS_DISPATCHER` nor `TOOLS_WORKER`. Users can't update projects via MCP. Either add to `TOOLS_DISPATCHER` or remove the definition.
+- [x] **H6. Register or delete `voxyflow.workspace.update`** — `backend/app/mcp_server.py:163-179` vs `backend/app/tools/registry.py`
+  Schema and `_http` handler exist, but the tool is in neither `TOOLS_DISPATCHER` nor `TOOLS_WORKER`. Users can't update workspaces via MCP. Either add to `TOOLS_DISPATCHER` or remove the definition.
 - [x] **M1. Delete duplicate `file_patch()`** — `backend/app/tools/system_tools.py:572` and `:821`
   Second definition shadows the first — first is dead. Delete the later block (lines 817-870).
 
@@ -61,7 +61,7 @@ Snapshot review of the Voxyflow codebase (~79 backend Python files, 121 TS/TSX f
 
 - [x] **M2. Consolidate `_flatten_system()`** — `backend/app/services/llm/api_caller.py:68` and `backend/app/services/llm/cli_backend.py:171`
   Identical implementations. Promote to `backend/app/services/llm/model_utils.py` and import from both.
-- [x] **M3. Remove buggy `projectIdFromSession`** — `frontend-react/src/contexts/ChatProvider.tsx:177` (vs correct `getProjectIdFromSession` at `:185`)
+- [x] **M3. Remove buggy `workspaceIdFromSession`** — `frontend-react/src/contexts/ChatProvider.tsx:177` (vs correct `getWorkspaceIdFromSession` at `:185`)
   First uses `split(':')[1]` — breaks for card chats (format `card:cardId:s-...`). Second uses `slice()` and is correct. Delete the first and its caller at line 465.
 - [x] **M4. Remove dead `self.client`** — `backend/app/services/claude_service.py:205, 207`
   Set to `_OAI` or `None`, never read. Legacy single-client fallback. Delete.
@@ -103,7 +103,7 @@ Snapshot review of the Voxyflow codebase (~79 backend Python files, 121 TS/TSX f
 
 ### Frontend
 
-- [x] ~~**L1. Sanitize `renderMarkdown()` output**~~ — `frontend-react/src/components/Projects/BriefSection.tsx:103`, `frontend-react/src/components/Projects/StandupSection.tsx:125`
+- [x] ~~**L1. Sanitize `renderMarkdown()` output**~~ — `frontend-react/src/components/Workspaces/BriefSection.tsx:103`, `frontend-react/src/components/Workspaces/StandupSection.tsx:125`
   Resolved as non-issue: both `renderMarkdown()` implementations already pre-escape `&`, `<`, `>` before any tag-injecting regex runs (mirroring the `ChatSearch.tsx` pattern). User input can only appear as `&lt;`/`&gt;` entities — no injection surface. Load-bearing comment at the top of each function documents the ordering invariant.
 - [x] **L2. Audit the 9+ `eslint-disable-next-line react-hooks/exhaustive-deps`** — each is a potential stale-closure.
   Audited every `exhaustive-deps` disable. All remaining suppressions are intentional (connect-ref sync, known wake-word capture gap, mount-once effects). Added load-bearing comments at `useWebSocket.ts:273` and `VoiceInput.tsx:429` documenting *why* the disable is safe so future readers don't re-litigate.
@@ -138,8 +138,8 @@ Snapshot review of the Voxyflow codebase (~79 backend Python files, 121 TS/TSX f
 
 ### Data / schema
 
-- [x] **M21. Single source of truth for Card / Project / Chat**
-  New `backend/app/models/_generated.py` uses `sqlalchemy.inspect()` to build Pydantic v2 bases (`CardBase`, `ProjectBase`, `ChatBase`, `MessageBase`, `DocumentBase`) at import time from the ORM column list — one source of truth for column set + nullability. Hand-written response models in `models/card.py`, `models/chat.py`, `models/project.py`, `models/document.py` now subclass those bases and only layer on *divergent* fields: `CardResponse.dependency_ids` / `total_minutes` / `checklist_progress` (synthesized from relationships), the `Card.files` JSON-text → `list[str]` override, `ChatResponse.messages`, `ChatListItem.message_count`, `ProjectWithCards.cards`, `DocumentListResponse.total`. `pydantic-sqlalchemy` evaluated and rejected (last release 2020, no Pydantic v2 support).
+- [x] **M21. Single source of truth for Card / Workspace / Chat**
+  New `backend/app/models/_generated.py` uses `sqlalchemy.inspect()` to build Pydantic v2 bases (`CardBase`, `WorkspaceBase`, `ChatBase`, `MessageBase`, `DocumentBase`) at import time from the ORM column list — one source of truth for column set + nullability. Hand-written response models in `models/card.py`, `models/chat.py`, `models/workspace.py`, `models/document.py` now subclass those bases and only layer on *divergent* fields: `CardResponse.dependency_ids` / `total_minutes` / `checklist_progress` (synthesized from relationships), the `Card.files` JSON-text → `list[str]` override, `ChatResponse.messages`, `ChatListItem.message_count`, `WorkspaceWithCards.cards`, `DocumentListResponse.total`. `pydantic-sqlalchemy` evaluated and rejected (last release 2020, no Pydantic v2 support).
 - [x] ~~**M22. Reconcile `MAX_WORKERS` vs `CLI_WORKER_CONCURRENT`**~~ — both default to 15 per CLAUDE.md `.env` example. Figure out which is authoritative and delete the other.
   Resolved as non-issue: they are not redundant. `MAX_WORKERS` caps a **per-session** `DeepWorkerPool` semaphore; `CLI_WORKER_CONCURRENT` caps **global** CLI subprocesses across all sessions via `CliRateGate`. Coincidental default of 15 hid the distinction. Clarified in `app/config.py` comments.
 
@@ -178,7 +178,7 @@ Snapshot review of the Voxyflow codebase (~79 backend Python files, 121 TS/TSX f
 - [x] Document in-scope vs out-of-scope for `system.exec` (single-user local vs multi-tenant).
   Added a "Deployment scope" block to CLAUDE.md right after the worker-tools section. States that Voxyflow is a single-user local install, `system.exec` / `file.*` / `git.*` / `tmux.*` run with full OS-user privileges with no sandbox, and multi-tenant deployment is out of scope unless a sandbox layer is added.
 - [x] Add structured logging (structlog or python-json-logger) + trace IDs across WS sessions and worker spawns.
-  Added `backend/app/services/logging_config.py` (structlog + stdlib `ProcessorFormatter` bridge). `configure_logging()` wires a shared processor chain (contextvars merge, ISO timestamps, level) and picks JSON vs pretty console via `VOXYFLOW_LOG_JSON`. `app/main.py`, `backend/mcp_stdio.py` now use it. Trace IDs bound via `structlog.contextvars`: `request_id` + `http_path/method` in the HTTP timing middleware (also echoed in `x-request-id`); `ws_id` + per-message `ws_msg_type/session_id/project_id/card_id/chat_id/message_id` in the WS handler (cleared each iteration so stale ids don't leak); `cli_session_id` + `cli_pid` bound at the 3 `CliSession.register(...)` sites in `cli_backend.py` so every log line emitted during a CLI subprocess carries those. Added `structlog>=25.0,<26.0` and `python-json-logger>=4.0,<5.0` to `requirements.txt` and regenerated `requirements.lock`.
+  Added `backend/app/services/logging_config.py` (structlog + stdlib `ProcessorFormatter` bridge). `configure_logging()` wires a shared processor chain (contextvars merge, ISO timestamps, level) and picks JSON vs pretty console via `VOXYFLOW_LOG_JSON`. `app/main.py`, `backend/mcp_stdio.py` now use it. Trace IDs bound via `structlog.contextvars`: `request_id` + `http_path/method` in the HTTP timing middleware (also echoed in `x-request-id`); `ws_id` + per-message `ws_msg_type/session_id/workspace_id/card_id/chat_id/message_id` in the WS handler (cleared each iteration so stale ids don't leak); `cli_session_id` + `cli_pid` bound at the 3 `CliSession.register(...)` sites in `cli_backend.py` so every log line emitted during a CLI subprocess carries those. Added `structlog>=25.0,<26.0` and `python-json-logger>=4.0,<5.0` to `requirements.txt` and regenerated `requirements.lock`.
 - [ ] Add metrics for LLM latencies, delegate queue depth, worker availability (extends `/api/metrics`).
 
 ---
@@ -201,6 +201,6 @@ These were flagged by the review but verified false:
 ## Strengths Worth Preserving
 
 - Role-based tool access (`TOOLS_DISPATCHER` vs `TOOLS_WORKER`) is well-designed and should stay as the guardrail.
-- Project isolation via `VOXYFLOW_PROJECT_ID` env injection is thoughtful; the `smoke_test_isolation.py` regression test is the right pattern — just needs CI wiring.
+- Workspace isolation via `VOXYFLOW_WORKSPACE_ID` env injection is thoughtful; the `smoke_test_isolation.py` regression test is the right pattern — just needs CI wiring.
 - API-key redaction with the `***` sentinel is a clean pattern — just needs the enforcement gap in `client_factory` closed (M18).
 - Multi-provider LLM abstraction has the right shape; just needs the unused ABC surface to be decided (M15) and a unified provider-type enum (M17).

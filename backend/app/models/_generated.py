@@ -42,7 +42,7 @@ from sqlalchemy import (
     Text,
 )
 
-from app.database import Card, Chat, Document, Message, Project
+from app.database import Card, Chat, Document, Message, Workspace
 
 
 # Map SQLAlchemy column types → Python types. Keep conservative: anything
@@ -134,7 +134,7 @@ CardBase = orm_base_model(
     exclude=frozenset({"files"}),
 )
 
-ProjectBase = orm_base_model(Project, name="ProjectBase")
+WorkspaceBase = orm_base_model(Workspace, name="WorkspaceBase")
 
 ChatBase = orm_base_model(Chat, name="ChatBase")
 
@@ -148,6 +148,6 @@ __all__ = [
     "ChatBase",
     "DocumentBase",
     "MessageBase",
-    "ProjectBase",
+    "WorkspaceBase",
     "orm_base_model",
 ]

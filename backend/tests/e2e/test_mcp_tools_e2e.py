@@ -51,43 +51,43 @@ async def test_session_search_messages():
 
 
 @pytest.mark.asyncio
-async def test_project_full_lifecycle():
+async def test_workspace_full_lifecycle():
     """
-    Test all project/card/wiki endpoints in one test to maintain state.
+    Test all workspace/card/wiki endpoints in one test to maintain state.
     Cleans up at the end.
     """
     import time
     async with httpx.AsyncClient(timeout=30.0) as c:
         # ── CREATE PROJECT ──────────────────────────────────────────────────
-        r = await c.post(f"{BASE}/api/projects", json={
-            "title": f"MCP_Test_Project_E2E_{int(time.time())}",
+        r = await c.post(f"{BASE}/api/workspaces", json={
+            "title": f"MCP_Test_Workspace_E2E_{int(time.time())}",
             "description": "Automated E2E test — safe to delete"
         })
-        assert r.status_code in (200, 201), f"Create project: {r.status_code} {r.text}"
-        project = r.json()
-        pid = project.get("id") or project.get("project", {}).get("id")
-        assert pid, f"No project id in response: {project}"
+        assert r.status_code in (200, 201), f"Create workspace: {r.status_code} {r.text}"
+        workspace = r.json()
+        pid = workspace.get("id") or workspace.get("workspace", {}).get("id")
+        assert pid, f"No workspace id in response: {workspace}"
 
         # ── LIST PROJECTS ───────────────────────────────────────────────────
-        r = await c.get(f"{BASE}/api/projects")
-        assert r.status_code == 200, f"List projects: {r.status_code}"
-        projects = r.json()
-        # Might be a list or {"projects": [...]}
-        project_list = projects if isinstance(projects, list) else projects.get("projects", [])
-        assert any(p.get("id") == pid for p in project_list), f"Project {pid} not in list"
+        r = await c.get(f"{BASE}/api/workspaces")
+        assert r.status_code == 200, f"List workspaces: {r.status_code}"
+        workspaces = r.json()
+        # Might be a list or {"workspaces": [...]}
+        workspace_list = workspaces if isinstance(workspaces, list) else workspaces.get("workspaces", [])
+        assert any(p.get("id") == pid for p in workspace_list), f"Workspace {pid} not in list"
 
         # ── GET PROJECT ─────────────────────────────────────────────────────
-        r = await c.get(f"{BASE}/api/projects/{pid}")
-        assert r.status_code == 200, f"Get project: {r.status_code} {r.text}"
+        r = await c.get(f"{BASE}/api/workspaces/{pid}")
+        assert r.status_code == 200, f"Get workspace: {r.status_code} {r.text}"
 
         # ── EXPORT PROJECT ──────────────────────────────────────────────────
-        r = await c.get(f"{BASE}/api/projects/{pid}/export")
-        assert r.status_code == 200, f"Export project: {r.status_code} {r.text}"
+        r = await c.get(f"{BASE}/api/workspaces/{pid}/export")
+        assert r.status_code == 200, f"Export workspace: {r.status_code} {r.text}"
         export_data = r.json()
-        assert "project" in export_data, f"No 'project' key in export: {export_data.keys()}"
+        assert "workspace" in export_data, f"No 'workspace' key in export: {export_data.keys()}"
 
         # ── CREATE CARD ─────────────────────────────────────────────────────
-        r = await c.post(f"{BASE}/api/projects/{pid}/cards", json={
+        r = await c.post(f"{BASE}/api/workspaces/{pid}/cards", json={
             "title": "Test Card E2E",
             "status": "todo"
         })
@@ -97,7 +97,7 @@ async def test_project_full_lifecycle():
         assert card_id, f"No card id in response: {card_data}"
 
         # ── LIST CARDS ──────────────────────────────────────────────────────
-        r = await c.get(f"{BASE}/api/projects/{pid}/cards")
+        r = await c.get(f"{BASE}/api/workspaces/{pid}/cards")
         assert r.status_code == 200, f"List cards: {r.status_code}"
 
         # ── UPDATE CARD ─────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ async def test_project_full_lifecycle():
         assert r.status_code == 200, f"Card history: {r.status_code} {r.text}"
 
         # ── WIKI CREATE ─────────────────────────────────────────────────────
-        r = await c.post(f"{BASE}/api/projects/{pid}/wiki", json={
+        r = await c.post(f"{BASE}/api/workspaces/{pid}/wiki", json={
             "title": "Test Wiki Page",
             "content": "# Hello from E2E test"
         })
@@ -149,11 +149,11 @@ async def test_project_full_lifecycle():
         assert wiki_id, f"No wiki id in response: {wiki_data}"
 
         # ── WIKI LIST ───────────────────────────────────────────────────────
-        r = await c.get(f"{BASE}/api/projects/{pid}/wiki")
+        r = await c.get(f"{BASE}/api/workspaces/{pid}/wiki")
         assert r.status_code == 200, f"Wiki list: {r.status_code}"
 
         # ── WIKI GET ────────────────────────────────────────────────────────
-        r = await c.get(f"{BASE}/api/projects/{pid}/wiki/{wiki_id}")
+        r = await c.get(f"{BASE}/api/workspaces/{pid}/wiki/{wiki_id}")
         assert r.status_code == 200, f"Wiki get: {r.status_code} {r.text}"
 
         # ── CLEANUP ─────────────────────────────────────────────────────────
@@ -161,8 +161,8 @@ async def test_project_full_lifecycle():
         if dup_id:
             await c.delete(f"{BASE}/api/cards/{dup_id}")
 
-        # Delete project (may not exist — that's ok)
-        r = await c.delete(f"{BASE}/api/projects/{pid}")
+        # Delete workspace (may not exist — that's ok)
+        r = await c.delete(f"{BASE}/api/workspaces/{pid}")
         # Don't assert — endpoint may not exist
 
-        print(f"\n✅ All project/card/wiki endpoints passed! (project_id={pid})")
+        print(f"\n✅ All workspace/card/wiki endpoints passed! (workspace_id={pid})")

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db, Message, SYSTEM_MAIN_PROJECT_ID
+from app.database import get_db, Message, SYSTEM_MAIN_WORKSPACE_ID
 from app.services.session_store import session_store
 from app.services.ws_broadcast import ws_broadcast
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 class CreateSessionRequest(BaseModel):
     """Request body for creating a new session."""
-    project_id: str = SYSTEM_MAIN_PROJECT_ID
+    workspace_id: str = SYSTEM_MAIN_WORKSPACE_ID
     title: str | None = None
 
 
@@ -41,7 +41,7 @@ async def create_session(body: CreateSessionRequest):
     Returns { chatId, title } for the new session.
     The chat_id is deterministic: project:{projectId}:session-N where N is incremental.
     """
-    chat_id = session_store.create_session(body.project_id, body.title)
+    chat_id = session_store.create_session(body.workspace_id, body.title)
     title = body.title or chat_id.split(":")[-1].replace("-", " ").title()
     return {"chatId": chat_id, "title": title}
 
@@ -113,7 +113,7 @@ def _make_snippet(content: str, query: str, radius: int = 50) -> str:
 @router.get("/search/messages")
 async def search_messages(
     q: str = Query(..., min_length=1, description="Search query"),
-    project_id: str | None = Query(None, description="Filter by project_id (matches chat_id prefix 'project:{id}')"),
+    workspace_id: str | None = Query(None, description="Filter by workspace_id (matches chat_id prefix 'project:{id}')"),
     limit: int = Query(20, ge=1, le=100, description="Max results"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -121,7 +121,7 @@ async def search_messages(
     Keyword search across persisted messages (case-insensitive substring match).
 
     Returns a list of matching messages with a snippet (~100 chars) around the match.
-    Optionally filters to a specific project by matching chat_id prefix 'project:{project_id}'.
+    Optionally filters to a specific project by matching chat_id prefix 'project:{workspace_id}'.
     """
     stmt = (
         select(Message)
@@ -130,8 +130,8 @@ async def search_messages(
         .limit(limit)
     )
 
-    if project_id:
-        stmt = stmt.where(Message.chat_id.like(f"project:{project_id}%"))
+    if workspace_id:
+        stmt = stmt.where(Message.chat_id.like(f"project:{workspace_id}%"))
 
     result = await db.execute(stmt)
     messages = result.scalars().all()

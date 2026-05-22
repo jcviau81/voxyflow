@@ -1,6 +1,6 @@
 # Contributing to Voxyflow
 
-Welcome, and thanks for your interest in contributing. Voxyflow is a voice-first AI project management assistant — a Kanban board that actually understands what you're doing, delegates tasks to background AI workers, and talks back. If that sounds like your kind of project, you're in the right place.
+Welcome, and thanks for your interest in contributing. Voxyflow is a voice-first AI workspace management assistant — a Kanban board that actually understands what you're doing, delegates tasks to background AI workers, and talks back. If that sounds like your kind of workspace, you're in the right place.
 
 This document covers everything you need to get started: setting up a dev environment, understanding the codebase, and the contribution workflow we use.
 
@@ -37,17 +37,18 @@ npm run dev
 
 ### LLM Backend
 
-Voxyflow supports three LLM backends, configured in `backend/.env`:
+Voxyflow supports local CLI, native SDK, and OpenAI-compatible providers. The preferred configuration path is **Settings > Models**, where dispatcher layers and worker classes can each choose a provider/model.
 
-- **Option 1 (recommended): Claude CLI subprocess** — install `claude` CLI, run `claude login`, set `CLAUDE_USE_CLI=true`. Uses your Claude Max subscription, no API key needed.
-- **Option 2: Native Anthropic SDK** — set `CLAUDE_USE_NATIVE=true` and provide `CLAUDE_API_KEY`.
-- **Option 3: OpenAI-compatible proxy** — legacy path, being deprecated.
+- **Claude CLI subprocess** — install `claude`, run `claude login`, set `CLAUDE_USE_CLI=true` or choose Claude CLI in Settings. Uses Claude Max, no Voxyflow API key.
+- **Codex CLI subprocess** — install/sign in to `codex`, then choose Codex CLI in Settings. Uses `codex exec --json`, no Voxyflow API key.
+- **Native Anthropic SDK** — set `CLAUDE_USE_NATIVE=true` and provide `CLAUDE_API_KEY`, or configure in Settings.
+- **OpenAI-compatible providers** — OpenAI, OpenRouter, Groq, Mistral, Gemini, Ollama, LM Studio, or custom endpoints.
 
-See `backend/.env.example` for the full config reference.
+See `backend/.env.example` and `docs/SETUP.md` for the full config reference.
 
 ---
 
-## Project Structure
+## Workspace Structure
 
 ```
 voxyflow/
@@ -56,15 +57,15 @@ voxyflow/
 │   │   ├── main.py                  # FastAPI app entry point, router registration
 │   │   ├── config.py                # Settings loader (env vars + keyring)
 │   │   ├── database.py              # SQLAlchemy models and DB session
-│   │   ├── mcp_server.py            # ~60 MCP tool definitions (Claude's tool interface)
+│   │   ├── mcp_server.py            # 100+ MCP tool definitions
 │   │   ├── routes/                  # FastAPI routers — one file per domain
 │   │   └── services/                # Business logic — chat, memory, workers, etc.
-│   │       ├── claude_service.py    # ClaudeService singleton, 4 model layers
+│   │       ├── claude_service.py    # LLM orchestration singleton
 │   │       ├── chat_orchestration.py # Orchestrator, delegate block parsing
 │   │       ├── personality_service.py # System prompt builder (loads personality/ files)
 │   │       ├── agent_personas.py    # 7 agent persona definitions
 │   │       ├── agent_router.py      # Keyword-based agent routing logic
-│   │       └── llm/                 # LLM backend adapters (CLI, SDK, proxy)
+│   │       └── llm/                 # LLM adapters (Claude CLI, Codex CLI, SDK, OpenAI-compatible)
 │   └── mcp_stdio.py                 # MCP stdio transport entry point
 ├── frontend-react/
 │   └── src/
@@ -73,10 +74,10 @@ voxyflow/
 │       │   ├── Kanban/              # KanbanBoard and KanbanCard
 │       │   └── Board/               # FreeBoard main grid view
 │       ├── services/                # Frontend services: TTS, STT, WebSocket
-│       ├── stores/                  # Zustand state stores (cards, messages, projects)
-│       ├── hooks/                   # TanStack Query hooks (useCards, useProjects, etc.)
-│       ├── types/                   # TypeScript types for Card, Project, Message
-│       └── pages/                   # Top-level pages (MainPage, ProjectPage, JobsPage)
+│       ├── stores/                  # Zustand state stores (cards, messages, workspaces)
+│       ├── hooks/                   # TanStack Query hooks (useCards, useWorkspaces, etc.)
+│       ├── types/                   # TypeScript types for Card, Workspace, Message
+│       └── pages/                   # Top-level pages (MainPage, WorkspacePage, JobsPage)
 ├── personality/                     # System prompt files loaded at runtime
 │   ├── SOUL.md                      # Core personality and tone
 │   ├── AGENTS.md                    # 7 agent persona definitions
@@ -136,7 +137,7 @@ Keep the first line under 72 characters. Add a body if the "why" isn't obvious f
 
 ### Adding an MCP Tool
 
-MCP tools are how Claude interacts with Voxyflow at runtime. All tools are defined in `backend/app/mcp_server.py` as entries in the `_TOOL_DEFINITIONS` list.
+MCP tools are how local CLI providers and LLM workers interact with Voxyflow at runtime. Tool schemas live in `backend/app/mcp_server.py`; role access lives in `backend/app/tools/registry.py`.
 
 **Step 1 — Add the REST endpoint** (if it doesn't exist yet):
 
@@ -153,7 +154,7 @@ app.include_router(your_module.router, prefix="/api")
 ```python
 {
     "name": "voxyflow.thing.do_something",
-    "description": "Clear, one-sentence description for Claude to understand when to use this.",
+    "description": "Clear, one-sentence description for the LLM to understand when to use this.",
     "inputSchema": {
         "type": "object",
         "required": ["field_name"],
@@ -178,7 +179,7 @@ python mcp_stdio.py
 curl -X POST http://localhost:8000/api/things/foo -H "Content-Type: application/json" -d '{"key": "foo"}'
 ```
 
-If you want the tool available to the Dispatcher (not just Workers), remove or set `_role` to `"all"`. Tools tagged `_role="worker"` are hidden from the fast chat layer.
+After adding a tool definition, assign access in `backend/app/tools/registry.py`. Add it to `TOOLS_WORKER` by default. Add it to `TOOLS_DISPATCHER` only if it is instant and safe for inline chat. Add it to `TOOLS_DISPATCHER_CODEX` only if it is read-only and helps Codex decide whether to delegate.
 
 ---
 
@@ -187,7 +188,7 @@ If you want the tool available to the Dispatcher (not just Workers), remove or s
 Voxyflow has 6 specialist agents (Researcher, Coder, Designer, Architect, Writer, QA) plus a General default. They're defined in two places:
 
 1. **`backend/app/services/agent_personas.py`** — Python definitions (name, keywords, routing weight, model preference). This drives the automatic agent routing logic.
-2. **`personality/AGENTS.md`** — Natural language descriptions injected into the system prompt. This is what Claude actually reads to adopt a persona.
+2. **`personality/AGENTS.md`** — Natural language descriptions injected into the system prompt. This is what the selected LLM reads to adopt a persona.
 
 If you're adding a new persona, update both files. If you're just tuning the tone or focus of an existing one, `personality/AGENTS.md` is usually enough.
 
@@ -205,7 +206,7 @@ app.include_router(your_new_module.router, prefix="/api")
 ```
 
 4. Add or update the corresponding Pydantic schemas in `backend/app/models/` if needed.
-5. If this endpoint should be accessible to Claude, add a corresponding MCP tool (see above).
+5. If this endpoint should be accessible to LLM/MCP clients, add a corresponding MCP tool and assign it to the correct role set (see above).
 
 ---
 

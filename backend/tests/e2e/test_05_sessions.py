@@ -12,7 +12,7 @@ class TestSessionCRUD:
     @pytest.mark.asyncio
     async def test_create_session(self, client: httpx.AsyncClient):
         r = await client.post("/api/sessions", json={
-            "project_id": "system-main",
+            "workspace_id": "system-main",
             "title": "E2E Test Session",
         })
         assert r.status_code in (200, 201)
@@ -33,7 +33,7 @@ class TestSessionCRUD:
     @pytest.mark.asyncio
     async def test_get_session_messages(self, client: httpx.AsyncClient):
         # Create session
-        r = await client.post("/api/sessions", json={"project_id": "system-main"})
+        r = await client.post("/api/sessions", json={"workspace_id": "system-main"})
         chat_id = r.json().get("chatId")
 
         # Get messages (should be empty for new session)
@@ -49,7 +49,7 @@ class TestSessionCRUD:
     @pytest.mark.asyncio
     async def test_delete_session(self, client: httpx.AsyncClient):
         # Create
-        r = await client.post("/api/sessions", json={"project_id": "system-main"})
+        r = await client.post("/api/sessions", json={"workspace_id": "system-main"})
         chat_id = r.json().get("chatId")
 
         # Delete
@@ -71,39 +71,39 @@ class TestSessionSearch:
         assert r.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_search_with_project_filter(self, client: httpx.AsyncClient, test_project: dict):
-        pid = test_project["_id"]
+    async def test_search_with_workspace_filter(self, client: httpx.AsyncClient, test_workspace: dict):
+        pid = test_workspace["_id"]
         r = await client.get("/api/sessions/search/messages", params={
             "q": "test",
-            "project_id": pid,
+            "workspace_id": pid,
         })
         assert r.status_code == 200
 
 
 class TestSessionIsolation:
     @pytest.mark.asyncio
-    async def test_sessions_scoped_to_project(self, client: httpx.AsyncClient):
-        """Sessions created for project A should use project A's chat_id prefix."""
+    async def test_sessions_scoped_to_workspace(self, client: httpx.AsyncClient):
+        """Sessions created for workspace A should use workspace A's chat_id prefix."""
         tag = uuid.uuid4().hex[:8]
 
-        # Create project
-        r = await client.post("/api/projects", json={"title": f"SessIso_{tag}"})
+        # Create workspace
+        r = await client.post("/api/workspaces", json={"title": f"SessIso_{tag}"})
         pid = r.json().get("id")
 
         try:
-            # Create session for this project
-            r = await client.post("/api/sessions", json={"project_id": pid})
+            # Create session for this workspace
+            r = await client.post("/api/sessions", json={"workspace_id": pid})
             data = r.json()
             chat_id = data.get("chatId")
             assert chat_id is not None, f"No chatId in response: {data}"
-            assert pid in chat_id or "project:" in chat_id
+            assert pid in chat_id or "workspace:" in chat_id
         finally:
-            await client.delete(f"/api/projects/{pid}")
+            await client.delete(f"/api/workspaces/{pid}")
 
     @pytest.mark.asyncio
     async def test_session_messages_empty_for_new_session(self, client: httpx.AsyncClient):
         """A freshly created session should have 0 messages."""
-        r = await client.post("/api/sessions", json={"project_id": "system-main"})
+        r = await client.post("/api/sessions", json={"workspace_id": "system-main"})
         chat_id = r.json().get("chatId")
 
         r = await client.get(f"/api/sessions/{chat_id}")

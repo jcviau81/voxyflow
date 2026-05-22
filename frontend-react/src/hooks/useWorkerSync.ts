@@ -2,7 +2,7 @@
  * useWorkerSync — wires WebSocket subscriptions to the useWorkerStore.
  *
  * Mount once in AppShell. Handles:
- *   - Initial snapshot load on mount (all projects — no filter)
+ *   - Initial snapshot load on mount (all workspaces — no filter)
  *   - WS event subscriptions for real-time updates
  *   - Re-sync on WS reconnect
  *   - Re-sync on tab visibility resume
@@ -29,7 +29,7 @@ export function useWorkerSync(): void {
     purgeExpired,
   } = useWorkerStore();
 
-  // ── Load snapshot on mount (all projects) ─────────────────────────────
+  // ── Load snapshot on mount (all workspaces) ─────────────────────────────
   useEffect(() => {
     void loadSnapshot(null);
   }, [loadSnapshot]);

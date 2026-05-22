@@ -37,16 +37,16 @@ class TestChatLayers:
         assert len(response) > 0
 
     @pytest.mark.asyncio
-    async def test_project_chat_responds(self, ws, client, test_project):
-        """Project chat should work with project context."""
-        pid = test_project["_id"]
+    async def test_workspace_chat_responds(self, ws, client, test_workspace):
+        """Workspace chat should work with workspace context."""
+        pid = test_workspace["_id"]
         session_id = f"e2e-proj-{uuid.uuid4().hex[:6]}"
         await ws_send(ws, "chat:message", chat_payload(
             "Combien de cartes y a-t-il dans ce projet?",
-            chatLevel="project",
-            projectId=pid,
+            chatLevel="workspace",
+            workspaceId=pid,
             sessionId=session_id,
-            chatId=f"project:{pid}",
+            chatId=f"workspace:{pid}",
         ))
         response = await ws_collect_chat_response(ws, timeout=LLM_TIMEOUT)
         assert len(response) > 0
@@ -55,12 +55,12 @@ class TestChatLayers:
     async def test_card_chat_responds(self, ws, client, test_card):
         """Card chat should work with card context."""
         cid = test_card["_id"]
-        pid = test_card["_project_id"]
+        pid = test_card["_workspace_id"]
         session_id = f"e2e-card-{uuid.uuid4().hex[:6]}"
         await ws_send(ws, "chat:message", chat_payload(
             "Décris cette carte.",
             chatLevel="card",
-            projectId=pid,
+            workspaceId=pid,
             cardId=cid,
             sessionId=session_id,
             chatId=f"card:{cid}",
@@ -75,17 +75,17 @@ class TestChatLayers:
 
 class TestDelegateEmission:
     @pytest.mark.asyncio
-    async def test_imperative_triggers_delegate(self, ws, client, test_project):
+    async def test_imperative_triggers_delegate(self, ws, client, test_workspace):
         """An imperative command should trigger a worker delegate."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         session_id = f"e2e-delegate-{uuid.uuid4().hex[:6]}"
 
         await ws_send(ws, "chat:message", chat_payload(
             "Lis le fichier /etc/hostname et montre le contenu.",
-            chatLevel="project",
-            projectId=pid,
+            chatLevel="workspace",
+            workspaceId=pid,
             sessionId=session_id,
-            chatId=f"project:{pid}",
+            chatId=f"workspace:{pid}",
         ))
 
         events = await ws_collect_events(
@@ -107,17 +107,17 @@ class TestDelegateEmission:
         assert "model" in payload
 
     @pytest.mark.asyncio
-    async def test_delegate_creates_worker_task(self, ws, client, test_project):
+    async def test_delegate_creates_worker_task(self, ws, client, test_workspace):
         """A delegate should create a WorkerTask entry in the ledger."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         session_id = f"e2e-ledger-{uuid.uuid4().hex[:6]}"
 
         await ws_send(ws, "chat:message", chat_payload(
             "Exécute 'echo test123' dans le terminal.",
-            chatLevel="project",
-            projectId=pid,
+            chatLevel="workspace",
+            workspaceId=pid,
             sessionId=session_id,
-            chatId=f"project:{pid}",
+            chatId=f"workspace:{pid}",
         ))
 
         events = await ws_collect_events(
@@ -170,19 +170,19 @@ class TestSessionManagement:
 
 class TestMemoryViaMCP:
     @pytest.mark.asyncio
-    async def test_memory_save_and_search(self, ws, client, test_project):
+    async def test_memory_save_and_search(self, ws, client, test_workspace):
         """Dispatcher should be able to save and search memory."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         session_id = f"e2e-mem-{uuid.uuid4().hex[:6]}"
         unique_fact = f"E2E_FACT_{uuid.uuid4().hex[:8]}"
 
         # Ask Voxy to remember something specific
         await ws_send(ws, "chat:message", chat_payload(
             f"Souviens-toi de ce fait important: {unique_fact}",
-            chatLevel="project",
-            projectId=pid,
+            chatLevel="workspace",
+            workspaceId=pid,
             sessionId=session_id,
-            chatId=f"project:{pid}",
+            chatId=f"workspace:{pid}",
         ))
         await ws_collect_chat_response(ws, timeout=LLM_TIMEOUT)
 
@@ -190,10 +190,10 @@ class TestMemoryViaMCP:
         session_id2 = f"e2e-mem2-{uuid.uuid4().hex[:6]}"
         await ws_send(ws, "chat:message", chat_payload(
             f"Cherche dans ta mémoire: {unique_fact}",
-            chatLevel="project",
-            projectId=pid,
+            chatLevel="workspace",
+            workspaceId=pid,
             sessionId=session_id2,
-            chatId=f"project:{pid}",
+            chatId=f"workspace:{pid}",
         ))
         response = await ws_collect_chat_response(ws, timeout=LLM_TIMEOUT)
         # We can't guarantee the LLM will find it, but the flow shouldn't error
@@ -216,9 +216,9 @@ class TestSchedulerJobs:
         assert "agent_task" in types or len(jobs) > 0
 
     @pytest.mark.asyncio
-    async def test_create_and_trigger_agent_task(self, client, test_project):
+    async def test_create_and_trigger_agent_task(self, client, test_workspace):
         """Create an agent_task job and trigger it."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         r = await client.post("/api/jobs", json={
             "name": f"E2E Agent Task {uuid.uuid4().hex[:6]}",
             "type": "agent_task",
@@ -226,7 +226,7 @@ class TestSchedulerJobs:
             "enabled": False,
             "payload": {
                 "instruction": "Dis 'job terminé' et ne fais rien d'autre.",
-                "project_id": pid,
+                "workspace_id": pid,
             },
         })
         assert r.status_code == 201
@@ -241,10 +241,10 @@ class TestSchedulerJobs:
             await client.delete(f"/api/jobs/{job_id}")
 
     @pytest.mark.asyncio
-    async def test_create_execute_card_job(self, client, test_project, test_card):
+    async def test_create_execute_card_job(self, client, test_workspace, test_card):
         """Create an execute_card job."""
         cid = test_card["_id"]
-        pid = test_card["_project_id"]
+        pid = test_card["_workspace_id"]
 
         r = await client.post("/api/jobs", json={
             "name": f"E2E Execute Card {uuid.uuid4().hex[:6]}",
@@ -253,7 +253,7 @@ class TestSchedulerJobs:
             "enabled": False,
             "payload": {
                 "card_id": cid,
-                "project_id": pid,
+                "workspace_id": pid,
             },
         })
         assert r.status_code == 201
@@ -262,9 +262,9 @@ class TestSchedulerJobs:
         await client.delete(f"/api/jobs/{job['id']}")
 
     @pytest.mark.asyncio
-    async def test_create_execute_board_job(self, client, test_project):
+    async def test_create_execute_board_job(self, client, test_workspace):
         """Create an execute_board job."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
 
         r = await client.post("/api/jobs", json={
             "name": f"E2E Execute Board {uuid.uuid4().hex[:6]}",
@@ -272,7 +272,7 @@ class TestSchedulerJobs:
             "schedule": "every_1h",
             "enabled": False,
             "payload": {
-                "project_id": pid,
+                "workspace_id": pid,
                 "statuses": ["todo"],
             },
         })

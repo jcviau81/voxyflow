@@ -1,16 +1,16 @@
 import { useCallback, useMemo, useState } from 'react';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { cn } from '../../lib/utils';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ChatLevel = 'general' | 'project' | 'card';
+export type ChatLevel = 'general' | 'workspace' | 'card';
 
 export interface SmartSuggestionsProps {
   chatLevel: ChatLevel;
-  projectId?: string;
+  workspaceId?: string;
   onSelect: (text: string) => void;
 }
 
@@ -18,20 +18,20 @@ export interface SmartSuggestionsProps {
 // Static suggestion sets (no AI calls — all rule-based)
 // ---------------------------------------------------------------------------
 
-function getContextSuggestions(level: ChatLevel, projectName?: string): string[] {
+function getContextSuggestions(level: ChatLevel, workspaceName?: string): string[] {
   switch (level) {
     case 'general':
       return [
-        'Create a new project',
+        'Create a new workspace',
         'What can you help me with?',
-        'Show my projects',
+        'Show my workspaces',
       ];
-    case 'project':
+    case 'workspace':
       return [
         'Create a card',
         'Show the kanban board',
-        "What's the project status?",
-        `Help me with ${projectName || 'this project'}`,
+        "What's the workspace status?",
+        `Help me with ${workspaceName || 'this workspace'}`,
       ];
     case 'card':
       return [
@@ -76,18 +76,18 @@ function getFollowUpSuggestions(responseContent: string): string[] {
 // Component
 // ---------------------------------------------------------------------------
 
-export function SmartSuggestions({ chatLevel, projectId, onSelect }: SmartSuggestionsProps) {
+export function SmartSuggestions({ chatLevel, workspaceId, onSelect }: SmartSuggestionsProps) {
   const [hidden, setHidden] = useState(false);
   const [followUp, setFollowUp] = useState<string[] | null>(null);
 
-  const project = useProjectStore((s) =>
-    projectId ? s.projects.find((p) => p.id === projectId) : undefined,
+  const workspace = useWorkspaceStore((s) =>
+    workspaceId ? s.workspaces.find((p) => p.id === workspaceId) : undefined,
   );
 
   const suggestions = useMemo(() => {
     if (followUp) return followUp;
-    return getContextSuggestions(chatLevel, project?.name);
-  }, [chatLevel, project?.name, followUp]);
+    return getContextSuggestions(chatLevel, workspace?.name);
+  }, [chatLevel, workspace?.name, followUp]);
 
   const handleSelect = useCallback(
     (text: string) => {

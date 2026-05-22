@@ -20,12 +20,12 @@ import type { ServerSession } from '../../hooks/api/useSessions';
 // ---------------------------------------------------------------------------
 
 export interface ChatWindowProps {
-  /** Tab identifier (project ID, 'main', etc.) */
+  /** Tab identifier (workspace ID, 'main', etc.) */
   tabId: string;
   /** Chat context level */
   chatLevel?: ChatLevel;
-  /** Project ID for project/card-level chat */
-  projectId?: string;
+  /** Workspace ID for workspace/card-level chat */
+  workspaceId?: string;
   /** Card ID for card-level embedded chat */
   cardId?: string;
   /** Compact embedded mode (inside CardDetailModal) */
@@ -41,7 +41,7 @@ export interface ChatWindowProps {
 export function ChatWindow({
   tabId,
   chatLevel = 'general',
-  projectId,
+  workspaceId,
   cardId,
   embedded = false,
   className,
@@ -103,11 +103,11 @@ export function ChatWindow({
     // Fetch active sessions from server — only used to resume the most recent one
     // when the local store is empty. Old sessions are NOT injected as tabs;
     // users can browse them via the session history dropdown in SessionTabBar.
-    const prefix = cardId ? `card:${cardId}` : `project:${projectId || tabId}`;
+    const prefix = cardId ? `card:${cardId}` : `workspace:${workspaceId || tabId}`;
     fetch(`/api/sessions?active=true&max_age_hours=720`)
       .then((r) => (r.ok ? r.json() : []))
       .then((serverSessions: ServerSession[]) => {
-        // Filter to sessions matching this tab's project
+        // Filter to sessions matching this tab's workspace
         const relevant = serverSessions.filter((s) => s.chatId.startsWith(prefix));
         if (relevant.length === 0) return;
 
@@ -134,12 +134,12 @@ export function ChatWindow({
           const match = updated.find((s) => s.chatId === mostRecent.chatId);
           if (match) {
             setActiveSession(tabId, match.id);
-            loadHistoryWithSpinner(match.chatId, projectId, cardId, match.chatId, true);
+            loadHistoryWithSpinner(match.chatId, workspaceId, cardId, match.chatId, true);
           }
         }
       })
       .catch((e) => console.warn('[ChatWindow] Session sync failed:', e));
-  }, [connectionState, tabId, projectId, cardId, injectServerSession, setActiveSession, loadHistoryWithSpinner]);
+  }, [connectionState, tabId, workspaceId, cardId, injectServerSession, setActiveSession, loadHistoryWithSpinner]);
 
   // ---------------------------------------------------------------------------
   // Load history when session changes
@@ -147,8 +147,8 @@ export function ChatWindow({
 
   useEffect(() => {
     if (!connected || !sessionId) return;
-    loadHistoryWithSpinner(sessionId, projectId, cardId, sessionId, true);
-  }, [sessionId, connected, projectId, cardId, loadHistoryWithSpinner]);
+    loadHistoryWithSpinner(sessionId, workspaceId, cardId, sessionId, true);
+  }, [sessionId, connected, workspaceId, cardId, loadHistoryWithSpinner]);
 
   // ---------------------------------------------------------------------------
   // Session management callbacks
@@ -158,10 +158,10 @@ export function ChatWindow({
     (_newSessionId: string) => {
       const chatId = useSessionStore.getState().getActiveChatId(tabId);
       if (chatId) {
-        loadHistoryWithSpinner(chatId, projectId, cardId, chatId, true);
+        loadHistoryWithSpinner(chatId, workspaceId, cardId, chatId, true);
       }
     },
-    [tabId, projectId, cardId, loadHistoryWithSpinner],
+    [tabId, workspaceId, cardId, loadHistoryWithSpinner],
   );
 
   const handleNewSession = useCallback(() => {
@@ -172,23 +172,23 @@ export function ChatWindow({
 
     // Wipe all sessions for this tab and start fresh as Session 1
     const session = resetLastSession(tabId, chatLevel);
-    replaceSessionMessages([], session.chatId, projectId, cardId);
+    replaceSessionMessages([], session.chatId, workspaceId, cardId);
     showToast('New session started', 'info', 2000);
 
     // Send a silent init so Voxy greets the user in the new session
     setTimeout(() => {
       sendSystemInit(
-        '[New session started. Run your startup routine: check memory for recent context, check worker status, scan project state. Then greet the user naturally with a brief status if anything notable was found. Keep it concise — 3-5 lines max.]',
-        projectId,
+        '[New session started. Run your startup routine: check memory for recent context, check worker status, scan workspace state. Then greet the user naturally with a brief status if anything notable was found. Keep it concise — 3-5 lines max.]',
+        workspaceId,
         cardId,
         session.chatId,
       );
     }, 300);
-  }, [tabId, chatLevel, sessionId, resetLastSession, replaceSessionMessages, projectId, cardId, showToast, sendSystemInit, send]);
+  }, [tabId, chatLevel, sessionId, resetLastSession, replaceSessionMessages, workspaceId, cardId, showToast, sendSystemInit, send]);
 
   const handleClearChat = useCallback(() => {
-    replaceSessionMessages([], sessionId, projectId, cardId);
-  }, [sessionId, projectId, cardId, replaceSessionMessages]);
+    replaceSessionMessages([], sessionId, workspaceId, cardId);
+  }, [sessionId, workspaceId, cardId, replaceSessionMessages]);
 
   // ---------------------------------------------------------------------------
   // Search jump handler
@@ -197,10 +197,10 @@ export function ChatWindow({
   const handleSearchJump = useCallback(
     (chatId: string, _messageId: string) => {
       // Load the conversation containing that message
-      loadHistoryWithSpinner(chatId, projectId, cardId, chatId, true);
+      loadHistoryWithSpinner(chatId, workspaceId, cardId, chatId, true);
       setSearchOpen(false);
     },
-    [projectId, cardId, loadHistoryWithSpinner],
+    [workspaceId, cardId, loadHistoryWithSpinner],
   );
 
   // ---------------------------------------------------------------------------
@@ -235,16 +235,16 @@ export function ChatWindow({
       <h2 className="text-lg font-semibold text-foreground">
         {chatLevel === 'card'
           ? 'Card Chat'
-          : chatLevel === 'project'
-            ? 'Project Chat'
+          : chatLevel === 'workspace'
+            ? 'Workspace Chat'
             : 'Welcome to Voxy'}
       </h2>
       <p className="text-sm text-muted-foreground max-w-sm">
         {chatLevel === 'card'
           ? 'Ask questions about this card, request implementation help, or discuss next steps.'
-          : chatLevel === 'project'
-            ? 'Ask about your project, create cards, or get a status overview.'
-            : 'Your AI-powered project assistant. Type a message to get started.'}
+          : chatLevel === 'workspace'
+            ? 'Ask about your workspace, create cards, or get a status overview.'
+            : 'Your AI-powered workspace assistant. Type a message to get started.'}
       </p>
     </div>
   );
@@ -255,7 +255,7 @@ export function ChatWindow({
 
   const chatScopeTestId =
     chatLevel === 'general' ? 'chat-window-main'
-    : chatLevel === 'project' ? 'chat-window-project'
+    : chatLevel === 'workspace' ? 'chat-window-workspace'
     : 'chat-window-card';
 
   return (
@@ -273,7 +273,7 @@ export function ChatWindow({
         <SessionTabBar
           tabId={tabId}
           scope={chatLevel}
-          projectId={projectId}
+          workspaceId={workspaceId}
           cardId={cardId}
           onSessionSwitch={handleSessionSwitch}
         />
@@ -282,7 +282,7 @@ export function ChatWindow({
       {/* Message list */}
       <MessageList
         sessionId={sessionId}
-        projectId={projectId}
+        workspaceId={workspaceId}
         cardId={cardId}
         emptySlot={welcomeSlot}
         loading={connectionState === 'connecting' || historyLoading}
@@ -342,7 +342,7 @@ export function ChatWindow({
       <ChatInput
         chatLevel={chatLevel}
         tabId={tabId}
-        projectId={projectId}
+        workspaceId={workspaceId}
         cardId={cardId}
         embedded={embedded}
         onNewSession={handleNewSession}
@@ -352,7 +352,7 @@ export function ChatWindow({
       {/* Search panel */}
       {!embedded && searchOpen && (
         <ChatSearch
-          projectId={projectId}
+          workspaceId={workspaceId}
           onJump={handleSearchJump}
         />
       )}

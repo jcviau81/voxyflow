@@ -3,7 +3,7 @@ import { Pin, Copy, Pencil, FolderInput, Archive, Timer, Play, CheckSquare, Link
 import { cn } from '@/lib/utils';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useToastStore } from '../../stores/useToastStore';
 import { useChatService } from '../../contexts/useChatService';
 import {
@@ -145,8 +145,8 @@ export function KanbanCard({
 
   const showToast = useToastStore((s) => s.showToast);
   const { executeCard: executeCardWS } = useChatService();
-  const projects = useProjectStore((s) => s.projects);
-  const { selectCard } = useProjectStore();
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const { selectCard } = useWorkspaceStore();
   const cardsById = useCardStore((s) => s.cardsById);
   const deleteCardStore = useCardStore((s) => s.deleteCard);
 
@@ -186,11 +186,11 @@ export function KanbanCard({
       .join('\n');
   }, [card.dependencies, cardsById]);
 
-  // ── Other projects for Clone/Move submenus ───────────────────────────────
+  // ── Other workspaces for Clone/Move submenus ───────────────────────────────
 
-  const otherProjects = useMemo(
-    () => projects.filter((p) => p.id !== card.projectId && !p.archived),
-    [projects, card.projectId]
+  const otherWorkspaces = useMemo(
+    () => workspaces.filter((p) => p.id !== card.workspaceId && !p.archived),
+    [workspaces, card.workspaceId]
   );
 
   // ── Event handlers ────────────────────────────────────────────────────────
@@ -224,7 +224,7 @@ export function KanbanCard({
   const handleExecute = async () => {
     try {
       await executeCard.mutateAsync(card.id);
-      executeCardWS(card.id, card.projectId || undefined);
+      executeCardWS(card.id, card.workspaceId || undefined);
       showToast(`Executing: "${card.title}"`, 'success');
     } catch {
       showToast('Execution failed', 'error');
@@ -236,7 +236,7 @@ export function KanbanCard({
       await patchCard.mutateAsync({
         cardId: card.id,
         updates: { status: 'backlog' },
-        projectId: card.projectId ?? undefined,
+        workspaceId: card.workspaceId ?? undefined,
       });
       showToast('Card moved to Backlog', 'success');
     } catch {
@@ -249,7 +249,7 @@ export function KanbanCard({
       await patchCard.mutateAsync({
         cardId: card.id,
         updates: { status: 'todo' },
-        projectId: card.projectId ?? undefined,
+        workspaceId: card.workspaceId ?? undefined,
       });
       showToast('Card moved to Kanban (Todo)', 'success');
     } catch {
@@ -259,7 +259,7 @@ export function KanbanCard({
 
   const handleDuplicate = async () => {
     try {
-      await duplicateCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
+      await duplicateCard.mutateAsync({ cardId: card.id, workspaceId: card.workspaceId ?? undefined });
       showToast(`Duplicated: "${card.title}"`, 'success');
     } catch {
       showToast('Duplication failed', 'error');
@@ -278,7 +278,7 @@ export function KanbanCard({
   const handleArchive = async () => {
     try {
       deleteCardStore(card.id);
-      await archiveCard.mutateAsync({ cardId: card.id, projectId: card.projectId ?? undefined });
+      await archiveCard.mutateAsync({ cardId: card.id, workspaceId: card.workspaceId ?? undefined });
       showToast(`"${card.title}" archived`, 'success');
     } catch {
       showToast('Archive failed', 'error');
@@ -286,27 +286,27 @@ export function KanbanCard({
   };
 
 
-  const handleCloneTo = async (projectId: string, projectTitle: string) => {
+  const handleCloneTo = async (workspaceId: string, workspaceTitle: string) => {
     try {
       await cloneCard.mutateAsync({
         cardId: card.id,
-        targetProjectId: projectId,
-        sourceProjectId: card.projectId ?? undefined,
+        targetWorkspaceId: workspaceId,
+        sourceWorkspaceId: card.workspaceId ?? undefined,
       });
-      showToast(`Cloned to "${projectTitle}"`, 'success');
+      showToast(`Cloned to "${workspaceTitle}"`, 'success');
     } catch {
       showToast('Clone failed', 'error');
     }
   };
 
-  const handleMoveTo = async (projectId: string, projectTitle: string) => {
+  const handleMoveTo = async (workspaceId: string, workspaceTitle: string) => {
     try {
       await moveCard.mutateAsync({
         cardId: card.id,
-        targetProjectId: projectId,
-        sourceProjectId: card.projectId ?? undefined,
+        targetWorkspaceId: workspaceId,
+        sourceWorkspaceId: card.workspaceId ?? undefined,
       });
-      showToast(`✈️ Moved to "${projectTitle}"`, 'success');
+      showToast(`✈️ Moved to "${workspaceTitle}"`, 'success');
     } catch {
       showToast('Move failed', 'error');
     }
@@ -447,13 +447,13 @@ export function KanbanCard({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
 
-            {/* Clone to Project */}
+            {/* Clone to Workspace */}
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger disabled={otherProjects.length === 0}>
-                <Copy size={13} className="text-violet-400" /> Clone to Project
+              <DropdownMenuSubTrigger disabled={otherWorkspaces.length === 0}>
+                <Copy size={13} className="text-violet-400" /> Clone to Workspace
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
-                {otherProjects.map((p) => (
+                {otherWorkspaces.map((p) => (
                   <DropdownMenuItem key={p.id} onSelect={() => handleCloneTo(p.id, p.name)}>
                     {p.emoji ? <span>{p.emoji}</span> : <Folder size={13} />} {p.name}
                   </DropdownMenuItem>
@@ -461,13 +461,13 @@ export function KanbanCard({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
 
-            {/* Move to Project */}
+            {/* Move to Workspace */}
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger disabled={otherProjects.length === 0}>
-                <FolderInput size={13} className="text-orange-400" /> Move to Project
+              <DropdownMenuSubTrigger disabled={otherWorkspaces.length === 0}>
+                <FolderInput size={13} className="text-orange-400" /> Move to Workspace
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
-                {otherProjects.map((p) => (
+                {otherWorkspaces.map((p) => (
                   <DropdownMenuItem key={p.id} onSelect={() => handleMoveTo(p.id, p.name)}>
                     {p.emoji ? <span>{p.emoji}</span> : <Folder size={13} />} {p.name}
                   </DropdownMenuItem>

@@ -4,15 +4,15 @@ import { useCardStore } from '../../stores/useCardStore';
 
 interface DependenciesSectionProps {
   card: Card;
-  projectCards: Card[];
+  workspaceCards: Card[];
   onAdd: (depId: string) => void;
   onRemove: (depId: string) => void;
 }
 
-export function DependenciesSection({ card, projectCards, onAdd, onRemove }: DependenciesSectionProps) {
+export function DependenciesSection({ card, workspaceCards, onAdd, onRemove }: DependenciesSectionProps) {
   const getCard = useCardStore((s) => s.getCard);
 
-  const otherCards = projectCards.filter((c) => c.id !== card.id);
+  const otherCards = workspaceCards.filter((c) => c.id !== card.id);
 
   return (
     <div className="space-y-2">
@@ -71,7 +71,7 @@ export function DependenciesSection({ card, projectCards, onAdd, onRemove }: Dep
           ))}
         </select>
       ) : (
-        <span className="text-xs text-muted-foreground/60">No other cards in this project</span>
+        <span className="text-xs text-muted-foreground/60">No other cards in this workspace</span>
       )}
     </div>
   );

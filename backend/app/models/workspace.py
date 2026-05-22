@@ -1,7 +1,7 @@
-"""Project schemas.
+"""Workspace schemas.
 
-``ProjectResponse`` is generated from the ORM ``Project`` model via
-``_generated.ProjectBase``. ``ProjectWithCards`` adds a relationship-backed
+``WorkspaceResponse`` is generated from the ORM ``Workspace`` model via
+``_generated.WorkspaceBase``. ``WorkspaceWithCards`` adds a relationship-backed
 ``cards`` list using a hand-authored ``CardResponseMinimal`` (intentionally
 a trimmed surface — not the full CardResponse).
 """
@@ -12,10 +12,10 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from app.models._generated import ProjectBase
+from app.models._generated import WorkspaceBase
 
 
-class ProjectCreate(BaseModel):
+class WorkspaceCreate(BaseModel):
     title: str
     description: Optional[str] = ""
     context: Optional[str] = ""
@@ -26,7 +26,7 @@ class ProjectCreate(BaseModel):
     local_path: Optional[str] = None
 
 
-class ProjectUpdate(BaseModel):
+class WorkspaceUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(active|archived)$")
@@ -40,19 +40,19 @@ class ProjectUpdate(BaseModel):
     inherit_main_context: Optional[bool] = None
 
 
-class ProjectResponse(ProjectBase):
-    """Wire representation of a Project — pure column-backed."""
+class WorkspaceResponse(WorkspaceBase):
+    """Wire representation of a Workspace — pure column-backed."""
     pass
 
 
 class CardResponseMinimal(BaseModel):
-    """Minimal card surface embedded inside ``ProjectWithCards``.
+    """Minimal card surface embedded inside ``WorkspaceWithCards``.
 
     Intentionally a trimmed view — not the full ``CardResponse``. Declared
     by hand because the wire shape is narrower than the column set.
     """
     id: str
-    project_id: Optional[str] = None
+    workspace_id: Optional[str] = None
     title: str
     description: str
     status: str
@@ -66,10 +66,9 @@ class CardResponseMinimal(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ProjectWithCards(ProjectResponse):
-    """Project response that includes its cards."""
+class WorkspaceWithCards(WorkspaceResponse):
+    """Workspace response that includes its cards."""
     cards: list[CardResponseMinimal] = []
 
 
-# Rebuild the model now that CardResponseMinimal is defined
-ProjectWithCards.model_rebuild()
+WorkspaceWithCards.model_rebuild()

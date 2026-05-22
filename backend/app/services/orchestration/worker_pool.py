@@ -510,7 +510,7 @@ class DeepWorkerPool:
                     chat_id=f"closeout-{event.task_id}",
                     prompt=closeout_prompt,
                     model=closeout_model,
-                    project_id=event.data.get("project_id"),
+                    workspace_id=event.data.get("workspace_id"),
                     card_context=None,
                     tool_callback=_closeout_cb,
                     cancel_event=closeout_cancel,
@@ -695,7 +695,7 @@ class DeepWorkerPool:
                 content="[worker-callback] Workers finished — see Worker activity block.",
                 message_id=f"wcb-{uuid4().hex[:8]}",
                 chat_id=dispatcher_chat_id,
-                project_id=event.data.get("project_id"),
+                workspace_id=event.data.get("workspace_id"),
                 layers=None,  # default fast; cheap + [SILENT]-aware
                 chat_level=event.data.get("chat_level", "general"),
                 is_callback=True,
@@ -975,7 +975,7 @@ class DeepWorkerPool:
             # --- Card lifecycle: auto-create if missing, move to in-progress ---
             if not _task_card_id and self._should_auto_create_card(event, _worker_class):
                 _task_card_id = await self._auto_create_card(
-                    project_id=event.data.get("project_id"),
+                    workspace_id=event.data.get("workspace_id"),
                     intent=event.intent or "unknown",
                     summary=event.summary or "",
                 )
@@ -985,14 +985,14 @@ class DeepWorkerPool:
             if _task_card_id:
                 await self._update_card_status(
                     _task_card_id, "in-progress",
-                    project_id=event.data.get("project_id"),
+                    workspace_id=event.data.get("workspace_id"),
                 )
 
             _wss.register(
                 task_id=event.task_id,
                 session_id=event.session_id or self._bus.session_id,
                 chat_id=event.data.get("dispatcher_chat_id"),
-                project_id=event.data.get("project_id"),
+                workspace_id=event.data.get("workspace_id"),
                 card_id=_task_card_id,
                 model=_effective_model,
                 intent=event.intent or "unknown",
@@ -1003,7 +1003,7 @@ class DeepWorkerPool:
             await self._ledger_insert(
                 task_id=event.task_id,
                 session_id=event.session_id or self._bus.session_id,
-                project_id=event.data.get("project_id"),
+                workspace_id=event.data.get("workspace_id"),
                 card_id=_task_card_id,
                 action=event.intent or "unknown",
                 description=(event.summary or "")[:500],
@@ -1019,7 +1019,7 @@ class DeepWorkerPool:
                 "sessionId": event.session_id,
                 "chatId": event.data.get("dispatcher_chat_id"),
                 "cardId": _task_card_id,
-                "projectId": event.data.get("project_id"),
+                "projectId": event.data.get("workspace_id"),
             })
 
             _wc_name = (_worker_class or {}).get("name")
@@ -1073,7 +1073,7 @@ class DeepWorkerPool:
                     f"\n## Current Context\n"
                     f"You are operating in the context of card \"{_card_ctx.get('title', '?')}\" "
                     f"(card_id: {_card_ctx.get('id', '?')}) in project \"{_project_ctx.get('title', '?')}\" "
-                    f"(project_id: {_project_ctx.get('id', '?')}).\n"
+                    f"(workspace_id: {_project_ctx.get('id', '?')}).\n"
                     f"Card status: {_card_ctx.get('status', '?')} | "
                     f"Priority: {_card_ctx.get('priority', '?')}\n"
                 )
@@ -1081,14 +1081,14 @@ class DeepWorkerPool:
                     execution_prompt += f"Card description: {_card_ctx['description'][:500]}\n"
                 execution_prompt += (
                     f"Use card_id={_card_ctx.get('id', '?')} for any card operations. "
-                    f"Use project_id={_project_ctx.get('id', '?')} for any project operations.\n"
+                    f"Use workspace_id={_project_ctx.get('id', '?')} for any project operations.\n"
                 )
             elif _project_ctx:
                 execution_prompt += (
                     f"\n## Current Context\n"
                     f"You are operating in the context of project \"{_project_ctx.get('title', '?')}\" "
-                    f"(project_id: {_project_ctx.get('id', '?')}).\n"
-                    f"Use project_id={_project_ctx.get('id', '?')} for any project/card operations.\n"
+                    f"(workspace_id: {_project_ctx.get('id', '?')}).\n"
+                    f"Use workspace_id={_project_ctx.get('id', '?')} for any project/card operations.\n"
                 )
 
             task_chat_id = f"task-{event.task_id}"
@@ -1103,13 +1103,13 @@ class DeepWorkerPool:
             if chat_level == "general":
                 intent_lower = (event.intent or "unknown").lower()
                 if (
-                    event.data.get("project_id")
+                    event.data.get("workspace_id")
                     or "project" in intent_lower
                     or "card" in intent_lower
                     or "main_board" in intent_lower
                     or "mainboard" in intent_lower
                 ):
-                    chat_level = "project"
+                    chat_level = "workspace"
 
             supervisor = get_worker_supervisor()
             supervisor.register_task(event.task_id)
@@ -1275,7 +1275,7 @@ class DeepWorkerPool:
                         chat_id=event.data.get("dispatcher_chat_id") or task_chat_id,
                         prompt=execution_prompt,
                         model=_effective_model,
-                        project_id=event.data.get("project_id"),
+                        workspace_id=event.data.get("workspace_id"),
                         card_context=event.data.get("card_context"),
                         tool_callback=tool_callback,
                         cancel_event=cancel_event,
@@ -1292,7 +1292,7 @@ class DeepWorkerPool:
                         chat_level=chat_level,
                         project_context=event.data.get("project_context"),
                         card_context=event.data.get("card_context"),
-                        project_id=event.data.get("project_id"),
+                        workspace_id=event.data.get("workspace_id"),
                         tool_callback=tool_callback,
                         cancel_event=cancel_event,
                         message_queue=message_queue,
@@ -1418,14 +1418,14 @@ class DeepWorkerPool:
                             logger.info(f"[CardLifecycle] Card {card_id}: result appended + status -> done")
                             await self._send_task_event("tool:executed", event.task_id, {
                                 "tool": "voxyflow.card.update",
-                                "args": {"card_id": card_id, "project_id": event.data.get("project_id")},
+                                "args": {"card_id": card_id, "workspace_id": event.data.get("workspace_id")},
                                 "result": {"success": True},
                                 "sessionId": event.session_id,
                             })
                             # Broadcast card change so all frontends refresh
                             from app.services.ws_broadcast import ws_broadcast
                             ws_broadcast.emit_sync("cards:changed", {
-                                "projectId": event.data.get("project_id"),
+                                "projectId": event.data.get("workspace_id"),
                                 "cardId": card_id,
                             })
                 except Exception as append_err:
@@ -1445,7 +1445,7 @@ class DeepWorkerPool:
                     result_content,
                     intent=event.intent,
                     model=event.model,
-                    project_id=event.data.get("project_id"),
+                    workspace_id=event.data.get("workspace_id"),
                     card_id=event.data.get("card_id"),
                     session_id=event.session_id,
                     status="success",
@@ -1496,7 +1496,7 @@ class DeepWorkerPool:
                 "totalChars": len(result_content or ""),
                 "success": True,
                 "sessionId": event.session_id,
-                "projectId": event.data.get("project_id"),
+                "projectId": event.data.get("workspace_id"),
                 "cardId": event.data.get("card_id"),
                 "artifactPath": artifact_path,
             })
@@ -1504,7 +1504,7 @@ class DeepWorkerPool:
             # Fire-and-forget Web Push notification — gated by push.enabled in settings
             try:
                 from app.services.push_service import build_deep_link, notify_user
-                _pid = event.data.get("project_id")
+                _pid = event.data.get("workspace_id")
                 _cid = event.data.get("card_id")
                 _body = (result_content or result_preview or "").strip()[:140] or "Task finished."
                 asyncio.create_task(notify_user(
@@ -1603,7 +1603,7 @@ class DeepWorkerPool:
                     "result": str(e),
                     "success": False,
                     "sessionId": event.session_id,
-                    "projectId": event.data.get("project_id"),
+                    "projectId": event.data.get("workspace_id"),
                     "cardId": event.data.get("card_id"),
                 })
             except Exception:
@@ -1612,7 +1612,7 @@ class DeepWorkerPool:
             # Fire-and-forget Web Push notification on failure
             try:
                 from app.services.push_service import build_deep_link, notify_user
-                _pid = event.data.get("project_id")
+                _pid = event.data.get("workspace_id")
                 _cid = event.data.get("card_id")
                 _body = str(e)[:140] or "Task failed."
                 asyncio.create_task(notify_user(
@@ -1751,7 +1751,7 @@ class DeepWorkerPool:
 
     @staticmethod
     async def _auto_create_card(
-        project_id: str | None,
+        workspace_id: str | None,
         intent: str,
         summary: str,
     ) -> str | None:
@@ -1760,12 +1760,12 @@ class DeepWorkerPool:
         Returns the new card_id, or None if creation fails.
         """
         try:
-            from app.database import async_session, Card, CardHistory, new_uuid, utcnow, SYSTEM_MAIN_PROJECT_ID
+            from app.database import async_session, Card, CardHistory, new_uuid, utcnow, SYSTEM_MAIN_WORKSPACE_ID
             from app.services.agent_router import get_agent_router
             from app.services.agent_personas import AgentType, get_persona
             from app.services.ws_broadcast import ws_broadcast
 
-            effective_project_id = project_id or SYSTEM_MAIN_PROJECT_ID
+            effective_project_id = workspace_id or SYSTEM_MAIN_WORKSPACE_ID
 
             # Auto-route agent type from intent/summary
             router = get_agent_router()
@@ -1783,7 +1783,7 @@ class DeepWorkerPool:
             async with async_session() as db:
                 card = Card(
                     id=card_id,
-                    project_id=effective_project_id,
+                    workspace_id=effective_project_id,
                     title=short_title,
                     description=full_text[:2000] if full_text else "",
                     status="todo",
@@ -1817,7 +1817,7 @@ class DeepWorkerPool:
     async def _update_card_status(
         card_id: str,
         new_status: str,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         """Move a card to a new status with CardHistory tracking.
 
@@ -1861,7 +1861,7 @@ class DeepWorkerPool:
                 ))
                 await db.commit()
 
-            _effective_pid = project_id or "system-main"
+            _effective_pid = workspace_id or "system-main"
             ws_broadcast.emit_sync("cards:changed", {
                 "projectId": _effective_pid,
                 "cardId": card_id,
@@ -1878,7 +1878,7 @@ class DeepWorkerPool:
     async def _ledger_insert(
         task_id: str,
         session_id: str,
-        project_id: str | None,
+        workspace_id: str | None,
         action: str,
         description: str,
         model: str,
@@ -1891,7 +1891,7 @@ class DeepWorkerPool:
                 row = WorkerTask(
                     id=task_id,
                     session_id=session_id,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     card_id=card_id,
                     action=action,
                     description=description[:500],

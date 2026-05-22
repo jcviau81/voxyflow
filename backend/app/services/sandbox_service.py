@@ -1,52 +1,48 @@
-"""Workspace service — managed file storage for Voxy.
+"""Sandbox service — managed file storage for Voxy workers.
 
-Workspace root: ~/.voxyflow/workspace/ (VOXYFLOW_WORKSPACE_DIR)
-Projects: ~/.voxyflow/workspace/<project-name>/
+Sandbox root: ~/.voxyflow/sandbox/ (VOXYFLOW_SANDBOX_DIR)
+Per-workspace area: ~/.voxyflow/sandbox/projects/<workspace-slug>/
 Security: rejects any path with '..' components to prevent traversal.
 """
 
-import json
 import logging
-import os
 from pathlib import Path
 
-from sqlalchemy import text
-from app.database import async_session
-from app.config import VOXYFLOW_WORKSPACE_DIR
+from app.config import VOXYFLOW_SANDBOX_DIR
 
 logger = logging.getLogger(__name__)
 
 
-class WorkspaceService:
-    """Manages file operations within the workspace directory."""
+class SandboxService:
+    """Manages file operations within the workers' sandbox directory."""
 
     def __init__(self):
-        self._workspace_root = VOXYFLOW_WORKSPACE_DIR
+        self._sandbox_root = VOXYFLOW_SANDBOX_DIR
 
     @property
-    def workspace_root(self) -> Path:
-        return self._workspace_root
+    def sandbox_root(self) -> Path:
+        return self._sandbox_root
 
-    async def get_workspace_path(self) -> Path:
-        """Returns the resolved absolute path of the workspace root."""
-        return self._workspace_root
+    async def get_sandbox_path(self) -> Path:
+        """Returns the resolved absolute path of the sandbox root."""
+        return self._sandbox_root
 
-    async def ensure_workspace(self) -> Path:
-        """Creates the workspace dir if it doesn't exist. Returns the path."""
-        self._workspace_root.mkdir(parents=True, exist_ok=True)
-        logger.info("Workspace directory ensured: %s", self._workspace_root)
-        return self._workspace_root
+    async def ensure_sandbox(self) -> Path:
+        """Creates the sandbox dir if it doesn't exist. Returns the path."""
+        self._sandbox_root.mkdir(parents=True, exist_ok=True)
+        logger.info("Sandbox directory ensured: %s", self._sandbox_root)
+        return self._sandbox_root
 
     def get_project_workspace(self, project_name: str) -> Path:
-        """Get the workspace directory for a specific project."""
+        """Get the sandbox directory for a specific project (legacy naming — Phase 3 renames to workspace)."""
         safe_name = self._slugify(project_name)
-        return self._workspace_root / "projects" / safe_name
+        return self._sandbox_root / "projects" / safe_name
 
     def ensure_project_workspace(self, project_name: str) -> Path:
-        """Create and return the workspace directory for a project."""
+        """Create and return the sandbox directory for a project."""
         ws = self.get_project_workspace(project_name)
         ws.mkdir(parents=True, exist_ok=True)
-        logger.info("Project workspace ensured: %s", ws)
+        logger.info("Workspace sandbox ensured: %s", ws)
         return ws
 
     def _slugify(self, name: str) -> str:
@@ -67,24 +63,24 @@ class WorkspaceService:
             raise ValueError(f"Absolute paths not allowed: {relative_path}")
 
     def resolve_path(self, relative_path: str) -> Path:
-        """Resolve a relative path against the workspace root.
+        """Resolve a relative path against the sandbox root.
 
         Uses ``Path.resolve()`` to collapse symlinks and dot segments, then asserts
-        the result is inside the workspace root. Defends against symlink-based
+        the result is inside the sandbox root. Defends against symlink-based
         escapes that syntactic checks alone would miss.
         """
         self._validate_path(relative_path)
-        root = self._workspace_root.resolve()
-        candidate = (self._workspace_root / relative_path).resolve()
+        root = self._sandbox_root.resolve()
+        candidate = (self._sandbox_root / relative_path).resolve()
         try:
             candidate.relative_to(root)
         except ValueError:
-            raise ValueError(f"Path escapes workspace root: {relative_path}")
+            raise ValueError(f"Path escapes sandbox root: {relative_path}")
         return candidate
 
     async def list_files(self, subdir: str = "") -> list[dict]:
-        """List files and directories in workspace (or subdirectory)."""
-        ws = await self.get_workspace_path()
+        """List files and directories in sandbox (or subdirectory)."""
+        ws = await self.get_sandbox_path()
         target = ws
         if subdir:
             self._validate_path(subdir)
@@ -105,37 +101,37 @@ class WorkspaceService:
         return entries
 
     async def read_file(self, relative_path: str) -> str:
-        """Read a file from workspace. Path is relative to workspace root."""
+        """Read a file from sandbox. Path is relative to sandbox root."""
         path = self.resolve_path(relative_path)
-        ws = await self.get_workspace_path()
+        ws = await self.get_sandbox_path()
         try:
             path.resolve().relative_to(ws.resolve())
         except ValueError:
-            raise ValueError(f"Path is outside workspace: {relative_path}")
+            raise ValueError(f"Path is outside sandbox: {relative_path}")
         if not path.exists():
             raise FileNotFoundError(f"File not found: {relative_path}")
         return path.read_text(encoding="utf-8")
 
     async def write_file(self, relative_path: str, content: str) -> str:
-        """Write a file to workspace. Returns the relative path."""
+        """Write a file to sandbox. Returns the relative path."""
         path = self.resolve_path(relative_path)
-        ws = await self.get_workspace_path()
+        ws = await self.get_sandbox_path()
         try:
             path.resolve(strict=False).relative_to(ws.resolve())
         except ValueError:
-            raise ValueError(f"Path is outside workspace: {relative_path}")
+            raise ValueError(f"Path is outside sandbox: {relative_path}")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return str(Path(relative_path))
 
     async def delete_file(self, relative_path: str) -> None:
-        """Delete a file from workspace."""
+        """Delete a file from sandbox."""
         path = self.resolve_path(relative_path)
-        ws = await self.get_workspace_path()
+        ws = await self.get_sandbox_path()
         try:
             path.resolve().relative_to(ws.resolve())
         except ValueError:
-            raise ValueError(f"Path is outside workspace: {relative_path}")
+            raise ValueError(f"Path is outside sandbox: {relative_path}")
         if not path.exists():
             raise FileNotFoundError(f"File not found: {relative_path}")
         if path.is_dir():
@@ -146,7 +142,7 @@ class WorkspaceService:
 
     async def get_tree(self, subdir: str = "") -> list[dict]:
         """Get full directory tree (recursive)."""
-        ws = await self.get_workspace_path()
+        ws = await self.get_sandbox_path()
         target = ws
         if subdir:
             self._validate_path(subdir)
@@ -175,11 +171,11 @@ class WorkspaceService:
 
 
 # Singleton
-_workspace_service: WorkspaceService | None = None
+_sandbox_service: SandboxService | None = None
 
 
-def get_workspace_service() -> WorkspaceService:
-    global _workspace_service
-    if _workspace_service is None:
-        _workspace_service = WorkspaceService()
-    return _workspace_service
+def get_sandbox_service() -> SandboxService:
+    global _sandbox_service
+    if _sandbox_service is None:
+        _sandbox_service = SandboxService()
+    return _sandbox_service

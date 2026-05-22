@@ -1,7 +1,7 @@
 /**
- * ProjectArchives — view for archived cards in a project.
+ * WorkspaceArchives — view for archived cards in a workspace.
  *
- * Displays all archived cards for the current project with options to
+ * Displays all archived cards for the current workspace with options to
  * restore or permanently delete each card, plus a "Vider les archives"
  * bulk-delete button with confirmation dialog.
  */
@@ -11,7 +11,7 @@ import { Archive, RotateCcw, Trash2, Loader2, Search, X, AlertTriangle } from 'l
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '../../lib/utils';
 import { useArchivedCards, useRestoreCard, useDeleteCard, cardKeys } from '../../hooks/api/useCards';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useToastStore } from '../../stores/useToastStore';
 import {
   Dialog,
@@ -45,12 +45,12 @@ function formatDate(ts: number): string {
 
 interface ArchivedCardRowProps {
   card: Card;
-  projectId: string;
+  workspaceId: string;
   onRestored: () => void;
   onDeleted: () => void;
 }
 
-function ArchivedCardRow({ card, projectId, onRestored, onDeleted }: ArchivedCardRowProps) {
+function ArchivedCardRow({ card, workspaceId, onRestored, onDeleted }: ArchivedCardRowProps) {
   const { showToast } = useToastStore();
   const restoreCard = useRestoreCard();
   const deleteCard = useDeleteCard();
@@ -58,7 +58,7 @@ function ArchivedCardRow({ card, projectId, onRestored, onDeleted }: ArchivedCar
 
   const handleRestore = async () => {
     try {
-      await restoreCard.mutateAsync({ cardId: card.id, projectId });
+      await restoreCard.mutateAsync({ cardId: card.id, workspaceId });
       showToast(`"${card.title}" restored`, 'success', 2500);
       onRestored();
     } catch {
@@ -73,7 +73,7 @@ function ArchivedCardRow({ card, projectId, onRestored, onDeleted }: ArchivedCar
       return;
     }
     try {
-      await deleteCard.mutateAsync({ cardId: card.id, projectId });
+      await deleteCard.mutateAsync({ cardId: card.id, workspaceId });
       showToast(`"${card.title}" permanently deleted`, 'info', 2500);
       onDeleted();
     } catch {
@@ -157,13 +157,13 @@ function ArchivedCardRow({ card, projectId, onRestored, onDeleted }: ArchivedCar
   );
 }
 
-interface ProjectArchivesProps {
-  projectId?: string;
+interface WorkspaceArchivesProps {
+  workspaceId?: string;
 }
 
-export function ProjectArchives({ projectId: projectIdProp }: ProjectArchivesProps = {}) {
-  const storeProjectId = useProjectStore((s) => s.currentProjectId);
-  const projectId = projectIdProp ?? storeProjectId ?? '';
+export function WorkspaceArchives({ workspaceId: workspaceIdProp }: WorkspaceArchivesProps = {}) {
+  const storeWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const workspaceId = workspaceIdProp ?? storeWorkspaceId ?? '';
   const { showToast } = useToastStore();
   const [search, setSearch] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -173,7 +173,7 @@ export function ProjectArchives({ projectId: projectIdProp }: ProjectArchivesPro
   const qc = useQueryClient();
   const deleteForAll = useDeleteCard();
 
-  const { data: archivedCards = [], isLoading, error } = useArchivedCards(projectId);
+  const { data: archivedCards = [], isLoading, error } = useArchivedCards(workspaceId);
 
   // Filter by search
   const filtered: Card[] = archivedCards.filter((c) => {
@@ -196,7 +196,7 @@ export function ProjectArchives({ projectId: projectIdProp }: ProjectArchivesPro
     try {
       for (const card of archivedCards) {
         try {
-          await deleteForAll.mutateAsync({ cardId: card.id, projectId });
+          await deleteForAll.mutateAsync({ cardId: card.id, workspaceId });
           successCount++;
         } catch {
           errorCount++;
@@ -210,15 +210,15 @@ export function ProjectArchives({ projectId: projectIdProp }: ProjectArchivesPro
     } finally {
       setIsDeletingAll(false);
       setShowDeleteAllDialog(false);
-      qc.invalidateQueries({ queryKey: cardKeys.archived(projectId) });
+      qc.invalidateQueries({ queryKey: cardKeys.archived(workspaceId) });
       setRefreshKey((k) => k + 1);
     }
   };
 
-  if (!projectId) {
+  if (!workspaceId) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-sm p-10">
-        No project selected.
+        No workspace selected.
       </div>
     );
   }
@@ -304,7 +304,7 @@ export function ProjectArchives({ projectId: projectIdProp }: ProjectArchivesPro
                 <ArchivedCardRow
                   key={card.id}
                   card={card}
-                  projectId={projectId}
+                  workspaceId={workspaceId}
                   onRestored={handleRestored}
                   onDeleted={handleDeleted}
                 />

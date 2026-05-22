@@ -14,7 +14,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.database import SYSTEM_MAIN_PROJECT_ID
+from app.database import SYSTEM_MAIN_WORKSPACE_ID
 from app.services.chat_id_utils import resolve_chat_id
 from app.services.claude_service import _make_cached_system
 from app.services.llm.model_utils import _inject_no_think
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/debug", tags=["debug"])
 class DebugContextRequest(BaseModel):
     user_message: str = Field(..., description="Sample user message to probe the prompt with")
     layer: str = Field("fast", description="fast | deep")
-    project_id: Optional[str] = None
+    workspace_id: Optional[str] = None
     card_id: Optional[str] = None
     chat_level: Optional[str] = None
     chat_id: Optional[str] = None
@@ -63,21 +63,21 @@ async def dump_context(req: DebugContextRequest):
     if layer not in ("fast", "deep"):
         raise HTTPException(400, "layer must be 'fast' or 'deep'")
 
-    # Derive canonical project_id + chat_level like main.py WS handler.
-    project_id = req.project_id
+    # Derive canonical workspace_id + chat_level like main.py WS handler.
+    workspace_id = req.workspace_id
     card_id = req.card_id
     chat_level = req.chat_level or "general"
     if card_id:
         chat_level = "card"
-    elif project_id:
+    elif workspace_id:
         if chat_level == "general":
-            chat_level = "project" if project_id != SYSTEM_MAIN_PROJECT_ID else "general"
+            chat_level = "workspace" if workspace_id != SYSTEM_MAIN_WORKSPACE_ID else "general"
     else:
-        project_id = SYSTEM_MAIN_PROJECT_ID
+        workspace_id = SYSTEM_MAIN_WORKSPACE_ID
         chat_level = "general"
 
     chat_id, _, _ = resolve_chat_id(
-        project_id, card_id, req.chat_id, log_context="debug /context"
+        workspace_id, card_id, req.chat_id, log_context="debug /context"
     )
 
     # Lazy imports to avoid circular imports at module load time.
@@ -88,7 +88,7 @@ async def dump_context(req: DebugContextRequest):
     memory = get_memory_service()
 
     project_context, card_context, project_names = await _orchestrator._resolve_context(
-        project_id=project_id, card_id=card_id, chat_level=chat_level,
+        workspace_id=workspace_id, card_id=card_id, chat_level=chat_level,
     )
 
     # ---- Replicate chat_{fast|deep}_stream prompt construction ----
@@ -101,7 +101,7 @@ async def dump_context(req: DebugContextRequest):
             fast_layers = (0, 1, 2)
         memory_context = memory.build_memory_context(
             project_name=(project_context or {}).get("title"),
-            project_id=project_id,
+            workspace_id=workspace_id,
             include_long_term=False,
             include_daily=True,
             query=req.user_message,
@@ -122,7 +122,7 @@ async def dump_context(req: DebugContextRequest):
         model = claude.deep_model
         memory_context = memory.build_memory_context(
             project_name=(project_context or {}).get("title"),
-            project_id=project_id,
+            workspace_id=workspace_id,
             include_long_term=True,
             include_daily=True,
             query=req.user_message,
@@ -151,7 +151,7 @@ async def dump_context(req: DebugContextRequest):
             worker_pools=getattr(_orchestrator, "_worker_pools", {}) or {},
             session_id=None,
             chat_id=chat_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
     except Exception as e:
         logger.debug("debug/context ambient blocks failed: %s", e)
@@ -190,7 +190,7 @@ async def dump_context(req: DebugContextRequest):
         "model": model,
         "chat_id": chat_id,
         "chat_level": chat_level,
-        "project_id": project_id,
+        "workspace_id": workspace_id,
         "card_id": card_id,
         "client_type": claude.fast_client_type if layer == "fast" else claude.deep_client_type,
         "memory": {

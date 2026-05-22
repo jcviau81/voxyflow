@@ -8,7 +8,7 @@ interface PriorityData {
 }
 
 interface PrioritySectionProps {
-  projectId: string;
+  workspaceId: string;
   cards: Card[];
 }
 
@@ -24,7 +24,7 @@ function scoreColor(score: number): string {
   return '#60a5fa';
 }
 
-export function PrioritySection({ projectId, cards }: PrioritySectionProps) {
+export function PrioritySection({ workspaceId, cards }: PrioritySectionProps) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<PriorityData | null>(null);
   const [applying, setApplying] = useState(false);
@@ -32,7 +32,7 @@ export function PrioritySection({ projectId, cards }: PrioritySectionProps) {
   async function analyzePriority() {
     setLoading(true);
     try {
-      const resp = await fetch(`/api/projects/${projectId}/prioritize`, {
+      const resp = await fetch(`/api/workspaces/${workspaceId}/prioritize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });

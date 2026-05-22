@@ -51,7 +51,7 @@ def write_artifact(
     *,
     intent: Optional[str] = None,
     model: Optional[str] = None,
-    project_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     card_id: Optional[str] = None,
     session_id: Optional[str] = None,
     status: str = "success",
@@ -87,8 +87,8 @@ def write_artifact(
         frontmatter_lines.append(f'intent: "{_yaml_escape(intent)}"')
     if model:
         frontmatter_lines.append(f'model: "{_yaml_escape(model)}"')
-    if project_id:
-        frontmatter_lines.append(f'project_id: "{_yaml_escape(project_id)}"')
+    if workspace_id:
+        frontmatter_lines.append(f'workspace_id: "{_yaml_escape(workspace_id)}"')
     if card_id:
         frontmatter_lines.append(f'card_id: "{_yaml_escape(card_id)}"')
     if session_id:

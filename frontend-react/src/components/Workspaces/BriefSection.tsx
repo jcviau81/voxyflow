@@ -17,11 +17,11 @@ function renderMarkdown(text: string): string {
 }
 
 interface BriefSectionProps {
-  projectId: string;
-  projectName: string;
+  workspaceId: string;
+  workspaceName: string;
 }
 
-export function BriefSection({ projectId, projectName }: BriefSectionProps) {
+export function BriefSection({ workspaceId, workspaceName }: BriefSectionProps) {
   const [loading, setLoading] = useState(false);
   const [brief, setBrief] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export function BriefSection({ projectId, projectName }: BriefSectionProps) {
   async function generateBrief() {
     setLoading(true);
     try {
-      const resp = await fetch(`/api/projects/${projectId}/brief`, {
+      const resp = await fetch(`/api/workspaces/${workspaceId}/brief`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -40,7 +40,7 @@ export function BriefSection({ projectId, projectName }: BriefSectionProps) {
       setGeneratedAt(data.generated_at);
     } catch (err) {
       console.error('[Brief] generation failed:', err);
-      setBrief('⚠️ Failed to generate project brief. Please try again.');
+      setBrief('⚠️ Failed to generate workspace brief. Please try again.');
       setGeneratedAt(null);
     } finally {
       setLoading(false);
@@ -56,7 +56,7 @@ export function BriefSection({ projectId, projectName }: BriefSectionProps) {
 
   function downloadMarkdown() {
     if (!brief) return;
-    const filename = `${projectName.replace(/\s+/g, '-').toLowerCase()}-brief.md`;
+    const filename = `${workspaceName.replace(/\s+/g, '-').toLowerCase()}-brief.md`;
     const blob = new Blob([brief], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -70,7 +70,7 @@ export function BriefSection({ projectId, projectName }: BriefSectionProps) {
 
   return (
     <div className="pt-6 border-t border-border">
-      <h3 className="flex items-center gap-2 text-base font-bold text-foreground mb-3.5"><FileText size={16} /> Project Brief</h3>
+      <h3 className="flex items-center gap-2 text-base font-bold text-foreground mb-3.5"><FileText size={16} /> Workspace Brief</h3>
 
       <div className="flex items-center gap-3 flex-wrap mb-4">
         <button

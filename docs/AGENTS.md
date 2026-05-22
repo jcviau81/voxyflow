@@ -2,7 +2,7 @@
 
 ## Overview
 
-Voxyflow uses a lightweight agent system inspired by BMAD (but simpler). Instead of separate sub-agents, each "agent" is a Claude API call with a specialized system prompt overlay. Same model, different hat.
+Voxyflow uses a lightweight agent system inspired by BMAD (but simpler). Instead of separate sub-agents, each "agent" is a specialized system prompt overlay sent through the selected provider/model. Same workflow role, different prompt context.
 
 ## Agent Types
 
@@ -51,7 +51,7 @@ POST /api/cards/{card_id}/assign
 
 ### LLM-Assisted
 
-Claude can determine the agent type as part of card extraction. The keyword router cross-validates: if they disagree and the router has high confidence (>0.7), the router wins.
+The selected LLM can determine the agent type as part of card extraction. The keyword router cross-validates: if they disagree and the router has high confidence (>0.7), the router wins.
 
 ## Agent Prompt Architecture
 
@@ -125,11 +125,11 @@ class Card:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/projects/{id}/cards` | Create card (auto-routes to agent) |
+| `POST` | `/workspaces/{id}/cards` | Create card (auto-routes to agent) |
 | `PATCH` | `/cards/{id}` | Update card (can change agent_type) |
 | `POST` | `/cards/{id}/assign` | Assign/reassign to specific agent |
 | `GET` | `/cards/{id}/routing` | Get routing suggestion without applying |
-| `GET` | `/projects/{id}/cards?agent_type=coder` | Filter cards by agent |
+| `GET` | `/workspaces/{id}/cards?agent_type=coder` | Filter cards by agent |
 
 ## End-to-End Flow
 
@@ -151,11 +151,11 @@ class Card:
 5. WebSocket pushes card suggestion to UI:
    User sees: "Refactor API backend — assigned to 🏗️ Architecte"
    │
-6. User confirms → card created in project board
+6. User confirms → card created in workspace board
    │
 7. User clicks card → "Work with Architecte"
    │
-8. Claude called with:
+8. Selected LLM called with:
    ├── Personality (SOUL + IDENTITY + USER)
    ├── Memory (MEMORY + daily logs)
    ├── Architect persona prompt
@@ -170,7 +170,7 @@ class Card:
 ## Design Decisions
 
 ### Why not actual sub-agents?
-Complexity. Sub-agents need orchestration, state management, and error handling. Claude-with-a-different-prompt achieves 90% of the value with 10% of the complexity. We can always add true sub-agents later.
+Complexity. Sub-agents need orchestration, state management, and error handling. A selected model with a different prompt achieves 90% of the value with 10% of the complexity. We can always add true sub-agents later.
 
 ### Why keyword routing instead of always-LLM?
 Speed + cost. Keyword routing is instant and free. LLM routing is smarter but costs tokens and adds latency. We use keywords as the fast path and LLM as the quality path, with cross-validation when both run.

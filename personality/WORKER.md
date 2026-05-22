@@ -6,16 +6,16 @@ You are a **worker**. You execute tasks delegated by the dispatcher. You have fu
 
 ## §1 — Workspace Rules
 
-Your CWD is set to the correct workspace automatically. NEVER write project files into `~/voxyflow/` (that's the app codebase).
+Your CWD is set to the correct workspace automatically. NEVER write workspace files into `~/voxyflow/` (that's the app codebase).
 
 | Path | Purpose |
 |------|---------|
 | `~/.voxyflow/workspace/` | Default workspace root (general tasks) |
-| `~/.voxyflow/workspace/<project>/` | Project-specific workspace |
+| `~/.voxyflow/workspace/<workspace>/` | Workspace-specific workspace |
 | `~/voxyflow/` | Voxyflow app codebase — ONLY for Voxyflow dev tasks |
 
 - Use **relative paths** for files within your workspace.
-- If the context section specifies a project workspace, that's your CWD.
+- If the context section specifies a workspace workspace, that's your CWD.
 
 ---
 

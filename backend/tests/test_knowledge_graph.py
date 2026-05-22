@@ -4,7 +4,7 @@ Tests cover:
 1. Entity CRUD (add, upsert, query)
 2. Triple CRUD + invalidation
 3. Attribute CRUD + invalidation
-4. Project isolation
+4. Workspace isolation
 5. Timeline
 6. Pinned context cache
 7. LLM entity extraction integration
@@ -47,7 +47,7 @@ async def kg(_init_db):
 
 
 def _pid():
-    """Generate a unique project ID for test isolation."""
+    """Generate a unique workspace ID for test isolation."""
     return f"test-{uuid.uuid4().hex[:8]}"
 
 
@@ -185,12 +185,12 @@ class TestAttributes:
 
 
 # ============================================================================
-# Project Isolation
+# Workspace Isolation
 # ============================================================================
 
-class TestProjectIsolation:
+class TestWorkspaceIsolation:
     @pytest.mark.asyncio
-    async def test_entities_isolated_by_project(self, kg):
+    async def test_entities_isolated_by_workspace(self, kg):
         pid_a = _pid()
         pid_b = _pid()
 
@@ -349,7 +349,7 @@ class TestStats:
         assert stats["active_attributes"] == 1
 
     @pytest.mark.asyncio
-    async def test_stats_empty_project(self, kg):
+    async def test_stats_empty_workspace(self, kg):
         pid = _pid()
         stats = await kg.get_stats(pid)
         assert stats["entities"] == 0

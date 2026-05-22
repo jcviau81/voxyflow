@@ -29,7 +29,7 @@ export function TabBar({ onPanelToggle, onSidebarToggle }: TabBarProps) {
       if (tabId === 'main') {
         navigate('/');
       } else {
-        navigate(`/project/${tabId}`);
+        navigate(`/workspace/${tabId}`);
       }
     },
     [navigate],
@@ -41,7 +41,7 @@ export function TabBar({ onPanelToggle, onSidebarToggle }: TabBarProps) {
 
       if (tabSessions.length > 0) {
         const confirmed = window.confirm(
-          `Close ${tab.label}?\n\nThis will close ${tabSessions.length} active session${tabSessions.length > 1 ? 's' : ''} for this project.`
+          `Close ${tab.label}?\n\nThis will close ${tabSessions.length} active session${tabSessions.length > 1 ? 's' : ''} for this workspace.`
         );
         if (!confirmed) return;
 
@@ -58,7 +58,7 @@ export function TabBar({ onPanelToggle, onSidebarToggle }: TabBarProps) {
       if (newActive === 'main') {
         navigate('/');
       } else {
-        navigate(`/project/${newActive}`);
+        navigate(`/workspace/${newActive}`);
       }
     },
     [sessions, send, closeSession, closeTab, navigate]

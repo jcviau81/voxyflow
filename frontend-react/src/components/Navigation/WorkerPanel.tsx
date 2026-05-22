@@ -3,10 +3,10 @@
  *
  * Structure:
  *   SESSIONS
- *   └── Project Name
- *       ├── Project Chat - 🔵 Fast Session
+ *   └── Workspace Name
+ *       ├── Workspace Chat - 🔵 Fast Session
  *       │   └── 🔵 sonnet — action — 45s… [steer][cancel]
- *       ├── Project Chat - 🟣 Deep Session
+ *       ├── Workspace Chat - 🟣 Deep Session
  *       │   └── 🟣 opus — action — 2m… [steer][cancel]
  *       └── Card: Title
  *           └── 🔵 sonnet — action — 1m… [steer][cancel]
@@ -18,10 +18,10 @@ import { useNavigate } from 'react-router-dom';
 import { MessageSquare, Send, ExternalLink, ChevronRight, ChevronDown, Eye, Clock, X as XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWS } from '../../providers/WebSocketProvider';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useCardStore } from '../../stores/useCardStore';
 import { useWorkerStore, type WorkerInfo, type CliSessionInfo, type JobMeta } from '../../stores/useWorkerStore';
-import { SYSTEM_PROJECT_ID } from '../../lib/constants';
+import { SYSTEM_WORKSPACE_ID } from '../../lib/constants';
 import { WorkerOutputModal } from './WorkerOutputModal';
 
 // ── Peek types ─────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ function formatAction(action: string): string {
   return action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Parse a canonical chatId ("project:<uuid>" / "card:<uuid>" / "job:<id>" / "autonomy:<id>") into a label. */
+/** Parse a canonical chatId ("workspace:<uuid>" / "card:<uuid>" / "job:<id>" / "autonomy:<id>") into a label. */
 function parseSessionLabel(chatId: string | null, cardTitles: Record<string, string>, jobMeta: Record<string, JobMeta>): string {
   if (!chatId) return 'Direct';
   if (chatId.startsWith('job:')) {
@@ -103,7 +103,7 @@ function parseSessionLabel(chatId: string | null, cardTitles: Record<string, str
     const title = cardTitles[cardId];
     return title ? `Card: ${title}` : `Card: ${cardId.slice(0, 8)}`;
   }
-  return 'Project Chat';
+  return 'Workspace Chat';
 }
 
 // ── Session tree types ─────────────────────────────────────────────────────
@@ -116,9 +116,9 @@ interface SessionNode {
   isAnalyzer?: boolean;
 }
 
-interface ProjectNode {
-  projectId: string;
-  projectName: string;
+interface WorkspaceNode {
+  workspaceId: string;
+  workspaceName: string;
   sessions: SessionNode[];
 }
 
@@ -129,10 +129,10 @@ const SCHEDULER_GROUP_ID = '_scheduler';
 function buildTree(
   allCli: CliSessionInfo[],
   allWorkers: WorkerInfo[],
-  projectNames: Record<string, string>,
+  workspaceNames: Record<string, string>,
   cardTitles: Record<string, string>,
   jobMeta: Record<string, JobMeta>,
-): ProjectNode[] {
+): WorkspaceNode[] {
   // Index workers by chatId (skip workers with no chatId)
   const workersByChatId: Record<string, WorkerInfo[]> = {};
   for (const w of allWorkers) {
@@ -152,22 +152,22 @@ function buildTree(
   for (const cs of allCli) if (cs.chatId) allChatIds.add(cs.chatId);
   for (const w of allWorkers) if (w.chatId) allChatIds.add(w.chatId);
 
-  // Group chatIds by project — scheduler sessions go under _scheduler
-  const chatIdsByProject: Record<string, Set<string>> = {};
+  // Group chatIds by workspace — scheduler sessions go under _scheduler
+  const chatIdsByWorkspace: Record<string, Set<string>> = {};
   for (const chatId of allChatIds) {
     if (chatId.startsWith('job:')) {
-      (chatIdsByProject[SCHEDULER_GROUP_ID] ??= new Set()).add(chatId);
+      (chatIdsByWorkspace[SCHEDULER_GROUP_ID] ??= new Set()).add(chatId);
       continue;
     }
     const cli = cliByChatId[chatId];
     const ws = workersByChatId[chatId];
-    const pid = cli?.projectId || ws?.[0]?.projectId || '_general';
-    (chatIdsByProject[pid] ??= new Set()).add(chatId);
+    const pid = cli?.workspaceId || ws?.[0]?.workspaceId || '_general';
+    (chatIdsByWorkspace[pid] ??= new Set()).add(chatId);
   }
 
-  // Build project nodes
-  const projects: ProjectNode[] = [];
-  for (const [pid, chatIds] of Object.entries(chatIdsByProject)) {
+  // Build workspace nodes
+  const workspaces: WorkspaceNode[] = [];
+  for (const [pid, chatIds] of Object.entries(chatIdsByWorkspace)) {
     const sessions: SessionNode[] = [];
     for (const chatId of chatIds) {
       const cli = cliByChatId[chatId];
@@ -195,28 +195,28 @@ function buildTree(
       return aActive - bActive;
     });
 
-    projects.push({
-      projectId: pid,
-      projectName: pid === SCHEDULER_GROUP_ID ? 'Scheduler' : pid === '_general' ? 'General' : pid === SYSTEM_PROJECT_ID ? 'Home' : (projectNames[pid] || pid.slice(0, 12)),
+    workspaces.push({
+      workspaceId: pid,
+      workspaceName: pid === SCHEDULER_GROUP_ID ? 'Scheduler' : pid === '_general' ? 'General' : pid === SYSTEM_WORKSPACE_ID ? 'Home' : (workspaceNames[pid] || pid.slice(0, 12)),
       sessions,
     });
   }
 
   // Sort: _scheduler always first, then active sessions, then inactive
-  projects.sort((a, b) => {
-    if (a.projectId === SCHEDULER_GROUP_ID) return -1;
-    if (b.projectId === SCHEDULER_GROUP_ID) return 1;
+  workspaces.sort((a, b) => {
+    if (a.workspaceId === SCHEDULER_GROUP_ID) return -1;
+    if (b.workspaceId === SCHEDULER_GROUP_ID) return 1;
     const aActive = a.sessions.some((s) => s.cliSession || s.workers.some((w) => !TERMINAL_STATUSES.has(w.status))) ? 0 : 1;
     const bActive = b.sessions.some((s) => s.cliSession || s.workers.some((w) => !TERMINAL_STATUSES.has(w.status))) ? 0 : 1;
     return aActive - bActive;
   });
 
-  return projects;
+  return workspaces;
 }
 
 // ── Worker card ────────────────────────────────────────────────────────────
 
-function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peekExpanded, onTogglePeek, cardTitles, parentChatId, projectId }: {
+function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peekExpanded, onTogglePeek, cardTitles, parentChatId, workspaceId }: {
   worker: WorkerInfo;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
@@ -227,7 +227,7 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
   onTogglePeek: (taskId: string) => void;
   cardTitles: Record<string, string>;
   parentChatId: string;
-  projectId: string;
+  workspaceId: string;
 }) {
   const [steerOpen, setSteerOpen] = useState(false);
   const [steerInput, setSteerInput] = useState('');
@@ -264,7 +264,7 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
     ? cardTitles[worker.cardId] || worker.cardId.slice(0, 8)
     : '';
 
-  const selectCard = useProjectStore((s) => s.selectCard);
+  const selectCard = useWorkspaceStore((s) => s.selectCard);
   const navigate = useNavigate();
 
   const handleRowClick = () => { onSelect(worker); };
@@ -272,8 +272,8 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
   const handleCardPillClick = (ev: MouseEvent) => {
     ev.stopPropagation();
     if (!worker.cardId) return;
-    if (projectId && projectId !== '_general' && projectId !== SCHEDULER_GROUP_ID) {
-      navigate(projectId === SYSTEM_PROJECT_ID ? '/' : `/project/${projectId}`);
+    if (workspaceId && workspaceId !== '_general' && workspaceId !== SCHEDULER_GROUP_ID) {
+      navigate(workspaceId === SYSTEM_WORKSPACE_ID ? '/' : `/workspace/${workspaceId}`);
     }
     selectCard(worker.cardId);
   };
@@ -534,9 +534,9 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
 
 // ── Session row (a CLI session + its child workers) ────────────────────────
 
-function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles }: {
+function SessionRow({ session, workspaceId, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles }: {
   session: SessionNode;
-  projectId: string;
+  workspaceId: string;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
   onSelect: (worker: WorkerInfo) => void;
@@ -547,7 +547,7 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
 }) {
   const hasChildren = session.workers.length > 0;
   const [open, setOpen] = useState(true);
-  const selectCard = useProjectStore((s) => s.selectCard);
+  const selectCard = useWorkspaceStore((s) => s.selectCard);
   const navigate = useNavigate();
 
   const isActive = !!session.cliSession || session.workers.some((w) => !TERMINAL_STATUSES.has(w.status));
@@ -555,7 +555,7 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
 
   const isDispatcher = !isJobSession && !!(
     session.cliSession?.type === 'chat' ||
-    session.chatId.startsWith('project:') ||
+    session.chatId.startsWith('workspace:') ||
     session.chatId.startsWith('card:')
   );
 
@@ -565,11 +565,11 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
 
   const handleSessionClick = () => {
     if (!isJobSession) {
-      if (cardId && projectId !== '_general') {
-        navigate(projectId === SYSTEM_PROJECT_ID ? '/' : `/project/${projectId}`);
+      if (cardId && workspaceId !== '_general') {
+        navigate(workspaceId === SYSTEM_WORKSPACE_ID ? '/' : `/workspace/${workspaceId}`);
         selectCard(cardId);
-      } else if (projectId !== '_general') {
-        navigate(projectId === SYSTEM_PROJECT_ID ? '/' : `/project/${projectId}`);
+      } else if (workspaceId !== '_general') {
+        navigate(workspaceId === SYSTEM_WORKSPACE_ID ? '/' : `/workspace/${workspaceId}`);
       }
     }
     if (hasChildren) setOpen((o) => !o);
@@ -623,7 +623,7 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
             title="Open card"
             onClick={(e) => {
               e.stopPropagation();
-              navigate(`/project/${projectId}`);
+              navigate(`/workspace/${workspaceId}`);
               selectCard(cardId);
             }}
           >
@@ -647,7 +647,7 @@ function SessionRow({ session, projectId, onCancel, onSteer, onSelect, peekData,
               onTogglePeek={onTogglePeek}
               cardTitles={cardTitles}
               parentChatId={session.chatId}
-              projectId={projectId}
+              workspaceId={workspaceId}
             />
           ))}
         </div>
@@ -668,14 +668,14 @@ export function WorkerPanel() {
   const cliSessions = useWorkerStore((s) => s.cliSessions);
   const jobMeta = useWorkerStore((s) => s.jobMeta);
   const clearTerminal = useWorkerStore((s) => s.clearTerminal);
-  const projects = useProjectStore((s) => s.projects);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const cards = useCardStore((s) => s.cardsById);
 
-  const projectNames = useMemo(() => {
+  const workspaceNames = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const p of projects) m[p.id] = p.name || p.id.slice(0, 12);
+    for (const p of workspaces) m[p.id] = p.name || p.id.slice(0, 12);
     return m;
-  }, [projects]);
+  }, [workspaces]);
 
   const cardTitles = useMemo(() => {
     const m: Record<string, string> = {};
@@ -732,8 +732,8 @@ export function WorkerPanel() {
   const allCli = useMemo(() => Object.values(cliSessions), [cliSessions]);
   const allWorkers = useMemo(() => Object.values(workers), [workers]);
   const tree = useMemo(
-    () => buildTree(allCli, allWorkers, projectNames, cardTitles, jobMeta),
-    [allCli, allWorkers, projectNames, cardTitles, jobMeta],
+    () => buildTree(allCli, allWorkers, workspaceNames, cardTitles, jobMeta),
+    [allCli, allWorkers, workspaceNames, cardTitles, jobMeta],
   );
 
   const activeCount = allCli.length + allWorkers.filter((w) => !TERMINAL_STATUSES.has(w.status)).length;
@@ -780,9 +780,9 @@ export function WorkerPanel() {
           <div className="text-xs text-muted-foreground text-center py-8">No active sessions</div>
         ) : (
           tree.map((proj) => (
-            <ProjectGroup
-              key={proj.projectId}
-              project={proj}
+            <WorkspaceGroup
+              key={proj.workspaceId}
+              workspace={proj}
               onCancel={cancelTask}
               onSteer={steerTask}
               onSelect={selectWorker}
@@ -803,10 +803,10 @@ export function WorkerPanel() {
   );
 }
 
-// ── Project group (collapsible) ────────────────────────────────────────────
+// ── Workspace group (collapsible) ────────────────────────────────────────────
 
-function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles }: {
-  project: ProjectNode;
+function WorkspaceGroup({ workspace, onCancel, onSteer, onSelect, peekData, expandedPeek, onTogglePeek, cardTitles }: {
+  workspace: WorkspaceNode;
   onCancel: (id: string) => void;
   onSteer: (id: string, msg: string) => void;
   onSelect: (worker: WorkerInfo) => void;
@@ -818,15 +818,15 @@ function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expanded
   const [open, setOpen] = useState(true);
   const navigate = useNavigate();
 
-  const isScheduler = project.projectId === SCHEDULER_GROUP_ID;
+  const isScheduler = workspace.workspaceId === SCHEDULER_GROUP_ID;
 
-  const hasActiveWorkers = project.sessions.some(
+  const hasActiveWorkers = workspace.sessions.some(
     (s) => s.cliSession || s.workers.some((w) => !TERMINAL_STATUSES.has(w.status)),
   );
 
-  const handleProjectClick = () => {
-    if (project.projectId !== '_general' && !isScheduler) {
-      navigate(project.projectId === SYSTEM_PROJECT_ID ? '/' : `/project/${project.projectId}`);
+  const handleWorkspaceClick = () => {
+    if (workspace.workspaceId !== '_general' && !isScheduler) {
+      navigate(workspace.workspaceId === SYSTEM_WORKSPACE_ID ? '/' : `/workspace/${workspace.workspaceId}`);
     }
     setOpen((o) => !o);
   };
@@ -838,29 +838,29 @@ function ProjectGroup({ project, onCancel, onSteer, onSelect, peekData, expanded
         ? 'border-border/40 bg-muted/15'
         : 'border-border/25 bg-muted/8',
     )}>
-      {/* Project header */}
+      {/* Workspace header */}
       <button
         className={cn(
           'flex items-center gap-1.5 w-full px-3 py-2.5 text-[12px] font-semibold cursor-pointer transition-colors hover:bg-accent/8',
           hasActiveWorkers ? 'text-foreground' : 'text-muted-foreground',
         )}
-        onClick={handleProjectClick}
+        onClick={handleWorkspaceClick}
       >
         {open
           ? <ChevronDown size={11} className="shrink-0 text-muted-foreground/60" />
           : <ChevronRight size={11} className="shrink-0 text-muted-foreground/60" />}
         {isScheduler && <Clock size={10} className="shrink-0 text-muted-foreground" />}
-        <span>{project.projectName}</span>
+        <span>{workspace.workspaceName}</span>
       </button>
 
       {/* Sessions */}
       {open && (
         <div className="px-2 pb-2.5 flex flex-col gap-1.5">
-          {project.sessions.map((s) => (
+          {workspace.sessions.map((s) => (
             <SessionRow
               key={s.chatId}
               session={s}
-              projectId={project.projectId}
+              workspaceId={workspace.workspaceId}
               onCancel={onCancel}
               onSteer={onSteer}
               onSelect={onSelect}

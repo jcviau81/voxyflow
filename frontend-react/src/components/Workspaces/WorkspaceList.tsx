@@ -1,11 +1,11 @@
 /**
- * ProjectList — React port of frontend/src/components/Projects/ProjectList.ts
+ * WorkspaceList — React port of frontend/src/components/Workspaces/WorkspaceList.ts
  *
  * Sections:
- *   - Header: "Projects" title + "+ New Project" button
- *   - Summary bar: project/card/done counts
+ *   - Header: "Workspaces" title + "+ New Workspace" button
+ *   - Summary bar: workspace/card/done counts
  *   - Filter chips: All | Active | Completed | Archived
- *   - Project grid: cards with emoji, name, description, tech stack,
+ *   - Workspace grid: cards with emoji, name, description, tech stack,
  *     progress bar, stats, activity, quick actions
  */
 
@@ -14,12 +14,12 @@ import { Star, Archive, Folder, LayoutGrid, CheckCircle2, BarChart2, Send, Penci
 import { useNavigate, useSearchParams, useOutletContext } from 'react-router-dom';
 import { PageHeader } from '../layout/PageHeader';
 import { cn } from '../../lib/utils';
-import { useProjects, useArchiveProject, useDeleteProject, useToggleFavorite, useExportProject } from '../../hooks/api/useProjects';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaces, useArchiveWorkspace, useDeleteWorkspace, useToggleFavorite, useExportWorkspace } from '../../hooks/api/useWorkspaces';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useCardStore } from '../../stores/useCardStore';
-import { SYSTEM_PROJECT_ID } from '../../lib/constants';
-import { ProjectForm } from './ProjectForm';
-import type { Project } from '../../types';
+import { SYSTEM_WORKSPACE_ID } from '../../lib/constants';
+import { WorkspaceForm } from './WorkspaceForm';
+import type { Workspace } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,25 +46,25 @@ function formatTime(ts: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-// ─── Sub-component: ProjectCard ───────────────────────────────────────────────
+// ─── Sub-component: WorkspaceCard ───────────────────────────────────────────────
 
-interface ProjectCardProps {
-  project: Project;
+interface WorkspaceCardProps {
+  workspace: Workspace;
   isActive: boolean;
   stats: CardStats;
-  onOpen: (project: Project) => void;
-  onEdit: (project: Project) => void;
-  onExport: (project: Project) => void;
-  onToggleFavorite: (project: Project) => void;
-  onArchive: (project: Project) => void;
-  onRestore: (project: Project) => void;
-  onDelete: (project: Project) => void;
+  onOpen: (workspace: Workspace) => void;
+  onEdit: (workspace: Workspace) => void;
+  onExport: (workspace: Workspace) => void;
+  onToggleFavorite: (workspace: Workspace) => void;
+  onArchive: (workspace: Workspace) => void;
+  onRestore: (workspace: Workspace) => void;
+  onDelete: (workspace: Workspace) => void;
 }
 
-function ProjectCard({
-  project, isActive, stats,
+function WorkspaceCard({
+  workspace, isActive, stats,
   onOpen, onEdit, onExport, onToggleFavorite, onArchive, onRestore, onDelete,
-}: ProjectCardProps) {
+}: WorkspaceCardProps) {
   const progressColorClass =
     stats.pct === 100 ? 'bg-green-500' :
     stats.pct >= 50   ? 'bg-yellow-400' :
@@ -73,33 +73,33 @@ function ProjectCard({
 
   return (
     <div
-      data-project-id={project.id}
-      onClick={() => !project.archived && onOpen(project)}
+      data-workspace-id={workspace.id}
+      onClick={() => !workspace.archived && onOpen(workspace)}
       className={cn(
-        'project-card-overview group relative flex flex-col gap-3 p-4 rounded-xl border bg-card',
+        'workspace-card-overview group relative flex flex-col gap-3 p-4 rounded-xl border bg-card',
         'transition-all duration-150',
-        !project.archived && 'cursor-pointer hover:border-primary/50 hover:shadow-md',
+        !workspace.archived && 'cursor-pointer hover:border-primary/50 hover:shadow-md',
         isActive && 'border-primary/70 ring-1 ring-primary/30'
       )}
     >
       {/* ── Card header ── */}
-      <div className="project-card-header flex items-start gap-3">
-        <span className="project-card-emoji text-2xl shrink-0 leading-none mt-0.5">
-          {project.emoji || '📁'}
+      <div className="workspace-card-header flex items-start gap-3">
+        <span className="workspace-card-emoji text-2xl shrink-0 leading-none mt-0.5">
+          {workspace.emoji || '📁'}
         </span>
 
-        <div className="project-card-title-wrap flex-1 min-w-0">
-          <div className="project-card-name font-semibold text-foreground truncate">
-            {project.name}
+        <div className="workspace-card-title-wrap flex-1 min-w-0">
+          <div className="workspace-card-name font-semibold text-foreground truncate">
+            {workspace.name}
           </div>
-          {project.githubUrl && (
+          {workspace.githubUrl && (
             <a
-              href={project.githubUrl}
+              href={workspace.githubUrl}
               target="_blank"
               rel="noopener noreferrer"
-              title={project.githubUrl}
+              title={workspace.githubUrl}
               onClick={(e) => e.stopPropagation()}
-              className="project-card-gh-link text-xs text-primary hover:underline"
+              className="workspace-card-gh-link text-xs text-primary hover:underline"
             >
               🔗 GitHub
             </a>
@@ -108,64 +108,64 @@ function ProjectCard({
 
         {/* Favorite star */}
         <button
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite(project); }}
-          title={project.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite(workspace); }}
+          title={workspace.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
           className="sidebar-favorite-star text-lg leading-none opacity-60 hover:opacity-100 transition-opacity shrink-0"
         >
-          {project.isFavorite
+          {workspace.isFavorite
             ? <Star size={16} className="fill-yellow-400 text-yellow-400" />
             : <Star size={16} className="text-muted-foreground" />
           }
         </button>
 
         {/* Archived badge */}
-        {project.archived && (
-          <span className="flex items-center gap-1 project-archived-badge px-2 py-0.5 rounded text-xs bg-yellow-500/10 text-yellow-600 border border-yellow-500/30 shrink-0">
+        {workspace.archived && (
+          <span className="flex items-center gap-1 workspace-archived-badge px-2 py-0.5 rounded text-xs bg-yellow-500/10 text-yellow-600 border border-yellow-500/30 shrink-0">
             <Archive size={11} /> Archived
           </span>
         )}
       </div>
 
       {/* Color bar (if set) */}
-      {project.color && (
+      {workspace.color && (
         <div
           className="absolute top-0 left-0 w-1 h-full rounded-l-xl"
-          style={{ background: project.color }}
+          style={{ background: workspace.color }}
         />
       )}
 
       {/* ── Description ── */}
-      <p className="project-card-desc text-sm text-muted-foreground line-clamp-2">
-        {project.description || 'No description'}
+      <p className="workspace-card-desc text-sm text-muted-foreground line-clamp-2">
+        {workspace.description || 'No description'}
       </p>
 
       {/* ── Tech stack badges ── */}
       {(() => {
-        const techs = project.techStack?.technologies;
+        const techs = workspace.techStack?.technologies;
         if (techs && techs.length > 0) {
           return (
-            <div className="project-card-tech flex flex-wrap gap-1">
+            <div className="workspace-card-tech flex flex-wrap gap-1">
               {techs.slice(0, 6).map((t) => (
                 <span
                   key={t.name}
-                  className="project-tech-badge px-1.5 py-0.5 rounded text-[11px] bg-accent text-accent-foreground border border-border"
+                  className="workspace-tech-badge px-1.5 py-0.5 rounded text-[11px] bg-accent text-accent-foreground border border-border"
                 >
                   {t.icon ? `${t.icon} ` : ''}{t.name}
                 </span>
               ))}
               {techs.length > 6 && (
-                <span className="project-tech-badge px-1.5 py-0.5 rounded text-[11px] bg-accent text-muted-foreground border border-border">
+                <span className="workspace-tech-badge px-1.5 py-0.5 rounded text-[11px] bg-accent text-muted-foreground border border-border">
                   +{techs.length - 6}
                 </span>
               )}
             </div>
           );
         }
-        if (project.githubLanguage) {
+        if (workspace.githubLanguage) {
           return (
-            <div className="project-card-tech">
-              <span className="project-tech-badge px-1.5 py-0.5 rounded text-[11px] bg-accent text-accent-foreground border border-border">
-                {project.githubLanguage}
+            <div className="workspace-card-tech">
+              <span className="workspace-tech-badge px-1.5 py-0.5 rounded text-[11px] bg-accent text-accent-foreground border border-border">
+                {workspace.githubLanguage}
               </span>
             </div>
           );
@@ -175,49 +175,49 @@ function ProjectCard({
 
       {/* ── Progress bar ── */}
       <div>
-        <div className="project-mini-progress h-1.5 w-full rounded-full bg-muted overflow-hidden">
+        <div className="workspace-mini-progress h-1.5 w-full rounded-full bg-muted overflow-hidden">
           <div
             title={`${stats.pct}% done`}
-            className={cn('project-mini-progress-fill h-full rounded-full transition-all', progressColorClass)}
+            className={cn('workspace-mini-progress-fill h-full rounded-full transition-all', progressColorClass)}
             style={{ width: `${stats.pct}%` }}
           />
         </div>
-        <div className="project-mini-progress-label text-xs text-muted-foreground mt-0.5">
+        <div className="workspace-mini-progress-label text-xs text-muted-foreground mt-0.5">
           {stats.pct}% done
         </div>
       </div>
 
       {/* ── Stats row ── */}
-      <div className="project-card-stats flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span className="project-card-stat">{stats.total} cards</span>
-        <span className="project-card-stat-sep opacity-40">|</span>
-        <span className="project-card-stat done text-green-500">{stats.done} done</span>
-        <span className="project-card-stat-sep opacity-40">|</span>
-        <span className="project-card-stat in-progress text-primary">{stats.inProgress} in progress</span>
+      <div className="workspace-card-stats flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="workspace-card-stat">{stats.total} cards</span>
+        <span className="workspace-card-stat-sep opacity-40">|</span>
+        <span className="workspace-card-stat done text-green-500">{stats.done} done</span>
+        <span className="workspace-card-stat-sep opacity-40">|</span>
+        <span className="workspace-card-stat in-progress text-primary">{stats.inProgress} in progress</span>
       </div>
 
       {/* ── Last activity ── */}
-      <div className="project-card-activity text-xs text-muted-foreground opacity-60">
-        Updated {formatTime(project.updatedAt)}
+      <div className="workspace-card-activity text-xs text-muted-foreground opacity-60">
+        Updated {formatTime(workspace.updatedAt)}
       </div>
 
       {/* ── Quick actions ── */}
       <div
-        className="project-card-actions flex flex-wrap gap-1.5 mt-1"
+        className="workspace-card-actions flex flex-wrap gap-1.5 mt-1"
         onClick={(e) => e.stopPropagation()}
       >
-        {project.archived ? (
+        {workspace.archived ? (
           <>
             <ActionButton
               variant="primary"
-              data-testid={`project-restore-${project.id}`}
-              onClick={() => onRestore(project)}
+              data-testid={`workspace-restore-${workspace.id}`}
+              onClick={() => onRestore(workspace)}
             >
               ↩ Restore
             </ActionButton>
             <ActionButton
               variant="danger"
-              onClick={() => onDelete(project)}
+              onClick={() => onDelete(workspace)}
             >
               🗑️ Delete permanently
             </ActionButton>
@@ -226,22 +226,22 @@ function ProjectCard({
           <>
             <ActionButton
               variant="primary"
-              data-testid={`project-open-${project.id}`}
-              onClick={() => onOpen(project)}
+              data-testid={`workspace-open-${workspace.id}`}
+              onClick={() => onOpen(workspace)}
             >
               ▶ Open
             </ActionButton>
-            <ActionButton onClick={() => onExport(project)}>
+            <ActionButton onClick={() => onExport(workspace)}>
               <Send size={11} className="inline mr-1" /> Export
             </ActionButton>
             <ActionButton
-              data-testid={`project-edit-${project.id}`}
-              onClick={() => onEdit(project)}
+              data-testid={`workspace-edit-${workspace.id}`}
+              onClick={() => onEdit(workspace)}
             >
               <Pencil size={11} className="inline mr-1" /> Edit
             </ActionButton>
-            {!project.isSystem && project.deletable !== false && (
-              <ActionButton onClick={() => onArchive(project)}>
+            {!workspace.isSystem && workspace.deletable !== false && (
+              <ActionButton onClick={() => onArchive(workspace)}>
                 <Archive size={11} className="inline mr-1" /> Archive
               </ActionButton>
             )}
@@ -271,7 +271,7 @@ function ActionButton({
       onClick={onClick}
       {...props}
       className={cn(
-        'project-card-action-btn px-2 py-1 rounded text-xs border transition-colors',
+        'workspace-card-action-btn px-2 py-1 rounded text-xs border transition-colors',
         variant === 'primary' && 'border-primary/50 text-primary hover:bg-primary/10',
         variant === 'danger'  && 'border-destructive/50 text-destructive hover:bg-destructive/10',
         !variant && 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -284,17 +284,17 @@ function ActionButton({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ProjectList() {
+export function WorkspaceList() {
   const [filter, setFilter] = useState<FilterMode>('all');
   const [formState, setFormState] = useState<{
     open: boolean;
     mode: 'create' | 'edit';
-    project?: Project;
+    workspace?: Workspace;
   }>({ open: false, mode: 'create' });
 
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: allProjectsRaw = [], isLoading } = useProjects();
+  const { data: allWorkspacesRaw = [], isLoading } = useWorkspaces();
 
   // Auto-open form when navigating with ?new=1
   useEffect(() => {
@@ -304,15 +304,15 @@ export function ProjectList() {
     }
   }, [searchParams, setSearchParams]);
 
-  const { currentProjectId } = useProjectStore();
-  const archiveMutation = useArchiveProject();
-  const deleteMutation = useDeleteProject();
+  const { currentWorkspaceId } = useWorkspaceStore();
+  const archiveMutation = useArchiveWorkspace();
+  const deleteMutation = useDeleteWorkspace();
   const favoriteMutation = useToggleFavorite();
-  const exportMutation = useExportProject();
+  const exportMutation = useExportWorkspace();
 
   // ── Derive card stats ─────────────────────────────────────────────────────
-  const getStats = useCallback((project: Project): CardStats => {
-    const cards = useCardStore.getState().getCardsByProject(project.id);
+  const getStats = useCallback((workspace: Workspace): CardStats => {
+    const cards = useCardStore.getState().getCardsByWorkspace(workspace.id);
     const total = cards.length;
     const done = cards.filter((c) => c.status === 'done').length;
     const inProgress = cards.filter((c) => c.status === 'in-progress').length;
@@ -322,20 +322,20 @@ export function ProjectList() {
     return { total, done, inProgress, todo, backlog, pct };
   }, []);
 
-  const isCompleted = useCallback((p: Project) => {
+  const isCompleted = useCallback((p: Workspace) => {
     const { total, pct } = getStats(p);
     return total > 0 && pct === 100;
   }, [getStats]);
 
   // ── Split active vs archived ───────────────────────────────────────────────
-  const activeProjects = allProjectsRaw.filter((p) => !p.archived);
-  const archivedProjects = allProjectsRaw.filter((p) => p.archived);
+  const activeWorkspaces = allWorkspacesRaw.filter((p) => !p.archived);
+  const archivedWorkspaces = allWorkspacesRaw.filter((p) => p.archived);
 
   // ── Apply filter ──────────────────────────────────────────────────────────
   const isArchivedView = filter === 'archived';
-  const baseList = isArchivedView ? archivedProjects : activeProjects;
+  const baseList = isArchivedView ? archivedWorkspaces : activeWorkspaces;
 
-  const filteredProjects =
+  const filteredWorkspaces =
     filter === 'active'    ? baseList.filter((p) => !isCompleted(p)) :
     filter === 'completed' ? baseList.filter((p) => isCompleted(p)) :
     baseList;
@@ -347,7 +347,7 @@ export function ProjectList() {
   const summaryStats: { label: string; value: string; icon: React.ReactNode }[] = isArchivedView
     ? [{ label: 'Archived', value: String(baseList.length), icon: <Archive size={22} /> }]
     : [
-        { label: 'Projects',    value: String(activeProjects.length), icon: <Folder size={22} /> },
+        { label: 'Workspaces',    value: String(activeWorkspaces.length), icon: <Folder size={22} /> },
         { label: 'Total cards', value: String(totalCards),            icon: <LayoutGrid size={22} /> },
         { label: 'Done',        value: String(totalDone),             icon: <CheckCircle2 size={22} /> },
         {
@@ -358,45 +358,45 @@ export function ProjectList() {
       ];
 
   // ── Actions ───────────────────────────────────────────────────────────────
-  function handleOpen(project: Project) {
-    // System project lives on the home tab ('/'), not /project/system-main
-    void navigate(project.id === SYSTEM_PROJECT_ID ? '/' : `/project/${project.id}`);
+  function handleOpen(workspace: Workspace) {
+    // System workspace lives on the home tab ('/'), not /workspace/system-main
+    void navigate(workspace.id === SYSTEM_WORKSPACE_ID ? '/' : `/workspace/${workspace.id}`);
   }
 
-  function handleEdit(project: Project) {
-    setFormState({ open: true, mode: 'edit', project });
+  function handleEdit(workspace: Workspace) {
+    setFormState({ open: true, mode: 'edit', workspace });
   }
 
-  async function handleExport(project: Project) {
-    const data = await exportMutation.mutateAsync(project.id);
+  async function handleExport(workspace: Workspace) {
+    const data = await exportMutation.mutateAsync(workspace.id);
     if (!data) return;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${project.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-export.json`;
+    a.download = `${workspace.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-export.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  function handleArchive(project: Project) {
-    if (confirm(`Archive "${project.name}"? It will be hidden from the main list.`)) {
-      void archiveMutation.mutateAsync({ id: project.id });
+  function handleArchive(workspace: Workspace) {
+    if (confirm(`Archive "${workspace.name}"? It will be hidden from the main list.`)) {
+      void archiveMutation.mutateAsync({ id: workspace.id });
     }
   }
 
-  function handleRestore(project: Project) {
-    void archiveMutation.mutateAsync({ id: project.id, restore: true });
+  function handleRestore(workspace: Workspace) {
+    void archiveMutation.mutateAsync({ id: workspace.id, restore: true });
   }
 
-  function handleDelete(project: Project) {
-    if (confirm(`Permanently delete "${project.name}"? This is irreversible — cards, chats, memory, knowledge graph, documents, and all sessions/workspace files for this project will be wiped. Use Archive if you want a safety net.`)) {
-      void deleteMutation.mutateAsync(project.id);
+  function handleDelete(workspace: Workspace) {
+    if (confirm(`Permanently delete "${workspace.name}"? This is irreversible — cards, chats, memory, knowledge graph, documents, and all sessions/workspace files for this workspace will be wiped. Use Archive if you want a safety net.`)) {
+      void deleteMutation.mutateAsync(workspace.id);
     }
   }
 
-  function handleToggleFavorite(project: Project) {
-    void favoriteMutation.mutateAsync(project.id);
+  function handleToggleFavorite(workspace: Workspace) {
+    void favoriteMutation.mutateAsync(workspace.id);
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -404,38 +404,38 @@ export function ProjectList() {
 
   return (
     <>
-      <PageHeader title="Projects" onSidebarToggle={sidebarToggle} />
-      <div className="project-list p-6 space-y-5" data-testid="project-list">
+      <PageHeader title="Workspaces" onSidebarToggle={sidebarToggle} />
+      <div className="workspace-list p-6 space-y-5" data-testid="workspace-list">
 
         {/* ── Header ── */}
-        <div className="project-list-header flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-foreground">Projects</h2>
+        <div className="workspace-list-header flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-foreground">Workspaces</h2>
           <button
             type="button"
-            data-testid="new-project-btn"
+            data-testid="new-workspace-btn"
             onClick={() => setFormState({ open: true, mode: 'create' })}
-            className="project-add-btn px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+            className="workspace-add-btn px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
           >
-            + New Project
+            + New Workspace
           </button>
         </div>
 
         {/* ── Summary bar ── */}
-        <div className="project-summary-bar grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="workspace-summary-bar grid grid-cols-2 sm:grid-cols-4 gap-3">
           {summaryStats.map(({ label, value, icon }) => (
             <div
               key={label}
-              className="project-summary-stat flex flex-col items-center gap-0.5 p-3 rounded-xl border border-border bg-card"
+              className="workspace-summary-stat flex flex-col items-center gap-0.5 p-3 rounded-xl border border-border bg-card"
             >
-              <span className="project-summary-icon text-muted-foreground">{icon}</span>
-              <span className="project-summary-value text-xl font-bold text-foreground">{value}</span>
-              <span className="project-summary-label text-xs text-muted-foreground">{label}</span>
+              <span className="workspace-summary-icon text-muted-foreground">{icon}</span>
+              <span className="workspace-summary-value text-xl font-bold text-foreground">{value}</span>
+              <span className="workspace-summary-label text-xs text-muted-foreground">{label}</span>
             </div>
           ))}
         </div>
 
         {/* ── Filter chips ── */}
-        <div className="project-filter-chips flex gap-2 flex-wrap">
+        <div className="workspace-filter-chips flex gap-2 flex-wrap">
           {([
             { key: 'all',       label: 'All' },
             { key: 'active',    label: 'Active' },
@@ -448,7 +448,7 @@ export function ProjectList() {
               data-filter={key}
               onClick={() => setFilter(key)}
               className={cn(
-                'project-filter-chip px-3 py-1.5 rounded-full text-sm border transition-colors',
+                'workspace-filter-chip px-3 py-1.5 rounded-full text-sm border transition-colors',
                 filter === key
                   ? 'active border-primary bg-primary/10 text-primary font-medium'
                   : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
@@ -459,23 +459,23 @@ export function ProjectList() {
           ))}
         </div>
 
-        {/* ── Project grid ── */}
+        {/* ── Workspace grid ── */}
         {isLoading ? (
-          <div className="text-muted-foreground text-sm py-8 text-center">Loading projects…</div>
-        ) : filteredProjects.length === 0 ? (
+          <div className="text-muted-foreground text-sm py-8 text-center">Loading workspaces…</div>
+        ) : filteredWorkspaces.length === 0 ? (
           <div className="empty-state text-muted-foreground text-sm py-8 text-center">
             {baseList.length === 0
-              ? 'No projects yet. Create one to get started!'
-              : 'No projects match this filter.'}
+              ? 'No workspaces yet. Create one to get started!'
+              : 'No workspaces match this filter.'}
           </div>
         ) : (
-          <div className="project-list-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filteredProjects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                isActive={project.id === currentProjectId}
-                stats={getStats(project)}
+          <div className="workspace-list-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filteredWorkspaces.map((workspace) => (
+              <WorkspaceCard
+                key={workspace.id}
+                workspace={workspace}
+                isActive={workspace.id === currentWorkspaceId}
+                stats={getStats(workspace)}
                 onOpen={handleOpen}
                 onEdit={handleEdit}
                 onExport={handleExport}
@@ -489,11 +489,11 @@ export function ProjectList() {
         )}
       </div>
 
-      {/* ── ProjectForm modal ── */}
+      {/* ── WorkspaceForm modal ── */}
       {formState.open && (
-        <ProjectForm
+        <WorkspaceForm
           mode={formState.mode}
-          project={formState.project}
+          workspace={formState.workspace}
           onClose={() => setFormState((s) => ({ ...s, open: false }))}
         />
       )}

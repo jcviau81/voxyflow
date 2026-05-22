@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNotificationStore } from '../../stores/useNotificationStore';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import type { NotificationEntry } from '../../types';
 import { NotificationDetailDialog } from './NotificationDetailDialog';
 
@@ -128,7 +128,7 @@ export function NotificationsPanel({ onClose }: NotificationsPanelProps) {
   const notifications = useNotificationStore((s) => s.notifications);
   const markAllNotificationsRead = useNotificationStore((s) => s.markAllNotificationsRead);
   const clearNotifications = useNotificationStore((s) => s.clearNotifications);
-  const selectCard = useProjectStore((s) => s.selectCard);
+  const selectCard = useWorkspaceStore((s) => s.selectCard);
   const [detailNotif, setDetailNotif] = useState<NotificationEntry | null>(null);
 
   // Mark all read when panel opens

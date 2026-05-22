@@ -12,28 +12,28 @@ import httpx
 
 from .conftest import (
     ws_send, ws_recv_until, ws_collect_events, ws_collect_chat_response,
-    assert_card_status, assert_card_history_contains, count_project_cards,
+    assert_card_status, assert_card_history_contains, count_workspace_cards,
     chat_payload, WS_URL, LLM_TIMEOUT,
 )
 
 
 class TestCardAutoCreate:
     @pytest.mark.asyncio
-    async def test_delegate_without_card_creates_one(self, ws, client, test_project):
-        """Worker dispatched from project chat without card → system auto-creates card."""
-        pid = test_project["_id"]
+    async def test_delegate_without_card_creates_one(self, ws, client, test_workspace):
+        """Worker dispatched from workspace chat without card → system auto-creates card."""
+        pid = test_workspace["_id"]
         session_id = f"e2e-lifecycle-{uuid.uuid4().hex[:6]}"
 
         # Count cards before
-        before = await count_project_cards(client, pid)
+        before = await count_workspace_cards(client, pid)
 
         # Send a message likely to trigger a delegate
         await ws_send(ws, "chat:message", chat_payload(
             "Lis le fichier /etc/hostname et dis-moi son contenu.",
-            chatLevel="project",
-            projectId=pid,
+            chatLevel="workspace",
+            workspaceId=pid,
             sessionId=session_id,
-            chatId=f"project:{pid}",
+            chatId=f"workspace:{pid}",
         ))
 
         # Collect events until task:completed or timeout
@@ -56,7 +56,7 @@ class TestCardAutoCreate:
         assert card["auto_generated"] is True
 
         # Verify card count increased
-        after = await count_project_cards(client, pid)
+        after = await count_workspace_cards(client, pid)
         assert after > before
 
 
@@ -65,12 +65,12 @@ class TestCardStatusTransitions:
     async def test_existing_card_moves_to_in_progress(self, ws, client, test_card):
         """Dispatching work on an existing card moves it to in-progress."""
         cid = test_card["_id"]
-        pid = test_card["_project_id"]
+        pid = test_card["_workspace_id"]
         session_id = f"e2e-transition-{uuid.uuid4().hex[:6]}"
 
         await ws_send(ws, "card:execute", {
             "cardId": cid,
-            "projectId": pid,
+            "workspaceId": pid,
             "sessionId": session_id,
         })
 
@@ -99,11 +99,11 @@ class TestCardStatusTransitions:
         # We verify this is still done (no regression)
 
     @pytest.mark.asyncio
-    async def test_archived_card_not_moved_backward(self, client, test_project):
+    async def test_archived_card_not_moved_backward(self, client, test_workspace):
         """An archived card should not be moved by the system."""
-        pid = test_project["_id"]
+        pid = test_workspace["_id"]
         # Create and archive a card
-        r = await client.post(f"/api/projects/{pid}/cards", json={
+        r = await client.post(f"/api/workspaces/{pid}/cards", json={
             "title": f"Archive Test {uuid.uuid4().hex[:8]}",
             "status": "todo",
         })
@@ -121,12 +121,12 @@ class TestCardHistory:
     async def test_system_history_entries_created(self, ws, client, test_card):
         """System transitions should create CardHistory entries."""
         cid = test_card["_id"]
-        pid = test_card["_project_id"]
+        pid = test_card["_workspace_id"]
         session_id = f"e2e-history-{uuid.uuid4().hex[:6]}"
 
         await ws_send(ws, "card:execute", {
             "cardId": cid,
-            "projectId": pid,
+            "workspaceId": pid,
             "sessionId": session_id,
         })
 

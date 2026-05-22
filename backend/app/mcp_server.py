@@ -107,13 +107,13 @@ def _find_tool(name: str) -> dict | None:
 def _auto_injectable_params() -> set[str]:
     """Return the set of path params that are auto-injected from env vars.
 
-    - project_id: stripped when VOXYFLOW_PROJECT_ID is a real UUID (not "system-main")
+    - workspace_id: stripped when VOXYFLOW_WORKSPACE_ID is a real UUID (not "system-main")
     - card_id: stripped when VOXYFLOW_CARD_ID is set
     """
     injectable = set()
-    pid = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+    pid = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
     if pid and pid != "system-main":
-        injectable.add("project_id")
+        injectable.add("workspace_id")
     cid = os.environ.get("VOXYFLOW_CARD_ID", "").strip()
     if cid:
         injectable.add("card_id")
@@ -121,38 +121,38 @@ def _auto_injectable_params() -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Project scoping for ledger / session tools
+# Workspace scoping for ledger / session tools
 # ---------------------------------------------------------------------------
 # Worker ledger, CLI sessions, and task-control tools default to the current
 # project (like memory_search), preventing cross-project leakage. Callers opt
 # out via scope="all" when they really need a system-wide view.
 
-def _current_project_scope() -> tuple[str, bool]:
-    """Resolve the active project scope from VOXYFLOW_PROJECT_ID.
+def _current_workspace_scope() -> tuple[str, bool]:
+    """Resolve the active project scope from VOXYFLOW_WORKSPACE_ID.
 
-    Returns (project_id, is_project_scoped):
+    Returns (workspace_id, is_workspace_scoped):
       - ("<uuid>", True)  → real project chat, should filter by that project
       - ("", False)       → general chat (empty or "system-main"), no filter
     """
-    pid = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+    pid = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
     if pid and pid != "system-main":
         return pid, True
     return "", False
 
 
-async def _lookup_task_project(task_id: str) -> str | None:
-    """Resolve a worker task's project_id via live session store, then DB.
+async def _lookup_task_workspace(task_id: str) -> str | None:
+    """Resolve a worker task's workspace_id via live session store, then DB.
 
-    Returns the project_id string (possibly empty), or None when the task
+    Returns the workspace_id string (possibly empty), or None when the task
     is unknown in both stores.
     """
     try:
         from app.services.worker_session_store import get_worker_session_store
         session = get_worker_session_store().get_session(task_id)
         if session is not None:
-            return (session.get("project_id") or "").strip()
+            return (session.get("workspace_id") or "").strip()
     except Exception as live_err:
-        logger.debug(f"[mcp._lookup_task_project] live lookup failed: {live_err}")
+        logger.debug(f"[mcp._lookup_task_workspace] live lookup failed: {live_err}")
 
     try:
         from app.database import async_session, WorkerTask
@@ -162,9 +162,9 @@ async def _lookup_task_project(task_id: str) -> str | None:
                 select(WorkerTask).where(WorkerTask.id == task_id)
             )).scalar_one_or_none()
             if row is not None:
-                return (row.project_id or "").strip()
+                return (row.workspace_id or "").strip()
     except Exception as db_err:
-        logger.warning(f"[mcp._lookup_task_project] DB lookup failed for {task_id}: {db_err}")
+        logger.warning(f"[mcp._lookup_task_workspace] DB lookup failed for {task_id}: {db_err}")
         return None
 
     # Last resort: artifact frontmatter on disk (no TTL). Lets the dispatcher
@@ -173,9 +173,9 @@ async def _lookup_task_project(task_id: str) -> str | None:
         from app.services.worker_artifact_store import read_artifact_meta
         meta = read_artifact_meta(task_id)
         if meta is not None:
-            return (meta.get("project_id") or "").strip()
+            return (meta.get("workspace_id") or "").strip()
     except Exception as art_err:
-        logger.debug(f"[mcp._lookup_task_project] artifact lookup failed: {art_err}")
+        logger.debug(f"[mcp._lookup_task_workspace] artifact lookup failed: {art_err}")
     return None
 
 
@@ -185,15 +185,15 @@ async def _enforce_task_scope(task_id: str, scope: str | None) -> dict | None:
     scope handling:
       - "all" (case-insensitive) → bypass the check, return None
       - otherwise                → strict: task must belong to the current
-                                    project when VOXYFLOW_PROJECT_ID is set
+                                    project when VOXYFLOW_WORKSPACE_ID is set
     In general chat (no project scope active), the check is a no-op.
     """
     if (scope or "").lower() == "all":
         return None
-    current_pid, scoped = _current_project_scope()
+    current_pid, scoped = _current_workspace_scope()
     if not scoped:
         return None
-    task_pid = await _lookup_task_project(task_id)
+    task_pid = await _lookup_task_workspace(task_id)
     if task_pid is None:
         return {"success": False, "error": f"Task {task_id} not found."}
     if task_pid != current_pid:
@@ -201,7 +201,7 @@ async def _enforce_task_scope(task_id: str, scope: str | None) -> dict | None:
             "success": False,
             "error": (
                 f"Task {task_id} belongs to a different project "
-                f"(project_id={task_pid or '∅'}) and is not visible from the "
+                f"(workspace_id={task_pid or '∅'}) and is not visible from the "
                 f"current project scope. Pass scope='all' to override."
             ),
         }
@@ -214,7 +214,7 @@ async def _enforce_task_scope(task_id: str, scope: str | None) -> dict | None:
 
 _TOOL_GROUPS: dict[str, dict] = {
     "voxyflow.card": {
-        "description": "Manage cards/tasks. project_id and card_id auto-injected from context.",
+        "description": "Manage cards/tasks. workspace_id and card_id auto-injected from context.",
         "actions": {
             "create": "voxyflow.card.create",
             "create_unassigned": "voxyflow.card.create_unassigned",
@@ -258,21 +258,21 @@ _TOOL_GROUPS: dict[str, dict] = {
             "delete": "voxyflow.card.checklist.delete",
         },
     },
-    "voxyflow.project": {
-        "description": "Manage projects in Voxyflow.",
+    "voxyflow.workspace": {
+        "description": "Manage workspaces in Voxyflow.",
         "actions": {
-            "create": "voxyflow.project.create",
-            "list": "voxyflow.project.list",
-            "get": "voxyflow.project.get",
-            "update": "voxyflow.project.update",
-            "delete": "voxyflow.project.delete",
-            "export": "voxyflow.project.export",
-            "archive": "voxyflow.project.archive",
-            "restore": "voxyflow.project.restore",
+            "create": "voxyflow.workspace.create",
+            "list": "voxyflow.workspace.list",
+            "get": "voxyflow.workspace.get",
+            "update": "voxyflow.workspace.update",
+            "delete": "voxyflow.workspace.delete",
+            "export": "voxyflow.workspace.export",
+            "archive": "voxyflow.workspace.archive",
+            "restore": "voxyflow.workspace.restore",
         },
     },
     "voxyflow.wiki": {
-        "description": "Manage wiki pages. project_id auto-injected from context.",
+        "description": "Manage wiki pages. workspace_id auto-injected from context.",
         "actions": {
             "list": "voxyflow.wiki.list",
             "create": "voxyflow.wiki.create",
@@ -282,7 +282,7 @@ _TOOL_GROUPS: dict[str, dict] = {
         },
     },
     "voxyflow.ai": {
-        "description": "AI-powered project analysis. project_id auto-injected from context.",
+        "description": "AI-powered project analysis. workspace_id auto-injected from context.",
         "actions": {
             "standup": "voxyflow.ai.standup",
             "brief": "voxyflow.ai.brief",
@@ -292,7 +292,7 @@ _TOOL_GROUPS: dict[str, dict] = {
         },
     },
     "voxyflow.doc": {
-        "description": "Manage project documents. project_id auto-injected from context.",
+        "description": "Manage project documents. workspace_id auto-injected from context.",
         "actions": {
             "list": "voxyflow.doc.list",
             "delete": "voxyflow.doc.delete",
@@ -342,7 +342,7 @@ def _build_consolidated_tools() -> list[dict]:
 
     Each group becomes a single tool with an `action` enum. Properties from all
     sub-tools are merged into a flat union schema. Auto-injectable params
-    (project_id, card_id) are stripped when env vars are set.
+    (workspace_id, card_id) are stripped when env vars are set.
     """
     injectable = _auto_injectable_params()
     consolidated: list[dict] = []
@@ -439,7 +439,7 @@ def _get_system_handler(name: str):
                 types_module=types if MCP_AVAILABLE else None,
                 get_http_client=_get_http_client,
                 enforce_task_scope=_enforce_task_scope,
-                current_project_scope=_current_project_scope,
+                current_project_scope=_current_workspace_scope,
                 active_scopes=_active_scopes,
             )
         )
@@ -461,27 +461,27 @@ def _build_url_and_payload(
     """
     Returns (url, json_body, query_params) after substituting path params.
     """
-    # Extract path variables from template (e.g. {project_id})
+    # Extract path variables from template (e.g. {workspace_id})
     import re
     path_vars = re.findall(r"\{(\w+)\}", path_template)
     path = path_template
     remaining_params = dict(params)
 
-    env_pid = os.environ.get("VOXYFLOW_PROJECT_ID", "").strip()
+    env_pid = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
     pid_hard_scope = bool(env_pid) and env_pid != "system-main"
 
     for var in path_vars:
         llm_value = remaining_params.pop(var, None)
         env_value = os.environ.get(f"VOXYFLOW_{var.upper()}", "").strip() or None
 
-        # Hard boundary: in a project-scoped chat, env-supplied project_id
+        # Hard boundary: in a project-scoped chat, env-supplied workspace_id
         # always wins over whatever the LLM passes. The schema strips it, but
         # some models re-emit it anyway — this enforces the invariant so a
         # stray/guessed UUID can't leak cards into the wrong project.
-        if var == "project_id" and pid_hard_scope:
+        if var == "workspace_id" and pid_hard_scope:
             if llm_value and llm_value != env_pid:
                 logger.warning(
-                    f"[MCP] Ignoring LLM-supplied project_id={llm_value!r}; "
+                    f"[MCP] Ignoring LLM-supplied workspace_id={llm_value!r}; "
                     f"forcing current-project scope {env_pid!r}"
                 )
             value = env_pid

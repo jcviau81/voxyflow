@@ -11,7 +11,7 @@ export interface NotificationState {
   notifications: NotificationEntry[];
   notificationUnreadCount: number;
 
-  // Activity feed (per project)
+  // Activity feed (per workspace)
   activities: Record<string, ActivityEntry[]>;
 
   // --- Notifications ---
@@ -22,9 +22,9 @@ export interface NotificationState {
   getNotificationUnreadCount: () => number;
 
   // --- Activity Feed ---
-  addActivity: (projectId: string, type: ActivityType, message: string) => ActivityEntry;
-  getActivities: (projectId: string, limit?: number) => ActivityEntry[];
-  clearActivities: (projectId: string) => void;
+  addActivity: (workspaceId: string, type: ActivityType, message: string) => ActivityEntry;
+  getActivities: (workspaceId: string, limit?: number) => ActivityEntry[];
+  clearActivities: (workspaceId: string) => void;
 }
 
 export const useNotificationStore = create<NotificationState>()(
@@ -71,33 +71,33 @@ export const useNotificationStore = create<NotificationState>()(
 
       // --- Activity Feed ---
 
-      addActivity(projectId, type, message) {
+      addActivity(workspaceId, type, message) {
         const entry: ActivityEntry = {
           id: generateId(),
-          projectId,
+          workspaceId,
           type,
           message,
           timestamp: Date.now(),
         };
         set((s) => {
-          const existing = s.activities[projectId] || [];
+          const existing = s.activities[workspaceId] || [];
           const updated = [entry, ...existing].slice(0, MAX_ACTIVITIES_PER_PROJECT);
           return {
-            activities: { ...s.activities, [projectId]: updated },
+            activities: { ...s.activities, [workspaceId]: updated },
           };
         });
         return entry;
       },
 
-      getActivities(projectId, limit = 10) {
-        const all = get().activities[projectId] || [];
+      getActivities(workspaceId, limit = 10) {
+        const all = get().activities[workspaceId] || [];
         return all.slice(0, limit);
       },
 
-      clearActivities(projectId) {
+      clearActivities(workspaceId) {
         set((s) => {
           const activities = { ...s.activities };
-          delete activities[projectId];
+          delete activities[workspaceId];
           return { activities };
         });
       },

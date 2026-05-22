@@ -59,7 +59,7 @@ class DelegateDispatchMixin:
         chat_id: str,
         user_message: str,
         project_name: str | None = None,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         """Background-safe wrapper for memory auto-extraction."""
         try:
@@ -76,7 +76,7 @@ class DelegateDispatchMixin:
             stored = await memory.auto_extract_memories(
                 chat_id=chat_id,
                 messages=recent,
-                project_id=project_id,
+                workspace_id=workspace_id,
             )
             if stored:
                 logger.info(f"[Orchestrator] Auto-extracted {len(stored)} memories from chat {chat_id}")
@@ -258,7 +258,7 @@ class DelegateDispatchMixin:
         chat_level: str = "general",
         project_context: dict | None = None,
         card_context: dict | None = None,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
         chat_id: str | None = None,
         callback_depth: int = 0,
     ) -> None:
@@ -281,7 +281,7 @@ class DelegateDispatchMixin:
                     data=data,
                     websocket=websocket,
                     session_id=session_id,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     chat_id=chat_id,
                 )
             else:
@@ -346,8 +346,8 @@ class DelegateDispatchMixin:
                     "card_id": card_id,
                     "dispatcher_chat_id": chat_id,
                     **data,  # Include all fields from delegate_action
-                    # Fallback chain: delegate.data['project_id'] → session project_id → None
-                    "project_id": data.get("project_id") or project_id,
+                    # Fallback chain: delegate.data['workspace_id'] → session workspace_id → None
+                    "workspace_id": data.get("workspace_id") or workspace_id,
                 }
                 # Restore card_id after spread (data['card_id'] would overwrite with None)
                 event_data["card_id"] = card_id
@@ -390,7 +390,7 @@ class DelegateDispatchMixin:
         chat_level: str = "general",
         project_context: dict | None = None,
         card_context: dict | None = None,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
         chat_id: str | None = None,
         callback_depth: int = 0,
     ) -> None:
@@ -420,7 +420,7 @@ class DelegateDispatchMixin:
                     data=data,
                     websocket=websocket,
                     session_id=session_id,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     chat_id=chat_id,
                 )
             else:
@@ -483,8 +483,8 @@ class DelegateDispatchMixin:
                         "card_id": card_id,
                         "dispatcher_chat_id": chat_id,
                         **data,  # Include original delegate data
-                        # Fallback chain: delegate.data['project_id'] → session project_id → None
-                        "project_id": data.get("project_id") or project_id,
+                        # Fallback chain: delegate.data['workspace_id'] → session workspace_id → None
+                        "workspace_id": data.get("workspace_id") or workspace_id,
                     }
                     # Restore card_id after spread (data['card_id'] would overwrite with None)
                     event_data["card_id"] = card_id
@@ -521,7 +521,7 @@ class DelegateDispatchMixin:
         data: dict,
         websocket: "WebSocket",
         session_id: str,
-        project_id: str | None = None,
+        workspace_id: str | None = None,
         chat_id: str | None = None,
     ) -> None:
         """Execute a direct (model='direct') action inline — no worker, no LLM.
@@ -538,7 +538,7 @@ class DelegateDispatchMixin:
             with self._pending_confirms_lock:
                 self._pending_confirms[task_id] = {
                     "data": data,
-                    "project_id": project_id,
+                    "workspace_id": workspace_id,
                     "session_id": session_id,
                     "chat_id": chat_id,
                 }
@@ -574,7 +574,7 @@ class DelegateDispatchMixin:
             logger.warning(f"[DirectExecutor] Failed to send action:started: {e}")
 
         # --- Execute ---
-        result = await DirectExecutor.execute(data, project_id=project_id)
+        result = await DirectExecutor.execute(data, workspace_id=workspace_id)
 
         # --- Notify: action completed ---
         try:
@@ -615,7 +615,7 @@ class DelegateDispatchMixin:
             try:
                 from app.services.ws_broadcast import ws_broadcast
                 ws_broadcast.emit_sync("cards:changed", {
-                    "projectId": project_id or "system-main",
+                    "projectId": workspace_id or "system-main",
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
@@ -652,8 +652,8 @@ class DelegateDispatchMixin:
                     content=callback_msg,
                     message_id=callback_message_id,
                     chat_id=chat_id,
-                    project_id=project_id,
-                    chat_level="project" if project_id else "general",
+                    workspace_id=workspace_id,
+                    chat_level="project" if workspace_id else "general",
                     session_id=session_id,
                     is_callback=True,
                     callback_depth=0,
@@ -804,7 +804,7 @@ class DelegateDispatchMixin:
 
         # User confirmed — execute the action (skip the confirmation gate this time)
         data = pending["data"]
-        project_id = pending["project_id"]
+        workspace_id = pending["workspace_id"]
         session_id = pending["session_id"]
         chat_id = pending.get("chat_id")
 
@@ -824,7 +824,7 @@ class DelegateDispatchMixin:
             })
         except Exception as e:
             logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
-        result = await DirectExecutor.execute(data, project_id=project_id)
+        result = await DirectExecutor.execute(data, workspace_id=workspace_id)
 
         # Notify: action completed
         try:
@@ -847,7 +847,7 @@ class DelegateDispatchMixin:
             try:
                 from app.services.ws_broadcast import ws_broadcast
                 ws_broadcast.emit_sync("cards:changed", {
-                    "projectId": project_id or "system-main",
+                    "projectId": workspace_id or "system-main",
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)

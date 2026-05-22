@@ -6,7 +6,7 @@ export type ViewMode =
   | 'chat'
   | 'kanban'
   | 'freeboard'
-  | 'projects'
+  | 'workspaces'
   | 'settings'
   | 'stats'
   | 'knowledge'
@@ -26,7 +26,7 @@ export interface Message {
   role: MessageRole;
   content: string;
   timestamp: number;
-  projectId?: string;
+  workspaceId?: string;
   sessionId?: string;
   cardId?: string;
   streaming?: boolean;
@@ -54,7 +54,7 @@ export interface TechDetectResult {
   error?: string;
 }
 
-export interface Project {
+export interface Workspace {
   id: string;
   name: string;
   description: string;
@@ -154,7 +154,7 @@ export interface Card {
   title: string;
   description: string;
   status: CardStatus;
-  projectId: string | null;
+  workspaceId: string | null;
   color?: 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange' | null;
   assignedAgent?: AgentPersona;
   agentType?: string;
@@ -203,7 +203,7 @@ export type ActivityType =
 
 export interface ActivityEntry {
   id: string;
-  projectId: string;
+  workspaceId: string;
   type: ActivityType;
   message: string;
   timestamp: number;
@@ -241,7 +241,7 @@ export interface WebSocketMessage {
   timestamp?: number;
 }
 
-export interface ProjectFormData {
+export interface WorkspaceFormData {
   title: string;
   description?: string;
   emoji?: string;
@@ -256,7 +256,7 @@ export interface ProjectFormData {
   inheritMainContext?: boolean;
 }
 
-export interface ProjectTemplate {
+export interface WorkspaceTemplate {
   id: string;
   name: string;
   emoji: string;

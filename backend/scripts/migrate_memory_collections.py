@@ -1,21 +1,21 @@
-"""Migrate ChromaDB memory collections from name-slug to project_id keying.
+"""Migrate ChromaDB memory collections from name-slug to workspace_id keying.
 
-This script fixes the cross-project context leak introduced when memory
-collections were keyed by a slugified project name. In particular,
-``memory-project-main`` collided between the generic "general chat" scope
-and the ``system-main`` project, mixing thousands of documents.
+This script fixes the cross-workspace context leak introduced when memory
+collections were keyed by a slugified workspace name. In particular,
+``memory-workspace-main`` collided between the generic "general chat" scope
+and the ``system-main`` workspace, mixing thousands of documents.
 
 Migration rules
 ---------------
-- ``memory-project-main`` → split into BOTH ``memory-global`` and
-  ``memory-project-system-main``. We cannot distinguish which docs were
-  "truly global" vs "system-main project", so we duplicate into both.
-- ``memory-project-{slug}`` where ``slug`` is NOT a UUID → look up the
-  project by slugified title in SQLite and copy to
-  ``memory-project-{project_id}``. Ambiguous slugs (multiple projects
+- ``memory-workspace-main`` → split into BOTH ``memory-global`` and
+  ``memory-workspace-system-main``. We cannot distinguish which docs were
+  "truly global" vs "system-main workspace", so we duplicate into both.
+- ``memory-workspace-{slug}`` where ``slug`` is NOT a UUID → look up the
+  workspace by slugified title in SQLite and copy to
+  ``memory-workspace-{workspace_id}``. Ambiguous slugs (multiple workspaces
   sharing the same slug) are skipped and logged.
-- ``memory-project-{uuid}`` → already in the new format, skip.
-- ``memory-project-system-main`` → already a valid project_id, skip.
+- ``memory-workspace-{uuid}`` → already in the new format, skip.
+- ``memory-workspace-system-main`` → already a valid workspace_id, skip.
 - ``memory-global`` → target collection, never touched as a source.
 
 Safety
@@ -61,7 +61,7 @@ def _slugify(name: str) -> str:
     return slug.strip("-") or "default"
 
 
-def load_projects() -> list[tuple[str, str, str]]:
+def load_workspaces() -> list[tuple[str, str, str]]:
     """Return list of ``(id, title, slugified_title)`` from SQLite."""
     if not os.path.exists(DB_PATH):
         print(f"! SQLite DB not found at {DB_PATH} — no slug→id mapping available")
@@ -69,7 +69,7 @@ def load_projects() -> list[tuple[str, str, str]]:
     conn = sqlite3.connect(DB_PATH)
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, title FROM projects")
+        cur.execute("SELECT id, title FROM workspaces")
         rows = cur.fetchall()
     finally:
         conn.close()
@@ -124,35 +124,35 @@ def main() -> None:
     cols = {c.name: c for c in client.list_collections()}
     print(f"Found {len(cols)} collections")
 
-    projects = load_projects()
-    print(f"Found {len(projects)} projects in SQLite")
+    workspaces = load_workspaces()
+    print(f"Found {len(workspaces)} workspaces in SQLite")
 
-    # Build slug → [project_id] map (list to catch ambiguous slugs).
+    # Build slug → [workspace_id] map (list to catch ambiguous slugs).
     slug_to_id: dict[str, list[str]] = {}
-    for pid, _title, slug in projects:
+    for pid, _title, slug in workspaces:
         slug_to_id.setdefault(slug, []).append(pid)
 
     migrated = 0
     skipped = 0
 
     for col_name in list(cols.keys()):
-        if not col_name.startswith("memory-project-"):
+        if not col_name.startswith("memory-workspace-"):
             continue
         if col_name == "memory-global":
-            # Not a memory-project-* so never matches, but guard anyway.
+            # Not a memory-workspace-* so never matches, but guard anyway.
             continue
 
-        suffix = col_name[len("memory-project-"):]
+        suffix = col_name[len("memory-workspace-"):]
 
-        # Special: memory-project-main → split into global + system-main.
+        # Special: memory-workspace-main → split into global + system-main.
         if suffix == "main":
             print(
                 f"\n=== {col_name} (special: split into global + system-main) ==="
             )
             n1 = copy_collection(client, col_name, "memory-global")
             print(f"  → memory-global: copied {n1} docs")
-            n2 = copy_collection(client, col_name, "memory-project-system-main")
-            print(f"  → memory-project-system-main: copied {n2} docs")
+            n2 = copy_collection(client, col_name, "memory-workspace-system-main")
+            print(f"  → memory-workspace-system-main: copied {n2} docs")
             migrated += 1
             continue
 
@@ -162,17 +162,17 @@ def main() -> None:
             skipped += 1
             continue
 
-        # system-main is a valid project_id reserved name, skip.
+        # system-main is a valid workspace_id reserved name, skip.
         if suffix == "system-main":
-            print(f"\n=== {col_name} (already valid project_id, skip) ===")
+            print(f"\n=== {col_name} (already valid workspace_id, skip) ===")
             skipped += 1
             continue
 
-        # Look up project by slug in SQLite.
+        # Look up workspace by slug in SQLite.
         candidates = slug_to_id.get(suffix, [])
         if not candidates:
             print(
-                f"\n=== {col_name} (slug {suffix!r} has no matching project, skip) ==="
+                f"\n=== {col_name} (slug {suffix!r} has no matching workspace, skip) ==="
             )
             skipped += 1
             continue
@@ -184,8 +184,8 @@ def main() -> None:
             continue
 
         target_id = candidates[0]
-        target_name = f"memory-project-{target_id}"
-        print(f"\n=== {col_name} → {target_name} (project {suffix!r}) ===")
+        target_name = f"memory-workspace-{target_id}"
+        print(f"\n=== {col_name} → {target_name} (workspace {suffix!r}) ===")
         n = copy_collection(client, col_name, target_name)
         print(f"  → copied {n} docs")
         migrated += 1
@@ -196,7 +196,7 @@ def main() -> None:
     print(
         '  python -c "import chromadb; '
         "c = chromadb.PersistentClient('~/.voxyflow/chroma'); "
-        "c.delete_collection('memory-project-main')\""
+        "c.delete_collection('memory-workspace-main')\""
     )
 
 

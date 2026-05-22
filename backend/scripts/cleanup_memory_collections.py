@@ -3,23 +3,23 @@
 Phases (each gated by --apply, dry-run by default):
 
 A. Slug-legacy collections — created before the slug→UUID migration.
-   For each `memory-project-{slug}` where slug is not a UUID and not
+   For each `memory-workspace-{slug}` where slug is not a UUID and not
    `system-main`:
-     - Look up project by slugified title in SQLite.
+     - Look up workspace by slugified title in SQLite.
      - If found AND every slug-doc-id has a `mig-{id}` counterpart in the
        UUID collection → drop the slug collection (already fully migrated;
        see migrate_memory_collections.py which re-prefixed IDs with `mig-`).
      - If found but some IDs are not yet migrated → copy the missing ones
        into the UUID collection as `legacy-{id}`, then drop.
-     - If slug not in SQLite → orphan (project deleted) → drop with --drop-orphans
+     - If slug not in SQLite → orphan (workspace deleted) → drop with --drop-orphans
        (default: print and skip).
 
-B. Empty collections — any `memory-project-*` with 0 docs, EXCLUDING
-   `memory-project-system-main` (always preserved). The runtime auto-creates
+B. Empty collections — any `memory-workspace-*` with 0 docs, EXCLUDING
+   `memory-workspace-system-main` (always preserved). The runtime auto-creates
    collections on first save, so dropping empties is harmless.
 
-C. Test residues — `memory-project-e2e-*`, `memory-project-test-*`,
-   `memory-project-nonexistent-*`. Always droppable.
+C. Test residues — `memory-workspace-e2e-*`, `memory-workspace-test-*`,
+   `memory-workspace-nonexistent-*`. Always droppable.
 
 Usage:
     python -m scripts.cleanup_memory_collections                      # dry-run all phases
@@ -46,8 +46,8 @@ DB_PATH = os.path.expanduser("~/.voxyflow/voxyflow.db")
 UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
-TEST_RESIDUE_RE = re.compile(r"^memory-project-(e2e-|test-|nonexistent-)")
-PRESERVE = {"memory-global", "memory-project-system-main"}
+TEST_RESIDUE_RE = re.compile(r"^memory-workspace-(e2e-|test-|nonexistent-)")
+PRESERVE = {"memory-global", "memory-workspace-system-main"}
 
 
 def _slugify(name: str) -> str:
@@ -62,7 +62,7 @@ def load_slug_to_id() -> dict[str, list[str]]:
         return {}
     conn = sqlite3.connect(DB_PATH)
     try:
-        rows = conn.execute("SELECT id, title FROM projects").fetchall()
+        rows = conn.execute("SELECT id, title FROM workspaces").fetchall()
     finally:
         conn.close()
     out: dict[str, list[str]] = {}
@@ -117,7 +117,7 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true", help="Actually drop / copy.")
     parser.add_argument(
         "--drop-orphans", action="store_true",
-        help="Also drop slug collections whose project no longer exists in SQLite.",
+        help="Also drop slug collections whose workspace no longer exists in SQLite.",
     )
     args = parser.parse_args()
 
@@ -125,7 +125,7 @@ def main() -> None:
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     cols = {c.name: c for c in client.list_collections()}
     slug_to_id = load_slug_to_id()
-    print(f"  {len(cols)} collections, {len(slug_to_id)} project slugs in SQLite")
+    print(f"  {len(cols)} collections, {len(slug_to_id)} workspace slugs in SQLite")
 
     to_drop: list[str] = []
     copied_total = 0
@@ -134,13 +134,13 @@ def main() -> None:
     print("\n=== Phase A: slug-legacy collections ===")
     slug_legacy = []
     for name in cols:
-        if not name.startswith("memory-project-"):
+        if not name.startswith("memory-workspace-"):
             continue
         if name in PRESERVE:
             continue
         if TEST_RESIDUE_RE.match(name):
             continue
-        suffix = name[len("memory-project-"):]
+        suffix = name[len("memory-workspace-"):]
         if UUID_RE.match(suffix):
             continue
         slug_legacy.append((name, suffix))
@@ -152,16 +152,16 @@ def main() -> None:
 
         if not candidates:
             tag = "DROP" if args.drop_orphans else "SKIP (use --drop-orphans)"
-            print(f"  {name} ({n} docs) — orphan, no project in SQLite → {tag}")
+            print(f"  {name} ({n} docs) — orphan, no workspace in SQLite → {tag}")
             if args.drop_orphans:
                 to_drop.append(name)
             continue
         if len(candidates) > 1:
-            print(f"  {name} ({n} docs) — AMBIGUOUS slug, {len(candidates)} projects → SKIP")
+            print(f"  {name} ({n} docs) — AMBIGUOUS slug, {len(candidates)} workspaces → SKIP")
             continue
 
-        project_id = candidates[0]
-        uuid_name = f"memory-project-{project_id}"
+        workspace_id = candidates[0]
+        uuid_name = f"memory-workspace-{workspace_id}"
         uuid_col = cols.get(uuid_name)
         if uuid_col is None:
             uuid_col = client.get_or_create_collection(
@@ -195,10 +195,10 @@ def main() -> None:
         to_drop.append(name)
 
     # --- Phase B: empty collections -------------------------------------------
-    print("\n=== Phase B: empty memory-project-* collections ===")
+    print("\n=== Phase B: empty memory-workspace-* collections ===")
     empty_count = 0
     for name, col in sorted(cols.items()):
-        if not name.startswith("memory-project-"):
+        if not name.startswith("memory-workspace-"):
             continue
         if name in PRESERVE:
             continue

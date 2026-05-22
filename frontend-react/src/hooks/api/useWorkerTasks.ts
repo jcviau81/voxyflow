@@ -9,7 +9,7 @@
 export interface RawWorkerTask {
   id: string;
   session_id: string;
-  project_id: string | null;
+  workspace_id: string | null;
   card_id: string | null;
   action: string;
   description: string;

@@ -10,14 +10,14 @@ import { useWS } from '../providers/WebSocketProvider';
 import { eventBus } from '../utils/eventBus';
 import { VOICE_EVENTS } from '../utils/voiceEvents';
 import { useMessageStore } from '../stores/useMessageStore';
-import { useProjectStore } from '../stores/useProjectStore';
+import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import { useCardStore } from '../stores/useCardStore';
 import { useToastStore } from '../stores/useToastStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
 import { useUsageStore } from '../stores/useUsageStore';
 import { generateId } from '../lib/utils';
 import {
-  SYSTEM_PROJECT_ID,
+  SYSTEM_WORKSPACE_ID,
   STREAMING_SAFETY_TIMEOUT,
   STREAMING_CHAR_DELAY,
   AGENT_PERSONAS,
@@ -69,27 +69,27 @@ export interface ChatContextValue {
   /** Send a user message to the backend */
   sendMessage: (
     content: string,
-    projectId?: string,
+    workspaceId?: string,
     cardId?: string,
     sessionId?: string,
   ) => Message;
   /** Send a hidden system-init message (no user bubble) */
   sendSystemInit: (
     contextHint: string,
-    projectId?: string,
+    workspaceId?: string,
     cardId?: string,
     sessionId?: string,
   ) => void;
   /** Load chat history from backend API */
   loadHistory: (
     chatId: string,
-    projectId?: string,
+    workspaceId?: string,
     cardId?: string,
     sessionId?: string,
     replaceSession?: boolean,
   ) => Promise<Message[]>;
   /** Get messages from the local store */
-  getHistory: (projectId?: string, sessionId?: string) => Message[];
+  getHistory: (workspaceId?: string, sessionId?: string) => Message[];
   /** Clear all local messages */
   clearHistory: () => void;
   /** Simulate character-by-character streaming for a message. Pass an AbortSignal to stop early. */
@@ -107,7 +107,7 @@ export interface ChatContextValue {
   /** Create a card from a suggestion (called by Opportunities panel) */
   createCardFromSuggestion: (data: { title: string; description?: string }) => void;
   /** Directly spawn a worker to execute a card (bypasses chat layer) */
-  executeCard: (cardId: string, projectId?: string) => void;
+  executeCard: (cardId: string, workspaceId?: string) => void;
 }
 
 export const ChatContext = createContext<ChatContextValue | null>(null);
@@ -129,7 +129,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const { send, subscribe, connectionState } = useWS();
   const queryClient = useQueryClient();
   const messageStore = useMessageStore();
-  const projectStore = useProjectStore();
+  const workspaceStore = useWorkspaceStore();
   const cardStore = useCardStore();
   const showToast = useToastStore((s) => s.showToast);
   const addNotification = useNotificationStore((s) => s.addNotification);
@@ -158,10 +158,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const pendingQueueRef = useRef<Array<{
     messageId: string;
     content: string;
-    projectId: string;
+    workspaceId: string;
     cardId?: string;
     sessionId?: string;
-    chatLevel: 'general' | 'project' | 'card';
+    chatLevel: 'general' | 'workspace' | 'card';
   }>>([]);
   // Populated below; called from stream-end handlers. Ref avoids hoist issues.
   const flushNextQueuedRef = useRef<() => void>(() => {});
@@ -169,8 +169,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // Stable refs for store methods (avoid stale closures)
   const messageStoreRef = useRef(messageStore);
   messageStoreRef.current = messageStore;
-  const projectStoreRef = useRef(projectStore);
-  projectStoreRef.current = projectStore;
+  const workspaceStoreRef = useRef(workspaceStore);
+  workspaceStoreRef.current = workspaceStore;
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -193,10 +193,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const getProjectIdFromSession = useCallback((sessionId?: string): string => {
-    if (!sessionId) return SYSTEM_PROJECT_ID;
-    if (sessionId.startsWith('project:')) return sessionId.slice('project:'.length);
-    return SYSTEM_PROJECT_ID;
+  const getWorkspaceIdFromSession = useCallback((sessionId?: string): string => {
+    if (!sessionId) return SYSTEM_WORKSPACE_ID;
+    if (sessionId.startsWith('workspace:')) return sessionId.slice('workspace:'.length);
+    return SYSTEM_WORKSPACE_ID;
   }, []);
 
   const getAgentEmoji = useCallback((agentType?: string): string => {
@@ -334,7 +334,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           streaming: true,
           sessionId,
           model,
-          projectId: getProjectIdFromSession(sessionId),
+          workspaceId: getWorkspaceIdFromSession(sessionId),
         });
         stream = { content: '', messageId: message.id };
         streamingMessagesRef.current.set(streamId, stream);
@@ -354,7 +354,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       resetStreamingTimer(streamId);
     },
-    [getProjectIdFromSession, resetStreamingTimer, emitCallbacks],
+    [getWorkspaceIdFromSession, resetStreamingTimer, emitCallbacks],
   );
 
   // ---------------------------------------------------------------------------
@@ -367,11 +367,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         role: 'assistant',
         content,
         sessionId,
-        projectId: getProjectIdFromSession(sessionId),
+        workspaceId: getWorkspaceIdFromSession(sessionId),
       });
       emitCallbacks('onMessageReceived', message);
     },
-    [getProjectIdFromSession, emitCallbacks],
+    [getWorkspaceIdFromSession, emitCallbacks],
   );
 
   // ---------------------------------------------------------------------------
@@ -458,12 +458,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         // Cross-device live sync: if this event arrived via broadcast (fan-out
         // from another device), the originator's sessionId is unknown here and
-        // `getProjectIdFromSession` would mis-route the bubble to SYSTEM. Use
-        // the chatId (server-canonical) to derive the correct projectId so
-        // message:new and streaming bubbles land in the right project store.
+        // `getWorkspaceIdFromSession` would mis-route the bubble to SYSTEM. Use
+        // the chatId (server-canonical) to derive the correct workspaceId so
+        // message:new and streaming bubbles land in the right workspace store.
         const effectiveSessionId =
           sessionId ||
-          (chatId?.startsWith('project:') ? chatId : undefined) ||
+          (chatId?.startsWith('workspace:') ? chatId : undefined) ||
           (chatId?.startsWith('card:') ? chatId : undefined);
 
         // Voxy is actually speaking — drop the "worker-done, about to reply" flag.
@@ -513,7 +513,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           enrichmentAction: action as 'enrich' | 'correct',
           model,
           sessionId,
-          projectId: getProjectIdFromSession(sessionId),
+          workspaceId: getWorkspaceIdFromSession(sessionId),
         });
         emitCallbacks('onMessageEnrichment', message);
       }),
@@ -579,7 +579,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           success: boolean;
           taskId: string;
           sessionId?: string;
-          projectId?: string;
+          workspaceId?: string;
           cardId?: string;
         };
         emitCallbacks('onTaskCompleted', payload);
@@ -619,15 +619,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           type CachedSettings = { push?: PushCfg } | undefined;
           const cached = queryClient.getQueryData(['settings']) as CachedSettings;
           const taskId = (payload as Record<string, unknown>).taskId as string | undefined;
-          const projectId = (payload as Record<string, unknown>).projectId as string | undefined;
+          const workspaceId = (payload as Record<string, unknown>).workspaceId as string | undefined;
           const apply = (push?: PushCfg) => {
             if (!push?.enabled) return;
             if (push.events?.worker_done === false) return;
             const intentLabel = intent || 'task';
             const result = (payload as { result?: string }).result;
-            const url = cardId && projectId
-              ? `/project/${projectId}?card=${cardId}`
-              : projectId ? `/project/${projectId}` : '/';
+            const url = cardId && workspaceId
+              ? `/workspace/${workspaceId}?card=${cardId}`
+              : workspaceId ? `/workspace/${workspaceId}` : '/';
             void showInPageNotification({
               title: success
                 ? `Worker finished: ${intentLabel}`
@@ -764,7 +764,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // --- cards:changed — invalidate card queries when workers or tools update cards ---
     unsubs.push(
       subscribe('cards:changed', (payload) => {
-        const { projectId, cardId } = payload as { projectId?: string; cardId?: string };
+        const { workspaceId, cardId } = payload as { workspaceId?: string; cardId?: string };
         if (cardId) {
           void queryClient.invalidateQueries({ queryKey: cardKeys.detail(cardId) });
           // Fetch updated card and upsert into Zustand so open modals update in real-time
@@ -775,8 +775,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             })
             .catch((e) => console.warn('[ChatProvider] card refresh failed', cardId, e));
         }
-        if (projectId) {
-          void queryClient.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
+        if (workspaceId) {
+          void queryClient.invalidateQueries({ queryKey: cardKeys.byWorkspace(workspaceId) });
         }
       }),
     );
@@ -847,7 +847,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           content: message.content,
           timestamp: tsMs,
           sessionId,
-          projectId: getProjectIdFromSession(sessionId),
+          workspaceId: getWorkspaceIdFromSession(sessionId),
           streaming: false,
           model: message.model,
         };
@@ -932,7 +932,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     handleStreamComplete,
     handleFullResponse,
     handleToolUiAction,
-    getProjectIdFromSession,
+    getWorkspaceIdFromSession,
     getAgentEmoji,
     emitCallbacks,
     queryClient,
@@ -959,12 +959,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const sendMessage = useCallback(
     (
       content: string,
-      projectId?: string,
+      workspaceId?: string,
       cardId?: string,
       sessionId?: string,
     ): Message => {
       const store = messageStoreRef.current;
-      const pStore = projectStoreRef.current;
+      const pStore = workspaceStoreRef.current;
 
       // Conversation lock: if any assistant stream is active OR there are
       // already queued messages ahead, mark this one as `queued` and hold it.
@@ -974,27 +974,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const message = store.addMessage({
         role: 'user',
         content,
-        projectId: projectId || undefined,
+        workspaceId: workspaceId || undefined,
         cardId,
         sessionId,
         queued: isBusy || undefined,
       });
 
       const layers = getLayerState();
-      const currentProjectId = message.projectId || SYSTEM_PROJECT_ID;
+      const currentWorkspaceId = message.workspaceId || SYSTEM_WORKSPACE_ID;
       const currentCardId = message.cardId || pStore.selectedCardId;
-      let chatLevel: 'general' | 'project' | 'card' = 'general';
+      let chatLevel: 'general' | 'workspace' | 'card' = 'general';
       if (currentCardId) {
         chatLevel = 'card';
-      } else if (currentProjectId && currentProjectId !== SYSTEM_PROJECT_ID) {
-        chatLevel = 'project';
+      } else if (currentWorkspaceId && currentWorkspaceId !== SYSTEM_WORKSPACE_ID) {
+        chatLevel = 'workspace';
       }
 
       if (isBusy) {
         pendingQueueRef.current.push({
           messageId: message.id,
           content,
-          projectId: currentProjectId,
+          workspaceId: currentWorkspaceId,
           cardId: currentCardId || undefined,
           sessionId: sessionId || undefined,
           chatLevel,
@@ -1004,7 +1004,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       send('chat:message', {
         content,
-        projectId: currentProjectId,
+        workspaceId: currentWorkspaceId,
         cardId: currentCardId || undefined,
         messageId: message.id,
         chatLevel,
@@ -1029,7 +1029,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     send('chat:message', {
       content: next.content,
-      projectId: next.projectId,
+      workspaceId: next.workspaceId,
       cardId: next.cardId,
       messageId: next.messageId,
       chatLevel: next.chatLevel,
@@ -1046,21 +1046,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const sendSystemInit = useCallback(
     (
       contextHint: string,
-      projectId?: string,
+      workspaceId?: string,
       cardId?: string,
       sessionId?: string,
     ) => {
       const layers = getLayerState();
-      const currentProjectId = projectId || SYSTEM_PROJECT_ID;
+      const currentWorkspaceId = workspaceId || SYSTEM_WORKSPACE_ID;
       const currentCardId = cardId || undefined;
-      let chatLevel: 'general' | 'project' | 'card' = 'general';
+      let chatLevel: 'general' | 'workspace' | 'card' = 'general';
       if (currentCardId) chatLevel = 'card';
-      else if (currentProjectId && currentProjectId !== SYSTEM_PROJECT_ID) chatLevel = 'project';
+      else if (currentWorkspaceId && currentWorkspaceId !== SYSTEM_WORKSPACE_ID) chatLevel = 'workspace';
 
       const resolvedSessionId = sessionId || activeSessionIdRef.current || undefined;
       send('chat:message', {
         content: contextHint,
-        projectId: currentProjectId,
+        workspaceId: currentWorkspaceId,
         cardId: currentCardId,
         chatLevel,
         layers,
@@ -1075,7 +1075,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const loadHistory = useCallback(
     async (
       chatId: string,
-      projectId?: string,
+      workspaceId?: string,
       cardId?: string,
       sessionId?: string,
       replaceSession = false,
@@ -1087,7 +1087,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       try {
         send('chat:subscribe', {
           chatId,
-          projectId: projectId || undefined,
+          workspaceId: workspaceId || undefined,
           cardId: cardId || undefined,
         });
       } catch {
@@ -1117,7 +1117,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             role: m.role as 'user' | 'assistant',
             content: m.content || '',
             timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-            projectId: projectId || undefined,
+            workspaceId: workspaceId || undefined,
             cardId: cardId || undefined,
             sessionId: sessionId || undefined,
             streaming: false,
@@ -1127,7 +1127,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (converted.length > 0) {
           const store = messageStoreRef.current;
           if (replaceSession) {
-            store.replaceSessionMessages(converted, sessionId, projectId, cardId);
+            store.replaceSessionMessages(converted, sessionId, workspaceId, cardId);
           } else {
             store.setMessages(converted);
           }
@@ -1142,8 +1142,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   const getHistory = useCallback(
-    (projectId?: string, sessionId?: string): Message[] => {
-      return messageStoreRef.current.getMessages(projectId, sessionId);
+    (workspaceId?: string, sessionId?: string): Message[] => {
+      return messageStoreRef.current.getMessages(workspaceId, sessionId);
     },
     [],
   );
@@ -1226,12 +1226,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // --- Create card from suggestion ---
   const createCardFromSuggestion = useCallback(
     (data: { title: string; description?: string }) => {
-      const pStore = projectStoreRef.current;
+      const pStore = workspaceStoreRef.current;
       cardStore.addCard({
         title: data.title,
         description: data.description || '',
         status: 'todo',
-        projectId: pStore.currentProjectId || '',
+        workspaceId: pStore.currentWorkspaceId || '',
         dependencies: [],
         tags: [],
         priority: 0,
@@ -1242,9 +1242,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   const executeCard = useCallback(
-    (cardId: string, projectId?: string) => {
+    (cardId: string, workspaceId?: string) => {
       const sessionId = activeSessionIdRef.current;
-      send('card:execute', { cardId, projectId, sessionId });
+      send('card:execute', { cardId, workspaceId, sessionId });
     },
     [send],
   );

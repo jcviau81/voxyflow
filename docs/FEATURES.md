@@ -10,7 +10,7 @@ Complete documentation of all shipped features, organized by area.
 
 1. [Core Chat](#1-core-chat)
 2. [Voice Input](#2-voice-input)
-3. [Projects & Views](#3-projects--views)
+3. [Workspaces & Views](#3-workspaces--views)
 4. [Card Management](#4-card-management)
 5. [AI Features](#5-ai-features)
 6. [RAG / Knowledge Base](#6-rag--knowledge-base)
@@ -102,16 +102,16 @@ Voxyflow maintains isolated conversation histories based on context:
 | Context | Chat ID format | System prompt |
 |---------|---------------|---------------|
 | General (main tab) | `general:{sessionId}` | General assistant with personality |
-| Project tab | `project:{projectId}` | Project-aware (title, description, tech stack) |
+| Workspace tab | `workspace:{workspaceId}` | Workspace-aware (title, description, tech stack) |
 | Card detail | `card:{cardId}` | Card-specific (title, description, status, agent) |
 
-This ensures each project/card gets its own independent memory.
+This ensures each workspace/card gets its own independent memory.
 
 ---
 
 ### Session Management
 
-- **Session isolation** — Each chat context (general/project/card) has its own conversation history
+- **Session isolation** — Each chat context (general/workspace/card) has its own conversation history
 - **Persistence** — Session messages are persisted to disk via `SessionStore` (JSON files in `~/.voxyflow/sessions/`)
 - **New session** — `/new` command clears history (sends `session:reset` to backend and wipes in-memory `_histories`)
 - **Session restore** — `GET /api/sessions/{chat_id}` retrieves message history (up to 500 messages)
@@ -143,7 +143,7 @@ Type `/` in the chat input to trigger the slash command menu with keyboard navig
 | `/help` | Show available commands |
 | `/agent [name]` | Switch agent persona for the session |
 | `/meeting` | Extract action items from meeting notes and create cards |
-| `/standup` | Generate a daily standup summary for the active project |
+| `/standup` | Generate a daily standup summary for the active workspace |
 
 **Autocomplete:** The slash menu filters as you type. Mouse click or Enter selects a command.
 
@@ -209,11 +209,11 @@ A dedicated `/ws/voice/{chat_id}` WebSocket handles voice sessions (legacy, pre-
 
 ---
 
-## 3. Projects & Views
+## 3. Workspaces & Views
 
-### Project Creation & Editing
+### Workspace Creation & Editing
 
-Projects are created via the **Project Form** modal (triggered by the `+` tab button or sidebar).
+Workspaces are created via the **Workspace Form** modal (triggered by the `+` tab button or sidebar).
 
 **Fields:**
 
@@ -227,50 +227,50 @@ Projects are created via the **Project Form** modal (triggered by the `+` tab bu
 | Local Path | Local directory for tech stack detection |
 | Context | Freeform requirements / notes injected into AI prompts |
 
-**Editing:** `PATCH /api/projects/{project_id}` — partial updates, all fields optional.
+**Editing:** `PATCH /api/workspaces/{workspace_id}` — partial updates, all fields optional.
 
 ---
 
-### Project Templates
+### Workspace Templates
 
-5 built-in templates that pre-populate a project with a curated set of cards:
+5 built-in templates that pre-populate a workspace with a curated set of cards:
 
 - **API Service** — Backend service with standard setup, auth, testing, and deploy cards
 - **Frontend App** — React/Vue app with component, routing, state, and build cards
-- **Mobile App** — iOS/Android project with design, dev, testing, and release cards
-- **Data Pipeline** — ETL/ML project with ingestion, processing, model, and monitoring cards
-- **Open Source Lib** — Library project with API design, docs, tests, and publishing cards
+- **Mobile App** — iOS/Android workspace with design, dev, testing, and release cards
+- **Data Pipeline** — ETL/ML workspace with ingestion, processing, model, and monitoring cards
+- **Open Source Lib** — Library workspace with API design, docs, tests, and publishing cards
 
-**Usage:** `GET /api/templates` lists templates. `POST /api/from-template/{template_id}` creates a project from a template.
-
----
-
-### Project Export / Import
-
-Projects can be exported to a portable JSON file and re-imported:
-
-- **Export** — `GET /api/projects/{id}/export` returns a full JSON payload (project + all cards + metadata)
-- **Import** — `POST /api/projects/import` with the JSON payload creates a new project (new IDs assigned)
-- Use for backup, migration between instances, or sharing project structures
+**Usage:** `GET /api/templates` lists templates. `POST /api/from-template/{template_id}` creates a workspace from a template.
 
 ---
 
-### Project Tabs
+### Workspace Export / Import
 
-Projects open in browser-like tabs at the top of the interface:
+Workspaces can be exported to a portable JSON file and re-imported:
 
-- **Home tab** (🏠) — always open, non-closable. Surfaces the system project (`system-main`): general chat + Home cards.
-- **Project tabs** — open when a project is selected (closable with `×` or `Cmd+W`)
-- **`+` button** — opens the New Project form
+- **Export** — `GET /api/workspaces/{id}/export` returns a full JSON payload (workspace + all cards + metadata)
+- **Import** — `POST /api/workspaces/import` with the JSON payload creates a new workspace (new IDs assigned)
+- Use for backup, migration between instances, or sharing workspace structures
+
+---
+
+### Workspace Tabs
+
+Workspaces open in browser-like tabs at the top of the interface:
+
+- **Home tab** (🏠) — always open, non-closable. Surfaces the system workspace (`system-main`): general chat + Home cards.
+- **Workspace tabs** — open when a workspace is selected (closable with `×` or `Cmd+W`)
+- **`+` button** — opens the New Workspace form
 - **Tab switching** — click tab or `Ctrl+Tab` cycles through open tabs
-- **Notification dot** — appears on a tab when a card suggestion arrives for that project
+- **Notification dot** — appears on a tab when a card suggestion arrives for that workspace
 - **Persistence** — open tabs survive page refresh (stored in `localStorage`)
 
 ---
 
-### Project Views
+### Workspace Views
 
-Each project has multiple view modes, accessible via tabs in the project header:
+Each workspace has multiple view modes, accessible via tabs in the workspace header:
 
 #### 📋 Kanban
 Default view. 4-column board (Idea / Todo / In Progress / Done) with:
@@ -279,16 +279,16 @@ Default view. 4-column board (Idea / Todo / In Progress / Done) with:
 - Opportunities panel (AI card suggestions)
 
 #### 📊 Stats Dashboard
-Project analytics and progress tracking:
+Workspace analytics and progress tracking:
 - **Progress ring** — overall card completion percentage
 - **Charts** — cards by status, priority distribution, velocity (cards completed over time)
-- **Focus session analytics** — total Pomodoro time logged per project/card
+- **Focus session analytics** — total Pomodoro time logged per workspace/card
 
 #### 📖 Wiki
-Per-project wiki with markdown pages:
+Per-workspace wiki with markdown pages:
 - Create/edit/delete pages with full markdown rendering
 - Page list with title and last-updated timestamp
-- Suitable for project documentation, decisions, architecture notes
+- Suitable for workspace documentation, decisions, architecture notes
 
 #### 📚 Docs (RAG)
 Document upload and knowledge base management (see [RAG / Knowledge Base](#6-rag--knowledge-base)):
@@ -306,7 +306,7 @@ A card-based scratchpad for brainstorming:
 
 ### Tech Stack Auto-Detection
 
-Voxyflow scans a local project directory and detects technologies from file signatures and dependency manifests.
+Voxyflow scans a local workspace directory and detects technologies from file signatures and dependency manifests.
 
 **File signatures (17+ detected):**
 
@@ -337,7 +337,7 @@ FastAPI, Django, Flask, SQLAlchemy, Pydantic, Pytest, Anthropic SDK, OpenAI SDK,
 
 **Monorepo support:** Scans root + immediate subdirectories (excluding `node_modules`, `.git`, `__pycache__`, `venv`, `dist`).
 
-**API:** `GET /api/tech/detect?project_path=~/projects/myapp`
+**API:** `GET /api/tech/detect?workspace_path=~/workspaces/myapp`
 
 ---
 
@@ -374,7 +374,7 @@ Clicking a card opens a full detail modal with all card fields, plus:
 - Card-scoped chat panel (`chat_id = card:{cardId}`)
 - Agent badge with emoji
 - All sub-features listed below (checklist, comments, time, attachments, etc.)
-- Context menu (`···`) for quick actions: duplicate, move, clone to project, delete
+- Context menu (`···`) for quick actions: duplicate, move, clone to workspace, delete
 
 ---
 
@@ -484,7 +484,7 @@ Cards can declare dependencies on other cards (cards that must be done first):
 
 ### Card Duplication 📋
 
-Duplicate a card within the same project:
+Duplicate a card within the same workspace:
 
 - Creates a copy with all fields; title gets ` (copy)` appended
 - Votes reset to 0 on the copy
@@ -494,12 +494,12 @@ Duplicate a card within the same project:
 
 ---
 
-### Card Clone / Move to Another Project
+### Card Clone / Move to Another Workspace
 
-- **Clone** — Creates a copy in a target project with ` (cloned)` title suffix; also clones all checklist items; creates a `cloned_from` relation
-- **Move** — Transfers the card (and all its comments, attachments, checklist) to another project
+- **Clone** — Creates a copy in a target workspace with ` (cloned)` title suffix; also clones all checklist items; creates a `cloned_from` relation
+- **Move** — Transfers the card (and all its comments, attachments, checklist) to another workspace
 
-**API:** `POST /api/cards/{id}/clone-to/{target_project_id}` · `POST /api/cards/{id}/move-to/{target_project_id}`
+**API:** `POST /api/cards/{id}/clone-to/{target_workspace_id}` · `POST /api/cards/{id}/move-to/{target_workspace_id}`
 
 ---
 
@@ -509,7 +509,7 @@ Select Mode for batch operations:
 
 - Enter Select Mode via the Kanban header button
 - Checkbox appears on each card; click to select
-- Bulk actions: change status, change priority, change agent, delete, move to project
+- Bulk actions: change status, change priority, change agent, delete, move to workspace
 - Select All / Deselect All controls
 
 ---
@@ -567,11 +567,11 @@ One-click AI enrichment of a card:
 
 ### Opportunities Panel
 
-The Opportunities panel appears in each project view and collects AI-suggested cards:
+The Opportunities panel appears in each workspace view and collects AI-suggested cards:
 
 - **Source:** AI passively observes and emits `card:suggestion` WebSocket events
 - **Display:** Suggestions queue in the panel with title, description, and suggested agent
-- **Actions:** "Create Card" → calls `POST /api/projects/{id}/cards` with `auto_generated: true`; "Dismiss" removes from panel
+- **Actions:** "Create Card" → calls `POST /api/workspaces/{id}/cards` with `auto_generated: true`; "Dismiss" removes from panel
 - **Notification:** Tab gets a notification dot when a new suggestion arrives
 
 ---
@@ -580,15 +580,15 @@ The Opportunities panel appears in each project view and collects AI-suggested c
 
 ### Daily Standup `/standup`
 
-Generates a concise standup summary for the active project using the fast model:
+Generates a concise standup summary for the active workspace using the fast model:
 
 - **What was done** — recently completed cards (moved to `done`)
 - **What's in progress** — current `in-progress` cards
 - **Blockers** — cards with `blocks`/`is_blocked_by` relations or flagged blockers
 - Output rendered in the chat and also available as a structured response
 
-**API:** `POST /api/projects/{id}/standup`  
-**Slash command:** `/standup` in project chat
+**API:** `POST /api/workspaces/{id}/standup`  
+**Slash command:** `/standup` in workspace chat
 
 ---
 
@@ -599,28 +599,28 @@ Extract action items from meeting notes and auto-create cards:
 1. Paste meeting notes into the `/meeting` command or call the API with the transcript
 2. AI (Deep/Opus model) extracts action items with: title, owner, priority, due date
 3. Preview extracted items before confirming
-4. On confirm, items are created as cards in the project
+4. On confirm, items are created as cards in the workspace
 
-**API:** `POST /api/projects/{id}/meeting-notes` (extract) · `POST /api/projects/{id}/meeting-notes/confirm` (create cards)  
-**Slash command:** `/meeting` in project chat
+**API:** `POST /api/workspaces/{id}/meeting-notes` (extract) · `POST /api/workspaces/{id}/meeting-notes/confirm` (create cards)  
+**Slash command:** `/meeting` in workspace chat
 
 ---
 
-### Project Brief (Opus) 📄
+### Workspace Brief (Opus) 📄
 
 Generate a comprehensive PRD (Product Requirements Document) using the Deep (Opus) model:
 
-- Analyzes project title, description, context, tech stack, and all existing cards
+- Analyzes workspace title, description, context, tech stack, and all existing cards
 - Outputs structured PRD sections: executive summary, goals, user stories, requirements, architecture notes, risks
 - Rendered in chat as a rich markdown document
 
-**API:** `POST /api/projects/{id}/brief`
+**API:** `POST /api/workspaces/{id}/brief`
 
 ---
 
 ### Health Check 🏥
 
-AI-powered project health analysis:
+AI-powered workspace health analysis:
 
 - **Score** — 0–100 numeric score
 - **Grade** — A / B / C / D / F
@@ -629,7 +629,7 @@ AI-powered project health analysis:
 - **Recommendations** — concrete next steps
 - Uses rule-based analysis (card distribution, velocity, blocker ratio) + AI reasoning for recommendations
 
-**API:** `POST /api/projects/{id}/health`
+**API:** `POST /api/workspaces/{id}/health`
 
 ---
 
@@ -642,7 +642,7 @@ Rule-based + AI scoring to prioritize the backlog:
 - Returns cards ranked by recommended priority with justification
 - Useful before sprint planning
 
-**API:** `POST /api/projects/{id}/prioritize`
+**API:** `POST /api/workspaces/{id}/prioritize`
 
 ---
 
@@ -665,13 +665,13 @@ AI code review on any code snippet:
 
 ### Overview
 
-Each project gets 3 isolated ChromaDB collections for retrieval-augmented generation:
+Each workspace gets 3 isolated ChromaDB collections for retrieval-augmented generation:
 
 | Collection | Purpose |
 |-----------|---------|
-| `voxyflow_project_{id}_docs` | Uploaded documents |
-| `voxyflow_project_{id}_history` | Conversation history (future) |
-| `voxyflow_project_{id}_workspace` | Cards, notes, board data (future) |
+| `voxyflow_workspace_{id}_docs` | Uploaded documents |
+| `voxyflow_workspace_{id}_history` | Conversation history (future) |
+| `voxyflow_workspace_{id}_workspace` | Cards, notes, board data (future) |
 
 **Embeddings:** `intfloat/multilingual-e5-large` (~470MB, local, via `sentence-transformers` — no API key needed)
 **Persistence:** `~/.voxyflow/chroma/`
@@ -689,7 +689,7 @@ Each project gets 3 isolated ChromaDB collections for retrieval-augmented genera
 The `DocumentParserRegistry` auto-detects which parsers are available based on installed deps. Upload of Phase 2 types fails gracefully if the dep is missing.
 
 Upload flow:
-1. `POST /api/projects/{id}/documents` (multipart/form-data)
+1. `POST /api/workspaces/{id}/documents` (multipart/form-data)
 2. File is parsed into text chunks by the appropriate parser
 3. Chunks are embedded and indexed into ChromaDB
 4. Document metadata (filename, size, chunk count, indexed_at) stored in SQLite
@@ -710,14 +710,14 @@ Upload flow:
 
 | Endpoint | Action |
 |----------|--------|
-| `GET /api/projects/{id}/documents` | List all documents for a project |
-| `DELETE /api/projects/{id}/documents/{doc_id}` | Delete document + remove from ChromaDB |
+| `GET /api/workspaces/{id}/documents` | List all documents for a workspace |
+| `DELETE /api/workspaces/{id}/documents/{doc_id}` | Delete document + remove from ChromaDB |
 
 ### Context Injection
 
-When RAG is enabled and a project has indexed documents:
+When RAG is enabled and a workspace has indexed documents:
 
-1. User's message is used as a similarity query against project collections
+1. User's message is used as a similarity query against workspace collections
 2. Top-K chunks retrieved; chunks below the `0.82` relevance cutoff are discarded
 3. Relevant chunks injected into the system prompt for the LLM
 
@@ -725,7 +725,7 @@ When RAG is enabled and a project has indexed documents:
 
 ### Background RAG Indexing (APScheduler)
 
-The scheduler automatically re-indexes project documents on a periodic basis (see [Infrastructure](#10-infrastructure)), ensuring the RAG index stays fresh after document updates.
+The scheduler automatically re-indexes workspace documents on a periodic basis (see [Infrastructure](#10-infrastructure)), ensuring the RAG index stays fresh after document updates.
 
 ---
 
@@ -822,18 +822,20 @@ The Settings page includes an inline editor for personality files stored in `vox
 
 ### Models & Machines Configuration
 
-Voxyflow supports eight LLM provider types through a common abstraction
-(`backend/app/services/llm/providers/`). Each layer (Fast / Deep) can
-independently pick any provider via the Settings → Models panel or via
-`backend/.env`.
+Voxyflow supports ten LLM provider types through a common abstraction
+(`backend/app/services/llm/providers/`). Each dispatcher layer (Fast / Deep)
+and each worker class can independently pick a provider/model via the
+Settings > Models panel or via `backend/.env`.
 
 **Supported provider types:**
 
 | Type | Source | Notes |
 |------|--------|-------|
 | `cli` (default) | `claude -p` subprocess | Uses your Claude Max subscription; no API key |
+| `codex` | `codex exec --json` subprocess | Uses your local Codex CLI login; no Voxyflow API key |
 | `anthropic` | Native Anthropic SDK | Direct API with prompt caching |
-| `openai` | OpenAI-compatible | Any OpenAI chat/completions endpoint |
+| `openai` | OpenAI-compatible | OpenAI chat/completions endpoint |
+| `openrouter` | OpenAI-compatible | OpenRouter-hosted model routing |
 | `groq` | Groq Cloud | Free / low-latency hosted Llama / Mixtral |
 | `mistral` | Mistral AI | Hosted models |
 | `gemini` | Google Gemini | OpenAI-compat endpoint |
@@ -902,9 +904,9 @@ Schedule recurring background tasks via the Settings → Jobs panel:
 - **Types:**
   - `agent_task` — send a freeform instruction to the AI agent (most flexible)
   - `execute_card` — run a specific card through the AI pipeline
-  - `execute_board` — execute all matching cards from a project board on a schedule
+  - `execute_board` — execute all matching cards from a workspace board on a schedule
   - `reminder` — broadcast a notification message via WebSocket
-  - `rag_index` — re-index project documents in ChromaDB
+  - `rag_index` — re-index workspace documents in ChromaDB
 - **Schedule:** Cron expression (`0 9 * * 1-5`) or shorthand (`every_5min`, `every_1h`, `every_day`)
 - **Enable/disable** individual jobs without deleting them
 - **Manual trigger:** Run any job immediately via the "Run" button
@@ -918,7 +920,7 @@ Schedule recurring background tasks via the Settings → Jobs panel:
 The most flexible job type — sends a freeform instruction through the chat pipeline as a one-shot agent task:
 
 - **`instruction`** (required) — the prompt/instruction for the agent
-- **`project_id`** (optional) — scope the agent to a specific project's context and memories
+- **`workspace_id`** (optional) — scope the agent to a specific workspace's context and memories
 
 Use this for autonomous tasks that don't map to a single card: SSH checks, pipeline runs, outreach campaigns, etc.
 
@@ -927,44 +929,44 @@ Use this for autonomous tasks that don't map to a single card: SSH checks, pipel
 Run a specific card through the AI pipeline on a schedule:
 
 - **`card_id`** (required) — the card to execute
-- **`project_id`** (optional) — project scope for context resolution
+- **`workspace_id`** (optional) — workspace scope for context resolution
 
 The card's title, description, checklist, and linked files are assembled into a prompt. If the card has a `preferred_model` (Worker Class), it is respected.
 
 #### Execute Board (`execute_board`)
 
-Execute all matching cards from a project board sequentially:
+Execute all matching cards from a workspace board sequentially:
 
-- **`project_id`** (required) — which project's board to execute
+- **`workspace_id`** (required) — which workspace's board to execute
 - **`statuses`** (optional, default `["todo"]`) — which card statuses to pick up
 
 **Typical setup:**
-1. Create a dedicated project (e.g. "Daily Ops", "Autonomous")
+1. Create a dedicated workspace (e.g. "Daily Ops", "Autonomous")
 2. Add cards describing tasks to run — mark them **Recurring** if they should re-execute every run
-3. Create an `execute_board` job with the project ID and a cron schedule
+3. Create an `execute_board` job with the workspace ID and a cron schedule
 4. Each run picks up all matching cards, executes them sequentially, and resets recurring cards back to `todo` when done
 
 Board run events (`kanban:execute:card:start`, `kanban:execute:complete`, etc.) are broadcast via WebSocket to all connected clients, so the UI reflects progress in real time even for scheduled runs.
 
-### Project Autonomy
+### Workspace Autonomy
 
-Each project can run its own scheduled heartbeat that reads a directive file and acts on it — project-scoped memory, KG, ledger, and MCP. Replaces the retired global `builtin-agent-heartbeat`.
+Each workspace can run its own scheduled heartbeat that reads a directive file and acts on it — workspace-scoped memory, KG, ledger, and MCP. Replaces the retired global `builtin-agent-heartbeat`.
 
-- **Job:** `proj-heartbeat-{project_id}` (an `agent_task` flagged `project_heartbeat`)
-- **Directive file:** `~/.voxyflow/workspace/projects/{project_id}/heartbeat.md` — content below the `---` divider is the next-cycle directive. An empty directive is the explicit "pause" state: the gate skips the LLM call entirely (no-op log only).
-- **Home project:** uses `id="system-main"` with directive at `~/.voxyflow/workspace/projects/system-main/heartbeat.md`.
+- **Job:** `proj-heartbeat-{workspace_id}` (an `agent_task` flagged `workspace_heartbeat`)
+- **Directive file:** `~/.voxyflow/workspace/workspaces/{workspace_id}/heartbeat.md` — content below the `---` divider is the next-cycle directive. An empty directive is the explicit "pause" state: the gate skips the LLM call entirely (no-op log only).
+- **Home workspace:** uses `id="system-main"` with directive at `~/.voxyflow/sandbox/workspaces/system-main/heartbeat.md`.
 - **Scheduling:** any cron or shorthand accepted by `/api/jobs` (`every_5min`, `every_1h`, etc.).
 - **No "go" gate:** autonomy ticks run through a dedicated runner that bypasses the interactive dispatcher's wait-for-user gate. Workers are still free to delegate.
-- **Scoping:** `project_id` is injected from the job, not trusted from the LLM. Memory / KG / chat_id canonicalisation all follow the usual per-project isolation rules.
-- **Session label:** ticks register as `worker_class="autonomy"` in the WorkerSessionStore; the frontend WorkerPanel renders them as `Autonomy — <project>`.
+- **Scoping:** `workspace_id` is injected from the job, not trusted from the LLM. Memory / KG / chat_id canonicalisation all follow the usual per-workspace isolation rules.
+- **Session label:** ticks register as `worker_class="autonomy"` in the WorkerSessionStore; the frontend WorkerPanel renders them as `Autonomy — <workspace>`.
 
 **UI surfaces:**
-- Header switch (`Autonomy` toggle next to the project view tabs) — quick on/off for both regular projects and Home
-- Project Settings → Autonomy section — edit the schedule + directive, trigger "Run now", or remove the heartbeat entirely
+- Header switch (`Autonomy` toggle next to the workspace view tabs) — quick on/off for both regular workspaces and Home
+- Workspace Settings → Autonomy section — edit the schedule + directive, trigger "Run now", or remove the heartbeat entirely
 
-**API:** `GET/PUT/DELETE /api/projects/{id}/autonomy` · `POST /api/projects/{id}/autonomy/run`
+**API:** `GET/PUT/DELETE /api/workspaces/{id}/autonomy` · `POST /api/workspaces/{id}/autonomy/run`
 
-**MCP tools:** `voxyflow.autonomy.status` / `.enable` / `.disable` / `.run_now` — in a project chat, `project_id` is auto-injected from `VOXYFLOW_PROJECT_ID` and must not be passed.
+**MCP tools:** `voxyflow.autonomy.status` / `.enable` / `.disable` / `.run_now` — in a workspace chat, `workspace_id` is auto-injected from `VOXYFLOW_WORKSPACE_ID` and must not be passed.
 
 ### Health Status Bar
 
@@ -996,7 +998,7 @@ Full dark and light themes implemented via CSS variables. Toggle via the moon/su
 
 Global command palette accessible anywhere:
 
-- Search and execute any action: navigate to project, create card, open settings, switch agent, etc.
+- Search and execute any action: navigate to workspace, create card, open settings, switch agent, etc.
 - Fuzzy search across commands
 - Keyboard navigable (↑/↓/Enter/Escape)
 
@@ -1012,11 +1014,11 @@ Press `?` anywhere to open the keyboard shortcuts reference modal — a full lis
 | `Shift+Enter` | New line in input |
 | `Alt+V` | Toggle voice input |
 | `Ctrl+B` | Toggle sidebar |
-| `Cmd+W` / `Ctrl+W` | Close current project tab |
+| `Cmd+W` / `Ctrl+W` | Close current workspace tab |
 | `Ctrl+Tab` | Cycle through open tabs |
 | `Ctrl+1` | Switch to Chat view |
 | `Ctrl+2` | Switch to Kanban view |
-| `Ctrl+3` | Switch to Projects view |
+| `Ctrl+3` | Switch to Workspaces view |
 | `Ctrl+K` | Open Command Palette |
 | `?` | Open keyboard shortcuts modal |
 | `Ctrl+Shift+F` | Open chat history search |
@@ -1051,13 +1053,13 @@ Full-text search across message history for the current chat context:
 
 Built-in Pomodoro timer for focused work:
 
-- Start a focus session linked to a card or project
+- Start a focus session linked to a card or workspace
 - Configurable work duration (default 25 min) and break duration
 - Visual countdown timer
 - Session logged to database on completion (for analytics)
 - Progress tracked in Stats Dashboard
 
-**API:** `POST /api/focus-sessions` · `GET /api/projects/{id}/focus`
+**API:** `POST /api/focus-sessions` · `GET /api/workspaces/{id}/focus`
 
 ### Notification Center 🔔
 
@@ -1070,12 +1072,12 @@ Persistent notification center (bell icon in header):
 
 ### Activity Feed
 
-Per-project activity timeline:
+Per-workspace activity timeline:
 
 - Card created / moved / completed / commented events
 - Agent assignments and reassignments
 - AI actions (enrichment, health checks, standup generation)
-- Displayed in the project sidebar or a dedicated tab
+- Displayed in the workspace sidebar or a dedicated tab
 
 ### TTS 🔊
 
@@ -1101,15 +1103,15 @@ Context-appropriate onboarding when a chat is empty:
 
 | Mode | When | Content |
 |------|------|---------|
-| `general` | Home tab, no project selected | App intro, prompt suggestions |
-| `project` | Project tab opened | Project name, in-progress cards, todo count |
+| `general` | Home tab, no workspace selected | App intro, prompt suggestions |
+| `workspace` | Workspace tab opened | Workspace name, in-progress cards, todo count |
 | `card` | Card detail opened | Card title, description, status, agent info |
 
 ### Worker Panel (Session Monitoring)
 
 The Worker Panel in the sidebar (`Navigation/WorkerPanel.tsx`) shows a live hierarchical view of all active AI work:
 
-- **Tree structure:** Projects → Sessions → Active Workers
+- **Tree structure:** Workspaces → Sessions → Active Workers
 - Each worker entry shows:
   - Model emoji (e.g. ⚡ Haiku, 🧠 Sonnet, 🔮 Opus)
   - Action type (e.g. `card_execute`, `research`, `crud`)
@@ -1168,16 +1170,16 @@ Background task scheduler running within the FastAPI process:
 - **Heartbeat job** — periodic health checks of all services (DB, RAG, ChromaDB)
   - Updates `SchedulerService.health_status` dict with per-service status + last-check timestamp
   - Powers the `GET /api/health` and `GET /api/health/services` endpoints
-- **RAG indexing job** — periodic re-indexing of project documents to keep ChromaDB collections fresh
+- **RAG indexing job** — periodic re-indexing of workspace documents to keep ChromaDB collections fresh
 - **User-defined jobs** — cron and interval jobs configurable via Settings → Jobs (see above)
 
 ### ChromaDB RAG
 
-Per-project isolated vector collections:
+Per-workspace isolated vector collections:
 
 - Embeddings: `intfloat/multilingual-e5-large` (~470MB, sentence-transformers, runs locally)
 - Storage: `~/.voxyflow/chroma/` (persistent)
-- 3 collections per project: docs, history, workspace
+- 3 collections per workspace: docs, history, workspace
 - Relevance cutoff: `0.82` cosine similarity; memory dedup threshold: `0.93`
 - Cross-lingual retrieval: native (no query expansion needed)
 - Context injection into chat prompts when relevant chunks exist
@@ -1196,17 +1198,18 @@ Per-project isolated vector collections:
 
 Parsers split documents into text chunks for embedding. Missing deps log a warning and skip the parser.
 
-### MCP Server (~60 tools)
+### MCP Server (100+ tools)
 
-Voxyflow exposes a built-in MCP server with ~60 tools defined in `backend/app/mcp_server.py`:
+Voxyflow exposes a built-in MCP server with 100+ tool definitions, filtered by role in `backend/app/tools/registry.py`:
 
 - **SSE transport** — `/mcp/sse` for web clients
-- **Stdio transport** — `backend/mcp_stdio.py` for Claude Code, Cursor, and other MCP clients
-- Tools cover cards, projects, wiki, documents, AI operations, system, file, git, and more
+- **Stdio transport** — `backend/mcp_stdio.py` for Claude Code, Codex CLI, Cursor, and other MCP clients
+- Tools cover cards, workspaces, wiki, documents, AI operations, system, file, git, worker lifecycle, memory, knowledge graph, and more
+- Codex dispatchers use a read-only `TOOLS_DISPATCHER_CODEX` role and delegate action work
 
 ### Focus Sessions (DB)
 
 `FocusSession` table tracks Pomodoro sessions:
-- `card_id` and `project_id` FK links
+- `card_id` and `workspace_id` FK links
 - `duration_minutes`, `completed` flag, `started_at`, `ended_at`
-- Analytics aggregated per-project for Stats Dashboard
+- Analytics aggregated per-workspace for Stats Dashboard

@@ -171,7 +171,7 @@ class CodexCliBackend:
         resume_thread_id: str = "",
         use_tools: bool = False,
         mcp_role: str = "worker",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         chat_id: str = "",
         worker_id: str = "",
@@ -187,7 +187,7 @@ class CodexCliBackend:
         if use_tools:
             args.extend(self._build_mcp_config_args(
                 role=mcp_role,
-                project_id=project_id,
+                workspace_id=workspace_id,
                 card_id=card_id,
                 chat_id=chat_id,
                 worker_id=worker_id,
@@ -225,7 +225,7 @@ class CodexCliBackend:
         self,
         *,
         role: str = "worker",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         chat_id: str = "",
         worker_id: str = "",
@@ -241,9 +241,9 @@ class CodexCliBackend:
         env = {
             "VOXYFLOW_API_BASE": os.environ.get("VOXYFLOW_API_BASE", "http://localhost:8000"),
             "VOXYFLOW_MCP_ROLE": role,
-            "VOXYFLOW_PROJECT_ID": project_id or "system-main",
+            "VOXYFLOW_WORKSPACE_ID": workspace_id or "system-main",
         }
-        for var in ("VOXYFLOW_DIR", "VOXYFLOW_DATA_DIR", "VOXYFLOW_WORKSPACE_DIR", "VOXYFLOW_MCP_LOG_LEVEL"):
+        for var in ("VOXYFLOW_DIR", "VOXYFLOW_DATA_DIR", "VOXYFLOW_SANDBOX_DIR", "VOXYFLOW_MCP_LOG_LEVEL"):
             val = os.environ.get(var)
             if val:
                 env[var] = val
@@ -317,7 +317,7 @@ class CodexCliBackend:
         message_queue: Optional[asyncio.Queue] = None,
         session_id: str = "",
         chat_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
@@ -344,7 +344,7 @@ class CodexCliBackend:
                 message_queue=message_queue,
                 session_id=session_id,
                 chat_id=chat_id,
-                project_id=project_id,
+                workspace_id=workspace_id,
                 session_type=session_type,
                 task_id=task_id,
                 cwd=cwd,
@@ -369,7 +369,7 @@ class CodexCliBackend:
         message_queue: Optional[asyncio.Queue],
         session_id: str,
         chat_id: str,
-        project_id: str,
+        workspace_id: str,
         session_type: str,
         task_id: str,
         cwd: str,
@@ -384,7 +384,7 @@ class CodexCliBackend:
             sandbox=sandbox,
             use_tools=use_tools,
             mcp_role=mcp_role,
-            project_id=project_id,
+            workspace_id=workspace_id,
             card_id=card_id,
             chat_id=chat_id,
             worker_id=(task_id if session_type == "worker" else ""),
@@ -410,7 +410,7 @@ class CodexCliBackend:
             pid=proc.pid,
             session_id=session_id,
             chat_id=chat_id,
-            project_id=project_id or None,
+            workspace_id=workspace_id or None,
             model=model,
             session_type=session_type,
             started_at=time.time(),

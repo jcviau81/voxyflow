@@ -18,9 +18,9 @@ class TestWorkerSessions:
         assert isinstance(data["sessions"], list)
 
     @pytest.mark.asyncio
-    async def test_list_worker_sessions_by_project(self, client: httpx.AsyncClient, test_project: dict):
-        pid = test_project["_id"]
-        r = await client.get("/api/workers/sessions", params={"project_id": pid})
+    async def test_list_worker_sessions_by_workspace(self, client: httpx.AsyncClient, test_workspace: dict):
+        pid = test_workspace["_id"]
+        r = await client.get("/api/workers/sessions", params={"workspace_id": pid})
         assert r.status_code == 200
         data = r.json()
         assert "sessions" in data
@@ -42,15 +42,15 @@ class TestWorkerSnapshot:
         assert "timestamp" in data
 
     @pytest.mark.asyncio
-    async def test_snapshot_filtered_by_project(self, client: httpx.AsyncClient, test_project: dict):
-        pid = test_project["_id"]
-        r = await client.get("/api/workers/snapshot", params={"project_id": pid})
+    async def test_snapshot_filtered_by_workspace(self, client: httpx.AsyncClient, test_workspace: dict):
+        pid = test_workspace["_id"]
+        r = await client.get("/api/workers/snapshot", params={"workspace_id": pid})
         assert r.status_code == 200
         data = r.json()
-        # All returned workers should match the project_id (or be empty)
+        # All returned workers should match the workspace_id (or be empty)
         for w in data["workers"]:
-            if w.get("projectId"):
-                assert w["projectId"] == pid
+            if w.get("workspaceId"):
+                assert w["workspaceId"] == pid
 
 
 class TestWorkerTaskLedger:
@@ -72,13 +72,13 @@ class TestWorkerTaskLedger:
             assert task["status"] == "done"
 
     @pytest.mark.asyncio
-    async def test_list_worker_tasks_by_project(self, client: httpx.AsyncClient, test_project: dict):
-        pid = test_project["_id"]
-        r = await client.get("/api/worker-tasks", params={"project_id": pid})
+    async def test_list_worker_tasks_by_workspace(self, client: httpx.AsyncClient, test_workspace: dict):
+        pid = test_workspace["_id"]
+        r = await client.get("/api/worker-tasks", params={"workspace_id": pid})
         assert r.status_code == 200
         data = r.json()
         for task in data["tasks"]:
-            assert task["project_id"] == pid
+            assert task["workspace_id"] == pid
 
     @pytest.mark.asyncio
     async def test_get_nonexistent_task(self, client: httpx.AsyncClient):

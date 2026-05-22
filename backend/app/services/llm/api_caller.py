@@ -1510,7 +1510,7 @@ class ApiCallerMixin:
         message_queue: Optional[asyncio.Queue] = None,
         tool_callback: Optional[Callable] = None,
         session_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
@@ -1534,7 +1534,7 @@ class ApiCallerMixin:
                 tool_callback=tool_callback,
                 session_id=session_id,
                 chat_id=chat_id,
-                project_id=project_id,
+                workspace_id=workspace_id,
                 card_id=card_id,
                 session_type=session_type,
                 task_id=task_id,
@@ -1552,7 +1552,7 @@ class ApiCallerMixin:
                 tool_callback=tool_callback,
                 session_id=session_id,
                 chat_id=chat_id,
-                project_id=project_id,
+                workspace_id=workspace_id,
                 card_id=card_id,
                 session_type=session_type,
                 cwd=cwd,
@@ -1587,7 +1587,7 @@ class ApiCallerMixin:
         layer: str = "fast",
         chat_id: str = "",
         session_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
@@ -1601,7 +1601,7 @@ class ApiCallerMixin:
             async for token in self._cli_backend.stream_persistent(
                 model=model, system=system, messages=messages,
                 chat_id=chat_id, use_tools=use_tools, mcp_role=mcp_role,
-                session_id=session_id, project_id=project_id, card_id=card_id,
+                session_id=session_id, workspace_id=workspace_id, card_id=card_id,
                 session_type=session_type, cwd=cwd,
             ):
                 yield token
@@ -1610,7 +1610,7 @@ class ApiCallerMixin:
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role,
                 session_id=session_id, chat_id=chat_id,
-                project_id=project_id, card_id=card_id,
+                workspace_id=workspace_id, card_id=card_id,
                 session_type=session_type, cwd=cwd,
             ):
                 yield token
@@ -1647,7 +1647,7 @@ class ApiCallerMixin:
         message_queue: Optional[asyncio.Queue] = None,
         tool_callback: Optional[Callable] = None,
         session_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
@@ -1667,7 +1667,7 @@ class ApiCallerMixin:
             tool_callback=tool_callback,
             session_id=session_id,
             chat_id=chat_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             card_id=card_id,
             session_type=session_type,
             task_id=task_id,
@@ -1694,7 +1694,7 @@ class ApiCallerMixin:
         layer: str = "fast",
         chat_id: str = "",
         session_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
@@ -1710,7 +1710,7 @@ class ApiCallerMixin:
             mcp_role=mcp_role,
             session_id=session_id,
             chat_id=chat_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             card_id=card_id,
             session_type=session_type,
             cwd=cwd,
@@ -1766,7 +1766,7 @@ class ApiCallerMixin:
         cancel_event: Optional[asyncio.Event] = None,
         message_queue: Optional[asyncio.Queue] = None,
         session_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "worker",
         task_id: str = "",
@@ -1785,7 +1785,7 @@ class ApiCallerMixin:
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
                 cancel_event=cancel_event, message_queue=message_queue,
                 tool_callback=tool_callback,
-                session_id=session_id, project_id=project_id, card_id=card_id,
+                session_id=session_id, workspace_id=workspace_id, card_id=card_id,
                 session_type=session_type, task_id=task_id, cwd=cwd,
             )
         if ct == "cli":
@@ -1794,7 +1794,7 @@ class ApiCallerMixin:
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
                 cancel_event=cancel_event, message_queue=message_queue,
                 tool_callback=tool_callback,
-                session_id=session_id, project_id=project_id, card_id=card_id,
+                session_id=session_id, workspace_id=workspace_id, card_id=card_id,
                 session_type=session_type, task_id=task_id, cwd=cwd,
             )
         if ct == "anthropic":
@@ -1833,7 +1833,7 @@ class ApiCallerMixin:
         layer: str = "fast",
         chat_id: str = "",
         session_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
@@ -1846,7 +1846,7 @@ class ApiCallerMixin:
             async for token in self._call_api_stream_codex(
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
-                session_id=session_id, project_id=project_id, card_id=card_id,
+                session_id=session_id, workspace_id=workspace_id, card_id=card_id,
                 session_type=session_type, cwd=cwd,
             ):
                 yield token
@@ -1856,7 +1856,7 @@ class ApiCallerMixin:
             async for token in self._call_api_stream_cli(
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
-                session_id=session_id, project_id=project_id, card_id=card_id,
+                session_id=session_id, workspace_id=workspace_id, card_id=card_id,
                 session_type=session_type, cwd=cwd,
             ):
                 yield token

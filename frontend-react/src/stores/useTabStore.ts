@@ -15,8 +15,8 @@ export interface TabState {
   openTabs: Tab[];
   activeTab: string;
 
-  // Open a project tab (or switch to it if already open)
-  openProjectTab: (projectId: string, projectName: string, emoji?: string) => void;
+  // Open a workspace tab (or switch to it if already open)
+  openWorkspaceTab: (workspaceId: string, workspaceName: string, emoji?: string) => void;
 
   // Close a tab — cannot close 'main'; switches to adjacent tab if it was active
   closeTab: (tabId: string) => void;
@@ -38,16 +38,16 @@ export const useTabStore = create<TabState>()(
       openTabs: [{ ...DEFAULT_MAIN_TAB }],
       activeTab: 'main',
 
-      openProjectTab: (projectId, projectName, emoji) => {
-        const existing = get().openTabs.find((t) => t.id === projectId);
+      openWorkspaceTab: (workspaceId, workspaceName, emoji) => {
+        const existing = get().openTabs.find((t) => t.id === workspaceId);
         if (existing) {
-          get().switchTab(projectId);
+          get().switchTab(workspaceId);
           return;
         }
 
         const tab: Tab = {
-          id: projectId,
-          label: projectName,
+          id: workspaceId,
+          label: workspaceName,
           emoji: emoji ?? '📁',
           closable: true,
           hasNotification: false,
@@ -57,7 +57,7 @@ export const useTabStore = create<TabState>()(
         set((state) => ({
           openTabs: [...state.openTabs, tab],
         }));
-        get().switchTab(projectId);
+        get().switchTab(workspaceId);
       },
 
       closeTab: (tabId) => {

@@ -9,7 +9,7 @@ const API = '';
 export function mapRawCard(c: Record<string, unknown>): Card {
   return {
     ...(c as unknown as Card),
-    projectId: (c.project_id as string) ?? null,
+    workspaceId: (c.workspace_id as string) ?? null,
     agentType: c.agent_type as string | undefined,
     dependencies: (c.dependency_ids as string[]) ?? [],
     totalMinutes: (c.total_minutes as number) ?? 0,
@@ -41,8 +41,8 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const cardKeys = {
   all: ['cards'] as const,
-  byProject: (projectId: string) => ['cards', 'project', projectId] as const,
-  archived: (projectId: string) => ['cards', 'archived', projectId] as const,
+  byWorkspace: (workspaceId: string) => ['cards', 'workspace', workspaceId] as const,
+  archived: (workspaceId: string) => ['cards', 'archived', workspaceId] as const,
   detail: (cardId: string) => ['cards', cardId] as const,
   timeEntries: (cardId: string) => ['cards', cardId, 'time'] as const,
   checklist: (cardId: string) => ['cards', cardId, 'checklist'] as const,
@@ -53,27 +53,27 @@ export const cardKeys = {
 
 // --- Queries ---
 
-export function useCards(projectId: string) {
+export function useCards(workspaceId: string) {
   return useQuery({
-    queryKey: cardKeys.byProject(projectId),
+    queryKey: cardKeys.byWorkspace(workspaceId),
     queryFn: async () => {
-      const raw = await apiFetch<Record<string, unknown>[]>(`/api/projects/${projectId}/cards`);
+      const raw = await apiFetch<Record<string, unknown>[]>(`/api/workspaces/${workspaceId}/cards`);
       return raw.map(mapRawCard);
     },
     staleTime: 30_000,
-    enabled: !!projectId,
+    enabled: !!workspaceId,
   });
 }
 
-export function useArchivedCards(projectId: string) {
+export function useArchivedCards(workspaceId: string) {
   return useQuery({
-    queryKey: cardKeys.archived(projectId),
+    queryKey: cardKeys.archived(workspaceId),
     queryFn: async () => {
-      const raw = await apiFetch<Record<string, unknown>[]>(`/api/projects/${projectId}/cards/archived`);
+      const raw = await apiFetch<Record<string, unknown>[]>(`/api/workspaces/${workspaceId}/cards/archived`);
       return raw.map(mapRawCard);
     },
     staleTime: 60_000,
-    enabled: !!projectId,
+    enabled: !!workspaceId,
   });
 }
 
@@ -186,8 +186,8 @@ export function useCardHistory(cardId: string) {
 export function useCreateCard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { projectId: string; title: string; description?: string; status?: CardStatus; priority?: number }) => {
-      const raw = await apiFetch<Record<string, unknown>>(`/api/projects/${data.projectId}/cards`, {
+    mutationFn: async (data: { workspaceId: string; title: string; description?: string; status?: CardStatus; priority?: number }) => {
+      const raw = await apiFetch<Record<string, unknown>>(`/api/workspaces/${data.workspaceId}/cards`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -201,8 +201,8 @@ export function useCreateCard() {
     },
     onSuccess: (card) => {
       useCardStore.getState().upsertCard(card);
-      if (card.projectId) {
-        qc.invalidateQueries({ queryKey: cardKeys.byProject(card.projectId) });
+      if (card.workspaceId) {
+        qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(card.workspaceId) });
       }
     },
   });
@@ -217,8 +217,8 @@ export function usePatchCard() {
     }: {
       cardId: string;
       updates: Record<string, unknown>;
-      /** Optional: scopes query invalidation to a single project instead of all cards. */
-      projectId?: string;
+      /** Optional: scopes query invalidation to a single workspace instead of all cards. */
+      workspaceId?: string;
     }) => {
       return apiFetch<Record<string, unknown>>(`/api/cards/${cardId}`, {
         method: 'PATCH',
@@ -242,9 +242,9 @@ export function usePatchCard() {
         useCardStore.getState().upsertCard(previousCard);
       }
     },
-    onSettled: (_data, _err, { cardId, projectId }) => {
-      if (projectId) {
-        qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
+    onSettled: (_data, _err, { cardId, workspaceId }) => {
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(workspaceId) });
       } else {
         qc.invalidateQueries({ queryKey: cardKeys.all });
       }
@@ -256,18 +256,18 @@ export function usePatchCard() {
 export function useDeleteCard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ cardId }: { cardId: string; projectId?: string }) => {
+    mutationFn: async ({ cardId }: { cardId: string; workspaceId?: string }) => {
       const res = await fetch(`${API}/api/cards/${cardId}`, { method: 'DELETE' });
       if (!res.ok && res.status !== 404) {
         const detail = await res.json().catch(() => ({})) as { detail?: string };
         throw new Error(detail.detail ?? `HTTP ${res.status}`);
       }
     },
-    onSuccess: (_data, { cardId, projectId }) => {
+    onSuccess: (_data, { cardId, workspaceId }) => {
       useCardStore.getState().deleteCard(cardId);
-      if (projectId) {
-        qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
-        qc.invalidateQueries({ queryKey: cardKeys.archived(projectId) });
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(workspaceId) });
+        qc.invalidateQueries({ queryKey: cardKeys.archived(workspaceId) });
       } else {
         qc.invalidateQueries({ queryKey: cardKeys.all });
       }
@@ -278,13 +278,13 @@ export function useDeleteCard() {
 export function useArchiveCard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ cardId }: { cardId: string; projectId?: string }) => {
+    mutationFn: async ({ cardId }: { cardId: string; workspaceId?: string }) => {
       await apiFetch(`/api/cards/${cardId}/archive`, { method: 'POST' });
     },
-    onSuccess: (_data, { projectId }) => {
-      if (projectId) {
-        qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
-        qc.invalidateQueries({ queryKey: cardKeys.archived(projectId) });
+    onSuccess: (_data, { workspaceId }) => {
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(workspaceId) });
+        qc.invalidateQueries({ queryKey: cardKeys.archived(workspaceId) });
       }
       // Always invalidate all to ensure UI reflects the change immediately
       qc.invalidateQueries({ queryKey: cardKeys.all });
@@ -295,16 +295,16 @@ export function useArchiveCard() {
 export function useRestoreCard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ cardId }: { cardId: string; projectId?: string }) => {
+    mutationFn: async ({ cardId }: { cardId: string; workspaceId?: string }) => {
       const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/restore`, { method: 'POST' });
       return mapRawCard(raw);
     },
-    onSuccess: (card, { projectId }) => {
+    onSuccess: (card, { workspaceId }) => {
       // Optimistic: add restored card back to the store immediately
       useCardStore.getState().upsertCard(card);
-      if (projectId) {
-        qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
-        qc.invalidateQueries({ queryKey: cardKeys.archived(projectId) });
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(workspaceId) });
+        qc.invalidateQueries({ queryKey: cardKeys.archived(workspaceId) });
       }
     },
   });
@@ -313,14 +313,14 @@ export function useRestoreCard() {
 export function useDuplicateCard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ cardId }: { cardId: string; projectId?: string }) => {
+    mutationFn: async ({ cardId }: { cardId: string; workspaceId?: string }) => {
       const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/duplicate`, { method: 'POST' });
       return mapRawCard(raw);
     },
-    onSuccess: (card, { projectId }) => {
+    onSuccess: (card, { workspaceId }) => {
       useCardStore.getState().upsertCard(card);
-      if (projectId) {
-        qc.invalidateQueries({ queryKey: cardKeys.byProject(projectId) });
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(workspaceId) });
       }
     },
   });
@@ -329,15 +329,15 @@ export function useDuplicateCard() {
 export function useCloneCard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ cardId, targetProjectId }: { cardId: string; targetProjectId: string; sourceProjectId?: string }) => {
-      const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/clone-to/${targetProjectId}`, { method: 'POST' });
+    mutationFn: async ({ cardId, targetWorkspaceId }: { cardId: string; targetWorkspaceId: string; sourceWorkspaceId?: string }) => {
+      const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/clone-to/${targetWorkspaceId}`, { method: 'POST' });
       return mapRawCard(raw);
     },
-    onSuccess: (card, { targetProjectId, sourceProjectId }) => {
+    onSuccess: (card, { targetWorkspaceId, sourceWorkspaceId }) => {
       useCardStore.getState().upsertCard(card);
-      qc.invalidateQueries({ queryKey: cardKeys.byProject(targetProjectId) });
-      if (sourceProjectId) {
-        qc.invalidateQueries({ queryKey: cardKeys.byProject(sourceProjectId) });
+      qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(targetWorkspaceId) });
+      if (sourceWorkspaceId) {
+        qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(sourceWorkspaceId) });
       }
     },
   });
@@ -346,19 +346,19 @@ export function useCloneCard() {
 export function useMoveCard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ cardId, targetProjectId }: { cardId: string; targetProjectId: string; sourceProjectId?: string }) => {
-      const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/move-to/${targetProjectId}`, { method: 'POST' });
+    mutationFn: async ({ cardId, targetWorkspaceId }: { cardId: string; targetWorkspaceId: string; sourceWorkspaceId?: string }) => {
+      const raw = await apiFetch<Record<string, unknown>>(`/api/cards/${cardId}/move-to/${targetWorkspaceId}`, { method: 'POST' });
       return mapRawCard(raw);
     },
-    onSuccess: (card, { targetProjectId, sourceProjectId }) => {
-      // Remove from source project in store, add to target
-      if (sourceProjectId) {
+    onSuccess: (card, { targetWorkspaceId, sourceWorkspaceId }) => {
+      // Remove from source workspace in store, add to target
+      if (sourceWorkspaceId) {
         useCardStore.getState().deleteCard(card.id);
       }
       useCardStore.getState().upsertCard(card);
-      qc.invalidateQueries({ queryKey: cardKeys.byProject(targetProjectId) });
-      if (sourceProjectId) {
-        qc.invalidateQueries({ queryKey: cardKeys.byProject(sourceProjectId) });
+      qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(targetWorkspaceId) });
+      if (sourceWorkspaceId) {
+        qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(sourceWorkspaceId) });
       }
       // Always invalidate all to catch Main Board and edge cases
       qc.invalidateQueries({ queryKey: cardKeys.all });
@@ -391,7 +391,7 @@ export function useReorderCards() {
 export function useExecuteCard() {
   return useMutation({
     mutationFn: async (cardId: string) => {
-      return apiFetch<{ prompt: string; projectName?: string }>(`/api/cards/${cardId}/execute`, { method: 'POST' });
+      return apiFetch<{ prompt: string; workspaceName?: string }>(`/api/cards/${cardId}/execute`, { method: 'POST' });
     },
   });
 }

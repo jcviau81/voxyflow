@@ -116,9 +116,9 @@ async def _warmup_caches() -> None:
     Runs best-effort: any failure is logged and swallowed. Non-blocking —
     caller schedules this as a background task so startup isn't delayed.
     """
-    from app.database import SYSTEM_MAIN_PROJECT_ID
+    from app.database import SYSTEM_MAIN_WORKSPACE_ID
     from app.services.memory_service import get_memory_service
-    from app.services.memory_service_constants import GLOBAL_COLLECTION, _project_collection
+    from app.services.memory_service_constants import GLOBAL_COLLECTION, _workspace_collection
     from app.services.knowledge_graph_service import get_knowledge_graph_service
 
     t0 = time.monotonic()
@@ -128,7 +128,7 @@ async def _warmup_caches() -> None:
             # Warm the two collections every general chat hits on turn 1.
             mem.search_memory(
                 query="warmup",
-                collections=[GLOBAL_COLLECTION, _project_collection(SYSTEM_MAIN_PROJECT_ID)],
+                collections=[GLOBAL_COLLECTION, _workspace_collection(SYSTEM_MAIN_WORKSPACE_ID)],
                 limit=1,
             )
     except Exception:
@@ -136,7 +136,7 @@ async def _warmup_caches() -> None:
 
     try:
         kg = get_knowledge_graph_service()
-        kg.get_pinned_context(SYSTEM_MAIN_PROJECT_ID)
+        kg.get_pinned_context(SYSTEM_MAIN_WORKSPACE_ID)
     except Exception:
         logger.exception("⚠️  KG warmup failed (non-fatal)")
 
@@ -276,7 +276,7 @@ def build_lifespan(
         from app.database import init_db
         from app.services.rag_service import get_rag_service
         from app.services.scheduler_service import get_scheduler_service
-        from app.services.workspace_service import get_workspace_service
+        from app.services.sandbox_service import get_sandbox_service
 
         logger.info("🚀 Voxyflow starting up...")
         await init_db()
@@ -287,9 +287,9 @@ def build_lifespan(
         await _cleanup_stale_worker_tasks()
         _reconcile_orphan_worker_sessions()
 
-        ws_service = get_workspace_service()
-        ws_path = await ws_service.ensure_workspace()
-        logger.info("✅ Workspace ready: %s", ws_path)
+        sb_service = get_sandbox_service()
+        sb_path = await sb_service.ensure_sandbox()
+        logger.info("✅ Sandbox ready: %s", sb_path)
 
         rag = get_rag_service()
         if rag.enabled:

@@ -79,7 +79,7 @@ DELEGATE_ACTION_TOOL = {
 def get_claude_tools(
     chat_level: str = "general",
     role: str = "dispatcher",
-    project_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     # Deprecated — ignored, kept for call-site compat during transition
     layer: str = "fast",
 ) -> list[dict]:

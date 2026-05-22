@@ -185,7 +185,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         self,
         role: str = "worker",
         voxyflow_dev_task: bool = False,
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         chat_id: str = "",
         worker_id: str = "",
@@ -198,7 +198,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             voxyflow_dev_task: When True, sets VOXYFLOW_DEV_TASK=1 in the MCP server env,
                   which allows workers to write to ~/voxyflow/ (the app codebase).
                   Only set this for tasks that explicitly modify the Voxyflow codebase.
-            project_id: Project scope for MCP tools. Exposed as VOXYFLOW_PROJECT_ID.
+            workspace_id: Workspace scope for MCP tools. Exposed as VOXYFLOW_WORKSPACE_ID.
                   Auto-injected into tool path parameters. Defaults to "system-main".
             card_id: Card scope for MCP tools. Exposed as VOXYFLOW_CARD_ID.
                   Auto-injected into tool path parameters when in card chat context.
@@ -220,12 +220,12 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 "VOXYFLOW_API_BASE", "http://localhost:8000"
             ),
             "VOXYFLOW_MCP_ROLE": role,
-            "VOXYFLOW_PROJECT_ID": project_id or "system-main",
+            "VOXYFLOW_WORKSPACE_ID": workspace_id or "system-main",
         }
         # Propagate path overrides so the MCP subprocess computes the same
         # dirs as the backend (prevents silent desync when the user overrides
-        # VOXYFLOW_DIR / VOXYFLOW_DATA_DIR / VOXYFLOW_WORKSPACE_DIR).
-        for _var in ("VOXYFLOW_DIR", "VOXYFLOW_DATA_DIR", "VOXYFLOW_WORKSPACE_DIR", "VOXYFLOW_MCP_LOG_LEVEL"):
+        # VOXYFLOW_DIR / VOXYFLOW_DATA_DIR / VOXYFLOW_SANDBOX_DIR).
+        for _var in ("VOXYFLOW_DIR", "VOXYFLOW_DATA_DIR", "VOXYFLOW_SANDBOX_DIR", "VOXYFLOW_MCP_LOG_LEVEL"):
             _val = os.environ.get(_var)
             if _val:
                 mcp_env[_var] = _val
@@ -298,7 +298,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         interactive: bool = False,
         native_tools: bool = False,
         voxyflow_dev_task: bool = False,
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         chat_id: str = "",
         worker_id: str = "",
@@ -350,7 +350,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 self._build_mcp_config(
                     role=mcp_role,
                     voxyflow_dev_task=voxyflow_dev_task,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     card_id=card_id,
                     chat_id=chat_id,
                     worker_id=worker_id,
@@ -379,7 +379,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         message_queue: Optional[asyncio.Queue] = None,
         session_id: str = "",
         chat_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "worker",
         cwd: str = "",
@@ -407,7 +407,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 cancel_event=cancel_event, tool_callback=tool_callback,
                 message_queue=message_queue,
                 session_id=session_id, chat_id=chat_id,
-                project_id=project_id, card_id=card_id,
+                workspace_id=workspace_id, card_id=card_id,
                 session_type=session_type, cwd=cwd,
             )
 
@@ -426,7 +426,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 use_tools=use_tools, mcp_role=mcp_role,
                 cancel_event=cancel_event,
                 session_id=session_id, chat_id=chat_id,
-                project_id=project_id, card_id=card_id,
+                workspace_id=workspace_id, card_id=card_id,
                 session_type=session_type, cwd=cwd,
             )
 
@@ -456,7 +456,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         cancel_event: Optional[asyncio.Event],
         session_id: str,
         chat_id: str,
-        project_id: str,
+        workspace_id: str,
         card_id: str,
         session_type: str,
         cwd: str,
@@ -474,7 +474,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             streaming=False, use_tools=use_tools, mcp_role=mcp_role,
             native_tools=use_tools,  # Workers get native Claude tools
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),
-            project_id=project_id, card_id=card_id,
+            workspace_id=workspace_id, card_id=card_id,
             chat_id=chat_id,
             worker_id=(session_id if session_type == "worker" else ""),
         )
@@ -503,7 +503,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             _reg_id = new_cli_session_id()
             get_cli_session_registry().register(CliSession(
                 id=_reg_id, pid=proc.pid, session_id=session_id,
-                chat_id=chat_id, project_id=project_id or None,
+                chat_id=chat_id, workspace_id=workspace_id or None,
                 model=_model_flag(model), session_type=session_type,
                 started_at=time.time(), cancel_event=_cancel, _process=proc,
             ))
@@ -631,7 +631,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         message_queue: Optional[asyncio.Queue] = None,
         session_id: str = "",
         chat_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "worker",
         cwd: str = "",
@@ -652,7 +652,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
             native_tools=use_tools,  # Workers get native Claude tools (Read, Edit, Bash)
             voxyflow_dev_task=_is_voxyflow_app_cwd(cwd),  # Auto-allow writes to ~/voxyflow/ for dev tasks
-            project_id=project_id, card_id=card_id,
+            workspace_id=workspace_id, card_id=card_id,
             chat_id=chat_id,
             worker_id=(session_id if session_type == "worker" else ""),
         )
@@ -682,7 +682,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         _reg_id = new_cli_session_id()
         get_cli_session_registry().register(CliSession(
             id=_reg_id, pid=proc.pid, session_id=session_id,
-            chat_id=chat_id, project_id=project_id or None,
+            chat_id=chat_id, workspace_id=workspace_id or None,
             model=_model_flag(model), session_type=session_type,
             started_at=time.time(), cancel_event=_cancel, _process=proc,
         ))
@@ -835,7 +835,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         mcp_role: str = "worker",
         session_id: str = "",
         chat_id: str = "",
-        project_id: str = "",
+        workspace_id: str = "",
         card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
@@ -850,7 +850,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         args = self._build_args(
             model, system_prompt,
             streaming=True, use_tools=use_tools, mcp_role=mcp_role,
-            project_id=project_id, card_id=card_id,
+            workspace_id=workspace_id, card_id=card_id,
             chat_id=chat_id,
             worker_id=(session_id if session_type == "worker" else ""),
         )
@@ -881,7 +881,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         _reg_id = new_cli_session_id()
         get_cli_session_registry().register(CliSession(
             id=_reg_id, pid=proc.pid, session_id=session_id,
-            chat_id=chat_id, project_id=project_id or None,
+            chat_id=chat_id, workspace_id=workspace_id or None,
             model=_model_flag(model), session_type=session_type,
             started_at=time.time(), cancel_event=asyncio.Event(), _process=proc,
         ))

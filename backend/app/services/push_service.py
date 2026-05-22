@@ -317,7 +317,7 @@ async def send_test_push() -> dict[str, Any]:
 # Deep-link helper
 # ---------------------------------------------------------------------------
 
-def build_deep_link(project_id: str | None, card_id: str | None) -> str:
+def build_deep_link(workspace_id: str | None, card_id: str | None) -> str:
     """Build a frontend URL for a notification.
 
     Matches the routes declared in ``frontend-react/src/router.tsx``:
@@ -325,8 +325,8 @@ def build_deep_link(project_id: str | None, card_id: str | None) -> str:
     so we use the project page with a ``?card=`` query param so the UI can
     open the card detail panel on load.
     """
-    if project_id and card_id:
-        return f"/project/{project_id}?card={card_id}"
-    if project_id:
-        return f"/project/{project_id}"
+    if workspace_id and card_id:
+        return f"/project/{workspace_id}?card={card_id}"
+    if workspace_id:
+        return f"/project/{workspace_id}"
     return "/"
