@@ -7,6 +7,10 @@ controls which tools each AI role can access:
   Fast vs deep is purely a model selection (Haiku vs Opus), NOT a tool change.
   The dispatcher must stay non-blocking; heavy work is delegated to workers.
 
+- **Codex dispatcher** — stricter read-only dispatcher profile used by Codex CLI.
+  Codex has stronger agentic execution instincts, so it gets eyes-only tools and
+  delegates all action work to workers.
+
 - **Worker** — full MCP tool access (exec, files, git, tmux, AI features,
   destructive ops). Workers run in background subprocesses with full tooling.
 """
@@ -104,6 +108,33 @@ TOOLS_DISPATCHER = {
     "voxyflow.undo.apply",
 }
 
+# Codex dispatcher tools: read-only subset of the dispatcher tools.
+# Keep this as the source of truth for the MCP role ``dispatcher_codex`` and
+# prompt/tool-list generation. Codex dispatchers should inspect state and worker
+# output, then delegate action work rather than performing it inline.
+TOOLS_DISPATCHER_CODEX = {
+    "voxyflow.health",
+    "voxyflow.project.list", "voxyflow.project.get",
+    "voxyflow.card.list", "voxyflow.card.get",
+    "voxyflow.card.list_unassigned", "voxyflow.card.list_archived",
+    "voxyflow.card.history",
+    "voxyflow.wiki.list", "voxyflow.wiki.get",
+    "voxyflow.doc.list",
+    "voxyflow.jobs.list",
+    "voxyflow.heartbeat.read",
+    "voxyflow.autonomy.status",
+    "voxyflow.focus.analytics",
+    "voxyflow.sessions.list",
+    "voxyflow.session.read",
+    "voxyflow.endpoint.list",
+    "voxyflow.undo.list",
+    "memory.search", "memory.get", "knowledge.search",
+    "kg.query", "kg.timeline", "kg.stats",
+    "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
+    "voxyflow.task.peek",
+}
+
+
 # Worker tools: dispatcher set PLUS the heavy / dangerous / lifecycle tools.
 # Anything listed here must NOT also appear in TOOLS_DISPATCHER above
 # (the set union would silently mask the duplication).
@@ -135,6 +166,7 @@ TOOLS_WORKER = TOOLS_DISPATCHER | _WORKER_EXTRAS
 
 _ROLE_TOOL_SETS = {
     "dispatcher": TOOLS_DISPATCHER,
+    "dispatcher_codex": TOOLS_DISPATCHER_CODEX,
     "worker": TOOLS_WORKER,
 }
 
@@ -169,9 +201,10 @@ class ToolRegistry:
     def get_by_role(self, role: str) -> list[ToolDefinition]:
         """Return tools allowed for a given role.
 
-        Only "dispatcher" and "worker" are recognised. Anything else (including
-        model-tier names like "fast"/"deep"/"haiku") falls back to the
-        dispatcher set — fast/deep is purely model selection, not a tool tier.
+        Recognised roles include "dispatcher", "dispatcher_codex", and "worker".
+        Anything else (including model-tier names like "fast"/"deep"/"haiku")
+        falls back to the dispatcher set — fast/deep is purely model selection,
+        not a tool tier.
         """
         allowed_names = _ROLE_TOOL_SETS.get(role, TOOLS_DISPATCHER)
         return [t for name, t in self._tools.items() if name in allowed_names]

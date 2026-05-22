@@ -227,13 +227,19 @@ class LayerRunnersMixin:
                         },
                     )
 
-            # [SILENT] suppression for callback responses
+            # [SILENT] / transient backend-error suppression for callback responses.
+            # Worker results are already persisted; a saturated dispatcher model should
+            # not turn a successful worker completion into a visible chat error.
             if is_callback and fast_full_response.strip() == "[SILENT]":
                 logger.info(f"[Orchestrator] Callback response is [SILENT] — suppressing")
                 await send_model_status("fast", "idle")
                 return True
+            if is_callback and "[Codex CLI error:" in fast_full_response and "model is at capacity" in fast_full_response.lower():
+                logger.warning("[Orchestrator] Suppressing Codex capacity error during worker callback")
+                await send_model_status("fast", "idle")
+                return True
 
-            # For callbacks: flush buffered tokens now that we know it's not [SILENT]
+            # For callbacks: flush buffered tokens now that we know it's not suppressed
             if is_callback and buffered_tokens:
                 for tok in buffered_tokens:
                     await ws_broadcast.send_and_fanout_chat(
@@ -389,6 +395,10 @@ class LayerRunnersMixin:
 
             if is_callback and deep_full_response.strip() == "[SILENT]":
                 logger.info(f"[Orchestrator] Deep callback response is [SILENT] — suppressing")
+                await send_model_status("deep", "idle")
+                return True
+            if is_callback and "[Codex CLI error:" in deep_full_response and "model is at capacity" in deep_full_response.lower():
+                logger.warning("[Orchestrator] Suppressing Codex capacity error during deep worker callback")
                 await send_model_status("deep", "idle")
                 return True
 

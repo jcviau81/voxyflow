@@ -88,10 +88,19 @@ def reload_layer_models(service: "ClaudeService") -> None:
         explicit_ptype = cfg.get("provider_type", "").strip().lower()
 
         if explicit_ptype == "cli" or (service.use_cli and not explicit_ptype):
-            # CLI mode — explicit "cli" type or env flag with no override
+            # Claude CLI mode — explicit "cli" type or env flag with no override
             client = None
             client_type = "cli"
             provider = None
+
+        elif explicit_ptype == "codex":
+            # Codex CLI mode — local subprocess, no SDK client.
+            client = None
+            client_type = "codex"
+            try:
+                provider = get_provider(provider_type="codex")
+            except Exception:
+                provider = None
 
         elif explicit_ptype and explicit_ptype != "cli":
             # New multi-provider path — use provider_factory

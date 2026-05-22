@@ -187,7 +187,7 @@ class ModelLayerConfig(BaseModel):
     model: str = ""          # e.g. "claude-sonnet-4", "qwen2.5:7b"
     enabled: bool = True
     # Provider type — drives which LLMProvider subclass is instantiated.
-    # Values: "cli" | "anthropic" | "openai" | "ollama" | "groq" | "mistral" | "gemini" | "lmstudio"
+    # Values: "cli" | "codex" | "anthropic" | "openai" | "ollama" | "groq" | "mistral" | "gemini" | "lmstudio"
     # Empty string = auto-detect from URL (backward compat)
     provider_type: str = ""
     # If set, this layer uses a saved endpoint (by id) from ModelsSettings.endpoints
@@ -204,7 +204,7 @@ class WorkerClass(BaseModel):
     name: str = ""                     # display name, e.g. "Coding", "Research"
     description: str = ""
     endpoint_id: str = ""              # references a ProviderEndpoint by id (empty = use provider_type directly)
-    provider_type: str = ""            # e.g. "cli", "ollama", "anthropic"
+    provider_type: str = ""            # e.g. "cli", "codex", "ollama", "anthropic"
     model: str = ""                    # e.g. "qwen2.5:32b"
     intent_patterns: list[str] = []    # simple keyword patterns for auto-routing
 

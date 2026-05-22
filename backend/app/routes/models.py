@@ -5,6 +5,7 @@ import json
 import logging
 import random
 import time
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Query
@@ -161,6 +162,10 @@ async def list_models_for_provider(
     if provider_type == "cli":
         return ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7"]
 
+    if provider_type == "codex":
+        from app.services.llm.providers.codex import _KNOWN_MODELS
+        return _KNOWN_MODELS
+
     if provider_type == "anthropic":
         from app.services.llm.providers.anthropic_provider import _KNOWN_MODELS
         return _KNOWN_MODELS
@@ -256,20 +261,23 @@ async def get_available_models():
     providers: dict[str, ProviderInfo] = {}
     known = list_known_providers()
 
-    # CLI is a local subprocess, not a network endpoint — include it in the
-    # response as "reachable" iff the `claude` binary is on PATH so the UI
-    # can offer it as a selectable Source. We don't probe it.
+    # Local subprocess providers — include them as reachable iff their binary
+    # is on PATH so the UI can offer them as selectable Sources.
     from shutil import which as _which
     cli_available = bool(_which(get_settings().claude_cli_path or "claude"))
     providers["cli"] = ProviderInfo(
         type="cli", label="Claude CLI", reachable=cli_available, url="",
     )
+    codex_available = bool(_which("codex"))
+    providers["codex"] = ProviderInfo(
+        type="codex", label="Codex CLI", reachable=codex_available, url="",
+    )
 
     urls_to_probe: dict[str, tuple[str, str]] = {}  # type → (label, url)
     for p in known:
         ptype = p["type"]
-        if ptype == "cli":
-            continue  # handled above — CLI is local, no HTTP probe
+        if ptype in ("cli", "codex"):
+            continue  # handled above — local subprocess, no HTTP probe
         custom_url = ""
         for layer_cfg in models_cfg.values():
             if isinstance(layer_cfg, dict):
@@ -357,6 +365,24 @@ async def test_model_layer(body: dict):
                 model=model,
                 system="You are a helpful assistant.",
                 messages=[{"role": "user", "content": "Say hi in 3 words."}],
+            )
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            return {
+                "success": True,
+                "latency_ms": elapsed_ms,
+                "reply": (reply or "").strip()[:100],
+                "model": model,
+                "provider_type": provider_type,
+            }
+
+        if provider_type == "codex":
+            from app.services.llm.codex_backend import CodexCliBackend
+            codex = CodexCliBackend()
+            reply, _usage = await codex.call(
+                model=model,
+                system="You are a helpful assistant.",
+                messages=[{"role": "user", "content": "Say hi in 3 words."}],
+                cwd=str(Path.home()),
             )
             elapsed_ms = round((time.monotonic() - start) * 1000)
             return {
@@ -558,7 +584,7 @@ async def _run_model(slot: dict, prompt: str, models_cfg: dict) -> dict:
 
     start = time.monotonic()
     try:
-        # CLI is managed by ClaudeCliBackend, not LLMProvider
+        # Local CLI providers are managed by their specialised backends.
         if provider_type == "cli":
             from app.services.llm.cli_backend import ClaudeCliBackend
             cli = ClaudeCliBackend()
@@ -566,6 +592,18 @@ async def _run_model(slot: dict, prompt: str, models_cfg: dict) -> dict:
                 model=model,
                 system="You are a helpful assistant.",
                 messages=[{"role": "user", "content": prompt}],
+            )
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            return {"success": True, "reply": reply, "latency_ms": elapsed_ms, "model": model, "provider_type": provider_type}
+
+        if provider_type == "codex":
+            from app.services.llm.codex_backend import CodexCliBackend
+            codex = CodexCliBackend()
+            reply, _usage = await codex.call(
+                model=model,
+                system="You are a helpful assistant.",
+                messages=[{"role": "user", "content": prompt}],
+                cwd=str(Path.home()),
             )
             elapsed_ms = round((time.monotonic() - start) * 1000)
             return {"success": True, "reply": reply, "latency_ms": elapsed_ms, "model": model, "provider_type": provider_type}
@@ -799,6 +837,16 @@ async def _run_judge_evaluation(
                 model=fast_model,
                 system="You are a precise AI evaluator. Always respond with valid JSON only.",
                 messages=[{"role": "user", "content": judge_prompt}],
+            )
+            judge_text = judge_text.strip()
+        elif fast_provider_type == "codex":
+            from app.services.llm.codex_backend import CodexCliBackend
+            codex = CodexCliBackend()
+            judge_text, _usage = await codex.call(
+                model=fast_model,
+                system="You are a precise AI evaluator. Always respond with valid JSON only.",
+                messages=[{"role": "user", "content": judge_prompt}],
+                cwd=str(Path.home()),
             )
             judge_text = judge_text.strip()
         else:
