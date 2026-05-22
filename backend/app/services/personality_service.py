@@ -175,7 +175,7 @@ class PersonalityService:
     # ------------------------------------------------------------------
 
     def build_general_chat_init(self, project_names: Optional[list] = None) -> str:
-        """Build the Chat Init block for Home project chat (system-main).
+        """Build the Chat Init block for Home workspace chat (system-main).
 
         This is now just a project chat for the system "Home" project.
         Kept as a separate method for backward compatibility.
@@ -274,7 +274,7 @@ class PersonalityService:
             logger.debug("format_now_block failed: %s", e)
 
         # Live-state heartbeat + worker activity (ambient signals) render next
-        # so Voxy reads "what's the environment right now" before per-project
+        # so Voxy reads "what's the environment right now" before per-workspace
         # context. These are short, bounded blocks.
         if live_state:
             parts.append(live_state.rstrip())

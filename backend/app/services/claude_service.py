@@ -1295,7 +1295,7 @@ class ClaudeService(ApiCallerMixin):
         task_id: str = "",
         endpoint_config: Optional[dict] = None,
     ) -> str:
-        """Lightweight worker — minimal prompt, no personality, no project context.
+        """Lightweight worker — minimal prompt, no personality, no workspace context.
 
         For tasks that need LLM judgment but not full context (enrich, summarize,
         research). Saves ~80% tokens vs execute_worker_task.
@@ -1349,7 +1349,7 @@ class ClaudeService(ApiCallerMixin):
         return result or ""
 
     async def generate_brief(self, prompt: str) -> str:
-        """One-shot project brief generation using the deep model. No history, no persistence."""
+        """One-shot workspace brief generation using the deep model. No history, no persistence."""
         system_prompt = (
             "You are a senior product manager and technical architect generating a comprehensive "
             "project brief / PRD. Produce well-structured, professional markdown. "

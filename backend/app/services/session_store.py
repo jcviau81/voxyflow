@@ -2,7 +2,7 @@
 
 Provides a simple file-based session store so conversations survive restarts.
 Each chat_id maps to a JSON file under data/sessions/.
-The chat_id format (e.g. "general:abc", "project:xyz", "card:123") naturally
+The chat_id format (e.g. "general:abc", "workspace:xyz", "card:123") naturally
 maps to subdirectories via colon → slash translation.
 """
 
@@ -366,7 +366,7 @@ class SessionStore:
         messages = data.get("messages", [])
         message_count = data.get("message_count", len(messages))
 
-        if not (chat_id.startswith("project:") or chat_id.startswith("card:")):
+        if not (chat_id.startswith("workspace:") or chat_id.startswith("card:")):
             return None
         if message_count < 1:
             return None
@@ -455,13 +455,13 @@ class SessionStore:
     def create_session(self, workspace_id: str, title: str | None = None) -> str:
         """Create a new session with a stable incremental chat_id.
 
-        Returns the chat_id, e.g. 'project:system-main:session-2'.
-        The base session (no suffix) is 'project:{workspace_id}'.
+        Returns the chat_id, e.g. 'workspace:system-main:session-2'.
+        The base session (no suffix) is 'workspace:{workspace_id}'.
         """
         import re
-        base_chat_id = f"project:{workspace_id}"
+        base_chat_id = f"workspace:{workspace_id}"
 
-        # Find existing session numbers for this project
+        # Find existing session numbers for this workspace
         max_session_num = 1  # base session counts as 1
         prefix_path = self._get_session_path(base_chat_id).parent
         if prefix_path.exists():
@@ -497,6 +497,53 @@ class SessionStore:
             f.write(data)
 
         return chat_id
+
+
+def migrate_legacy_project_sessions() -> int:
+    """Move ``sessions/project/**/*.json`` → ``sessions/workspace/**/`` and
+    rewrite each file's internal ``chat_id`` field from ``project:...`` to
+    ``workspace:...``.
+
+    Idempotent — if a destination file already exists, the legacy file is
+    skipped (and removed) so a re-run is harmless. Returns count of moved files.
+    """
+    src_root = DATA_DIR / "sessions" / "project"
+    if not src_root.exists():
+        return 0
+    dst_root = DATA_DIR / "sessions" / "workspace"
+    dst_root.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    for src in src_root.rglob("*.json"):
+        rel = src.relative_to(src_root)
+        dst = dst_root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists():
+            src.unlink(missing_ok=True)
+            continue
+        try:
+            with open(src, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            cid = data.get("chat_id", "")
+            if isinstance(cid, str) and cid.startswith("project:"):
+                data["chat_id"] = "workspace:" + cid[len("project:"):]
+            with open(dst, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            src.unlink()
+            moved += 1
+        except Exception:
+            continue
+    # Best-effort: prune the now-empty legacy tree.
+    for d in sorted(src_root.rglob("*"), reverse=True):
+        if d.is_dir():
+            try:
+                d.rmdir()
+            except OSError:
+                pass
+    try:
+        src_root.rmdir()
+    except OSError:
+        pass
+    return moved
 
 
 # Singleton

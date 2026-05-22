@@ -808,7 +808,7 @@ class SchedulerService:
                 for project in projects:
                     try:
                         # Check if this project had recent chat activity
-                        chat_id = f"project:{project.id}"
+                        chat_id = f"workspace:{project.id}"
                         history = session_store.get_recent_messages(chat_id, limit=1)
                         if not history:
                             continue

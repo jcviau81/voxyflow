@@ -127,6 +127,37 @@ def _save_jobs(jobs: list[dict]) -> None:
         raise HTTPException(500, f"Failed to persist jobs: {e}")
 
 
+def migrate_legacy_project_keys() -> int:
+    """Rewrite jobs.json: legacy ``project_id``/``project_heartbeat`` → ``workspace_*``.
+
+    Idempotent — running it twice is a no-op. Returns the number of jobs touched.
+    Called once at backend startup; safe to call repeatedly.
+    """
+    jobs = _load_jobs()
+    if not jobs:
+        return 0
+    touched = 0
+    for j in jobs:
+        changed = False
+        if "project_heartbeat" in j and "workspace_heartbeat" not in j:
+            j["workspace_heartbeat"] = j.pop("project_heartbeat")
+            changed = True
+        payload = j.get("payload") or {}
+        if "project_id" in payload and "workspace_id" not in payload:
+            payload["workspace_id"] = payload.pop("project_id")
+            changed = True
+        if "project_heartbeat" in payload and "workspace_heartbeat" not in payload:
+            payload["workspace_heartbeat"] = payload.pop("project_heartbeat")
+            changed = True
+        if changed:
+            j["payload"] = payload
+            touched += 1
+    if touched:
+        _save_jobs(jobs)
+        logger.info(f"[Jobs] Migrated {touched} job(s): project_* → workspace_*")
+    return touched
+
+
 def _find_job(jobs: list[dict], job_id: str) -> tuple[int, dict] | tuple[None, None]:
     """Find a job by id. Returns (index, job) or (None, None)."""
     for i, j in enumerate(jobs):
@@ -316,7 +347,7 @@ async def _run_reminder(job: dict, payload: dict) -> dict:
 
 
 async def _run_execute_board(job: dict, payload: dict) -> dict:
-    """Execute all matching cards from a project board."""
+    """Execute all matching cards from a workspace board."""
     workspace_id = payload.get("workspace_id")
     if not workspace_id:
         return {"status": "error", "message": "Missing workspace_id in payload"}
@@ -399,12 +430,12 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
 async def _run_agent_task(job: dict, payload: dict) -> dict:
     """Execute a freeform instruction through the chat pipeline.
 
-    Workspace heartbeats (jobs flagged ``project_heartbeat`` with a ``workspace_id``)
+    Workspace heartbeats (jobs flagged ``workspace_heartbeat`` with a ``workspace_id``)
     are routed through the dedicated autonomy runner instead of the interactive
     dispatcher — same toolset, but without the 'wait for go' gate.
     """
     is_heartbeat = bool(
-        payload.get("project_heartbeat") or job.get("project_heartbeat")
+        payload.get("workspace_heartbeat") or job.get("workspace_heartbeat")
     )
     if is_heartbeat and payload.get("workspace_id"):
         return await _run_autonomy_tick(job, payload)
@@ -485,7 +516,7 @@ async def _emit_ws(event_type: str, payload: dict) -> None:
 
 
 async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
-    """Execute a project autonomy heartbeat — dispatcher-shaped, no 'go' gate.
+    """Execute a workspace autonomy heartbeat — dispatcher-shaped, no 'go' gate.
 
     The tick is registered in ``WorkerSessionStore`` as a pseudo-session
     (``worker_class="autonomy"``, ``intent="autonomy"``) so it shows up in the
@@ -526,7 +557,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
     _emit_job_session(job, chat_id, workspace_id)
 
     # Register in the worker session store so the Worker Panel sees it.
-    # Job names for heartbeats are already "Heartbeat — <project>"; the panel
+    # Job names for heartbeats are already "Heartbeat — <workspace>"; the panel
     # prefixes "Autonomy — " on top. Don't double-prefix in the session summary.
     summary = job.get("name") or job_id
     try:

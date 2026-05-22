@@ -887,7 +887,7 @@ def build_handlers(
             chat_id = (params.get("chat_id") or "").strip()
             if not chat_id:
                 workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "")
-                chat_id = f"project:{workspace_id}" if workspace_id else ""
+                chat_id = f"workspace:{workspace_id}" if workspace_id else ""
             if not chat_id:
                 return {"success": False, "error": "chat_id required (or set VOXYFLOW_WORKSPACE_ID env var)"}
 

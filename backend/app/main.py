@@ -1,4 +1,4 @@
-"""Voxyflow — Voice-first project management assistant."""
+"""Voxyflow — Voice-first workspace management assistant."""
 
 import asyncio
 import json
@@ -92,7 +92,7 @@ def _seen_message_id(message_id: str, chat_id: str) -> bool:
 
 app = FastAPI(
     title="Voxyflow",
-    description="Voice-first project management assistant with multi-model orchestration",
+    description="Voice-first workspace management assistant with multi-model orchestration",
     version="0.1.0",
     lifespan=build_lifespan(_claude_service, _orchestrator),
 )
@@ -242,8 +242,8 @@ async def general_websocket(websocket: WebSocket):
         """Deliver ALL pending results across all sessions on WebSocket connect.
 
         This ensures workers that completed while the client was on a different
-        project (or disconnected) are delivered immediately, without requiring
-        the user to manually navigate to each project.
+        workspace (or disconnected) are delivered immediately, without requiring
+        the user to manually navigate to each workspace.
         """
         try:
             all_pending = await pending_store.list_all_pending()
@@ -361,7 +361,7 @@ async def general_websocket(websocket: WebSocket):
                         log_context="WS chat:subscribe",
                     )
                     # Drop any prior subscriptions on this socket so switching
-                    # projects doesn't leak streams from the old chat.
+                    # workspaces doesn't leak streams from the old chat.
                     for prior_chat in ws_broadcast.get_ws_chats(websocket):
                         if prior_chat != sub_chat_id:
                             ws_broadcast.unsubscribe_chat(websocket, prior_chat)
@@ -387,13 +387,13 @@ async def general_websocket(websocket: WebSocket):
                     session_id = payload.get("sessionId") or str(uuid4())
 
                     # Deliver ALL pending results across all sessions on connect
-                    # so results from other projects arrive without manual navigation
+                    # so results from other workspaces arrive without manual navigation
                     await _deliver_all_pending()
 
                     # Derive the canonical chat_id from workspace_id/card_id (server-side authority).
                     # The frontend may pass a stable chatId for sub-sessions, but we validate
-                    # it against what the project/card context says — a mismatch would bleed
-                    # history and CLI subprocesses across projects.
+                    # it against what the workspace/card context says — a mismatch would bleed
+                    # history and CLI subprocesses across workspaces.
                     if card_id:
                         chat_level = "card"
                     elif workspace_id:
@@ -424,7 +424,7 @@ async def general_websocket(websocket: WebSocket):
                     ws_broadcast.subscribe_chat(websocket, chat_id)
 
                     # Broadcast user message to OTHER devices viewing the same chat.
-                    # Scoped to chat_id so unrelated projects/tabs don't receive it.
+                    # Scoped to chat_id so unrelated workspaces/tabs don't receive it.
                     await ws_broadcast.emit_to_chat(chat_id, "chat:message:new", {
                         "chatId": chat_id,
                         "sessionId": session_id,

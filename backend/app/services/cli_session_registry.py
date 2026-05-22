@@ -149,7 +149,7 @@ class CliSessionRegistry:
         return True
 
     def get_by_chat_id(self, chat_id: str) -> Optional[CliSession]:
-        """Find an active CLI session by chat_id (e.g. 'project:xyz')."""
+        """Find an active CLI session by chat_id (e.g. 'workspace:xyz')."""
         for session in self._sessions.values():
             if session.chat_id == chat_id:
                 return session

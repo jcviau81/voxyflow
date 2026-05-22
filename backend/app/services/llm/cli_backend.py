@@ -202,7 +202,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                   Auto-injected into tool path parameters. Defaults to "system-main".
             card_id: Card scope for MCP tools. Exposed as VOXYFLOW_CARD_ID.
                   Auto-injected into tool path parameters when in card chat context.
-            chat_id: Canonical chat id (e.g. "project:<uuid>" / "card:<id>").
+            chat_id: Canonical chat id (e.g. "workspace:<uuid>" / "card:<id>").
                   Exposed as VOXYFLOW_CHAT_ID for memory attribution tagging.
             worker_id: Task id when this MCP subprocess is spawned for a worker.
                   Exposed as VOXYFLOW_WORKER_ID — when set, memory_save tags

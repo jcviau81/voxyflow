@@ -39,7 +39,7 @@ async def create_session(body: CreateSessionRequest):
     """Create a new session with a stable chat_id.
 
     Returns { chatId, title } for the new session.
-    The chat_id is deterministic: project:{projectId}:session-N where N is incremental.
+    The chat_id is deterministic: workspace:{workspaceId}:session-N where N is incremental.
     """
     chat_id = session_store.create_session(body.workspace_id, body.title)
     title = body.title or chat_id.split(":")[-1].replace("-", " ").title()
@@ -113,7 +113,7 @@ def _make_snippet(content: str, query: str, radius: int = 50) -> str:
 @router.get("/search/messages")
 async def search_messages(
     q: str = Query(..., min_length=1, description="Search query"),
-    workspace_id: str | None = Query(None, description="Filter by workspace_id (matches chat_id prefix 'project:{id}')"),
+    workspace_id: str | None = Query(None, description="Filter by workspace_id (matches chat_id prefix 'workspace:{id}')"),
     limit: int = Query(20, ge=1, le=100, description="Max results"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -121,7 +121,7 @@ async def search_messages(
     Keyword search across persisted messages (case-insensitive substring match).
 
     Returns a list of matching messages with a snippet (~100 chars) around the match.
-    Optionally filters to a specific project by matching chat_id prefix 'project:{workspace_id}'.
+    Optionally filters to a specific workspace by matching chat_id prefix 'workspace:{workspace_id}'.
     """
     stmt = (
         select(Message)
@@ -131,7 +131,7 @@ async def search_messages(
     )
 
     if workspace_id:
-        stmt = stmt.where(Message.chat_id.like(f"project:{workspace_id}%"))
+        stmt = stmt.where(Message.chat_id.like(f"workspace:{workspace_id}%"))
 
     result = await db.execute(stmt)
     messages = result.scalars().all()
