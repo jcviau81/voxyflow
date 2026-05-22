@@ -965,6 +965,41 @@ class DeepWorkerPool:
                     event.intent, (_worker_class or {}).get("name"), event.task_id,
                 )
 
+            # Final remap: Claude tier aliases ("haiku"/"sonnet"/"opus" and the
+            # "claude-*" canonical names) only make sense on a Claude backend.
+            # If the resolved provider is something else (codex, openai, ollama, \u2026),
+            # the alias becomes a literal model name the provider won't recognise
+            # (e.g. Codex CLI rejects "sonnet": "The 'sonnet' model is not
+            # supported when using Codex with a ChatGPT account."). Drop the alias
+            # and use the worker class's model \u2014 or the default worker model \u2014 so
+            # the user's configured provider model wins.
+            _CLAUDE_PROVIDERS = {"cli", "anthropic"}
+            _resolved_provider = (_endpoint_config or {}).get("provider_type", "").lower()
+            _eff_lower = _effective_model.lower()
+            _is_claude_alias = (
+                _eff_lower in {"haiku", "sonnet", "opus"}
+                or _eff_lower.startswith("claude-")
+            )
+            if (
+                _is_claude_alias
+                and _resolved_provider
+                and _resolved_provider not in _CLAUDE_PROVIDERS
+            ):
+                _fallback = (_worker_class or {}).get("model") or get_default_worker_model()
+                _fb_lower = (_fallback or "").lower()
+                # Only remap if the fallback is a real provider-native model name,
+                # not itself a Claude alias (which would just re-trigger the bug).
+                if _fallback and _fb_lower not in {"haiku", "sonnet", "opus"} and not _fb_lower.startswith("claude-"):
+                    logger.info(
+                        "[ModelRemap] %r is a Claude alias but provider is %r \u2014 "
+                        "using %r instead (task=%s, worker_class=%r)",
+                        _effective_model, _resolved_provider, _fallback,
+                        event.task_id, (_worker_class or {}).get("name"),
+                    )
+                    _effective_model = _fallback
+                    if _endpoint_config is not None:
+                        event.data["_resolved_worker_model"] = _effective_model
+
             # Update task_meta so get_active_tasks reflects the actual model
             if event.task_id in self._task_meta:
                 self._task_meta[event.task_id]["model"] = _effective_model
