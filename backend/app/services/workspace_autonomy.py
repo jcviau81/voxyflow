@@ -37,7 +37,7 @@ logger = logging.getLogger("voxyflow.workspace_autonomy")
 
 
 VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow")))
-SANDBOX_DIR = VOXYFLOW_DIR / "sandbox" / "projects"
+SANDBOX_DIR = VOXYFLOW_DIR / "sandbox" / "workspaces"
 
 DIVIDER = "---"
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)

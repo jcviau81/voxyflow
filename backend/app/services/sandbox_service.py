@@ -1,16 +1,51 @@
 """Sandbox service — managed file storage for Voxy workers.
 
 Sandbox root: ~/.voxyflow/sandbox/ (VOXYFLOW_SANDBOX_DIR)
-Per-workspace area: ~/.voxyflow/sandbox/projects/<workspace-slug>/
+Per-workspace area: ~/.voxyflow/sandbox/workspaces/<workspace-slug>/
 Security: rejects any path with '..' components to prevent traversal.
 """
 
 import logging
+import shutil
 from pathlib import Path
 
 from app.config import VOXYFLOW_SANDBOX_DIR
 
 logger = logging.getLogger(__name__)
+
+
+def migrate_legacy_projects_subdir() -> int:
+    """Merge ``sandbox/projects/*`` into ``sandbox/workspaces/`` and remove the
+    legacy parent dir when empty.
+
+    The standalone migration script (``scripts/migrate_project_to_workspace.py``)
+    only renames the parent dir when the target doesn't exist. When both
+    co-existed because of a partial run, entries kept being written under the
+    old name. This helper merges them safely: existing target entries win, so
+    nothing is overwritten.
+
+    Idempotent — returns count of entries moved (0 on a clean tree).
+    """
+    src_root = VOXYFLOW_SANDBOX_DIR / "projects"
+    if not src_root.exists():
+        return 0
+    dst_root = VOXYFLOW_SANDBOX_DIR / "workspaces"
+    dst_root.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    for entry in list(src_root.iterdir()):
+        target = dst_root / entry.name
+        if target.exists():
+            continue
+        try:
+            entry.rename(target)
+            moved += 1
+        except OSError:
+            continue
+    try:
+        src_root.rmdir()
+    except OSError:
+        pass
+    return moved
 
 
 class SandboxService:
@@ -33,20 +68,20 @@ class SandboxService:
         logger.info("Sandbox directory ensured: %s", self._sandbox_root)
         return self._sandbox_root
 
-    def get_project_workspace(self, project_name: str) -> Path:
-        """Get the sandbox directory for a specific project (legacy naming — Phase 3 renames to workspace)."""
-        safe_name = self._slugify(project_name)
-        return self._sandbox_root / "projects" / safe_name
+    def get_workspace_sandbox(self, workspace_name: str) -> Path:
+        """Get the sandbox directory for a specific workspace (by slugified name)."""
+        safe_name = self._slugify(workspace_name)
+        return self._sandbox_root / "workspaces" / safe_name
 
-    def ensure_project_workspace(self, project_name: str) -> Path:
-        """Create and return the sandbox directory for a project."""
-        ws = self.get_project_workspace(project_name)
+    def ensure_workspace_sandbox(self, workspace_name: str) -> Path:
+        """Create and return the sandbox directory for a workspace."""
+        ws = self.get_workspace_sandbox(workspace_name)
         ws.mkdir(parents=True, exist_ok=True)
         logger.info("Workspace sandbox ensured: %s", ws)
         return ws
 
     def _slugify(self, name: str) -> str:
-        """Convert project name to a safe directory name."""
+        """Convert workspace name to a safe directory name."""
         import re
         slug = name.strip().lower()
         slug = re.sub(r'[^\w\s-]', '', slug)
