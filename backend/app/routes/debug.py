@@ -110,7 +110,7 @@ async def dump_context(req: DebugContextRequest):
         )
         base_prompt = personality.build_fast_prompt(
             chat_level=chat_level,
-            project=project_context,
+            workspace=project_context,
             card=card_context,
             native_tools=("cli_mcp" if use_cli else use_native),
         )
@@ -131,7 +131,7 @@ async def dump_context(req: DebugContextRequest):
         )
         base_prompt = personality.build_deep_prompt(
             chat_level=chat_level,
-            project=project_context,
+            workspace=project_context,
             card=card_context,
             is_chat_responder=True,
             native_tools=("cli_mcp" if use_cli else use_native),
@@ -160,9 +160,9 @@ async def dump_context(req: DebugContextRequest):
 
     dynamic_context = personality.build_dynamic_context_block(
         chat_level=chat_level,
-        project=project_context,
+        workspace=project_context,
         card=card_context,
-        project_names=project_names,
+        workspace_names=project_names,
         memory_context=memory_context,
         worker_classes=wc_list,
         live_state=live_state_block or None,

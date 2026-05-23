@@ -1,10 +1,10 @@
 """
 ChromaDB-based RAG (Retrieval-Augmented Generation) service for Voxyflow.
 
-Each project gets 3 isolated collections:
-  - voxyflow_project_{workspace_id}_docs       ← uploaded documents
-  - voxyflow_project_{workspace_id}_history    ← conversation history
-  - voxyflow_project_{workspace_id}_workspace  ← cards, notes, board data
+Each workspace gets 3 isolated collections:
+  - voxyflow_workspace_{workspace_id}_docs     ← uploaded documents
+  - voxyflow_workspace_{workspace_id}_history  ← conversation history
+  - voxyflow_workspace_{workspace_id}_board    ← cards, notes, board data
 
 ChromaDB persists to ~/.voxyflow/chroma/ (NOT inside the repo).
 Embeddings use sentence-transformers/all-MiniLM-L6-v2 (local, no API key needed).
@@ -52,12 +52,12 @@ from app.services.document_parser import ParsedDocument
 
 class RAGService:
     """
-    Per-project ChromaDB RAG service.
+    Per-workspace ChromaDB RAG service.
 
-    Collections per project:
-    - voxyflow_project_{workspace_id}_docs      ← uploaded documents
-    - voxyflow_project_{workspace_id}_history   ← conversation history
-    - voxyflow_project_{workspace_id}_workspace ← cards, notes, board data
+    Collections per workspace:
+    - voxyflow_workspace_{workspace_id}_docs    ← uploaded documents
+    - voxyflow_workspace_{workspace_id}_history ← conversation history
+    - voxyflow_workspace_{workspace_id}_board   ← cards, notes, board data
     """
 
     def __init__(self, persist_dir: str = "~/.voxyflow/chroma"):
@@ -84,13 +84,13 @@ class RAGService:
     # -----------------------------------------------------------------------
 
     def _col_docs(self, workspace_id: str) -> str:
-        return f"voxyflow_project_{workspace_id}_docs"
+        return f"voxyflow_workspace_{workspace_id}_docs"
 
     def _col_history(self, workspace_id: str) -> str:
-        return f"voxyflow_project_{workspace_id}_history"
+        return f"voxyflow_workspace_{workspace_id}_history"
 
     def _col_workspace(self, workspace_id: str) -> str:
-        return f"voxyflow_project_{workspace_id}_workspace"
+        return f"voxyflow_workspace_{workspace_id}_board"
 
     def _get_or_create_collection(self, name: str):
         """Get or create a ChromaDB collection with the default embedding function."""
@@ -214,14 +214,14 @@ class RAGService:
             logger.error(f"index_conversation_turn failed (workspace_id={workspace_id!r}): {e}")
 
     # -----------------------------------------------------------------------
-    # Workspace indexing (cards, project info)
+    # Workspace indexing (cards, workspace info)
     # -----------------------------------------------------------------------
 
     async def index_workspace(
         self, workspace_id: str, cards: list[dict], project_info: dict
     ) -> None:
         """
-        Index card titles/descriptions and project info into the workspace collection.
+        Index card titles/descriptions and workspace info into the workspace collection.
         Re-indexes fully on each call (upsert by card_id).
         """
         if not self._enabled:
@@ -234,7 +234,7 @@ class RAGService:
             documents = []
             metadatas = []
 
-            # Index project info
+            # Index workspace info
             project_text = f"Workspace: {project_info.get('title', '')}\n"
             if project_info.get('description'):
                 project_text += f"Description: {project_info['description']}\n"
@@ -357,7 +357,7 @@ class RAGService:
     # -----------------------------------------------------------------------
 
     async def _get_inherit_main_context(self, workspace_id: str) -> bool:
-        """Look up the project's inherit_main_context setting from the database."""
+        """Look up the workspace's inherit_main_context setting from the database."""
         try:
             from app.database import async_session, Workspace, SYSTEM_MAIN_WORKSPACE_ID
             if workspace_id == SYSTEM_MAIN_WORKSPACE_ID:
@@ -375,11 +375,11 @@ class RAGService:
         self, workspace_id: str, query: str, max_chars: int = 2000
     ) -> Optional[str]:
         """
-        Query the project knowledge base and format results into a context string
+        Query the workspace knowledge base and format results into a context string
         suitable for injection into a system prompt.
 
-        When the project's inherit_main_context is True and the project is not
-        system-main, also queries the Main project's collections in parallel
+        When the workspace's inherit_main_context is True and the workspace is not
+        system-main, also queries the Main workspace's collections in parallel
         and merges results.
 
         Returns None if no relevant results found or RAG is disabled.
@@ -392,7 +392,7 @@ class RAGService:
 
             inherit = await self._get_inherit_main_context(workspace_id)
 
-            # Query current project (and optionally Main project in parallel)
+            # Query current workspace (and optionally Main workspace in parallel)
             should_query_main = inherit and workspace_id != SYSTEM_MAIN_WORKSPACE_ID
 
             if should_query_main:
@@ -400,7 +400,7 @@ class RAGService:
                     self.query(workspace_id, query, n_results=8),
                     self.query(SYSTEM_MAIN_WORKSPACE_ID, query, n_results=4),
                 )
-                # Merge and deduplicate (project results take priority)
+                # Merge and deduplicate (workspace results take priority)
                 seen_texts: dict[str, dict] = {}
                 for item in project_results + main_results:
                     text_key = item["text"][:200]
@@ -463,7 +463,7 @@ class RAGService:
     # -----------------------------------------------------------------------
 
     def delete_project(self, workspace_id: str) -> None:
-        """Delete all 3 collections for a project."""
+        """Delete all 3 collections for a workspace."""
         if not self._enabled:
             return
 

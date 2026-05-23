@@ -20,14 +20,14 @@ logger = logging.getLogger("voxyflow.chat_id")
 def canonical_chat_id(workspace_id: str | None, card_id: str | None) -> str:
     """Return the canonical chat_id for a (workspace_id, card_id) context.
 
-    Card chats win over project chats. Missing context falls back to the
+    Card chats win over workspace chats. Missing context falls back to the
     system-main general chat.
     """
     if card_id:
         return f"card:{card_id}"
     if workspace_id:
-        return f"project:{workspace_id}"
-    return f"project:{SYSTEM_MAIN_WORKSPACE_ID}"
+        return f"workspace:{workspace_id}"
+    return f"workspace:{SYSTEM_MAIN_WORKSPACE_ID}"
 
 
 def resolve_chat_id(

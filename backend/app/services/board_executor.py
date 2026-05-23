@@ -59,7 +59,7 @@ async def build_execution_plan(
     workspace_id: str,
     statuses: list[str] | None = None,
 ) -> ExecutionPlan:
-    """Query cards for a project and build an ordered execution plan."""
+    """Query cards for a workspace and build an ordered execution plan."""
     if statuses is None:
         statuses = [CardStatus.TODO, CardStatus.IN_PROGRESS]
 
@@ -204,7 +204,7 @@ async def execute_board(
         cards=cards,
     )
     _active_executions[execution_id] = execution
-    chat_id = chat_id or f"project:{workspace_id}"
+    chat_id = chat_id or f"workspace:{workspace_id}"
     done_card_ids: list[str] = []
 
     async def _run_card(card_plan: CardPlan, index: int) -> None:

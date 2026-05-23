@@ -1,4 +1,4 @@
-"""Workspace autonomy — per-project heartbeat jobs.
+"""Workspace autonomy — per-workspace heartbeat jobs.
 
 Each project can opt into an autonomous heartbeat: a scheduled ``agent_task``
 that fires on an interval, reads a project-scoped directive file, and runs the
@@ -51,12 +51,12 @@ DEFAULT_SCHEDULE = "every_5min"
 
 
 def heartbeat_file(workspace_id: str) -> Path:
-    """Absolute path to the project's heartbeat directive file."""
+    """Absolute path to the workspace's heartbeat directive file."""
     return SANDBOX_DIR / workspace_id / "heartbeat.md"
 
 
 def job_id_for(workspace_id: str) -> str:
-    """Stable job id for a project's autonomy heartbeat."""
+    """Stable job id for a workspace's autonomy heartbeat."""
     return f"proj-heartbeat-{workspace_id}"
 
 
@@ -98,7 +98,7 @@ _DEFAULT_PREAMBLE = (
 
 
 def ensure_heartbeat_file(workspace_id: str, project_title: str = "") -> Path:
-    """Create the project's heartbeat.md with a default preamble if missing.
+    """Create the workspace's heartbeat.md with a default preamble if missing.
 
     Idempotent: existing files are never overwritten.
     """
@@ -174,7 +174,7 @@ def build_job_dict(
     schedule: str = DEFAULT_SCHEDULE,
     enabled: bool = True,
 ) -> dict[str, Any]:
-    """Return the canonical jobs.json entry for this project's heartbeat."""
+    """Return the canonical jobs.json entry for this workspace's heartbeat."""
     path = heartbeat_file(workspace_id)
     return {
         "id": job_id_for(workspace_id),
@@ -195,10 +195,10 @@ def build_job_dict(
             },
             # Flag in payload so _run_agent_task routes to the autonomy runner.
             # (The top-level flag below is kept for list views / filters.)
-            "project_heartbeat": True,
+            "workspace_heartbeat": True,
         },
         # Marker so list views can group / filter these.
-        "project_heartbeat": True,
+        "workspace_heartbeat": True,
     }
 
 
@@ -251,7 +251,7 @@ def upsert(
     schedule: Optional[str] = None,
     directive: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Create or update the autonomy job for a project.
+    """Create or update the autonomy job for a workspace.
 
     ``directive`` — when provided, overwrites the content below the divider
     in ``heartbeat.md``. Pass an empty string to clear it (effectively pause
@@ -307,7 +307,7 @@ def disable(workspace_id: str) -> bool:
 
 
 async def run_now(workspace_id: str) -> dict[str, Any]:
-    """Execute the project's heartbeat job immediately (bypassing the schedule)."""
+    """Execute the workspace's heartbeat job immediately (bypassing the schedule)."""
     from app.services.job_runner import _execute_job
 
     load, _save, find = _jobs_io()

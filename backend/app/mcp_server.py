@@ -180,13 +180,13 @@ async def _lookup_task_workspace(task_id: str) -> str | None:
 
 
 async def _enforce_task_scope(task_id: str, scope: str | None) -> dict | None:
-    """Return an error dict if the task falls outside the active project scope.
+    """Return an error dict if the task falls outside the active workspace scope.
 
     scope handling:
       - "all" (case-insensitive) → bypass the check, return None
       - otherwise                → strict: task must belong to the current
-                                    project when VOXYFLOW_WORKSPACE_ID is set
-    In general chat (no project scope active), the check is a no-op.
+                                    workspace when VOXYFLOW_WORKSPACE_ID is set
+    In general chat (no workspace scope active), the check is a no-op.
     """
     if (scope or "").lower() == "all":
         return None
@@ -200,9 +200,9 @@ async def _enforce_task_scope(task_id: str, scope: str | None) -> dict | None:
         return {
             "success": False,
             "error": (
-                f"Task {task_id} belongs to a different project "
+                f"Task {task_id} belongs to a different workspace "
                 f"(workspace_id={task_pid or '∅'}) and is not visible from the "
-                f"current project scope. Pass scope='all' to override."
+                f"current workspace scope. Pass scope='all' to override."
             ),
         }
     return None

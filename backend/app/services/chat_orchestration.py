@@ -152,7 +152,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         """Inner implementation of handle_message (called under per-chat lock)."""
         _bg_tasks: list[asyncio.Task] = []
 
-        # Resolve project/card context from the database
+        # Resolve workspace/card context from the database
         project_context, card_context, project_names = await self._resolve_context(
             workspace_id=workspace_id,
             card_id=card_id,
@@ -1222,16 +1222,16 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     parts.append("- [{}] {} (id: {})".format(s, t, cid))
                 return "\n".join(parts)
             return "card.list completed ({} ms)".format(duration)
-        elif action in ("project.list", "list_projects"):
+        elif action in ("workspace.list", "list_workspaces"):
             if isinstance(api_result, list):
                 count = len(api_result)
-                parts = ["Found {} project(s):".format(count)]
+                parts = ["Found {} workspace(s):".format(count)]
                 for p in api_result[:10]:
                     t = p.get("title", "Untitled")
                     pid = p.get("id", "")
                     parts.append("- {} (id: {})".format(t, pid))
                 return "\n".join(parts)
-            return "project.list completed ({} ms)".format(duration)
+            return "workspace.list completed ({} ms)".format(duration)
         else:
             return f"Action `{action}` completed ({duration}ms)"
 
@@ -1343,7 +1343,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         card_id: str | None,
         chat_level: str,
     ) -> tuple[dict | None, dict | None, list[str]]:
-        """Resolve project context and card context from the database.
+        """Resolve workspace context and card context from the database.
 
         Returns (project_context, card_context, project_names).
         project_names is always an empty list — the dispatcher calls
@@ -1354,7 +1354,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         project_names: list[str] = []
 
         # #8 card_id inherit: if we have a card but no workspace_id, look up
-        # the parent project so the card chat gets project-level context too
+        # the parent workspace so the card chat gets workspace-level context too
         # (board state, tech stack, github). Without this, Voxy in card chat
         # sees only the card and hallucinates the surrounding world.
         if card_id and not workspace_id:
@@ -1367,7 +1367,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     if parent:
                         workspace_id = parent
             except Exception as e:
-                logger.warning(f"_resolve_context: card->project lookup failed: {e}")
+                logger.warning(f"_resolve_context: card->workspace lookup failed: {e}")
 
         if workspace_id:
             try:
@@ -1377,7 +1377,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
                     proj = result.scalar_one_or_none()
                     if proj:
-                        # Fetch non-archived cards for this project (for dynamic state counts)
+                        # Fetch non-archived cards for this workspace (for dynamic state counts)
                         cards_result = await db.execute(
                             select(Card).where(
                                 Card.workspace_id == workspace_id,

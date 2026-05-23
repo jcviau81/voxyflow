@@ -614,14 +614,14 @@ class ClaudeService(ApiCallerMixin):
         # Static base prompt — personality + dispatcher (or autonomy) + tools (cacheable)
         if role == "autonomy":
             base_prompt = self.personality.build_autonomy_prompt(
-                project=project_context,
+                workspace=project_context,
                 directive_path=autonomy_directive_path,
                 native_tools=native_tools_mode,
             )
         else:
             base_prompt = self.personality.build_fast_prompt(
                 chat_level=chat_level,
-                project=project_context,
+                workspace=project_context,
                 card=card_context,
                 native_tools=native_tools_mode,
             )
@@ -633,9 +633,9 @@ class ClaudeService(ApiCallerMixin):
         # Workspace/card context + memory — dynamic, must NOT be in base_prompt
         dynamic_context = self.personality.build_dynamic_context_block(
             chat_level=chat_level,
-            project=project_context,
+            workspace=project_context,
             card=card_context,
-            project_names=project_names,
+            workspace_names=project_names,
             memory_context=memory_context,
             worker_classes=wc_list,
             live_state=live_state_block or None,
@@ -875,7 +875,7 @@ class ClaudeService(ApiCallerMixin):
         # Static base prompt — personality + dispatcher + tools only (cacheable)
         base_prompt = self.personality.build_deep_prompt(
             chat_level=chat_level,
-            project=project_context,
+            workspace=project_context,
             card=card_context,
             is_chat_responder=True,
             native_tools=native_tools_mode,
@@ -888,9 +888,9 @@ class ClaudeService(ApiCallerMixin):
         # Workspace/card context + memory — dynamic, must NOT be in base_prompt
         dynamic_context = self.personality.build_dynamic_context_block(
             chat_level=chat_level,
-            project=project_context,
+            workspace=project_context,
             card=card_context,
-            project_names=project_names,
+            workspace_names=project_names,
             memory_context=memory_context,
             worker_classes=wc_list,
             live_state=live_state_block or None,
@@ -1202,7 +1202,7 @@ class ClaudeService(ApiCallerMixin):
         base_prompt = self.personality.build_worker_prompt(
             model=model,
             chat_level=chat_level,
-            project=project_context,
+            workspace=project_context,
             card=card_context,
         )
 
@@ -1295,7 +1295,7 @@ class ClaudeService(ApiCallerMixin):
         task_id: str = "",
         endpoint_config: Optional[dict] = None,
     ) -> str:
-        """Lightweight worker — minimal prompt, no personality, no project context.
+        """Lightweight worker — minimal prompt, no personality, no workspace context.
 
         For tasks that need LLM judgment but not full context (enrich, summarize,
         research). Saves ~80% tokens vs execute_worker_task.
@@ -1349,7 +1349,7 @@ class ClaudeService(ApiCallerMixin):
         return result or ""
 
     async def generate_brief(self, prompt: str) -> str:
-        """One-shot project brief generation using the deep model. No history, no persistence."""
+        """One-shot workspace brief generation using the deep model. No history, no persistence."""
         system_prompt = (
             "You are a senior product manager and technical architect generating a comprehensive "
             "project brief / PRD. Produce well-structured, professional markdown. "

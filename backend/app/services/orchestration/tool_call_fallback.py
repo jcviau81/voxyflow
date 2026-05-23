@@ -224,15 +224,15 @@ class ToolCallFallbackMixin:
         # Static base (cacheable) — dynamic context injected separately below
         base_prompt = self._claude.personality.build_fast_prompt(
             chat_level=chat_level,
-            project=project_context,
+            workspace=project_context,
             card=card_context,
         )
         _wc_list = await self._claude._load_worker_classes_context()
         _dynamic_ctx = self._claude.personality.build_dynamic_context_block(
             chat_level=chat_level,
-            project=project_context,
+            workspace=project_context,
             card=card_context,
-            project_names=project_names,
+            workspace_names=project_names,
             memory_context=memory_context,
             worker_classes=_wc_list,
         )
