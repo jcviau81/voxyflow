@@ -320,7 +320,7 @@ async def create_project(body: WorkspaceCreate, db: AsyncSession = Depends(get_d
         local_path = str(project_workspace)
     else:
         # Default: ~/.voxyflow/workspace/<project-slug>/
-        project_workspace = ws.ensure_project_workspace(body.title.strip())
+        project_workspace = ws.ensure_workspace_sandbox(body.title.strip())
         local_path = str(project_workspace)
 
     project = Workspace(
@@ -438,12 +438,12 @@ async def delete_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         logger.warning("Memory collection cleanup failed for project %s: %s", workspace_id, e)
 
-    # Filesystem: session files (project + per-card), workspace dir, worker
+    # Filesystem: session files (workspace + per-card), workspace dir, worker
     # sessions whose JSON carries this workspace_id, and worker artifacts for
-    # every task that belonged to the project.
+    # every task that belonged to the workspace.
     data_root = Path(os.environ.get("VOXYFLOW_DATA", os.path.expanduser("~/.voxyflow")))
     sessions_dir = data_root / "sessions"
-    sandbox_dir = data_root / "sandbox" / "projects" / workspace_id
+    sandbox_dir = data_root / "sandbox" / "workspaces" / workspace_id
     worker_sessions_dir = data_root / "worker_sessions"
     worker_artifacts_dir = data_root / "worker_artifacts"
 
@@ -1740,7 +1740,7 @@ async def smart_prioritize(workspace_id: str, db: AsyncSession = Depends(get_db)
 async def suggest_project_path(name: str):
     """Return the default workspace path for a project name (not created yet)."""
     ws = get_sandbox_service()
-    path = ws.get_project_workspace(name.strip() or "unnamed")
+    path = ws.get_workspace_sandbox(name.strip() or "unnamed")
     return {"path": str(path)}
 
 

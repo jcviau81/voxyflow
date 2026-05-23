@@ -305,6 +305,14 @@ def build_lifespan(
         sb_path = await sb_service.ensure_sandbox()
         logger.info("✅ Sandbox ready: %s", sb_path)
 
+        try:
+            from app.services.sandbox_service import migrate_legacy_projects_subdir
+            n = migrate_legacy_projects_subdir()
+            if n:
+                logger.info(f"✅ Merged {n} sandbox entries: sandbox/projects/ → sandbox/workspaces/")
+        except Exception:
+            logger.exception("⚠️  sandbox/projects → sandbox/workspaces migration failed (non-fatal)")
+
         rag = get_rag_service()
         if rag.enabled:
             logger.info("✅ RAGService initialized (ChromaDB + intfloat/multilingual-e5-large)")

@@ -877,7 +877,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             "properties": {
                 "chat_id": {
                     "type": "string",
-                    "description": "Chat session ID (e.g. 'project:uuid'). Defaults to current session if omitted.",
+                    "description": "Chat session ID (e.g. 'workspace:uuid'). Defaults to current session if omitted.",
                 },
                 "last_n_messages": {
                     "type": "integer",
