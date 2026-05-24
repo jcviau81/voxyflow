@@ -369,7 +369,7 @@ class Workspace(Base):
     github_url = Column(String, nullable=True)        # "https://github.com/owner/repo"
     github_branch = Column(String, nullable=True)     # "main"
     github_language = Column(String, nullable=True)    # "TypeScript"
-    local_path = Column(String, nullable=True)         # "~/projects/voxyflow"
+    local_path = Column(String, nullable=True)         # "~/workspaces/voxyflow"
     is_favorite = Column(Boolean, default=False, nullable=False)  # User-pinned favorite
     inherit_main_context = Column(Boolean, default=True, nullable=False)  # Include Home workspace RAG context
     created_at = Column(DateTime, default=utcnow)

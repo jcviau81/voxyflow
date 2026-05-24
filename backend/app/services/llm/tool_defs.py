@@ -54,9 +54,9 @@ DELEGATE_ACTION_TOOL = {
                 "description": "simple=single-step CRUD, complex=multi-step or destructive",
                 "default": "simple",
             },
-            "project_name": {
+            "workspace_name": {
                 "type": "string",
-                "description": "Target project name (if applicable)",
+                "description": "Target workspace name (if applicable)",
             },
             "card_title": {
                 "type": "string",

@@ -245,14 +245,14 @@ class PersistentChatMixin:
 
         # Guard-rail: enforce workspace_id consistency on reused persistent
         # processes. The MCP subprocess env is fixed at spawn time, so a
-        # chat_id reused with a different workspace_id would leak across project
+        # chat_id reused with a different workspace_id would leak across workspace
         # scopes via memory/knowledge handlers. We kill the stale subprocess
         # and fall through to respawn with the correct env.
         if pcp and workspace_id:
             sess = get_cli_session_registry().get_by_chat_id(chat_id)
             if sess and sess.workspace_id and sess.workspace_id != workspace_id:
                 logger.error(
-                    f"[CLI-persistent] PROJECT_ID DRIFT: chat_id={chat_id} "
+                    f"[CLI-persistent] WORKSPACE_ID DRIFT: chat_id={chat_id} "
                     f"was spawned with workspace_id={sess.workspace_id!r} "
                     f"but called with workspace_id={workspace_id!r} — "
                     f"killing stale subprocess to prevent context bleed"

@@ -14,40 +14,6 @@ from app.config import VOXYFLOW_SANDBOX_DIR
 logger = logging.getLogger(__name__)
 
 
-def migrate_legacy_projects_subdir() -> int:
-    """Merge ``sandbox/projects/*`` into ``sandbox/workspaces/`` and remove the
-    legacy parent dir when empty.
-
-    The standalone migration script (``scripts/migrate_project_to_workspace.py``)
-    only renames the parent dir when the target doesn't exist. When both
-    co-existed because of a partial run, entries kept being written under the
-    old name. This helper merges them safely: existing target entries win, so
-    nothing is overwritten.
-
-    Idempotent — returns count of entries moved (0 on a clean tree).
-    """
-    src_root = VOXYFLOW_SANDBOX_DIR / "projects"
-    if not src_root.exists():
-        return 0
-    dst_root = VOXYFLOW_SANDBOX_DIR / "workspaces"
-    dst_root.mkdir(parents=True, exist_ok=True)
-    moved = 0
-    for entry in list(src_root.iterdir()):
-        target = dst_root / entry.name
-        if target.exists():
-            continue
-        try:
-            entry.rename(target)
-            moved += 1
-        except OSError:
-            continue
-    try:
-        src_root.rmdir()
-    except OSError:
-        pass
-    return moved
-
-
 class SandboxService:
     """Manages file operations within the workers' sandbox directory."""
 

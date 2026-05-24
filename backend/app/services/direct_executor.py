@@ -133,7 +133,7 @@ class DirectExecutor:
         title: str,
         workspace_id: str,
     ) -> str | None:
-        """Look up a card_id by title within a project.
+        """Look up a card_id by title within a workspace.
 
         Returns the card_id if found, None otherwise.
         If multiple cards match, returns the first and logs a warning.
@@ -162,12 +162,12 @@ class DirectExecutor:
         matches = [c for c in cards if c.get("title", "").strip().lower() == search_title]
 
         if not matches:
-            logger.info(f"[DirectExecutor] No card found with title '{title}' in project {workspace_id}")
+            logger.info(f"[DirectExecutor] No card found with title '{title}' in workspace {workspace_id}")
             return None
 
         if len(matches) > 1:
             logger.warning(
-                f"[DirectExecutor] {len(matches)} cards match title '{title}' in project {workspace_id}, "
+                f"[DirectExecutor] {len(matches)} cards match title '{title}' in workspace {workspace_id}, "
                 f"using first: {matches[0].get('id')}"
             )
 
@@ -184,7 +184,7 @@ class DirectExecutor:
 
         Args:
             delegate_data: The full delegate dict with action, params, etc.
-            workspace_id: The current project context (injected into params if needed).
+            workspace_id: The current workspace context (injected into params if needed).
 
         Returns:
             {
@@ -222,12 +222,12 @@ class DirectExecutor:
         # Build the params to pass to the MCP tool
         params = dict(delegate_data.get("params", {}))
 
-        # Hard-scope workspace_id to the current chat's project. Mirrors the
+        # Hard-scope workspace_id to the current chat's workspace. Mirrors the
         # invariant enforced by `_build_url_and_payload` (via VOXYFLOW_WORKSPACE_ID
         # env) for the MCP subprocess path. DirectExecutor runs in the backend
         # process where that env is not set, so we enforce it explicitly here —
         # otherwise a stray / guessed workspace_id from the LLM leaks cards into
-        # the wrong project (typically Home / system-main when the dispatcher
+        # the wrong workspace (typically Home / system-main when the dispatcher
         # misreads its context).
         tool_schema = tool_def.get("inputSchema", {})
         required_fields = tool_schema.get("required", [])
@@ -268,7 +268,7 @@ class DirectExecutor:
                         "success": False,
                         "action": action,
                         "mcp_tool": mcp_tool_name,
-                        "error": f"No card found with title '{card_title}' in current project",
+                        "error": f"No card found with title '{card_title}' in current workspace",
                         "duration_ms": 0,
                     }
             elif not card_title:

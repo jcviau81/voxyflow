@@ -170,10 +170,10 @@ class MemoryExtractionMixin:
     ) -> list[str]:
         """Analyze conversation messages and auto-store important facts/decisions.
 
-        ``workspace_id`` is the UUID of the project chat (or ``"system-main"``
+        ``workspace_id`` is the UUID of the workspace chat (or ``"system-main"``
         / ``None`` for the general chat). Auto-extracted memories NEVER land
-        in the cross-project ``memory-global`` collection — that collection
-        is reserved for manual ``memory.save`` calls without a project
+        in the cross-workspace ``memory-global`` collection — that collection
+        is reserved for manual ``memory.save`` calls without a workspace
         scope. General-chat auto extractions land in
         ``memory-workspace-system-main``.
 
@@ -202,10 +202,10 @@ class MemoryExtractionMixin:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         # Determine target collection.
-        # - No workspace_id OR workspace_id == "system-main" → system-main project
-        # - Any other workspace_id → that project's collection
+        # - No workspace_id OR workspace_id == "system-main" → system-main workspace
+        # - Any other workspace_id → that workspace's collection
         # We NEVER auto-extract into GLOBAL_COLLECTION; global memory is
-        # reserved for deliberate user saves without a project scope.
+        # reserved for deliberate user saves without a workspace scope.
         if not workspace_id or workspace_id == "system-main":
             target_workspace_id = "system-main"
         else:
@@ -289,7 +289,7 @@ class MemoryExtractionMixin:
                     "importance": importance,
                     "confidence": round(confidence, 2),
                 }
-                metadata["project"] = target_workspace_id
+                metadata["workspace"] = target_workspace_id
                 metadata["workspace_id"] = target_workspace_id
 
                 # Dedup: check if very similar memory already exists
@@ -347,7 +347,7 @@ class MemoryExtractionMixin:
                     "speaker": speaker,
                     "importance": importance,
                 }
-                metadata["project"] = target_workspace_id
+                metadata["workspace"] = target_workspace_id
                 metadata["workspace_id"] = target_workspace_id
 
                 existing = self.search_memory(

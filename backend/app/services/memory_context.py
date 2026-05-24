@@ -128,7 +128,7 @@ class MemoryContextMixin:
             or meta.get("card_id")
             or (f"card:{meta['card_id']}" if meta.get("card_id") else None)
             or meta.get("workspace_id")
-            or meta.get("project")
+            or meta.get("workspace")
             or "unknown"
         )
         scope = str(scope).strip() or "unknown"
@@ -203,7 +203,7 @@ class MemoryContextMixin:
 
     def build_memory_context(
         self,
-        project_name: Optional[str] = None,
+        workspace_name: Optional[str] = None,
         workspace_id: Optional[str] = None,
         include_long_term: bool = True,
         include_daily: bool = True,
@@ -224,7 +224,7 @@ class MemoryContextMixin:
         ``layers`` controls which tiers to load.
 
         ``workspace_id`` is the UUID (or "system-main") that keys the Chroma
-        collection. ``project_name`` is only used for display/section titles.
+        collection. ``workspace_name`` is only used for display/section titles.
 
         Returns None if no memory available.
         """
@@ -232,7 +232,7 @@ class MemoryContextMixin:
         if self._chromadb_enabled and query:
             return self._build_chromadb_context(
                 query=query,
-                project_name=project_name,
+                workspace_name=workspace_name,
                 workspace_id=workspace_id,
                 card_id=card_id,
                 include_long_term=include_long_term,
@@ -242,13 +242,13 @@ class MemoryContextMixin:
 
         # Fallback: file-based memory
         return self._build_file_context(
-            project_name=project_name,
+            workspace_name=workspace_name,
             include_long_term=include_long_term,
             include_daily=include_daily,
         )
 
     def _build_l0_identity(self, workspace_id: str) -> Optional[str]:
-        """L0: Pinned KG entities — project identity. Sync-safe (reads from cache)."""
+        """L0: Pinned KG entities — workspace identity. Sync-safe (reads from cache)."""
         try:
             from app.services.knowledge_graph_service import get_knowledge_graph_service
             kg = get_knowledge_graph_service()
@@ -281,8 +281,8 @@ class MemoryContextMixin:
         """
         MAX_PROCEDURES = 3
         try:
-            # General chat (no project / system-main) may have saved procedures
-            # to GLOBAL_COLLECTION; project chats stay in their own collection.
+            # General chat (no workspace / system-main) may have saved procedures
+            # to GLOBAL_COLLECTION; workspace chats stay in their own collection.
             if workspace_id and workspace_id != "system-main":
                 collections = [_workspace_collection(workspace_id)]
             else:
@@ -393,7 +393,7 @@ class MemoryContextMixin:
     def _build_l2_ondemand(
         self,
         query: str,
-        project_name: Optional[str],
+        workspace_name: Optional[str],
         workspace_id: Optional[str],
         card_id: Optional[str],
         include_long_term: bool,
@@ -409,7 +409,7 @@ class MemoryContextMixin:
         """
         L2_HARD_CAP = 3
         sections: list[str] = []
-        display_label = project_name or workspace_id or ""
+        display_label = workspace_name or workspace_id or ""
         l1_ids = l1_ids or set()
         l1_texts = l1_texts or set()
         remaining = budget
@@ -549,7 +549,7 @@ class MemoryContextMixin:
     def _build_chromadb_context(
         self,
         query: str,
-        project_name: Optional[str] = None,
+        workspace_name: Optional[str] = None,
         workspace_id: Optional[str] = None,
         card_id: Optional[str] = None,
         include_long_term: bool = True,
@@ -558,11 +558,11 @@ class MemoryContextMixin:
     ) -> Optional[str]:
         """Build memory context using tiered layers with budget tracking.
 
-        L0 — Pinned KG entities (project identity, ~100 tokens)
+        L0 — Pinned KG entities (workspace identity, ~100 tokens)
         L1 — High-importance recent memories (essentials, ~400 tokens)
         L2 — Full semantic search (on-demand, remaining budget)
 
-        Strict project isolation: project chats NEVER see global.
+        Strict workspace isolation: workspace chats NEVER see global.
         """
         remaining = budget
         sections: list[str] = []
@@ -600,7 +600,7 @@ class MemoryContextMixin:
             # L2: Full semantic search — dedup by both ID (exact) and text (near-dup)
             if 2 in layers and remaining > 50:
                 l2 = self._build_l2_ondemand(
-                    query, project_name, workspace_id, card_id,
+                    query, workspace_name, workspace_id, card_id,
                     include_long_term, min(remaining, 800),
                     l1_ids=l1_ids | proc_ids,
                     l1_texts=l1_texts,
@@ -611,14 +611,14 @@ class MemoryContextMixin:
         except Exception as e:
             logger.error(f"_build_chromadb_context failed: {e}")
             return self._build_file_context(
-                project_name=project_name,
+                workspace_name=workspace_name,
                 include_long_term=include_long_term,
                 include_daily=True,
             )
 
         if not sections:
             return self._build_file_context(
-                project_name=project_name,
+                workspace_name=workspace_name,
                 include_long_term=include_long_term,
                 include_daily=True,
             )
@@ -631,7 +631,7 @@ class MemoryContextMixin:
 
     def _build_file_context(
         self,
-        project_name: Optional[str] = None,
+        workspace_name: Optional[str] = None,
         include_long_term: bool = True,
         include_daily: bool = True,
     ) -> Optional[str]:
@@ -648,10 +648,10 @@ class MemoryContextMixin:
             if daily:
                 sections.append(f"**Recent daily logs:**\n{daily}")
 
-        if project_name:
-            proj = self._load_project_memory(project_name)
+        if workspace_name:
+            proj = self._load_project_memory(workspace_name)
             if proj:
-                sections.append(f"**Workspace notes ({project_name}):**\n{proj}")
+                sections.append(f"**Workspace notes ({workspace_name}):**\n{proj}")
 
         if not sections:
             return None
@@ -691,21 +691,21 @@ class MemoryContextMixin:
 
         return "\n\n".join(entries)
 
-    def _load_project_memory(self, project_name: str) -> str:
+    def _load_project_memory(self, workspace_name: str) -> str:
         """Load workspace-specific memory notes if they exist."""
-        project_file = MEMORY_DIR / "projects" / f"{project_name}.md"
-        if not project_file.exists():
-            slug = _slugify(project_name)
-            project_file = MEMORY_DIR / "projects" / f"{slug}.md"
+        workspace_file = MEMORY_DIR / "workspaces" / f"{workspace_name}.md"
+        if not workspace_file.exists():
+            slug = _slugify(workspace_name)
+            workspace_file = MEMORY_DIR / "workspaces" / f"{slug}.md"
 
-        if not project_file.exists():
+        if not workspace_file.exists():
             return ""
 
         try:
-            content = project_file.read_text(encoding="utf-8").strip()
+            content = workspace_file.read_text(encoding="utf-8").strip()
             return content
         except OSError as e:
-            logger.warning(f"Failed to read project memory {project_file}: {e}")
+            logger.warning(f"Failed to read workspace memory {workspace_file}: {e}")
             return ""
 
     # ------------------------------------------------------------------

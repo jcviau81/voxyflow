@@ -135,7 +135,7 @@ def _classify_text(text: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 _MEMORY_EXTRACTION_SYSTEM = """\
-You are a memory extraction assistant for a project management tool. Your job is to analyze a \
+You are a memory extraction assistant for a workspace management tool. Your job is to analyze a \
 short block of conversation messages and extract information worth remembering long-term.
 
 ## What to extract
@@ -176,13 +176,13 @@ Each item in the array must be a JSON object with exactly these fields:
     * a compliance / security / data-loss risk
   If the sentence doesn't clearly fit one of these slots, it is NOT high.
 
-- **medium** — useful technical facts, tool versions, naming conventions, project status
+- **medium** — useful technical facts, tool versions, naming conventions, workspace status
   updates, and mild preferences. This is the default for anything real but not critical.
 
 - **low** — incidental detail, single data point, background context.
 
 Jokes, banter, asides, metaphors, emoji-heavy reactions, and personal anecdotes
-unrelated to the project must be classified **skip** — not "high", not "medium", not "low".
+unrelated to the workspace must be classified **skip** — not "high", not "medium", not "low".
 
 ## Rules
 - Only include items with confidence > 0.7 that have real long-term value
@@ -222,7 +222,7 @@ Input: "tmux kill-session -t voxy"
 ## Entity Extraction (Knowledge Graph)
 Also extract named entities and relationships mentioned in the conversation:
 - entities: People, technologies, tools, components, concepts, or decisions discussed
-- relationships: How they relate (e.g. "project uses Redis", "auth depends on JWT")
+- relationships: How they relate (e.g. "workspace uses Redis", "auth depends on JWT")
 
 Return a JSON object (not an array) with two keys:
   - "memories": the array of memory objects described above
@@ -254,7 +254,7 @@ def _format_messages_for_extraction(messages: list[dict]) -> str:
 
 
 def _slugify(name: str) -> str:
-    """Convert a project name to a collection-safe slug."""
+    """Convert a workspace name to a collection-safe slug."""
     slug = name.lower().strip()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = slug.strip("-")

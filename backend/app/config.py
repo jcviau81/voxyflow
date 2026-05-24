@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # Reserved ports — surfaced into dispatcher + worker prompts so neither
-    # delegates a project that would collide with the supervisor.
+    # delegates a workspace that would collide with the supervisor.
     # `port` above IS the backend port; we keep a separate name here so the
     # prompt text reads naturally ("backend on 8000, frontend on 18789").
     voxyflow_backend_port: int = 8000     # uvicorn — same as `port`, exposed for prompts

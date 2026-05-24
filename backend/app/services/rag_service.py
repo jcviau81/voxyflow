@@ -218,7 +218,7 @@ class RAGService:
     # -----------------------------------------------------------------------
 
     async def index_workspace(
-        self, workspace_id: str, cards: list[dict], project_info: dict
+        self, workspace_id: str, cards: list[dict], workspace_info: dict
     ) -> None:
         """
         Index card titles/descriptions and workspace info into the workspace collection.
@@ -235,18 +235,18 @@ class RAGService:
             metadatas = []
 
             # Index workspace info
-            project_text = f"Workspace: {project_info.get('title', '')}\n"
-            if project_info.get('description'):
-                project_text += f"Description: {project_info['description']}\n"
-            if project_info.get('context'):
-                project_text += f"Context: {project_info['context']}\n"
+            project_text = f"Workspace: {workspace_info.get('title', '')}\n"
+            if workspace_info.get('description'):
+                project_text += f"Description: {workspace_info['description']}\n"
+            if workspace_info.get('context'):
+                project_text += f"Context: {workspace_info['context']}\n"
 
             if project_text.strip():
                 ids.append(f"workspace__project__{workspace_id}")
                 documents.append(project_text.strip())
                 metadatas.append({
                     "source": "workspace",
-                    "type": "project_info",
+                    "type": "workspace_info",
                     "workspace_id": workspace_id,
                 })
 
@@ -363,10 +363,10 @@ class RAGService:
             if workspace_id == SYSTEM_MAIN_WORKSPACE_ID:
                 return False
             async with async_session() as session:
-                project = await session.get(Workspace, workspace_id)
-                if project is None:
+                workspace = await session.get(Workspace, workspace_id)
+                if workspace is None:
                     return True  # default
-                return bool(project.inherit_main_context)
+                return bool(workspace.inherit_main_context)
         except Exception as e:
             logger.warning(f"_get_inherit_main_context failed: {e}")
             return True  # default to inheriting

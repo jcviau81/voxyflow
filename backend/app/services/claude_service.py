@@ -560,7 +560,7 @@ class ClaudeService(ApiCallerMixin):
         self,
         chat_id: str,
         user_message: str,
-        project_name: Optional[str] = None,
+        workspace_name: Optional[str] = None,
         chat_level: str = "general",
         project_context: Optional[dict] = None,
         card_context: Optional[dict] = None,
@@ -595,7 +595,7 @@ class ClaudeService(ApiCallerMixin):
             fast_layers = (0, 1, 2)
 
         memory_context = self.memory.build_memory_context(
-            project_name=project_name,
+            workspace_name=workspace_name,
             workspace_id=workspace_id,
             include_long_term=False,
             include_daily=True,
@@ -695,7 +695,7 @@ class ClaudeService(ApiCallerMixin):
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
                     "I converse with you directly and use MCP tools for fast operations "
-                    "(card CRUD, memory search, project/wiki lookups). For complex tasks "
+                    "(card CRUD, memory search, workspace/wiki lookups). For complex tasks "
                     "(research, code, multi-step ops), I include <delegate> blocks in my "
                     "response to trigger background workers."
                 )
@@ -830,7 +830,7 @@ class ClaudeService(ApiCallerMixin):
         self,
         chat_id: str,
         user_message: str,
-        project_name: Optional[str] = None,
+        workspace_name: Optional[str] = None,
         chat_level: str = "general",
         project_context: Optional[dict] = None,
         card_context: Optional[dict] = None,
@@ -858,7 +858,7 @@ class ClaudeService(ApiCallerMixin):
         recent = await self._get_windowed_history(chat_id)  # windowed messages for the API
 
         memory_context = self.memory.build_memory_context(
-            project_name=project_name,
+            workspace_name=workspace_name,
             workspace_id=workspace_id,
             include_long_term=True,
             include_daily=True,
@@ -945,7 +945,7 @@ class ClaudeService(ApiCallerMixin):
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
                     "I converse with you directly and use MCP tools for fast operations "
-                    "(card CRUD, memory search, project/wiki lookups). For complex tasks "
+                    "(card CRUD, memory search, workspace/wiki lookups). For complex tasks "
                     "(research, code, multi-step ops), I include <delegate> blocks in my "
                     "response to trigger background workers."
                 )
@@ -1352,7 +1352,7 @@ class ClaudeService(ApiCallerMixin):
         """One-shot workspace brief generation using the deep model. No history, no persistence."""
         system_prompt = (
             "You are a senior product manager and technical architect generating a comprehensive "
-            "project brief / PRD. Produce well-structured, professional markdown. "
+            "workspace brief / PRD. Produce well-structured, professional markdown. "
             "Be thorough, specific, and actionable. Use clear headings, bullet points, and "
             "tables where appropriate. Infer technical details from context when not explicitly provided."
         )
@@ -1368,8 +1368,8 @@ class ClaudeService(ApiCallerMixin):
     async def generate_health_summary(self, prompt: str) -> str:
         """One-shot health check summary using the fast model."""
         system_prompt = (
-            "You are a project health analyst. Given a project's stats and issues, "
-            "write a concise, honest 2-3 sentence summary of the project's health. "
+            "You are a workspace health analyst. Given a workspace's stats and issues, "
+            "write a concise, honest 2-3 sentence summary of the workspace's health. "
             "Be direct, specific, and actionable. No filler. Use plain text only."
         )
         return await self._call_api(
@@ -1384,7 +1384,7 @@ class ClaudeService(ApiCallerMixin):
     async def generate_standup(self, prompt: str) -> str:
         """One-shot standup generation using the fast model."""
         system_prompt = (
-            "You are a project assistant generating a concise daily standup summary. "
+            "You are a workspace assistant generating a concise daily standup summary. "
             "Be direct and brief. Use markdown bullet points. No filler words.\n"
             "Format:\n"
             "**✅ Done**\n- ...\n\n**🔨 In Progress**\n- ...\n\n**🚧 Blocked / Risks**\n- ...\n\n**📌 Today's Goals**\n- ..."
@@ -1401,7 +1401,7 @@ class ClaudeService(ApiCallerMixin):
     async def generate_meeting_notes(self, notes: str) -> dict:
         """One-shot meeting notes extraction. Returns cards + summary."""
         system_prompt = (
-            "You are a project assistant that extracts action items from meeting notes. "
+            "You are a workspace assistant that extracts action items from meeting notes. "
             "Respond ONLY with valid JSON — no markdown, no code blocks, no commentary.\n"
             "The JSON must have two keys:\n"
             '  "cards": an array of objects with keys: title (str), description (str), priority (int 0-3), agent_type (str)\n'
@@ -1437,7 +1437,7 @@ class ClaudeService(ApiCallerMixin):
     async def generate_priority_reasoning(self, prompt: str) -> str:
         """One-shot priority reasoning for top-3 cards. Returns JSON string."""
         system_prompt = (
-            "You are a project prioritization assistant. "
+            "You are a workspace prioritization assistant. "
             "Given the top prioritized cards with their scores and attributes, "
             "write a short, specific one-sentence reasoning for why each card is ranked where it is. "
             "Respond ONLY with valid JSON array — no markdown, no code blocks, no commentary."

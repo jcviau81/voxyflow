@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api", tags=["cards"])
 def _broadcast_card_change(card):
     """Notify all WS clients that a card changed."""
     workspace_id = getattr(card, 'workspace_id', None) or 'system-main'
-    ws_broadcast.emit_sync("cards:changed", {"projectId": workspace_id, "cardId": card.id})
+    ws_broadcast.emit_sync("cards:changed", {"workspaceId": workspace_id, "cardId": card.id})
 
 
 @router.get("/agents")
@@ -65,9 +65,9 @@ async def create_card(
     db: AsyncSession = Depends(get_db),
     x_voxyflow_chat_id: str | None = Header(default=None),
 ):
-    # Verify project exists
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    # Verify workspace exists
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
     # Auto-route to agent if not specified
@@ -141,12 +141,12 @@ async def list_cards(
 
 
 # ── Main Board / Unassigned Card endpoints (backward-compatible aliases) ────
-# These now proxy to the system "Main" project (system-main).
+# These now proxy to the system "Main" workspace (system-main).
 # MUST be declared before /cards/{card_id} to avoid path conflicts.
 
 
 class UnassignedCardCreate(BaseModel):
-    """Create a card on the Main Board (system project)."""
+    """Create a card on the Main Board (system workspace)."""
     title: str
     description: str = ""
     color: str | None = None  # yellow|blue|green|pink|purple|orange
@@ -155,7 +155,7 @@ class UnassignedCardCreate(BaseModel):
 
 @router.get("/cards/unassigned", response_model=list[CardResponse])
 async def list_unassigned_cards(db: AsyncSession = Depends(get_db)):
-    """List all cards on the Main Board (alias for system-main project cards)."""
+    """List all cards on the Main Board (alias for system-main workspace cards)."""
     stmt = (
         select(Card)
         .where(Card.workspace_id == SYSTEM_MAIN_WORKSPACE_ID)
@@ -172,7 +172,7 @@ async def create_unassigned_card(
     db: AsyncSession = Depends(get_db),
     x_voxyflow_chat_id: str | None = Header(default=None),
 ):
-    """Create a card on the Main Board (alias — creates in system-main project)."""
+    """Create a card on the Main Board (alias — creates in system-main workspace)."""
     card = Card(
         id=new_uuid(),
         workspace_id=SYSTEM_MAIN_WORKSPACE_ID,
@@ -199,7 +199,7 @@ async def bulk_reorder_cards(
     """Reorder cards in bulk. Sets each card's position to its index in ordered_ids.
 
     Missing IDs are skipped silently. Emits one cards:changed broadcast per
-    affected project at the end.
+    affected workspace at the end.
     """
     affected_workspace_ids: set[str] = set()
     for idx, cid in enumerate(body.ordered_ids):
@@ -214,7 +214,7 @@ async def bulk_reorder_cards(
     await db.commit()
 
     for workspace_id in affected_workspace_ids:
-        ws_broadcast.emit_sync("cards:changed", {"projectId": workspace_id, "cardId": None})
+        ws_broadcast.emit_sync("cards:changed", {"workspaceId": workspace_id, "cardId": None})
 
 
 @router.patch("/cards/{card_id}/assign/{workspace_id}", response_model=CardResponse)
@@ -223,12 +223,12 @@ async def assign_card_to_project(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Move a card to a project (assign workspace_id)."""
+    """Move a card to a workspace (assign workspace_id)."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found.")
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
     card.workspace_id = workspace_id
@@ -248,7 +248,7 @@ async def unassign_card_from_project(
     card_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Detach a card from its project (back to Main Board / system-main). Internal status becomes 'backlog'."""
+    """Detach a card from its workspace (back to Main Board / system-main). Internal status becomes 'backlog'."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found.")
@@ -441,13 +441,13 @@ async def execute_card(card_id: str, db: AsyncSession = Depends(get_db)):
     # Build linked files section
     files = json.loads(card.files) if card.files else []
 
-    # Look up project name if card belongs to a project
-    project_name = None
+    # Look up workspace name if card belongs to a workspace
+    workspace_name = None
     if card.workspace_id:
-        project = await db.get(Workspace, card.workspace_id)
-        if project:
-            project_name = project.title
-        # Move card to in-progress for project cards
+        workspace = await db.get(Workspace, card.workspace_id)
+        if workspace:
+            workspace_name = workspace.title
+        # Move card to in-progress for workspace cards
         if card.status in ("backlog", "todo"):
             card.status = "in-progress"
             await db.commit()
@@ -461,15 +461,15 @@ async def execute_card(card_id: str, db: AsyncSession = Depends(get_db)):
         parts.append("\nChecklist:\n" + "\n".join(checklist_lines))
     if files:
         parts.append(f"\nLinked files: {', '.join(files)}")
-    if project_name:
-        parts.append(f"\nProject: {project_name}")
+    if workspace_name:
+        parts.append(f"\nWorkspace: {workspace_name}")
     parts.append("\nExecute this card. Read the description carefully and do what it asks.")
     parts.append("If anything is unclear, ask for clarification in the card chat.")
     parts.append("When you complete checklist items, check them off.")
     parts.append("When done, summarize what you did.")
 
     prompt = "\n".join(parts)
-    return {"prompt": prompt, "projectName": project_name}
+    return {"prompt": prompt, "projectName": workspace_name}
 
 
 @router.post("/workspaces/{workspace_id}/boards/execute")
@@ -478,13 +478,13 @@ async def execute_board_plan(
     statuses: str = "todo,in-progress",
     db: AsyncSession = Depends(get_db),
 ):
-    """Build an execution plan for all matching cards on a project board.
+    """Build an execution plan for all matching cards on a workspace board.
 
     Returns the ordered list of cards that will be executed sequentially.
     The actual execution is triggered via WebSocket (kanban:execute:start).
     """
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
     from app.services.board_executor import build_execution_plan
@@ -517,7 +517,7 @@ async def delete_card(card_id: str, force: bool = False, db: AsyncSession = Depe
     workspace_id = card.workspace_id or 'system-main'
     await db.delete(card)
     await db.commit()
-    ws_broadcast.emit_sync("cards:changed", {"projectId": workspace_id, "cardId": card_id})
+    ws_broadcast.emit_sync("cards:changed", {"workspaceId": workspace_id, "cardId": card_id})
 
 
 @router.post("/cards/{card_id}/archive", response_model=CardResponse)
@@ -572,7 +572,7 @@ async def restore_card(card_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/workspaces/{workspace_id}/cards/archived", response_model=list[CardResponse])
 async def list_archived_cards(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """List archived cards for a project."""
+    """List archived cards for a workspace."""
     stmt = (
         select(Card)
         .where(Card.workspace_id == workspace_id, Card.archived_at.isnot(None))
@@ -589,17 +589,17 @@ async def clone_card_to_project(
     target_workspace_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Clone a card to another project. Appends ' (cloned)' to title and creates a cloned_from relation."""
+    """Clone a card to another workspace. Appends ' (cloned)' to title and creates a cloned_from relation."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found.")
 
     target_project = await db.get(Workspace, target_workspace_id)
     if not target_project:
-        raise HTTPException(404, "Target project not found.")
+        raise HTTPException(404, "Target workspace not found.")
 
     if card.workspace_id == target_workspace_id:
-        raise HTTPException(400, "Card is already in the target project.")
+        raise HTTPException(400, "Card is already in the target workspace.")
 
     new_card = Card(
         id=new_uuid(),
@@ -661,17 +661,17 @@ async def move_card_to_project(
     target_workspace_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Move a card to another project. Moves all checklist items, comments, and attachments."""
+    """Move a card to another workspace. Moves all checklist items, comments, and attachments."""
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found.")
 
     target_project = await db.get(Workspace, target_workspace_id)
     if not target_project:
-        raise HTTPException(404, "Target project not found.")
+        raise HTTPException(404, "Target workspace not found.")
 
     if card.workspace_id == target_workspace_id:
-        raise HTTPException(400, "Card is already in the target project.")
+        raise HTTPException(400, "Card is already in the target workspace.")
 
     card.workspace_id = target_workspace_id
     card.updated_at = utcnow()
@@ -1378,7 +1378,7 @@ async def enrich_card(
     try:
         raw = await claude._call_api(
             model=claude.fast_model,
-            system="You are a project assistant. Generate structured task enrichment data. Respond with valid JSON only.",
+            system="You are a workspace assistant. Generate structured task enrichment data. Respond with valid JSON only.",
             messages=[{"role": "user", "content": prompt}],
             client=claude.fast_client,
             client_type=claude.fast_client_type,

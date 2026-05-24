@@ -499,52 +499,5 @@ class SessionStore:
         return chat_id
 
 
-def migrate_legacy_project_sessions() -> int:
-    """Move ``sessions/project/**/*.json`` → ``sessions/workspace/**/`` and
-    rewrite each file's internal ``chat_id`` field from ``project:...`` to
-    ``workspace:...``.
-
-    Idempotent — if a destination file already exists, the legacy file is
-    skipped (and removed) so a re-run is harmless. Returns count of moved files.
-    """
-    src_root = DATA_DIR / "sessions" / "project"
-    if not src_root.exists():
-        return 0
-    dst_root = DATA_DIR / "sessions" / "workspace"
-    dst_root.mkdir(parents=True, exist_ok=True)
-    moved = 0
-    for src in src_root.rglob("*.json"):
-        rel = src.relative_to(src_root)
-        dst = dst_root / rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if dst.exists():
-            src.unlink(missing_ok=True)
-            continue
-        try:
-            with open(src, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            cid = data.get("chat_id", "")
-            if isinstance(cid, str) and cid.startswith("project:"):
-                data["chat_id"] = "workspace:" + cid[len("project:"):]
-            with open(dst, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            src.unlink()
-            moved += 1
-        except Exception:
-            continue
-    # Best-effort: prune the now-empty legacy tree.
-    for d in sorted(src_root.rglob("*"), reverse=True):
-        if d.is_dir():
-            try:
-                d.rmdir()
-            except OSError:
-                pass
-    try:
-        src_root.rmdir()
-    except OSError:
-        pass
-    return moved
-
-
 # Singleton
 session_store = SessionStore()

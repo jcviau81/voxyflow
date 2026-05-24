@@ -441,7 +441,7 @@ async def clone_repo(payload: ClonePayload):
     """Clone a repo locally via gh CLI."""
     owner = payload.owner
     repo = payload.repo
-    target_dir = payload.target_dir or os.path.expanduser(f"~/projects/{repo}")
+    target_dir = payload.target_dir or os.path.expanduser(f"~/workspaces/{repo}")
     target_dir = os.path.expanduser(target_dir)
 
     if await asyncio.to_thread(os.path.exists, target_dir):
@@ -469,7 +469,7 @@ class MkdirPayload(BaseModel):
 
 @router.post("/mkdir", dependencies=[Depends(verify_auth)])
 async def mkdir(payload: MkdirPayload):
-    """Create a local directory (and parents) for a project workspace."""
+    """Create a local directory (and parents) for a workspace workspace."""
     expanded = os.path.expanduser(payload.path)
     try:
         await asyncio.to_thread(os.makedirs, expanded, exist_ok=True)

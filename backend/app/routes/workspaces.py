@@ -56,10 +56,10 @@ def _save_jobs(jobs: list[dict]) -> None:
         json.dump(jobs, f, indent=2)
     os.replace(tmp_path, JOBS_FILE)
 
-router = APIRouter(prefix="/api/workspaces", tags=["projects"])
+router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
 
 # ---------------------------------------------------------------------------
-# Built-in project templates
+# Built-in workspace templates
 # ---------------------------------------------------------------------------
 
 TEMPLATES: dict[str, dict[str, Any]] = {
@@ -154,7 +154,7 @@ class CreateFromTemplateRequest(BaseModel):
 
 class CreateFromTemplateResponse(BaseModel):
     workspace_id: str
-    project_title: str
+    workspace_title: str
     cards_imported: int
     template_emoji: str
     template_color: str
@@ -201,7 +201,7 @@ class CardExport(BaseModel):
     relations: list[RelationExport] = []
 
 
-class ProjectExport(BaseModel):
+class WorkspaceExport(BaseModel):
     title: str
     description: str
     status: str
@@ -221,45 +221,45 @@ class WikiPageExport(BaseModel):
 class ExportPayload(BaseModel):
     version: str
     exported_at: str
-    project: ProjectExport
+    workspace: WorkspaceExport
     cards: list[CardExport]
     # TODO: wiki pages are intentionally excluded from export v1.0 to keep
     # the payload size manageable and avoid orphaned page references across
-    # project boundaries.  Bump version to "2.0" and add `wiki` field when
+    # workspace boundaries.  Bump version to "2.0" and add `wiki` field when
     # wiki export/import is implemented.
     # wiki: list[WikiPageExport] = []
 
 
 class ImportResponse(BaseModel):
     workspace_id: str
-    project_title: str
+    workspace_title: str
     cards_imported: int
 
 
 @router.get("/templates", response_model=list[TemplateResponse])
 async def list_templates():
-    """Return all built-in project templates."""
+    """Return all built-in workspace templates."""
     return list(TEMPLATES.values())
 
 
 @router.post("/from-template/{template_id}", response_model=CreateFromTemplateResponse, status_code=201)
-async def create_project_from_template(
+async def create_workspace_from_template(
     template_id: str,
     body: CreateFromTemplateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new project pre-populated with cards from a built-in template."""
+    """Create a new workspace pre-populated with cards from a built-in template."""
     template = TEMPLATES.get(template_id)
     if not template:
         raise HTTPException(404, f"Template '{template_id}' not found")
 
-    project = Workspace(
+    workspace = Workspace(
         id=new_uuid(),
         title=body.title,
         description=body.description,
         context="",
     )
-    db.add(project)
+    db.add(workspace)
     await db.flush()
 
     for card_data in template["cards"]:
@@ -273,7 +273,7 @@ async def create_project_from_template(
 
         card = Card(
             id=new_uuid(),
-            workspace_id=project.id,
+            workspace_id=workspace.id,
             title=card_data["title"],
             description="",
             status=card_data.get("status", "todo"),
@@ -284,11 +284,11 @@ async def create_project_from_template(
         db.add(card)
 
     await db.commit()
-    await db.refresh(project)
+    await db.refresh(workspace)
 
     return CreateFromTemplateResponse(
-        workspace_id=project.id,
-        project_title=project.title,
+        workspace_id=workspace.id,
+        workspace_title=workspace.title,
         cards_imported=len(template["cards"]),
         template_emoji=body.emoji or template["emoji"],
         template_color=body.color or template["color"],
@@ -296,8 +296,8 @@ async def create_project_from_template(
 
 
 @router.post("", response_model=WorkspaceResponse, status_code=201)
-async def create_project(body: WorkspaceCreate, db: AsyncSession = Depends(get_db)):
-    # Prevent duplicate project names (case-insensitive, active projects only)
+async def create_workspace(body: WorkspaceCreate, db: AsyncSession = Depends(get_db)):
+    # Prevent duplicate workspace names (case-insensitive, active workspaces only)
     existing = await db.execute(
         select(Workspace).where(
             func.lower(Workspace.title) == body.title.strip().lower(),
@@ -305,25 +305,25 @@ async def create_project(body: WorkspaceCreate, db: AsyncSession = Depends(get_d
         )
     )
     if existing.scalar_one_or_none():
-        logger.warning("Duplicate project name rejected: %s", body.title.strip())
+        logger.warning("Duplicate workspace name rejected: %s", body.title.strip())
         raise HTTPException(
             status_code=409,
-            detail=f"A project named '{body.title.strip()}' already exists."
+            detail=f"A workspace named '{body.title.strip()}' already exists."
         )
 
-    # Auto-create workspace directory for the project
+    # Auto-create workspace directory for the workspace
     ws = get_sandbox_service()
     if body.local_path:
         # User specified a custom path — use it and ensure it exists
-        project_workspace = Path(body.local_path).expanduser()
-        project_workspace.mkdir(parents=True, exist_ok=True)
-        local_path = str(project_workspace)
+        workspace_dir = Path(body.local_path).expanduser()
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        local_path = str(workspace_dir)
     else:
-        # Default: ~/.voxyflow/workspace/<project-slug>/
-        project_workspace = ws.ensure_workspace_sandbox(body.title.strip())
-        local_path = str(project_workspace)
+        # Default: ~/.voxyflow/workspace/<workspace-slug>/
+        workspace_dir = ws.ensure_workspace_sandbox(body.title.strip())
+        local_path = str(workspace_dir)
 
-    project = Workspace(
+    workspace = Workspace(
         id=new_uuid(),
         title=body.title.strip(),
         description=body.description or "",
@@ -334,14 +334,14 @@ async def create_project(body: WorkspaceCreate, db: AsyncSession = Depends(get_d
         github_language=body.github_language,
         local_path=local_path,
     )
-    db.add(project)
+    db.add(workspace)
     await db.commit()
-    await db.refresh(project)
-    return project
+    await db.refresh(workspace)
+    return workspace
 
 
 @router.get("", response_model=list[WorkspaceResponse])
-async def list_projects(
+async def list_workspaces(
     status: str | None = None,
     archived: bool | None = None,
     db: AsyncSession = Depends(get_db),
@@ -355,38 +355,38 @@ async def list_projects(
         else:
             stmt = stmt.where(Workspace.status == "active")
     else:
-        # Default: only active projects
+        # Default: only active workspaces
         stmt = stmt.where(Workspace.status == "active")
     result = await db.execute(stmt)
     return result.scalars().all()
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceWithCards)
-async def get_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
+async def get_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
     stmt = (
         select(Workspace)
         .options(selectinload(Workspace.cards))
         .where(Workspace.id == workspace_id)
     )
     result = await db.execute(stmt)
-    project = result.scalar_one_or_none()
-    if not project:
+    workspace = result.scalar_one_or_none()
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
-    return project
+    return workspace
 
 
 @router.delete("/{workspace_id}", status_code=204)
-async def delete_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """Delete a project and every trace of it — DB rows, ChromaDB collections,
+async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a workspace and every trace of it — DB rows, ChromaDB collections,
     chat/worker session files, workspace dir, worker artifacts. Irreversible;
     users should rely on Archive for recoverability."""
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
-    # Prevent deletion of system/non-deletable projects
-    if getattr(project, 'deletable', True) is False or getattr(project, 'is_system', False):
-        raise HTTPException(403, "Cannot delete system project.")
+    # Prevent deletion of system/non-deletable workspaces
+    if getattr(workspace, 'deletable', True) is False or getattr(workspace, 'is_system', False):
+        raise HTTPException(403, "Cannot delete system workspace.")
 
     # Capture card ids before the cascade delete — needed to wipe per-card
     # session files and worker artifacts on disk after the DB is gone.
@@ -401,7 +401,7 @@ async def delete_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
         ).all()
     ]
 
-    # Delete all cards belonging to this project (cascades to checklist items,
+    # Delete all cards belonging to this workspace (cascades to checklist items,
     # attachments, relations, history via ORM relationships).
     for card in (await db.execute(select(Card).where(Card.workspace_id == workspace_id))).scalars().all():
         await db.delete(card)
@@ -418,25 +418,25 @@ async def delete_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
     for ent in (await db.execute(select(KGEntity).where(KGEntity.workspace_id == workspace_id))).scalars().all():
         await db.delete(ent)
 
-    await db.delete(project)
+    await db.delete(workspace)
     await db.commit()
 
     # ------------------------------------------------------------------
     # Best-effort cleanup of out-of-DB state. Each step is isolated so a
-    # single failure can't leave the caller with a half-deleted project.
+    # single failure can't leave the caller with a half-deleted workspace.
     # ------------------------------------------------------------------
 
     # ChromaDB: RAG collections (docs/history/workspace) + memory collection.
     try:
         from app.services.rag_service import get_rag_service
-        get_rag_service().delete_project(workspace_id)
+        get_rag_service().delete_workspace(workspace_id)
     except Exception as e:
-        logger.warning("RAG cleanup failed for project %s: %s", workspace_id, e)
+        logger.warning("RAG cleanup failed for workspace %s: %s", workspace_id, e)
     try:
         from app.services.memory_service import get_memory_service
         get_memory_service().drop_workspace_collection(workspace_id)
     except Exception as e:
-        logger.warning("Memory collection cleanup failed for project %s: %s", workspace_id, e)
+        logger.warning("Memory collection cleanup failed for workspace %s: %s", workspace_id, e)
 
     # Filesystem: session files (workspace + per-card), workspace dir, worker
     # sessions whose JSON carries this workspace_id, and worker artifacts for
@@ -454,7 +454,7 @@ async def delete_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
         except Exception as e:
             logger.warning("Could not remove %s: %s", path, e)
 
-    _rmtree(sessions_dir / "project" / workspace_id)
+    _rmtree(sessions_dir / "workspace" / workspace_id)
     for cid in card_ids:
         _rmtree(sessions_dir / "card" / cid)
     _rmtree(sandbox_dir)
@@ -480,58 +480,58 @@ async def delete_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
     try:
         workspace_autonomy.disable(workspace_id)
     except Exception as e:
-        logger.warning("Could not disable autonomy for deleted project %s: %s", workspace_id, e)
+        logger.warning("Could not disable autonomy for deleted workspace %s: %s", workspace_id, e)
 
 
 @router.post("/{workspace_id}/archive", response_model=WorkspaceResponse)
-async def archive_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """Archive a project (hide from main list, keep all data)."""
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+async def archive_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
+    """Archive a workspace (hide from main list, keep all data)."""
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
-    # Prevent archiving system projects
-    if getattr(project, 'is_system', False):
-        raise HTTPException(403, "Cannot archive system project.")
+    # Prevent archiving system workspaces
+    if getattr(workspace, 'is_system', False):
+        raise HTTPException(403, "Cannot archive system workspace.")
 
-    project.status = "archived"
-    project.updated_at = utcnow()
+    workspace.status = "archived"
+    workspace.updated_at = utcnow()
     await db.commit()
-    await db.refresh(project)
-    return project
+    await db.refresh(workspace)
+    return workspace
 
 
 @router.post("/{workspace_id}/restore", response_model=WorkspaceResponse)
-async def restore_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """Restore an archived project back to active."""
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+async def restore_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
+    """Restore an archived workspace back to active."""
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
-    project.status = "active"
-    project.updated_at = utcnow()
+    workspace.status = "active"
+    workspace.updated_at = utcnow()
     await db.commit()
-    await db.refresh(project)
-    return project
+    await db.refresh(workspace)
+    return workspace
 
 
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
-async def update_project(
+async def update_workspace(
     workspace_id: str,
     body: WorkspaceUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        setattr(project, field, value)
-    project.updated_at = utcnow()
+        setattr(workspace, field, value)
+    workspace.updated_at = utcnow()
 
     await db.commit()
-    await db.refresh(project)
-    return project
+    await db.refresh(workspace)
+    return workspace
 
 
 @router.patch("/{workspace_id}/favorite", response_model=WorkspaceResponse)
@@ -539,19 +539,19 @@ async def toggle_favorite(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Toggle the is_favorite flag on a project."""
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    """Toggle the is_favorite flag on a workspace."""
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
-    project.is_favorite = not project.is_favorite
-    project.updated_at = utcnow()
+    workspace.is_favorite = not workspace.is_favorite
+    workspace.updated_at = utcnow()
     await db.commit()
-    await db.refresh(project)
-    return project
+    await db.refresh(workspace)
+    return workspace
 
 
 # ---------------------------------------------------------------------------
-# Autonomy — per-project heartbeat
+# Autonomy — per-workspace heartbeat
 # ---------------------------------------------------------------------------
 
 
@@ -561,17 +561,17 @@ class AutonomyUpsertBody(BaseModel):
     directive: str | None = None  # content written below the "---" divider
 
 
-async def _require_project(workspace_id: str, db: AsyncSession) -> Workspace:
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+async def _require_workspace(workspace_id: str, db: AsyncSession) -> Workspace:
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
-    return project
+    return workspace
 
 
 @router.get("/{workspace_id}/autonomy")
 async def get_autonomy(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """Return the current heartbeat state + directive for this project."""
-    await _require_project(workspace_id, db)
+    """Return the current heartbeat state + directive for this workspace."""
+    await _require_workspace(workspace_id, db)
     return workspace_autonomy.get_status(workspace_id)
 
 
@@ -581,17 +581,17 @@ async def put_autonomy(
     body: AutonomyUpsertBody,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create or update the project's autonomy heartbeat.
+    """Create or update the workspace's autonomy heartbeat.
 
     - ``enabled=false`` keeps the job in ``jobs.json`` but unregisters it from
       APScheduler (pause). Use DELETE to remove it entirely.
     - ``directive`` overwrites the content below the ``---`` divider. Pass
       ``""`` to clear the directive (next cycle becomes a no-op via the gate).
     """
-    project = await _require_project(workspace_id, db)
+    workspace = await _require_workspace(workspace_id, db)
     job = workspace_autonomy.upsert(
         workspace_id,
-        project.title,
+        workspace.title,
         enabled=body.enabled,
         schedule=body.schedule,
         directive=body.directive,
@@ -604,7 +604,7 @@ async def put_autonomy(
 @router.delete("/{workspace_id}/autonomy", status_code=204)
 async def delete_autonomy(workspace_id: str, db: AsyncSession = Depends(get_db)):
     """Remove the autonomy heartbeat job. The directive file is kept on disk."""
-    await _require_project(workspace_id, db)
+    await _require_workspace(workspace_id, db)
     workspace_autonomy.disable(workspace_id)
     return None
 
@@ -612,7 +612,7 @@ async def delete_autonomy(workspace_id: str, db: AsyncSession = Depends(get_db))
 @router.post("/{workspace_id}/autonomy/run")
 async def run_autonomy_now(workspace_id: str, db: AsyncSession = Depends(get_db)):
     """Trigger the heartbeat job immediately (fire-and-forget semantics)."""
-    await _require_project(workspace_id, db)
+    await _require_workspace(workspace_id, db)
     result = await workspace_autonomy.run_now(workspace_id)
     return {"workspace_id": workspace_id, "result": result}
 
@@ -622,8 +622,8 @@ async def run_autonomy_now(workspace_id: str, db: AsyncSession = Depends(get_db)
 # ---------------------------------------------------------------------------
 
 @router.get("/{workspace_id}/export")
-async def export_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """Export a project and all its cards as a JSON payload.
+async def export_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
+    """Export a workspace and all its cards as a JSON payload.
 
     Includes per-card: checklists (with completion state), time entries,
     file references, card relations, dependency IDs, and position.
@@ -641,12 +641,12 @@ async def export_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
         .where(Workspace.id == workspace_id)
     )
     result = await db.execute(stmt)
-    project = result.scalar_one_or_none()
-    if not project:
+    workspace = result.scalar_one_or_none()
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
     cards_data = []
-    for card in project.cards:
+    for card in workspace.cards:
         # Decode files — stored as a JSON string in the DB
         try:
             files = json.loads(card.files) if card.files else []
@@ -696,16 +696,16 @@ async def export_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
     payload = {
         "version": "1.1",
         "exported_at": datetime.now(timezone.utc).isoformat(),
-        "project": {
-            "title": project.title,
-            "description": project.description or "",
-            "status": project.status,
-            "context": project.context or "",
-            "github_repo": project.github_repo,
-            "github_url": project.github_url,
-            "github_branch": project.github_branch,
-            "github_language": project.github_language,
-            "local_path": project.local_path,
+        "workspace": {
+            "title": workspace.title,
+            "description": workspace.description or "",
+            "status": workspace.status,
+            "context": workspace.context or "",
+            "github_repo": workspace.github_repo,
+            "github_url": workspace.github_url,
+            "github_branch": workspace.github_branch,
+            "github_language": workspace.github_language,
+            "local_path": workspace.local_path,
         },
         "cards": cards_data,
     }
@@ -718,36 +718,36 @@ async def export_project(workspace_id: str, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.post("/import", response_model=ImportResponse, status_code=201)
-async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)):
-    """Import a project from an exported JSON payload. Creates a new project.
+async def import_workspace(body: ExportPayload, db: AsyncSession = Depends(get_db)):
+    """Import a workspace from an exported JSON payload. Creates a new workspace.
 
     Handles all fields produced by the v1.1 export: checklist items, time
     entries, file references, card relations, dependencies, and position.
     For relations and dependencies, old card IDs are mapped to the newly-
     assigned IDs so cross-references remain consistent after import.
     """
-    title = body.project.title
+    title = body.workspace.title
 
-    # Check if a project with the same title exists → append "(imported)"
+    # Check if a workspace with the same title exists → append "(imported)"
     stmt = select(Workspace).where(Workspace.title == title)
     existing = await db.execute(stmt)
     if existing.scalar_one_or_none():
         title = f"{title} (imported)"
 
-    project = Workspace(
+    workspace = Workspace(
         id=new_uuid(),
         title=title,
-        description=body.project.description,
-        status=body.project.status,
-        context=body.project.context,
-        github_repo=body.project.github_repo,
-        github_url=body.project.github_url,
-        github_branch=body.project.github_branch,
-        github_language=body.project.github_language,
-        local_path=body.project.local_path,
+        description=body.workspace.description,
+        status=body.workspace.status,
+        context=body.workspace.context,
+        github_repo=body.workspace.github_repo,
+        github_url=body.workspace.github_url,
+        github_branch=body.workspace.github_branch,
+        github_language=body.workspace.github_language,
+        local_path=body.workspace.local_path,
     )
-    db.add(project)
-    await db.flush()  # get project.id before creating cards
+    db.add(workspace)
+    await db.flush()  # get workspace.id before creating cards
 
     # --- Pass 1: create cards and build old_id → new_id mapping ---
     # This mapping is needed to rewrite relations and dependency_ids.
@@ -769,7 +769,7 @@ async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)
 
         card = Card(
             id=new_id,
-            workspace_id=project.id,
+            workspace_id=workspace.id,
             title=card_data.title,
             description=card_data.description,
             status=card_data.status,
@@ -838,11 +838,11 @@ async def import_project(body: ExportPayload, db: AsyncSession = Depends(get_db)
                 )
 
     await db.commit()
-    await db.refresh(project)
+    await db.refresh(workspace)
 
     return ImportResponse(
-        workspace_id=project.id,
-        project_title=project.title,
+        workspace_id=workspace.id,
+        workspace_title=workspace.title,
         cards_imported=len(body.cards),
     )
 
@@ -887,8 +887,8 @@ async def extract_meeting_notes(
     Extract action items from meeting notes using the Fast AI model.
     Returns a preview of cards — user confirms before creation.
     """
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
     if not body.notes or not body.notes.strip():
@@ -924,8 +924,8 @@ async def confirm_meeting_notes(
     """
     Create cards from confirmed meeting notes extraction.
     """
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
     card_ids = []
@@ -950,7 +950,7 @@ async def confirm_meeting_notes(
         db.add(card)
         card_ids.append(card.id)
 
-    project.updated_at = utcnow()
+    workspace.updated_at = utcnow()
     await db.commit()
 
     return MeetingConfirmResponse(created=len(card_ids), card_ids=card_ids)
@@ -967,19 +967,19 @@ class BriefResponse(BaseModel):
 
 @router.post("/{workspace_id}/brief", response_model=BriefResponse)
 async def generate_brief(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """Generate a comprehensive AI project brief / PRD using the Deep (Opus) model."""
-    # Fetch project + cards
+    """Generate a comprehensive AI workspace brief / PRD using the Deep (Opus) model."""
+    # Fetch workspace + cards
     stmt = (
         select(Workspace)
         .options(selectinload(Workspace.cards))
         .where(Workspace.id == workspace_id)
     )
     result = await db.execute(stmt)
-    project = result.scalar_one_or_none()
-    if not project:
+    workspace = result.scalar_one_or_none()
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
-    cards = project.cards
+    cards = workspace.cards
 
     # Group cards by status
     def card_lines(filtered_cards) -> str:
@@ -1000,18 +1000,18 @@ async def generate_brief(workspace_id: str, db: AsyncSession = Depends(get_db)):
     done_cards    = [c for c in cards if c.status == "done"]
 
     tech_stack = ""
-    if project.github_language:
-        tech_stack += f"Primary language: {project.github_language}. "
-    if project.github_repo:
-        tech_stack += f"Repo: {project.github_repo}. "
-    if project.local_path:
-        tech_stack += f"Local path: {project.local_path}. "
+    if workspace.github_language:
+        tech_stack += f"Primary language: {workspace.github_language}. "
+    if workspace.github_repo:
+        tech_stack += f"Repo: {workspace.github_repo}. "
+    if workspace.local_path:
+        tech_stack += f"Local path: {workspace.local_path}. "
     if not tech_stack:
         tech_stack = "Not specified — infer from context."
 
     prompt = (
-        f"Generate a professional project brief for: **{project.title}**\n\n"
-        f"Description: {project.description or 'No description provided.'}\n\n"
+        f"Generate a professional workspace brief for: **{workspace.title}**\n\n"
+        f"Description: {workspace.description or 'No description provided.'}\n\n"
         f"Tech stack: {tech_stack}\n\n"
         f"Cards/Features by status:\n\n"
         f"📦 BACKLOG:\n{card_lines(backlog_cards)}\n\n"
@@ -1021,7 +1021,7 @@ async def generate_brief(workspace_id: str, db: AsyncSession = Depends(get_db)):
         f"Total cards: {len(cards)} | Done: {len(done_cards)} | "
         f"In Progress: {len(inprog_cards)} | Todo: {len(todo_cards)} | "
         f"Backlog: {len(backlog_cards)}\n\n"
-        f"Generate a comprehensive project brief with the following sections:\n"
+        f"Generate a comprehensive workspace brief with the following sections:\n"
         f"1. Executive Summary (2-3 paragraphs)\n"
         f"2. Problem Statement\n"
         f"3. Goals & Success Metrics\n"
@@ -1061,7 +1061,7 @@ class HealthResponse(BaseModel):
     generated_at: str
 
 
-def _compute_health(project: "Workspace", cards: list["Card"]) -> dict:
+def _compute_health(workspace: "Workspace", cards: list["Card"]) -> dict:
     """Rule-based health analysis. Returns raw data dict (no AI summary yet)."""
     now = datetime.now(timezone.utc)
     issues: list[dict] = []
@@ -1199,14 +1199,14 @@ def _compute_health(project: "Workspace", cards: list["Card"]) -> dict:
             "inprog": len(inprog_cards),
             "done": len(done_cards),
             "backlog": len(backlog_cards),
-            "project_title": project.title,
+            "workspace_title": workspace.title,
         },
     }
 
 
 @router.post("/{workspace_id}/health", response_model=HealthResponse)
-async def project_health_check(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """Analyse project health and return a score, grade, strengths, issues, and recommendations."""
+async def workspace_health_check(workspace_id: str, db: AsyncSession = Depends(get_db)):
+    """Analyse workspace health and return a score, grade, strengths, issues, and recommendations."""
     from sqlalchemy.orm import selectinload as slo
 
     stmt = (
@@ -1218,13 +1218,13 @@ async def project_health_check(workspace_id: str, db: AsyncSession = Depends(get
         .where(Workspace.id == workspace_id)
     )
     result = await db.execute(stmt)
-    project = result.scalar_one_or_none()
-    if not project:
+    workspace = result.scalar_one_or_none()
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
-    cards = list(project.cards)
+    cards = list(workspace.cards)
 
-    health = _compute_health(project, cards)
+    health = _compute_health(workspace, cards)
 
     # Build AI summary prompt
     meta = health.pop("_meta")
@@ -1235,14 +1235,14 @@ async def project_health_check(workspace_id: str, db: AsyncSession = Depends(get
     recs_text = "\n".join(f"- {r}" for r in health["recommendations"]) or "None"
 
     summary_prompt = (
-        f"Workspace: {meta['project_title']}\n"
+        f"Workspace: {meta['workspace_title']}\n"
         f"Health score: {health['score']}/100 (Grade {health['grade']})\n"
         f"Cards: {meta['total']} total — {meta['inprog']} in-progress, {meta['todo']} todo, "
         f"{meta['done']} done, {meta['backlog']} backlog\n\n"
         f"Strengths:\n{strengths_text}\n\n"
         f"Issues:\n{issues_text}\n\n"
         f"Recommendations:\n{recs_text}\n\n"
-        f"Write a concise 2-3 sentence health summary for this project."
+        f"Write a concise 2-3 sentence health summary for this workspace."
     )
 
     from app.services.claude_service import ClaudeService
@@ -1284,19 +1284,19 @@ class StandupScheduleResponse(BaseModel):
 
 @router.post("/{workspace_id}/standup", response_model=StandupResponse)
 async def generate_standup(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """Generate a daily standup summary for a project using the fast AI model."""
-    # Fetch project + cards
+    """Generate a daily standup summary for a workspace using the fast AI model."""
+    # Fetch workspace + cards
     stmt = (
         select(Workspace)
         .options(selectinload(Workspace.cards))
         .where(Workspace.id == workspace_id)
     )
     result = await db.execute(stmt)
-    project = result.scalar_one_or_none()
-    if not project:
+    workspace = result.scalar_one_or_none()
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
-    cards = project.cards
+    cards = workspace.cards
 
     # Categorize cards
     in_progress = [c for c in cards if c.status == "in-progress"]
@@ -1314,8 +1314,8 @@ async def generate_standup(workspace_id: str, db: AsyncSession = Depends(get_db)
     todo_text = "\n".join(card_line(c) for c in todo[:5]) or "None"  # top 5 upcoming
 
     prompt = (
-        f"Generate a concise daily standup for project: **{project.title}**\n\n"
-        f"Workspace description: {project.description or 'N/A'}\n\n"
+        f"Generate a concise daily standup for workspace: **{workspace.title}**\n\n"
+        f"Workspace description: {workspace.description or 'N/A'}\n\n"
         f"Cards IN PROGRESS:\n{in_progress_text}\n\n"
         f"Cards DONE:\n{done_text}\n\n"
         f"BLOCKED / Critical priority:\n{blocked_text}\n\n"
@@ -1335,7 +1335,7 @@ async def generate_standup(workspace_id: str, db: AsyncSession = Depends(get_db)
 
 @router.get("/{workspace_id}/standup/schedule", response_model=StandupScheduleResponse | None)
 async def get_standup_schedule(workspace_id: str):
-    """Get the current standup schedule for a project, or null if not configured."""
+    """Get the current standup schedule for a workspace, or null if not configured."""
     jobs = await asyncio.to_thread(_load_jobs)
     for job in jobs:
         if (
@@ -1357,17 +1357,17 @@ async def set_standup_schedule(
     body: StandupScheduleRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create or update the daily standup schedule for a project."""
-    # Verify project exists
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    """Create or update the daily standup schedule for a workspace."""
+    # Verify workspace exists
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
     schedule = f"0 {body.minute} {body.hour} * * *"  # cron: daily at HH:MM
 
     jobs = await asyncio.to_thread(_load_jobs)
 
-    # Remove existing standup job for this project if any
+    # Remove existing standup job for this workspace if any
     jobs = [
         j for j in jobs
         if not (j.get("type") == "standup" and j.get("payload", {}).get("workspace_id") == workspace_id)
@@ -1376,13 +1376,13 @@ async def set_standup_schedule(
     job_id = str(uuid.uuid4())
     new_job = {
         "id": job_id,
-        "name": f"Daily Standup — {project.title}",
+        "name": f"Daily Standup — {workspace.title}",
         "type": "standup",
         "schedule": schedule,
         "enabled": body.enabled,
         "payload": {
             "workspace_id": workspace_id,
-            "project_name": project.title,
+            "workspace_name": workspace.title,
             "hour": body.hour,
             "minute": body.minute,
         },
@@ -1429,9 +1429,9 @@ class WikiPageUpdate(BaseModel):
 
 @router.get("/{workspace_id}/wiki", response_model=list[WikiPageSummary])
 async def list_wiki_pages(workspace_id: str, db: AsyncSession = Depends(get_db)):
-    """List all wiki pages for a project (title + id + updated_at)."""
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    """List all wiki pages for a workspace (title + id + updated_at)."""
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
     stmt = (
         select(WikiPage)
@@ -1456,9 +1456,9 @@ async def create_wiki_page(
     body: WikiPageCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new wiki page for a project."""
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    """Create a new wiki page for a workspace."""
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
     page = WikiPage(
         id=new_uuid(),
@@ -1638,11 +1638,11 @@ async def smart_prioritize(workspace_id: str, db: AsyncSession = Depends(get_db)
         .where(Workspace.id == workspace_id)
     )
     result = await db.execute(stmt)
-    project = result.scalar_one_or_none()
-    if not project:
+    workspace = result.scalar_one_or_none()
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
-    all_cards = list(project.cards)
+    all_cards = list(workspace.cards)
 
     # Score only non-done cards (done cards have nothing left to prioritize)
     active_cards = [c for c in all_cards if c.status != "done"]
@@ -1679,7 +1679,7 @@ async def smart_prioritize(workspace_id: str, db: AsyncSession = Depends(get_db)
         top3_lines.append(line)
 
     reasoning_prompt = (
-        f"Workspace: {project.title}\n\n"
+        f"Workspace: {workspace.title}\n\n"
         f"Top 3 prioritized cards:\n" + "\n".join(top3_lines) + "\n\n"
         f"For each of the top 3 cards, write ONE short sentence (max 20 words) explaining WHY it should be done first. "
         f"Be specific: mention priority, blocking others, partial progress, or votes. "
@@ -1737,8 +1737,8 @@ async def smart_prioritize(workspace_id: str, db: AsyncSession = Depends(get_db)
 # ---------------------------------------------------------------------------
 
 @router.get("/suggest-path")
-async def suggest_project_path(name: str):
-    """Return the default workspace path for a project name (not created yet)."""
+async def suggest_workspace_path(name: str):
+    """Return the default workspace path for a workspace name (not created yet)."""
     ws = get_sandbox_service()
     path = ws.get_workspace_sandbox(name.strip() or "unnamed")
     return {"path": str(path)}

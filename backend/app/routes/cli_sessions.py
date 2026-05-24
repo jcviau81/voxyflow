@@ -21,7 +21,7 @@ async def list_active_sessions():
                 "pid": s.pid,
                 "sessionId": s.session_id,
                 "chatId": s.chat_id,
-                "projectId": s.workspace_id,
+                "workspaceId": s.workspace_id,
                 "model": s.model,
                 "type": s.session_type,
                 "startedAt": s.started_at,

@@ -1,9 +1,9 @@
 """Memory Service — ChromaDB-backed hierarchical memory with file-based fallback.
 
 Collections:
-  memory-global                    ← user preferences, cross-project decisions, lessons learned
+  memory-global                    ← user preferences, cross-workspace decisions, lessons learned
   memory-workspace-{workspace_id}      ← workspace-specific decisions, bugs, tech choices, context
-                                    (keyed by project UUID, not slug — isolation-safe)
+                                    (keyed by workspace UUID, not slug — isolation-safe)
 
 ChromaDB persists to ~/.voxyflow/chroma/ (shared PersistentClient with RAG service).
 Embeddings use sentence-transformers/all-MiniLM-L6-v2 (local, no API key needed).
@@ -76,7 +76,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
     """ChromaDB-backed hierarchical memory with file-based fallback.
 
     Memory hierarchy:
-    - memory-global: user preferences, cross-project decisions, lessons learned
+    - memory-global: user preferences, cross-workspace decisions, lessons learned
     - memory-workspace-{slug}: workspace-specific decisions, bugs, tech choices
 
     Falls back to file-based memory (MEMORY.md, daily .md files) if ChromaDB
@@ -423,8 +423,8 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
 
         The ``collections`` parameter is REQUIRED — there is no silent
         fallback to a global collection anymore. Callers must be explicit
-        about which project scope(s) they want to search, otherwise a
-        ``ValueError`` is raised. This prevents cross-project context
+        about which workspace scope(s) they want to search, otherwise a
+        ``ValueError`` is raised. This prevents cross-workspace context
         leaks that happened when callers relied on a hidden default.
 
         Returns list of {id, text, score, metadata, collection}.
@@ -519,7 +519,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             return []
 
     # ------------------------------------------------------------------
-    # Daily log / project memory (kept for backward compat + auto-extract)
+    # Daily log / workspace memory (kept for backward compat + auto-extract)
     # ------------------------------------------------------------------
 
     async def append_to_daily_log(self, content: str, date: Optional[datetime] = None) -> bool:
@@ -545,19 +545,19 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             logger.error(f"Failed to write daily log: {e}")
             return False
 
-    async def update_project_memory(self, project_name: str, content: str) -> bool:
+    async def update_project_memory(self, workspace_name: str, content: str) -> bool:
         """Update or create a workspace-specific memory file."""
-        slug = _slugify(project_name)
-        project_dir = MEMORY_DIR / "projects"
-        project_file = project_dir / f"{slug}.md"
+        slug = _slugify(workspace_name)
+        workspace_dir = MEMORY_DIR / "workspaces"
+        workspace_file = workspace_dir / f"{slug}.md"
 
         try:
-            project_dir.mkdir(parents=True, exist_ok=True)
-            project_file.write_text(content, encoding="utf-8")
-            logger.info(f"Updated project memory: {project_file}")
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+            workspace_file.write_text(content, encoding="utf-8")
+            logger.info(f"Updated workspace memory: {workspace_file}")
             return True
         except OSError as e:
-            logger.error(f"Failed to update project memory: {e}")
+            logger.error(f"Failed to update workspace memory: {e}")
             return False
 
     # ------------------------------------------------------------------
@@ -643,37 +643,37 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
                 except (OSError, UnicodeDecodeError):
                     logger.exception("migrate_from_files: failed to process %s", md_file)
 
-            # Migrate workspace-specific files
-            projects_dir = MEMORY_DIR / "projects"
-            if projects_dir.exists():
-                for proj_file in projects_dir.glob("*.md"):
+            # Migrate workspace-specific files (legacy on-disk layout name)
+            workspaces_md_dir = MEMORY_DIR / "workspaces"
+            if workspaces_md_dir.exists():
+                for ws_file in workspaces_md_dir.glob("*.md"):
                     try:
-                        content = proj_file.read_text(encoding="utf-8").strip()
+                        content = ws_file.read_text(encoding="utf-8").strip()
                         if not content:
                             continue
 
-                        project_slug = proj_file.stem
-                        proj_col = _workspace_collection(project_slug)
+                        workspace_slug = ws_file.stem
+                        ws_col = _workspace_collection(workspace_slug)
 
                         chunks = [c.strip() for c in content.split("\n\n") if c.strip() and len(c.strip()) > 20]
                         for chunk in chunks:
                             mem_type, importance = _classify_text(chunk)
                             doc_id = self.store_memory(
                                 text=chunk,
-                                collection=proj_col,
+                                collection=ws_col,
                                 metadata={
                                     "type": mem_type,
                                     "date": today,
                                     "source": "manual",
                                     "importance": importance,
-                                    "project": project_slug,
-                                    "migrated_from": f"memory/projects/{proj_file.name}",
+                                    "workspace": workspace_slug,
+                                    "migrated_from": f"memory/workspaces/{ws_file.name}",
                                 },
                             )
                             if doc_id:
                                 inserted += 1
                     except (OSError, UnicodeDecodeError):
-                        logger.exception("migrate_from_files: failed to process %s", proj_file)
+                        logger.exception("migrate_from_files: failed to process %s", ws_file)
 
         # Write migration flag
         try:

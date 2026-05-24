@@ -91,7 +91,7 @@ TOOLS_DISPATCHER = {
     # ---- Jobs (cron-like; all REST CRUD, instant) ----
     "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
 
-    # ---- Per-project autonomy — thin REST wrappers, instant/non-blocking ----
+    # ---- Per-workspace autonomy — thin REST wrappers, instant/non-blocking ----
     "voxyflow.autonomy.enable", "voxyflow.autonomy.disable", "voxyflow.autonomy.run_now",
 
     # ---- Worker monitoring + control (no need to spawn another worker) ----

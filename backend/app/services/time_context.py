@@ -97,7 +97,7 @@ def format_now_block() -> str:
     """Render the "## Current time" prompt block.
 
     Designed for the dispatcher dynamic-context block — kept short so it
-    doesn't crowd memory/project context. Includes weekday + ISO date +
+    doesn't crowd memory/workspace context. Includes weekday + ISO date +
     HH:MM in local tz + tz name; that's enough to ground "ce matin",
     "vendredi soir", "il y a 2h" without ambiguity.
     """

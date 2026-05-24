@@ -287,31 +287,9 @@ def build_lifespan(
         await _cleanup_stale_worker_tasks()
         _reconcile_orphan_worker_sessions()
 
-        try:
-            from app.services.job_runner import migrate_legacy_project_keys
-            migrate_legacy_project_keys()
-        except Exception:
-            logger.exception("⚠️  jobs.json project_* → workspace_* migration failed (non-fatal)")
-
-        try:
-            from app.services.session_store import migrate_legacy_project_sessions
-            n = migrate_legacy_project_sessions()
-            if n:
-                logger.info(f"✅ Migrated {n} session file(s): sessions/project/ → sessions/workspace/")
-        except Exception:
-            logger.exception("⚠️  session_store project: → workspace: migration failed (non-fatal)")
-
         sb_service = get_sandbox_service()
         sb_path = await sb_service.ensure_sandbox()
         logger.info("✅ Sandbox ready: %s", sb_path)
-
-        try:
-            from app.services.sandbox_service import migrate_legacy_projects_subdir
-            n = migrate_legacy_projects_subdir()
-            if n:
-                logger.info(f"✅ Merged {n} sandbox entries: sandbox/projects/ → sandbox/workspaces/")
-        except Exception:
-            logger.exception("⚠️  sandbox/projects → sandbox/workspaces migration failed (non-fatal)")
 
         rag = get_rag_service()
         if rag.enabled:

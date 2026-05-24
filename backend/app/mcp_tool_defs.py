@@ -19,7 +19,7 @@ from __future__ import annotations
 _CARD_LIST_KEEP = ("id", "title", "status", "priority", "position", "assignee", "agent_type")
 
 
-def _project_card(card: dict) -> dict:
+def _minimal_card(card: dict) -> dict:
     return {k: card[k] for k in _CARD_LIST_KEEP if k in card}
 
 
@@ -27,7 +27,7 @@ def _minimize_card_list(data):
     """Workspace card list responses to the minimal fields an LLM actually needs.
 
     Full ``CardResponse`` carries description, files, time sums, checklist
-    progress, watchers, etc. — a project with ~200 cards balloons the tool
+    progress, watchers, etc. — a workspace with ~200 cards balloons the tool
     result to >1 MB of tokens per call.
 
     Also drops archived cards (``status == 'archived'`` or ``archived_at`` set).
@@ -44,7 +44,7 @@ def _minimize_card_list(data):
             continue
         if c.get("status") == "archived" or c.get("archived_at"):
             continue
-        out.append(_project_card(c))
+        out.append(_minimal_card(c))
     return out
 
 
@@ -55,14 +55,14 @@ def _minimize_card_list_archived(data):
     """
     if not isinstance(data, list):
         return data
-    return [_project_card(c) for c in data if isinstance(c, dict)]
+    return [_minimal_card(c) for c in data if isinstance(c, dict)]
 
 
 _TOOL_DEFINITIONS: list[dict] = [
-    # ---- Main Board Cards (system-main project, backward-compatible aliases) ─
+    # ---- Main Board Cards (system-main workspace) ─
     {
         "name": "voxyflow.card.create_unassigned",
-        "description": "Create a card on the Main Board (system-main project).",
+        "description": "Create a card on the Main Board (system-main workspace).",
         "inputSchema": {
             "type": "object",
             "required": ["content"],
@@ -83,7 +83,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.list_unassigned",
-        "description": "List cards on the Main Board (system-main project). Returns minimal fields (id, title, status, priority, position, assignee, agent_type).",
+        "description": "List cards on the Main Board (system-main workspace). Returns minimal fields (id, title, status, priority, position, assignee, agent_type).",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -92,10 +92,10 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_post_process": _minimize_card_list,
     },
 
-    # ---- Projects ----------------------------------------------------------
+    # ---- Workspaces --------------------------------------------------------
     {
         "name": "voxyflow.workspace.create",
-        "description": "Create a new project.",
+        "description": "Create a new workspace.",
         "inputSchema": {
             "type": "object",
             "required": ["title"],
@@ -112,7 +112,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workspace.list",
-        "description": "List all projects.",
+        "description": "List all workspaces.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -121,7 +121,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workspace.get",
-        "description": "Get a project with its cards.",
+        "description": "Get a workspace with its cards.",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -133,7 +133,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workspace.delete",
-        "description": "Delete a project and all its cards (irreversible).",
+        "description": "Delete a workspace and all its cards (irreversible).",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -145,14 +145,14 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workspace.update",
-        "description": "Update an existing project (title, description, status, context, github_url, etc.).",
+        "description": "Update an existing workspace (title, description, status, context, github_url, etc.).",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
             "properties": {
                 "workspace_id": {"type": "string", "description": "Workspace ID to update"},
-                "title": {"type": "string", "description": "New project title"},
-                "description": {"type": "string", "description": "New project description"},
+                "title": {"type": "string", "description": "New workspace title"},
+                "description": {"type": "string", "description": "New workspace description"},
                 "status": {"type": "string", "enum": ["active", "archived"], "description": "Workspace status"},
                 "context": {"type": "string", "description": "Additional context for the AI"},
                 "github_url": {"type": "string", "description": "GitHub repository URL"},
@@ -163,7 +163,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workspace.export",
-        "description": "Export a project as a JSON snapshot (all cards, wiki, metadata).",
+        "description": "Export a workspace as a JSON snapshot (all cards, wiki, metadata).",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -175,7 +175,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workspace.archive",
-        "description": "Archive a project (hide from main list, keep all data).",
+        "description": "Archive a workspace (hide from main list, keep all data).",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -187,7 +187,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workspace.restore",
-        "description": "Restore an archived project back to active status.",
+        "description": "Restore an archived workspace back to active status.",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -201,7 +201,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Cards -------------------------------------------------------------
     {
         "name": "voxyflow.card.create",
-        "description": "Create a new card in a project.",
+        "description": "Create a new card in a workspace.",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id", "title"],
@@ -231,9 +231,9 @@ _TOOL_DEFINITIONS: list[dict] = [
     {
         "name": "voxyflow.card.list",
         "description": (
-            "List active (non-archived) cards for the current project. "
+            "List active (non-archived) cards for the current workspace. "
             "workspace_id is auto-scoped from the active chat context "
-            "(VOXYFLOW_WORKSPACE_ID) — omit it in project chats. In general chat "
+            "(VOXYFLOW_WORKSPACE_ID) — omit it in workspace chats. In general chat "
             "it defaults to the Main Board. Archived cards are excluded; use "
             "card.list_archived for those. Returns minimal fields (id, title, "
             "status, priority, position, assignee, agent_type)."
@@ -327,7 +327,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.card.duplicate",
-        "description": "Duplicate a card within the same project.",
+        "description": "Duplicate a card within the same workspace.",
         "inputSchema": {
             "type": "object",
             "required": ["card_id"],
@@ -364,8 +364,8 @@ _TOOL_DEFINITIONS: list[dict] = [
     {
         "name": "voxyflow.card.list_archived",
         "description": (
-            "List archived cards for the current project. workspace_id is "
-            "auto-scoped from VOXYFLOW_WORKSPACE_ID; omit it in project chats. "
+            "List archived cards for the current workspace. workspace_id is "
+            "auto-scoped from VOXYFLOW_WORKSPACE_ID; omit it in workspace chats. "
             "Returns minimal fields only."
         ),
         "inputSchema": {
@@ -560,7 +560,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Wiki --------------------------------------------------------------
     {
         "name": "voxyflow.wiki.list",
-        "description": "List wiki pages for a project.",
+        "description": "List wiki pages for a workspace.",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -572,7 +572,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.wiki.create",
-        "description": "Create a new wiki page for a project.",
+        "description": "Create a new wiki page for a workspace.",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id", "title", "content"],
@@ -631,7 +631,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- AI ----------------------------------------------------------------
     {
         "name": "voxyflow.ai.standup",
-        "description": "Generate an AI daily standup report for a project (what's done, in-progress, blocked).",
+        "description": "Generate an AI daily standup report for a workspace (what's done, in-progress, blocked).",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -643,7 +643,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.ai.brief",
-        "description": "Generate a comprehensive AI project brief using the most capable model (Opus).",
+        "description": "Generate a comprehensive AI workspace brief using the most capable model (Opus).",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -655,7 +655,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.ai.health",
-        "description": "Run an AI project health check — assess risks, blockers, and team velocity.",
+        "description": "Run an AI workspace health check — assess risks, blockers, and team velocity.",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -667,7 +667,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.ai.prioritize",
-        "description": "Use AI to smart-prioritize cards in a project based on value, complexity, and dependencies.",
+        "description": "Use AI to smart-prioritize cards in a workspace based on value, complexity, and dependencies.",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -687,7 +687,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "code": {"type": "string", "description": "Code snippet to review"},
                 "language": {"type": "string", "description": "Programming language (optional)"},
                 "context": {"type": "string", "description": "Additional context for the review"},
-                "workspace_id": {"type": "string", "description": "Optional project context"},
+                "workspace_id": {"type": "string", "description": "Optional workspace context"},
             },
         },
         "_http": ("POST", "/api/code/review", None),
@@ -696,7 +696,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Documents ---------------------------------------------------------
     {
         "name": "voxyflow.doc.list",
-        "description": "List documents attached to a project.",
+        "description": "List documents attached to a workspace.",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -708,7 +708,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.doc.delete",
-        "description": "Delete a document from a project.",
+        "description": "Delete a document from a workspace.",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id", "document_id"],
@@ -723,7 +723,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Focus Sessions ----------------------------------------------------
     {
         "name": "voxyflow.focus.log",
-        "description": "Log a completed Pomodoro/focus session for a card or project.",
+        "description": "Log a completed Pomodoro/focus session for a card or workspace.",
         "inputSchema": {
             "type": "object",
             "required": ["duration_minutes", "completed", "started_at", "ended_at"],
@@ -740,7 +740,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.focus.analytics",
-        "description": "Get focus session analytics for a project (totals, by card, by day).",
+        "description": "Get focus session analytics for a workspace (totals, by card, by day).",
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -754,14 +754,14 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- CLI Sessions ------------------------------------------------------
     {
         "name": "voxyflow.sessions.list",
-        "description": "List active CLI subprocess sessions (chat and worker processes). Auto-scoped to the current project — pass scope='all' for a system-wide view.",
+        "description": "List active CLI subprocess sessions (chat and worker processes). Auto-scoped to the current workspace — pass scope='all' for a system-wide view.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Session visibility scope. 'current' (default) shows only this project's sessions; 'all' shows every active CLI subprocess. Ignored in general chat, which always sees all.",
+                    "description": "Session visibility scope. 'current' (default) shows only this workspace's sessions; 'all' shows every active CLI subprocess. Ignored in general chat, which always sees all.",
                 },
             },
         },
@@ -772,7 +772,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Worker Ledger -----------------------------------------------------
     {
         "name": "voxyflow.workers.list",
-        "description": "List recent worker tasks (auto-scoped to current project; scope='all' for system-wide).",
+        "description": "List recent worker tasks (auto-scoped to current workspace; scope='all' for system-wide).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -793,7 +793,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workers.get_result",
-        "description": "Get full details of a worker task by task_id (project-scoped; scope='all' to bypass).",
+        "description": "Get full details of a worker task by task_id (workspace-scoped; scope='all' to bypass).",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],
@@ -829,7 +829,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.task.peek",
-        "description": "Monitor a running worker task in real time. Returns the recent tools called, tool count, running duration, and current status. Strict project scope — pass scope='all' to peek at tasks from other projects.",
+        "description": "Monitor a running worker task in real time. Returns the recent tools called, tool count, running duration, and current status. Strict workspace scope — pass scope='all' to peek at tasks from other workspaces.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],
@@ -838,7 +838,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Workspace-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                    "description": "Workspace-ownership enforcement. 'current' (default) rejects tasks from other workspaces; 'all' bypasses the check.",
                 },
             },
         },
@@ -847,7 +847,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.task.cancel",
-        "description": "Cancel a running worker task immediately. Strict project scope — tasks from other projects cannot be cancelled unless scope='all' is passed.",
+        "description": "Cancel a running worker task immediately. Strict workspace scope — tasks from other workspaces cannot be cancelled unless scope='all' is passed.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],
@@ -856,7 +856,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Workspace-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                    "description": "Workspace-ownership enforcement. 'current' (default) rejects tasks from other workspaces; 'all' bypasses the check.",
                 },
             },
         },
@@ -976,12 +976,12 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
 
     # ======================================================================
-    # HEARTBEAT — read/write ~/.voxyflow/workspace/heartbeat.md
+    # HEARTBEAT — read/write ~/.voxyflow/sandbox/heartbeat.md
     # ======================================================================
 
     {
         "name": "voxyflow.heartbeat.read",
-        "description": "Read the Agent Heartbeat file (~/.voxyflow/workspace/heartbeat.md).",
+        "description": "Read the Agent Heartbeat file (~/.voxyflow/sandbox/heartbeat.md).",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -1002,19 +1002,19 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
 
     # ======================================================================
-    # PROJECT AUTONOMY — per-project heartbeat (distinct from the GLOBAL one)
-    # Reads/writes ~/.voxyflow/workspace/projects/{workspace_id}/heartbeat.md and
+    # WORKSPACE AUTONOMY — per-workspace heartbeat (distinct from the GLOBAL one)
+    # Reads/writes ~/.voxyflow/sandbox/workspaces/{workspace_id}/heartbeat.md and
     # manages a dedicated ``agent_task`` job that runs on its own schedule with
-    # project-scoped memory / KG / MCP. In a project chat, workspace_id is
+    # workspace-scoped memory / KG / MCP. In a workspace chat, workspace_id is
     # auto-injected from VOXYFLOW_WORKSPACE_ID — Voxy does not need to pass it.
     # ======================================================================
 
     {
         "name": "voxyflow.autonomy.status",
         "description": (
-            "Return the project's autonomy state: {enabled, schedule, next_run, "
-            "directive, file_path, actionable}. In a project chat, workspace_id is "
-            "injected from the current project and must not be passed."
+            "Return the workspace's autonomy state: {enabled, schedule, next_run, "
+            "directive, file_path, actionable}. In a workspace chat, workspace_id is "
+            "injected from the current workspace and must not be passed."
         ),
         "inputSchema": {
             "type": "object",
@@ -1027,10 +1027,10 @@ _TOOL_DEFINITIONS: list[dict] = [
     {
         "name": "voxyflow.autonomy.enable",
         "description": (
-            "Enable or update per-project autonomy. Creates/updates the heartbeat job and, "
+            "Enable or update per-workspace autonomy. Creates/updates the heartbeat job and, "
             "when ``directive`` is provided, rewrites the content below the '---' divider "
-            "in the project's heartbeat.md. Use this to hand Voxy the next step for the "
-            "project to execute on the next cycle. Pass directive='' to pause without "
+            "in the workspace's heartbeat.md. Use this to hand Voxy the next step for the "
+            "workspace to execute on the next cycle. Pass directive='' to pause without "
             "disabling the job. Schedule shorthand: every_5min / every_15min / every_1h / cron."
         ),
         "inputSchema": {
@@ -1046,7 +1046,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.autonomy.disable",
-        "description": "Remove the project's autonomy heartbeat job entirely. The directive file is kept on disk for reference.",
+        "description": "Remove the workspace's autonomy heartbeat job entirely. The directive file is kept on disk for reference.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1057,7 +1057,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.autonomy.run_now",
-        "description": "Trigger the project's autonomy heartbeat immediately, bypassing the schedule. Same gate still applies — no directive, no LLM call.",
+        "description": "Trigger the workspace's autonomy heartbeat immediately, bypassing the schedule. Same gate still applies — no directive, no LLM call.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1079,7 +1079,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             "required": ["command"],
             "properties": {
                 "command": {"type": "string", "description": "Shell command to execute"},
-                "cwd": {"type": "string", "description": "Working directory (optional; must be under ~/.voxyflow/workspace). Defaults to the workspace root."},
+                "cwd": {"type": "string", "description": "Working directory (optional; must be under ~/.voxyflow/sandbox). Defaults to the workspace root."},
                 "timeout": {"type": "integer", "description": "Timeout in seconds (default 30, max 300)", "default": 30},
             },
         },
@@ -1434,7 +1434,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         "name": "tools.load",
         "description": (
             "Load additional tool scopes into this session. "
-            "Available scopes: voxyflow (cards, wiki, memory, projects), "
+            "Available scopes: voxyflow (cards, wiki, memory, workspaces), "
             "web (search, fetch), git (status, log, diff, commit), tmux (sessions). "
             "Base tools (file.read, file.write, file.list, system.exec, voxyflow.worker.complete) "
             "are always available. Call this BEFORE using tools from a scope."
@@ -1458,11 +1458,11 @@ _TOOL_DEFINITIONS: list[dict] = [
     {
         "name": "memory.search",
         "description": (
-            "Search long-term memory. Default scope is the current project only "
+            "Search long-term memory. Default scope is the current workspace only "
             "(isolation preserved). Pass `scope='global'` for the shared global "
             "collection or `scope='other:<workspace_id>'` to query a specific other "
-            "project explicitly — only use a cross-project scope when the user "
-            "asks for it (e.g. \"check what was said in project X about Y\")."
+            "workspace explicitly — only use a cross-workspace scope when the user "
+            "asks for it (e.g. \"check what was said in workspace X about Y\")."
         ),
         "inputSchema": {
             "type": "object",
@@ -1474,10 +1474,10 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "scope": {
                     "type": "string",
                     "description": (
-                        "Retrieval scope. 'current' (default) = this project only. "
-                        "'global' = shared cross-project memory. "
-                        "'other:<workspace_id>' = one specific other project. "
-                        "'current+global' = this project plus global."
+                        "Retrieval scope. 'current' (default) = this workspace only. "
+                        "'global' = shared cross-workspace memory. "
+                        "'other:<workspace_id>' = one specific other workspace. "
+                        "'current+global' = this workspace plus global."
                     ),
                 },
             },
@@ -1493,7 +1493,7 @@ _TOOL_DEFINITIONS: list[dict] = [
         "name": "memory.save",
         "description": (
             "Save a fact, decision, preference, lesson, or procedure to long-term "
-            "memory (auto-scoped to current project). Use `type='procedure'` for "
+            "memory (auto-scoped to current workspace). Use `type='procedure'` for "
             "reusable 'how to do X' workflows — the content should start with "
             "\"How to {task}:\" and list ≥2 ordered steps. Procedures are surfaced "
             "in a dedicated block above regular retrieval. "
@@ -1535,7 +1535,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # Scope is enforced by VOXYFLOW_WORKSPACE_ID env var at runtime.
     {
         "name": "knowledge.search",
-        "description": "Search the current project's knowledge base (RAG) for background context.",
+        "description": "Search the current workspace's knowledge base (RAG) for background context.",
         "inputSchema": {
             "type": "object",
             "required": ["query"],
@@ -1628,7 +1628,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Knowledge Graph -----------------------------------------------------
     {
         "name": "kg.add",
-        "description": "Add an entity to the project knowledge graph, optionally with relationships and attributes. Use this to record named things (people, technologies, components, decisions) and how they relate. Relationships and attributes are created as current facts (valid_from=now, valid_to=NULL). To supersede a fact later, invalidate the old one with kg.invalidate and add the new one.",
+        "description": "Add an entity to the workspace knowledge graph, optionally with relationships and attributes. Use this to record named things (people, technologies, components, decisions) and how they relate. Relationships and attributes are created as current facts (valid_from=now, valid_to=NULL). To supersede a fact later, invalidate the old one with kg.invalidate and add the new one.",
         "inputSchema": {
             "type": "object",
             "required": ["entity_name", "entity_type"],
@@ -1675,7 +1675,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "kg.query",
-        "description": "Search entities and their relationships in the project knowledge graph. Returns entities matching the filter, optionally with their active (non-invalidated) relationships. Use as_of to see which relationships existed at a past point in time.",
+        "description": "Search entities and their relationships in the workspace knowledge graph. Returns entities matching the filter, optionally with their active (non-invalidated) relationships. Use as_of to see which relationships existed at a past point in time.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1695,7 +1695,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "kg.timeline",
-        "description": "Get chronological history of knowledge graph changes for a project or entity. Unlike kg.query (which returns only current/active facts), timeline shows ALL facts — both current (valid_to=null) and historical (valid_to set) — ordered newest-first. Use this to answer 'when did we decide X?' or 'what changed?'.",
+        "description": "Get chronological history of knowledge graph changes for a workspace or entity. Unlike kg.query (which returns only current/active facts), timeline shows ALL facts — both current (valid_to=null) and historical (valid_to set) — ordered newest-first. Use this to answer 'when did we decide X?' or 'what changed?'.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1708,7 +1708,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "kg.invalidate",
-        "description": "Mark a relationship or attribute as no longer valid by setting valid_to=now(), closing the [valid_from, valid_to) interval. The fact becomes historical — it still appears in kg.timeline but is excluded from kg.query and kg.stats. Use this when a fact has changed or been superseded (e.g. 'project no longer uses Redis'). Idempotent: invalidating an already-closed fact returns success=false.",
+        "description": "Mark a relationship or attribute as no longer valid by setting valid_to=now(), closing the [valid_from, valid_to) interval. The fact becomes historical — it still appears in kg.timeline but is excluded from kg.query and kg.stats. Use this when a fact has changed or been superseded (e.g. 'workspace no longer uses Redis'). Idempotent: invalidating an already-closed fact returns success=false.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1721,7 +1721,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "kg.stats",
-        "description": "Get knowledge graph statistics for the current project — entity count, active (non-invalidated) triples, and active attributes. Historical/invalidated facts are not counted.",
+        "description": "Get knowledge graph statistics for the current workspace — entity count, active (non-invalidated) triples, and active attributes. Historical/invalidated facts are not counted.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -1733,7 +1733,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     # ---- Task Steer -----------------------------------------------------------
     {
         "name": "task.steer",
-        "description": "Inject a steering message into a running worker task. Use this to redirect a worker mid-execution. Strict project scope — tasks from other projects are rejected unless scope='all'.",
+        "description": "Inject a steering message into a running worker task. Use this to redirect a worker mid-execution. Strict workspace scope — tasks from other workspaces are rejected unless scope='all'.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id", "message"],
@@ -1743,7 +1743,7 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
-                    "description": "Workspace-ownership enforcement. 'current' (default) rejects tasks from other projects; 'all' bypasses the check.",
+                    "description": "Workspace-ownership enforcement. 'current' (default) rejects tasks from other workspaces; 'all' bypasses the check.",
                 },
             },
         },

@@ -326,7 +326,7 @@ async def general_websocket(websocket: WebSocket):
                 _ctx: dict[str, str] = {"ws_msg_type": msg_type or "unknown"}
                 for _src_key, _ctx_key in (
                     ("sessionId", "session_id"),
-                    ("projectId", "workspace_id"),
+                    ("workspaceId", "workspace_id"),
                     ("cardId", "card_id"),
                     ("chatId", "chat_id"),
                     ("messageId", "message_id"),
@@ -350,7 +350,7 @@ async def general_websocket(websocket: WebSocket):
                     # Cross-device live sync: a device announces "I'm viewing
                     # this chat" so it receives streaming tokens + message:new
                     # events from other devices on the same canonical chat.
-                    sub_workspace_id = payload.get("projectId")
+                    sub_workspace_id = payload.get("workspaceId")
                     sub_card_id = payload.get("cardId")
                     if sub_card_id:
                         pass  # chat_id resolves via card
@@ -379,7 +379,7 @@ async def general_websocket(websocket: WebSocket):
                         "payload": {"messageId": message_id},
                         "timestamp": int(time.time() * 1000),
                     })
-                    workspace_id = payload.get("projectId")
+                    workspace_id = payload.get("workspaceId")
                     card_id = payload.get("cardId")
                     chat_level = payload.get("chatLevel", "general")
                     msg_layers = payload.get("layers")  # {deep: bool}
@@ -475,7 +475,7 @@ async def general_websocket(websocket: WebSocket):
 
                 elif msg_type == "session:reset":
                     chat_level = payload.get("chatLevel", "general")
-                    workspace_id = payload.get("projectId")
+                    workspace_id = payload.get("workspaceId")
                     card_id = payload.get("cardId")
                     session_id = payload.get("sessionId") or str(uuid4())
                     # Derive canonical chat_id from context (same isolation logic as chat:message)
@@ -503,14 +503,14 @@ async def general_websocket(websocket: WebSocket):
                     })
 
                 elif msg_type == "kanban:execute:start":
-                    workspace_id = payload.get("projectId")
+                    workspace_id = payload.get("workspaceId")
                     session_id = payload.get("sessionId") or str(uuid4())
                     statuses = payload.get("statuses", ["todo", "in-progress"])
 
                     if not workspace_id:
                         await websocket.send_json({
                             "type": "kanban:execute:error",
-                            "payload": {"error": "projectId is required"},
+                            "payload": {"error": "workspaceId is required"},
                             "timestamp": int(time.time() * 1000),
                         })
                     else:
@@ -548,7 +548,7 @@ async def general_websocket(websocket: WebSocket):
 
                 elif msg_type == "card:execute":
                     card_id = payload.get("cardId")
-                    workspace_id = payload.get("projectId")
+                    workspace_id = payload.get("workspaceId")
                     session_id = payload.get("sessionId") or str(uuid4())
 
                     if not card_id:

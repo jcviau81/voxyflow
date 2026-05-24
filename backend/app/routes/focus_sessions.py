@@ -77,8 +77,8 @@ async def create_focus_session(
             raise HTTPException(404, f"Card {body.card_id!r} not found")
 
     if body.workspace_id:
-        project = await db.get(Workspace, body.workspace_id)
-        if not project:
+        workspace = await db.get(Workspace, body.workspace_id)
+        if not workspace:
             raise HTTPException(404, f"Workspace {body.workspace_id!r} not found")
 
     try:
@@ -120,12 +120,12 @@ async def get_project_focus_analytics(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return focus session analytics for a project (all time for totals, last 7 days for by_day)."""
-    project = await db.get(Workspace, workspace_id)
-    if not project:
+    """Return focus session analytics for a workspace (all time for totals, last 7 days for by_day)."""
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
-    # Fetch all sessions for this project
+    # Fetch all sessions for this workspace
     stmt = select(FocusSession).where(FocusSession.workspace_id == workspace_id)
     result = await db.execute(stmt)
     sessions = result.scalars().all()

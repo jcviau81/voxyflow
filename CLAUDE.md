@@ -253,4 +253,4 @@ Invariants to preserve when touching memory, MCP tools, or chat routing. Regress
 - New chat handler in `main.py` → derive `chat_id` from server-side ids, do not echo the frontend's `chatId` blindly
 
 ### 6. Drift detection
-- `cli_backend.stream_persistent` logs `[CLI-persistent] PROJECT_ID DRIFT: ...` if a persistent chat process is reused with a different `workspace_id` than it was spawned with. If you see this in logs, something upstream is wrong.
+- `cli_backend.stream_persistent` logs `[CLI-persistent] WORKSPACE_ID DRIFT: ...` if a persistent chat process is reused with a different `workspace_id` than it was spawned with. If you see this in logs, something upstream is wrong.

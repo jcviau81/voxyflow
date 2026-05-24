@@ -44,7 +44,7 @@ def build_handlers(
     types_module: Any,
     get_http_client: Callable[[], Any],
     enforce_task_scope: Callable[[str, str | None], Awaitable[dict | None]],
-    current_project_scope: Callable[[], tuple[str, bool]],
+    current_workspace_scope: Callable[[], tuple[str, bool]],
     active_scopes: set[str],
 ) -> dict[str, Callable[[dict], Awaitable[dict]]]:
     """Create the full set of MCP system handlers and return them as a dict.
@@ -58,7 +58,7 @@ def build_handlers(
     _active_scopes = active_scopes
     _get_http_client = get_http_client
     _enforce_task_scope = enforce_task_scope
-    _current_workspace_scope = current_project_scope
+    _current_workspace_scope = current_workspace_scope
     types = types_module
 
     from app.tools.system_tools import (
@@ -75,10 +75,10 @@ def build_handlers(
     async def memory_search(params: dict) -> dict:
         """Semantic search across Voxy's long-term memory.
 
-        Default scope is the current project (isolation preserved). The LLM
-        may pass an explicit `scope` to bridge to global or another project
+        Default scope is the current workspace (isolation preserved). The LLM
+        may pass an explicit `scope` to bridge to global or another workspace
         when the user asks for it — this is the single escape hatch from the
-        per-project wall. Unknown scopes fall back to `current` and are logged.
+        per-workspace wall. Unknown scopes fall back to `current` and are logged.
         """
         from app.services.memory_service import (
             get_memory_service,
@@ -111,7 +111,7 @@ def build_handlers(
         elif scope.startswith("other:"):
             other_id = scope[len("other:"):].strip()
             if not other_id:
-                return {"error": "scope 'other:' requires a project id"}
+                return {"error": "scope 'other:' requires a workspace id"}
             if other_id == workspace_id:
                 collections = _current_collections()
                 resolved_scope = "current"
@@ -166,7 +166,7 @@ def build_handlers(
             return {"error": str(e)}
 
     async def knowledge_search(params: dict) -> dict:
-        """RAG search on project knowledge base — on-demand tool.
+        """RAG search on workspace knowledge base — on-demand tool.
 
         Scope is enforced by VOXYFLOW_WORKSPACE_ID env var. The LLM
         cannot override it; params.workspace_id is ignored if present
@@ -189,7 +189,7 @@ def build_handlers(
         """Store a memory entry in Voxy's long-term memory (ChromaDB or file fallback).
 
         STRICT ISOLATION: scope is enforced by VOXYFLOW_WORKSPACE_ID env var.
-        The LLM cannot cross-save into another project — workspace_id is not
+        The LLM cannot cross-save into another workspace — workspace_id is not
         in the schema and any param value is ignored.
         """
         from app.services.memory_service import (
@@ -510,7 +510,7 @@ def build_handlers(
                     "pid": s.pid,
                     "sessionId": s.session_id,
                     "chatId": s.chat_id,
-                    "projectId": s.workspace_id,
+                    "workspaceId": s.workspace_id,
                     "model": s.model,
                     "type": s.session_type,
                     "startedAt": s.started_at,
@@ -765,7 +765,7 @@ def build_handlers(
                 result["attributes"] = attrs_added
 
             await kg.refresh_pinned_cache(workspace_id)
-            logger.info(f"[mcp.kg.add] project={workspace_id} entity={entity_name!r} rels={len(rels_added)} attrs={len(attrs_added)}")
+            logger.info(f"[mcp.kg.add] workspace={workspace_id} entity={entity_name!r} rels={len(rels_added)} attrs={len(attrs_added)}")
             return result
         except Exception as e:
             logger.error(f"[mcp.kg.add] failed: {e}")
@@ -797,7 +797,7 @@ def build_handlers(
                 rels = await kg.query_relationships(workspace_id, entity_name=name, limit=limit)
                 result["relationships"] = rels
 
-            logger.info(f"[mcp.kg.query] project={workspace_id} name={name!r} found={len(entities)}")
+            logger.info(f"[mcp.kg.query] workspace={workspace_id} name={name!r} found={len(entities)}")
             return result
         except Exception as e:
             logger.error(f"[mcp.kg.query] failed: {e}")
@@ -814,7 +814,7 @@ def build_handlers(
 
         try:
             events = await kg.get_timeline(workspace_id, entity_name=entity_name, limit=limit)
-            logger.info(f"[mcp.kg.timeline] project={workspace_id} entity={entity_name!r} events={len(events)}")
+            logger.info(f"[mcp.kg.timeline] workspace={workspace_id} entity={entity_name!r} events={len(events)}")
             return {"events": events, "count": len(events)}
         except Exception as e:
             logger.error(f"[mcp.kg.timeline] failed: {e}")
@@ -835,21 +835,21 @@ def build_handlers(
         try:
             ok = await kg.invalidate(triple_id=triple_id, attribute_id=attribute_id)
             await kg.refresh_pinned_cache(workspace_id)
-            logger.info(f"[mcp.kg.invalidate] project={workspace_id} triple={triple_id} attr={attribute_id} ok={ok}")
+            logger.info(f"[mcp.kg.invalidate] workspace={workspace_id} triple={triple_id} attr={attribute_id} ok={ok}")
             return {"success": ok, "invalidated": triple_id or attribute_id}
         except Exception as e:
             logger.error(f"[mcp.kg.invalidate] failed: {e}")
             return {"error": str(e)}
 
     async def kg_stats(params: dict) -> dict:
-        """KG counts for the current project."""
+        """KG counts for the current workspace."""
         from app.services.knowledge_graph_service import get_knowledge_graph_service
         workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip() or "system-main"
         kg = get_knowledge_graph_service()
 
         try:
             stats = await kg.get_stats(workspace_id)
-            logger.info(f"[mcp.kg.stats] project={workspace_id} stats={stats}")
+            logger.info(f"[mcp.kg.stats] workspace={workspace_id} stats={stats}")
             return {"success": True, "workspace_id": workspace_id, **stats}
         except Exception as e:
             logger.error(f"[mcp.kg.stats] failed: {e}")
@@ -857,7 +857,7 @@ def build_handlers(
 
     _heartbeat_path = Path(
         os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
-    ) / "workspace" / "heartbeat.md"
+    ) / "sandbox" / "heartbeat.md"
 
     async def heartbeat_read(params: dict) -> dict:
         try:

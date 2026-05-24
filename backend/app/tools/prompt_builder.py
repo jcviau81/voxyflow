@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 # Context-based secondary filter — narrows the role-based set by chat level.
-# "general" context = Main project (system-main) — gets both unassigned aliases AND project card tools.
+# "general" context = Main workspace (system-main) — gets both unassigned aliases AND workspace card tools.
 # NOTE: worker-only tools (system.exec, file.*, git.*, tmux.*, etc.) are NOT
 # listed here — they are gated by the role set in the registry, not by context.
 _GENERAL_CONTEXT_TOOLS = {
@@ -34,7 +34,7 @@ _GENERAL_CONTEXT_TOOLS = {
     "memory.search", "knowledge.search", "memory.save",
 }
 
-_PROJECT_EXCLUDED_TOOLS: set[str] = set()  # No longer excluding unassigned tools — they're aliases
+_WORKSPACE_EXCLUDED_TOOLS: set[str] = set()  # No longer excluding unassigned tools — they're aliases
 
 
 class ToolPromptBuilder:
@@ -51,7 +51,7 @@ class ToolPromptBuilder:
 
         Args:
             role: "dispatcher" or "worker" (legacy "fast"/"deep" both map to dispatcher)
-            chat_level: "general", "project", or "card"
+            chat_level: "general", "workspace", or "card"
 
         Returns:
             Formatted tool instruction block, or empty string if no tools.
@@ -93,7 +93,7 @@ class ToolPromptBuilder:
         if chat_level == "general":
             return [t for t in tools if t.name in _GENERAL_CONTEXT_TOOLS]
         elif chat_level == "workspace":
-            return [t for t in tools if t.name not in _PROJECT_EXCLUDED_TOOLS]
+            return [t for t in tools if t.name not in _WORKSPACE_EXCLUDED_TOOLS]
         else:
             # card level — all tools pass
             return tools
