@@ -64,7 +64,7 @@ class CliSessionRegistry:
             "id": session.id,
             "pid": session.pid,
             "chatId": session.chat_id,
-            "projectId": session.workspace_id,
+            "workspaceId": session.workspace_id,
             "model": session.model,
             "type": session.session_type,
             "startedAt": session.started_at,
@@ -81,7 +81,7 @@ class CliSessionRegistry:
                 "id": removed.id,
                 "pid": removed.pid,
                 "chatId": removed.chat_id,
-                "projectId": removed.workspace_id,
+                "workspaceId": removed.workspace_id,
                 "taskId": removed.task_id,
             })
 

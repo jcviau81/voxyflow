@@ -58,7 +58,7 @@ class DelegateDispatchMixin:
         self,
         chat_id: str,
         user_message: str,
-        project_name: str | None = None,
+        workspace_name: str | None = None,
         workspace_id: str | None = None,
     ) -> None:
         """Background-safe wrapper for memory auto-extraction."""
@@ -254,7 +254,7 @@ class DelegateDispatchMixin:
         delegates: list[dict],
         session_id: str,
         websocket: "WebSocket",
-        project_name: str | None = None,
+        workspace_name: str | None = None,
         chat_level: str = "general",
         project_context: dict | None = None,
         card_context: dict | None = None,
@@ -339,7 +339,7 @@ class DelegateDispatchMixin:
                     card_id = data.get("card_id") or turn_card_registry.pop_created_card(chat_id or "")
 
                 event_data = {
-                    "project_name": project_name,
+                    "workspace_name": workspace_name,
                     "chat_level": chat_level,
                     "project_context": project_context,
                     "card_context": card_context,
@@ -386,7 +386,7 @@ class DelegateDispatchMixin:
         fast_response: str,
         session_id: str,
         websocket: WebSocket,
-        project_name: str | None = None,
+        workspace_name: str | None = None,
         chat_level: str = "general",
         project_context: dict | None = None,
         card_context: dict | None = None,
@@ -476,7 +476,7 @@ class DelegateDispatchMixin:
                         card_id = data.get("card_id") or turn_card_registry.pop_created_card(chat_id or "")
 
                     event_data = {
-                        "project_name": project_name,
+                        "workspace_name": workspace_name,
                         "chat_level": chat_level,
                         "project_context": project_context,
                         "card_context": card_context,
@@ -615,7 +615,7 @@ class DelegateDispatchMixin:
             try:
                 from app.services.ws_broadcast import ws_broadcast
                 ws_broadcast.emit_sync("cards:changed", {
-                    "projectId": workspace_id or "system-main",
+                    "workspaceId": workspace_id or "system-main",
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
@@ -653,7 +653,7 @@ class DelegateDispatchMixin:
                     message_id=callback_message_id,
                     chat_id=chat_id,
                     workspace_id=workspace_id,
-                    chat_level="project" if workspace_id else "general",
+                    chat_level="workspace" if workspace_id else "general",
                     session_id=session_id,
                     is_callback=True,
                     callback_depth=0,
@@ -757,16 +757,16 @@ class DelegateDispatchMixin:
                     parts.append("- [{}] {} (id: {})".format(s, t, cid))
                 return "\n".join(parts)
             return "card.list completed ({} ms)".format(duration)
-        elif action in ("project.list", "list_projects"):
+        elif action in ("workspace.list", "list_projects"):
             if isinstance(api_result, list):
                 count = len(api_result)
-                parts = ["Found {} project(s):".format(count)]
+                parts = ["Found {} workspace(s):".format(count)]
                 for p in api_result[:10]:
                     t = p.get("title", "Untitled")
                     pid = p.get("id", "")
                     parts.append("- {} (id: {})".format(t, pid))
                 return "\n".join(parts)
-            return "project.list completed ({} ms)".format(duration)
+            return "workspace.list completed ({} ms)".format(duration)
         else:
             return f"Action `{action}` completed ({duration}ms)"
 
@@ -847,7 +847,7 @@ class DelegateDispatchMixin:
             try:
                 from app.services.ws_broadcast import ws_broadcast
                 ws_broadcast.emit_sync("cards:changed", {
-                    "projectId": workspace_id or "system-main",
+                    "workspaceId": workspace_id or "system-main",
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)

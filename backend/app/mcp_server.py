@@ -124,14 +124,14 @@ def _auto_injectable_params() -> set[str]:
 # Workspace scoping for ledger / session tools
 # ---------------------------------------------------------------------------
 # Worker ledger, CLI sessions, and task-control tools default to the current
-# project (like memory_search), preventing cross-project leakage. Callers opt
+# workspace (like memory_search), preventing cross-workspace leakage. Callers opt
 # out via scope="all" when they really need a system-wide view.
 
 def _current_workspace_scope() -> tuple[str, bool]:
-    """Resolve the active project scope from VOXYFLOW_WORKSPACE_ID.
+    """Resolve the active workspace scope from VOXYFLOW_WORKSPACE_ID.
 
     Returns (workspace_id, is_workspace_scoped):
-      - ("<uuid>", True)  → real project chat, should filter by that project
+      - ("<uuid>", True)  → real workspace chat, should filter by that workspace
       - ("", False)       → general chat (empty or "system-main"), no filter
     """
     pid = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
@@ -282,7 +282,7 @@ _TOOL_GROUPS: dict[str, dict] = {
         },
     },
     "voxyflow.ai": {
-        "description": "AI-powered project analysis. workspace_id auto-injected from context.",
+        "description": "AI-powered workspace analysis. workspace_id auto-injected from context.",
         "actions": {
             "standup": "voxyflow.ai.standup",
             "brief": "voxyflow.ai.brief",
@@ -292,7 +292,7 @@ _TOOL_GROUPS: dict[str, dict] = {
         },
     },
     "voxyflow.doc": {
-        "description": "Manage project documents. workspace_id auto-injected from context.",
+        "description": "Manage workspace documents. workspace_id auto-injected from context.",
         "actions": {
             "list": "voxyflow.doc.list",
             "delete": "voxyflow.doc.delete",
@@ -439,7 +439,7 @@ def _get_system_handler(name: str):
                 types_module=types if MCP_AVAILABLE else None,
                 get_http_client=_get_http_client,
                 enforce_task_scope=_enforce_task_scope,
-                current_project_scope=_current_workspace_scope,
+                current_workspace_scope=_current_workspace_scope,
                 active_scopes=_active_scopes,
             )
         )
@@ -474,15 +474,15 @@ def _build_url_and_payload(
         llm_value = remaining_params.pop(var, None)
         env_value = os.environ.get(f"VOXYFLOW_{var.upper()}", "").strip() or None
 
-        # Hard boundary: in a project-scoped chat, env-supplied workspace_id
+        # Hard boundary: in a workspace-scoped chat, env-supplied workspace_id
         # always wins over whatever the LLM passes. The schema strips it, but
         # some models re-emit it anyway — this enforces the invariant so a
-        # stray/guessed UUID can't leak cards into the wrong project.
+        # stray/guessed UUID can't leak cards into the wrong workspace.
         if var == "workspace_id" and pid_hard_scope:
             if llm_value and llm_value != env_pid:
                 logger.warning(
                     f"[MCP] Ignoring LLM-supplied workspace_id={llm_value!r}; "
-                    f"forcing current-project scope {env_pid!r}"
+                    f"forcing current-workspace scope {env_pid!r}"
                 )
             value = env_pid
         else:

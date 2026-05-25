@@ -103,9 +103,9 @@ class SchedulerService:
     # ------------------------------------------------------------------
 
     _DEFAULT_JOBS: list[dict] = [
-        # Removed: `builtin-agent-heartbeat` (global ~/.voxyflow/workspace/heartbeat.md
-        # poller). Replaced by the per-project autonomy layer — each project owns
-        # its own heartbeat at ~/.voxyflow/workspace/projects/{workspace_id}/heartbeat.md,
+        # Removed: `builtin-agent-heartbeat` (global ~/.voxyflow/sandbox/heartbeat.md
+        # poller). Replaced by the per-workspace autonomy layer — each workspace owns
+        # its own heartbeat at ~/.voxyflow/sandbox/workspaces/{workspace_id}/heartbeat.md,
         # scheduled via proj-heartbeat-* jobs. See scripts/smoke_test_autonomy.py.
         {
             "id": "builtin-rag-index",
@@ -153,7 +153,7 @@ class SchedulerService:
         new payload fields without needing a re-seed.
         """
         changed = False
-        # Retire the legacy global heartbeat — the per-project autonomy layer
+        # Retire the legacy global heartbeat — the per-workspace autonomy layer
         # owns heartbeats now. Drop the row from jobs.json on boot.
         before = len(jobs)
         jobs[:] = [j for j in jobs if j.get("id") != "builtin-agent-heartbeat"]
@@ -731,7 +731,7 @@ class SchedulerService:
                 from app.services.ws_broadcast import ws_broadcast
                 for card in due_cards:
                     ws_broadcast.emit_sync("cards:changed", {
-                        "projectId": card.workspace_id,
+                        "workspaceId": card.workspace_id,
                         "cardId": card.id,
                     })
                 titles = [c.title for c in due_cards[:5]]
@@ -747,18 +747,18 @@ class SchedulerService:
 
     async def _rag_index_job(self, workspace_ids: Optional[list[str]] = None) -> None:
         """
-        Re-index workspace for projects with recent chat activity (last 30 min).
+        Re-index workspaces with recent chat activity (last 30 min).
 
-        For each recently-active project:
+        For each recently-active workspace:
         - Re-indexes cards (title, description, status, priority)
-        - Re-indexes project info (title, description, tech_stack)
+        - Re-indexes workspace info (title, description, tech_stack)
 
         Keeps RAG context fresh without doing full re-index on every message.
         Uses RAGService.index_workspace() which upserts by card_id.
 
-        If ``workspace_ids`` is provided, only those projects are considered
+        If ``workspace_ids`` is provided, only those workspaces are considered
         (still gated by the "recent activity" cutoff). Pass None to scan
-        all projects (default — used by the every-15min builtin sweep).
+        all workspaces (default — used by the every-15min builtin sweep).
 
         Overlapping invocations are dropped: only one _rag_index_job may
         run at a time across the whole process. Without this, multiple
@@ -773,7 +773,7 @@ class SchedulerService:
             logger.info(
                 "[RAGIndex] Another rag_index pass is already running — "
                 "skipping this invocation (scope=%s)",
-                "all" if workspace_ids is None else f"{len(workspace_ids)} project(s)",
+                "all" if workspace_ids is None else f"{len(workspace_ids)} workspace(s)",
             )
             return
 
@@ -802,13 +802,13 @@ class SchedulerService:
                 if scope_filter:
                     stmt = stmt.where(Workspace.id.in_(scope_filter))
                 result = await db.execute(stmt)
-                projects = result.scalars().all()
+                workspaces = result.scalars().all()
 
                 indexed_count = 0
-                for project in projects:
+                for workspace in workspaces:
                     try:
-                        # Check if this project had recent chat activity
-                        chat_id = f"workspace:{project.id}"
+                        # Check if this workspace had recent chat activity
+                        chat_id = f"workspace:{workspace.id}"
                         history = session_store.get_recent_messages(chat_id, limit=1)
                         if not history:
                             continue
@@ -829,18 +829,18 @@ class SchedulerService:
                                 except Exception as e:
                                     logger.debug("Can't parse message timestamp, indexing anyway: %s", e)
 
-                        logger.info(f"[RAGIndex] Re-indexing project '{project.title}' (id={project.id})")
+                        logger.info(f"[RAGIndex] Re-indexing workspace '{workspace.title}' (id={workspace.id})")
 
-                        # Build project_info dict (matches RAGService.index_workspace signature)
-                        project_info = {
-                            "title": project.title or "",
-                            "description": project.description or "",
-                            "context": getattr(project, "tech_stack", "") or "",
+                        # Build workspace_info dict (matches RAGService.index_workspace signature)
+                        workspace_info = {
+                            "title": workspace.title or "",
+                            "description": workspace.description or "",
+                            "context": getattr(workspace, "tech_stack", "") or "",
                         }
 
                         # Fetch cards and build card dicts
                         cards_result = await db.execute(
-                            select(Card).where(Card.workspace_id == project.id)
+                            select(Card).where(Card.workspace_id == workspace.id)
                         )
                         cards_orm = cards_result.scalars().all()
                         cards_dicts = [
@@ -854,26 +854,26 @@ class SchedulerService:
                             for card in cards_orm
                         ]
 
-                        await rag.index_workspace(project.id, cards_dicts, project_info)
+                        await rag.index_workspace(workspace.id, cards_dicts, workspace_info)
                         indexed_count += 1
                         logger.info(
-                            f"[RAGIndex] Indexed project '{project.title}': {len(cards_dicts)} cards"
+                            f"[RAGIndex] Indexed workspace '{workspace.title}': {len(cards_dicts)} cards"
                         )
 
                     except Exception as e:
-                        logger.error(f"[RAGIndex] Failed to index project {project.id}: {e}", exc_info=True)
-                        # Continue with other projects — never abort the whole job
+                        logger.error(f"[RAGIndex] Failed to index workspace {workspace.id}: {e}", exc_info=True)
+                        # Continue with other workspaces — never abort the whole job
 
                 if indexed_count:
-                    logger.info(f"[RAGIndex] Done — re-indexed {indexed_count} active project(s)")
+                    logger.info(f"[RAGIndex] Done — re-indexed {indexed_count} active workspace(s)")
                     self._emit_job_event(
                         "rag_index",
                         "RAG Workspace Indexer",
                         "ok",
-                        f"Re-indexed {indexed_count} active project(s)",
+                        f"Re-indexed {indexed_count} active workspace(s)",
                     )
                 else:
-                    logger.debug("[RAGIndex] No recently-active projects to re-index")
+                    logger.debug("[RAGIndex] No recently-active workspaces to re-index")
 
         except Exception as e:
             logger.error(f"[RAGIndex] unexpected error: {e}", exc_info=True)

@@ -1054,7 +1054,7 @@ class DeepWorkerPool:
                 "sessionId": event.session_id,
                 "chatId": event.data.get("dispatcher_chat_id"),
                 "cardId": _task_card_id,
-                "projectId": event.data.get("workspace_id"),
+                "workspaceId": event.data.get("workspace_id"),
             })
 
             _wc_name = (_worker_class or {}).get("name")
@@ -1107,7 +1107,7 @@ class DeepWorkerPool:
                 execution_prompt += (
                     f"\n## Current Context\n"
                     f"You are operating in the context of card \"{_card_ctx.get('title', '?')}\" "
-                    f"(card_id: {_card_ctx.get('id', '?')}) in project \"{_project_ctx.get('title', '?')}\" "
+                    f"(card_id: {_card_ctx.get('id', '?')}) in workspace \"{_project_ctx.get('title', '?')}\" "
                     f"(workspace_id: {_project_ctx.get('id', '?')}).\n"
                     f"Card status: {_card_ctx.get('status', '?')} | "
                     f"Priority: {_card_ctx.get('priority', '?')}\n"
@@ -1116,14 +1116,14 @@ class DeepWorkerPool:
                     execution_prompt += f"Card description: {_card_ctx['description'][:500]}\n"
                 execution_prompt += (
                     f"Use card_id={_card_ctx.get('id', '?')} for any card operations. "
-                    f"Use workspace_id={_project_ctx.get('id', '?')} for any project operations.\n"
+                    f"Use workspace_id={_project_ctx.get('id', '?')} for any workspace operations.\n"
                 )
             elif _project_ctx:
                 execution_prompt += (
                     f"\n## Current Context\n"
-                    f"You are operating in the context of project \"{_project_ctx.get('title', '?')}\" "
+                    f"You are operating in the context of workspace \"{_project_ctx.get('title', '?')}\" "
                     f"(workspace_id: {_project_ctx.get('id', '?')}).\n"
-                    f"Use workspace_id={_project_ctx.get('id', '?')} for any project/card operations.\n"
+                    f"Use workspace_id={_project_ctx.get('id', '?')} for any workspace/card operations.\n"
                 )
 
             task_chat_id = f"task-{event.task_id}"
@@ -1139,7 +1139,7 @@ class DeepWorkerPool:
                 intent_lower = (event.intent or "unknown").lower()
                 if (
                     event.data.get("workspace_id")
-                    or "project" in intent_lower
+                    or "workspace" in intent_lower
                     or "card" in intent_lower
                     or "main_board" in intent_lower
                     or "mainboard" in intent_lower
@@ -1460,7 +1460,7 @@ class DeepWorkerPool:
                             # Broadcast card change so all frontends refresh
                             from app.services.ws_broadcast import ws_broadcast
                             ws_broadcast.emit_sync("cards:changed", {
-                                "projectId": event.data.get("workspace_id"),
+                                "workspaceId": event.data.get("workspace_id"),
                                 "cardId": card_id,
                             })
                 except Exception as append_err:
@@ -1531,7 +1531,7 @@ class DeepWorkerPool:
                 "totalChars": len(result_content or ""),
                 "success": True,
                 "sessionId": event.session_id,
-                "projectId": event.data.get("workspace_id"),
+                "workspaceId": event.data.get("workspace_id"),
                 "cardId": event.data.get("card_id"),
                 "artifactPath": artifact_path,
             })
@@ -1638,7 +1638,7 @@ class DeepWorkerPool:
                     "result": str(e),
                     "success": False,
                     "sessionId": event.session_id,
-                    "projectId": event.data.get("workspace_id"),
+                    "workspaceId": event.data.get("workspace_id"),
                     "cardId": event.data.get("card_id"),
                 })
             except Exception:
@@ -1800,7 +1800,7 @@ class DeepWorkerPool:
             from app.services.agent_personas import AgentType, get_persona
             from app.services.ws_broadcast import ws_broadcast
 
-            effective_project_id = workspace_id or SYSTEM_MAIN_WORKSPACE_ID
+            effective_workspace_id = workspace_id or SYSTEM_MAIN_WORKSPACE_ID
 
             # Auto-route agent type from intent/summary
             router = get_agent_router()
@@ -1818,7 +1818,7 @@ class DeepWorkerPool:
             async with async_session() as db:
                 card = Card(
                     id=card_id,
-                    workspace_id=effective_project_id,
+                    workspace_id=effective_workspace_id,
                     title=short_title,
                     description=full_text[:2000] if full_text else "",
                     status="todo",
@@ -1839,7 +1839,7 @@ class DeepWorkerPool:
                 await db.commit()
 
             ws_broadcast.emit_sync("cards:changed", {
-                "projectId": effective_project_id,
+                "workspaceId": effective_workspace_id,
                 "cardId": card_id,
             })
             logger.info(f"[CardLifecycle] Auto-created card {card_id} for \"{intent[:60]}\"")
@@ -1896,9 +1896,9 @@ class DeepWorkerPool:
                 ))
                 await db.commit()
 
-            _effective_pid = workspace_id or "system-main"
+            _effective_workspace_id = workspace_id or "system-main"
             ws_broadcast.emit_sync("cards:changed", {
-                "projectId": _effective_pid,
+                "workspaceId": _effective_workspace_id,
                 "cardId": card_id,
             })
             logger.info(f"[CardLifecycle] Card {card_id}: {old_status} -> {new_status}")

@@ -1,13 +1,13 @@
 """Workspace autonomy — per-workspace heartbeat jobs.
 
-Each project can opt into an autonomous heartbeat: a scheduled ``agent_task``
-that fires on an interval, reads a project-scoped directive file, and runs the
+Each workspace can opt into an autonomous heartbeat: a scheduled ``agent_task``
+that fires on an interval, reads a workspace-scoped directive file, and runs the
 instructions through the orchestrator with ``workspace_id`` set so memory / KG /
 MCP scoping all land in the right place.
 
 Layout
 ------
-- Directive file: ``~/.voxyflow/workspace/projects/{workspace_id}/heartbeat.md``
+- Directive file: ``~/.voxyflow/sandbox/workspaces/{workspace_id}/heartbeat.md``
 - Job id:         ``proj-heartbeat-{workspace_id}``  (stored in ``jobs.json``)
 - Job type:       ``agent_task`` (reuses existing executor in ``job_runner``)
 
@@ -77,9 +77,9 @@ _DEFAULT_DIRECTIVE = (
 _DEFAULT_PREAMBLE = (
     "# Workspace Heartbeat — {title}\n"
     "\n"
-    "You are the autonomous agent for this project. You wake up on a schedule\n"
+    "You are the autonomous agent for this workspace. You wake up on a schedule\n"
     "and read the directive below. If there is a directive, execute it — you\n"
-    "have full project scoping (memory, KG, ledger) and may delegate to workers.\n"
+    "have full workspace scoping (memory, KG, ledger) and may delegate to workers.\n"
     "\n"
     "**Chaining rules**\n"
     "- When you finish a step and want the next heartbeat to continue, rewrite\n"
@@ -97,7 +97,7 @@ _DEFAULT_PREAMBLE = (
 )
 
 
-def ensure_heartbeat_file(workspace_id: str, project_title: str = "") -> Path:
+def ensure_heartbeat_file(workspace_id: str, workspace_title: str = "") -> Path:
     """Create the workspace's heartbeat.md with a default preamble if missing.
 
     Idempotent: existing files are never overwritten.
@@ -107,10 +107,10 @@ def ensure_heartbeat_file(workspace_id: str, project_title: str = "") -> Path:
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        _DEFAULT_PREAMBLE.format(title=project_title or workspace_id),
+        _DEFAULT_PREAMBLE.format(title=workspace_title or workspace_id),
         encoding="utf-8",
     )
-    logger.info(f"[Autonomy] Seeded heartbeat file for project {workspace_id} at {path}")
+    logger.info(f"[Autonomy] Seeded heartbeat file for workspace {workspace_id} at {path}")
     return path
 
 
@@ -140,12 +140,12 @@ def read_directive(workspace_id: str) -> str:
     return below.lstrip("\n")
 
 
-def write_directive(workspace_id: str, directive: str, project_title: str = "") -> None:
+def write_directive(workspace_id: str, directive: str, workspace_title: str = "") -> None:
     """Replace the content below the divider with ``directive``.
 
     Creates the file with the default preamble if it doesn't exist yet.
     """
-    ensure_heartbeat_file(workspace_id, project_title=project_title)
+    ensure_heartbeat_file(workspace_id, workspace_title=workspace_title)
     path = heartbeat_file(workspace_id)
     text = path.read_text(encoding="utf-8")
     preamble, _ = _split_at_divider(text)
@@ -170,7 +170,7 @@ def directive_is_actionable(workspace_id: str) -> bool:
 
 def build_job_dict(
     workspace_id: str,
-    project_title: str,
+    workspace_title: str,
     schedule: str = DEFAULT_SCHEDULE,
     enabled: bool = True,
 ) -> dict[str, Any]:
@@ -178,7 +178,7 @@ def build_job_dict(
     path = heartbeat_file(workspace_id)
     return {
         "id": job_id_for(workspace_id),
-        "name": f"Heartbeat — {project_title or workspace_id}",
+        "name": f"Heartbeat — {workspace_title or workspace_id}",
         "type": "agent_task",
         "schedule": schedule,
         "enabled": enabled,
@@ -245,7 +245,7 @@ def get_status(workspace_id: str) -> dict[str, Any]:
 
 def upsert(
     workspace_id: str,
-    project_title: str,
+    workspace_title: str,
     *,
     enabled: bool = True,
     schedule: Optional[str] = None,
@@ -259,26 +259,26 @@ def upsert(
     """
     load, save, find = _jobs_io()
 
-    ensure_heartbeat_file(workspace_id, project_title=project_title)
+    ensure_heartbeat_file(workspace_id, workspace_title=workspace_title)
     if directive is not None:
-        write_directive(workspace_id, directive, project_title=project_title)
+        write_directive(workspace_id, directive, workspace_title=workspace_title)
 
     jobs = load()
     idx, existing = find(jobs, job_id_for(workspace_id))
     new_job = build_job_dict(
         workspace_id,
-        project_title,
+        workspace_title,
         schedule=schedule or (existing and existing.get("schedule")) or DEFAULT_SCHEDULE,
         enabled=enabled,
     )
     if existing is None:
         jobs.append(new_job)
-        logger.info(f"[Autonomy] Created heartbeat job for project {workspace_id}")
+        logger.info(f"[Autonomy] Created heartbeat job for workspace {workspace_id}")
     else:
         # Preserve last_run / next_run from previous entry.
         new_job["last_run"] = existing.get("last_run")
         jobs[idx] = new_job
-        logger.info(f"[Autonomy] Updated heartbeat job for project {workspace_id}")
+        logger.info(f"[Autonomy] Updated heartbeat job for workspace {workspace_id}")
     save(jobs)
 
     try:
@@ -302,7 +302,7 @@ def disable(workspace_id: str) -> bool:
         _scheduler().unregister_user_job(job_id_for(workspace_id))
     except Exception as e:
         logger.warning(f"[Autonomy] Could not unregister APS job for {workspace_id}: {e}")
-    logger.info(f"[Autonomy] Disabled heartbeat job for project {workspace_id}")
+    logger.info(f"[Autonomy] Disabled heartbeat job for workspace {workspace_id}")
     return True
 
 
@@ -314,7 +314,7 @@ async def run_now(workspace_id: str) -> dict[str, Any]:
     jobs = load()
     _idx, job = find(jobs, job_id_for(workspace_id))
     if job is None:
-        return {"status": "error", "message": "Autonomy not enabled for this project"}
+        return {"status": "error", "message": "Autonomy not enabled for this workspace"}
     return await _execute_job(job)
 
 

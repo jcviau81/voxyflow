@@ -30,10 +30,10 @@ logger = logging.getLogger("voxyflow.orchestration")
 
 
 async def _count_cards_updated_today(workspace_id: str) -> int | None:
-    """How many cards in this project were created/updated since local midnight?
+    """How many cards in this workspace were created/updated since local midnight?
 
     Returns None on error (caller suppresses the line). Ignores the system-main
-    project because "today" is a project-scoped signal; global rollups aren't
+    workspace because "today" is a workspace-scoped signal; global rollups aren't
     meaningful for Voxy's heartbeat.
     """
     from datetime import datetime, timezone
@@ -152,7 +152,7 @@ class LayerRunnersMixin:
         content: str,
         message_id: str,
         chat_id: str,
-        project_name: str | None,
+        workspace_name: str | None,
         workspace_id: str | None,
         chat_level: str,
         project_context: dict | None,
@@ -190,7 +190,7 @@ class LayerRunnersMixin:
             async for token in self._claude.chat_fast_stream(
                 chat_id=chat_id,
                 user_message=content,
-                project_name=project_name,
+                workspace_name=workspace_name,
                 chat_level=chat_level,
                 project_context=project_context,
                 card_context=card_context,
@@ -264,7 +264,7 @@ class LayerRunnersMixin:
                     chat_id=chat_id,
                     model_label="fast",
                     session_id=session_id,
-                    project_name=project_name,
+                    workspace_name=workspace_name,
                     workspace_id=workspace_id,
                     chat_level=chat_level,
                     project_context=project_context,
@@ -322,7 +322,7 @@ class LayerRunnersMixin:
         content: str,
         message_id: str,
         chat_id: str,
-        project_name: str | None,
+        workspace_name: str | None,
         workspace_id: str | None,
         chat_level: str,
         project_context: dict | None,
@@ -359,7 +359,7 @@ class LayerRunnersMixin:
             async for token in self._claude.chat_deep_stream(
                 chat_id=chat_id,
                 user_message=content,
-                project_name=project_name,
+                workspace_name=workspace_name,
                 chat_level=chat_level,
                 project_context=project_context,
                 card_context=card_context,
@@ -426,7 +426,7 @@ class LayerRunnersMixin:
                     chat_id=chat_id,
                     model_label="deep",
                     session_id=session_id,
-                    project_name=project_name,
+                    workspace_name=workspace_name,
                     workspace_id=workspace_id,
                     chat_level=chat_level,
                     project_context=project_context,

@@ -282,7 +282,7 @@ class PersonalityService:
         if session_handoff:
             parts.append(session_handoff.rstrip())
 
-        if chat_level in ("workspace", "project", "general") and workspace:
+        if chat_level in ("workspace", "general") and workspace:
             # Workspace chat: inject full workspace state.
             # Main/general chat with no workspace pulls the list via voxyflow.workspace.list on demand.
             name = workspace.get("title", "Untitled")
@@ -441,7 +441,7 @@ class PersonalityService:
         return "\n\n".join(parts)
 
     # ------------------------------------------------------------------
-    # Context-isolated prompt builders (general / project / card)
+    # Context-isolated prompt builders (general / workspace / card)
     # ------------------------------------------------------------------
 
     def build_general_prompt(self, workspace_names: Optional[list] = None) -> str:
@@ -644,7 +644,7 @@ class PersonalityService:
             action_rule = (
                 "**Read-only dispatcher.** Use MCP only to inspect memory, knowledge, "
                 "session state, and worker results. Any action work = delegate. "
-                "Do not do card/project/wiki/doc writes, code, research, web, shell, files, "
+                "Do not do card/workspace/wiki/doc writes, code, research, web, shell, files, "
                 "long analysis, or multi-step execution inline."
             )
         else:
@@ -791,12 +791,12 @@ class PersonalityService:
                 f"Voxyflow itself runs on **port {be}** (FastAPI/uvicorn backend) and "
                 f"**port {fe}** (Caddy frontend reverse proxy). These are the ports the "
                 "user is talking to *you* through right now.\n\n"
-                f"When you delegate work that starts a project's dev server, the worker is "
+                f"When you delegate work that starts a workspace's dev server, the worker is "
                 f"instructed to refuse port {be} and {fe} and report the collision. So:\n"
-                f"- If a project's config (e.g. `backend/.env`, `vite.config.ts`, `server.js`) "
-                f"binds to {be} or {fe}, **fix the project's port first** — don't ask a worker "
+                f"- If a workspace's config (e.g. `backend/.env`, `vite.config.ts`, `server.js`) "
+                f"binds to {be} or {fe}, **fix the workspace's port first** — don't ask a worker "
                 f"to \"just free the port\".\n"
-                f"- When briefing a worker to (re)start a service, **state the project's port "
+                f"- When briefing a worker to (re)start a service, **state the workspace's port "
                 f"explicitly** in the delegate description so it knows what's expected and what "
                 f"would be a collision.\n"
                 f"- If a port collision is the real blocker, surface it to the user — "
@@ -824,8 +824,8 @@ class PersonalityService:
             f"- **Never `kill`/`kill -TERM`/`kill -9` PID {backend_pid}** under any circumstance.\n"
             f"- **Never free ports {be} or {fe}.** No `fuser -k {be}/tcp`, no "
             f"`lsof -t -i:{be} | xargs kill`, no `lsof -t -i:{fe} | xargs kill`, no equivalent. "
-            f"If your project's dev server collides with {be} or {fe}, **stop and report the "
-            f"conflict in your summary** — change the project's config, don't free the port.\n"
+            f"If your workspace's dev server collides with {be} or {fe}, **stop and report the "
+            f"conflict in your summary** — change the workspace's config, don't free the port.\n"
             "- **Never `pkill`/`killall` by broad patterns** like `python`, `python -m uvicorn`, "
             "`uvicorn`, `uvicorn app.main`, `node`, `claude`, `vite`, `npm`, or anything matching "
             "`voxyflow`/`.voxyflow`. These match the supervisor and sibling workers. "
@@ -836,10 +836,10 @@ class PersonalityService:
             "cmdline contains `voxyflow` or `app.main:app`, **abort** and narrow the pattern.\n"
             "- **Kill only PIDs you started yourself** (capture `$!` or the PID file your own "
             "command wrote). To clean up a stale dev server, narrow the `pkill -f` pattern to "
-            "the project's own absolute path, e.g. "
-            "`pkill -f \"/home/.../projects/<this-project>/.*uvicorn\"` — never the bare token "
+            "the workspace's own absolute path, e.g. "
+            "`pkill -f \"/home/.../workspaces/<this-workspace>/.*uvicorn\"` — never the bare token "
             "`uvicorn` or `app.main`.\n"
-            f"- **Prefer port-scoped kills for project servers** that bind a known port "
+            f"- **Prefer port-scoped kills for workspace servers** that bind a known port "
             f"(NOT {be}/{fe}): `fuser -k <port>/tcp` is safer than `pkill -f` because it "
             "cannot match the supervisor.\n"
             "- **Never `systemctl stop voxyflow-backend`** or send signals to its PID for any "
@@ -852,7 +852,7 @@ class PersonalityService:
         """Delegate instructions when native tool_use is available (Anthropic SDK)."""
         return (
             "\n\n## ⚡ delegate_action — your ONLY way to make work happen\n"
-            "You can chat AND call inline dispatcher tools (card.*, project.*, memory.*, etc.).\n"
+            "You can chat AND call inline dispatcher tools (card.*, workspace.*, memory.*, etc.).\n"
             "You CANNOT execute real work yourself (research, web search, code, files, shell).\n"
             "For ALL such work you MUST call `delegate_action`. Workers run on Claude — they do the job.\n\n"
             "**Trigger rule** — if the user asks for any of these (in any language), call\n"
@@ -907,7 +907,7 @@ class PersonalityService:
         return (
             "\n\n## ⚡ Two ways to act\n"
             "**Inline MCP tools** (direct, fast — instant + local): memory, knowledge "
-            "graph (kg.*), all card/project/wiki/doc CRUD incl. deletes, "
+            "graph (kg.*), all card/workspace/wiki/doc CRUD incl. deletes, "
             "checklists/relations/time, sessions, workers.list/read_artifact, "
             "task.peek/cancel/steer, jobs, autonomy, heartbeat, endpoints, focus, undo. "
             "See docs/TOOLS.md or backend/app/tools/registry.py for the canonical full list.\n\n"
@@ -927,7 +927,7 @@ class PersonalityService:
             "  worker is still active for that card, wait for it. The dispatcher will refuse\n"
             "  to spawn a parallel one anyway.\n\n"
             "**Workspace scoping is automatic**: memory/knowledge tools are scoped to the current "
-            "project by the runtime. Don't pass workspace_id manually. Main/general chat falls back "
+            "workspace by the runtime. Don't pass workspace_id manually. Main/general chat falls back "
             "to global + system-main memory.\n\n"
             "**Inline memory.search is expected, not stalling.** If you need a fact you don't "
             "have, call it mid-response — that's normal. Don't self-censor or apologise for a "
@@ -960,11 +960,11 @@ class PersonalityService:
             "voxyflow.sessions.list, voxyflow.workers.list/get_result/read_artifact, "
             "and voxyflow.task.peek. Use them only to inspect state or read worker output.\n\n"
             "**Never do these inline**: implementation, debugging, refactoring, writing files, "
-            "shell commands, web search/fetch, research, long analysis, card/project/wiki/doc writes, "
+            "shell commands, web search/fetch, research, long analysis, card/workspace/wiki/doc writes, "
             "jobs/autonomy changes, endpoint changes, deletes, or multi-step execution. Delegate them.\n\n"
             "**Trigger rule** — if the user asks you to run, launch, execute, do, find, search, "
             "research, write, code, debug, deploy, summarize, analyze, build, fix, implement, "
-            "scrape, crawl, modify a project/card, or perform any multi-step task: emit exactly "
+            "scrape, crawl, modify a workspace/card, or perform any multi-step task: emit exactly "
             "one focused `<delegate>` block at the end of the response. Do not solve it yourself.\n\n"
             "**<delegate> block** (end of response):\n"
             "<delegate>\n"

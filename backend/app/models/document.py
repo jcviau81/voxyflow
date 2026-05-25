@@ -15,7 +15,7 @@ class DocumentResponse(DocumentBase):
 
 
 class DocumentListResponse(BaseModel):
-    """List of documents for a project.
+    """List of documents for a workspace.
 
     ``total`` is synthesized by the route handler (COUNT query, not a column).
     """

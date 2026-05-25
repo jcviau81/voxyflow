@@ -95,7 +95,7 @@ async def build_execution_plan(
 async def _build_card_prompt(card_id: str) -> tuple[str, str | None]:
     """Build an execution prompt for a card (mirrors execute_card endpoint logic).
 
-    Returns (prompt, project_name).
+    Returns (prompt, workspace_name).
     """
     async with async_session() as db:
         stmt = (
@@ -119,11 +119,11 @@ async def _build_card_prompt(card_id: str) -> tuple[str, str | None]:
         files = json.loads(card.files) if card.files else []
 
         # Workspace name
-        project_name = None
+        workspace_name = None
         if card.workspace_id:
-            project = await db.get(Workspace, card.workspace_id)
-            if project:
-                project_name = project.title
+            workspace = await db.get(Workspace, card.workspace_id)
+            if workspace:
+                workspace_name = workspace.title
             # Note: card status transition to in-progress is handled by
             # _execute_event() in worker_pool.py (system-managed lifecycle)
 
@@ -136,14 +136,14 @@ async def _build_card_prompt(card_id: str) -> tuple[str, str | None]:
             parts.append("\nChecklist:\n" + "\n".join(checklist_lines))
         if files:
             parts.append(f"\nLinked files: {', '.join(files)}")
-        if project_name:
-            parts.append(f"\nProject: {project_name}")
+        if workspace_name:
+            parts.append(f"\nWorkspace: {workspace_name}")
         parts.append("\nExecute this card. Read the description carefully and do what it asks.")
         parts.append("If anything is unclear, ask for clarification in the card chat.")
         parts.append("When you complete checklist items, check them off.")
         parts.append("When done, report what you did with the full raw output.")
 
-        return "\n".join(parts), project_name
+        return "\n".join(parts), workspace_name
 
 
 async def _move_card_status(card_id: str, new_status: CardStatus) -> None:
@@ -230,7 +230,7 @@ async def execute_board(
         await _move_card_status(card_plan.id, CardStatus.IN_PROGRESS)
 
         # Build prompt (no chain context in parallel mode)
-        prompt, _project_name = await _build_card_prompt(card_plan.id)
+        prompt, _workspace_name = await _build_card_prompt(card_plan.id)
 
         # Generate a unique message ID for this card execution
         message_id = f"exec-{execution_id}-{card_plan.id}"
@@ -243,7 +243,7 @@ async def execute_board(
             chat_id=chat_id,
             workspace_id=workspace_id,
             layers={"deep": False},
-            chat_level="project",
+            chat_level="workspace",
             card_id=card_plan.id,
             session_id=session_id,
         )

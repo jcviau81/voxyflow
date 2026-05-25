@@ -321,12 +321,12 @@ def build_deep_link(workspace_id: str | None, card_id: str | None) -> str:
     """Build a frontend URL for a notification.
 
     Matches the routes declared in ``frontend-react/src/router.tsx``:
-    only ``/project/:id`` exists — there is no dedicated ``/board/`` route,
-    so we use the project page with a ``?card=`` query param so the UI can
+    only ``/workspace/:id`` exists — there is no dedicated ``/board/`` route,
+    so we use the workspace page with a ``?card=`` query param so the UI can
     open the card detail panel on load.
     """
     if workspace_id and card_id:
-        return f"/project/{workspace_id}?card={card_id}"
+        return f"/workspace/{workspace_id}?card={card_id}"
     if workspace_id:
-        return f"/project/{workspace_id}"
+        return f"/workspace/{workspace_id}"
     return "/"

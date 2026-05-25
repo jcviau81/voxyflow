@@ -91,7 +91,7 @@ class KnowledgeGraphService:
         """Upsert an entity by (name, entity_type, workspace_id). Returns entity id.
 
         Entities are not temporally scoped — they persist once created. Repeated
-        calls with the same (name, type, project) update properties and
+        calls with the same (name, type, workspace) update properties and
         updated_at but return the same id.
         """
         if len(name) > self.MAX_NAME_LEN:
@@ -211,7 +211,7 @@ class KnowledgeGraphService:
         as_of: Optional[datetime] = None,
         limit: int = 20,
     ) -> list[dict]:
-        """Search entities in a project. Filters are optional.
+        """Search entities in a workspace. Filters are optional.
 
         Entities are not temporal — all entities are returned regardless of
         valid_from/valid_to (those live on triples/attributes, not entities).
@@ -251,7 +251,7 @@ class KnowledgeGraphService:
         as_of: Optional[datetime] = None,
         limit: int = 20,
     ) -> list[dict]:
-        """Query active relationships (valid_to IS NULL) for a project.
+        """Query active relationships (valid_to IS NULL) for a workspace.
 
         Optionally filtered by entity name, predicate, or point-in-time (as_of).
         Without ``as_of``, returns only current facts (valid_to IS NULL).
@@ -385,7 +385,7 @@ class KnowledgeGraphService:
     # ------------------------------------------------------------------
 
     async def get_stats(self, workspace_id: str) -> dict:
-        """Return counts of entities, active triples, active attributes for a project."""
+        """Return counts of entities, active triples, active attributes for a workspace."""
         async with async_session() as db:
             entities = (await db.execute(text(
                 "SELECT COUNT(*) FROM kg_entities WHERE workspace_id = :pid"
@@ -488,12 +488,12 @@ class KnowledgeGraphService:
                 logger.warning(f"[KG] Failed to extract entity {name!r}: {e}")
                 continue
 
-        # Refresh pinned cache if we touched this project
+        # Refresh pinned cache if we touched this workspace
         if entity_ids:
             try:
                 await self.refresh_pinned_cache(workspace_id)
             except SQLAlchemyError:
                 logger.debug("refresh_pinned_cache failed after extraction", exc_info=True)
 
-        logger.info(f"[KG] Extracted {len(entity_ids)} entities for project {workspace_id}")
+        logger.info(f"[KG] Extracted {len(entity_ids)} entities for workspace {workspace_id}")
         return entity_ids

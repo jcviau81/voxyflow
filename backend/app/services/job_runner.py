@@ -127,37 +127,6 @@ def _save_jobs(jobs: list[dict]) -> None:
         raise HTTPException(500, f"Failed to persist jobs: {e}")
 
 
-def migrate_legacy_project_keys() -> int:
-    """Rewrite jobs.json: legacy ``project_id``/``project_heartbeat`` → ``workspace_*``.
-
-    Idempotent — running it twice is a no-op. Returns the number of jobs touched.
-    Called once at backend startup; safe to call repeatedly.
-    """
-    jobs = _load_jobs()
-    if not jobs:
-        return 0
-    touched = 0
-    for j in jobs:
-        changed = False
-        if "project_heartbeat" in j and "workspace_heartbeat" not in j:
-            j["workspace_heartbeat"] = j.pop("project_heartbeat")
-            changed = True
-        payload = j.get("payload") or {}
-        if "project_id" in payload and "workspace_id" not in payload:
-            payload["workspace_id"] = payload.pop("project_id")
-            changed = True
-        if "project_heartbeat" in payload and "workspace_heartbeat" not in payload:
-            payload["workspace_heartbeat"] = payload.pop("project_heartbeat")
-            changed = True
-        if changed:
-            j["payload"] = payload
-            touched += 1
-    if touched:
-        _save_jobs(jobs)
-        logger.info(f"[Jobs] Migrated {touched} job(s): project_* → workspace_*")
-    return touched
-
-
 def _find_job(jobs: list[dict], job_id: str) -> tuple[int, dict] | tuple[None, None]:
     """Find a job by id. Returns (index, job) or (None, None)."""
     for i, j in enumerate(jobs):
@@ -279,7 +248,7 @@ def _emit_job_session(job: dict, chat_id: str, workspace_id: str | None = None) 
             "jobId": job.get("id"),
             "jobName": job.get("name"),
             "jobType": job.get("type"),
-            "projectId": workspace_id,
+            "workspaceId": workspace_id,
         })
     except Exception as e:
         logger.debug(f"[Jobs] Could not emit job:session:started: {e}")
@@ -291,12 +260,12 @@ def _emit_job_session(job: dict, chat_id: str, workspace_id: str | None = None) 
 
 
 async def _run_rag_index(job: dict, payload: dict) -> dict:
-    """Run a RAG index job for specific projects or all active projects.
+    """Run a RAG index job for specific workspaces or all active workspaces.
 
     Payload keys (all optional):
-      - workspace_ids: list[str]  → scope to these projects
-      - workspace_id:  str        → legacy single-project scope
-    Neither set → reindex all projects with recent activity (builtin sweep).
+      - workspace_ids: list[str]  → scope to these workspaces
+      - workspace_id:  str        → legacy single-workspace scope
+    Neither set → reindex all workspaces with recent activity (builtin sweep).
     """
     workspace_ids: list[str] = []
     raw_ids = payload.get("workspace_ids")
@@ -353,7 +322,7 @@ async def _run_execute_board(job: dict, payload: dict) -> dict:
         return {"status": "error", "message": "Missing workspace_id in payload"}
 
     statuses = payload.get("statuses", ["todo"])
-    logger.info(f"[Jobs][ExecuteBoard] Starting board run for project={workspace_id}, statuses={statuses}")
+    logger.info(f"[Jobs][ExecuteBoard] Starting board run for workspace={workspace_id}, statuses={statuses}")
 
     from app.services.board_executor import build_execution_plan, execute_board
 
@@ -391,7 +360,7 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
         return {"status": "error", "message": "Missing card_id in payload"}
 
     workspace_id = payload.get("workspace_id")
-    logger.info(f"[Jobs][ExecuteCard] Executing card={card_id}, project={workspace_id or 'none'}")
+    logger.info(f"[Jobs][ExecuteCard] Executing card={card_id}, workspace={workspace_id or 'none'}")
 
     from app.services.board_executor import _build_card_prompt
     from app.main import _orchestrator
@@ -411,7 +380,7 @@ async def _run_execute_card(job: dict, payload: dict) -> dict:
             message_id=message_id,
             chat_id=chat_id,
             workspace_id=workspace_id,
-            chat_level="project" if workspace_id else "general",
+            chat_level="workspace" if workspace_id else "general",
             card_id=card_id,
             session_id=session_id,
         )
@@ -452,7 +421,7 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
         return gated
 
     workspace_id = payload.get("workspace_id")
-    logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (project={workspace_id or 'none'})")
+    logger.info(f"[Jobs][AgentTask] Starting agent task '{job.get('name')}' (workspace={workspace_id or 'none'})")
 
     from app.main import _orchestrator
 
@@ -469,7 +438,7 @@ async def _run_agent_task(job: dict, payload: dict) -> dict:
             message_id=message_id,
             chat_id=chat_id,
             workspace_id=workspace_id,
-            chat_level="project" if workspace_id else "general",
+            chat_level="workspace" if workspace_id else "general",
             session_id=session_id,
         )
 
@@ -577,7 +546,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
         )
         await _emit_ws("task:started", {
             "taskId": task_id,
-            "projectId": workspace_id,
+            "workspaceId": workspace_id,
             "cardId": None,
             "chatId": chat_id,
             "sessionId": session_id,
@@ -596,7 +565,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
     status = "completed"
     error_msg: str | None = None
     logger.info(
-        f"[autonomy-tick] start project={workspace_id} job={job_id} "
+        f"[autonomy-tick] start workspace={workspace_id} job={job_id} "
         f"session={session_id} task={task_id}"
     )
 
@@ -607,7 +576,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
             message_id=message_id,
             chat_id=chat_id,
             workspace_id=workspace_id,
-            chat_level="project",
+            chat_level="workspace",
             session_id=session_id,
             role="autonomy",
             autonomy_directive_path=directive_path,
@@ -663,7 +632,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
         })
 
     logger.info(
-        f"[autonomy-tick] end project={workspace_id} job={job_id} "
+        f"[autonomy-tick] end workspace={workspace_id} job={job_id} "
         f"duration={duration:.2f}s spawned={spawned} status={status}"
     )
 
@@ -677,7 +646,7 @@ async def _run_autonomy_tick(job: dict, payload: dict) -> dict:
                 f"Autonomy cycle {body_status} "
                 f"({duration:.1f}s, {spawned} delegate{'s' if spawned != 1 else ''})."
             ),
-            url=f"/project/{workspace_id}",
+            url=f"/workspace/{workspace_id}",
             tag=f"autonomy-{job_id}",
         ))
     except Exception as _push_err:

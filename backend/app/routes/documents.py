@@ -1,9 +1,9 @@
 """
-Documents API — upload, list, and delete project documents for RAG indexing.
+Documents API — upload, list, and delete workspace documents for RAG indexing.
 
 Routes:
   POST   /api/workspaces/{workspace_id}/documents        Upload file (multipart/form-data)
-  GET    /api/workspaces/{workspace_id}/documents        List documents for project
+  GET    /api/workspaces/{workspace_id}/documents        List documents for workspace
   DELETE /api/workspaces/{workspace_id}/documents/{id}  Delete document + remove from index
 
 Phase 1: .txt and .md files.
@@ -40,10 +40,10 @@ router = APIRouter(prefix="/api", tags=["documents"])
 
 async def _get_project_or_404(workspace_id: str, db: AsyncSession) -> Workspace:
     result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
-    project = result.scalar_one_or_none()
-    if project is None:
+    workspace = result.scalar_one_or_none()
+    if workspace is None:
         raise HTTPException(status_code=404, detail=f"Workspace {workspace_id!r} not found")
-    return project
+    return workspace
 
 
 # ---------------------------------------------------------------------------
@@ -64,12 +64,12 @@ async def upload_document(
     rag: RAGService = Depends(get_rag_service),
 ):
     """
-    Upload a file and index it into the project's RAG knowledge base.
+    Upload a file and index it into the workspace's RAG knowledge base.
 
     Supported formats: .txt, .md, .pdf, .docx, .doc, .xlsx, .xls, .csv
     (exact support depends on installed dependencies — see DocumentParserRegistry).
     """
-    # Validate project exists
+    # Validate workspace exists
     await _get_project_or_404(workspace_id, db)
 
     filename = file.filename or "unknown"
@@ -137,13 +137,13 @@ async def upload_document(
 @router.get(
     "/workspaces/{workspace_id}/documents",
     response_model=DocumentListResponse,
-    summary="List documents for a project",
+    summary="List documents for a workspace",
 )
 async def list_documents(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """List all documents uploaded to a project."""
+    """List all documents uploaded to a workspace."""
     await _get_project_or_404(workspace_id, db)
 
     result = await db.execute(
@@ -185,7 +185,7 @@ async def delete_document(
     if doc is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Document {document_id!r} not found in project {workspace_id!r}",
+            detail=f"Document {document_id!r} not found in workspace {workspace_id!r}",
         )
 
     # Remove from ChromaDB index first (non-fatal)

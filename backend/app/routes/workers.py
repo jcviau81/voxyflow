@@ -121,7 +121,7 @@ async def worker_snapshot(
 
         workers.append({
             "taskId": s["task_id"],
-            "projectId": s.get("workspace_id"),
+            "workspaceId": s.get("workspace_id"),
             "cardId": s.get("card_id"),
             "chatId": s.get("chat_id"),
             "action": s.get("intent", "unknown"),
@@ -149,7 +149,7 @@ async def worker_snapshot(
             "id": cs.id,
             "pid": cs.pid,
             "chatId": cs.chat_id,
-            "projectId": cs.workspace_id,
+            "workspaceId": cs.workspace_id,
             "model": cs.model,
             "type": cs.session_type,
             "startedAt": cs.started_at,

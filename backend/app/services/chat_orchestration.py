@@ -159,7 +159,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             chat_level=chat_level,
         )
 
-        project_name = project_context.get("title") if project_context else None
+        workspace_name = project_context.get("title") if project_context else None
 
         # Resolve layer toggles
         # deep_enabled=False (default): Fast streams to chat, Deep only for delegate workers
@@ -187,7 +187,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 content=content,
                 message_id=message_id,
                 chat_id=chat_id,
-                project_name=project_name,
+                workspace_name=workspace_name,
                 workspace_id=workspace_id,
                 chat_level=chat_level,
                 project_context=project_context,
@@ -205,7 +205,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 content=content,
                 message_id=message_id,
                 chat_id=chat_id,
-                project_name=project_name,
+                workspace_name=workspace_name,
                 workspace_id=workspace_id,
                 chat_level=chat_level,
                 project_context=project_context,
@@ -238,7 +238,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                         delegates=native_delegates,
                         session_id=session_id,
                         websocket=websocket,
-                        project_name=project_name,
+                        workspace_name=workspace_name,
                         chat_level=chat_level,
                         project_context=project_context,
                         card_context=card_context,
@@ -263,7 +263,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                             fast_response=chat_response,
                             session_id=session_id,
                             websocket=websocket,
-                            project_name=project_name,
+                            workspace_name=workspace_name,
                             chat_level=chat_level,
                             project_context=project_context,
                             card_context=card_context,
@@ -281,7 +281,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 self._auto_extract_memories_safe(
                     chat_id=chat_id,
                     user_message=content,
-                    project_name=project_name,
+                    workspace_name=workspace_name,
                     workspace_id=workspace_id,
                 )
             )
@@ -537,7 +537,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         self,
         chat_id: str,
         user_message: str,
-        project_name: str | None = None,
+        workspace_name: str | None = None,
         workspace_id: str | None = None,
     ) -> None:
         """Background-safe wrapper for memory auto-extraction."""
@@ -653,7 +653,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         delegates: list[dict],
         session_id: str,
         websocket: "WebSocket",
-        project_name: str | None = None,
+        workspace_name: str | None = None,
         chat_level: str = "general",
         project_context: dict | None = None,
         card_context: dict | None = None,
@@ -774,7 +774,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 card_id = card_context.get("id") if card_context else None
 
                 event_data = {
-                    "project_name": project_name,
+                    "workspace_name": workspace_name,
                     "chat_level": chat_level,
                     "project_context": project_context,
                     "card_context": card_context,
@@ -819,7 +819,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         fast_response: str,
         session_id: str,
         websocket: WebSocket,
-        project_name: str | None = None,
+        workspace_name: str | None = None,
         chat_level: str = "general",
         project_context: dict | None = None,
         card_context: dict | None = None,
@@ -947,7 +947,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     card_id = card_context.get("id") if card_context else None
 
                     event_data = {
-                        "project_name": project_name,
+                        "workspace_name": workspace_name,
                         "chat_level": chat_level,
                         "project_context": project_context,
                         "card_context": card_context,
@@ -1082,7 +1082,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             try:
                 from app.services.ws_broadcast import ws_broadcast
                 ws_broadcast.emit_sync("cards:changed", {
-                    "projectId": workspace_id or "system-main",
+                    "workspaceId": workspace_id or "system-main",
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
@@ -1120,7 +1120,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     message_id=callback_message_id,
                     chat_id=chat_id,
                     workspace_id=workspace_id,
-                    chat_level="project" if workspace_id else "general",
+                    chat_level="workspace" if workspace_id else "general",
                     session_id=session_id,
                     is_callback=True,
                     callback_depth=0,
@@ -1310,7 +1310,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             try:
                 from app.services.ws_broadcast import ws_broadcast
                 ws_broadcast.emit_sync("cards:changed", {
-                    "projectId": workspace_id or "system-main",
+                    "workspaceId": workspace_id or "system-main",
                 })
             except Exception as e:
                 logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
@@ -1427,7 +1427,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                                 ],
                             }
             except Exception as e:
-                logger.warning(f"Failed to resolve project/card context: {e}")
+                logger.warning(f"Failed to resolve workspace/card context: {e}")
 
         return project_context, card_context, project_names
 

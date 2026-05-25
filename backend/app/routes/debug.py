@@ -54,7 +54,7 @@ def _flatten_system(system: Any) -> str:
 
 @router.post("/context")
 async def dump_context(req: DebugContextRequest):
-    """Return the full system prompt Voxy sees for the given (project, card, layer, message).
+    """Return the full system prompt Voxy sees for the given (workspace, card, layer, message).
 
     Pure read — no chat history mutation, no LLM call. Use this to diagnose
     attribution, retrieved-fragment pertinence, and live-state wiring.
@@ -100,7 +100,7 @@ async def dump_context(req: DebugContextRequest):
         if memory._has_extractable_signal([{"content": req.user_message, "role": "user"}]):
             fast_layers = (0, 1, 2)
         memory_context = memory.build_memory_context(
-            project_name=(project_context or {}).get("title"),
+            workspace_name=(project_context or {}).get("title"),
             workspace_id=workspace_id,
             include_long_term=False,
             include_daily=True,
@@ -121,7 +121,7 @@ async def dump_context(req: DebugContextRequest):
         use_cli = claude.deep_client_type == "cli"
         model = claude.deep_model
         memory_context = memory.build_memory_context(
-            project_name=(project_context or {}).get("title"),
+            workspace_name=(project_context or {}).get("title"),
             workspace_id=workspace_id,
             include_long_term=True,
             include_daily=True,

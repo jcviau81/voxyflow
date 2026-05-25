@@ -79,7 +79,7 @@ PIP_FRAMEWORKS = {
 
 @router.get("/detect")
 async def detect_tech(project_path: str):
-    """Scan a project directory and detect technologies."""
+    """Scan a workspace directory and detect technologies."""
     path = Path(os.path.expanduser(project_path))
     if not path.exists():
         return {"error": "Path not found", "technologies": []}
