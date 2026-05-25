@@ -6,6 +6,7 @@ import { ChatProvider } from './contexts/ChatProvider';
 import { Toaster } from './components/ui/Toaster';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { router } from './router';
+import { ensureRegistered } from './services/pushService';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -18,7 +19,7 @@ const queryClient = new QueryClient({
 
 function App() {
   useEffect(() => {
-    import('./services/pushService').then((m) => m.ensureRegistered().catch(() => {}));
+    ensureRegistered().catch(() => {});
   }, []);
 
   return (

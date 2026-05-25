@@ -120,6 +120,42 @@ def _dedupe_lines(parts: list[str]) -> str:
     return "\n".join(deduped)
 
 
+def _codex_tool_name_to_mcp(raw_tool: str) -> str:
+    """Map Codex JSONL MCP tool names back to Voxyflow MCP names.
+
+    Codex can report tool names in several shapes depending on CLI version:
+    ``mcp__voxyflow__file_read``, ``file_read``, ``voxyflow_worker_claim``,
+    or already dotted names. The old first-underscore replacement converted
+    only ``file_read``-style names correctly and produced names such as
+    ``voxyflow.workers_list`` for deeper tools, so callbacks missed lifecycle
+    and content-tool events.
+    """
+    candidate = (raw_tool or "").strip()
+    if not candidate:
+        return "mcp.tool"
+    if candidate.startswith("mcp__voxyflow__"):
+        candidate = candidate.removeprefix("mcp__voxyflow__")
+
+    try:
+        from app.mcp_server import _TOOL_DEFINITIONS
+
+        known = [str(t.get("name", "")) for t in _TOOL_DEFINITIONS]
+        known_set = set(known)
+        if candidate in known_set:
+            return candidate
+        dotted_all = candidate.replace("_", ".")
+        if dotted_all in known_set:
+            return dotted_all
+        for name in known:
+            if name.replace(".", "_") == candidate:
+                return name
+    except Exception:
+        pass
+
+    # Fallback for non-Voxyflow or local tool names such as file_read/system_exec.
+    return candidate.replace("_", ".", 1)
+
+
 @dataclass(frozen=True)
 class CodexCallResult:
     ok: bool
@@ -547,7 +583,7 @@ class CodexCliBackend:
             return
         if item_type == "mcp_tool_call" and tool_callback:
             raw_tool = item.get("tool", "") or "mcp.tool"
-            tool_name = raw_tool.replace("mcp__voxyflow__", "").replace("_", ".", 1)
+            tool_name = _codex_tool_name_to_mcp(raw_tool)
             arguments = item.get("arguments") if isinstance(item.get("arguments"), dict) else {}
             error = item.get("error")
             result_payload = item.get("result")

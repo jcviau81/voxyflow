@@ -19,6 +19,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToastStore } from '../../stores/useToastStore';
 import { cn } from '../../lib/utils';
+import { authFetch } from '../../lib/authClient';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -211,7 +212,7 @@ async function fetchJobs(): Promise<Job[]> {
 }
 
 async function createJob(job: Partial<Job>): Promise<Job> {
-  const res = await fetch('/api/jobs', {
+  const res = await authFetch('/api/jobs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(job),
@@ -221,7 +222,7 @@ async function createJob(job: Partial<Job>): Promise<Job> {
 }
 
 async function updateJob(id: string, patch: Partial<Job>): Promise<Job> {
-  const res = await fetch(`/api/jobs/${id}`, {
+  const res = await authFetch(`/api/jobs/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
@@ -231,12 +232,12 @@ async function updateJob(id: string, patch: Partial<Job>): Promise<Job> {
 }
 
 async function deleteJob(id: string): Promise<void> {
-  const res = await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
+  const res = await authFetch(`/api/jobs/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 async function runJob(id: string): Promise<void> {
-  const res = await fetch(`/api/jobs/${id}/run`, { method: 'POST' });
+  const res = await authFetch(`/api/jobs/${id}/run`, { method: 'POST' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 

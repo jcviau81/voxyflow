@@ -793,7 +793,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.workers.get_result",
-        "description": "Get full details of a worker task by task_id (workspace-scoped; scope='all' to bypass).",
+        "description": "Get full details of a worker task by task_id (workspace-scoped; scope='all' to bypass). Returns a `completion` object with the structured worker.complete payload (status, summary, findings, pointers, next_step) when available — that's the dispatcher-facing deliverable, not the raw narration in result_summary.",
         "inputSchema": {
             "type": "object",
             "required": ["task_id"],

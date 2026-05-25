@@ -1230,17 +1230,14 @@ class ClaudeService(ApiCallerMixin):
 
         if client_type == "codex":
             dynamic_parts.append(
-                "## Codex Voxyflow Lifecycle Fallback\n"
-                "You do not have Voxyflow MCP lifecycle tools in this mode. Instead, report lifecycle "
-                "with fenced JSON blocks in your final answer. Include a claim block before your work summary "
-                "and a complete block after it. Use exactly these shapes:\n\n"
-                "```json\n"
-                "{\"voxyflow_worker_claim\": {\"task_id\": \"<task_id>\", \"plan\": \"<one sentence plan>\"}}\n"
-                "```\n\n"
-                "```json\n"
-                "{\"voxyflow_worker_complete\": {\"task_id\": \"<task_id>\", \"status\": \"success|partial|failed\", "
-                "\"summary\": \"<2-4 sentences>\", \"findings\": [\"...\"], \"pointers\": [], \"next_step\": null}}\n"
-                "```"
+                "## Codex Voxyflow lifecycle\n"
+                "You have Voxyflow MCP tools through Codex. Use the real tools when they are available: "
+                "first call voxyflow.worker.claim, then do the work, and as your last action call "
+                "voxyflow.worker.complete. Do not merely print lifecycle JSON when the MCP tools are available.\n\n"
+                "Only if the lifecycle MCP tools are unavailable, include fallback fenced JSON blocks "
+                "named voxyflow_worker_claim and voxyflow_worker_complete in your final answer with the "
+                "same fields. The complete block must include task_id, status, summary, findings, "
+                "pointers, and next_step."
             )
 
         if workspace_id:
@@ -1317,9 +1314,11 @@ class ClaudeService(ApiCallerMixin):
 
         if client_type == "codex":
             system_prompt += (
-                "\n\nCodex lifecycle fallback: include fenced JSON blocks named "
-                "voxyflow_worker_claim and voxyflow_worker_complete in your final answer. "
-                "The complete block must include task_id, status, summary, findings, pointers, and next_step."
+                "\n\nCodex lifecycle: use the real Voxyflow MCP lifecycle tools when available: "
+                "first voxyflow.worker.claim, last voxyflow.worker.complete. Only if those tools "
+                "are unavailable, include fallback fenced JSON blocks named voxyflow_worker_claim "
+                "and voxyflow_worker_complete in your final answer. The complete block must include "
+                "task_id, status, summary, findings, pointers, and next_step."
             )
 
         if client_type in ("anthropic", "cli", "codex"):

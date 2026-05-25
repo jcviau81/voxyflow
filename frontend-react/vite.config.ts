@@ -43,6 +43,23 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
+    build: {
+      chunkSizeWarningLimit: 900,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/react-router-dom/')) return 'react';
+            if (id.includes('/@tanstack/react-query/')) return 'query';
+            if (id.includes('/@uiw/react-codemirror/') || id.includes('/@codemirror/')) return 'editor';
+            if (id.includes('/react-markdown/') || id.includes('/remark-gfm/') || id.includes('/react-syntax-highlighter/')) return 'markdown';
+            if (id.includes('/@dnd-kit/')) return 'dnd';
+            if (id.includes('/@huggingface/transformers/') || id.includes('/onnxruntime-web/')) return 'voice';
+            return 'vendor';
+          },
+        },
+      },
+    },
     server: {
       port: 3000,
       host: '0.0.0.0',

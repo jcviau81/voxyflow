@@ -18,7 +18,7 @@ from typing import List
 from app.services.time_context import utc_now_iso
 
 DATA_DIR = Path(os.environ.get(
-    "VOXYFLOW_DATA",
+    "VOXYFLOW_DATA_DIR",
     os.path.expanduser("~/.voxyflow"),
 ))
 

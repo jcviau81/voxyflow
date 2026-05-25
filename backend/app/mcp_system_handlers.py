@@ -604,6 +604,17 @@ def build_handlers(
             except Exception as db_err:
                 logger.warning(f"[mcp.workers.get_result] DB read failed: {db_err}")
 
+            # Resolve the structured worker.complete payload (findings,
+            # pointers, etc.) — supervisor first (live, in-memory), then the
+            # on-disk sidecar (survives restart / GC). This is what the
+            # dispatcher actually needs to act; the .md artifact is verbose
+            # narration on top.
+            from app.services.worker_artifact_store import read_completion
+            from app.services.worker_supervisor import get_worker_supervisor
+            completion = get_worker_supervisor().get_completion_payload(task_id)
+            if not completion:
+                completion = read_completion(task_id)
+
             if session is None:
                 # Last-resort fallback: the in-memory supervisor and the DB
                 # row may have both been GC'd, but the artifact on disk has
@@ -613,7 +624,7 @@ def build_handlers(
                 from app.services.worker_artifact_store import read_artifact_meta
                 meta = read_artifact_meta(task_id)
                 if meta is not None:
-                    return {
+                    reconstructed: dict = {
                         "success": True,
                         "task_id": task_id,
                         "status": meta.get("status") or "completed",
@@ -632,12 +643,18 @@ def build_handlers(
                         "artifact_written_at": meta.get("written_at"),
                         "source": "artifact_frontmatter",
                     }
+                    if completion:
+                        reconstructed["completion"] = completion
+                    return reconstructed
                 return {"success": False, "error": f"Worker task not found: {task_id}"}
 
             if full_result is not None:
                 session = {**session, "result_summary": full_result}
 
-            return {"success": True, **session}
+            response = {"success": True, **session}
+            if completion:
+                response["completion"] = completion
+            return response
         except Exception as e:
             logger.error(f"[mcp.workers.get_result] failed: {e}")
             return {"success": False, "error": str(e)}
