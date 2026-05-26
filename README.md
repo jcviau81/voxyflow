@@ -11,6 +11,8 @@
 
 > ⚠️ **Alpha** — Early software. It works (I use it daily), but expect rough edges. Moving fast. **Contributors welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).**
 
+📍 [Roadmap](./ROADMAP.md) — what's shipping now, next, and later.
+
 **Your personal AI assistant for getting workspaces done.**
 
 Select a card. Say "execute this." The AI reads the full context — workspace, description, checklist, linked files — and *does the work*. Not a generic chatbot. A personal agent that knows exactly where it is in your workflow.
@@ -303,6 +305,7 @@ voxyflow/
 
 | Doc | Contents |
 |-----|---------|
+| [ROADMAP.md](ROADMAP.md) | What's shipping now, next, and later |
 | [SETUP.md](docs/SETUP.md) | Full installation guide — LLM backend, XTTS, onboarding |
 | [CONTEXT_GUIDE.md](docs/CONTEXT_GUIDE.md) | Context system + DailyOps workflow example |
 | [UI_GUIDE.md](docs/UI_GUIDE.md) | Interface guide — every view explained |
