@@ -21,8 +21,13 @@ logger = logging.getLogger("voxyflow.worker_sessions")
 RUNNING_TIMEOUT_SECONDS = 1800
 # Only return sessions from the last hour (running sessions always included)
 RECENT_WINDOW_SECONDS = 3600
-# Terminal sessions (done/failed/cancelled) expire faster
-TERMINAL_WINDOW_SECONDS = 120  # 2 minutes
+# Terminal sessions (done/failed/cancelled) stay visible in workers.list for
+# this long after they end. Set wide enough that a dispatcher coming back to
+# a chat several minutes after a worker finished can still see it and pull
+# its result via workers.get_result — the previous 2-minute window dropped
+# tasks before the user could re-engage, leaving Voxy with an empty list and
+# the impression that "no worker ran".
+TERMINAL_WINDOW_SECONDS = 1800  # 30 minutes
 
 
 class WorkerSession:
@@ -108,7 +113,7 @@ class WorkerSessionStore:
 
     def __init__(self, data_dir: Optional[str] = None):
         if data_dir is None:
-            voxyflow_data = os.environ.get("VOXYFLOW_DATA", os.path.expanduser("~/.voxyflow"))
+            voxyflow_data = os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
             data_dir = os.path.join(voxyflow_data, "worker_sessions")
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
@@ -307,7 +312,7 @@ class WorkerSessionStore:
         """Get active + recent sessions, optionally filtered by session_id.
 
         Running sessions are always included. Terminal sessions expire
-        after TERMINAL_WINDOW_SECONDS (2 min).
+        after TERMINAL_WINDOW_SECONDS.
         """
         self._refresh_from_disk()
         self.check_timeouts()

@@ -914,15 +914,19 @@ class PersonalityService:
             "**Worker-only** (need a subprocess): voxyflow.ai.standup/brief/health/"
             "prioritize/review_code, voxyflow.card.enrich, file.*, system.exec, "
             "web.search/web.fetch, git.*, tmux.*, anything touching files or the OS.\n\n"
-            "## 📖 Reading worker output — NEVER spawn a worker just to read another worker\n"
-            "When a worker finishes, the callback you see is just a preview. The full raw output\n"
-            "lives on disk and YOU read it yourself in chunks via\n"
-            "`voxyflow.workers.read_artifact(task_id, offset, length)`.\n"
-            "- « rapport trop gros » / « truncated » / « le résultat est dans la carte » →\n"
-            "  call `read_artifact` repeatedly with growing offsets. NEVER re-delegate to read.\n"
-            "- Before relaunching the same task: call `voxyflow.workers.read_artifact` first.\n"
-            "  An artifact on disk means the worker really did finish, even if `workers.list`\n"
-            "  no longer shows it. Don't say « il a expiré » — verify with read_artifact.\n"
+            "## 📖 Reading worker output — the ambient block IS the deliverable\n"
+            "The `## Worker activity since your last turn` block in your prompt contains the\n"
+            "worker's full structured `voxyflow.worker.complete` payload: summary, findings,\n"
+            "pointers, next_step. **That's the deliverable — read it directly and answer.**\n"
+            "Don't call `workers.list` or `workers.get_result` just to find what's already in\n"
+            "the block, and don't pretend you're « fetching the result » — you have it.\n"
+            "- Call `workers.get_result(task_id)` only when you need fields the block omitted\n"
+            "  (e.g. pointers offsets to read with `read_artifact`, or full unsummarised text).\n"
+            "- Call `workers.read_artifact(task_id, offset, length)` when the block points to a\n"
+            "  specific section you need verbatim (logs, file content, command output). Page\n"
+            "  with growing offsets if the artifact is large. NEVER re-delegate to read.\n"
+            "- An artifact on disk means the worker really did finish, even if `workers.list`\n"
+            "  no longer shows it. Don't say « il a expiré » — try `read_artifact` first.\n"
             "- Before delegating again on the same card: call `voxyflow.workers.list` — if a\n"
             "  worker is still active for that card, wait for it. The dispatcher will refuse\n"
             "  to spawn a parallel one anyway.\n\n"
@@ -975,9 +979,16 @@ class PersonalityService:
             "The runtime picks the worker model from your Worker Classes config (intent match) "
             "and the default worker model; don't name a specific model. The description must be "
             "self-contained and include relevant card/workspace context.\n\n"
-            "## 📖 Reading worker output — do not redelegate just to read\n"
-            "If a worker already ran, inspect `voxyflow.workers.list`, `voxyflow.workers.get_result`, "
-            "or `voxyflow.workers.read_artifact`. Reading results is dispatcher work; doing new work is not.\n\n"
+            "## 📖 Reading worker output — the ambient block IS the deliverable\n"
+            "The `## Worker activity since your last turn` block in your prompt already contains\n"
+            "the worker's full structured `voxyflow.worker.complete` payload: summary, findings,\n"
+            "pointers, next_step. **That's the deliverable — read it directly and answer.**\n"
+            "Don't call `workers.list` or `workers.get_result` just to find what's already in\n"
+            "the block, and don't pretend you're « fetching the result » — you have it.\n"
+            "Call `voxyflow.workers.get_result(task_id)` only for fields the block omitted (long\n"
+            "summary, full findings list when truncated), and `voxyflow.workers.read_artifact`\n"
+            "with pointer offsets when you need verbatim sections. Reading results is dispatcher\n"
+            "work; doing new work is not — never re-delegate just to read.\n\n"
             "## 🚫 Not your tools\n"
             "You run inside Voxyflow's chat via Codex CLI. You may see Codex shell/file/web abilities, "
             "but those are worker responsibilities in Voxyflow. Use only read-only MCP tools, "
@@ -1231,33 +1242,116 @@ def build_session_handoff_block(
     return "\n".join(lines)
 
 
-def build_worker_events_block(events: list[dict]) -> str:
-    """Render completed worker events as a short reference block.
+_WORKER_BLOCK_MAX_CHARS = 8000
+_PER_WORKER_FINDINGS_MAX = 7
+_PER_FINDING_MAX_CHARS = 280
+_PER_POINTER_MAX_CHARS = 160
 
-    This is NOT a turn. It just tells Voxy "these finished while you were away;
-    call workers.get_result if you want the detail." Hard cap ≤10 lines /
-    1600 chars — per-line cap is generous because workers are instructed
-    (WORKER.md §2a) to write compressed, telegraphic briefs, and truncating
-    those defeats the purpose.
+
+def build_worker_events_block(events: list[dict]) -> str:
+    """Render completed worker events with their structured deliverable.
+
+    NOT a turn — an ambient context block prepended to the next dispatcher
+    prompt. Each event includes the worker's ``voxyflow.worker.complete``
+    payload (summary + findings + pointers + next_step) so Voxy sees the
+    actual deliverable up front. Without this, Fast-tier dispatchers tend to
+    skip ``workers.get_result`` and answer from the one-line summary alone.
+
+    Hard cap _WORKER_BLOCK_MAX_CHARS protects context budget when many
+    workers complete in the same window.
     """
     if not events:
         return ""
+
     lines: list[str] = ["## Worker activity since your last turn"]
     for ev in events[:10]:
         status = (ev.get("status") or "success").lower()
         glyph = _STATUS_GLYPH.get(status, "•")
         intent = ev.get("intent") or "unknown"
         task_id = ev.get("task_id") or "?"
-        summary = (ev.get("summary_line") or "").strip()
-        # Prefer the summary if present; otherwise just fall back to the hint.
-        tail = summary if summary else "use workers.get_result for details"
-        line = f"- {glyph} {task_id} — {intent} ({status}) — {tail}"
-        lines.append(line[:300])
+        completion = ev.get("completion") or None
+
+        # Header line — task identity at a glance.
+        lines.append(f"- {glyph} {task_id} — {intent} ({status})")
+
+        if completion:
+            summary = (completion.get("summary") or "").strip()
+            if summary:
+                # Keep summary readable but cap to avoid runaway workers
+                # blowing the block. Workers are told (WORKER.md §2a) to
+                # write 2–4 compressed sentences.
+                if len(summary) > 1200:
+                    summary = summary[:1180].rstrip() + "…"
+                lines.append(f"  Summary: {summary}")
+
+            findings = completion.get("findings") or []
+            if findings:
+                lines.append(f"  Findings ({len(findings)}):")
+                for f in findings[:_PER_WORKER_FINDINGS_MAX]:
+                    text = str(f).strip() if not isinstance(f, dict) else _summarize_finding_dict(f)
+                    if len(text) > _PER_FINDING_MAX_CHARS:
+                        text = text[: _PER_FINDING_MAX_CHARS - 1].rstrip() + "…"
+                    lines.append(f"    • {text}")
+                if len(findings) > _PER_WORKER_FINDINGS_MAX:
+                    extra = len(findings) - _PER_WORKER_FINDINGS_MAX
+                    lines.append(
+                        f"    • [+{extra} more — use workers.get_result for full list]"
+                    )
+
+            pointers = completion.get("pointers") or []
+            if pointers:
+                ptr_strs: list[str] = []
+                for p in pointers[:6]:
+                    if isinstance(p, dict):
+                        label = (p.get("label") or "section").strip()
+                        offset = p.get("offset")
+                        length = p.get("length")
+                        bits = [f"`{label}`"]
+                        if offset is not None:
+                            bits.append(f"@{offset}")
+                        if length is not None:
+                            bits.append(f"+{length}")
+                        chunk = " ".join(bits)
+                    else:
+                        chunk = str(p)
+                    if len(chunk) > _PER_POINTER_MAX_CHARS:
+                        chunk = chunk[: _PER_POINTER_MAX_CHARS - 1] + "…"
+                    ptr_strs.append(chunk)
+                lines.append("  Pointers: " + " · ".join(ptr_strs))
+
+            next_step = (completion.get("next_step") or "").strip()
+            if next_step:
+                if len(next_step) > 400:
+                    next_step = next_step[:380].rstrip() + "…"
+                lines.append(f"  Next step: {next_step}")
+        else:
+            # No structured payload (e.g. failure event) — fall back to the
+            # one-line summary so the dispatcher at least knows what happened.
+            summary = (ev.get("summary_line") or "").strip()
+            tail = summary if summary else "use workers.get_result for details"
+            lines.append(f"  {tail[:600]}")
 
     rendered = "\n".join(lines)
-    if len(rendered) > 1600:
-        rendered = rendered[:1580].rstrip() + "\n[... events truncated — use workers.list ...]"
+    if len(rendered) > _WORKER_BLOCK_MAX_CHARS:
+        rendered = (
+            rendered[: _WORKER_BLOCK_MAX_CHARS - 100].rstrip()
+            + "\n[... worker block truncated — use workers.list / workers.get_result for the rest ...]"
+        )
     return rendered
+
+
+def _summarize_finding_dict(d: dict) -> str:
+    """Render a finding dict as one compact line."""
+    # Prefer the most natural keys first; fall back to JSON.
+    for key in ("text", "summary", "title", "label"):
+        if key in d and d[key]:
+            return str(d[key]).strip()
+    try:
+        import json as _json
+
+        return _json.dumps(d, ensure_ascii=False)
+    except Exception:
+        return str(d)
 
 
 def build_live_state_block(

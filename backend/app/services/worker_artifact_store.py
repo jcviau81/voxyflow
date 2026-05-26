@@ -12,11 +12,12 @@ frontmatter.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger("voxyflow.worker_artifacts")
 
@@ -29,7 +30,7 @@ DEFAULT_READ_LENGTH = 50_000
 
 
 def _data_dir() -> Path:
-    voxyflow_data = os.environ.get("VOXYFLOW_DATA", os.path.expanduser("~/.voxyflow"))
+    voxyflow_data = os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
     d = Path(voxyflow_data) / "worker_artifacts"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -38,6 +39,11 @@ def _data_dir() -> Path:
 def artifact_path(task_id: str) -> Path:
     """Return the on-disk path for a task's artifact (may not exist)."""
     return _data_dir() / f"{task_id}.md"
+
+
+def completion_path(task_id: str) -> Path:
+    """Return the on-disk path for a task's structured completion sidecar."""
+    return _data_dir() / f"{task_id}.completion.json"
 
 
 def _yaml_escape(value: str) -> str:
@@ -210,12 +216,85 @@ def read_artifact_meta(task_id: str) -> Optional[dict]:
 
 
 def delete_artifact(task_id: str) -> bool:
-    """Delete an artifact file. Returns True if a file was removed."""
+    """Delete an artifact file (and its completion sidecar, if any).
+
+    Returns True if the main .md file was removed.
+    """
     path = artifact_path(task_id)
+    removed = False
     try:
         if path.exists():
             path.unlink()
-            return True
+            removed = True
     except Exception as e:
         logger.debug(f"[WorkerArtifact] Failed to delete {task_id}: {e}")
-    return False
+
+    sidecar = completion_path(task_id)
+    try:
+        if sidecar.exists():
+            sidecar.unlink()
+    except Exception as e:
+        logger.debug(f"[WorkerArtifact] Failed to delete completion {task_id}: {e}")
+    return removed
+
+
+# ---------------------------------------------------------------------------
+# Structured completion sidecar
+# ---------------------------------------------------------------------------
+#
+# The .md artifact holds the worker's full raw output (narration + any large
+# tool outputs). The structured ``voxyflow.worker.complete`` payload — status,
+# summary, findings, pointers, next_step — lives in a tiny sidecar JSON file
+# so it survives backend restarts and supervisor GC, and can be consumed
+# programmatically without reparsing markdown.
+#
+# Single source of truth for the dispatcher: ``workers.get_result`` reads the
+# in-memory supervisor first, then falls back to this sidecar.
+
+_COMPLETION_KEYS = ("status", "summary", "findings", "pointers", "next_step", "plan")
+
+
+def write_completion(task_id: str, payload: dict[str, Any]) -> Optional[str]:
+    """Persist the structured worker.complete payload alongside the artifact.
+
+    Returns the absolute path on success, ``None`` if nothing was written
+    (empty payload) or on I/O failure.
+    """
+    if not payload:
+        return None
+
+    clean: dict[str, Any] = {}
+    for key in _COMPLETION_KEYS:
+        if key in payload and payload[key] not in (None, ""):
+            clean[key] = payload[key]
+    if not clean:
+        return None
+    clean["written_at"] = datetime.now(timezone.utc).isoformat()
+
+    path = completion_path(task_id)
+    try:
+        path.write_text(
+            json.dumps(clean, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        logger.info(
+            f"[WorkerArtifact] Wrote {path.name} "
+            f"(findings={len(clean.get('findings') or [])}, "
+            f"pointers={len(clean.get('pointers') or [])})"
+        )
+        return str(path)
+    except Exception as e:
+        logger.warning(f"[WorkerArtifact] Failed to write completion {task_id}: {e}")
+        return None
+
+
+def read_completion(task_id: str) -> Optional[dict[str, Any]]:
+    """Load the structured worker.complete payload, or ``None`` if missing."""
+    path = completion_path(task_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(f"[WorkerArtifact] Failed to read completion {task_id}: {e}")
+        return None

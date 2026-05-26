@@ -586,8 +586,15 @@ class DeepWorkerPool:
         intent: str,
         status: str,
         summary_line: str,
+        completion: dict | None = None,
     ) -> None:
         """Record a worker completion/failure against a dispatcher chat.
+
+        ``completion`` is the structured ``voxyflow.worker.complete`` payload
+        (findings/pointers/next_step). It's surfaced verbatim in the worker
+        activity block so the dispatcher sees the deliverable up front instead
+        of having to remember to call ``workers.get_result`` (which Fast-tier
+        dispatchers tend to skip).
 
         The event is drained on the next user turn via drain_worker_events().
         Bounded at _MAX_WORKER_EVENTS_PER_CHAT — oldest dropped on overflow.
@@ -604,6 +611,7 @@ class DeepWorkerPool:
             "status": status,
             "finished_at": time.time(),
             "summary_line": (summary_line or "")[:500],
+            "completion": completion or None,
         })
 
     def drain_worker_events(
@@ -1500,6 +1508,20 @@ class DeepWorkerPool:
             if not supervisor.is_structured_complete(event.task_id):
                 self._synthesize_fallback_completion(event, result_content)
 
+            # Persist the final structured completion as a sidecar JSON.
+            #
+            # Do not rewrite the .md artifact here. Worker.complete pointers
+            # are offsets into the raw artifact body produced above; prefixing
+            # the artifact with a rendered completion block would shift those
+            # offsets and make read_artifact(pointer.offset, pointer.length)
+            # return the wrong slice.
+            # Supervisor state is in-memory and gets GC'd; the sidecar lets
+            # workers.get_result return findings/pointers across restarts.
+            final_completion = supervisor.get_completion_payload(event.task_id)
+            if final_completion:
+                from app.services.worker_artifact_store import write_completion
+                write_completion(event.task_id, final_completion)
+
             # --- Secondary stores get previews; artifact is canonical ---
             result_preview = _preview(result_content, PREVIEW_CHARS) if result_content else ""
 
@@ -1570,19 +1592,17 @@ class DeepWorkerPool:
                     logger.warning(f"[DeepWorker] Failed to persist worker result: {_persist_err}")
 
             # --- Record ambient worker event (NOT a dispatcher turn) ---
-            # The dispatcher pulls details on demand via voxyflow.workers.get_result
-            # / read_artifact. A one-line reference is surfaced in the next user
-            # turn's context block so Voxy knows something happened.
+            # The structured worker.complete payload (findings + pointers +
+            # next_step) ships with the event so it appears verbatim in the
+            # next turn's worker-activity block. Fast-tier dispatchers don't
+            # reliably call workers.get_result on their own — putting the
+            # deliverable in front of them keeps the pull-on-demand contract
+            # honest without re-introducing the parallel-flood failure mode
+            # the bounded block size already prevents.
             dispatcher_chat_id = event.data.get("dispatcher_chat_id")
             if dispatcher_chat_id:
                 payload = supervisor.get_completion_payload(event.task_id)
                 status = (payload or {}).get("status") or "success"
-                # Prefer the structured worker.complete summary (which §2a of
-                # WORKER.md asks the worker to write in a compressed,
-                # telegraphic style). Fall back to result_content. Flatten any
-                # embedded newlines to " · " so the ambient block stays
-                # one-line-per-event without discarding content after the
-                # first newline.
                 summary_source = ((payload or {}).get("summary") or result_content or "").strip()
                 summary_line = " · ".join(
                     ln.strip() for ln in summary_source.splitlines() if ln.strip()
@@ -1593,6 +1613,7 @@ class DeepWorkerPool:
                     intent=event.intent or "",
                     status=status,
                     summary_line=summary_line,
+                    completion=payload,
                 )
                 self._schedule_dispatcher_callback(dispatcher_chat_id, event)
 

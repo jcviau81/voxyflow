@@ -19,9 +19,10 @@ import logging
 import uuid
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.services.auth_service import verify_auth
 from app.services.job_runner import (
     JOBS_FILE,
     VOXYFLOW_DIR,
@@ -103,7 +104,7 @@ async def list_jobs():
     return {"jobs": builtin + user, "total": len(jobs)}
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[Depends(verify_auth)])
 async def create_job(req: JobCreateRequest):
     """Create a new job and register it with APScheduler."""
     jobs = await asyncio.to_thread(_load_jobs)
@@ -161,19 +162,19 @@ async def _do_update_job(job_id: str, req: JobUpdateRequest):
     return job
 
 
-@router.put("/{job_id}")
+@router.put("/{job_id}", dependencies=[Depends(verify_auth)])
 async def update_job(job_id: str, req: JobUpdateRequest):
     """Update an existing job (full update)."""
     return await _do_update_job(job_id, req)
 
 
-@router.patch("/{job_id}")
+@router.patch("/{job_id}", dependencies=[Depends(verify_auth)])
 async def patch_job(job_id: str, req: JobUpdateRequest):
     """Update an existing job (partial update — alias for PUT, for frontend compat)."""
     return await _do_update_job(job_id, req)
 
 
-@router.delete("/{job_id}", status_code=204)
+@router.delete("/{job_id}", status_code=204, dependencies=[Depends(verify_auth)])
 async def delete_job(job_id: str):
     """Delete a job and unregister it from APScheduler."""
     jobs = await asyncio.to_thread(_load_jobs)
@@ -195,7 +196,7 @@ async def delete_job(job_id: str):
     return None
 
 
-@router.post("/{job_id}/run")
+@router.post("/{job_id}/run", dependencies=[Depends(verify_auth)])
 async def trigger_job(job_id: str):
     """Trigger a job immediately (fire-and-forget)."""
     jobs = await asyncio.to_thread(_load_jobs)

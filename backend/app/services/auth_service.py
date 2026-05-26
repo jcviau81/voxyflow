@@ -35,7 +35,7 @@ from fastapi import Header, HTTPException, status
 logger = logging.getLogger(__name__)
 
 _TOKEN_FILE = Path(
-    os.environ.get("VOXYFLOW_DATA", os.path.expanduser("~/.voxyflow"))
+    os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
 ) / "auth_token"
 
 _cached_token: str | None = None

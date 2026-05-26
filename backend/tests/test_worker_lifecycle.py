@@ -221,6 +221,20 @@ async def test_worker_complete_accepts_without_prior_claim(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Codex CLI tool-name mapping
+# ---------------------------------------------------------------------------
+
+
+def test_codex_tool_name_mapping_restores_deep_mcp_names():
+    from app.services.llm.codex_backend import _codex_tool_name_to_mcp
+
+    assert _codex_tool_name_to_mcp("mcp__voxyflow__file_read") == "file.read"
+    assert _codex_tool_name_to_mcp("mcp__voxyflow__system_exec") == "system.exec"
+    assert _codex_tool_name_to_mcp("mcp__voxyflow__voxyflow_worker_claim") == "voxyflow.worker.claim"
+    assert _codex_tool_name_to_mcp("mcp__voxyflow__voxyflow_workers_read_artifact") == "voxyflow.workers.read_artifact"
+
+
+# ---------------------------------------------------------------------------
 # Ambient worker-event buffer (turn isolation)
 #
 # Worker completions no longer re-trigger the dispatcher. Instead they're
@@ -247,10 +261,18 @@ def _make_pool_for_events():
 
 def test_record_worker_event_stores_completion():
     pool = _make_pool_for_events()
+    completion = {
+        "status": "success",
+        "summary": "Rewrote login handler and verified the auth flow.",
+        "findings": ["added token retry"],
+        "pointers": [{"label": "diff", "offset": 0, "length": 500}],
+        "next_step": "Run the browser smoke test.",
+    }
     pool.record_worker_event(
         "chat-1",
         task_id="T1", intent="refactor auth",
         status="success", summary_line="Rewrote login handler.",
+        completion=completion,
     )
     buf = pool._worker_events["chat-1"]
     assert len(buf) == 1
@@ -259,6 +281,7 @@ def test_record_worker_event_stores_completion():
     assert ev["intent"] == "refactor auth"
     assert ev["status"] == "success"
     assert ev["summary_line"] == "Rewrote login handler."
+    assert ev["completion"] == completion
     assert isinstance(ev["finished_at"], float)
 
 
@@ -356,6 +379,61 @@ def test_record_worker_event_truncates_long_summary_line():
     # Workers are instructed (WORKER.md §2a) to write compressed briefs that
     # fit well under this — the cap is the safety net, not the target.
     assert len(ev["summary_line"]) == 500
+
+
+def test_worker_events_block_renders_structured_completion():
+    from app.services.personality_service import build_worker_events_block
+
+    block = build_worker_events_block([{
+        "task_id": "T1",
+        "intent": "review code",
+        "status": "success",
+        "summary_line": "fallback line",
+        "completion": {
+            "status": "success",
+            "summary": "Found two concrete issues and one test gap.",
+            "findings": ["bug in auth retry", {"text": "missing sidecar test"}],
+            "pointers": [{"label": "diff", "offset": 12, "length": 34}],
+            "next_step": "Patch auth retry first.",
+        },
+    }])
+
+    assert "## Worker activity since your last turn" in block
+    assert "Summary: Found two concrete issues" in block
+    assert "bug in auth retry" in block
+    assert "missing sidecar test" in block
+    assert "diff" in block
+    assert "@12 +34" in block
+    assert "Next step: Patch auth retry first." in block
+
+
+def test_completion_sidecar_does_not_shift_raw_artifact_offsets(tmp_path, monkeypatch):
+    monkeypatch.setenv("VOXYFLOW_DATA_DIR", str(tmp_path))
+    from app.services.worker_artifact_store import (
+        read_artifact,
+        read_completion,
+        write_artifact,
+        write_completion,
+    )
+
+    raw = "alpha\nIMPORTANT SECTION\nomega"
+    assert write_artifact("T1", raw) is not None
+    start = raw.index("IMPORTANT")
+    payload = {
+        "status": "success",
+        "summary": "Worker produced a structured completion.",
+        "findings": ["found important section"],
+        "pointers": [{"label": "important", "offset": start, "length": 17}],
+    }
+    assert write_completion("T1", payload) is not None
+
+    saved = read_completion("T1")
+    assert saved["summary"] == payload["summary"]
+    assert saved["pointers"] == payload["pointers"]
+    assert "written_at" in saved
+
+    slice_data = read_artifact("T1", offset=start, length=17)
+    assert slice_data["content"] == "IMPORTANT SECTION"
 
 
 # ---------------------------------------------------------------------------

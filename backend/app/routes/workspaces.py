@@ -441,7 +441,7 @@ async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)
     # Filesystem: session files (workspace + per-card), workspace dir, worker
     # sessions whose JSON carries this workspace_id, and worker artifacts for
     # every task that belonged to the workspace.
-    data_root = Path(os.environ.get("VOXYFLOW_DATA", os.path.expanduser("~/.voxyflow")))
+    data_root = Path(os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow")))
     sessions_dir = data_root / "sessions"
     sandbox_dir = data_root / "sandbox" / "workspaces" / workspace_id
     worker_sessions_dir = data_root / "worker_sessions"
@@ -472,6 +472,7 @@ async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)
         for tid in task_ids:
             try:
                 (worker_artifacts_dir / f"{tid}.md").unlink(missing_ok=True)
+                (worker_artifacts_dir / f"{tid}.completion.json").unlink(missing_ok=True)
             except Exception as e:
                 logger.debug("worker_artifacts prune skipped %s: %s", tid, e)
 
