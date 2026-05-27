@@ -253,17 +253,27 @@ The e2e tests in `tests/e2e/` require a running backend. Make sure `uvicorn` is 
 
 If something isn't clear, the codebase behaves unexpectedly, or you want to discuss an idea before building it — [open an issue](https://github.com/your-org/voxyflow/issues). We'd rather have the conversation early than review a PR that goes in the wrong direction.
 
+## Local setup — OPSEC pre-commit hook (highly recommended for maintainers)
+
+This repo is public. To avoid leaking real machine names / IPs / SSH key names in commits, install the pre-commit hook:
+
+```bash
+ln -s ../../scripts/pre-commit-opsec-check.sh .git/hooks/pre-commit
+```
+
+The hook will refuse commits matching the forbidden pattern in `scripts/pre-commit-opsec-check.sh`. Edit that file to adjust the pattern for your environment, then keep the change LOCAL (never commit your real hostnames).
+
 ## Branching Strategy (since 2026-05-26)
 
-- **`main`** = production (runs on TheThing). Protected: no direct push, PR required, force-push disabled, deletions disabled.
-- **`dev`** = active development (runs on ROG dev-primary, https://rog.tail6531d.ts.net). Open to direct pushes from maintainer, but feature branches preferred.
-- **`feature/*`** = work-in-progress branches. Open PR → `dev` for review/integration, validate on ROG, then PR `dev` → `main` for promotion to prod.
+- **`main`** = production (runs on prod host). Protected: no direct push, PR required, force-push disabled, deletions disabled.
+- **`dev`** = active development (runs on dev-primary host). Open to direct pushes from maintainer, but feature branches preferred.
+- **`feature/*`** = work-in-progress branches. Open PR → `dev` for review/integration, validate on dev-primary host, then PR `dev` → `main` for promotion to prod.
 
 ### Workflow
 1. `git checkout dev && git pull`
 2. `git checkout -b feature/<short-name>`
 3. ... work, commit, push ...
 4. Open PR against `dev` on GitHub
-5. Validate on ROG (auto-deploy on push `dev` once Phase 3 CI lands)
+5. Validate on dev-primary host (auto-deploy on push `dev` once Phase 3 CI lands)
 6. When stable, open PR `dev` → `main` for prod release
-7. After merge into `main`, pull manually on TheThing
+7. After merge into `main`, pull manually on prod host
