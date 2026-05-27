@@ -252,3 +252,18 @@ The e2e tests in `tests/e2e/` require a running backend. Make sure `uvicorn` is 
 ## Questions?
 
 If something isn't clear, the codebase behaves unexpectedly, or you want to discuss an idea before building it — [open an issue](https://github.com/your-org/voxyflow/issues). We'd rather have the conversation early than review a PR that goes in the wrong direction.
+
+## Branching Strategy (since 2026-05-26)
+
+- **`main`** = production (runs on TheThing). Protected: no direct push, PR required, force-push disabled, deletions disabled.
+- **`dev`** = active development (runs on ROG dev-primary, https://rog.tail6531d.ts.net). Open to direct pushes from maintainer, but feature branches preferred.
+- **`feature/*`** = work-in-progress branches. Open PR → `dev` for review/integration, validate on ROG, then PR `dev` → `main` for promotion to prod.
+
+### Workflow
+1. `git checkout dev && git pull`
+2. `git checkout -b feature/<short-name>`
+3. ... work, commit, push ...
+4. Open PR against `dev` on GitHub
+5. Validate on ROG (auto-deploy on push `dev` once Phase 3 CI lands)
+6. When stable, open PR `dev` → `main` for prod release
+7. After merge into `main`, pull manually on TheThing

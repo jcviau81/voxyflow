@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import init_db, SYSTEM_MAIN_WORKSPACE_ID
 from app.routes import workspaces, cards, techdetect, github, settings, sessions, documents, health, jobs, code, focus_sessions, mcp as mcp_routes, sandbox, workers, models, worker_tasks, cli_sessions, backup, auth, debug, push
-from app.routes.health import metrics_router
+from app.routes.health import metrics_router, root_health_router
 from app.services.claude_service import ClaudeService
 from app.services.chat_orchestration import ChatOrchestrator
 from app.services.rag_service import get_rag_service
@@ -172,6 +172,8 @@ app.include_router(github.router)
 app.include_router(settings.router)
 app.include_router(sessions.router)
 app.include_router(documents.router)
+# /health root endpoint (no /api prefix) - must be before SPA catch-all
+app.include_router(root_health_router)
 app.include_router(health.router)
 app.include_router(metrics_router)
 app.include_router(jobs.router)
