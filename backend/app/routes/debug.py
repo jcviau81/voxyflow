@@ -147,7 +147,7 @@ async def dump_context(req: DebugContextRequest):
         from app.services.orchestration.layer_runners import _compute_ambient_blocks
         # Use the live orchestrator worker_pools, but pass a synthetic session_id
         # of None so count_active_for_chat returns 0 unless the caller passes one.
-        live_state_block, worker_events_block = await _compute_ambient_blocks(
+        live_state_block, worker_events_block, _session_handoff_block, _peeked_event_count = await _compute_ambient_blocks(
             worker_pools=getattr(_orchestrator, "_worker_pools", {}) or {},
             session_id=None,
             chat_id=chat_id,

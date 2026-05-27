@@ -576,10 +576,10 @@ def build_handlers(
             store = get_worker_session_store()
             session = store.get_session(task_id)
 
-            # The session JSON only carries a 500-char preview of the result.
+            # The session JSON only carries a short preview of the result.
             # The full untruncated result lives in worker_tasks.result_summary
-            # (Text column) — read it from the DB so the caller gets the
-            # complete output, not the UI preview.
+            # (Text column) again as of the 2026-05-26 truncation fix, so read
+            # it from the DB and prefer that over the UI preview.
             full_result = None
             try:
                 from app.database import async_session, WorkerTask

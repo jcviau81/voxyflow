@@ -61,28 +61,32 @@ async def _compute_ambient_blocks(
     session_id: str | None,
     chat_id: str,
     workspace_id: str | None = None,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, int]:
     """Build Live state + Worker activity blocks for the next user turn.
 
-    Worker activity drains the per-chat completion buffer (see
-    DeepWorkerPool.drain_worker_events). Live state reports active workers
-    for this chat, their intents, the next scheduled job globally, and
-    today's card activity (if ``workspace_id`` given). Both blocks silently
-    omit unavailable data.
+    Worker activity peeks the per-chat completion buffer (see
+    DeepWorkerPool.peek_worker_events). The caller is responsible for
+    acknowledging those events after the callback turn has been persisted and
+    broadcast successfully. Live state reports active workers for this chat,
+    their intents, the next scheduled job globally, and today's card activity
+    (if ``workspace_id`` given). Both blocks silently omit unavailable data.
     """
     live_state = ""
     worker_events = ""
     pool = worker_pools.get(session_id) if session_id else None
 
     events: list = []
+    peeked_event_count = 0
     active_workers = 0
     running_intents: list[str] = []
     if pool is not None:
         try:
-            events = pool.drain_worker_events(chat_id)
+            events = pool.peek_worker_events(chat_id)
+            peeked_event_count = len(events)
         except Exception as e:
-            logger.debug("drain_worker_events failed: %s", e)
+            logger.debug("peek_worker_events failed: %s", e)
             events = []
+            peeked_event_count = 0
         try:
             active_workers = pool.count_active_for_chat(chat_id)
         except Exception as e:
@@ -140,7 +144,20 @@ async def _compute_ambient_blocks(
         logger.debug("build_session_handoff_block failed: %s", e)
         session_handoff = ""
 
-    return live_state, worker_events, session_handoff
+    return live_state, worker_events, session_handoff, peeked_event_count
+
+
+def _ack_peeked_worker_events(worker_pools: dict, session_id: str | None, chat_id: str, count: int) -> None:
+    """Acknowledge ambient worker events after a callback turn emits successfully."""
+    if count <= 0 or not session_id:
+        return
+    pool = worker_pools.get(session_id)
+    if pool is None:
+        return
+    try:
+        pool.ack_worker_events(chat_id, count=count)
+    except Exception as e:
+        logger.debug("ack_worker_events failed: %s", e)
 
 
 class LayerRunnersMixin:
@@ -182,7 +199,7 @@ class LayerRunnersMixin:
             # For callbacks: buffer tokens to check for [SILENT] before sending
             buffered_tokens: list[str] = [] if is_callback else []
 
-            live_state_block, worker_events_block, session_handoff_block = await _compute_ambient_blocks(
+            live_state_block, worker_events_block, session_handoff_block, peeked_event_count = await _compute_ambient_blocks(
                 self._worker_pools, session_id, chat_id,
                 workspace_id=workspace_id,
             )
@@ -231,11 +248,11 @@ class LayerRunnersMixin:
             # Worker results are already persisted; a saturated dispatcher model should
             # not turn a successful worker completion into a visible chat error.
             if is_callback and fast_full_response.strip() == "[SILENT]":
-                logger.info(f"[Orchestrator] Callback response is [SILENT] — suppressing")
+                logger.info("[Orchestrator] Callback response is [SILENT] — suppressing; ambient events stay queued")
                 await send_model_status("fast", "idle")
                 return True
             if is_callback and "[Codex CLI error:" in fast_full_response and "model is at capacity" in fast_full_response.lower():
-                logger.warning("[Orchestrator] Suppressing Codex capacity error during worker callback")
+                logger.warning("[Orchestrator] Suppressing Codex capacity error during worker callback; ambient events stay queued")
                 await send_model_status("fast", "idle")
                 return True
 
@@ -291,6 +308,8 @@ class LayerRunnersMixin:
             await ws_broadcast.send_and_fanout_chat(
                 websocket, chat_id, "chat:response", done_payload,
             )
+            if is_callback:
+                _ack_peeked_worker_events(self._worker_pools, session_id, chat_id, peeked_event_count)
             await send_model_status("fast", "idle")
             return True
 
@@ -351,7 +370,7 @@ class LayerRunnersMixin:
         try:
             first_token_sent = False
             buffered_tokens: list[str] = [] if is_callback else []
-            live_state_block, worker_events_block, session_handoff_block = await _compute_ambient_blocks(
+            live_state_block, worker_events_block, session_handoff_block, peeked_event_count = await _compute_ambient_blocks(
                 self._worker_pools, session_id, chat_id,
                 workspace_id=workspace_id,
             )
@@ -394,11 +413,11 @@ class LayerRunnersMixin:
                     )
 
             if is_callback and deep_full_response.strip() == "[SILENT]":
-                logger.info(f"[Orchestrator] Deep callback response is [SILENT] — suppressing")
+                logger.info("[Orchestrator] Deep callback response is [SILENT] — suppressing; ambient events stay queued")
                 await send_model_status("deep", "idle")
                 return True
             if is_callback and "[Codex CLI error:" in deep_full_response and "model is at capacity" in deep_full_response.lower():
-                logger.warning("[Orchestrator] Suppressing Codex capacity error during deep worker callback")
+                logger.warning("[Orchestrator] Suppressing Codex capacity error during deep worker callback; ambient events stay queued")
                 await send_model_status("deep", "idle")
                 return True
 
@@ -453,6 +472,8 @@ class LayerRunnersMixin:
             await ws_broadcast.send_and_fanout_chat(
                 websocket, chat_id, "chat:response", done_payload,
             )
+            if is_callback:
+                _ack_peeked_worker_events(self._worker_pools, session_id, chat_id, peeked_event_count)
             await send_model_status("deep", "idle")
             return True
 

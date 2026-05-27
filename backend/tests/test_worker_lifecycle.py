@@ -87,12 +87,8 @@ def test_structured_complete_happy_path():
     assert payload["plan"] == "plan"
 
 
-def test_fallback_sources_not_flagged_as_structured():
-    """auto / closeout completions must NOT register as structured.
-
-    Only voxyflow.worker.complete should set is_structured_complete=True —
-    that's what triggers the closeout-upgrade path to be skipped.
-    """
+def test_only_auto_fallback_is_not_flagged_as_structured():
+    """Auto-synthesized fallback stays unstructured so closeout can still upgrade it."""
     sup = WorkerSupervisor()
     sup.register_task("T1")
     sup.mark_completed("T1", "auto-synthesized", source="auto")
@@ -101,10 +97,6 @@ def test_fallback_sources_not_flagged_as_structured():
     payload = sup.get_completion_payload("T1")
     assert payload is not None
     assert payload["summary"].startswith("auto-synthesized")
-
-    sup.register_task("T2")
-    sup.mark_completed("T2", "closeout-rebuilt", source="closeout")
-    assert sup.is_structured_complete("T2") is False
 
 
 # ---------------------------------------------------------------------------
