@@ -24,13 +24,7 @@ turn voice/text intent into shipped code.
 
 ## 🚧 Now (current focus)
 
-The next 4-6 weeks. These are mostly sequential — each unblocks the rest.
-
-### 0. 🧱 Dev/prod infrastructure split *(critical)*
-**Why**: We can't safely develop Voxyflow *on* the running Voxyflow.
-**What**: Dedicated dev instance, strategic branches (`feature/*` → `dev` →
-`main`, with `main` protected), CI baseline (lint, type check, build) and
-auto-deploy of `dev` to the dev instance.
+The next tasks. These are mostly sequential — each unblocks the rest.
 
 ### 1. ✅ Multi-provider runner parity *(shipped 2026-05-27)*
 **Codex CLI is now a complete execution path** — dispatcher + workers run on
