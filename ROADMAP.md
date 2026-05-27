@@ -4,7 +4,7 @@
 > multi-provider AI harness that doesn't depend on any single LLM vendor.
 > Bring your own model, bring your own tools, run it on your hardware.
 
-Last updated: 2026-05-26 · See [GitHub Projects](https://github.com/jcviau81/voxyflow/projects) for the live board.
+Last updated: 2026-05-27 · See [GitHub Projects](https://github.com/jcviau81/voxyflow/projects) for the live board.
 
 ---
 
@@ -16,7 +16,7 @@ memory, knowledge graph, wiki, and worker subprocesses all coordinate to
 turn voice/text intent into shipped code.
 
 **Three commitments**:
-1. **Provider-agnostic** — any major LLM provider works, swap them at any time
+1. **Provider-agnostic** — Claude Code, Codex CLI, Ollama/local, and OpenAI-compatible APIs all run today; swap at any time
 2. **Self-hosted by default** — your data, your machine, your rules
 3. **Voice as a first-class input** — not a gimmick, the primary modality
 
@@ -32,12 +32,20 @@ The next 4-6 weeks. These are mostly sequential — each unblocks the rest.
 `main`, with `main` protected), CI baseline (lint, type check, build) and
 auto-deploy of `dev` to the dev instance.
 
-### 1. 🤖 Multi-provider runner parity
-**Why**: One provider's runner is rock-solid; the others lag behind on
-streaming, tool-use, error recovery, and context handling.
-**What**: Bring every supported runner to the same feature bar so the
-choice of provider is purely about cost/latency/preference, never about
-which features work.
+### 1. ✅ Multi-provider runner parity *(shipped 2026-05-27)*
+**Codex CLI is now a complete execution path** — dispatcher + workers run on
+Codex CLI (ChatGPT account auth), validated end-to-end via live smoke test
+(2-turn chat + dispatcher→worker→complete delegation).
+
+Shipped:
+- Thread persistence via `codex exec resume` — conversations survive across turns without replaying full history
+- Arg-ordering fix — root flags (`-a/-C/-m/-s`) must precede `exec`; subcommand flags follow. Caught and fixed from a live crash.
+
+**Active provider paths today**: Claude Code (primary), Codex CLI, Ollama/local, OpenAI-compatible APIs.
+
+Still in progress for Codex:
+- **Steerable strategy** — live stdin steering isn't portable the same way as Claude; decision pending between degraded `cancel + resume` and explicit opt-out
+- **CI validation suite** — manual E2E smoke test covers the critical path today but isn't reproducible in CI; formal suite to be defined
 
 ### 2. 🔌 Configurable MCP servers
 **Why**: Tech debt — some MCP integrations are hardcoded. Users have no
@@ -45,7 +53,7 @@ clean way to plug in their own (Notion, Linear, GitHub, Slack, custom…).
 **What**: Global + per-workspace MCP server registry, UI to add/edit/test
 servers, proper secrets handling.
 
-### 3. 🐳 Container bundle — Phase 1
+### 3. 🐳 Container bundle — Phase 1 *(next priority)*
 **Why**: `git pull` installs are fragile; the expected entry point is
 `docker compose up`.
 **What**: Reproducible images for the core and the voice synthesis side,
@@ -62,7 +70,7 @@ then a full `voxyflow tui` (k9s/lazygit-style).
 ## 🔜 Next (1-3 months)
 
 - **🧪 End-to-end smoke-test runner** — becomes the dev→prod promotion gate
-- **🧠 Per-workspace memory rework** — prerequisite for full workspace isolation
+- **🧠 Per-workspace memory rework** — prerequisite for full workspace isolation (also prerequisite for Docker Phase 1)
 - **📚 Documentation overhaul** — slim README, container-first install, glossary
 - **🧹 Workspace rename regression sweep** — catch leftovers from the Project→Workspace migration
 - **📣 Positioning refresh** — narrative around being the harness that outlives any single vendor's API change
@@ -89,6 +97,7 @@ then a full `voxyflow tui` (k9s/lazygit-style).
 
 ## 📦 Recently shipped
 
+- **Codex CLI runner parity** *(2026-05-27)* — Codex CLI (ChatGPT account auth) is now a complete execution path: dispatcher + workers, thread persistence via `codex exec resume`, arg-ordering fix. Live E2E smoke test passed.
 - **Prompt footprint −55%** and **context footprint −53%** across dispatcher and workers
 - **Workspace memory scoping fix** — workspace memory no longer leaks across workspaces
 - **Ledger auto-scoping** — eliminated a class of cross-workspace bugs
