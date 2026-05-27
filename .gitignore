@@ -74,3 +74,8 @@ scripts/test-results/
 *.backup
 *.bak
 *.bak2
+
+# Local maintainer notes — never commit real infra details
+INFRA.local.md
+*.local.md
+.infra-local/
