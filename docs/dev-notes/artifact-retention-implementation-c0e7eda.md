@@ -76,16 +76,16 @@ ack_artifact() → deletes .md, sets acked_at = now() in .meta.json
 
 ## Auto-pull Cron Neutralization
 
-**Found**: `voxyflow-deploy-dev.timer` (systemd user timer) running every 5 min, executing `~/voxyflow-deploy/deploy-dev.sh` which did `git pull --ff-only origin dev` and restarted services.
+**Found**: `<DEPLOY_TIMER>.timer` (systemd user timer) running every 5 min, executing `<DEPLOY_SCRIPT>` which did `git pull --ff-only origin dev` and restarted services.
 
 **Action taken**:
-- `systemctl --user stop voxyflow-deploy-dev.timer`
-- `systemctl --user disable voxyflow-deploy-dev.timer`
-- Backup created at `~/.config/systemd/user/voxyflow-deploy-dev.timer.bak`
-- Dated comment appended to `~/voxyflow-deploy/deploy-dev.sh`
+- `systemctl --user stop <DEPLOY_TIMER>.timer`
+- `systemctl --user disable <DEPLOY_TIMER>.timer`
+- Backup created at `~/.config/systemd/user/<DEPLOY_TIMER>.timer.bak`
+- Dated comment appended to `<DEPLOY_SCRIPT>`
 - Timer no longer appears in `systemctl --user list-timers`
 
-**Why**: ROG is now the working tree (source of truth for dev branch). The auto-pull would destroy in-progress worker edits.
+**Why**: the dev host is now the working tree (source of truth for dev branch). The auto-pull would destroy in-progress worker edits.
 
 ---
 
@@ -133,7 +133,7 @@ tests/test_artifact_retention.py::test_cleanup_old_does_not_delete_artifacts PAS
 
 ## Caveats / Follow-ups
 
-1. **Existing artifacts on production (TheThing)**: no meta sidecars yet. They will be auto-synthesized on first `read_artifact` call (backward-compat). On the first deployment restart, dispatchers should consider calling `workers.list_unread()` to inventory un-acked artifacts.
+1. **Existing artifacts on production (the prod host)**: no meta sidecars yet. They will be auto-synthesized on first `read_artifact` call (backward-compat). On the first deployment restart, dispatchers should consider calling `workers.list_unread()` to inventory un-acked artifacts.
 
 2. **Orphan check cost**: `_check_orphan_warning()` scans all `.meta.json` files on every `write_artifact` and `list_unread` call. This is fine at current scale (hundreds of artifacts), but could be made periodic if the artifact store grows large.
 
