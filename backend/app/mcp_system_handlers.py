@@ -662,11 +662,14 @@ def build_handlers(
     async def workers_read_artifact(params: dict) -> dict:
         """Read a slice of a finished worker's full raw output (.md artifact).
 
-        Worker callbacks only carry a Haiku-summarized version of the result;
+        Worker callbacks only carry a summarized version of the result;
         the verbatim content (file dumps, command stdout, logs) is persisted
         to ~/.voxyflow/worker_artifacts/{task_id}.md by the worker pool.
         This handler reads paginated slices of that file so the dispatcher
         can retrieve exact content on demand.
+
+        Side effect: marks read_at in the lifecycle metadata sidecar on first
+        call (idempotent). Works even after in-memory task state is purged.
         """
         from app.services.worker_artifact_store import read_artifact
         task_id = (params.get("task_id") or "").strip()
@@ -684,6 +687,7 @@ def build_handlers(
         except (TypeError, ValueError):
             length = 50_000
         try:
+            # read_artifact now marks read_at automatically (idempotent).
             slice_data = read_artifact(task_id, offset=offset, length=length)
             if slice_data is None:
                 return {
@@ -691,12 +695,52 @@ def build_handlers(
                     "error": (
                         f"No artifact found for task {task_id}. The worker may "
                         "not have completed yet, may have produced no output, or "
-                        "its artifact may have been cleaned up."
+                        "the artifact was already acked (call workers.list_unread to check)."
                     ),
                 }
             return {"success": True, **slice_data}
         except Exception as e:
             logger.error(f"[mcp.workers.read_artifact] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def workers_ack_artifact(params: dict) -> dict:
+        """Acknowledge a worker artifact: delete the .md file, keep metadata trace.
+
+        Must be called after the dispatcher has consumed the artifact content.
+        Sets acked_at and frees disk space. The metadata sidecar (.meta.json)
+        and completion sidecar (.completion.json) are kept for audit trail.
+        """
+        from app.services.worker_artifact_store import ack_artifact
+        task_id = (params.get("task_id") or "").strip()
+        if not task_id:
+            return {"success": False, "error": "task_id is required"}
+        scope_err = await _enforce_task_scope(task_id, params.get("scope"))
+        if scope_err is not None:
+            return scope_err
+        try:
+            result = ack_artifact(task_id)
+            return result
+        except Exception as e:
+            logger.error(f"[mcp.workers.ack_artifact] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def workers_list_unread(params: dict) -> dict:
+        """List worker artifacts that have not yet been acked.
+
+        Returns artifacts sorted by created_at desc. Each entry includes
+        task_id, created_at, read_at, size_bytes, and summary_preview
+        (first 200 chars of the completion summary, if available).
+        """
+        from app.services.worker_artifact_store import list_unread
+        try:
+            limit = int(params.get("limit", 50) or 50)
+        except (TypeError, ValueError):
+            limit = 50
+        try:
+            items = list_unread(limit=limit)
+            return {"success": True, "unread": items, "count": len(items)}
+        except Exception as e:
+            logger.error(f"[mcp.workers.list_unread] failed: {e}")
             return {"success": False, "error": str(e)}
 
     async def tools_load(params: dict) -> dict:
@@ -1056,6 +1100,8 @@ def build_handlers(
         "workers_list": workers_list,
         "workers_get_result": workers_get_result,
         "workers_read_artifact": workers_read_artifact,
+        "workers_ack_artifact": workers_ack_artifact,
+        "workers_list_unread": workers_list_unread,
         "kg_add": kg_add,
         "kg_query": kg_query,
         "kg_timeline": kg_timeline,

@@ -8,6 +8,17 @@ inline preview and can page through the full output here via the
 
 Files live at ``~/.voxyflow/worker_artifacts/{task_id}.md`` with YAML
 frontmatter.
+
+## Lifecycle (consumer-driven retention)
+
+Each artifact has a sidecar ``{task_id}.meta.json`` tracking:
+  - ``created_at``  — when the artifact was written to disk
+  - ``read_at``     — set on first call to read_artifact (idempotent)
+  - ``acked_at``    — set when ack_artifact is called; .md file deleted then
+  - ``size_bytes``  — byte size of the full file at creation time
+
+No automatic TTL deletion.  Artifacts persist until explicitly acked.
+Orphans older than 30 days without ack emit a WARNING in the logs.
 """
 
 from __future__ import annotations
@@ -28,6 +39,10 @@ MAX_ARTIFACT_BYTES = 10 * 1024 * 1024  # 10 MB
 # Default slice length when read_artifact is called without an explicit length.
 DEFAULT_READ_LENGTH = 50_000
 
+# Orphan warning threshold: artifacts un-acked for longer than this emit a
+# WARNING log.  We do NOT auto-delete.
+ORPHAN_WARNING_DAYS = 30
+
 
 def _data_dir() -> Path:
     voxyflow_data = os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
@@ -46,10 +61,105 @@ def completion_path(task_id: str) -> Path:
     return _data_dir() / f"{task_id}.completion.json"
 
 
+def meta_path(task_id: str) -> Path:
+    """Return the on-disk path for a task's lifecycle metadata sidecar."""
+    return _data_dir() / f"{task_id}.meta.json"
+
+
 def _yaml_escape(value: str) -> str:
     """Escape a string for safe inclusion as a YAML scalar value."""
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
 
+
+# ---------------------------------------------------------------------------
+# Lifecycle metadata helpers
+# ---------------------------------------------------------------------------
+
+def _read_meta(task_id: str) -> Optional[dict]:
+    """Load the lifecycle metadata sidecar, or None if not present."""
+    path = meta_path(task_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(f"[WorkerArtifact] Failed to read meta {task_id}: {e}")
+        return None
+
+
+def _write_meta(task_id: str, data: dict) -> None:
+    """Persist lifecycle metadata to the sidecar JSON file."""
+    path = meta_path(task_id)
+    try:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"[WorkerArtifact] Failed to write meta {task_id}: {e}")
+
+
+def _create_meta(task_id: str, size_bytes: int) -> dict:
+    """Create fresh lifecycle metadata for a newly written artifact."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    data = {
+        "task_id": task_id,
+        "created_at": now_iso,
+        "read_at": None,
+        "acked_at": None,
+        "size_bytes": size_bytes,
+    }
+    _write_meta(task_id, data)
+    return data
+
+
+def mark_read(task_id: str) -> None:
+    """Set read_at on first call (idempotent — no-op if already set)."""
+    meta = _read_meta(task_id)
+    if meta is None:
+        # Artifact exists but has no meta sidecar (legacy artifact).
+        # Synthesize a minimal meta so we can track it going forward.
+        apath = artifact_path(task_id)
+        size = apath.stat().st_size if apath.exists() else 0
+        meta = {
+            "task_id": task_id,
+            "created_at": None,
+            "read_at": None,
+            "acked_at": None,
+            "size_bytes": size,
+        }
+    if meta.get("read_at") is not None:
+        return  # already marked
+    meta["read_at"] = datetime.now(timezone.utc).isoformat()
+    _write_meta(task_id, meta)
+
+
+def _check_orphan_warning() -> None:
+    """Scan for un-acked artifacts older than ORPHAN_WARNING_DAYS and log warnings."""
+    try:
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=ORPHAN_WARNING_DAYS)
+        for path in _data_dir().glob("*.meta.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data.get("acked_at") is not None:
+                    continue
+                created_str = data.get("created_at")
+                if not created_str:
+                    continue
+                created = datetime.fromisoformat(created_str)
+                if created < cutoff:
+                    logger.warning(
+                        f"[WorkerArtifact] Orphan artifact >30d un-acked: "
+                        f"task_id={data.get('task_id')}, created_at={created_str}, "
+                        f"size_bytes={data.get('size_bytes')}"
+                    )
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug(f"[WorkerArtifact] Orphan check failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Core artifact I/O
+# ---------------------------------------------------------------------------
 
 def write_artifact(
     task_id: str,
@@ -66,6 +176,7 @@ def write_artifact(
 
     Returns the absolute path as a string, or ``None`` on failure.
     Empty content returns ``None`` (no file is created).
+    Also creates a lifecycle metadata sidecar (``.meta.json``).
     """
     if not content:
         return None
@@ -103,13 +214,19 @@ def write_artifact(
     frontmatter_lines.append("---")
     frontmatter = "\n".join(frontmatter_lines) + "\n\n"
 
+    full_text = frontmatter + body
     path = artifact_path(task_id)
     try:
-        path.write_text(frontmatter + body, encoding="utf-8")
+        path.write_text(full_text, encoding="utf-8")
+        size_bytes = len(full_text.encode("utf-8", errors="replace"))
         logger.info(
             f"[WorkerArtifact] Wrote {path.name} ({len(body)} chars"
             f"{', truncated' if truncated else ''})"
         )
+        # Create lifecycle metadata sidecar.
+        _create_meta(task_id, size_bytes)
+        # Opportunistically check for orphan warnings (cheap scan).
+        _check_orphan_warning()
         return str(path)
     except Exception as e:
         logger.warning(f"[WorkerArtifact] Failed to write {task_id}: {e}")
@@ -128,6 +245,12 @@ def read_artifact(
 
     The slice is taken over the **body** (everything after the frontmatter
     block), so offsets are stable and easy for the dispatcher to reason about.
+
+    Side effect: marks ``read_at`` in the lifecycle metadata sidecar on first
+    call (idempotent thereafter).
+
+    Works even if the in-memory task record has been purged — looks up the
+    artifact directly by disk path.
     """
     path = artifact_path(task_id)
     if not path.exists():
@@ -154,6 +277,9 @@ def read_artifact(
     end_pos = min(offset + length, total)
     slice_text = body[offset:end_pos]
     has_more = end_pos < total
+
+    # Mark read_at (idempotent — no-op if already set).
+    mark_read(task_id)
 
     return {
         "content": slice_text,
@@ -215,8 +341,113 @@ def read_artifact_meta(task_id: str) -> Optional[dict]:
     return meta
 
 
+def ack_artifact(task_id: str) -> dict:
+    """Acknowledge and delete a worker artifact.
+
+    Deletes the ``.md`` artifact file from disk, sets ``acked_at`` in the
+    metadata sidecar.  The sidecar and completion JSON are **kept** as a
+    historical trace.
+
+    Returns:
+        {success: True, acked_at, size_bytes_freed}  on success
+        {success: False, error: "Already acked at <ts>"}  if already acked
+        {success: False, error: "Unknown task: <id>"}  if no artifact found
+    """
+    meta = _read_meta(task_id)
+    apath = artifact_path(task_id)
+
+    if meta is None:
+        # No sidecar — check if the artifact file at least exists.
+        if not apath.exists():
+            return {"success": False, "error": f"Unknown task: {task_id}"}
+        # Legacy artifact with no meta — synthesize.
+        size = apath.stat().st_size
+        meta = {
+            "task_id": task_id,
+            "created_at": None,
+            "read_at": None,
+            "acked_at": None,
+            "size_bytes": size,
+        }
+
+    if meta.get("acked_at") is not None:
+        return {
+            "success": False,
+            "error": f"Already acked at {meta['acked_at']}",
+        }
+
+    # Capture size before deletion.
+    size_bytes_freed = 0
+    if apath.exists():
+        try:
+            size_bytes_freed = apath.stat().st_size
+            apath.unlink()
+            logger.info(f"[WorkerArtifact] Acked + deleted {task_id} ({size_bytes_freed} bytes)")
+        except Exception as e:
+            logger.warning(f"[WorkerArtifact] Failed to delete artifact {task_id}: {e}")
+            return {"success": False, "error": f"Failed to delete artifact: {e}"}
+
+    # Persist acked_at in the meta sidecar.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    meta["acked_at"] = now_iso
+    _write_meta(task_id, meta)
+
+    return {
+        "success": True,
+        "acked_at": now_iso,
+        "size_bytes_freed": size_bytes_freed,
+    }
+
+
+def list_unread(limit: int = 100) -> list[dict]:
+    """Return artifacts where acked_at is None, sorted by created_at desc.
+
+    Each entry: {task_id, created_at, read_at, size_bytes, summary_preview}.
+    summary_preview is the first 200 chars of the completion summary, if any.
+    """
+    _check_orphan_warning()
+
+    results: list[dict] = []
+    for meta_file in _data_dir().glob("*.meta.json"):
+        try:
+            data = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("acked_at") is not None:
+            continue
+        tid = data.get("task_id", meta_file.stem.replace(".meta", ""))
+        entry: dict = {
+            "task_id": tid,
+            "created_at": data.get("created_at"),
+            "read_at": data.get("read_at"),
+            "size_bytes": data.get("size_bytes"),
+            "summary_preview": None,
+        }
+        # Try to get a summary preview from the completion sidecar.
+        cpath = completion_path(tid)
+        if cpath.exists():
+            try:
+                comp = json.loads(cpath.read_text(encoding="utf-8"))
+                summary = comp.get("summary") or ""
+                entry["summary_preview"] = summary[:200] if summary else None
+            except Exception:
+                pass
+        results.append(entry)
+
+    def _sort_key(e: dict):
+        val = e.get("created_at")
+        return val if val else ""
+
+    results.sort(key=_sort_key, reverse=True)
+    return results[:limit]
+
+
 def delete_artifact(task_id: str) -> bool:
     """Delete an artifact file (and its completion sidecar, if any).
+
+    NOTE: This intentionally does NOT delete the meta sidecar —
+    use ack_artifact() for the consumer-driven lifecycle path instead.
+    This function is for internal cleanup (e.g. workspace deletion).
 
     Returns True if the main .md file was removed.
     """

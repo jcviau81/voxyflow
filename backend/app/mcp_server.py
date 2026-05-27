@@ -320,6 +320,8 @@ _TOOL_GROUPS: dict[str, dict] = {
             "list": "voxyflow.workers.list",
             "get_result": "voxyflow.workers.get_result",
             "read_artifact": "voxyflow.workers.read_artifact",
+            "ack_artifact": "voxyflow.workers.ack_artifact",
+            "list_unread": "voxyflow.workers.list_unread",
         },
     },
     "voxyflow.task": {

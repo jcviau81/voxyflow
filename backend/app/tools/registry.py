@@ -96,6 +96,7 @@ TOOLS_DISPATCHER = {
 
     # ---- Worker monitoring + control (no need to spawn another worker) ----
     "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
+    "voxyflow.workers.ack_artifact", "voxyflow.workers.list_unread",
     "voxyflow.task.peek", "voxyflow.task.cancel",
     # task.steer = inject a redirect message into a running worker (instant
     # queue write, scope-enforced). Pairs with task.peek + task.cancel.
@@ -131,6 +132,7 @@ TOOLS_DISPATCHER_CODEX = {
     "memory.search", "memory.get", "knowledge.search",
     "kg.query", "kg.timeline", "kg.stats",
     "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
+    "voxyflow.workers.list_unread",
     "voxyflow.task.peek",
 }
 
