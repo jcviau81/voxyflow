@@ -1,13 +1,18 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
-    name: Backend — pytest + isolation smoke test
+    name: Backend — ruff F821 + pytest + isolation smoke test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -17,7 +22,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
@@ -47,7 +52,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend-react/package-lock.json
 
