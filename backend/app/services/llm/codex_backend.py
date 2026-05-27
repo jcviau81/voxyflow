@@ -222,8 +222,23 @@ class CodexCliBackend:
         hit shell/argv length limits.
         """
         args: list[str] = []
+        # Root-level (global) flags MUST come BEFORE the `exec` subcommand.
+        # Empirically verified against `codex --help`, `codex exec --help`,
+        # and `codex exec resume --help`:
+        #   * -a/--ask-for-approval : root only (NOT on exec, NOT on resume)
+        #   * -C/--cd               : root + exec (NOT on resume)
+        #   * -s/--sandbox          : root + exec (NOT on resume)
+        #   * -m/--model            : everywhere
+        #   * --json                : exec + resume (NOT root)
+        #   * --skip-git-repo-check : exec + resume (NOT root)
         if approval_policy:
             args.extend(["-a", approval_policy])
+        if cwd:
+            args.extend(["-C", cwd])
+        if model:
+            args.extend(["-m", model])
+        if sandbox:
+            args.extend(["-s", sandbox])
         if use_tools:
             args.extend(self._build_mcp_config_args(
                 role=mcp_role,
@@ -233,20 +248,17 @@ class CodexCliBackend:
                 worker_id=worker_id,
             ))
 
+        # Subcommand: `exec`, optionally followed by `resume <thread_id>`.
+        args.append("exec")
         if resume_thread_id:
-            args.extend(["exec", "resume", resume_thread_id])
-        else:
-            args.extend(["exec"])
+            args.extend(["resume", resume_thread_id])
 
+        # Subcommand-level flags — valid on both `exec` and `exec resume`.
         if json_output:
             args.append("--json")
         args.append("--skip-git-repo-check")
-        if cwd:
-            args.extend(["-C", cwd])
-        if model:
-            args.extend(["-m", model])
-        if sandbox:
-            args.extend(["-s", sandbox])
+
+        # Read prompt from stdin to avoid argv length limits.
         args.append("-")
         return args
 
