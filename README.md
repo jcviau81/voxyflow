@@ -332,3 +332,7 @@ Commercial licensing available for SaaS deployments and proprietary use. Contact
 ---
 
 **Built by** JC Viau · **Started** Feb 2026 · **Status** Active development
+
+---
+
+- See [INFRA.md](INFRA.md) for infrastructure, deployment, and runbooks.
