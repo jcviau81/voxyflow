@@ -1,0 +1,36 @@
+# Voxyflow Infrastructure — Local Maintainer Notes
+
+> ⚠️ This file is gitignored. Fill it with the REAL infrastructure details for your deployment.
+> NEVER commit a populated version of this file.
+
+## Hosts (real names + Tailscale)
+
+| Generic role | Real hostname | Tailscale name | Tailscale IP |
+|---|---|---|---|
+| prod-host | _________ | _________ | _________ |
+| dev-primary-host | _________ | _________ | _________ |
+| site-host | _________ | _________ | _________ |
+
+## SSH access
+
+\`\`\`
+Host <alias>
+  HostName <real-hostname>
+  User <user>
+  IdentityFile ~/.ssh/<key-name>
+  IdentitiesOnly yes
+\`\`\`
+
+## Public URLs
+
+- Dev-primary backend: https://_________
+- Site host (promotional): https://_________
+
+## SSH keys mapping
+
+- \`<DEV_SSH_KEY>\` = \`~/.ssh/_________\`
+- \`<SITE_SSH_KEY>\` = \`~/.ssh/_________\`
+
+## Notes
+
+_(your private notes about the homelab setup)_

@@ -828,6 +828,46 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_scope": "voxyflow",
     },
     {
+        "name": "voxyflow.workers.ack_artifact",
+        "description": (
+            "Acknowledge a worker artifact: delete the .md file from disk, mark acked_at. "
+            "Call this after consuming the artifact content (read, memory.save, wiki, card updates). "
+            "Keeps metadata sidecar as audit trace. "
+            "Returns {success, acked_at, size_bytes_freed} on success, "
+            "{success: false, error} if already acked or unknown task."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["task_id"],
+            "properties": {
+                "task_id": {"type": "string"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                },
+            },
+        },
+        "_handler": "workers_ack_artifact",
+        "_scope": "voxyflow",
+    },
+    {
+        "name": "voxyflow.workers.list_unread",
+        "description": (
+            "List worker artifacts that have not yet been acked (acked_at is null), "
+            "sorted by created_at desc. Each entry: {task_id, created_at, read_at, "
+            "size_bytes, summary_preview (first 200 chars)}. "
+            "Use at session start to find pending deliverables from previous workers."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Default 50"},
+            },
+        },
+        "_handler": "workers_list_unread",
+        "_scope": "voxyflow",
+    },
+    {
         "name": "voxyflow.task.peek",
         "description": "Monitor a running worker task in real time. Returns the recent tools called, tool count, running duration, and current status. Strict workspace scope — pass scope='all' to peek at tasks from other workspaces.",
         "inputSchema": {

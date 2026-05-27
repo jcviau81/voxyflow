@@ -222,8 +222,9 @@ class WorkerSessionStore:
     ) -> None:
         """Update a session's status (completed, failed, timed_out, cancelled).
 
-        ``result_summary`` stores the full raw output (no truncation).
-        The full output also lives in the ``.md`` artifact at ``artifact_path``.
+        ``result_summary`` stores whatever caller-supplied summary should be
+        shown in workers.list. Worker completions currently persist a preview
+        here; the full raw output lives in the ``.md`` artifact and DB ledger.
         """
         session = self._sessions.get(task_id)
         if not session:
@@ -361,13 +362,11 @@ class WorkerSessionStore:
         return stale
 
     def cleanup_old(self, max_age_seconds: int = 86400) -> int:
-        """Remove sessions older than max_age_seconds. Returns count removed.
+        """Remove in-memory sessions older than max_age_seconds. Returns count removed.
 
-        Also deletes the on-disk worker artifact (.md) for each removed session
-        so they don't accumulate forever.
+        NOTE: Artifacts are NOT deleted here — they persist until explicitly
+        acked via workers.ack_artifact (consumer-driven retention, card ace0699c).
         """
-        from app.services.worker_artifact_store import delete_artifact
-
         cutoff = time.time() - max_age_seconds
         to_remove = [
             tid for tid, s in self._sessions.items()
@@ -376,15 +375,16 @@ class WorkerSessionStore:
         for tid in to_remove:
             del self._sessions[tid]
             self._cleanup_file(tid)
-            delete_artifact(tid)
         if to_remove:
-            logger.info(f"[WorkerSessionStore] Cleaned up {len(to_remove)} old sessions")
+            logger.info(f"[WorkerSessionStore] Cleaned up {len(to_remove)} old sessions (artifacts kept)")
         return len(to_remove)
 
     def clear_terminal(self) -> int:
-        """Remove all non-running sessions immediately. Returns count removed."""
-        from app.services.worker_artifact_store import delete_artifact
+        """Remove all non-running sessions from memory immediately. Returns count removed.
 
+        NOTE: Artifacts are NOT deleted here — they persist until explicitly
+        acked via workers.ack_artifact (consumer-driven retention, card ace0699c).
+        """
         to_remove = [
             tid for tid, s in self._sessions.items()
             if s.status != "running"
@@ -392,9 +392,8 @@ class WorkerSessionStore:
         for tid in to_remove:
             del self._sessions[tid]
             self._cleanup_file(tid)
-            delete_artifact(tid)
         if to_remove:
-            logger.info(f"[WorkerSessionStore] Cleared {len(to_remove)} terminal sessions")
+            logger.info(f"[WorkerSessionStore] Cleared {len(to_remove)} terminal sessions (artifacts kept)")
         return len(to_remove)
 
 

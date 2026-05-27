@@ -204,12 +204,12 @@ class WorkerSupervisor:
         )
 
     def is_structured_complete(self, task_id: str) -> bool:
-        """True only if the worker delivered a structured voxyflow.worker.complete."""
+        """True if the worker delivered a structured payload via worker.complete or closeout."""
         task = self._tasks.get(task_id)
         return bool(
             task
             and task.get("phase") == "completed"
-            and task.get("completion_source") == "worker.complete"
+            and task.get("completion_source") in ("worker.complete", "closeout")
         )
 
     def get_completion_payload(self, task_id: str) -> Optional[dict[str, Any]]:
