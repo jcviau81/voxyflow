@@ -1,0 +1,33 @@
+# Voxyflow OPSEC pattern list — strict word-boundaried + CGNAT range + Tailscale subdomains
+# Format: one regex per line, # for comments. Empty lines ignored.
+# Word boundaries (\b) used aggressively to avoid PROGRESS-style false positives.
+
+# Hostnames (case-sensitive — these are proper nouns)
+\bROG\b
+\b[Tt]he[Tt]hing\b
+\b[Cc]orsair\b
+\bsnaf{1,2}\.?foo\b
+\b[Ee]mber\b
+
+# Tailscale infra
+\btail[0-9a-f]+\.ts\.net\b
+\b[a-z0-9-]+\.tail[0-9a-f]+\.ts\.net\b
+
+# Tailscale CGNAT range 100.64.0.0/10
+\b100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}\b
+
+# Personal paths and usernames (use grep -P for the negative lookahead on jcviau)
+/home/jcviau\b
+~jcviau\b
+\bjcviau\.rm\b
+# bare jcviau (system user) BUT NOT jcviau81 (GitHub username, public OK)
+# This requires PCRE via grep -P:
+\bjcviau(?!81)\b
+
+# SSH key names
+id_ed25519_(rog|ember|thething|corsair)
+
+# Specific known leaked IPs (kept for completeness; CGNAT range covers them but explicit is clearer)
+\b100\.67\.12\.87\b
+\b100\.96\.26\.98\b
+\b100\.80\.12\.91\b

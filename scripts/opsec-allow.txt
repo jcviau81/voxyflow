@@ -1,0 +1,15 @@
+# Allowed substrings that would otherwise match. One regex per line.
+# Lines matching ANY of these will be ignored even if a forbidden pattern matches.
+# Match is anchored to the matching LINE (not just the token).
+
+# 'PROG' inside PROGRESS / PROGRAM — common English
+^.*\bPROGRESS\b.*$
+^.*\bPROGRAM\b.*$
+^.*\bIN_PROGRESS\b.*$
+^.*\bin-progress\b.*$
+^.*\bin progress\b.*$
+^.*\bMODEL_PROGRESS\b.*$
+# the github username jcviau81 in URLs is public — but we already handled via lookahead, this is a safety net
+^.*\bjcviau81\b.*$
+# License preamble references 'PROGRAM' a lot
+^LICENSE:.*$
