@@ -183,6 +183,7 @@ class CodexCliBackend:
         self._configured_cli_path = cli_path
         self._last_usage: dict = {}
         self._last_thread_id: str = ""
+        self._thread_ids_by_chat: dict[str, str] = {}
 
     @property
     def cli_path(self) -> str:
@@ -195,6 +196,9 @@ class CodexCliBackend:
     @property
     def last_thread_id(self) -> str:
         return self._last_thread_id
+
+    def get_thread_id(self, chat_id: str) -> str:
+        return self._thread_ids_by_chat.get(chat_id, "")
 
     def _build_args(
         self,
@@ -218,8 +222,23 @@ class CodexCliBackend:
         hit shell/argv length limits.
         """
         args: list[str] = []
+        # Root-level (global) flags MUST come BEFORE the `exec` subcommand.
+        # Empirically verified against `codex --help`, `codex exec --help`,
+        # and `codex exec resume --help`:
+        #   * -a/--ask-for-approval : root only (NOT on exec, NOT on resume)
+        #   * -C/--cd               : root + exec (NOT on resume)
+        #   * -s/--sandbox          : root + exec (NOT on resume)
+        #   * -m/--model            : everywhere
+        #   * --json                : exec + resume (NOT root)
+        #   * --skip-git-repo-check : exec + resume (NOT root)
         if approval_policy:
             args.extend(["-a", approval_policy])
+        if cwd:
+            args.extend(["-C", cwd])
+        if model:
+            args.extend(["-m", model])
+        if sandbox:
+            args.extend(["-s", sandbox])
         if use_tools:
             args.extend(self._build_mcp_config_args(
                 role=mcp_role,
@@ -229,20 +248,17 @@ class CodexCliBackend:
                 worker_id=worker_id,
             ))
 
+        # Subcommand: `exec`, optionally followed by `resume <thread_id>`.
+        args.append("exec")
         if resume_thread_id:
-            args.extend(["exec", "resume", resume_thread_id])
-        else:
-            args.extend(["exec"])
+            args.extend(["resume", resume_thread_id])
 
+        # Subcommand-level flags — valid on both `exec` and `exec resume`.
         if json_output:
             args.append("--json")
         args.append("--skip-git-repo-check")
-        if cwd:
-            args.extend(["-C", cwd])
-        if model:
-            args.extend(["-m", model])
-        if sandbox:
-            args.extend(["-s", sandbox])
+
+        # Read prompt from stdin to avoid argv length limits.
         args.append("-")
         return args
 
@@ -377,6 +393,11 @@ class CodexCliBackend:
                 prompt=prompt,
                 cancel_event=cancel_event,
                 tool_callback=tool_callback,
+                resume_thread_id=(
+                    self.get_thread_id(chat_id)
+                    if chat_id and session_type == "chat"
+                    else ""
+                ),
                 message_queue=message_queue,
                 session_id=session_id,
                 chat_id=chat_id,
@@ -402,6 +423,7 @@ class CodexCliBackend:
         prompt: str,
         cancel_event: Optional[asyncio.Event],
         tool_callback: Optional[Callable],
+        resume_thread_id: str,
         message_queue: Optional[asyncio.Queue],
         session_id: str,
         chat_id: str,
@@ -418,6 +440,7 @@ class CodexCliBackend:
             model,
             cwd=cwd,
             sandbox=sandbox,
+            resume_thread_id=resume_thread_id,
             use_tools=use_tools,
             mcp_role=mcp_role,
             workspace_id=workspace_id,
@@ -491,7 +514,13 @@ class CodexCliBackend:
                 except json.JSONDecodeError:
                     logger.debug("[CodexCLI] Ignoring non-JSON line: %s", line[:200])
                     continue
-                await self._handle_event(event, response_parts, usage, tool_callback)
+                await self._handle_event(
+                    event,
+                    response_parts,
+                    usage,
+                    tool_callback,
+                    chat_id=chat_id,
+                )
         finally:
             get_cli_session_registry().deregister(_reg_id)
             if cancel_task:
@@ -535,10 +564,14 @@ class CodexCliBackend:
         response_parts: list[str],
         usage: dict,
         tool_callback: Optional[Callable],
+        *,
+        chat_id: str = "",
     ) -> None:
         event_type = event.get("type")
         if event_type == "thread.started":
             self._last_thread_id = event.get("thread_id", "") or ""
+            if chat_id and self._last_thread_id:
+                self._thread_ids_by_chat[chat_id] = self._last_thread_id
             return
         if event_type == "turn.completed":
             raw_usage = event.get("usage")

@@ -333,6 +333,88 @@ class TestCallRetryLoop:
         assert attempts["n"] == MAX_RETRIES + 1
 
 
+class TestCodexThreadResume:
+    @pytest.mark.asyncio
+    async def test_thread_started_event_is_stored_per_chat(self):
+        from app.services.llm import codex_backend as cb
+
+        backend = cb.CodexCliBackend.__new__(cb.CodexCliBackend)
+        backend._configured_cli_path = "codex"
+        backend._last_usage = {}
+        backend._last_thread_id = ""
+        backend._thread_ids_by_chat = {}
+
+        await backend._handle_event(
+            {"type": "thread.started", "thread_id": "thread-123"},
+            [],
+            {},
+            None,
+            chat_id="chat-1",
+        )
+
+        assert backend.last_thread_id == "thread-123"
+        assert backend.get_thread_id("chat-1") == "thread-123"
+
+    @pytest.mark.asyncio
+    async def test_chat_calls_resume_known_thread(self, monkeypatch):
+        from app.services.llm import codex_backend as cb
+
+        backend = cb.CodexCliBackend.__new__(cb.CodexCliBackend)
+        backend._configured_cli_path = "codex"
+        backend._last_usage = {}
+        backend._last_thread_id = ""
+        backend._thread_ids_by_chat = {"chat-1": "thread-123"}
+
+        calls = []
+
+        async def fake_once(**kwargs):
+            calls.append(kwargs)
+            return cb.CodexCallResult.success("ok", {})
+
+        monkeypatch.setattr(backend, "_call_once", fake_once)
+
+        response, usage = await backend.call(
+            model="gpt-5.4-mini",
+            system="sys",
+            messages=[{"role": "user", "content": "hi"}],
+            chat_id="chat-1",
+            session_type="chat",
+        )
+
+        assert response == "ok"
+        assert usage == {}
+        assert calls[0]["resume_thread_id"] == "thread-123"
+
+    @pytest.mark.asyncio
+    async def test_worker_calls_do_not_resume_chat_thread(self, monkeypatch):
+        from app.services.llm import codex_backend as cb
+
+        backend = cb.CodexCliBackend.__new__(cb.CodexCliBackend)
+        backend._configured_cli_path = "codex"
+        backend._last_usage = {}
+        backend._last_thread_id = ""
+        backend._thread_ids_by_chat = {"chat-1": "thread-123"}
+
+        calls = []
+
+        async def fake_once(**kwargs):
+            calls.append(kwargs)
+            return cb.CodexCallResult.success("ok", {})
+
+        monkeypatch.setattr(backend, "_call_once", fake_once)
+
+        await backend.call(
+            model="gpt-5.4-mini",
+            system="sys",
+            messages=[{"role": "user", "content": "hi"}],
+            chat_id="chat-1",
+            session_type="worker",
+            task_id="task-1",
+        )
+
+        assert calls[0]["resume_thread_id"] == ""
+
+
 # --- _extract_and_record_rate_limit ------------------------------------------
 
 class TestExtractAndRecordRateLimit:
