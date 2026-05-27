@@ -57,7 +57,7 @@ logger = logging.getLogger("voxyflow.orchestration")
 # Result preview helpers — the artifact file is the canonical blob store;
 # everything else gets a short preview + artifact_path reference.
 # ---------------------------------------------------------------------------
-PREVIEW_CHARS = 500          # for DB ledger, worker session store, session store
+PREVIEW_CHARS = 500          # for worker session store + session timeline previews
 DISPATCHER_PREVIEW_CHARS = 10_000  # read_artifact default page size
 WS_RESULT_CHARS = 2_000     # for the task:completed WS event to the frontend
 
@@ -596,7 +596,8 @@ class DeepWorkerPool:
         of having to remember to call ``workers.get_result`` (which Fast-tier
         dispatchers tend to skip).
 
-        The event is drained on the next user turn via drain_worker_events().
+        The event is surfaced on the next user turn via peek_worker_events().
+        It is only removed after the callback turn successfully emits.
         Bounded at _MAX_WORKER_EVENTS_PER_CHAT — oldest dropped on overflow.
         """
         if not dispatcher_chat_id:
@@ -614,14 +615,38 @@ class DeepWorkerPool:
             "completion": completion or None,
         })
 
+    def peek_worker_events(
+        self, dispatcher_chat_id: str, *, max_items: int = 10,
+    ) -> list[dict]:
+        """Return pending worker events without consuming them.
+
+        Call ack_worker_events() after the callback turn has been persisted
+        and broadcast successfully.
+        """
+        buf = self._worker_events.get(dispatcher_chat_id)
+        if not buf:
+            return []
+        return list(buf)[:max_items]
+
+    def ack_worker_events(
+        self, dispatcher_chat_id: str, *, count: int,
+    ) -> None:
+        """Remove the first ``count`` worker events for a dispatcher chat."""
+        buf = self._worker_events.get(dispatcher_chat_id)
+        if not buf:
+            return
+        for _ in range(min(count, len(buf))):
+            buf.popleft()
+        if not buf:
+            self._worker_events.pop(dispatcher_chat_id, None)
+
     def drain_worker_events(
         self, dispatcher_chat_id: str, *, max_items: int = 10,
     ) -> list[dict]:
         """Pop pending worker events for a dispatcher chat (oldest first).
 
-        Called from the chat path right before building the system prompt,
-        so the rendered block represents "what happened since the user's
-        previous turn."
+        Backward-compatible destructive drain retained for callers that truly
+        want consume-on-read semantics.
         """
         buf = self._worker_events.get(dispatcher_chat_id)
         if not buf:
@@ -649,8 +674,9 @@ class DeepWorkerPool:
 
         If another worker tied to the same dispatcher_chat_id finishes within
         the debounce window, the timer resets and the completions collapse
-        into one callback turn. The turn itself reads the ambient worker-events
-        block drained in _compute_ambient_blocks → build_worker_events_block.
+        into one callback turn. The turn itself peeks the ambient worker-events
+        block in _compute_ambient_blocks → build_worker_events_block, then
+        acknowledges those events only after the callback turn emits.
         """
         if not dispatcher_chat_id or not self._orchestrator:
             return
@@ -1534,7 +1560,7 @@ class DeepWorkerPool:
 
             await self._ledger_update(
                 event.task_id, "done",
-                result_summary=result_preview,
+                result_summary=result_content or "",
             )
 
             # Record completion in session timeline

@@ -222,8 +222,9 @@ class WorkerSessionStore:
     ) -> None:
         """Update a session's status (completed, failed, timed_out, cancelled).
 
-        ``result_summary`` stores the full raw output (no truncation).
-        The full output also lives in the ``.md`` artifact at ``artifact_path``.
+        ``result_summary`` stores whatever caller-supplied summary should be
+        shown in workers.list. Worker completions currently persist a preview
+        here; the full raw output lives in the ``.md`` artifact and DB ledger.
         """
         session = self._sessions.get(task_id)
         if not session:
