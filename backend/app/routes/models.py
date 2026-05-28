@@ -203,9 +203,9 @@ async def get_available_models():
 
     # Build layers info — report what the RUNTIME actually uses, not just
     # what's stored. When provider_type is unset, ClaudeService falls back to
-    # the CLI backend if CLAUDE_USE_CLI=true (see claude_service.reload_models).
-    # Mirror that rule here so the Settings UI shows the true active provider
-    # instead of "openai" inferred from the legacy proxy URL.
+    # the CLI backend when settings.claude_use_cli is true (see
+    # claude_service.reload_models). Mirror that rule here so the Settings UI
+    # shows the true active provider instead of one inferred from the URL.
     use_cli = get_settings().claude_use_cli
     layers: dict[str, LayerInfo] = {}
     for layer_name in ("fast", "deep", "haiku"):
@@ -332,9 +332,9 @@ async def test_model_layer(body: dict):
     """Send a quick test message to a model layer and return latency + reply.
 
     Routes through the SAME backend the chat layer uses at runtime:
-      - provider_type == "cli"                  → spawn `claude -p` via ClaudeCliBackend
-      - provider_type empty + CLAUDE_USE_CLI    → same as "cli" (matches reload_models)
-      - otherwise                               → LLMProvider via provider_factory
+      - provider_type == "cli"                       → spawn `claude -p` via ClaudeCliBackend
+      - provider_type empty + settings.claude_use_cli → same as "cli" (matches reload_models)
+      - otherwise                                    → LLMProvider via provider_factory
     Without this dispatch the test would only exercise the HTTP/SDK path and
     miss the CLI subprocess that actually handles chat.
     """

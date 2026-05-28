@@ -192,10 +192,13 @@ See `backend/.env.example` for the full list. Key variables:
 | `DATABASE_URL` | `~/.voxyflow/voxyflow.db` | SQLite database path |
 | `HOST` | `0.0.0.0` | Bind address |
 | `PORT` | `8000` | Bind port |
-| `CLAUDE_USE_CLI` | `true` | Use CLI subprocess backend (recommended, no proxy needed) |
-| `CLAUDE_PROXY_URL` | `http://localhost:3457/v1` | Legacy proxy endpoint (deprecated) |
+| `CLAUDE_USE_CLI` | `false` | Map to the `claude_use_cli` setting — `true` spawns the `claude -p` CLI subprocess. Prefer the Settings UI. |
 | `CLAUDE_API_KEY` | (keyring) | API key for native SDK path (prefer the Settings UI, or `keyring set voxyflow claude_api_key`) |
 | `DEBUG` | `false` | Enable debug logging |
+
+See [`docs/CONFIG.md`](CONFIG.md) for the live runtime toggles
+(`VOXYFLOW_CLOSEOUT_PASS`, `DISPATCHER_WORKER_CALLBACK`, `VOXYFLOW_DEV_TASK`)
+and retired ones (`CLAUDE_PROXY_URL`, `voxyflow-proxy`).
 
 ## SSL/TLS
 
