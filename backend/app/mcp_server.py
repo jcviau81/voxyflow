@@ -77,6 +77,22 @@ VOXYFLOW_MCP_ROLE = os.environ.get("VOXYFLOW_MCP_ROLE", "worker")
 # Tools with no _role tag (or _role="all") are available to everyone.
 
 # ---------------------------------------------------------------------------
+# MCP pending delegates — module-level store for stdio mode
+# (In SSE/FastAPI mode, ClaudeService._pending_delegates is used directly.)
+# ---------------------------------------------------------------------------
+_mcp_stdio_pending_delegates: dict[str, list[dict]] = {}
+
+
+def _queue_mcp_pending_delegate(chat_id: str, payload: dict) -> None:
+    """Queue a voxyflow.delegate call received via MCP stdio (subprocess mode)."""
+    _mcp_stdio_pending_delegates.setdefault(chat_id, []).append(payload)
+
+
+def pop_mcp_pending_delegates(chat_id: str) -> list[dict]:
+    """Return and clear any voxyflow.delegate payloads queued via MCP for this chat_id."""
+    return _mcp_stdio_pending_delegates.pop(chat_id, [])
+
+# ---------------------------------------------------------------------------
 # Dynamic tool scoping — workers start with core tools only and load more
 # All scopes enabled by default — dynamic loading via tools.load is broken
 # because Claude CLI does not support ToolListChangedNotification.

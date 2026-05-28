@@ -681,7 +681,7 @@ class ClaudeService(ApiCallerMixin):
                     "My inline tools: memory_search, memory_save, knowledge_search, "
                     "card_list, card_get, card_create, card_update, card_move, "
                     "workers_list, workers_get_result, workers_read_artifact. For complex tasks (research, code, "
-                    "multi-step ops), I delegate to background workers via delegate_action."
+                    "multi-step ops), I delegate to background workers via voxyflow_delegate."
                 )
             elif self.fast_client_type == "codex":
                 priming_assistant = (
@@ -930,8 +930,8 @@ class ClaudeService(ApiCallerMixin):
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
                     "I converse with you directly and delegate all actions to background workers "
-                    "using the delegate_action tool. I never execute actions myself. When you ask "
-                    "me to do something, I respond briefly and call delegate_action to trigger the worker."
+                    "using the voxyflow_delegate tool. I never execute actions myself. When you ask "
+                    "me to do something, I respond briefly and call voxyflow_delegate to trigger the worker."
                 )
             elif self.deep_client_type == "codex":
                 priming_assistant = (

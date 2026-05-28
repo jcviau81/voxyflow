@@ -107,6 +107,11 @@ TOOLS_DISPATCHER = {
 
     # ---- Undo journal — revert a reversible action Voxy just took ----
     "voxyflow.undo.apply",
+
+    # ---- Delegate — spawn background workers (canonical MCP tool) ----
+    # Available to dispatchers so Claude/Codex CLI can call voxyflow.delegate
+    # via MCP tool_use in addition to the Anthropic/OpenAI native tool paths.
+    "voxyflow.delegate",
 }
 
 # Codex dispatcher tools: read-only subset of the dispatcher tools.
@@ -134,6 +139,8 @@ TOOLS_DISPATCHER_CODEX = {
     "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
     "voxyflow.workers.list_unread",
     "voxyflow.task.peek",
+    # Delegate — spawn background workers via native MCP tool_use
+    "voxyflow.delegate",
 }
 
 

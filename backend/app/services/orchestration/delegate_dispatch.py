@@ -1,7 +1,8 @@
 """Delegate dispatch + direct-action pipeline — extracted from chat_orchestration.
 
 Handles the post-stream work that follows a dispatcher response:
-  - Parsing <delegate> JSON blocks and native delegate_action tool_use blocks
+  - Parsing <delegate> JSON blocks (DEPRECATED — use voxyflow.delegate MCP tool)
+  - Handling native voxyflow.delegate tool_use blocks
   - Dispatching eligible read/write actions directly (DirectExecutor)
   - Deduplicating against active workers, then emitting ActionIntent events
   - Running the destructive-action confirmation gate
@@ -11,12 +12,18 @@ top-level orchestrator file navigable. The mixin depends on instance
 state set up by ChatOrchestrator.__init__ (``self._claude``,
 ``self._worker_pools``, ``self._pending_confirms*``, ``self.start_worker_pool``,
 ``self._handle_message_inner``) — it is not usable standalone.
+
+DEPRECATION (2026-05-27): The ``<delegate>`` XML markup parser is gated by
+``DELEGATE_MARKUP_PARSER_ENABLED`` env var (default ``true``). Set to ``false``
+to disable it entirely once all dispatcher models are migrated to
+``voxyflow.delegate`` native tool_use. Scheduled removal: 2026-06-10.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from uuid import uuid4
@@ -394,13 +401,33 @@ class DelegateDispatchMixin:
         chat_id: str | None = None,
         callback_depth: int = 0,
     ) -> None:
-        """Parse <delegate> blocks from the Fast response and emit ActionIntent events."""
+        """Parse <delegate> XML blocks from the response and emit ActionIntent events.
+
+        DEPRECATED: This parser is kept for backward compatibility with providers that
+        don't support native tool_use (proxy/fallback/CLI paths).  For Anthropic and
+        OpenAI dispatchers, the native ``voxyflow.delegate`` tool_use path is used
+        instead.  Control via ``DELEGATE_MARKUP_PARSER_ENABLED`` env var (default true).
+        This method will be removed on 2026-06-10.
+        """
+        # Gate: honour env var.  Default true (backward compat).
+        if not os.getenv("DELEGATE_MARKUP_PARSER_ENABLED", "true").lower() == "true":
+            logger.debug("[Orchestrator] Markup delegate parser disabled by DELEGATE_MARKUP_PARSER_ENABLED=false")
+            return
+
         # Debug: log the tail of the response to verify delegate blocks are present
         response_preview = fast_response[-300:] if len(fast_response) > 300 else fast_response
         logger.info(f"[Orchestrator] Parsing delegates from response (len={len(fast_response)}), tail: {response_preview!r}")
         matches = self._DELEGATE_PATTERN.findall(fast_response)
         if not matches:
             return
+
+        # DEPRECATION warning (fires once per parse call so it's visible in logs)
+        logger.warning(
+            "[DEPRECATION] <delegate> XML markup parser fired. "
+            "Migrate dispatcher prompts to use the native voxyflow.delegate MCP tool. "
+            "Set DELEGATE_MARKUP_PARSER_ENABLED=false to suppress this path entirely. "
+            "Scheduled removal: 2026-06-10."
+        )
 
         # First pass: separate direct-eligible delegates from worker delegates
         parsed_delegates = []

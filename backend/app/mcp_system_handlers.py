@@ -1107,6 +1107,66 @@ def build_handlers(
         "kg_timeline": kg_timeline,
         "kg_invalidate": kg_invalidate,
         "kg_stats": kg_stats,
+        "voxyflow_delegate": voxyflow_delegate_handler,
     }
 
     return handlers
+
+
+async def voxyflow_delegate_handler(params: dict) -> dict:
+    """Handler for the voxyflow.delegate MCP tool.
+
+    Validates the strict JSON schema, then registers the delegate payload for
+    the orchestrator to spawn a background worker.
+
+    In-process mode (SSE / FastAPI): writes directly to ClaudeService._pending_delegates
+    so the orchestrator's ``pop_pending_delegates`` collects it after the stream.
+
+    Subprocess mode (stdio / Codex MCP): ClaudeService singleton is unavailable;
+    the payload is stored in a module-level deferred store that can be read by
+    the orchestrator via ``pop_mcp_pending_delegates``.
+
+    NOTE: This handler is NOT yet invoked from api_caller.py paths — those use the
+    ``_call_api_stream_with_delegate`` / ``_call_api_stream_openai_with_delegate``
+    methods directly.  This handler is only reached when Claude calls
+    ``voxyflow.delegate`` via MCP tool_use (CLI+MCP path).
+    """
+    from app.tools.delegate_tool import validate_delegate_input, make_tool_result_error
+
+    ok, err = validate_delegate_input(params)
+    if not ok:
+        return {"success": False, "error": "VALIDATION_FAILED", "message": err,
+                "hint": "Fix the payload fields: action (string) + description (string) required."}
+
+    # Best-effort: add to ClaudeService pending delegates
+    chat_id = os.environ.get("VOXYFLOW_CHAT_ID", "").strip()
+    try:
+        from app.services.claude_service import ClaudeService
+        svc = ClaudeService._instance
+        if svc is not None and chat_id:
+            svc._pending_delegates.setdefault(chat_id, []).append(dict(params))
+            logger.info(
+                f"[voxyflow.delegate MCP] Queued for chat {chat_id}: "
+                f"action={params.get('action')}"
+            )
+        elif chat_id:
+            # Subprocess mode: store in module-level deferred store
+            from app.mcp_server import _queue_mcp_pending_delegate
+            _queue_mcp_pending_delegate(chat_id, dict(params))
+            logger.info(
+                f"[voxyflow.delegate MCP/stdio] Deferred for chat {chat_id}: "
+                f"action={params.get('action')}"
+            )
+        else:
+            logger.warning("[voxyflow.delegate MCP] No chat_id available — delegate lost. Set VOXYFLOW_CHAT_ID.")
+    except Exception as e:
+        logger.warning(f"[voxyflow.delegate MCP] Could not queue delegate: {e}")
+
+    return {
+        "success": True,
+        "status": "delegated",
+        "message": (
+            f"Task '{params.get('action')}' dispatched to background worker. "
+            "The worker will execute the task and report results back."
+        ),
+    }

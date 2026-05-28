@@ -7,6 +7,7 @@ import type { Message } from '../../types';
 import { ttsService, cleanTextForSpeech } from '../../services/ttsService';
 import { cn } from '../../lib/utils';
 import { eventBus } from '../../utils/eventBus';
+import { DelegateBadge, type DelegatePayload } from './DelegateBadge';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -336,6 +337,17 @@ export const MessageBubble = memo(function MessageBubble({ message, onDelete }: 
               )}
             >
               <MessageContent content={message.content} streaming={message.streaming} />
+              {/* Delegate badges: one per voxyflow.delegate tool_use call in this message */}
+              {message.delegates && message.delegates.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {message.delegates.map((delegate, idx) => (
+                    <DelegateBadge
+                      key={delegate._task_id ?? `delegate-${idx}`}
+                      payload={delegate as DelegatePayload}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
