@@ -330,10 +330,6 @@ class ApiCallerMixin:
         dispatcher_tools = get_claude_tools(role="dispatcher")
         all_tools = [VOXYFLOW_DELEGATE_TOOL] + dispatcher_tools
 
-        # TEMP LOG (remove in follow-up PR): audit tool list sent to LLM per dispatcher call
-        _tool_names = [t.get("name") for t in all_tools]
-        logger.info("[Dispatcher:Anthropic] Tools sent to LLM (%d): %s", len(_tool_names), _tool_names)
-
         kwargs = {
             "model": model,
             "max_tokens": self.max_tokens,
@@ -588,9 +584,6 @@ class ApiCallerMixin:
         dispatcher_tools = get_claude_tools(role="dispatcher")
         dispatcher_tool_names = {t["name"] for t in dispatcher_tools}
         _all_oi_tools_src = [VOXYFLOW_DELEGATE_TOOL] + dispatcher_tools
-        # TEMP LOG (remove in follow-up PR): audit tool list sent to LLM per dispatcher call
-        _oi_tool_names = [t.get("name") for t in _all_oi_tools_src]
-        logger.info("[Dispatcher:OpenAI] Tools sent to LLM (%d): %s", len(_oi_tool_names), _oi_tool_names)
         openai_tools = anthropic_to_openai_tools(_all_oi_tools_src)
 
         max_inline_rounds = 5
