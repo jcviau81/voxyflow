@@ -2,11 +2,11 @@
  * ModelPanel — Models & Providers settings panel.
  *
  * Redesigned UX:
- *  - Section 1: "My Providers" — card grid showing each endpoint as a machine card
+ *  - Section 1: "My Providers" — card grid showing each endpoint as a provider card
  *    with real-time status dot, provider type, short URL, available models, edit/delete
  *  - Section 2: Layer configuration — Fast / Deep rows with source dropdown
- *    combining machines + cloud providers, model picker, test button
- *  - Inline form for adding/editing machines (no modal)
+ *    combining providers + cloud providers, model picker, test button
+ *  - Inline form for adding/editing providers (no modal)
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -2605,22 +2605,24 @@ export function ModelPanel() {
         </p>
       </div>
 
-      {/* ── Section 1: Machines Grid ── */}
-      <Controller
-        control={control}
-        name="endpoints"
-        render={({ field }) => (
-          <MachinesGrid
-            endpoints={field.value ?? []}
-            onChange={field.onChange}
-            providers={providers}
-            endpointStatuses={endpointStatuses}
-            editingSection={editingSection}
-            setEditingSection={setEditingSection}
-            saveAll={saveAll}
-          />
-        )}
-      />
+      {/* ── Section 1: Providers Grid ── */}
+      <div data-section="my-providers">
+        <Controller
+          control={control}
+          name="endpoints"
+          render={({ field }) => (
+            <MachinesGrid
+              endpoints={field.value ?? []}
+              onChange={field.onChange}
+              providers={providers}
+              endpointStatuses={endpointStatuses}
+              editingSection={editingSection}
+              setEditingSection={setEditingSection}
+              saveAll={saveAll}
+            />
+          )}
+        />
+      </div>
 
       {/* ── Section 2: Layers ── */}
       <div className="flex flex-col gap-3">
@@ -2664,23 +2666,25 @@ export function ModelPanel() {
       />
 
       {/* ── Section 3: Worker Classes ── */}
-      <Controller
-        control={control}
-        name="worker_classes"
-        render={({ field }) => (
-          <WorkerClassesPanel
-            workerClasses={field.value ?? []}
-            onChange={field.onChange}
-            providers={providers}
-            endpoints={endpoints}
-            endpointStatuses={endpointStatuses}
-            editingSection={editingSection}
-            setEditingSection={setEditingSection}
-            saveAll={saveAll}
-            isSaving={saveMutation.isPending}
-          />
-        )}
-      />
+      <div data-section="worker-classes">
+        <Controller
+          control={control}
+          name="worker_classes"
+          render={({ field }) => (
+            <WorkerClassesPanel
+              workerClasses={field.value ?? []}
+              onChange={field.onChange}
+              providers={providers}
+              endpoints={endpoints}
+              endpointStatuses={endpointStatuses}
+              editingSection={editingSection}
+              setEditingSection={setEditingSection}
+              saveAll={saveAll}
+              isSaving={saveMutation.isPending}
+            />
+          )}
+        />
+      </div>
 
       {/* ── Section 4: LLM Comparison ── */}
       <ComparisonPanel

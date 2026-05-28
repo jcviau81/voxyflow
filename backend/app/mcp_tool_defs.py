@@ -1791,10 +1791,10 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_scope": "voxyflow",
     },
 
-    # ---- Endpoint / My Machines management ---------------------------------
+    # ---- Endpoint / My Providers management --------------------------------
     {
         "name": "voxyflow.endpoint.list",
-        "description": "List all saved LLM endpoints (My Machines) configured in Voxyflow settings.",
+        "description": "List all saved LLM endpoints (My Providers) configured in Voxyflow settings.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -1804,7 +1804,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.endpoint.add",
-        "description": "Add or update a named LLM endpoint (My Machines). If the id already exists it is replaced. Use provider_type 'ollama' for Ollama instances.",
+        "description": "Add or update a named LLM endpoint (My Providers). If the id already exists it is replaced. Use provider_type 'ollama' for Ollama instances.",
         "inputSchema": {
             "type": "object",
             "required": ["name", "provider_type", "url"],
@@ -1825,7 +1825,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.endpoint.remove",
-        "description": "Remove a saved LLM endpoint (My Machines) by its id.",
+        "description": "Remove a saved LLM endpoint (My Providers) by its id.",
         "inputSchema": {
             "type": "object",
             "required": ["endpoint_id"],
