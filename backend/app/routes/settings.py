@@ -861,11 +861,11 @@ async def tts_speak_stream(request: Request):
     )
 
 
-# ── Endpoint (My Machines) CRUD ───────────────────────────────────────────────
+# ── Endpoint (My Providers) CRUD ──────────────────────────────────────────────
 
 @router.get("/endpoints")
 async def list_endpoints():
-    """Return all saved LLM endpoints (My Machines)."""
+    """Return all saved LLM endpoints (My Providers)."""
     data = await _load_settings_from_db()
     if data is None:
         return {"endpoints": []}

@@ -859,13 +859,14 @@ CLAUDE_SONNET_MODEL=claude-sonnet-4-6
 CLAUDE_DEEP_MODEL=claude-opus-4-7
 ```
 
-#### Named endpoints ("My Machines")
+#### Named endpoints ("My Providers")
 
 Users can save arbitrary provider endpoints (local boxes, remote API accounts)
-in Settings → Models. Each one persists to `ModelsSettings.endpoints[]` as a
+in Settings → Models & Providers. Each one persists to
+`ModelsSettings.endpoints[]` as a
 `ProviderEndpoint { id, name, provider_type, url, api_key }`. Layers then
 reference endpoints by `endpoint_id` — resolved at call time via
-`_resolve_endpoint_refs()`, so renaming a machine doesn't break routing.
+`_resolve_endpoint_refs()`, so renaming a provider doesn't break routing.
 Reachability is probed in parallel on `GET /api/models/available`.
 
 #### Model capability registry
