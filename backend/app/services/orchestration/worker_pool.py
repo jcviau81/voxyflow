@@ -233,8 +233,24 @@ class DeepWorkerPool:
         for task_id, task in list(self._active_tasks.items()):
             task.cancel()
         self._active_tasks.clear()
-        # Mark cancelled tasks in the DB ledger
+        # Mark cancelled tasks in BOTH the file-store session and the DB
+        # ledger. The worker's own ``except asyncio.CancelledError`` branch
+        # (run_task) normally takes care of this, but ``stop()`` does not
+        # await the cancelled tasks — if the backend exits before that
+        # handler runs, the session_store stays on ``status=running`` and
+        # ``check_timeouts`` later flips it to ``timed_out``, which the UI
+        # reports as a phantom timeout. Sync the file-store eagerly so the
+        # status is always terminal once stop() returns.
+        _wss_stop = get_worker_session_store()
         for task_id in cancelled_ids:
+            try:
+                _wss_stop.update_status(
+                    task_id,
+                    "cancelled",
+                    result_summary="Session closed — task cancelled",
+                )
+            except Exception as e:
+                logger.warning(f"[DeepWorkerPool] Failed to update session_store for {task_id}: {e}")
             try:
                 await self._ledger_update(
                     task_id, "cancelled",
@@ -316,6 +332,21 @@ class DeepWorkerPool:
             pass
 
         self._semaphore.release()
+
+        # Sync BOTH the file-store session and the DB ledger. The worker's
+        # own ``except asyncio.CancelledError`` branch handles the happy
+        # path, but if ``wait_for`` above timed out (worker didn't process
+        # the cancel within 2s) the session_store can still be on
+        # ``running`` when this method returns — ``check_timeouts`` would
+        # later flip it to ``timed_out`` and surface a phantom timeout.
+        try:
+            get_worker_session_store().update_status(
+                task_id,
+                "cancelled",
+                result_summary="User cancelled",
+            )
+        except Exception as e:
+            logger.warning(f"[DeepWorkerPool] Failed to update session_store for {task_id}: {e}")
 
         # Update DB ledger
         await self._ledger_update(task_id, "cancelled", error="User cancelled")
