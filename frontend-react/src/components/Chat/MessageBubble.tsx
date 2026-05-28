@@ -76,7 +76,17 @@ function CodeBlock({ language, code }: CodeBlockProps) {
         style={vscDarkPlus}
         language={language || 'text'}
         PreTag="div"
-        customStyle={{ margin: 0, borderRadius: '0 0 4px 4px', fontSize: '0.85em' }}
+        // Wrap long lines instead of overflowing the chat horizontally.
+        wrapLongLines
+        customStyle={{
+          margin: 0,
+          borderRadius: '0 0 4px 4px',
+          fontSize: '0.85em',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          overflowWrap: 'anywhere',
+        }}
+        codeTagProps={{ style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' } }}
       >
         {code}
       </SyntaxHighlighter>
@@ -120,7 +130,7 @@ function MessageContent({ content, streaming }: MessageContentProps) {
   const isEmpty = !cleaned.trim() && !streaming;
 
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none">
+    <div className="prose prose-sm dark:prose-invert max-w-none min-w-0 break-words [overflow-wrap:anywhere]">
       {isEmpty ? (
         <span className="text-muted-foreground text-sm">⚙️ Delegating…</span>
       ) : (
@@ -154,7 +164,7 @@ function MessageContent({ content, streaming }: MessageContentProps) {
                 }
                 return (
                   <code
-                    className="bg-muted px-1 py-0.5 rounded text-sm font-mono"
+                    className="bg-muted px-1 py-0.5 rounded text-sm font-mono break-words [overflow-wrap:anywhere]"
                     {...props}
                   >
                     {children}
@@ -303,8 +313,10 @@ export const MessageBubble = memo(function MessageBubble({ message, onDelete }: 
         {avatar}
       </div>
 
-      {/* Content wrapper */}
-      <div className="flex flex-col gap-0.5">
+      {/* Content wrapper — min-w-0 lets it shrink below the intrinsic width of
+          long unbreakable strings (URLs, tokens, code) so they wrap instead of
+          overflowing the chat horizontally. */}
+      <div className="flex flex-col gap-0.5 min-w-0">
         <div
           className={cn(
             'text-xs font-semibold pl-0.5',
@@ -319,7 +331,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onDelete }: 
           {isUser ? (
             <div
               className={cn(
-                'bg-primary border border-transparent text-primary-foreground rounded-xl rounded-br-sm px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap',
+                'bg-primary border border-transparent text-primary-foreground rounded-xl rounded-br-sm px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
                 message.queued && 'opacity-50',
               )}
             >
@@ -331,7 +343,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onDelete }: 
           ) : (
             <div
               className={cn(
-                'bg-muted border border-border rounded-xl rounded-bl-sm px-3.5 py-2.5 text-sm leading-relaxed',
+                'bg-muted border border-border rounded-xl rounded-bl-sm px-3.5 py-2.5 text-sm leading-relaxed min-w-0 break-words [overflow-wrap:anywhere]',
                 isEnrichment && 'border-l-[3px] border-l-primary italic',
                 isEnrichment && message.enrichmentAction === 'correct' && 'border-l-yellow-500',
               )}
