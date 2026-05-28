@@ -751,15 +751,6 @@ if MCP_AVAILABLE:
                     inputSchema=schema,
                 )
             )
-        _tool_names = [t.name for t in tools]
-        # TEMP LOG (remove in follow-up PR): audit voxyflow.delegate presence per list_tools call
-        _has_delegate = "voxyflow.delegate" in _tool_names
-        logger.info(
-            "[MCP] list_tools → role=%s, scopes=%s, %d tools, voxyflow.delegate=%s",
-            VOXYFLOW_MCP_ROLE, sorted(_active_scopes), len(tools), _has_delegate
-        )
-        if not _has_delegate and VOXYFLOW_MCP_ROLE in ("dispatcher", "dispatcher_codex"):
-            logger.warning("[MCP] WARNING: voxyflow.delegate NOT in tool list for role=%s — delegation will be broken!", VOXYFLOW_MCP_ROLE)
         return tools
 
     @server.call_tool()
