@@ -799,7 +799,7 @@ class ClaudeService(ApiCallerMixin):
             logger.info(
                 f"[chat_fast_stream] Local CLI+MCP path — "
                 f"{'persistent' if is_persistent else 'new session'}, "
-                f"inline tools via MCP, XML delegates"
+                f"inline tools via MCP, voxyflow.delegate tool"
             )
         else:
             # Proxy fallback: no tools, XML delegate blocks
@@ -1037,7 +1037,7 @@ class ClaudeService(ApiCallerMixin):
             ):
                 full_response += token
                 yield token
-            logger.info(f"[chat_deep_stream] Local CLI+MCP path — inline tools via MCP, XML delegates")
+            logger.info(f"[chat_deep_stream] Local CLI+MCP path — inline tools via MCP, voxyflow.delegate tool")
         else:
             full_response = ""
             async for token in self._call_api_stream(

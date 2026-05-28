@@ -270,14 +270,14 @@ class MemoryContextMixin:
         query: str,
         workspace_id: Optional[str],
         budget: int,
-    ) -> tuple[Optional[str], set[str]]:
+    ) -> tuple[Optional[str], set[str], set[str]]:
         """Procedural memory: reusable "how to do X" patterns.
 
         Filters by ``type=procedure`` and renders matches in a dedicated
         block (not mixed with fact/decision bullets). Returns up to 3
         procedures ranked by semantic relevance to the query.
 
-        Returns (rendered_block_or_None, ids_used) so L2 can dedup.
+        Returns (rendered_block_or_None, ids_used, texts_used) so L2 can dedup.
         """
         MAX_PROCEDURES = 3
         try:
@@ -294,9 +294,10 @@ class MemoryContextMixin:
                 limit=MAX_PROCEDURES,
             )
             if not results:
-                return None, set()
+                return None, set(), set()
             blocks: list[str] = []
             ids_used: set[str] = set()
+            texts_used: set[str] = set()
             token_count = 0
             for r in results:
                 text = (r.get("text") or "").strip()
@@ -311,13 +312,14 @@ class MemoryContextMixin:
                     break
                 blocks.append(block)
                 ids_used.add(r.get("id", ""))
+                texts_used.add(self._normalize_for_dedup(text))
                 token_count += block_tokens
             if not blocks:
-                return None, set()
-            return "**Known procedures:**\n" + "\n\n".join(blocks), ids_used
+                return None, set(), set()
+            return "**Known procedures:**\n" + "\n\n".join(blocks), ids_used, texts_used
         except Exception:
             logger.debug("_build_procedures_block failed", exc_info=True)
-            return None, set()
+            return None, set(), set()
 
     def _build_l1_essentials(
         self,
@@ -569,6 +571,7 @@ class MemoryContextMixin:
         l1_ids: set[str] = set()
         l1_texts: set[str] = set()
         proc_ids: set[str] = set()
+        proc_texts: set[str] = set()
 
         try:
             # L0: Workspace identity from KG pinned cache
@@ -581,7 +584,7 @@ class MemoryContextMixin:
             # Procedural: reusable "how to do X" blocks, surfaced above L1/L2.
             # Separate section so Voxy can spot them when about to execute.
             if 1 in layers and remaining > 50:
-                proc, proc_ids = self._build_procedures_block(
+                proc, proc_ids, proc_texts = self._build_procedures_block(
                     query, workspace_id, min(300, remaining),
                 )
                 if proc:
@@ -603,7 +606,7 @@ class MemoryContextMixin:
                     query, workspace_name, workspace_id, card_id,
                     include_long_term, min(remaining, 800),
                     l1_ids=l1_ids | proc_ids,
-                    l1_texts=l1_texts,
+                    l1_texts=l1_texts | proc_texts,
                 )
                 if l2:
                     sections.append(l2)

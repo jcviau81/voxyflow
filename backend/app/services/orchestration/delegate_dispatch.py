@@ -79,7 +79,7 @@ class DelegateDispatchMixin:
             logger.error(f"[Orchestrator] Memory auto-extraction failed: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
-    # Deduplication helper (shared by native + XML paths)
+    # Deduplication helper (native voxyflow.delegate path)
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -612,7 +612,7 @@ class DelegateDispatchMixin:
                     parts.append("- [{}] {} (id: {})".format(s, t, cid))
                 return "\n".join(parts)
             return "card.list completed ({} ms)".format(duration)
-        elif action in ("workspace.list", "list_projects"):
+        elif action in ("workspace.list", "list_workspaces"):
             if isinstance(api_result, list):
                 count = len(api_result)
                 parts = ["Found {} workspace(s):".format(count)]

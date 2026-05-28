@@ -46,54 +46,13 @@ async def create_session(body: CreateSessionRequest):
     return {"chatId": chat_id, "title": title}
 
 
-@router.get("/{chat_id:path}")
-async def get_session(chat_id: str, limit: int = Query(50, ge=1, le=500)):
-    """Get messages for a specific session."""
-    # Backfill stable per-message ids on demand so the manual delete endpoint
-    # can target individual messages. No-op once every message has an id.
-    session_store.backfill_message_ids(chat_id)
-    messages = session_store.get_recent_messages(chat_id, limit)
-    # Filter out internal tool_results messages (system context, not for UI)
-    visible = [m for m in messages if m.get("type") != "tool_results"]
-    return {"chat_id": chat_id, "messages": visible, "count": len(visible)}
-
-
-@router.delete("/{chat_id:path}/messages/{message_id}")
-async def delete_message(chat_id: str, message_id: str):
-    """Permanently delete a single message from a chat (file-backed store).
-
-    Chat history lives in JSON files under ``~/.voxyflow/sessions/`` —
-    not the SQLite ``messages`` table — so the delete operates on the
-    file via ``session_store.delete_message``. Broadcasts
-    ``message.deleted`` so other tabs/devices viewing the same chat
-    remove the bubble live.
-
-    Declared BEFORE ``delete_session`` because that route uses
-    ``{chat_id:path}`` which would greedily swallow ``/messages/...``.
-    """
-    removed = session_store.delete_message(chat_id, message_id)
-    if not removed:
-        raise HTTPException(status_code=404, detail="message not found in chat")
-
-    await ws_broadcast.emit_to_chat(
-        chat_id,
-        "message.deleted",
-        {"message_id": message_id, "chat_id": chat_id},
-    )
-
-    return {"deleted": message_id, "chat_id": chat_id}
-
-
-@router.delete("/{chat_id:path}")
-async def delete_session(chat_id: str):
-    """Permanently delete a session from disk."""
-    session_store.delete_session(chat_id)
-    return {"deleted": chat_id}
-
-
 # ---------------------------------------------------------------------------
 # Chat History Search
 # ---------------------------------------------------------------------------
+# NOTE: declared BEFORE the ``{chat_id:path}`` catch-all below, otherwise the
+# path converter greedily captures "search/messages" as a chat_id and this
+# endpoint becomes unreachable (mirrors delete_message ordered before
+# delete_session).
 
 def _make_snippet(content: str, query: str, radius: int = 50) -> str:
     """Return ~100 chars around the first case-insensitive match."""
@@ -147,3 +106,48 @@ async def search_messages(
         }
         for msg in messages
     ]
+
+
+@router.get("/{chat_id:path}")
+async def get_session(chat_id: str, limit: int = Query(50, ge=1, le=500)):
+    """Get messages for a specific session."""
+    # Backfill stable per-message ids on demand so the manual delete endpoint
+    # can target individual messages. No-op once every message has an id.
+    session_store.backfill_message_ids(chat_id)
+    messages = session_store.get_recent_messages(chat_id, limit)
+    # Filter out internal tool_results messages (system context, not for UI)
+    visible = [m for m in messages if m.get("type") != "tool_results"]
+    return {"chat_id": chat_id, "messages": visible, "count": len(visible)}
+
+
+@router.delete("/{chat_id:path}/messages/{message_id}")
+async def delete_message(chat_id: str, message_id: str):
+    """Permanently delete a single message from a chat (file-backed store).
+
+    Chat history lives in JSON files under ``~/.voxyflow/sessions/`` —
+    not the SQLite ``messages`` table — so the delete operates on the
+    file via ``session_store.delete_message``. Broadcasts
+    ``message.deleted`` so other tabs/devices viewing the same chat
+    remove the bubble live.
+
+    Declared BEFORE ``delete_session`` because that route uses
+    ``{chat_id:path}`` which would greedily swallow ``/messages/...``.
+    """
+    removed = session_store.delete_message(chat_id, message_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="message not found in chat")
+
+    await ws_broadcast.emit_to_chat(
+        chat_id,
+        "message.deleted",
+        {"message_id": message_id, "chat_id": chat_id},
+    )
+
+    return {"deleted": message_id, "chat_id": chat_id}
+
+
+@router.delete("/{chat_id:path}")
+async def delete_session(chat_id: str):
+    """Permanently delete a session from disk."""
+    session_store.delete_session(chat_id)
+    return {"deleted": chat_id}

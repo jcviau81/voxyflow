@@ -192,8 +192,12 @@ class OpenAICompatProvider(LLMProvider):
             return []
 
     async def is_reachable(self) -> bool:
+        # Probe the raw client directly so connection refused / DNS / 401 / 404
+        # propagate and correctly mark the endpoint unreachable. list_models()
+        # swallows exceptions and returns [], which would make wait_for complete
+        # normally on ANY fast failure → offline endpoints reported reachable.
         try:
-            await asyncio.wait_for(self.list_models(), timeout=3.0)
+            await asyncio.wait_for(self._client.models.list(), timeout=3.0)
             return True
         except Exception:
             return False
@@ -209,11 +213,27 @@ class OpenAICompatProvider(LLMProvider):
             messages = [{"role": "system", "content": request.system}] + messages
         return messages
 
+    @staticmethod
+    def _is_reasoning_model(model: str) -> bool:
+        """Reasoning models (o1/o3/o4/gpt-5*) require max_completion_tokens."""
+        m = (model or "").lower()
+        return (
+            m.startswith("o1")
+            or m.startswith("o3")
+            or m.startswith("o4")
+            or m.startswith("gpt-5")
+        )
+
     def _base_kwargs(self, request: CompletionRequest) -> dict:
         kwargs: dict = {
             "model": request.model,
-            "max_tokens": request.max_tokens,
         }
+        # Reasoning models reject max_tokens (400); they require
+        # max_completion_tokens instead.
+        if self._is_reasoning_model(request.model):
+            kwargs["max_completion_tokens"] = request.max_tokens
+        else:
+            kwargs["max_tokens"] = request.max_tokens
         if request.temperature is not None:
             kwargs["temperature"] = request.temperature
         return kwargs

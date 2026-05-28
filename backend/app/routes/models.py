@@ -298,10 +298,13 @@ async def get_available_models():
             if pt in cached_providers:
                 providers[pt] = cached_providers[pt]
             else:
-                # New provider not in cache — probe it
+                # New provider not in cache — probe it and persist the result
+                # so it isn't re-probed on every /available within the TTL.
                 try:
                     _, info = await _probe_provider(pt, lbl, u)
                     providers[pt] = info
+                    cached_providers[pt] = info
+                    _reachability_cache["providers"] = cached_providers
                 except Exception:
                     pass
     else:

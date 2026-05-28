@@ -163,6 +163,38 @@ def directive_is_actionable(workspace_id: str) -> bool:
     return bool(body.strip())
 
 
+def file_has_directive(path: str | Path, divider: str = DIVIDER) -> bool:
+    """Return True if the file has actionable content below the divider line.
+
+    Canonical implementation shared by the scheduler gate (``job_runner``) and
+    the UI "actionable" display. Splits the file at the first line whose stripped
+    value equals ``divider``, removes HTML comments, and returns True if any
+    non-whitespace content remains. Returns False if the file is missing,
+    unreadable, or has no divider — the divider is the explicit marker for
+    "directives go here".
+    """
+    try:
+        p = Path(path).expanduser()
+        if not p.is_file():
+            return False
+        text = p.read_text(encoding="utf-8")
+    except Exception:
+        return False
+
+    lines = text.splitlines()
+    below_idx: int | None = None
+    for i, line in enumerate(lines):
+        if line.strip() == divider:
+            below_idx = i + 1
+            break
+    if below_idx is None:
+        return False
+
+    below = "\n".join(lines[below_idx:])
+    below = _HTML_COMMENT_RE.sub("", below)
+    return bool(below.strip())
+
+
 # ---------------------------------------------------------------------------
 # Job dict shape
 # ---------------------------------------------------------------------------
@@ -325,6 +357,7 @@ __all__ = [
     "directive_is_actionable",
     "disable",
     "ensure_heartbeat_file",
+    "file_has_directive",
     "get_status",
     "heartbeat_file",
     "job_id_for",

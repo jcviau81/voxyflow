@@ -59,16 +59,21 @@ class TestSessionCRUD:
 
 
 class TestSessionSearch:
-    """Note: /api/sessions/search/messages is shadowed by /{chat_id:path}.
-    The route ordering in sessions.py causes the path converter to consume
-    "search/messages" as a chat_id. Tests verify current behavior.
+    """/api/sessions/search/messages must be reachable.
+
+    Regression guard: the route is declared BEFORE the /{chat_id:path}
+    catch-all in sessions.py. If the ordering regresses, the path converter
+    consumes "search/messages" as a chat_id and these tests fail (the
+    catch-all returns a {chat_id, messages, count} dict instead of a list).
     """
 
     @pytest.mark.asyncio
     async def test_search_endpoint_responds(self, client: httpx.AsyncClient):
-        """Endpoint responds 200 (currently shadowed by get_session catch-all)."""
+        """Endpoint reaches search_messages and returns a result list."""
         r = await client.get("/api/sessions/search/messages", params={"q": "test"})
         assert r.status_code == 200
+        # search_messages returns a list; the shadowing get_session returns a dict.
+        assert isinstance(r.json(), list)
 
     @pytest.mark.asyncio
     async def test_search_with_workspace_filter(self, client: httpx.AsyncClient, test_workspace: dict):
@@ -78,6 +83,14 @@ class TestSessionSearch:
             "workspace_id": pid,
         })
         assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    @pytest.mark.asyncio
+    async def test_search_requires_query(self, client: httpx.AsyncClient):
+        """Missing/empty q must 422 (proves search_messages, not the catch-all,
+        is handling the request — the catch-all has no required q param)."""
+        r = await client.get("/api/sessions/search/messages")
+        assert r.status_code == 422
 
 
 class TestSessionIsolation:

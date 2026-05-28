@@ -128,9 +128,15 @@ interface StreamState {
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { send, subscribe, connectionState } = useWS();
   const queryClient = useQueryClient();
-  const messageStore = useMessageStore();
-  const workspaceStore = useWorkspaceStore();
-  const cardStore = useCardStore();
+  // The message + workspace stores are only ever read via refs/getState (never
+  // via reactive render) — subscribing to the whole state here would re-render
+  // the provider (and the entire tree below it) on every streamed token.
+  // messageStore actions are accessed through messageStoreRef (snapshot below);
+  // workspace state is read fresh via useWorkspaceStore.getState() at call time.
+  const messageStore = useMessageStore.getState();
+  // Zustand action refs are stable across renders, so this selector never
+  // re-renders the provider.
+  const addCard = useCardStore((s) => s.addCard);
   const showToast = useToastStore((s) => s.showToast);
   const addNotification = useNotificationStore((s) => s.addNotification);
   const addNotificationRef = useRef(addNotification);
@@ -140,6 +146,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const activeSessionIdRef = useRef<string | undefined>(undefined);
   const streamingMessagesRef = useRef<Map<string, StreamState>>(new Map());
   const streamingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Maps a finished streamId -> the bubble messageId it wrote to. Lets a late
+  // 'done' (e.g. multi-device fan-out arriving after forceEndAllStreaming
+  // already cleared streamingMessagesRef) update the existing bubble instead of
+  // spawning a duplicate assistant bubble. Entries auto-expire.
+  const recentlyFinishedRef = useRef<Map<string, string>>(new Map());
+  const recentlyFinishedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const RECENTLY_FINISHED_TTL_MS = 30000;
   const voiceAutoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceAutoSendBufferRef = useRef('');
   const callbacksRef = useRef<Set<ChatCallbacks>>(new Set());
@@ -166,11 +179,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // Populated below; called from stream-end handlers. Ref avoids hoist issues.
   const flushNextQueuedRef = useRef<() => void>(() => {});
 
-  // Stable refs for store methods (avoid stale closures)
+  // Stable refs for store methods (avoid stale closures). These hold getState()
+  // snapshots; store actions are stable so method calls are always valid. For
+  // reactive state *values* (e.g. currentWorkspaceId) read getState() fresh at
+  // call time, since the provider no longer re-renders on store changes.
   const messageStoreRef = useRef(messageStore);
   messageStoreRef.current = messageStore;
-  const workspaceStoreRef = useRef(workspaceStore);
-  workspaceStoreRef.current = workspaceStore;
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -261,6 +275,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  // Remember which bubble a just-finished stream wrote to, so a late duplicate
+  // 'done' can update it instead of adding a new bubble. Entry self-expires.
+  const markRecentlyFinished = useCallback((streamId: string, messageId: string) => {
+    recentlyFinishedRef.current.set(streamId, messageId);
+    const existing = recentlyFinishedTimersRef.current.get(streamId);
+    if (existing) clearTimeout(existing);
+    recentlyFinishedTimersRef.current.set(
+      streamId,
+      setTimeout(() => {
+        recentlyFinishedRef.current.delete(streamId);
+        recentlyFinishedTimersRef.current.delete(streamId);
+      }, RECENTLY_FINISHED_TTL_MS),
+    );
+  }, []);
+
   const handleStreamComplete = useCallback(
     (streamId: string, finalContent: string) => {
       const stream = streamingMessagesRef.current.get(streamId);
@@ -271,13 +300,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           streaming: false,
         });
         streamingMessagesRef.current.delete(streamId);
+        markRecentlyFinished(streamId, stream.messageId);
         clearStreamingTimer(streamId);
 
         emitCallbacks('onMessageStreamEnd', { messageId: stream.messageId, content });
         flushNextQueuedRef.current();
       }
     },
-    [clearStreamingTimer, emitCallbacks],
+    [clearStreamingTimer, emitCallbacks, markRecentlyFinished],
   );
 
   const resetStreamingTimer = useCallback(
@@ -313,11 +343,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         messageId: stream.messageId,
         content: truncatedContent,
       });
+      markRecentlyFinished(streamId, stream.messageId);
       clearStreamingTimer(streamId);
     }
     streamingMessagesRef.current.clear();
     flushNextQueuedRef.current();
-  }, [clearStreamingTimer, emitCallbacks]);
+  }, [clearStreamingTimer, emitCallbacks, markRecentlyFinished]);
 
   // ---------------------------------------------------------------------------
   // Streaming chunk handler
@@ -450,8 +481,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           };
         };
         // Final streaming chunk may arrive without sessionId — allow it
-        // through when we already track the messageId in streamingMessagesRef.
-        if (!sessionId && !(done && streamingMessagesRef.current.has(messageId))) {
+        // through when we already track the messageId in streamingMessagesRef,
+        // or when it is a late 'done' for a recently-finished stream (so it can
+        // update the existing bubble rather than be dropped or duplicated).
+        if (
+          !sessionId &&
+          !(done && streamingMessagesRef.current.has(messageId)) &&
+          !(done && recentlyFinishedRef.current.has(messageId))
+        ) {
           console.warn('[ChatProvider] chat:response without sessionId — dropping', { messageId });
           return;
         }
@@ -473,6 +510,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           handleStreamingChunk(messageId, content, effectiveSessionId, model);
         } else if (done && streamingMessagesRef.current.has(messageId)) {
           handleStreamComplete(messageId, content);
+        } else if (done && recentlyFinishedRef.current.has(messageId)) {
+          // Late 'done' for a stream we already finished (e.g. multi-device
+          // fan-out arriving after forceEndAllStreaming cleared the stream).
+          // Update the existing bubble instead of spawning a duplicate.
+          const finishedMessageId = recentlyFinishedRef.current.get(messageId)!;
+          messageStoreRef.current.updateMessage(finishedMessageId, {
+            content,
+            streaming: false,
+            truncated: false,
+          });
+          emitCallbacks('onMessageStreamEnd', { messageId: finishedMessageId, content });
         } else {
           handleFullResponse(content, effectiveSessionId);
         }
@@ -964,7 +1012,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       sessionId?: string,
     ): Message => {
       const store = messageStoreRef.current;
-      const pStore = workspaceStoreRef.current;
 
       // Conversation lock: if any assistant stream is active OR there are
       // already queued messages ahead, mark this one as `queued` and hold it.
@@ -982,7 +1029,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       const layers = getLayerState();
       const currentWorkspaceId = message.workspaceId || SYSTEM_WORKSPACE_ID;
-      const currentCardId = message.cardId || pStore.selectedCardId;
+      const currentCardId = message.cardId || useWorkspaceStore.getState().selectedCardId;
       let chatLevel: 'general' | 'workspace' | 'card' = 'general';
       if (currentCardId) {
         chatLevel = 'card';
@@ -1226,19 +1273,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // --- Create card from suggestion ---
   const createCardFromSuggestion = useCallback(
     (data: { title: string; description?: string }) => {
-      const pStore = workspaceStoreRef.current;
-      cardStore.addCard({
+      addCard({
         title: data.title,
         description: data.description || '',
         status: 'todo',
-        workspaceId: pStore.currentWorkspaceId || '',
+        workspaceId: useWorkspaceStore.getState().currentWorkspaceId || '',
         dependencies: [],
         tags: [],
         priority: 0,
       });
       showToast(`\u2705 Card created: "${data.title}"`, 'success', 3000);
     },
-    [cardStore, showToast],
+    [addCard, showToast],
   );
 
   const executeCard = useCallback(

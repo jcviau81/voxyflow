@@ -135,6 +135,17 @@ class DeepWorkerPool:
         self._completed_tasks: list[dict] = []  # [{task_id, action, model, completed_at, result}]
         self._listener_task: asyncio.Task | None = None
         self._cleanup_task: asyncio.Task | None = None
+        # NOTE: this semaphore is PER-POOL (one pool per session/bus), so it caps
+        # MAX_WORKERS concurrent workers *per session*, not globally. With N active
+        # sessions the real ceiling is N * MAX_WORKERS workers. For CLI providers
+        # this is bounded by the process-global CliRateGate (CLI_WORKER_CONCURRENT),
+        # but non-CLI providers (anthropic/openai/ollama/...) have NO global cap and
+        # can fan out to N * MAX_WORKERS concurrent API calls.
+        # TODO(concurrency): add a module-level shared semaphore as a global cap for
+        # non-CLI workers. Doing it correctly requires acquiring it *after* provider
+        # resolution inside _execute_event (so CLI workers skip it) while releasing
+        # in _on_task_done — splitting acquire/release across methods — so it is
+        # deferred to a dedicated change rather than risking a leak/deadlock here.
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
         self._result_contents: dict[str, str] = {}  # task_id → actual result content
         self._task_tool_events: dict[str, list[dict]] = {}  # task_id → bounded tool event buffer
@@ -432,18 +443,6 @@ class DeepWorkerPool:
             })
 
         return {"active": active, "completed": completed}
-
-    async def _summarize_result(self, result: str, intent: str, max_chars: int = 0) -> str:
-        """Return a dispatcher-sized preview of the worker result.
-
-        The full output lives in the artifact file.  The dispatcher gets the
-        first DISPATCHER_PREVIEW_CHARS here and can call read_artifact for more.
-        No LLM summarization — just mechanical truncation.
-        """
-        limit = max_chars or DISPATCHER_PREVIEW_CHARS
-        if len(result) <= limit:
-            return result
-        return result[:limit] + f"\n[... truncated — {len(result):,} chars total ...]"
 
     # ------------------------------------------------------------------
     # Worker lifecycle: closeout pass + local fallback
@@ -929,6 +928,12 @@ class DeepWorkerPool:
         If a matching WorkerClass is found (by explicit id or intent pattern),
         the worker class model/provider is used instead of the default layer.
         """
+        # Bind _wss before the try block. The except/CancelledError handlers below
+        # reference it; if an exception fires before the original binding (e.g. in
+        # resolve_endpoint_for_class during worker-class resolution) the handler
+        # would otherwise raise UnboundLocalError and mask the real error, silently
+        # dropping the task.
+        _wss = get_worker_session_store()
         try:
             # Resolve worker class (if any) before registering, so we log the right model.
             # Precedence: worker_class.model (if matched) > default_worker_model (fallback).
@@ -1069,7 +1074,6 @@ class DeepWorkerPool:
             if event.task_id in self._task_meta:
                 self._task_meta[event.task_id]["model"] = _effective_model
 
-            _wss = get_worker_session_store()
             _task_card_id = event.data.get("card_id")
 
             # --- Card lifecycle: auto-create if missing, move to in-progress ---

@@ -285,6 +285,53 @@ function providerLabel(type: string): string {
 
 const apiFetch = sharedApiFetch;
 
+// ── SourceOptions ────────────────────────────────────────────────────────────
+// Shared <optgroup> contents for every source picker (Layers, Worker Classes,
+// Default Worker, Comparison). Renders the optional "Layer Aliases" group, then
+// "My Providers" (saved endpoints, with a reachability bullet) and "Cloud
+// Providers". Extracted to keep all pickers in sync — previously this JSX was
+// duplicated 4x and the reachability bullets had already diverged (escaped
+// ● vs literal ● glyphs).
+
+interface SourceOptionsProps {
+  providers: ProviderMeta[];
+  endpoints: ProviderEndpoint[];
+  endpointStatuses: EndpointStatus[];
+  aliasOptions?: { value: string; label: string }[];
+}
+
+function SourceOptions({ providers, endpoints, endpointStatuses, aliasOptions }: SourceOptionsProps) {
+  return (
+    <>
+      {aliasOptions && aliasOptions.length > 0 && (
+        <optgroup label="Layer Aliases">
+          {aliasOptions.map(o => (
+            <option key={o.value} value={`alias:${o.value}`}>{o.label}</option>
+          ))}
+        </optgroup>
+      )}
+      {endpoints.length > 0 && (
+        <optgroup label="My Providers">
+          {endpoints.map(ep => {
+            const st = endpointStatuses.find(s => s.id === ep.id);
+            const dot = st ? (st.reachable ? '● ' : '○ ') : '  ';
+            return (
+              <option key={ep.id} value={`ep:${ep.id}`}>
+                {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
+              </option>
+            );
+          })}
+        </optgroup>
+      )}
+      <optgroup label="Cloud Providers">
+        {providers.map(p => (
+          <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
+        ))}
+      </optgroup>
+    </>
+  );
+}
+
 // ── StatusDot ──────────────────────────────────────────────────────────────
 
 function StatusDot({ reachable, size = 'sm' }: { reachable: boolean | null; size?: 'sm' | 'md' }) {
@@ -1004,24 +1051,11 @@ function LayerRow({
               value={selectionValue}
               onChange={e => handleSelectionChange(e.target.value)}
             >
-              {endpoints.length > 0 && (
-                <optgroup label="My Providers">
-                  {endpoints.map(ep => {
-                    const st = endpointStatuses.find(s => s.id === ep.id);
-                    const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
-                    return (
-                      <option key={ep.id} value={`ep:${ep.id}`}>
-                        {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              )}
-              <optgroup label="Cloud Providers">
-                {providers.map(p => (
-                  <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
-                ))}
-              </optgroup>
+              <SourceOptions
+                providers={providers}
+                endpoints={endpoints}
+                endpointStatuses={endpointStatuses}
+              />
             </select>
           </div>
         </div>
@@ -1090,7 +1124,7 @@ function LayerRow({
             </button>
             <div className="text-xs w-20 shrink-0">
               {testState === 'ok'      && <span className="text-green-400">{testLatency != null ? `\u2713 ${testLatency}ms` : '\u2713 OK'}</span>}
-              {testState === 'fail'    && <span className="text-red-400" title={testError}>\u2717 Error</span>}
+              {testState === 'fail'    && <span className="text-red-400" title={testError}>{'\u2717'} Error</span>}
               {testState === 'testing' && <span className="text-muted-foreground">...</span>}
             </div>
           </div>
@@ -1242,7 +1276,7 @@ function WorkerClassesPanel({
 
   function startAdd() {
     if (editingSection !== null) return;
-    const wc: WorkerClass = { ...EMPTY_WORKER_CLASS, id: crypto.randomUUID() };
+    const wc: WorkerClass = { ...EMPTY_WORKER_CLASS, id: newId() };
     setDraft(wc);
     setIsAdding(true);
     setEditingId(wc.id);
@@ -1471,24 +1505,11 @@ function WorkerClassesPanel({
               value={getSourceValue(draft)}
               onChange={e => handleSourceChange(e.target.value)}
             >
-              {endpoints.length > 0 && (
-                <optgroup label="My Providers">
-                  {endpoints.map(ep => {
-                    const st = endpointStatuses.find(s => s.id === ep.id);
-                    const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
-                    return (
-                      <option key={ep.id} value={`ep:${ep.id}`}>
-                        {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              )}
-              <optgroup label="Cloud Providers">
-                {providers.map(p => (
-                  <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
-                ))}
-              </optgroup>
+              <SourceOptions
+                providers={providers}
+                endpoints={endpoints}
+                endpointStatuses={endpointStatuses}
+              />
             </select>
           </div>
 
@@ -1679,7 +1700,7 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
       });
       apiFetch<{ prompt: string }>(`/api/models/benchmark/prompt?${params}`)
         .then(data => {
-          if (!promptEdited) setPrompt(data.prompt);
+          setPrompt(data.prompt);
         })
         .catch(() => {
           // Fallback: generic prompt
@@ -1819,24 +1840,11 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
           value={slot.sourceValue}
           onChange={e => handleSourceChange(e.target.value, setSlot)}
         >
-          {endpoints.length > 0 && (
-            <optgroup label="My Providers">
-              {endpoints.map(ep => {
-                const st = endpointStatuses.find(s => s.id === ep.id);
-                const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
-                return (
-                  <option key={ep.id} value={`ep:${ep.id}`}>
-                    {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
-                  </option>
-                );
-              })}
-            </optgroup>
-          )}
-          <optgroup label="Cloud Providers">
-            {providers.map(p => (
-              <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
-            ))}
-          </optgroup>
+          <SourceOptions
+            providers={providers}
+            endpoints={endpoints}
+            endpointStatuses={endpointStatuses}
+          />
         </select>
         <div className="flex items-center gap-1.5">
           {showDropdown ? (
@@ -2350,29 +2358,12 @@ function DefaultWorkerModelSection({
               value={selectionValue}
               onChange={e => handleSelectionChange(e.target.value)}
             >
-              <optgroup label="Layer Aliases">
-                {LAYER_ALIAS_OPTIONS.map(o => (
-                  <option key={o.value} value={`alias:${o.value}`}>{o.label}</option>
-                ))}
-              </optgroup>
-              {endpoints.length > 0 && (
-                <optgroup label="My Providers">
-                  {endpoints.map(ep => {
-                    const st = endpointStatuses.find(s => s.id === ep.id);
-                    const dot = st ? (st.reachable ? '● ' : '○ ') : '  ';
-                    return (
-                      <option key={ep.id} value={`ep:${ep.id}`}>
-                        {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              )}
-              <optgroup label="Cloud Providers">
-                {providers.map(p => (
-                  <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
-                ))}
-              </optgroup>
+              <SourceOptions
+                providers={providers}
+                endpoints={endpoints}
+                endpointStatuses={endpointStatuses}
+                aliasOptions={LAYER_ALIAS_OPTIONS}
+              />
             </select>
           </div>
         </div>

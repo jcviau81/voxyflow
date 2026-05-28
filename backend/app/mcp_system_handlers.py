@@ -1107,9 +1107,10 @@ async def voxyflow_delegate_handler(params: dict) -> dict:
     In-process mode (SSE / FastAPI): writes directly to ClaudeService._pending_delegates
     so the orchestrator's ``pop_pending_delegates`` collects it after the stream.
 
-    Subprocess mode (stdio / Codex MCP): ClaudeService singleton is unavailable;
-    the payload is stored in a module-level deferred store that can be read by
-    the orchestrator via ``pop_mcp_pending_delegates``.
+    Subprocess mode (stdio / Codex MCP): ClaudeService singleton is unavailable
+    (separate OS process), so the payload is POSTed asynchronously to the
+    FastAPI backend at ``/api/worker-tasks/delegate-queue``, which writes it into
+    ``ClaudeService._pending_delegates`` for the orchestrator to pick up.
 
     NOTE: This handler is NOT yet invoked from api_caller.py paths — those use the
     ``_call_api_stream_with_delegate`` / ``_call_api_stream_openai_with_delegate``
@@ -1129,19 +1130,36 @@ async def voxyflow_delegate_handler(params: dict) -> dict:
         from app.services.claude_service import ClaudeService
         svc = ClaudeService._instance
         if svc is not None and chat_id:
+            # In-process path (FastAPI / SSE mode): write directly to pending store.
             svc._pending_delegates.setdefault(chat_id, []).append(dict(params))
             logger.info(
                 f"[voxyflow.delegate MCP] Queued for chat {chat_id}: "
                 f"action={params.get('action')}"
             )
         elif chat_id:
-            # Subprocess mode: store in module-level deferred store
-            from app.mcp_server import _queue_mcp_pending_delegate
-            _queue_mcp_pending_delegate(chat_id, dict(params))
-            logger.info(
-                f"[voxyflow.delegate MCP/stdio] Deferred for chat {chat_id}: "
-                f"action={params.get('action')}"
-            )
+            # Subprocess mode (mcp_stdio.py is a separate OS process from FastAPI).
+            # Module-level dicts are not shared across processes, so we POST the
+            # payload to the FastAPI backend via HTTP instead.  Use the shared
+            # async client (base_url=VOXYFLOW_API_BASE) so we never block the
+            # event loop with a synchronous request.
+            #
+            # ``params`` is already schema-validated, so forwarding all non-None
+            # fields (action, description, complexity, context, card_id) keeps
+            # the "one worker per card" dedup and card attachment intact.
+            body = {"chat_id": chat_id, **{k: v for k, v in params.items() if v is not None}}
+            try:
+                # Reuse the shared persistent async client (base_url=VOXYFLOW_API_BASE).
+                # Imported locally to avoid a circular import at module load time.
+                from app.mcp_server import _get_http_client
+                client = _get_http_client()
+                resp = await client.post("/api/worker-tasks/delegate-queue", json=body)
+                resp.raise_for_status()
+                logger.info(
+                    f"[voxyflow.delegate MCP/stdio] POSTed delegate to backend for chat {chat_id}: "
+                    f"action={params.get('action')}"
+                )
+            except Exception as http_err:
+                logger.warning(f"[voxyflow.delegate MCP/stdio] HTTP queue failed: {http_err}")
         else:
             logger.warning("[voxyflow.delegate MCP] No chat_id available — delegate lost. Set VOXYFLOW_CHAT_ID.")
     except Exception as e:

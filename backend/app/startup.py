@@ -230,6 +230,11 @@ async def _periodic_cleanup(orchestrator: "ChatOrchestrator") -> None:
             logger.debug(f"[Cleanup] pending results cleanup error: {e}")
 
         # Idle DeepWorkerPool cleanup
+        # TODO(coupling): this block reaches into private internals —
+        # orchestrator._worker_pools and pool._stopped / pool._active_tasks / pool._ws.
+        # It should instead consume a public accessor (e.g. pool.is_idle() plus an
+        # orchestrator.iter_worker_pools()). That requires changes in worker_pool.py
+        # (and chat_orchestration.py), which are owned elsewhere — left as-is for now.
         try:
             now = time.monotonic()
             to_stop: list[str] = []

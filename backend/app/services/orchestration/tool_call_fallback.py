@@ -1,9 +1,12 @@
 """Tool-call text-fallback pipeline — extracted from chat_orchestration.
 
-When the dispatcher model chooses to emit ``<tool_call>`` XML blocks inside
+When the dispatcher model chooses to emit ``<tool_call>`` blocks inside
 its streamed text (instead of native tool_use), this mixin handles the
 fallback path: parse the blocks, strip them from history, execute the
 tools, and stream a follow-up response that incorporates the tool output.
+
+Tool execution here is filtered against ``TOOLS_DISPATCHER`` — dispatchers
+must never run worker-only tools (e.g. ``system.exec``) via this path.
 
 Split from ChatOrchestrator (April 2026 code-review pass). Depends on
 instance state from ChatOrchestrator.__init__ (``self._claude``) — not
@@ -20,6 +23,7 @@ from uuid import uuid4
 from fastapi import WebSocket
 
 from app.tools.executor import get_executor
+from app.tools.registry import TOOLS_DISPATCHER
 from app.tools.response_parser import ToolResponseParser, TOOL_CALL_PATTERN
 from app.services.ws_broadcast import ws_broadcast
 
@@ -37,7 +41,7 @@ class ToolCallFallbackMixin:
         chat_id: str,
         model_label: str,
         session_id: str | None,
-        project_name: str | None,
+        workspace_name: str | None,
         workspace_id: str | None,
         chat_level: str,
         project_context: dict | None,
@@ -76,7 +80,7 @@ class ToolCallFallbackMixin:
                 chat_id=chat_id,
                 model_label=model_label,
                 session_id=session_id,
-                project_name=project_name,
+                workspace_name=workspace_name,
                 workspace_id=workspace_id,
                 chat_level=chat_level,
                 project_context=project_context,
@@ -118,7 +122,7 @@ class ToolCallFallbackMixin:
         chat_id: str,
         model_label: str,
         session_id: str | None,
-        project_name: str | None,
+        workspace_name: str | None,
         workspace_id: str | None,
         chat_level: str,
         project_context: dict | None,
@@ -150,6 +154,26 @@ class ToolCallFallbackMixin:
         executed_tools: list[dict] = []
 
         for tc in tool_calls:
+            # Role-filter guard: this fallback runs inside a dispatcher chat, so
+            # only dispatcher-allowed tools may execute here. Reject worker-only
+            # tools (e.g. system.exec) that the model tried to invoke via text.
+            if tc.name not in TOOLS_DISPATCHER:
+                logger.warning(
+                    f"[ToolCallFallback] Rejecting worker-only tool '{tc.name}' "
+                    "requested via <tool_call> in dispatcher chat (not in TOOLS_DISPATCHER)"
+                )
+                executed_tools.append({
+                    "tool": tc.name,
+                    "args": tc.arguments,
+                    "result": {
+                        "error": (
+                            f"Tool '{tc.name}' is not available to the dispatcher. "
+                            "Delegate to a worker via voxyflow.delegate instead."
+                        )
+                    },
+                })
+                continue
+
             logger.info(f"[ToolCallFallback] Executing: {tc.name}({tc.arguments})")
             result = await executor.execute(tc, timeout=30)
             executed_tools.append({
@@ -214,7 +238,7 @@ class ToolCallFallbackMixin:
 
         # Build system prompt for the follow-up (static base + dynamic context block)
         memory_context = self._claude.memory.build_memory_context(
-            project_name=project_name,
+            workspace_name=workspace_name,
             workspace_id=workspace_id,
             include_long_term=False,
             include_daily=True,

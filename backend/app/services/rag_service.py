@@ -479,6 +479,10 @@ class RAGService:
                 # Collection may not exist yet — that's fine
                 logger.debug(f"delete_project: could not delete {col_name!r}: {e}")
 
+    def delete_workspace(self, workspace_id: str) -> None:
+        """Alias for delete_project — preferred name in the workspace migration."""
+        self.delete_project(workspace_id)
+
     @property
     def enabled(self) -> bool:
         """Whether RAG is available and initialized."""

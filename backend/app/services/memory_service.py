@@ -186,6 +186,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             new_col = self._client.get_or_create_collection(
                 name=name,
                 metadata={"hnsw:space": "cosine"},
+                embedding_function=self._ef,
             )
         except Exception as e:
             logger.error(f"[repair] {name}: failed to recreate collection: {e}")

@@ -125,6 +125,12 @@ def get_provider(
     resolved_url = url.strip() or _DEFAULT_URLS.get(ptype, "")
     label = _LABELS.get(ptype)
 
+    # Strip the "***" redaction sentinel (matches client_factory / tool_defs).
+    # Otherwise OpenAICompatProvider's `api_key or "local"` would sign requests
+    # with "***" and pollute the instance cache key.
+    if api_key == "***":
+        api_key = ""
+
     # Cache lookup. Full SHA-256 to make collisions between differing keys
     # effectively impossible (the 8-char prefix earlier had a birthday
     # collision space of ~4B — non-trivial for long-lived processes).

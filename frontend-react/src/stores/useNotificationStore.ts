@@ -43,10 +43,14 @@ export const useNotificationStore = create<NotificationState>()(
           timestamp: Date.now(),
           read: false,
         };
-        set((s) => ({
-          notifications: [notification, ...s.notifications].slice(0, MAX_NOTIFICATIONS),
-          notificationUnreadCount: s.notificationUnreadCount + 1,
-        }));
+        set((s) => {
+          const notifications = [notification, ...s.notifications].slice(0, MAX_NOTIFICATIONS);
+          return {
+            notifications,
+            // Derive unread from the (capped) array so the counter can't drift
+            notificationUnreadCount: notifications.filter((n) => !n.read).length,
+          };
+        });
         return notification;
       },
 
@@ -66,7 +70,8 @@ export const useNotificationStore = create<NotificationState>()(
       },
 
       getNotificationUnreadCount() {
-        return get().notificationUnreadCount;
+        // Derive from the array to stay consistent with the capped/persisted list
+        return get().notifications.filter((n) => !n.read).length;
       },
 
       // --- Activity Feed ---

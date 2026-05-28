@@ -74,21 +74,32 @@ _processed_message_ids: dict[str, tuple[str, float]] = {}
 
 
 def _seen_message_id(message_id: str, chat_id: str) -> bool:
-    """Return True if this messageId was already processed (within TTL). Records it otherwise."""
+    """Return True if this messageId was already processed (within TTL).
+
+    Check-only — does NOT record. Recording is deferred to _mark_message_seen()
+    AFTER orchestration succeeds, so a message that raised mid-handling can be
+    retried by the client's offline-queue replay instead of being silently
+    swallowed for the full TTL.
+    """
     if not message_id:
         return False
-    now = time.time()
     existing = _processed_message_ids.get(message_id)
-    if existing and existing[1] > now:
+    if existing and existing[1] > time.time():
         return True
-    # Record + lazy-evict expired / overflow entries
+    return False
+
+
+def _mark_message_seen(message_id: str, chat_id: str) -> None:
+    """Record a successfully-handled messageId so replays are skipped within TTL."""
+    if not message_id:
+        return
+    now = time.time()
     _processed_message_ids[message_id] = (chat_id, now + _PROCESSED_MSG_TTL_S)
     if len(_processed_message_ids) > _PROCESSED_MSG_MAX:
         # Drop oldest ~10% by expiry
         stale = sorted(_processed_message_ids.items(), key=lambda kv: kv[1][1])[: _PROCESSED_MSG_MAX // 10]
         for k, _ in stale:
             _processed_message_ids.pop(k, None)
-    return False
 
 app = FastAPI(
     title="Voxyflow",
@@ -388,9 +399,10 @@ async def general_websocket(websocket: WebSocket):
 
                     session_id = payload.get("sessionId") or str(uuid4())
 
-                    # Deliver ALL pending results across all sessions on connect
-                    # so results from other workspaces arrive without manual navigation
-                    await _deliver_all_pending()
+                    # NOTE: pending-result delivery is NOT done here — a cross-session
+                    # scan on every chat:message is hot-path overhead. Delivery happens
+                    # on reconnect via session:sync (and unknown-type fallthrough does
+                    # not need it). See _deliver_all_pending() callers.
 
                     # Derive the canonical chat_id from workspace_id/card_id (server-side authority).
                     # The frontend may pass a stable chatId for sub-sessions, but we validate
@@ -453,6 +465,10 @@ async def general_websocket(websocket: WebSocket):
                         )
                         if new_tasks:
                             bg_tasks.extend(new_tasks)
+                        # Only record the messageId once handling succeeded. On
+                        # failure we leave it unrecorded so the client's offline-queue
+                        # replay can retry the same id rather than being skipped.
+                        _mark_message_seen(message_id, chat_id)
                     except Exception:
                         logger.exception("Orchestration failed for message %s", message_id)
                         try:
@@ -564,6 +580,9 @@ async def general_websocket(websocket: WebSocket):
                             from app.services.event_bus import ActionIntent, event_bus_registry
                             prompt, project_name = await _build_card_prompt(card_id)
                             pool = _orchestrator.start_worker_pool(session_id, websocket)
+                            # Register so session:reset tears this pool down; otherwise
+                            # it escapes teardown and lingers until idle cleanup.
+                            active_session_ids.add(session_id)
                             bus = event_bus_registry.get_or_create(session_id)
                             task_id = f"task-{uuid4().hex[:8]}"
                             worker_model = get_default_worker_model()

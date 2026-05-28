@@ -29,6 +29,7 @@ from app.models.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceResp
 from app.services import workspace_autonomy
 from app.services.agent_personas import AgentType, get_persona
 from app.services.sandbox_service import get_sandbox_service
+from app.services.ws_broadcast import ws_broadcast
 
 # ---------------------------------------------------------------------------
 # Standup helpers
@@ -526,6 +527,11 @@ async def update_workspace(
         raise HTTPException(404, "Workspace not found.")
 
     update_data = body.model_dump(exclude_unset=True)
+
+    # System workspaces cannot be archived (mirror archive_workspace/delete_workspace).
+    if update_data.get("status") == "archived" and getattr(workspace, "is_system", False):
+        raise HTTPException(403, "Cannot archive system workspace.")
+
     for field, value in update_data.items():
         setattr(workspace, field, value)
     workspace.updated_at = utcnow()
@@ -796,13 +802,21 @@ async def import_workspace(body: ExportPayload, db: AsyncSession = Depends(get_d
                 position=item.position,
             ))
 
-        # Time entries
+        # Time entries — preserve the original logged_at timestamp so the
+        # export/import round-trip does not rewrite time history (see docstring).
         for te in card_data.time_entries:
+            logged_at = None
+            if te.logged_at:
+                try:
+                    logged_at = datetime.fromisoformat(te.logged_at)
+                except ValueError:
+                    logged_at = None
             db.add(TimeEntry(
                 id=new_uuid(),
                 card_id=new_id,
                 duration_minutes=te.duration_minutes,
                 note=te.note,
+                logged_at=logged_at or utcnow(),
             ))
 
     # Flush so all card rows exist before we add FK-referencing relations
@@ -953,6 +967,10 @@ async def confirm_meeting_notes(
 
     workspace.updated_at = utcnow()
     await db.commit()
+
+    # Notify connected clients so the new cards appear without a manual refetch.
+    if card_ids:
+        ws_broadcast.emit_sync("cards:changed", {"workspaceId": workspace_id, "cardId": None})
 
     return MeetingConfirmResponse(created=len(card_ids), card_ids=card_ids)
 

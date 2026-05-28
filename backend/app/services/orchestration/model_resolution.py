@@ -1,10 +1,9 @@
 """Worker model resolution — card preferred_model + coding/lightweight guards.
 
-Both the native tool_use delegate path and the XML delegate path in
-``chat_orchestration`` run the same sequence of overrides to pick the model /
-worker class for a delegated task. Keeping the logic in one helper avoids
-drift (the two sites were copy-pasted; a bugfix in one silently lost on the
-other).
+The native ``voxyflow.delegate`` tool_use path in ``chat_orchestration`` runs
+this sequence of overrides to pick the model / worker class for a delegated
+task. Keeping the logic in one helper (rather than inlined at the call site)
+avoids drift when the rules change.
 """
 
 from __future__ import annotations
