@@ -168,14 +168,30 @@ class TestToolRegistry:
 
 
 class TestMcpSystemHandlers:
-    def test_voxyflow_delegate_handler_registered(self):
-        from app.mcp_system_handlers import SYSTEM_TOOL_HANDLERS
-
-        assert "voxyflow_delegate" in SYSTEM_TOOL_HANDLERS
+    def test_voxyflow_delegate_handler_importable(self):
+        """voxyflow_delegate_handler must be importable as a module-level function."""
+        from app.mcp_system_handlers import voxyflow_delegate_handler
+        assert voxyflow_delegate_handler is not None
 
     def test_voxyflow_delegate_handler_is_callable(self):
-        from app.mcp_system_handlers import SYSTEM_TOOL_HANDLERS
-        import asyncio
+        """voxyflow_delegate_handler must be an async callable."""
+        import inspect
+        from app.mcp_system_handlers import voxyflow_delegate_handler
 
-        handler = SYSTEM_TOOL_HANDLERS["voxyflow_delegate"]
-        assert callable(handler)
+        assert callable(voxyflow_delegate_handler)
+        assert inspect.iscoroutinefunction(voxyflow_delegate_handler)
+
+    def test_voxyflow_delegate_registered_in_build_handlers(self):
+        """build_handlers() must include voxyflow_delegate in the returned dict."""
+        from unittest.mock import MagicMock, AsyncMock as _AM
+        from app.mcp_system_handlers import build_handlers
+
+        handlers = build_handlers(
+            server=None,
+            types_module=None,
+            get_http_client=MagicMock(return_value=None),
+            enforce_task_scope=_AM(return_value=None),
+            current_workspace_scope=MagicMock(return_value=("", False)),
+            active_scopes=set(),
+        )
+        assert "voxyflow_delegate" in handlers

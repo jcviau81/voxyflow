@@ -84,10 +84,6 @@ class TestMarkupParserEnvGate:
 
         mixin = DelegateDispatchMixin.__new__(DelegateDispatchMixin)
 
-        parse_attempted = []
-
-        original_pattern = DelegateDispatchMixin._DELEGATE_RE
-
         with patch.dict(os.environ, {"DELEGATE_MARKUP_PARSER_ENABLED": "false"}):
             with caplog.at_level(logging.DEBUG, logger="app.services.orchestration.delegate_dispatch"):
                 await mixin._parse_and_emit_delegates(
