@@ -1,7 +1,7 @@
 """Per-chat registry of cards created during the current dispatcher turn.
 
 Solves the "ghost card" bug: when Voxy creates a card via an MCP tool and
-then emits a ``<delegate>`` in the same turn, the orchestrator has no way
+then calls ``voxyflow.delegate`` in the same turn, the orchestrator has no way
 to link the delegate back to the card just created. Without that link,
 :func:`DeepWorkerPool._auto_create_card` fires and fabricates a duplicate
 card from the delegate text.
@@ -9,7 +9,7 @@ card from the delegate text.
 Flow:
   1. MCP handlers call the REST API with an ``X-Voxyflow-Chat-Id`` header.
   2. Card-create routes record the new ``card_id`` here keyed by chat_id.
-  3. ``_parse_and_emit_delegates`` pops one entry per delegate that lacks
+  3. ``_emit_native_delegates`` pops one entry per delegate that lacks
      a ``card_id`` (FIFO — match in creation order).
 
 Entries are capped and expire quickly so a stale entry from a previous

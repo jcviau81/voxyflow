@@ -86,7 +86,7 @@ This profile is intentionally read-only and delegation-oriented. It gives the di
 
 1. Inspect current state.
 2. Respond conversationally when no execution is needed.
-3. Emit `<delegate>` for work that changes state, edits files, runs commands, searches the web, or performs multi-step execution.
+3. Call `voxyflow.delegate` for work that changes state, edits files, runs commands, searches the web, or performs multi-step execution.
 
 Claude CLI dispatchers continue to use the broader `TOOLS_DISPATCHER` profile. Workers continue to use `TOOLS_WORKER`.
 

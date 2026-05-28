@@ -59,7 +59,7 @@ worker monitor/control, and endpoint CRUD.
 
 Read-only: workspace/card/wiki/doc/job/session/endpoint/undo reads, memory and
 knowledge search, KG query/timeline/stats, worker result reads, and `task.peek`.
-It should inspect state and emit `<delegate>` when work needs actions.
+It should inspect state and call `voxyflow.delegate` when work needs actions.
 
 ### Worker-only (representative)
 
@@ -693,17 +693,12 @@ When the dispatcher calls `voxyflow.delegate`, `ChatOrchestrator` converts the p
 >
 > Only delegates with `model: "haiku"` / `"sonnet"` / `"opus"` go through the full `SessionEventBus` → `DeepWorkerPool` → `ClaudeService.execute_worker_task()` pipeline.
 
-### Legacy `<delegate>` XML markup (DEPRECATED)
+### Legacy `<delegate>` XML markup (REMOVED 2026-05-27)
 
-The old XML format is still supported but deprecated:
-
-```xml
-<delegate>
-{"action": "create_card", "model": "haiku", "description": "...", "context": "..."}
-</delegate>
-```
-
-The XML parser is gated by `DELEGATE_MARKUP_PARSER_ENABLED` env var (default `true`). When it fires, a `[DEPRECATION]` warning is logged. **Scheduled removal: 2026-06-10.** Migrate to `voxyflow.delegate` tool_use.
+The old XML `<delegate>` format has been removed. The backend parser no longer processes
+these blocks — any `<delegate>...</delegate>` text in an assistant response is rendered
+as plain prose to the user. All dispatchers must use the native `voxyflow.delegate`
+MCP tool_use path instead.
 
 ---
 

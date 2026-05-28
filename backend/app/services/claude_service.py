@@ -576,9 +576,9 @@ class ClaudeService(ApiCallerMixin):
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer.
 
-        Native Anthropic path: uses delegate_action tool_use for dispatching.
-        Proxy path: zero tools, relies on <delegate> XML blocks in text.
-        CLI+MCP path: inline tools via MCP + <delegate> XML blocks for complex tasks.
+        Native Anthropic path: uses voxyflow.delegate tool_use for dispatching.
+        Proxy path: no native tool support — worker delegation not available.
+        CLI+MCP path: inline tools via MCP + voxyflow.delegate tool for complex tasks.
         """
         use_native_delegate = self.fast_client_type == "anthropic"
         use_openai_delegate = self.fast_client_type == "openai"
@@ -681,31 +681,31 @@ class ClaudeService(ApiCallerMixin):
                     "My inline tools: memory_search, memory_save, knowledge_search, "
                     "card_list, card_get, card_create, card_update, card_move, "
                     "workers_list, workers_get_result, workers_read_artifact. For complex tasks (research, code, "
-                    "multi-step ops), I delegate to background workers via voxyflow_delegate."
+                    "multi-step ops), I delegate to background workers via the `voxyflow.delegate` MCP tool."
                 )
             elif self.fast_client_type == "codex":
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
                     "I converse briefly, use read-only MCP tools only to inspect state, "
-                    "and delegate action work to background workers with <delegate> blocks. "
-                    "I do not perform implementation, research, filesystem, shell, card writes, "
-                    "or multi-step work inline."
+                    "and delegate action work to background workers by calling the "
+                    "`voxyflow.delegate` MCP tool. I do not perform implementation, "
+                    "research, filesystem, shell, card writes, or multi-step work inline."
                 )
             elif use_cli_mcp:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
                     "I converse with you directly and use MCP tools for fast operations "
                     "(card CRUD, memory search, workspace/wiki lookups). For complex tasks "
-                    "(research, code, multi-step ops), I include <delegate> blocks in my "
-                    "response to trigger background workers."
+                    "(research, code, multi-step ops), I call the `voxyflow.delegate` MCP "
+                    "tool to trigger background workers."
                 )
             else:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-                    "I converse with you directly and delegate all actions to background workers "
-                    "via <delegate> blocks. I never execute tools myself. When you ask me to do "
-                    "something like a web search or create a card, I respond briefly and include "
-                    "a <delegate> block at the end of my message to trigger the worker. "
+                    "I converse with you directly and delegate complex actions to background "
+                    "workers via the `voxyflow.delegate` tool. When you ask me to do "
+                    "something like a web search or run code, I respond briefly and call "
+                    "`voxyflow.delegate` to trigger the worker. "
                     "The worker handles it in the background and the result appears in the chat."
                 )
             priming = [
@@ -760,7 +760,7 @@ class ClaudeService(ApiCallerMixin):
                 f"{len(self._pending_delegates.get(chat_id, []))} delegates"
             )
         elif use_cli_mcp:
-            # CLI+MCP: inline tools via MCP, <delegate> XML for complex tasks
+            # CLI+MCP: inline tools via MCP, voxyflow.delegate tool for complex tasks
             # For persistent sessions: if process exists, send only the new message
             # with dynamic context as prefix (saves tokens)
             is_persistent = (
@@ -844,9 +844,9 @@ class ClaudeService(ApiCallerMixin):
     ) -> AsyncIterator[str]:
         """Deep layer (streaming): Yield tokens from the deep model directly to chat.
 
-        Native Anthropic path: uses delegate_action tool_use for dispatching.
-        Proxy path: zero tools, relies on <delegate> XML blocks in text.
-        CLI+MCP path: inline tools via MCP + <delegate> XML blocks for complex tasks.
+        Native Anthropic path: uses voxyflow.delegate tool_use for dispatching.
+        Proxy path: no native tool support — worker delegation not available.
+        CLI+MCP path: inline tools via MCP + voxyflow.delegate tool for complex tasks.
         """
         use_native_delegate = self.deep_client_type == "anthropic"
         use_openai_delegate = self.deep_client_type == "openai"
@@ -930,32 +930,32 @@ class ClaudeService(ApiCallerMixin):
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
                     "I converse with you directly and delegate all actions to background workers "
-                    "using the voxyflow_delegate tool. I never execute actions myself. When you ask "
-                    "me to do something, I respond briefly and call voxyflow_delegate to trigger the worker."
+                    "using the `voxyflow.delegate` MCP tool. I never execute actions myself. When you ask "
+                    "me to do something, I respond briefly and call `voxyflow.delegate` to trigger the worker."
                 )
             elif self.deep_client_type == "codex":
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. "
                     "I'm a dispatcher — I converse briefly, use read-only MCP tools only "
-                    "to inspect state, and delegate action work to background workers with "
-                    "<delegate> blocks. I do not perform implementation, research, filesystem, "
-                    "shell, card writes, or multi-step work inline."
+                    "to inspect state, and delegate action work to background workers by "
+                    "calling the `voxyflow.delegate` MCP tool. I do not perform implementation, "
+                    "research, filesystem, shell, card writes, or multi-step work inline."
                 )
             elif use_cli_mcp:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
                     "I converse with you directly and use MCP tools for fast operations "
                     "(card CRUD, memory search, workspace/wiki lookups). For complex tasks "
-                    "(research, code, multi-step ops), I include <delegate> blocks in my "
-                    "response to trigger background workers."
+                    "(research, code, multi-step ops), I call the `voxyflow.delegate` MCP "
+                    "tool to trigger background workers."
                 )
             else:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-                    "I converse with you directly and delegate all actions to background workers "
-                    "via <delegate> blocks. I never execute tools myself. When you ask me to do "
-                    "something like a web search or create a card, I respond briefly and include "
-                    "a <delegate> block at the end of my message to trigger the worker. "
+                    "I converse with you directly and delegate complex actions to background "
+                    "workers via the `voxyflow.delegate` tool. When you ask me to do "
+                    "something like a web search or run code, I respond briefly and call "
+                    "`voxyflow.delegate` to trigger the worker. "
                     "The worker handles it in the background and the result appears in the chat."
                 )
             priming = [

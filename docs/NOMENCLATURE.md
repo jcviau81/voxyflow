@@ -125,7 +125,7 @@ via `backend/.env` (`CLAUDE_FAST_MODEL` / `CLAUDE_SONNET_MODEL` /
 | Pattern | Format | Used By |
 |---------|--------|---------|
 | `<tool_call>` | `{"name": "...", "arguments": {...}}` | Workers (direct tool execution) |
-| `<delegate>` | `{"action": "...", "model": "...", "description": "...", "context": "..."}` | Dispatcher (dispatch to worker) |
+| `voxyflow.delegate` | `{"action": "...", "description": "...", "complexity": "simple\|standard\|complex"}` | Dispatcher → MCP tool_use (dispatch to worker) |
 | `<tool_result>` | Tool execution result | System (injected after tool call) |
 
 ---

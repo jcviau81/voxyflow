@@ -31,7 +31,7 @@ Voxyflow is a **voice-first workspace management assistant** powered by configur
 │  │  Inline tools (card CRUD, memory, knowledge) │ │
 │  │  Fast mode (Haiku) / Deep mode (Opus)        │ │
 │  └──┬───────────────────────────────┬──────────┘ │
-│     │ <delegate> blocks                              │
+│     │ voxyflow.delegate tool calls                   │
 │  ┌──▼──────────────────────┐                         │
 │  │   Background Workers    │                         │
 │  │  ┌───────┐ ┌─────────┐ │                         │
@@ -55,7 +55,7 @@ Voxyflow is a **voice-first workspace management assistant** powered by configur
 
 **The conversation is never blocked by running tasks.**
 
-- The **Chat Agent (Dispatcher)** has role-scoped inline tools for fast operations, and emits `<delegate>` blocks for complex tasks.
+- The **Chat Agent (Dispatcher)** has role-scoped inline tools for fast operations, and calls the `voxyflow.delegate` MCP tool for complex tasks.
 - **Workers** run in the background through the selected local CLI/provider path with full MCP tool access (100+ definitions), and report results via WebSocket.
 - **Codex CLI dispatchers** use the `dispatcher_codex` MCP role: read-only inspection plus delegation.
 
@@ -112,7 +112,7 @@ Every card is auto-routed to a specialized agent type via two-pass keyword scori
 ## Data Flow
 
 1. **Voice Input** → STT → Text → WebSocket → Chat Agent (Dispatcher)
-2. **Chat Agent** → Responds conversationally + emits `<delegate>` blocks for actions
+2. **Chat Agent** → Responds conversationally + calls `voxyflow.delegate` tool for actions
 3. **Dispatcher** → Routes delegate to background Worker (Haiku/Sonnet/Opus based on task)
 4. **Worker** → Executes task with tools → Reports result via WebSocket
 5. **Response** → TTS (optional) + Chat Display + Worker results + Card suggestions
