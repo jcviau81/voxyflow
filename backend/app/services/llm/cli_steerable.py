@@ -336,11 +336,19 @@ class SteerableMixin:
     async def steer_worker(self, task_id: str, message: str) -> bool:
         """Inject a steering message into a running worker subprocess.
 
-        Finds the active CliSession by task_id and puts the message into its
-        steer_queue.  The _watch_steer coroutine inside call_steerable() will
-        forward it to the subprocess stdin.
+        **Claude CLI (stream-json) path**: finds the active CliSession by
+        task_id and puts the message into its steer_queue.  The _watch_steer
+        coroutine inside call_steerable() forwards it to stdin.
 
-        Returns True if the session was found, False otherwise.
+        **Codex CLI path**: steer goes through the ``message_queue`` parameter
+        that is passed directly to ``_call_api_codex()`` → ``codex_backend.call()``
+        → ``_call_once()``.  The ``CodexCliBackend._call_once()`` contains its
+        own ``_watch_steer_queue()`` coroutine that reads from that queue and
+        performs a cancel+resume automatically.  This method is NOT the entry
+        point for Codex tasks; ``DeepWorkerPool.steer_task()`` handles routing
+        via the task-scoped message_queue.
+
+        Returns True if the Claude CLI session was found, False otherwise.
         """
         registry = get_cli_session_registry()
         session = registry.get_by_task_id(task_id)
@@ -348,7 +356,10 @@ class SteerableMixin:
             logger.warning(f"[CLI-steer] steer_worker: no active session for task_id={task_id!r}")
             return False
         if session.steer_queue is None:
-            logger.warning(f"[CLI-steer] steer_worker: session has no steer_queue (task_id={task_id!r})")
+            logger.warning(
+                f"[CLI-steer] steer_worker: session has no steer_queue for "
+                f"task_id={task_id!r} — Codex steer goes through message_queue"
+            )
             return False
         await session.steer_queue.put(message)
         logger.info(f"[CLI-steer] Queued steer for task {task_id}: {message[:100]!r}")
