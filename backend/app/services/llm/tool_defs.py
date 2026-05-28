@@ -1,6 +1,7 @@
 """Tool definitions for the LLM dispatch layer.
 
-- DELEGATE_ACTION_TOOL: native tool_use schema for dispatching to background workers
+- VOXYFLOW_DELEGATE_TOOL: canonical tool_use schema for voxyflow.delegate (all providers)
+- DELEGATE_ACTION_TOOL: deprecated alias — points to VOXYFLOW_DELEGATE_TOOL
 - get_claude_tools(): builds tool schemas from the registry for a given role
 - _call_mcp_tool(): executes a tool via the MCP/REST API bridge
 """
@@ -9,67 +10,68 @@ import json
 import logging
 from typing import Optional
 
+from app.tools.delegate_tool import (
+    VOXYFLOW_DELEGATE_TOOL,
+    VOXYFLOW_DELEGATE_TOOL_OPENAI,
+    VOXYFLOW_DELEGATE_TOOL_GEMINI,
+    TOOL_NAME_SAFE as _DELEGATE_TOOL_NAME_SAFE,
+)
+
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Delegate tool — native tool_use for dispatching actions to workers
+# Delegate tool — canonical voxyflow.delegate (all provider paths)
 # ---------------------------------------------------------------------------
 
-DELEGATE_ACTION_TOOL = {
-    "name": "delegate_action",
-    "description": (
-        "Dispatch an action to a background worker for execution. "
-        "Use this whenever the user asks you to DO something (create cards, search the web, "
-        "run commands, write files, etc.). You CANNOT execute actions yourself — you MUST "
-        "delegate them. The worker will execute the action and report results back to the user."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "action": {
-                "type": "string",
-                "description": (
-                    "The action to perform. Examples: create_card, move_card, update_card, "
-                    "create_project, search_web, run_command, write_file, analyze_code, "
-                    "web_research"
-                ),
-            },
-            "summary": {
-                "type": "string",
-                "description": "Brief human-readable description of what the worker should do",
-            },
-            "model": {
-                "type": "string",
-                "enum": ["haiku", "sonnet", "opus"],
-                "description": (
-                    "Which worker model to use. haiku=simple CRUD, "
-                    "sonnet=research/web/balanced, opus=complex multi-step"
-                ),
-                "default": "sonnet",
-            },
-            "complexity": {
-                "type": "string",
-                "enum": ["simple", "complex"],
-                "description": "simple=single-step CRUD, complex=multi-step or destructive",
-                "default": "simple",
-            },
-            "workspace_name": {
-                "type": "string",
-                "description": "Target workspace name (if applicable)",
-            },
-            "card_title": {
-                "type": "string",
-                "description": "Target card title (if applicable)",
-            },
-            "description": {
-                "type": "string",
-                "description": "Detailed description or content for the action",
-            },
-        },
-        "required": ["action", "summary"],
-    },
-}
+# Backward-compat alias: code that imported DELEGATE_ACTION_TOOL still works.
+# Will be removed after the 2-week transition (see cleanup card).
+DELEGATE_ACTION_TOOL = VOXYFLOW_DELEGATE_TOOL
+
+
+# ---------------------------------------------------------------------------
+# Gemini functionDeclarations helper
+# ---------------------------------------------------------------------------
+
+def anthropic_to_gemini_tools(tools: list[dict]) -> list[dict]:
+    """Convert Anthropic-format tool defs to Gemini functionDeclarations format.
+
+    Handles the special case of VOXYFLOW_DELEGATE_TOOL which has a pre-built
+    Gemini representation.  Generic tools are converted by uppercasing the
+    JSON Schema type tokens (Gemini uses STRING/INTEGER/… instead of string/integer/…).
+    """
+    out: list[dict] = []
+    for t in tools or []:
+        # Special case: delegate tool already has Gemini format ready
+        if t.get("name") == _DELEGATE_TOOL_NAME_SAFE:
+            out.append(VOXYFLOW_DELEGATE_TOOL_GEMINI)
+            continue
+        # Generic conversion: Anthropic → Gemini
+        schema = t.get("input_schema") or t.get("parameters") or {}
+        out.append({
+            "name": t["name"],
+            "description": t.get("description", ""),
+            "parameters": _schema_to_gemini(schema),
+        })
+    return out
+
+
+def _schema_to_gemini(schema: dict) -> dict:
+    """Recursively convert JSON Schema to Gemini parameter format (type names uppercased)."""
+    if not isinstance(schema, dict):
+        return schema
+    out = {}
+    for k, v in schema.items():
+        if k == "type" and isinstance(v, str):
+            out[k] = v.upper()
+        elif isinstance(v, dict):
+            out[k] = _schema_to_gemini(v)
+        elif isinstance(v, list) and k == "properties":
+            # shouldn't happen (properties is always a dict) but guard anyway
+            out[k] = v
+        else:
+            out[k] = v
+    return out
 
 
 # ---------------------------------------------------------------------------

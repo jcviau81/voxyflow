@@ -21,6 +21,17 @@ export interface ModelStatusEvent {
   state: ModelState;
 }
 
+/** A single delegate call embedded in an assistant message (from voxyflow.delegate tool_use). */
+export interface MessageDelegate {
+  action: string;
+  description: string;
+  complexity?: 'simple' | 'standard' | 'complex';
+  card_id?: string;
+  context?: string;
+  /** Task ID assigned by the orchestrator (populated when task:started fires). */
+  _task_id?: string;
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -36,6 +47,8 @@ export interface Message {
   model?: string;
   truncated?: boolean;
   queued?: boolean;
+  /** Delegate calls attached to this message (voxyflow.delegate tool_use). */
+  delegates?: MessageDelegate[];
 }
 
 export interface TechInfo {

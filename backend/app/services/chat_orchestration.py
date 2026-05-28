@@ -227,6 +227,18 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             # Check for native tool_use delegates FIRST (collected by claude_service)
             native_delegates = self._claude.pop_pending_delegates(chat_id)
 
+            # Also check for delegates queued via the voxyflow.delegate MCP tool
+            # (in-process / SSE mode): the MCP handler writes to ClaudeService._pending_delegates,
+            # so they're already included above. For stdio mode, check the module-level store.
+            try:
+                from app.mcp_server import pop_mcp_pending_delegates
+                mcp_delegates = pop_mcp_pending_delegates(chat_id)
+                if mcp_delegates:
+                    logger.info(f"[Orchestrator] MCP stdio delegates: {len(mcp_delegates)} delegate(s)")
+                    native_delegates = native_delegates + mcp_delegates
+            except Exception as _mcp_err:
+                logger.debug(f"[Orchestrator] pop_mcp_pending_delegates failed (non-fatal): {_mcp_err}")
+
             # Workers spawned from a callback response carry incremented depth
             child_callback_depth = callback_depth + 1 if is_callback else callback_depth
 
