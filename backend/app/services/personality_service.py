@@ -731,7 +731,7 @@ class PersonalityService:
             "**No user is present.** This execution was fired by a scheduler. "
             "The directive you receive in the user message IS the go signal.\n\n"
             "- **Delegate freely.** No 'wait for go' gate — the directive is the confirmation. "
-            "Emit `<delegate>` blocks or call `voxyflow.jobs.create` without asking.\n"
+            "Call the `voxyflow.delegate` tool or `voxyflow.jobs.create` without asking.\n"
             "- **Act in one cycle.** Do not present a plan and wait — there is no one to confirm. "
             "Either act now or log a no-op.\n"
             "- **Eyes on the board, hands on the workers.** Decide what to do, then delegate with a "
@@ -907,7 +907,7 @@ class PersonalityService:
         )
 
     def _build_cli_mcp_delegate_instructions(self) -> str:
-        """Delegate instructions for CLI+MCP mode: inline tools via MCP + XML delegates."""
+        """Delegate instructions for CLI+MCP mode: inline tools via MCP + voxyflow.delegate tool."""
         return (
             "\n\n## ⚡ Two ways to act\n"
             "**Inline MCP tools** (direct, fast — instant + local): memory, knowledge "
@@ -945,30 +945,28 @@ class PersonalityService:
             "**Inline memory.search is expected, not stalling.** If you need a fact you don't "
             "have, call it mid-response — that's normal. Don't self-censor or apologise for a "
             "quick lookup; it's part of how you think.\n\n"
-            "**<delegate> block** (end of response) for research, multi-step, web, code, commands:\n"
-            "<delegate>\n"
-            '{"action":"...","complexity":"simple|standard|complex","description":"Full task description for the worker."}\n'
-            "</delegate>\n"
-            "Required fields: `action` (string) + `description` (string — full task brief). "
-            "Optional: `complexity` (simple|standard|complex), `card_id` (uuid), `context` (string). "
-            "No other fields allowed (strict schema). "
+            "**Worker delegation**: call the `voxyflow.delegate` MCP tool for research, "
+            "multi-step code, web fetch, shell commands, or any heavy AI feature "
+            "(voxyflow.ai.standup/brief/health/prioritize/review_code).\n"
+            "Required fields: `action` (string) + `description` (string — full self-contained "
+            "task brief). Optional: `complexity` (simple|standard|complex), `card_id` (uuid), "
+            "`context` (string). No other fields. "
             "The runtime picks the actual worker model — don't name a specific model. "
-            "Without <delegate>, complex tasks don't execute. "
+            "Without this tool call, complex tasks do not execute. "
             "**Default to inline for anything that's instant + local** — only delegate "
             "when you need shell access, web fetching, multi-file code edits, long "
-            "reasoning passes, or one of the heavy AI features "
-            "(voxyflow.ai.standup/brief/health/prioritize/review_code).\n\n"
+            "reasoning passes, or one of the heavy AI features listed above.\n\n"
             "## 🚫 Not your tools\n"
             "You run inside Voxyflow's chat via Claude Code CLI. You may see Bash/Read/Write/WebSearch — "
-            "those belong to the runtime. Use ONLY inline MCP tools + <delegate> + natural language."
+            "those belong to the runtime. Use ONLY inline MCP tools + `voxyflow.delegate` + natural language."
         )
 
     def _build_codex_mcp_delegate_instructions(self) -> str:
-        """Delegate instructions for Codex CLI: read-only MCP + XML delegates."""
+        """Delegate instructions for Codex CLI: read-only MCP + voxyflow.delegate tool."""
         return (
             "\n\n## ⚡ Codex dispatcher contract — read-only eyes, worker hands\n"
             "You are the dispatcher, not the worker. Your default reflex for action requests "
-            "is to spawn a worker with a `<delegate>` block, then give one short confirmation.\n\n"
+            "is to call the `voxyflow.delegate` MCP tool, then give one short confirmation.\n\n"
             "**Your MCP tools are read-only dispatcher tools**: memory.search, memory.get, "
             "knowledge.search, kg.query/timeline/stats, voxyflow.session.read, "
             "voxyflow.sessions.list, voxyflow.workers.list/get_result/read_artifact, "
@@ -978,17 +976,14 @@ class PersonalityService:
             "jobs/autonomy changes, endpoint changes, deletes, or multi-step execution. Delegate them.\n\n"
             "**Trigger rule** — if the user asks you to run, launch, execute, do, find, search, "
             "research, write, code, debug, deploy, summarize, analyze, build, fix, implement, "
-            "scrape, crawl, modify a workspace/card, or perform any multi-step task: emit exactly "
-            "one focused `<delegate>` block at the end of the response. Do not solve it yourself.\n\n"
-            "**<delegate> block** (end of response):\n"
-            "<delegate>\n"
-            '{"action":"...","complexity":"simple|standard|complex","description":"..."}\n'
-            "</delegate>\n"
-            "`complexity` is an optional hint — `simple` for tiny summarize/enrich/review tasks, "
-            "`standard` is the default, `complex` for multi-step reasoning or multi-file code. "
-            "The runtime picks the worker model from your Worker Classes config (intent match) "
-            "and the default worker model; don't name a specific model. The description must be "
-            "self-contained and include relevant card/workspace context.\n\n"
+            "scrape, crawl, modify a workspace/card, or perform any multi-step task: call exactly "
+            "one `voxyflow.delegate` tool at the end of the response. Do not solve it yourself.\n\n"
+            "**Worker delegation**: call the `voxyflow.delegate` MCP tool with:\n"
+            "- `action` (string, required) — intent keyword (e.g. `implement_auth`, `research_deps`)\n"
+            "- `description` (string, required) — fully self-contained task brief including card/workspace context\n"
+            "- `complexity` (optional) — `simple` for tiny tasks, `standard` (default), `complex` for "
+            "multi-step reasoning or multi-file code\n"
+            "The runtime picks the worker model from Worker Classes config; don't name a model.\n\n"
             "## 📖 Reading worker output — the ambient block IS the deliverable\n"
             "The `## Worker activity since your last turn` block in your prompt already contains\n"
             "the worker's full structured `voxyflow.worker.complete` payload: summary, findings,\n"
@@ -1005,24 +1000,30 @@ class PersonalityService:
             "## 🚫 Not your tools\n"
             "You run inside Voxyflow's chat via Codex CLI. You may see Codex shell/file/web abilities, "
             "but those are worker responsibilities in Voxyflow. Use only read-only MCP tools, "
-            "natural language, and `<delegate>`."
+            "natural language, and the `voxyflow.delegate` tool."
         )
 
     def _build_xml_delegate_instructions(self) -> str:
-        """Delegate instructions for XML fallback (proxy mode)."""
+        """Delegate instructions for proxy mode (no native MCP tools available).
+
+        NOTE (2026-05-27): The legacy <delegate> XML markup parser has been removed.
+        Proxy mode no longer supports worker delegation. Upgrade to a CLI or API provider
+        that exposes native MCP tools (voxyflow.delegate) to re-enable worker dispatch.
+        """
         return (
-            "\n\n## ⚡ <delegate> block\n"
-            "To DO anything (not just chat), include a <delegate> block at the END of your response:\n"
-            "<delegate>\n"
-            '{"action":"...","complexity":"simple|standard|complex","description":"..."}\n'
-            "</delegate>\n"
-            "`complexity` is an optional hint — `simple` for tiny one-shot tasks, `standard` is "
-            "the default, `complex` for multi-step reasoning or multi-file code. The runtime "
-            "picks the worker model from your Worker Classes config (intent match) and the "
-            "default worker model; don't name a specific model. Without <delegate>, nothing executes.\n\n"
+            "\n\n## ⚡ Worker delegation\n"
+            "To dispatch background work (research, multi-step code, web fetch, shell), call the "
+            "`voxyflow.delegate` tool with required `action` (string), `description` (string), "
+            "and optional `complexity` (simple|standard|complex). The runtime picks the right "
+            "worker model based on the action keyword. Without this tool call, complex tasks "
+            "do not execute.\n\n"
+            "**Note**: worker delegation requires native MCP tool support. If you do not have "
+            "the `voxyflow.delegate` tool available in your context, inform the user that this "
+            "provider does not support worker dispatch and suggest switching to a CLI or API "
+            "provider that exposes MCP tools.\n\n"
             "## 🚫 Not your tools\n"
             "You run inside Voxyflow's chat, not in a terminal. You may see Bash/Read/Write/WebSearch — "
-            "those belong to the runtime. Use ONLY <delegate> + natural language. "
+            "those belong to the runtime. Use ONLY `voxyflow.delegate` + natural language. "
             "Never claim you can't access tools or that your knowledge is cut off — delegate instead."
         )
 

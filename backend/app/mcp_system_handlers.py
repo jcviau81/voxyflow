@@ -1005,23 +1005,8 @@ def build_handlers(
                         timeline.append({"ts": ts, "role": "user", "event": "instruction", "text": content[:300]})
 
                 elif role == "assistant":
-                    if "<delegate>" in content:
-                        for dm in _re.findall(r'<delegate>(.*?)</delegate>', content, _re.DOTALL):
-                            try:
-                                dm_data = json.loads(dm.strip())
-                                action = str(dm_data.get("action", dm_data.get("description", "")))[:200]
-                                model = dm_data.get("model", "")
-                                timeline.append({
-                                    "ts": ts,
-                                    "role": "assistant",
-                                    "event": "delegate",
-                                    "text": f"🚀 DELEGATE → {action}" + (f" [model={model}]" if model else ""),
-                                })
-                            except Exception:
-                                timeline.append({"ts": ts, "role": "assistant", "event": "delegate", "text": f"🚀 DELEGATE → {dm[:200]}"})
-                        if focus == "delegates":
-                            continue
-
+                    # Note: legacy <delegate> XML markup no longer parsed (removed 2026-05-27).
+                    # Worker delegations are now tracked via native voxyflow.delegate tool_use.
                     if focus != "delegates" and "<delegate>" not in content:
                         if len(content) < 20:
                             continue

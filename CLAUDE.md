@@ -21,7 +21,7 @@ Spawns `claude -p` subprocesses. Uses Claude Max subscription directly.
 - **File**: `backend/app/services/llm/cli_backend.py`
 - Chat layers: streaming via `--output-format stream-json`, MCP tools for inline ops
 - Workers: non-streaming with `--mcp-config` for full Voxyflow MCP tool access
-- Delegates: XML `<delegate>` blocks in text (parsed by orchestrator)
+- Delegates: `voxyflow.delegate` MCP tool_use (native tool call, no XML markup)
 - Personality mode: `native_tools="claude_cli_mcp"` in personality_service.py
 - Permissions: `--permission-mode bypassPermissions` (MCP tools are our own REST API)
 - `--strict-mcp-config` prevents Claude Code's own MCP servers from polluting context
@@ -177,8 +177,8 @@ When adding new tools: add to `TOOLS_WORKER` in `registry.py`. Only add to `TOOL
 1. User message → `chat_fast_stream()` or `chat_deep_stream()` (model selection only)
 2. System prompt built (personality + dispatcher + delegate instructions)
 3. Provider path runs the selected dispatcher model (`claude -p`, `codex exec --json`, or API provider) with the matching dispatcher tool role
-4. Model responds conversationally + calls allowed dispatcher tools inline + emits `<delegate>` for complex/action tasks
-5. Orchestrator parses `<delegate>` blocks → spawns workers (with full `TOOLS_WORKER` access)
+4. Model responds conversationally + calls allowed dispatcher tools inline + calls `voxyflow.delegate` for complex/action tasks
+5. Orchestrator collects `voxyflow.delegate` tool_use calls → spawns workers (with full `TOOLS_WORKER` access)
 
 ## Dev Restart
 Backend runs via systemd (uvicorn on port 8000), frontend built with Vite and served via a reverse proxy.

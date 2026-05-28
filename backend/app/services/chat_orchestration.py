@@ -4,17 +4,17 @@ Extracted from main.py to separate WebSocket transport from orchestration logic.
 
 Mode Fast (deep_enabled=False, default):
   Sonnet streams response directly to chat.
-  <delegate> blocks → EventBus → DeepWorkerPool (silent execution, task WS events only).
+  voxyflow.delegate tool_use → EventBus → DeepWorkerPool (silent execution, task WS events only).
 
 Mode Deep (deep_enabled=True):
   Opus streams response directly to chat (Fast layer skipped).
-  <delegate> blocks → EventBus → DeepWorkerPool (same delegate flow).
+  voxyflow.delegate tool_use → EventBus → DeepWorkerPool (same delegate flow).
 
 Key constraint: Fast and Deep are MUTUALLY EXCLUSIVE for chat output.
 Only one model streams to chat per message — never two simultaneous responses.
 
 Event Bus Architecture:
-  Chat response (Fast or Deep) emits ActionIntent events (parsed from <delegate> blocks).
+  Chat response (Fast or Deep) emits ActionIntent events via the voxyflow.delegate MCP tool.
   Deep workers listen on the per-session bus and execute actions in background.
   Frontend receives task:started → task:progress → task:completed via WebSocket.
 """
@@ -22,7 +22,6 @@ Event Bus Architecture:
 import asyncio
 import json
 import logging
-import re
 import threading
 import time
 from collections import OrderedDict
@@ -57,9 +56,9 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
     and what WebSocket events to emit.  The actual AI calls are delegated to
     ClaudeService.
 
-    Event Bus: After the Fast layer streams, any <delegate> blocks are parsed
-    and emitted onto the session's event bus. Deep workers pick them up and
-    execute them asynchronously.
+    Event Bus: After the Fast layer streams, native voxyflow.delegate tool_use
+    blocks are emitted onto the session's event bus. Deep workers pick them up
+    and execute them asynchronously.
     """
 
     def __init__(
@@ -243,7 +242,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
             child_callback_depth = callback_depth + 1 if is_callback else callback_depth
 
             if native_delegates:
-                # Native path: structured delegate_action tool_use blocks
+                # Native path: structured voxyflow.delegate tool_use blocks
                 logger.info(f"[Orchestrator] Native delegate path: {len(native_delegates)} delegate(s) from tool_use")
                 _t = asyncio.create_task(
                     self._emit_native_delegates_safe(
@@ -260,31 +259,6 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     )
                 )
                 _bg_tasks.append(_t)
-            else:
-                # Fallback: parse <delegate> XML blocks from text response
-                chat_response = ""
-                history = self._claude.get_history(chat_id)
-                for msg in reversed(history):
-                    if msg.get("role") == "assistant":
-                        chat_response = msg.get("content", "")
-                        break
-
-                if chat_response:
-                    _t = asyncio.create_task(
-                        self._parse_and_emit_delegates_safe(
-                            fast_response=chat_response,
-                            session_id=session_id,
-                            websocket=websocket,
-                            workspace_name=workspace_name,
-                            chat_level=chat_level,
-                            project_context=project_context,
-                            card_context=card_context,
-                            workspace_id=workspace_id,
-                            chat_id=chat_id,
-                            callback_depth=child_callback_depth,
-                        )
-                    )
-                    _bg_tasks.append(_t)
 
         # --- Memory auto-extraction (BACKGROUND — non-blocking) ---
         # Skip for callbacks and autonomy ticks — neither is user conversation.
@@ -531,13 +505,6 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
     # Background-safe wrappers (fire-and-forget with error handling)
     # ------------------------------------------------------------------
 
-    async def _parse_and_emit_delegates_safe(self, **kwargs) -> None:
-        """Wrapper that catches errors so background task doesn't crash silently."""
-        try:
-            await self._parse_and_emit_delegates(**kwargs)
-        except Exception as e:
-            logger.error(f"[Orchestrator] Background delegate parsing failed: {e}", exc_info=True)
-
     async def _emit_native_delegates_safe(self, **kwargs) -> None:
         """Wrapper for native delegate emission."""
         try:
@@ -673,10 +640,10 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         chat_id: str | None = None,
         callback_depth: int = 0,
     ) -> None:
-        """Convert native delegate_action tool_use blocks to ActionIntent events.
+        """Convert native voxyflow.delegate tool_use blocks to ActionIntent events.
 
-        This is the structured counterpart to _parse_and_emit_delegates — same output,
-        but the input is already parsed JSON from Claude's tool_use (no regex needed).
+        Input is already parsed JSON from Claude's tool_use (no regex needed).
+        This is the only active delegate emission path since 2026-05-27.
         """
         if not delegates:
             return
@@ -814,182 +781,6 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 await bus.emit(event)
                 get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
                 logger.info(f"[Orchestrator] Emitted native delegate: {intent} → task {task_id} (model={model}, cb_depth={callback_depth})")
-
-        await asyncio.shield(_emit_all())
-
-    # ------------------------------------------------------------------
-    # Event Bus: Delegate parsing (XML fallback)
-    # ------------------------------------------------------------------
-
-    _DELEGATE_PATTERN = re.compile(
-        r'<delegate>\s*(\{.*?\})\s*</delegate>',
-        re.DOTALL,
-    )
-
-    async def _parse_and_emit_delegates(
-        self,
-        fast_response: str,
-        session_id: str,
-        websocket: WebSocket,
-        workspace_name: str | None = None,
-        chat_level: str = "general",
-        project_context: dict | None = None,
-        card_context: dict | None = None,
-        workspace_id: str | None = None,
-        chat_id: str | None = None,
-        callback_depth: int = 0,
-    ) -> None:
-        """Parse <delegate> blocks from the Fast response and emit ActionIntent events."""
-        # Debug: log the tail of the response to verify delegate blocks are present
-        response_preview = fast_response[-300:] if len(fast_response) > 300 else fast_response
-        logger.info(f"[Orchestrator] Parsing delegates from response (len={len(fast_response)}), tail: {response_preview!r}")
-        matches = self._DELEGATE_PATTERN.findall(fast_response)
-        if not matches:
-            return
-
-        # First pass: separate direct-eligible delegates from worker delegates
-        parsed_delegates = []
-        for match in matches:
-            try:
-                data = json.loads(match)
-                parsed_delegates.append(data)
-            except (json.JSONDecodeError, Exception) as e:
-                logger.warning(f"[Orchestrator] Failed to parse delegate block: {e}")
-
-        # Read actions now execute direct — results injected via worker feedback loop.
-        worker_delegates = []
-        for data in parsed_delegates:
-            if DirectExecutor.is_direct_eligible(data):
-                logger.info(f"[Orchestrator] Fast-path direct (XML): {data.get('action')} (skipping worker)")
-                await self._execute_direct_action(
-                    data=data,
-                    websocket=websocket,
-                    session_id=session_id,
-                    workspace_id=workspace_id,
-                    chat_id=chat_id,
-                )
-            else:
-                worker_delegates.append(data)
-
-        if not worker_delegates:
-            return
-
-        # Ensure worker pool is running (also updates WS on reconnect)
-        self.start_worker_pool(session_id, websocket)
-
-        # --- Deduplication ---
-        worker_delegates, skipped = self._dedup_delegates(
-            worker_delegates, self._worker_pools.get(session_id)
-        )
-        if skipped:
-            await self._notify_delegates_skipped(
-                websocket=websocket,
-                session_id=session_id,
-                chat_id=chat_id,
-                skipped=skipped,
-            )
-        if not worker_delegates:
-            return
-
-        bus = event_bus_registry.get_or_create(session_id)
-
-        # Shield the emit loop so that a WebSocket-disconnect cancel on the
-        # parent background task does not interrupt mid-spawn.
-        async def _emit_all() -> None:
-            for data in worker_delegates:
-                try:
-                    intent = data.get("intent") or data.get("action") or "unknown"
-                    summary = data.get("summary") or data.get("description") or ""
-                    complexity = data.get("complexity") or "simple"
-
-                    # Extract model from delegate JSON — normalize full names to aliases.
-                    # Preserve None when no model was specified so worker_pool can apply
-                    # the worker class default instead of forcing "sonnet".
-                    model = data.get("model") or None
-                    if model:
-                        _lower_model = model.lower()
-                        if "opus" in _lower_model:
-                            model = "opus"
-                        elif "haiku" in _lower_model:
-                            model = "haiku"
-                        elif "sonnet" in _lower_model:
-                            model = "sonnet"
-                        elif model not in ("haiku", "sonnet", "opus"):
-                            model = None
-
-                    # Card-level model override
-                    # preferred_model is either a legacy name (haiku/sonnet/opus) or a worker class UUID
-                    card_preferred = card_context.get("preferred_model") if card_context else None
-                    _worker_class_id_override: str | None = None
-                    if card_preferred:
-                        if card_preferred in ("haiku", "sonnet", "opus"):
-                            logger.info(f"[ModelOverride] Card preferred_model={card_preferred} (was {model})")
-                            model = card_preferred
-                        else:
-                            # Treat as worker class UUID — let worker_pool resolve it
-                            _worker_class_id_override = card_preferred
-                            logger.info(f"[ModelOverride] Card preferred_model is worker class id={card_preferred}")
-
-                    # Auto-upgrade model for coding tasks (XML path, skip if worker class override)
-                    _CODING_KEYWORDS = {"fix", "implement", "refactor", "write", "code", "debug", "build", "create function", "add feature", "patch"}
-                    description_lower = (data.get("description") or "").lower()
-                    if not _worker_class_id_override and any(kw in description_lower for kw in _CODING_KEYWORDS):
-                        if model == "haiku":
-                            original_model = model
-                            model = "sonnet"
-                            logger.info(f"[ModelUpgrade] Upgraded {original_model} → sonnet (coding task detected: {intent})")
-
-                    # Haiku restricted to lightweight intents — see native path
-                    # above for rationale (GitHub issue #4).
-                    if not _worker_class_id_override and model == "haiku" and intent.lower() not in LIGHTWEIGHT_INTENTS:
-                        logger.info(f"[ModelUpgrade] Upgraded haiku → sonnet (intent '{intent}' not in LIGHTWEIGHT_INTENTS)")
-                        model = "sonnet"
-
-                    task_id = f"task-{uuid4().hex[:8]}"
-
-                    # Classify intent type based on the task, not the model
-                    if complexity == "complex" or model == "opus":
-                        intent_type = "complex"
-                    elif intent in ("create_card", "move_card", "update_card"):
-                        intent_type = "crud_simple"
-                    else:
-                        intent_type = "complex"
-
-                    # Extract card_id from card_context for direct access
-                    card_id = card_context.get("id") if card_context else None
-
-                    event_data = {
-                        "workspace_name": workspace_name,
-                        "chat_level": chat_level,
-                        "project_context": project_context,
-                        "card_context": card_context,
-                        "card_id": card_id,
-                        "dispatcher_chat_id": chat_id,
-                        **data,  # Include original delegate data
-                        # Fallback chain: delegate.data['workspace_id'] → session workspace_id → None
-                        "workspace_id": data.get("workspace_id") or workspace_id,
-                    }
-                    if _worker_class_id_override:
-                        event_data["worker_class_id"] = _worker_class_id_override
-
-                    event = ActionIntent(
-                        task_id=task_id,
-                        intent_type=intent_type,
-                        intent=intent,
-                        summary=summary,
-                        data=event_data,
-                        session_id=session_id,
-                        complexity=complexity,
-                        model=model,
-                        callback_depth=callback_depth,
-                    )
-
-                    await bus.emit(event)
-                    get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
-                    logger.info(f"[Orchestrator] Emitted delegate: {intent} → task {task_id} (cb_depth={callback_depth})")
-
-                except Exception as e:
-                    logger.warning(f"[Orchestrator] Failed to emit delegate: {e}")
 
         await asyncio.shield(_emit_all())
 

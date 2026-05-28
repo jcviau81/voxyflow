@@ -19,7 +19,7 @@ Design decisions recorded here (locked by JC, 2026-05-27):
   - Schema strict: additionalProperties=false
   - Required: ``action`` (string), ``description`` (string)
   - Optional: ``complexity`` (enum simple|standard|complex), ``card_id`` (uuid), ``context`` (string)
-  - Backward compat: markup parser kept, gated by DELEGATE_MARKUP_PARSER_ENABLED (default true)
+  - Legacy XML markup parser: REMOVED 2026-05-27 (no fallback, no toggle)
   - Tool canonical name: ``voxyflow.delegate`` / Anthropic/OAI name: ``voxyflow_delegate``
 """
 

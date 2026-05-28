@@ -40,8 +40,8 @@ only, not tool escalation. Worker access is enforced via role tags in
 1. User sends message
 2. Chat Agent (Dispatcher) streams a conversational response immediately and may
    call lightweight tools inline (search memory, create a card, etc.)
-3. For heavier work the Dispatcher emits `<delegate>` blocks
-4. The orchestrator parses `<delegate>` blocks and spawns background workers
+3. For heavier work the Dispatcher calls the `voxyflow.delegate` MCP tool
+4. The orchestrator collects `voxyflow.delegate` tool_use calls and spawns background workers
 5. Workers run the strict lifecycle below and report structured results
 6. **The conversation is never blocked** — Workers run in the background
 
