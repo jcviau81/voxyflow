@@ -1782,21 +1782,32 @@ class DeepWorkerPool:
         }
         try:
             from app.services.ws_broadcast import ws_broadcast
-            if self._ws is not None:
-                await self._ws.send_json(message)
-                await ws_broadcast.emit_to_others(self._ws, event_type, {"taskId": task_id, **payload})
+            ws = self._ws
+            if ws is not None:
+                try:
+                    await ws.send_json(message)
+                    await ws_broadcast.emit_to_others(ws, event_type, {"taskId": task_id, **payload})
+                    return
+                except Exception:
+                    # WS may have been replaced by session:sync — retry once with current ref
+                    retry_ws = self._ws
+                    if retry_ws is not None and retry_ws is not ws:
+                        await retry_ws.send_json(message)
+                        await ws_broadcast.emit_to_others(retry_ws, event_type, {"taskId": task_id, **payload})
+                        logger.info(f"[DeepWorkerPool] Retried {event_type} on reconnected WS for task {task_id}")
+                        return
+                    raise
             else:
                 ws_broadcast.emit_sync(event_type, {"taskId": task_id, **payload})
         except Exception as e:
             logger.warning(f"[DeepWorkerPool] Failed to send {event_type} via WS: {e}")
-            if event_type in ("task:completed", "task:cancelled", "task:timeout"):
-                session_id = payload.get("sessionId", self._bus.session_id)
-                if session_id:
-                    try:
-                        await pending_store.store(session_id, message)
-                        logger.info(f"[DeepWorkerPool] Stored pending result for task {task_id}")
-                    except Exception as store_err:
-                        logger.error(f"[DeepWorkerPool] Failed to store pending result: {store_err}")
+            session_id = payload.get("sessionId", self._bus.session_id)
+            if session_id:
+                try:
+                    await pending_store.store(session_id, message)
+                    logger.info(f"[DeepWorkerPool] Stored pending {event_type} for task {task_id}")
+                except Exception as store_err:
+                    logger.error(f"[DeepWorkerPool] Failed to store pending {event_type}: {store_err}")
 
     # ------------------------------------------------------------------
     # Card Lifecycle helpers (system-managed)
