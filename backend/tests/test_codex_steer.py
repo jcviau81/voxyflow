@@ -38,16 +38,18 @@ from app.services.llm import codex_backend as cb
 # ---------------------------------------------------------------------------
 
 
-_HAS_STEER = all(
-    hasattr(cb, name)
-    for name in ("_build_steer_prompt", "_watch_steer_queue")
-) and hasattr(cb.CodexCallResult, "steer")
+_HAS_STEER = (
+    hasattr(cb.CodexCliBackend, "_build_steer_prompt")
+    and hasattr(cb.CodexCallResult, "steer")
+)
 
+# No longer gated: feature/codex-steerable-degraded merged into dev (PR #114).
+# Skip guard kept as dead-code safety in case of accidental revert.
 pytestmark = pytest.mark.skipif(
     not _HAS_STEER,
     reason=(
         "Codex steer cancel+resume surface not present on this branch "
-        "(expected in feature/codex-steerable-degraded). Skipping until merged."
+        "(expected post PR #114 merge). Skipping until merged."
     ),
 )
 
