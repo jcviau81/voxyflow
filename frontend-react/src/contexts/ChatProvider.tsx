@@ -478,6 +478,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             cacheCreationTokens?: number;
             contextWindow: number;
             model?: string;
+            contextBreakdown?: import('../stores/useUsageStore').ContextBreakdown | null;
           };
         };
         // Final streaming chunk may arrive without sessionId — allow it
@@ -533,6 +534,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             cacheCreationTokens: usage.cacheCreationTokens,
             contextWindow: usage.contextWindow,
             model: usage.model,
+            contextBreakdown: usage.contextBreakdown,
           });
         }
       }),
