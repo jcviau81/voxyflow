@@ -65,6 +65,9 @@ def _make_backend(known_thread: dict | None = None) -> cb.CodexCliBackend:
     backend._last_usage = {}
     backend._last_thread_id = ""
     backend._thread_ids_by_chat = dict(known_thread or {})
+    # Steer attributes added by feature/codex-steerable-degraded (PR #114).
+    backend._pending_steer_directives = []
+    backend._last_steer_at = 0.0
     return backend
 
 
@@ -93,7 +96,8 @@ class TestSteerHonoredEndToEnd:
                 await queue.put("Refactor handler to use async/await.")
                 # Give the watcher a tick to drain the queue.
                 await asyncio.sleep(0)
-                return cb.CodexCallResult.steer(["Refactor handler to use async/await."])
+                # steer() takes no args; call() drains the queue after debounce.
+                return cb.CodexCallResult.steer()
             # Second spawn: the resume call.
             return cb.CodexCallResult.success("done", {})
 
@@ -138,10 +142,8 @@ class TestRapidSteerAccumulation:
                 await queue.put("First directive: skip tests.")
                 await queue.put("Second directive: use feature flag.")
                 await asyncio.sleep(0)
-                return cb.CodexCallResult.steer([
-                    "First directive: skip tests.",
-                    "Second directive: use feature flag.",
-                ])
+                # steer() takes no args; call() drains the queue after debounce.
+                return cb.CodexCallResult.steer()
             return cb.CodexCallResult.success("ack", {})
 
         monkeypatch.setattr(backend, "_call_once", fake_once)

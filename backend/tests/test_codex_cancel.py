@@ -147,6 +147,9 @@ def _make_backend() -> cb.CodexCliBackend:
     backend._last_usage = {}
     backend._last_thread_id = ""
     backend._thread_ids_by_chat = {}
+    # Steer attributes added by feature/codex-steerable-degraded (PR #114).
+    backend._pending_steer_directives = []
+    backend._last_steer_at = 0.0
     return backend
 
 
