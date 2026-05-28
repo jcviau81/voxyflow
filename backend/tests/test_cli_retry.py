@@ -344,14 +344,16 @@ class TestCodexThreadResume:
         backend._last_thread_id = ""
         backend._thread_ids_by_chat = {}
 
+        ctx = cb._CallContext()
         await backend._handle_event(
             {"type": "thread.started", "thread_id": "thread-123"},
             [],
-            {},
+            ctx,
             None,
             chat_id="chat-1",
         )
 
+        assert ctx.thread_id == "thread-123"
         assert backend.last_thread_id == "thread-123"
         assert backend.get_thread_id("chat-1") == "thread-123"
 

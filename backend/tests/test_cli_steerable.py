@@ -27,17 +27,25 @@ def _make_jsonl_lines(*events: dict) -> list[bytes]:
 
 
 class _FakeStream:
-    """Async iterable that yields pre-canned byte lines then raises StopAsyncIteration.
+    """Async iterable that yields pre-canned byte lines.
 
     Each item yields via ``asyncio.sleep(0)`` so concurrent asyncio tasks (the
     steer watcher) get a scheduling slot between lines.  This uses the module-
     level asyncio.sleep directly so it is not affected by any patches on
     codex_backend's imports.
+
+    When ``stay_alive_event`` is supplied, the stream does NOT raise
+    StopAsyncIteration once the canned lines are exhausted — instead it stays
+    pending (awaiting the event) until the event is set (by ``_FakeProc.terminate``
+    / ``wait``).  This models a real long-running ``codex exec`` whose stdout only
+    ends when the proc is terminated, so the steer watcher is not cancelled by a
+    prematurely-exhausted stdout loop before it can fire the (re-queued) directive.
     """
 
-    def __init__(self, lines: list[bytes]):
+    def __init__(self, lines: list[bytes], stay_alive_event: asyncio.Event | None = None):
         self._lines = list(lines)
         self._idx = 0
+        self._stay_alive_event = stay_alive_event
 
     def __aiter__(self):
         return self
@@ -46,6 +54,10 @@ class _FakeStream:
         # Yield cooperative control so concurrent tasks can run between lines.
         await asyncio.sleep(0)
         if self._idx >= len(self._lines):
+            if self._stay_alive_event is not None:
+                # Behave like a long-running exec: block until the proc is
+                # terminated, then end the stream.
+                await self._stay_alive_event.wait()
             raise StopAsyncIteration
         line = self._lines[self._idx]
         self._idx += 1
@@ -67,9 +79,14 @@ class _FakeProc:
         stdout_lines: list[bytes],
         returncode: int = 0,
         pid: int = 9999,
+        stay_alive: bool = False,
     ):
         self.pid = pid
-        self.stdout = _FakeStream(stdout_lines)
+        # When stay_alive is set, the stdout stream blocks after the canned
+        # lines are exhausted until terminate()/wait() releases it — modelling a
+        # long-running exec that only ends when the steer watcher terminates it.
+        self._stay_alive_event = asyncio.Event() if stay_alive else None
+        self.stdout = _FakeStream(stdout_lines, self._stay_alive_event)
         self.stderr = _FakeStream([])
         self.stdin = MagicMock()
         self.stdin.write = MagicMock()
@@ -87,10 +104,14 @@ class _FakeProc:
     def terminate(self):
         """Signal proc termination; returncode becomes visible."""
         self._exited = True
+        if self._stay_alive_event is not None:
+            self._stay_alive_event.set()
 
     async def wait(self) -> int:
         """Wait for proc; marks as exited (simulates natural completion)."""
         self._exited = True
+        if self._stay_alive_event is not None:
+            self._stay_alive_event.set()
         return self._returncode
 
 
@@ -163,11 +184,13 @@ class TestBuildSteerPrompt:
 
 class TestCodexCallResultSteer:
     def test_steer_classmethod(self):
-        r = CodexCallResult.steer()
+        r = CodexCallResult.steer(THREAD_ID, ["focus on errors", "be concise"])
         assert r.steered is True
         assert r.ok is False
         assert r.cancelled is False
         assert r.response == ""
+        assert r.thread_id == THREAD_ID
+        assert r.steer_directives == ("focus on errors", "be concise")
 
     def test_success_not_steered(self):
         r = CodexCallResult.success("hello", {})
@@ -199,7 +222,7 @@ async def test_steer_cancels_and_spawns_resume():
     message_queue: asyncio.Queue[str] = asyncio.Queue()
     await message_queue.put("focus on error handling")
 
-    first_proc = _FakeProc(stdout_lines=_steer_proc_lines())
+    first_proc = _FakeProc(stdout_lines=_steer_proc_lines(), stay_alive=True)
     second_proc = _FakeProc(stdout_lines=_normal_proc_lines())
 
     spawn_calls: list[tuple] = []
@@ -252,7 +275,7 @@ async def test_steer_reuses_thread_id():
     message_queue: asyncio.Queue[str] = asyncio.Queue()
     await message_queue.put("change direction")
 
-    first_proc = _FakeProc(stdout_lines=_steer_proc_lines())
+    first_proc = _FakeProc(stdout_lines=_steer_proc_lines(), stay_alive=True)
     second_proc = _FakeProc(stdout_lines=_normal_proc_lines())
 
     spawn_calls: list[tuple] = []
@@ -301,7 +324,7 @@ async def test_two_rapid_steers_accumulate():
     await message_queue.put("directive A")
     await message_queue.put("directive B")
 
-    first_proc = _FakeProc(stdout_lines=_steer_proc_lines())
+    first_proc = _FakeProc(stdout_lines=_steer_proc_lines(), stay_alive=True)
     second_proc = _FakeProc(stdout_lines=_normal_proc_lines())
     stdin_inputs: list[bytes] = []
 
@@ -383,5 +406,4 @@ async def test_steer_post_completion_is_noop():
     assert len(spawn_calls) == 1, (
         f"Expected 1 spawn (no resume), got {len(spawn_calls)}"
     )
-    assert backend._pending_steer_directives == []
     assert response == "Working..."

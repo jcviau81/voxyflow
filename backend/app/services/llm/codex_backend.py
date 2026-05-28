@@ -627,11 +627,17 @@ class CodexCliBackend:
                         )
                         return
                     if not ctx.thread_id:
-                        logger.warning(
-                            "[CodexCLI] Steer received but thread_id not yet known; "
-                            "cannot resume — directive dropped: %r", directive[:80],
+                        # thread_id not parsed from the event stream yet (steer
+                        # arrived before thread.started). Don't drop it — re-queue
+                        # and keep watching so an early directive is still applied
+                        # once the thread_id is known a tick later.
+                        logger.debug(
+                            "[CodexCLI] Steer received before thread_id known; "
+                            "re-queueing directive: %r", directive[:80],
                         )
-                        return
+                        await message_queue.put(directive)
+                        await asyncio.sleep(0.05)
+                        continue
                     # Accumulate and trigger cancel.
                     ctx.pending_steer_directives.append(directive)
                     ctx.last_steer_at = time.monotonic()

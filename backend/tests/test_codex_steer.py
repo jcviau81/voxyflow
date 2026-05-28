@@ -62,12 +62,12 @@ pytestmark = pytest.mark.skipif(
 def _make_backend(known_thread: dict | None = None) -> cb.CodexCliBackend:
     backend = cb.CodexCliBackend.__new__(cb.CodexCliBackend)
     backend._configured_cli_path = "codex"
+    # Snapshots of the last completed call (external properties only).
     backend._last_usage = {}
     backend._last_thread_id = ""
     backend._thread_ids_by_chat = dict(known_thread or {})
-    # Steer attributes added by feature/codex-steerable-degraded (PR #114).
-    backend._pending_steer_directives = []
-    backend._last_steer_at = 0.0
+    # Per-call steer state now lives in a local ``_CallContext`` inside
+    # ``_call_once`` — there are no longer any per-steer instance fields.
     return backend
 
 
@@ -83,21 +83,25 @@ class TestSteerHonoredEndToEnd:
         the same ``thread_id`` discovered in the first attempt."""
         backend = _make_backend()
         queue: asyncio.Queue = asyncio.Queue()
+        # Zero the debounce so call()'s post-steer wait is a no-op.
+        monkeypatch.setattr(cb, "_STEER_DEBOUNCE_SECS", 0.0)
 
         spawn_log: list[dict] = []
 
         async def fake_once(**kwargs):
             spawn_log.append(kwargs)
-            # First spawn: emit a thread.started, then yield to allow the
-            # steer queue to fire, then report a "steered" result.
+            # First spawn: pretend the steer watcher saw a directive arrive
+            # mid-execution (after thread.started gave us a thread_id) and
+            # terminated the proc, so _call_once returns a steered result that
+            # carries the per-call thread_id + directives — the new API.
             if len(spawn_log) == 1:
                 backend._last_thread_id = "thread-XYZ"
                 backend._thread_ids_by_chat[kwargs.get("chat_id", "")] = "thread-XYZ"
                 await queue.put("Refactor handler to use async/await.")
-                # Give the watcher a tick to drain the queue.
-                await asyncio.sleep(0)
-                # steer() takes no args; call() drains the queue after debounce.
-                return cb.CodexCallResult.steer()
+                # Mirror real _call_once: the watcher pulls the directive off
+                # the queue into the per-call context before signalling steer.
+                directive = await queue.get()
+                return cb.CodexCallResult.steer("thread-XYZ", [directive])
             # Second spawn: the resume call.
             return cb.CodexCallResult.success("done", {})
 
@@ -131,6 +135,9 @@ class TestRapidSteerAccumulation:
     async def test_two_directives_within_debounce_collapse_to_one_resume(self, monkeypatch):
         backend = _make_backend()
         queue: asyncio.Queue = asyncio.Queue()
+        # Zero the debounce so call()'s post-steer wait is a no-op; the second
+        # directive is still drained from the queue immediately after.
+        monkeypatch.setattr(cb, "_STEER_DEBOUNCE_SECS", 0.0)
         spawn_log: list[dict] = []
 
         async def fake_once(**kwargs):
@@ -141,9 +148,11 @@ class TestRapidSteerAccumulation:
                 # Two directives back-to-back (well within debounce window).
                 await queue.put("First directive: skip tests.")
                 await queue.put("Second directive: use feature flag.")
-                await asyncio.sleep(0)
-                # steer() takes no args; call() drains the queue after debounce.
-                return cb.CodexCallResult.steer()
+                # Mirror real _call_once: only the FIRST directive is pulled into
+                # the per-call context before the steer signal fires; the second
+                # is left on the queue for call() to drain during the debounce.
+                first = await queue.get()
+                return cb.CodexCallResult.steer("thread-R1", [first])
             return cb.CodexCallResult.success("ack", {})
 
         monkeypatch.setattr(backend, "_call_once", fake_once)
