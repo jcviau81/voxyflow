@@ -802,7 +802,7 @@ class ClaudeService(ApiCallerMixin):
             session_handoff_block=session_handoff_block,
             active_workers_context=active_workers_context,
             messages=primed_messages,
-            mcp_role=("dispatcher_codex" if self.fast_client_type == "codex" else "dispatcher"),
+            mcp_role="dispatcher",
         )
 
         # Clear any previous pending delegates for this chat
@@ -875,7 +875,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.fast_client,
                 client_type=self.fast_client_type,
                 use_tools=True,
-                mcp_role=("dispatcher_codex" if self.fast_client_type == "codex" else "dispatcher"),
+                mcp_role="dispatcher",
                 chat_level=chat_level,
                 chat_id=chat_id,
                 session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
@@ -1066,7 +1066,7 @@ class ClaudeService(ApiCallerMixin):
             session_handoff_block=session_handoff_block,
             active_workers_context=active_workers_context,
             messages=primed_messages,
-            mcp_role=("dispatcher_codex" if self.deep_client_type == "codex" else "dispatcher"),
+            mcp_role="dispatcher",
         )
 
         # Clear any previous pending delegates for this chat
@@ -1130,7 +1130,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.deep_client,
                 client_type=self.deep_client_type,
                 use_tools=True,
-                mcp_role=("dispatcher_codex" if self.deep_client_type == "codex" else "dispatcher"),
+                mcp_role="dispatcher",
                 chat_level=chat_level,
                 chat_id=chat_id,
                 session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,

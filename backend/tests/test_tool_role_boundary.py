@@ -80,20 +80,15 @@ def test_dispatcher_tools_are_all_known():
 
 
 def test_role_sets_only_define_real_roles():
-    """Only "dispatcher", "dispatcher_codex", and "worker" are real roles.
-
-    fast/deep are model tiers, NOT tool tiers — they must not appear as keys
-    in the role map. Any unknown role string falls back to dispatcher via
-    get_by_role()'s default, so adding aliases here would re-introduce the
-    dead "model = tool tier" coupling we just removed.
-
-    ``dispatcher_codex`` is a separate read-only tool set used when the
-    dispatcher runs on Codex CLI (per CLAUDE.md §Tool Access Architecture).
+    """Only "dispatcher" and "worker" are real roles — the same for any model
+    or provider. There is no provider-specific role: a Codex dispatcher uses the
+    standard "dispatcher" set (tool lists live in registry.py per role, not per
+    provider). fast/deep are model tiers, NOT tool tiers. Any unknown role string
+    (incl. a legacy "dispatcher_codex") falls back to dispatcher via
+    get_by_role()'s default.
     """
-    from app.tools.registry import TOOLS_DISPATCHER_CODEX
     assert _ROLE_TOOL_SETS == {
         "dispatcher": TOOLS_DISPATCHER,
-        "dispatcher_codex": TOOLS_DISPATCHER_CODEX,
         "worker": TOOLS_WORKER,
     }
 

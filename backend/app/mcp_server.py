@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from app.tools.registry import TOOLS_DISPATCHER, TOOLS_DISPATCHER_CODEX
+from app.tools.registry import TOOLS_DISPATCHER
 
 try:
     from mcp.server import Server
@@ -631,10 +631,13 @@ def _strip_auto_injected(schema: dict, injectable: set[str]) -> dict:
 
 
 def _allowed_tool_names_for_role(role: str) -> set[str] | None:
-    """Return registry-defined tool names for dispatcher roles, or None for scope mode."""
-    if role == "dispatcher_codex":
-        return TOOLS_DISPATCHER_CODEX
-    if role == "dispatcher":
+    """Return registry-defined tool names for dispatcher roles, or None for scope mode.
+
+    All dispatchers — any model/provider — use the single "dispatcher" set.
+    "dispatcher_codex" is a legacy alias kept only so a stray value never
+    escalates to worker scope; it maps to the same dispatcher tools.
+    """
+    if role in ("dispatcher", "dispatcher_codex"):
         return TOOLS_DISPATCHER
     return None
 

@@ -114,15 +114,12 @@ TOOLS_DISPATCHER = {
     "voxyflow.delegate",
 }
 
-# Codex dispatcher tools — SAME inline set as the Claude dispatcher.
-# Originally a read-only subset, but that made Codex spawn a worker for trivial
-# kanban ops (e.g. "clean up the cards" → delegate a worker to delete cards).
-# Codex now gets the full dispatcher toolset and is steered by its prompt to do
-# instant/local CRUD inline (single-user DB + undo journal makes that safe) and
-# delegate only subprocess/heavy work — matching the Claude dispatcher. The role
-# stays separate so the Codex-specific prompt (fenced-fallback handling, etc.)
-# can still differ, and so the two can diverge again if ever needed.
-TOOLS_DISPATCHER_CODEX = set(TOOLS_DISPATCHER)
+# NOTE: there is intentionally no provider-specific dispatcher tool set. The
+# tool list per layer is defined here by ROLE only ("dispatcher" / "worker") and
+# is identical for any model or provider (Claude CLI, Codex CLI, native SDK …).
+# Codex was formerly a read-only `dispatcher_codex` subset, which made it spawn
+# workers for trivial CRUD; it now uses the standard "dispatcher" role like every
+# other dispatcher. Provider differences live only in the prompt, not the tools.
 
 
 # Worker tools: dispatcher set PLUS the heavy / dangerous / lifecycle tools.
@@ -156,7 +153,6 @@ TOOLS_WORKER = TOOLS_DISPATCHER | _WORKER_EXTRAS
 
 _ROLE_TOOL_SETS = {
     "dispatcher": TOOLS_DISPATCHER,
-    "dispatcher_codex": TOOLS_DISPATCHER_CODEX,
     "worker": TOOLS_WORKER,
 }
 
@@ -191,10 +187,10 @@ class ToolRegistry:
     def get_by_role(self, role: str) -> list[ToolDefinition]:
         """Return tools allowed for a given role.
 
-        Recognised roles include "dispatcher", "dispatcher_codex", and "worker".
-        Anything else (including model-tier names like "fast"/"deep"/"haiku")
-        falls back to the dispatcher set — fast/deep is purely model selection,
-        not a tool tier.
+        Recognised roles are "dispatcher" and "worker" — the same for any model
+        or provider. Anything else (model-tier names like "fast"/"deep"/"haiku",
+        or a legacy "dispatcher_codex") falls back to the dispatcher set:
+        fast/deep/provider is model selection, not a tool tier.
         """
         allowed_names = _ROLE_TOOL_SETS.get(role, TOOLS_DISPATCHER)
         return [t for name, t in self._tools.items() if name in allowed_names]

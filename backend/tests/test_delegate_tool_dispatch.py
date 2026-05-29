@@ -84,10 +84,10 @@ class TestDelegateToolInAllProviders:
             assert "input_schema" in VOXYFLOW_DELEGATE_TOOL
 
         elif provider == "codex":
-            # Codex uses same MCP tool list as Claude CLI dispatcher
-            from app.tools.registry import TOOLS_DISPATCHER_CODEX
-            assert "voxyflow.delegate" in TOOLS_DISPATCHER_CODEX, (
-                "voxyflow.delegate must be in TOOLS_DISPATCHER_CODEX for Codex CLI path"
+            # Codex uses the same "dispatcher" tool list as every other provider.
+            from app.tools.registry import TOOLS_DISPATCHER
+            assert "voxyflow.delegate" in TOOLS_DISPATCHER, (
+                "voxyflow.delegate must be in TOOLS_DISPATCHER for the Codex CLI path"
             )
 
         elif provider == "openai":
@@ -104,9 +104,9 @@ class TestDelegateToolInAllProviders:
     def test_cli_dispatcher_has_delegate(self, provider: str):
         """CLI dispatcher tool registry must contain voxyflow.delegate."""
         if provider in ("anthropic", "codex"):
-            from app.tools.registry import TOOLS_DISPATCHER, TOOLS_DISPATCHER_CODEX
-            registry = TOOLS_DISPATCHER_CODEX if provider == "codex" else TOOLS_DISPATCHER
-            assert "voxyflow.delegate" in registry, (
+            # Both use the single "dispatcher" tool set — no provider-specific role.
+            from app.tools.registry import TOOLS_DISPATCHER
+            assert "voxyflow.delegate" in TOOLS_DISPATCHER, (
                 f"voxyflow.delegate must be in tool registry for {provider} CLI path"
             )
         else:

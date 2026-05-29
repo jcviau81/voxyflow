@@ -156,10 +156,14 @@ class TestToolRegistry:
 
         assert "voxyflow.delegate" in TOOLS_DISPATCHER
 
-    def test_in_tools_dispatcher_codex(self):
-        from app.tools.registry import TOOLS_DISPATCHER_CODEX
+    def test_codex_uses_dispatcher_set(self):
+        # No separate Codex tool set anymore — Codex dispatchers use the single
+        # "dispatcher" role like any other provider (tool lists live in
+        # registry.py per role, identical for any model/provider).
+        from app.tools.registry import _ROLE_TOOL_SETS, TOOLS_DISPATCHER
 
-        assert "voxyflow.delegate" in TOOLS_DISPATCHER_CODEX
+        assert "dispatcher_codex" not in _ROLE_TOOL_SETS
+        assert "voxyflow.delegate" in TOOLS_DISPATCHER
 
 
 # ---------------------------------------------------------------------------
