@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 import httpx
 
-from app.config import VOXYFLOW_SANDBOX_DIR, workspace_workdir
+from app.config import workspace_workdir
 
 logger = logging.getLogger(__name__)
 
@@ -287,40 +287,31 @@ def _is_command_blocked(command: str) -> bool:
 
 
 def _resolve_exec_cwd(cwd: str | None) -> tuple[str, str | None]:
-    """Resolve the working directory for ``system.exec`` and confine it.
+    """Resolve the working directory for ``system.exec``.
 
-    Commands must run under ``VOXYFLOW_SANDBOX_DIR`` (the workers' sandbox).
     When no explicit ``cwd`` is given, the default is the **per-workspace**
     working dir (``<sandbox>/workspaces/<workspace_id>``, from
-    ``VOXYFLOW_WORKSPACE_ID``) — not the bare sandbox root — so a worker's
-    shell commands land inside its own workspace area instead of scattering
-    into ``/tmp`` or a shared root.
-    Set ``VOXYFLOW_DEV_TASK=1`` to opt into running against the Voxyflow
-    codebase itself (matches the write-path escape hatch).
+    ``VOXYFLOW_WORKSPACE_ID``). This is an *organizational suggestion*, not a
+    jail: it keeps output in a stable, workspace-scoped place instead of
+    ``/tmp`` (ephemeral — wiped on reboot) or a shared root.
 
-    Returns ``(resolved_cwd, error)``. If ``error`` is non-None, the caller
-    must surface it and abort.
+    An explicit ``cwd`` is honored as-is (it only has to exist). We do NOT
+    confine it to the sandbox: ``system.exec`` is intentionally not a
+    filesystem boundary on a single-user install (see CLAUDE.md), and hard
+    confinement would block legitimate tasks (working in a cloned repo, the
+    Voxyflow codebase, etc.). Organization is steered through the worker
+    prompt, not enforced here.
+
+    Returns ``(resolved_cwd, error)``. ``error`` is non-None only when an
+    explicit ``cwd`` does not exist.
     """
-    sandbox = Path(VOXYFLOW_SANDBOX_DIR).expanduser().resolve()
-
     if cwd:
         resolved = Path(cwd).expanduser().resolve()
         if not resolved.is_dir():
             return str(resolved), f"Working directory does not exist: {resolved}"
-    else:
-        resolved = workspace_workdir(os.environ.get("VOXYFLOW_WORKSPACE_ID", "")).resolve()
-
-    dev_task = os.environ.get("VOXYFLOW_DEV_TASK", "").lower() in ("1", "true", "yes")
-    if dev_task:
         return str(resolved), None
 
-    try:
-        resolved.relative_to(sandbox)
-    except ValueError:
-        return str(resolved), (
-            f"cwd must be under the sandbox ({sandbox}); got {resolved}. "
-            "Set VOXYFLOW_DEV_TASK=1 only for Voxyflow codebase tasks."
-        )
+    resolved = workspace_workdir(os.environ.get("VOXYFLOW_WORKSPACE_ID", "")).resolve()
     return str(resolved), None
 
 
