@@ -160,7 +160,19 @@ async def list_models_for_provider(
         return []
 
     if provider_type == "cli":
-        return ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7"]
+        # The Claude CLI exposes no model-enumeration command. Its aliases
+        # (opus/sonnet/haiku) always resolve to the LATEST model in each family
+        # — opus → Opus 4.8 today, auto-updating — so they never go stale and
+        # are the recommended, maintenance-free way to stay current. The explicit
+        # ids below are offered only for pinning a specific version.
+        # (Fast mode is interactive-only and unavailable via `claude -p`, so it
+        # is intentionally not a selectable model — use --effort for speed.)
+        return [
+            "opus", "sonnet", "haiku",
+            "claude-opus-4-8", "claude-opus-4-7",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
+        ]
 
     if provider_type == "codex":
         from app.services.llm.providers.codex import _KNOWN_MODELS

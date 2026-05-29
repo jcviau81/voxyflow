@@ -36,6 +36,13 @@ _REGISTRY: dict[str, _ModelEntry] = {
     "claude-opus-4":    _ModelEntry(True,  True,  200_000, 32_000),
     "claude-sonnet-4":  _ModelEntry(True,  True,  200_000, 16_000),
     "claude-haiku-4":   _ModelEntry(True,  True,  200_000,  8_192),
+    # CLI aliases — the `claude` CLI resolves these to the LATEST model in each
+    # family (opus → Opus 4.8 today, auto-updating). Listed so capability
+    # lookups for a bare alias don't fall through to the 4k default. Bare keys
+    # only match the bare alias (full ids match the longer claude-* prefix).
+    "opus":             _ModelEntry(True,  True,  200_000, 32_000),
+    "sonnet":           _ModelEntry(True,  True,  200_000, 16_000),
+    "haiku":            _ModelEntry(True,  True,  200_000,  8_192),
     "claude-3-5-sonnet":_ModelEntry(True,  True,  200_000,  8_192),
     "claude-3-5-haiku": _ModelEntry(True,  True,  200_000,  8_192),
     "claude-3-opus":    _ModelEntry(True,  True,  200_000,  4_096),
