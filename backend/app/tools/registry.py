@@ -114,39 +114,15 @@ TOOLS_DISPATCHER = {
     "voxyflow.delegate",
 }
 
-# Codex dispatcher tools: read-only subset of the dispatcher tools.
-# Keep this as the source of truth for the MCP role ``dispatcher_codex`` and
-# prompt/tool-list generation. Codex dispatchers should inspect state and worker
-# output, then delegate action work rather than performing it inline.
-TOOLS_DISPATCHER_CODEX = {
-    "voxyflow.health",
-    "voxyflow.workspace.list", "voxyflow.workspace.get",
-    "voxyflow.card.list", "voxyflow.card.get",
-    "voxyflow.card.list_unassigned", "voxyflow.card.list_archived",
-    "voxyflow.card.history",
-    "voxyflow.wiki.list", "voxyflow.wiki.get",
-    "voxyflow.doc.list",
-    "voxyflow.jobs.list",
-    "voxyflow.heartbeat.read",
-    "voxyflow.autonomy.status",
-    "voxyflow.focus.analytics",
-    "voxyflow.sessions.list",
-    "voxyflow.session.read",
-    "voxyflow.endpoint.list",
-    "voxyflow.undo.list",
-    "memory.search", "memory.get", "knowledge.search",
-    "kg.query", "kg.timeline", "kg.stats",
-    "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
-    "voxyflow.workers.list_unread",
-    # ack_artifact closes the consumer loop (mark a deliverable read + free its
-    # disk). It's the read-side counterpart to list_unread/read_artifact — a
-    # Codex dispatcher must be able to ack inline instead of spawning a whole
-    # worker just to mark deliverables read.
-    "voxyflow.workers.ack_artifact",
-    "voxyflow.task.peek",
-    # Delegate — spawn background workers via native MCP tool_use
-    "voxyflow.delegate",
-}
+# Codex dispatcher tools — SAME inline set as the Claude dispatcher.
+# Originally a read-only subset, but that made Codex spawn a worker for trivial
+# kanban ops (e.g. "clean up the cards" → delegate a worker to delete cards).
+# Codex now gets the full dispatcher toolset and is steered by its prompt to do
+# instant/local CRUD inline (single-user DB + undo journal makes that safe) and
+# delegate only subprocess/heavy work — matching the Claude dispatcher. The role
+# stays separate so the Codex-specific prompt (fenced-fallback handling, etc.)
+# can still differ, and so the two can diverge again if ever needed.
+TOOLS_DISPATCHER_CODEX = set(TOOLS_DISPATCHER)
 
 
 # Worker tools: dispatcher set PLUS the heavy / dangerous / lifecycle tools.

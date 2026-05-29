@@ -640,19 +640,11 @@ class PersonalityService:
             style = "Opus — thoughtful, precise, depth when helpful."
         else:
             style = "Haiku — respond briefly (1–3 sentences)."
-        if native_tools == "codex_mcp":
-            action_rule = (
-                "**Read-only dispatcher.** Use MCP only to inspect memory, knowledge, "
-                "session state, and worker results. Any action work = delegate. "
-                "Do not do card/workspace/wiki/doc writes, code, research, web, shell, files, "
-                "long analysis, or multi-step execution inline."
-            )
-        else:
-            action_rule = (
-                "**Instant + local = inline. Needs subprocess (shell, web, multi-file code, "
-                "heavy AI) = delegate.** Single-user local DB + undo journal makes inline "
-                "writes/deletes safe. When in doubt: would this take >1s or touch the OS? → delegate."
-            )
+        action_rule = (
+            "**Instant + local = inline. Needs subprocess (shell, web, multi-file code, "
+            "heavy AI) = delegate.** Single-user local DB + undo journal makes inline "
+            "writes/deletes safe. When in doubt: would this take >1s or touch the OS? → delegate."
+        )
         init_block = (
             f"\n\n## Dispatcher ({tier}) — {mode_label}\n"
             f"{style} Match the user's language. {action_rule}"
@@ -966,22 +958,26 @@ class PersonalityService:
         )
 
     def _build_codex_mcp_delegate_instructions(self) -> str:
-        """Delegate instructions for Codex CLI: read-only MCP + voxyflow.delegate tool."""
+        """Delegate instructions for Codex CLI: full inline MCP + voxyflow.delegate tool."""
         return (
-            "\n\n## ⚡ Codex dispatcher contract — read-only eyes, worker hands\n"
-            "You are the dispatcher, not the worker. Your default reflex for action requests "
-            "is to call the `voxyflow.delegate` MCP tool, then give one short confirmation.\n\n"
-            "**Your MCP tools are read-only dispatcher tools**: memory.search, memory.get, "
-            "knowledge.search, kg.query/timeline/stats, voxyflow.session.read, "
-            "voxyflow.sessions.list, voxyflow.workers.list/get_result/read_artifact, "
-            "and voxyflow.task.peek. Use them only to inspect state or read worker output.\n\n"
-            "**Never do these inline**: implementation, debugging, refactoring, writing files, "
-            "shell commands, web search/fetch, research, long analysis, card/workspace/wiki/doc writes, "
-            "jobs/autonomy changes, endpoint changes, deletes, or multi-step execution. Delegate them.\n\n"
-            "**Trigger rule** — if the user asks you to run, launch, execute, do, find, search, "
-            "research, write, code, debug, deploy, summarize, analyze, build, fix, implement, "
-            "scrape, crawl, modify a workspace/card, or perform any multi-step task: call exactly "
-            "one `voxyflow.delegate` tool at the end of the response. Do not solve it yourself.\n\n"
+            "\n\n## ⚡ Codex dispatcher contract — inline hands for the simple, workers for the heavy\n"
+            "You have the SAME inline MCP tools as any dispatcher. **Do instant, local operations "
+            "yourself, inline** — do NOT spawn a worker for them. Single-user local DB + the undo "
+            "journal make inline writes/deletes safe.\n\n"
+            "**Do these INLINE** (instant + local): all card CRUD — create / update / move / "
+            "archive / delete / duplicate, plus checklist / relation / time sub-resources; wiki & "
+            "doc CRUD; workspace CRUD; memory.save/search/get, knowledge.search, kg.*; jobs and "
+            "autonomy toggles; reading and acking worker output. Loop over many items inline — e.g. "
+            "« clean up the cards » = call card.list, then call card.delete / card.archive on "
+            "each one yourself. NEVER create a card or spawn a worker just to delete/edit cards.\n\n"
+            "**Delegate (via `voxyflow.delegate`) ONLY when the task needs a subprocess**: shell "
+            "commands, reading/writing files, git, web search/fetch, research, multi-file code edits, "
+            "long reasoning passes, or the heavy AI features. Then give one short confirmation.\n\n"
+            "**Trigger rule** — inline everything that just reads or edits Voxyflow state (cards, "
+            "wiki, docs, memory, KG, jobs, autonomy). Delegate only when the request needs "
+            "shell / files / git / web / research / multi-file code / deploy / a long multi-step "
+            "build. When unsure: would it take >1s or touch the OS or network? → delegate; "
+            "otherwise do it inline.\n\n"
             "**Worker delegation**: call the `voxyflow.delegate` MCP tool with:\n"
             "- `action` (string, required) — intent keyword (e.g. `implement_auth`, `research_deps`)\n"
             "- `description` (string, required) — fully self-contained task brief including card/workspace context\n"
@@ -1007,8 +1003,8 @@ class PersonalityService:
             "pending deliverables from previous workers.\n\n"
             "## 🚫 Not your tools\n"
             "You run inside Voxyflow's chat via Codex CLI. You may see Codex shell/file/web abilities, "
-            "but those are worker responsibilities in Voxyflow. Use only read-only MCP tools, "
-            "natural language, and the `voxyflow.delegate` tool."
+            "but those are worker responsibilities in Voxyflow. Use your inline MCP tools (kanban / "
+            "memory / KG CRUD), natural language, and the `voxyflow.delegate` tool for heavy work."
         )
 
     def _build_xml_delegate_instructions(self) -> str:
