@@ -212,7 +212,11 @@ const LOCAL_PROVIDER_TYPES = new Set(['ollama', 'lmstudio']);
 
 // Static fallback model lists for cloud providers (shown when API listing is unavailable)
 const STATIC_MODELS: Record<string, string[]> = {
-  cli: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7'],
+  // Mirrors the backend cli list (app/routes/models.py). Aliases first — the
+  // Claude CLI resolves opus/sonnet/haiku to the latest model (opus → Opus 4.8
+  // today). Only a transient placeholder / error fallback; the live list comes
+  // from /api/models/list?provider_type=cli.
+  cli: ['opus', 'sonnet', 'haiku', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
   codex: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2'],
   anthropic: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-5', 'claude-opus-4-5'],
   groq: [
