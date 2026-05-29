@@ -138,6 +138,11 @@ TOOLS_DISPATCHER_CODEX = {
     "kg.query", "kg.timeline", "kg.stats",
     "voxyflow.workers.list", "voxyflow.workers.get_result", "voxyflow.workers.read_artifact",
     "voxyflow.workers.list_unread",
+    # ack_artifact closes the consumer loop (mark a deliverable read + free its
+    # disk). It's the read-side counterpart to list_unread/read_artifact — a
+    # Codex dispatcher must be able to ack inline instead of spawning a whole
+    # worker just to mark deliverables read.
+    "voxyflow.workers.ack_artifact",
     "voxyflow.task.peek",
     # Delegate — spawn background workers via native MCP tool_use
     "voxyflow.delegate",

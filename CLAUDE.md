@@ -145,7 +145,7 @@ with `task.peek`/`task.cancel` for worker control. `kg.*` is dispatcher-allowed
 too — temporal model is local + reversible, no reason to spawn a worker.)
 
 ### Codex Dispatcher — `TOOLS_DISPATCHER_CODEX`
-Read-only inspection tools only. Codex dispatchers can inspect workspaces/cards/wiki/docs/jobs, memory and knowledge search, KG query/timeline/stats, sessions, endpoints, undo history, worker results, and `task.peek`. They should delegate action work instead of mutating state inline.
+Read-only inspection tools, plus the consumer-side `voxyflow.workers.ack_artifact` (close the deliverable loop). Codex dispatchers can inspect workspaces/cards/wiki/docs/jobs, memory and knowledge search, KG query/timeline/stats, sessions, endpoints, undo history, worker results, `task.peek`, and acknowledge deliverables they've consumed (`workers.ack_artifact` — so they don't have to spawn a worker just to mark deliverables read). They should delegate other action work instead of mutating state inline.
 
 ### Worker — `TOOLS_WORKER`
 Full MCP tool access. Workers run as background subprocesses spawned via
