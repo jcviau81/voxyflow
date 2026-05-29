@@ -138,8 +138,20 @@ class AnthropicProvider(LLMProvider):
         )
 
     async def list_models(self) -> list[str]:
-        """Anthropic has no public model listing endpoint — return known models."""
-        return _KNOWN_MODELS
+        """Return the live model list from Anthropic's /v1/models endpoint.
+
+        The SDK exposes ``client.models.list()`` (GET /v1/models) — the real,
+        always-current source. Requires a valid API key; falls back to the
+        static list only if the key is missing or the call fails.
+        """
+        if not self._api_key:
+            return _KNOWN_MODELS
+        try:
+            page = await asyncio.wait_for(self._client.models.list(limit=1000), timeout=5.0)
+            ids = [m.id for m in getattr(page, "data", []) if getattr(m, "id", None)]
+            return ids or _KNOWN_MODELS
+        except Exception:
+            return _KNOWN_MODELS
 
     async def is_reachable(self) -> bool:
         if not self._api_key:

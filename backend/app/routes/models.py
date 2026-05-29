@@ -130,6 +130,36 @@ async def list_ollama_models(url: str = Query(default="http://localhost:11434"))
     return models
 
 
+_KEY_SENTINELS = {"", "***", "placeholder", "not-needed", "none", "null"}
+
+
+def _settings_anthropic_key() -> str:
+    """Resolve a usable Anthropic API key from settings, or '' if none/sentinel."""
+    try:
+        key = (get_settings().claude_api_key or "").strip()
+    except Exception:
+        return ""
+    return "" if key.lower() in _KEY_SENTINELS else key
+
+
+async def _anthropic_live_models() -> list[str]:
+    """Live model ids from Anthropic's /v1/models, or [] if no key / unreachable.
+
+    Used to enrich the CLI dropdown with the real claude-* ids when an API key
+    is available — no hardcoded version names.
+    """
+    key = _settings_anthropic_key()
+    if not key:
+        return []
+    try:
+        from app.services.llm.provider_factory import get_provider
+        provider = get_provider(provider_type="anthropic", url="", api_key=key)
+        return await provider.list_models()
+    except Exception as e:
+        logger.debug("[models/list] anthropic live enrich failed: %s", e)
+        return []
+
+
 @router.get("/list")
 async def list_models_for_provider(
     provider_type: str = Query(default="", description="Provider type, e.g. 'ollama', 'openai'"),
@@ -160,27 +190,32 @@ async def list_models_for_provider(
         return []
 
     if provider_type == "cli":
-        # The Claude CLI exposes no model-enumeration command. Its aliases
-        # (opus/sonnet/haiku) always resolve to the LATEST model in each family
-        # — opus → Opus 4.8 today, auto-updating — so they never go stale and
-        # are the recommended, maintenance-free way to stay current. The explicit
-        # ids below are offered only for pinning a specific version.
-        # (Fast mode is interactive-only and unavailable via `claude -p`, so it
-        # is intentionally not a selectable model — use --effort for speed.)
-        return [
-            "opus", "sonnet", "haiku",
-            "claude-opus-4-8", "claude-opus-4-7",
-            "claude-sonnet-4-6",
-            "claude-haiku-4-5-20251001",
-        ]
+        # The Claude CLI exposes NO model-enumeration command (confirmed: only
+        # agents/auth/doctor/install/mcp/project/ultrareview subcommands). Its
+        # aliases opus/sonnet/haiku resolve to the LATEST model in each family
+        # (opus → Opus 4.8 today, auto-updating) — no hardcoded version names,
+        # never stale. If an Anthropic API key is configured we additionally
+        # surface the real claude-* model ids live from /v1/models (for pinning).
+        models = ["opus", "sonnet", "haiku"]
+        live = await _anthropic_live_models()
+        models += [m for m in live if m.startswith("claude-")]
+        return models
 
     if provider_type == "codex":
         from app.services.llm.providers.codex import _KNOWN_MODELS
         return _KNOWN_MODELS
 
     if provider_type == "anthropic":
-        from app.services.llm.providers.anthropic_provider import _KNOWN_MODELS
-        return _KNOWN_MODELS
+        # Live list from /v1/models when a key is available (no hardcoding).
+        if not api_key:
+            api_key = _settings_anthropic_key()
+        try:
+            provider = get_provider(provider_type="anthropic", url=url, api_key=api_key)
+            return await provider.list_models()
+        except Exception as e:
+            logger.warning("[models/list] Anthropic live listing failed: %s", e)
+            from app.services.llm.providers.anthropic_provider import _KNOWN_MODELS
+            return _KNOWN_MODELS
 
     try:
         provider = get_provider(provider_type=provider_type, url=url, api_key=api_key)
