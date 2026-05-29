@@ -42,6 +42,30 @@ VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / "
 VOXYFLOW_SANDBOX_DIR = Path(os.environ.get("VOXYFLOW_SANDBOX_DIR", str(VOXYFLOW_DATA_DIR / "sandbox")))
 SETTINGS_FILE = VOXYFLOW_DATA_DIR / "settings.json"  # lives in data dir (outside repo)
 
+
+def workspace_workdir(workspace_id: str | None) -> Path:
+    """Per-workspace working directory under the sandbox, keyed by workspace ID.
+
+    Workers default here so files they create (via ``system.exec`` shell
+    commands or ``file.write``) land inside their own workspace area instead of
+    scattering into ``/tmp`` or the shared sandbox root. Keyed by the stable
+    workspace **ID** (UUID or ``"system-main"``), never the title — consistent
+    with the workspace-isolation invariant (titles change on rename and orphan
+    data). The directory is created on demand; on failure we fall back to the
+    sandbox root so callers always get a usable, in-sandbox path.
+    """
+    import re as _re
+
+    sandbox = Path(VOXYFLOW_SANDBOX_DIR).expanduser().resolve()
+    ws_id = (workspace_id or "").strip() or "system-main"
+    safe = _re.sub(r"[^A-Za-z0-9._-]", "-", ws_id) or "system-main"
+    workdir = sandbox / "workspaces" / safe
+    try:
+        workdir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return sandbox
+    return workdir
+
 # Resolve .env relative to the backend/ directory (works regardless of cwd)
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 _ENV_FILE = _BACKEND_DIR / ".env"

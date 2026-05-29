@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
 
-from app.config import get_settings, VOXYFLOW_SANDBOX_DIR
+from app.config import get_settings, VOXYFLOW_SANDBOX_DIR, workspace_workdir
 from app.services.llm.client_factory import (
     _make_anthropic_client,
     _make_async_anthropic_client,
@@ -1310,6 +1310,27 @@ class ClaudeService(ApiCallerMixin):
 
         dynamic_parts: list[str] = []
 
+        # Resolve the worker's working directory up-front so we can both pass it
+        # to the subprocess AND tell the worker (in the prompt) where to write.
+        # Code-project workspaces work in their checked-out repo; everything else
+        # gets a per-workspace area under the sandbox (never the bare root, never
+        # /tmp — files outside this dir are invisible to the user and get reported
+        # with the wrong location).
+        if project_context and project_context.get("local_path"):
+            worker_cwd = project_context["local_path"]
+        else:
+            worker_cwd = str(workspace_workdir(workspace_id))
+
+        dynamic_parts.append(
+            "## Your working directory\n"
+            f"Your working directory is `{worker_cwd}`. Create every output file there "
+            "(use relative paths, or absolute paths under that directory). "
+            "Do NOT write to `/tmp`, your home directory, or anywhere else: files "
+            "outside your working directory are not visible to the user and will be "
+            "reported back with the wrong location. When you tell the user where a "
+            "file is, state the real path you actually wrote to — never guess."
+        )
+
         # Mandatory worker lifecycle — strict 3-phase contract.
         dynamic_parts.append(
             "## Worker Lifecycle (MANDATORY)\n"
@@ -1352,13 +1373,6 @@ class ClaudeService(ApiCallerMixin):
             base_prompt, dynamic_parts, is_anthropic=(client_type in ("anthropic", "cli", "codex"))
         )
         system_prompt = _inject_no_think(system_prompt, model_name)
-
-        # Resolve workspace cwd for the worker subprocess
-        worker_cwd = ""
-        if project_context and project_context.get("local_path"):
-            worker_cwd = project_context["local_path"]
-        elif not worker_cwd:
-            worker_cwd = str(VOXYFLOW_SANDBOX_DIR)
 
         result = await self._call_api(
             model=model_name,
@@ -1411,7 +1425,10 @@ class ClaudeService(ApiCallerMixin):
             "scheduled jobs or delegate to other systems (no voxyflow.jobs.create).\n"
             "3. LAST: call voxyflow.worker.complete(task_id, status, summary, findings, pointers, next_step?) "
             "with a real 2–4 sentence summary in your own words, not the raw output. "
-            "Stop immediately after. The artifact is persisted automatically — don't inline it."
+            "Stop immediately after. The artifact is persisted automatically — don't inline it.\n\n"
+            f"Working directory: `{workspace_workdir(workspace_id)}`. Write any output files there "
+            "(relative paths, or absolute paths under it) — never `/tmp` or your home dir, and "
+            "report the real path you wrote to, never a guessed one."
         )
 
         if client_type == "codex":
@@ -1445,7 +1462,7 @@ class ClaudeService(ApiCallerMixin):
             session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
             session_type="worker",
             task_id=task_id,
-            cwd=str(VOXYFLOW_SANDBOX_DIR),
+            cwd=str(workspace_workdir(workspace_id)),
         )
         return result or ""
 

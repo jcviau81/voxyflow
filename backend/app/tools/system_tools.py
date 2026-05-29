@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 import httpx
 
-from app.config import VOXYFLOW_SANDBOX_DIR
+from app.config import VOXYFLOW_SANDBOX_DIR, workspace_workdir
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +290,11 @@ def _resolve_exec_cwd(cwd: str | None) -> tuple[str, str | None]:
     """Resolve the working directory for ``system.exec`` and confine it.
 
     Commands must run under ``VOXYFLOW_SANDBOX_DIR`` (the workers' sandbox).
+    When no explicit ``cwd`` is given, the default is the **per-workspace**
+    working dir (``<sandbox>/workspaces/<workspace_id>``, from
+    ``VOXYFLOW_WORKSPACE_ID``) — not the bare sandbox root — so a worker's
+    shell commands land inside its own workspace area instead of scattering
+    into ``/tmp`` or a shared root.
     Set ``VOXYFLOW_DEV_TASK=1`` to opt into running against the Voxyflow
     codebase itself (matches the write-path escape hatch).
 
@@ -303,7 +308,7 @@ def _resolve_exec_cwd(cwd: str | None) -> tuple[str, str | None]:
         if not resolved.is_dir():
             return str(resolved), f"Working directory does not exist: {resolved}"
     else:
-        resolved = sandbox
+        resolved = workspace_workdir(os.environ.get("VOXYFLOW_WORKSPACE_ID", "")).resolve()
 
     dev_task = os.environ.get("VOXYFLOW_DEV_TASK", "").lower() in ("1", "true", "yes")
     if dev_task:
