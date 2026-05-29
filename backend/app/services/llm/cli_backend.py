@@ -667,16 +667,22 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         )
 
         await gate.acquire(is_worker=_is_worker)
-        # NOTE: gate.release() is called in the finally block at the end of
-        # _call_with_tool_events — the slot is held for the full API call duration.
-        proc = await asyncio.create_subprocess_exec(
-            self.cli_path, *args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
-            cwd=cwd or None,
-        )
+        # NOTE: gate.release() is called in the finally block below — the slot
+        # is held for the full API call duration. Subprocess spawn + stdin
+        # writes happen INSIDE the try so the gate is always released even if
+        # create_subprocess_exec / stdin.write fails or the call is cancelled.
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.cli_path, *args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
+                cwd=cwd or None,
+            )
+        except BaseException:
+            gate.release(is_worker=_is_worker)
+            raise
 
         _cancel = cancel_event or asyncio.Event()
         _reg_id = new_cli_session_id()
@@ -688,27 +694,6 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         ))
         bind_contextvars(cli_session_id=_reg_id, cli_pid=proc.pid)
 
-        proc.stdin.write(prompt.encode("utf-8"))
-        await proc.stdin.drain()
-        proc.stdin.close()
-        await proc.stdin.wait_closed()
-
-        # Monitor cancel_event
-        cancel_task = None
-        if cancel_event:
-            async def _watch_cancel():
-                while not cancel_event.is_set():
-                    await asyncio.sleep(0.5)
-                logger.info("[CLI-events] cancel_event set — terminating subprocess")
-                try:
-                    proc.terminate()
-                    await asyncio.sleep(2)
-                    if proc.returncode is None:
-                        proc.kill()
-                except ProcessLookupError:
-                    pass
-            cancel_task = asyncio.create_task(_watch_cancel())
-
         result_text = ""
         usage = {}
         # Per-API-call usage from the last `assistant` event. Preferred over
@@ -719,8 +704,29 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         pending_tools: dict[str, dict] = {}
         _last_touch = time.monotonic()
         _registry = get_cli_session_registry()
+        cancel_task = None
 
         try:
+            proc.stdin.write(prompt.encode("utf-8"))
+            await proc.stdin.drain()
+            proc.stdin.close()
+            await proc.stdin.wait_closed()
+
+            # Monitor cancel_event
+            if cancel_event:
+                async def _watch_cancel():
+                    while not cancel_event.is_set():
+                        await asyncio.sleep(0.5)
+                    logger.info("[CLI-events] cancel_event set — terminating subprocess")
+                    try:
+                        proc.terminate()
+                        await asyncio.sleep(2)
+                        if proc.returncode is None:
+                            proc.kill()
+                    except ProcessLookupError:
+                        pass
+                cancel_task = asyncio.create_task(_watch_cancel())
+
             async for raw_line in proc.stdout:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if not line:

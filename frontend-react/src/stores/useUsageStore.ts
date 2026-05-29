@@ -1,5 +1,17 @@
 import { create } from 'zustand';
 
+/** Per-source token weight of the context WE inject into the dispatcher. */
+export interface ContextBreakdown {
+  system: number;    // base prompt (personality + dispatcher/delegate instructions)
+  tools: number;     // MCP / tool schemas
+  memory: number;    // memory + RAG context
+  workspace: number; // workspace state + cards
+  workers: number;   // ambient worker activity + live state
+  sessions: number;  // conversation history
+  total: number;
+  exact: boolean;    // false = ~chars/4 fallback (tiktoken unavailable)
+}
+
 export interface ChatUsage {
   inputTokens: number;
   outputTokens: number;
@@ -7,6 +19,7 @@ export interface ChatUsage {
   cacheCreationTokens?: number;
   contextWindow: number;
   model?: string;
+  contextBreakdown?: ContextBreakdown | null;
   updatedAt: number;
 }
 

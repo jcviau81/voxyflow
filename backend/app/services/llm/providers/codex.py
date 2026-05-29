@@ -77,6 +77,13 @@ class CodexProvider(LLMProvider):
             supports_streaming=False,
             context_window=entry.context_window,
             max_output_tokens=entry.max_output_tokens,
+            extra={
+                # Degraded cancel+resume strategy: steer = cancel running codex
+                # exec + resume with directive injected via [STEER]/[CONTINUE]
+                # prefix. ~3-5 s latency; tool-in-progress is lost on cancel.
+                "supports_steering": True,
+                "steering_strategy": "cancel_resume",
+            },
         )
 
     async def list_models(self) -> list[str]:

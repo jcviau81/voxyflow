@@ -3,6 +3,10 @@
 The WebSocket handler must re-ACK duplicate messageIds but skip the orchestrator.
 Without this guard, a client replaying un-ACK'd messages after a reconnect (or a
 refresh that restores a local queue) would re-trigger the LLM for every message.
+
+Contract (audit finding K2): _seen_message_id is CHECK-ONLY and records nothing;
+_mark_message_seen does the recording, and is called only AFTER successful handling.
+This means a message that fails mid-orchestration is NOT suppressed on retry.
 """
 
 import time
@@ -20,8 +24,13 @@ def test_first_seen_returns_false_and_records():
     from app import main
 
     _reset_cache()
+    # First check: not seen, and check-only — records nothing.
     assert main._seen_message_id("msg-1", "chat:abc") is False
+    assert "msg-1" not in main._processed_message_ids
+    # Marking it seen (after successful handling) makes a later check return True.
+    main._mark_message_seen("msg-1", "chat:abc")
     assert "msg-1" in main._processed_message_ids
+    assert main._seen_message_id("msg-1", "chat:abc") is True
 
 
 def test_duplicate_messageid_returns_true():
@@ -29,6 +38,7 @@ def test_duplicate_messageid_returns_true():
 
     _reset_cache()
     assert main._seen_message_id("msg-1", "chat:abc") is False
+    main._mark_message_seen("msg-1", "chat:abc")
     assert main._seen_message_id("msg-1", "chat:abc") is True
     # A second duplicate still reports true — caller must skip orchestration.
     assert main._seen_message_id("msg-1", "chat:abc") is True
@@ -38,9 +48,11 @@ def test_different_messageids_are_independent():
     from app import main
 
     _reset_cache()
-    assert main._seen_message_id("msg-1", "chat:abc") is False
+    main._mark_message_seen("msg-1", "chat:abc")
+    # Marking one id must not make a different id appear seen.
     assert main._seen_message_id("msg-2", "chat:abc") is False
     assert main._seen_message_id("msg-1", "chat:abc") is True
+    main._mark_message_seen("msg-2", "chat:abc")
     assert main._seen_message_id("msg-2", "chat:abc") is True
 
 
@@ -51,6 +63,7 @@ def test_empty_messageid_is_never_treated_as_duplicate():
     # An empty messageId must always return False — otherwise the first empty
     # call would poison the cache and silently drop subsequent messages.
     assert main._seen_message_id("", "chat:abc") is False
+    main._mark_message_seen("", "chat:abc")
     assert main._seen_message_id("", "chat:abc") is False
     assert "" not in main._processed_message_ids
 
@@ -59,10 +72,12 @@ def test_expired_entries_are_ignored():
     from app import main
 
     _reset_cache()
-    # Seed an entry that expired a second ago.
+    # Seed an entry that expired a second ago: (chat_id, expiry_ts).
     main._processed_message_ids["msg-old"] = ("chat:abc", time.time() - 1)
+    # Check-only: an expired entry is treated as not-seen and is NOT refreshed.
     assert main._seen_message_id("msg-old", "chat:abc") is False
-    # Should be refreshed with a future expiry after the re-record.
+    # Re-marking it (after a successful retry) sets a future expiry.
+    main._mark_message_seen("msg-old", "chat:abc")
     assert main._processed_message_ids["msg-old"][1] > time.time()
 
 
@@ -70,9 +85,9 @@ def test_cache_evicts_when_overflowing():
     from app import main
 
     _reset_cache()
-    # Fill past the max to trigger eviction.
+    # Fill past the max to trigger eviction. Recording happens via _mark_message_seen.
     for i in range(main._PROCESSED_MSG_MAX + 5):
-        main._seen_message_id(f"msg-{i}", "chat:abc")
+        main._mark_message_seen(f"msg-{i}", "chat:abc")
     # Eviction keeps the cache bounded; exact size depends on eviction batch.
     assert len(main._processed_message_ids) <= main._PROCESSED_MSG_MAX + 5
 

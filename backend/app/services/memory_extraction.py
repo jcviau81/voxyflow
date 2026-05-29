@@ -284,7 +284,7 @@ class MemoryExtractionMixin:
                     "type": mem_type,
                     "date": today,
                     "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                    "source": "worker_summary",
+                    "source": "auto-extract",
                     "speaker": speaker,
                     "importance": importance,
                     "confidence": round(confidence, 2),
@@ -343,7 +343,7 @@ class MemoryExtractionMixin:
                     "type": mem_type,
                     "date": today,
                     "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                    "source": "worker_summary",
+                    "source": "auto-extract",
                     "speaker": speaker,
                     "importance": importance,
                 }

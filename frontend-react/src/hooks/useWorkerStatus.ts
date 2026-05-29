@@ -25,11 +25,17 @@ export function useWorkerStatus(workspaceId: string) {
   useEffect(() => {
     if (!workspaceId) return;
 
+    // In-flight guard: a poll started before a workspace switch must not
+    // overwrite state after the effect has been torn down.
+    let cancelled = false;
+
     const poll = async () => {
       try {
         const res = await fetch(`/api/workers/sessions?workspace_id=${encodeURIComponent(workspaceId)}`);
+        if (cancelled) return;
         if (res.ok) {
           const data = await res.json();
+          if (cancelled) return;
           // API returns { sessions: [...] }
           setSessions(data.sessions ?? []);
         }
@@ -40,7 +46,10 @@ export function useWorkerStatus(workspaceId: string) {
 
     poll();
     const interval = setInterval(poll, 3000);
-    return () => clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [workspaceId]);
 
   const isCardActive = useCallback(

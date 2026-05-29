@@ -1,45 +1,51 @@
 /**
- * OnboardingPage — First-launch setup form.
+ * OnboardingPage — First-launch setup, two-step explainer flow.
  *
- * Migrated from frontend/src/components/Onboarding/OnboardingPage.ts.
- * Single scrollable page that collects essential config, saves via
- * PUT /api/settings, then navigates into the main app.
+ * Step 1: Welcome + identity (your name, assistant name, theme, font size).
+ * Step 2: "Models & Providers" explainer — points users to the real config
+ *   (Settings → My Providers + Worker Classes) without leaving the flow.
+ *
+ * Why this changed (2026-05): the legacy onboarding asked for a single
+ * "LLM API URL + API key" pair that wrote `models.fast.provider_url` /
+ * `models.fast.api_key` directly. Voxyflow has been multi-provider for a
+ * long time — that field embarked new users in the wrong direction.
+ * It now lives only in Settings, surfaced via a drawer that wraps the
+ * existing ModelPanel (no duplication).
+ *
+ * Migration: users with a stored "sk-any" fake key are not migrated; the
+ * settings panel transparently lets them re-declare real endpoints.
  */
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { useThemeStore, type Theme } from '../stores/useThemeStore';
 import { authFetch } from '../lib/authClient';
-import { Loader2 } from 'lucide-react';
+import { ProvidersExplainerStep } from '../components/Onboarding/ProvidersExplainerStep';
 
-// ── Types ─────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface OnboardingData {
   user_name: string;
   assistant_name: string;
-  api_url: string;
-  api_key: string;
-  fast_model: string;
-  deep_model: string;
   theme: Theme;
   font_size: 'small' | 'medium' | 'large';
 }
 
-// ── Component ─────────────────────────────────────────────────────────────
+type Step = 'identity' | 'providers';
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export function OnboardingPage() {
   const navigate = useNavigate();
   const { setTheme, theme: currentTheme } = useThemeStore();
 
+  const [step, setStep] = useState<Step>('identity');
   const [data, setData] = useState<OnboardingData>({
     user_name: '',
     assistant_name: 'Voxy',
-    api_url: 'http://localhost:3457/v1',
-    api_key: 'sk-any',
-    fast_model: 'claude-sonnet-4-5',
-    deep_model: 'claude-opus-4-5',
     theme: currentTheme,
     font_size: 'medium',
   });
@@ -60,52 +66,31 @@ export function OnboardingPage() {
     document.documentElement.style.setProperty('--font-size-base', sizeMap[size] || '16px');
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /**
+   * Final submit — fired from the providers step (Continue or Skip).
+   * We DO NOT touch `models.*` here: the real config lives in Settings,
+   * accessed via the drawer in step 2. Backend defaults / what the user
+   * already configured in the drawer are left untouched.
+   */
+  const finalize = async () => {
     setSubmitting(true);
     setError('');
 
-    const settings = {
+    // Fetch current settings so we merge instead of overwriting other panels.
+    let current: Record<string, unknown> = {};
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) current = await res.json();
+    } catch {
+      // non-fatal — backend may be initialising
+    }
+
+    const personality = ((current.personality as Record<string, unknown>) || {});
+    const settings: Record<string, unknown> = {
+      ...current,
       personality: {
+        ...personality,
         bot_name: data.assistant_name,
-        preferred_language: 'both',
-        soul_file: './personality/SOUL.md',
-        user_file: './personality/USER.md',
-        agents_file: './personality/AGENTS.md',
-        custom_instructions: '',
-        environment_notes: '',
-        tone: 'casual',
-        warmth: 'warm',
-      },
-      models: {
-        fast: {
-          provider_url: data.api_url,
-          api_key: data.api_key,
-          model: data.fast_model,
-          enabled: true,
-        },
-        deep: {
-          provider_url: data.api_url,
-          api_key: data.api_key,
-          model: data.deep_model,
-          enabled: true,
-        },
-      },
-      voice: {
-        stt_engine: 'native',
-        stt_model: 'medium',
-        stt_language: 'auto',
-        tts_enabled: true,
-        tts_auto_play: false,
-        tts_url: 'http://localhost:5500',
-        tts_voice: 'default',
-        tts_speed: 1.0,
-        volume: 80,
-      },
-      scheduler: {
-        enabled: true,
-        heartbeat_interval_minutes: 2,
-        rag_index_interval_minutes: 15,
       },
       onboarding_complete: true,
       user_name: data.user_name,
@@ -120,13 +105,17 @@ export function OnboardingPage() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      // Persist theme + font to localStorage
+      // Persist theme + font + onboarding flag locally
       localStorage.setItem('voxyflow-theme', data.theme);
       localStorage.setItem('voxyflow-font-size', data.font_size);
       localStorage.setItem('onboarding_complete', 'true');
-      try { localStorage.setItem('voxyflow_settings', JSON.stringify(settings)); } catch { /* ignore */ }
+      try {
+        localStorage.setItem('voxyflow_settings', JSON.stringify(settings));
+      } catch {
+        /* ignore quota errors */
+      }
 
-      // Update USER.md if name provided
+      // Update USER.md if a name was provided
       if (data.user_name) {
         try {
           await authFetch('/api/settings/personality/files/USER.md', {
@@ -136,7 +125,9 @@ export function OnboardingPage() {
               content: `# USER.md — About You\n\n- **Name:** ${data.user_name}\n- **Preferred Language:** \n- **Timezone:** \n- **Notes:**\n\n## Preferences\n\n---\n_The more your assistant knows, the better it can help._\n`,
             }),
           });
-        } catch { /* non-critical */ }
+        } catch {
+          /* non-critical */
+        }
       }
 
       navigate('/', { replace: true });
@@ -157,131 +148,158 @@ export function OnboardingPage() {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-background p-4 overflow-auto">
-      <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-8 shadow-lg space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <div className="text-4xl">🎙️</div>
-          <h1 className="text-2xl font-bold">Welcome to Voxyflow</h1>
-          <p className="text-sm text-muted-foreground">
-            Your voice-first workspace assistant. Let's get you set up.
-          </p>
+      <div
+        className="w-full max-w-2xl rounded-2xl border border-border bg-card p-8 shadow-lg space-y-6"
+        data-testid="onboarding-page"
+      >
+        {/* Step indicator */}
+        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+          <span
+            className={
+              step === 'identity'
+                ? 'text-foreground font-medium'
+                : 'opacity-60'
+            }
+          >
+            1 · Welcome
+          </span>
+          <span>›</span>
+          <span
+            className={
+              step === 'providers'
+                ? 'text-foreground font-medium'
+                : 'opacity-60'
+            }
+          >
+            2 · Models &amp; Providers
+          </span>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
-          {/* Your Name */}
-          <Field label="Your name" hint="Used to personalize your assistant">
-            <Input
-              value={data.user_name}
-              onChange={(e) => update('user_name', e.target.value)}
-              placeholder="What should I call you?"
-              autoFocus
-            />
-          </Field>
-
-          {/* Assistant Name */}
-          <Field label="Assistant name" hint="Give your assistant a name">
-            <Input
-              value={data.assistant_name}
-              onChange={(e) => update('assistant_name', e.target.value)}
-              placeholder="Voxy"
-            />
-          </Field>
-
-          <hr className="border-border" />
-
-          {/* LLM API URL */}
-          <Field label="LLM API URL" hint="OpenAI-compatible API endpoint">
-            <Input
-              value={data.api_url}
-              onChange={(e) => update('api_url', e.target.value)}
-              placeholder="http://localhost:3457/v1"
-            />
-          </Field>
-
-          {/* API Key */}
-          <Field label="API Key" hint="Leave as-is for local proxies">
-            <Input
-              value={data.api_key}
-              onChange={(e) => update('api_key', e.target.value)}
-              placeholder="sk-any"
-            />
-          </Field>
-
-          {/* Fast Model */}
-          <Field label={<>Fast model <span className="ml-1 text-xs text-muted-foreground font-normal">conversational</span></>}>
-            <Input
-              value={data.fast_model}
-              onChange={(e) => update('fast_model', e.target.value)}
-              placeholder="claude-sonnet-4-5"
-            />
-          </Field>
-
-          {/* Deep Model */}
-          <Field label={<>Deep model <span className="ml-1 text-xs text-muted-foreground font-normal">analysis</span></>}>
-            <Input
-              value={data.deep_model}
-              onChange={(e) => update('deep_model', e.target.value)}
-              placeholder="claude-opus-4-5"
-            />
-          </Field>
-
-          <hr className="border-border" />
-
-          {/* Theme */}
-          <Field label="Theme">
-            <div className="flex gap-2">
-              <button type="button" className={pillClass(data.theme === 'dark')} onClick={() => handleTheme('dark')}>
-                🌙 Dark
-              </button>
-              <button type="button" className={pillClass(data.theme === 'light')} onClick={() => handleTheme('light')}>
-                ☀️ Light
-              </button>
+        {step === 'identity' && (
+          <div className="space-y-6" data-testid="onboarding-step-identity">
+            {/* Header */}
+            <div className="text-center space-y-2">
+              <div className="text-4xl">🎙️</div>
+              <h1 className="text-2xl font-bold">Welcome to Voxyflow</h1>
+              <p className="text-sm text-muted-foreground">
+                Your voice-first workspace assistant. Let&apos;s get you set
+                up.
+              </p>
             </div>
-          </Field>
 
-          {/* Font Size */}
-          <Field label="Font size">
-            <div className="flex gap-2">
-              {(['small', 'medium', 'large'] as const).map((size) => (
-                <button
-                  key={size}
-                  type="button"
-                  className={pillClass(data.font_size === size)}
-                  onClick={() => handleFontSize(size)}
-                >
-                  {size.charAt(0).toUpperCase() + size.slice(1)}
-                </button>
-              ))}
-            </div>
-          </Field>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setStep('providers');
+              }}
+              className="space-y-5"
+              autoComplete="off"
+            >
+              <Field
+                label="Your name"
+                hint="Used to personalize your assistant"
+              >
+                <Input
+                  value={data.user_name}
+                  onChange={(e) => update('user_name', e.target.value)}
+                  placeholder="What should I call you?"
+                  autoFocus
+                />
+              </Field>
 
-          {/* Error */}
-          {error && (
-            <div className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
-              {error}
-            </div>
-          )}
+              <Field
+                label="Assistant name"
+                hint="Give your assistant a name"
+              >
+                <Input
+                  value={data.assistant_name}
+                  onChange={(e) => update('assistant_name', e.target.value)}
+                  placeholder="Voxy"
+                />
+              </Field>
 
-          {/* Submit */}
-          <Button type="submit" className="w-full h-10 text-base" disabled={submitting}>
-            {submitting ? (
-              <>
-                <Loader2 size={16} className="animate-spin mr-2" />
-                Setting up...
-              </>
-            ) : (
-              "Let's go 🚀"
+              <hr className="border-border" />
+
+              <Field label="Theme">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className={pillClass(data.theme === 'dark')}
+                    onClick={() => handleTheme('dark')}
+                  >
+                    🌙 Dark
+                  </button>
+                  <button
+                    type="button"
+                    className={pillClass(data.theme === 'light')}
+                    onClick={() => handleTheme('light')}
+                  >
+                    ☀️ Light
+                  </button>
+                </div>
+              </Field>
+
+              <Field label="Font size">
+                <div className="flex gap-2">
+                  {(['small', 'medium', 'large'] as const).map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      className={pillClass(data.font_size === size)}
+                      onClick={() => handleFontSize(size)}
+                    >
+                      {size.charAt(0).toUpperCase() + size.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
+              <Button
+                type="submit"
+                className="w-full h-10 text-base"
+                data-testid="onboarding-identity-next"
+              >
+                Continue
+              </Button>
+            </form>
+          </div>
+        )}
+
+        {step === 'providers' && (
+          <div className="space-y-4">
+            <ProvidersExplainerStep
+              onContinue={finalize}
+              onSkip={finalize}
+            />
+            {error && (
+              <div className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+                {error}
+              </div>
             )}
-          </Button>
-        </form>
+            {submitting && (
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 size={16} className="animate-spin" />
+                Saving...
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Field helper ──────────────────────────────────────────────────────────
+// ── Field helper ──────────────────────────────────────────────────────────────
 
-function Field({ label, hint, children }: { label: React.ReactNode; hint?: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: React.ReactNode;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1.5">
       <label className="text-sm font-medium">{label}</label>

@@ -114,7 +114,7 @@ async def unsubscribe(body: UnsubscribeRequest, db: AsyncSession = Depends(get_d
     return {"deleted": True}
 
 
-@router.get("/subscriptions")
+@router.get("/subscriptions", dependencies=[Depends(verify_auth)])
 async def list_subscriptions(db: AsyncSession = Depends(get_db)):
     """Debug: list all saved subscriptions (endpoint truncated in response)."""
     rows = (await db.execute(select(PushSubscription))).scalars().all()

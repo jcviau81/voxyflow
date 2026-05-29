@@ -356,8 +356,8 @@ class LayerRunnersMixin:
 
         Used when deep_enabled=True. Opus streams directly to chat using the
         same delegate-first pattern as Fast layer: NO direct tool execution.
-        The model responds conversationally and emits <delegate> blocks for actions,
-        which are parsed by _parse_and_emit_delegates → DeepWorkerPool executes in background.
+        The model responds conversationally and calls voxyflow.delegate for actions,
+        which are collected via _emit_native_delegates → DeepWorkerPool executes in background.
         Returns True on success, False on failure.
         For callback responses (is_callback=True), buffers tokens and suppresses
         sending if the full response is exactly [SILENT].

@@ -130,6 +130,36 @@ async def list_ollama_models(url: str = Query(default="http://localhost:11434"))
     return models
 
 
+_KEY_SENTINELS = {"", "***", "placeholder", "not-needed", "none", "null"}
+
+
+def _settings_anthropic_key() -> str:
+    """Resolve a usable Anthropic API key from settings, or '' if none/sentinel."""
+    try:
+        key = (get_settings().claude_api_key or "").strip()
+    except Exception:
+        return ""
+    return "" if key.lower() in _KEY_SENTINELS else key
+
+
+async def _anthropic_live_models() -> list[str]:
+    """Live model ids from Anthropic's /v1/models, or [] if no key / unreachable.
+
+    Used to enrich the CLI dropdown with the real claude-* ids when an API key
+    is available — no hardcoded version names.
+    """
+    key = _settings_anthropic_key()
+    if not key:
+        return []
+    try:
+        from app.services.llm.provider_factory import get_provider
+        provider = get_provider(provider_type="anthropic", url="", api_key=key)
+        return await provider.list_models()
+    except Exception as e:
+        logger.debug("[models/list] anthropic live enrich failed: %s", e)
+        return []
+
+
 @router.get("/list")
 async def list_models_for_provider(
     provider_type: str = Query(default="", description="Provider type, e.g. 'ollama', 'openai'"),
@@ -160,15 +190,32 @@ async def list_models_for_provider(
         return []
 
     if provider_type == "cli":
-        return ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7"]
+        # The Claude CLI exposes NO model-enumeration command (confirmed: only
+        # agents/auth/doctor/install/mcp/project/ultrareview subcommands). Its
+        # aliases opus/sonnet/haiku resolve to the LATEST model in each family
+        # (opus → Opus 4.8 today, auto-updating) — no hardcoded version names,
+        # never stale. If an Anthropic API key is configured we additionally
+        # surface the real claude-* model ids live from /v1/models (for pinning).
+        models = ["opus", "sonnet", "haiku"]
+        live = await _anthropic_live_models()
+        models += [m for m in live if m.startswith("claude-")]
+        return models
 
     if provider_type == "codex":
         from app.services.llm.providers.codex import _KNOWN_MODELS
         return _KNOWN_MODELS
 
     if provider_type == "anthropic":
-        from app.services.llm.providers.anthropic_provider import _KNOWN_MODELS
-        return _KNOWN_MODELS
+        # Live list from /v1/models when a key is available (no hardcoding).
+        if not api_key:
+            api_key = _settings_anthropic_key()
+        try:
+            provider = get_provider(provider_type="anthropic", url=url, api_key=api_key)
+            return await provider.list_models()
+        except Exception as e:
+            logger.warning("[models/list] Anthropic live listing failed: %s", e)
+            from app.services.llm.providers.anthropic_provider import _KNOWN_MODELS
+            return _KNOWN_MODELS
 
     try:
         provider = get_provider(provider_type=provider_type, url=url, api_key=api_key)
@@ -203,9 +250,9 @@ async def get_available_models():
 
     # Build layers info — report what the RUNTIME actually uses, not just
     # what's stored. When provider_type is unset, ClaudeService falls back to
-    # the CLI backend if CLAUDE_USE_CLI=true (see claude_service.reload_models).
-    # Mirror that rule here so the Settings UI shows the true active provider
-    # instead of "openai" inferred from the legacy proxy URL.
+    # the CLI backend when settings.claude_use_cli is true (see
+    # claude_service.reload_models). Mirror that rule here so the Settings UI
+    # shows the true active provider instead of one inferred from the URL.
     use_cli = get_settings().claude_use_cli
     layers: dict[str, LayerInfo] = {}
     for layer_name in ("fast", "deep", "haiku"):
@@ -298,10 +345,13 @@ async def get_available_models():
             if pt in cached_providers:
                 providers[pt] = cached_providers[pt]
             else:
-                # New provider not in cache — probe it
+                # New provider not in cache — probe it and persist the result
+                # so it isn't re-probed on every /available within the TTL.
                 try:
                     _, info = await _probe_provider(pt, lbl, u)
                     providers[pt] = info
+                    cached_providers[pt] = info
+                    _reachability_cache["providers"] = cached_providers
                 except Exception:
                     pass
     else:
@@ -332,9 +382,9 @@ async def test_model_layer(body: dict):
     """Send a quick test message to a model layer and return latency + reply.
 
     Routes through the SAME backend the chat layer uses at runtime:
-      - provider_type == "cli"                  → spawn `claude -p` via ClaudeCliBackend
-      - provider_type empty + CLAUDE_USE_CLI    → same as "cli" (matches reload_models)
-      - otherwise                               → LLMProvider via provider_factory
+      - provider_type == "cli"                       → spawn `claude -p` via ClaudeCliBackend
+      - provider_type empty + settings.claude_use_cli → same as "cli" (matches reload_models)
+      - otherwise                                    → LLMProvider via provider_factory
     Without this dispatch the test would only exercise the HTTP/SDK path and
     miss the CLI subprocess that actually handles chat.
     """

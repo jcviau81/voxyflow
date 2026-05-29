@@ -1791,10 +1791,10 @@ _TOOL_DEFINITIONS: list[dict] = [
         "_scope": "voxyflow",
     },
 
-    # ---- Endpoint / My Machines management ---------------------------------
+    # ---- Endpoint / My Providers management --------------------------------
     {
         "name": "voxyflow.endpoint.list",
-        "description": "List all saved LLM endpoints (My Machines) configured in Voxyflow settings.",
+        "description": "List all saved LLM endpoints (My Providers) configured in Voxyflow settings.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -1804,7 +1804,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.endpoint.add",
-        "description": "Add or update a named LLM endpoint (My Machines). If the id already exists it is replaced. Use provider_type 'ollama' for Ollama instances.",
+        "description": "Add or update a named LLM endpoint (My Providers). If the id already exists it is replaced. Use provider_type 'ollama' for Ollama instances.",
         "inputSchema": {
             "type": "object",
             "required": ["name", "provider_type", "url"],
@@ -1825,7 +1825,7 @@ _TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "voxyflow.endpoint.remove",
-        "description": "Remove a saved LLM endpoint (My Machines) by its id.",
+        "description": "Remove a saved LLM endpoint (My Providers) by its id.",
         "inputSchema": {
             "type": "object",
             "required": ["endpoint_id"],
@@ -1835,5 +1835,67 @@ _TOOL_DEFINITIONS: list[dict] = [
         },
         "_http": ("DELETE", "/api/settings/endpoints/{endpoint_id}", None),
         "_scope": "voxyflow",
+    },
+    # -----------------------------------------------------------------------
+    # voxyflow.delegate — dispatch a background worker task
+    # Canonical MCP tool: schema is strict (additionalProperties: false).
+    # Available to dispatchers (Claude CLI / Codex MCP) and workers (tools.load).
+    # The handler validates the payload and queues it for orchestrator pickup.
+    # -----------------------------------------------------------------------
+    {
+        "name": "voxyflow.delegate",
+        "description": (
+            "Dispatch a task to a background worker for execution. "
+            "MUST be called whenever the user asks you to DO anything beyond instant read/CRUD "
+            "(research, code, multi-step ops, file changes, tests, analysis). "
+            "You CANNOT execute such tasks yourself — you MUST delegate them. "
+            "The worker will run autonomously and report results back to the user. "
+            "Call this immediately, without asking for confirmation — one call per task."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": (
+                        "The action or intent to perform. Use concise English verbs. "
+                        "Examples: complex_coding, web_research, create_card, analyze_code, "
+                        "write_file, run_tests, summarize, translate, debug."
+                    ),
+                    "minLength": 1,
+                },
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "Full task description for the background worker. Be explicit: "
+                        "what to do, what files/cards/resources to touch, and the expected outcome."
+                    ),
+                    "minLength": 1,
+                },
+                "complexity": {
+                    "type": "string",
+                    "enum": ["simple", "standard", "complex"],
+                    "description": (
+                        "Task complexity hint: simple (≤30 s), standard (default), complex (>5 min)."
+                    ),
+                },
+                "card_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                    "description": "UUID of the Voxyflow card this task belongs to (if applicable).",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Extra runtime context to pass to the worker.",
+                },
+            },
+            "required": ["action", "description"],
+            "additionalProperties": False,
+        },
+        "_handler": "voxyflow_delegate",
+        "_scope": "voxyflow",
+        # Available to dispatchers and workers; NOT filtered out of dispatcher role
+        # (the dispatcher needs to call this to spawn workers)
+        "_role": "all",
     },
 ]

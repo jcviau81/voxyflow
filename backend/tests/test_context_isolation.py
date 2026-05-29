@@ -548,7 +548,8 @@ class TestFastPromptToolInjection:
     def test_fast_prompt_has_delegate_instruction(self):
         ps = self._ps()
         prompt = ps.build_fast_prompt(chat_level="general")
-        assert "<delegate>" in prompt, "Fast prompt should instruct on <delegate> XML format"
+        assert "voxyflow.delegate" in prompt, "Fast prompt should instruct on voxyflow.delegate MCP tool"
+        assert "<delegate>" not in prompt, "Fast prompt must NOT contain legacy <delegate> XML markup"
 
 
 # ============================================================================

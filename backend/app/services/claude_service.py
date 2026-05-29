@@ -219,6 +219,12 @@ class ClaudeService(ApiCallerMixin):
         # Last streaming usage stats (keyed by chat_id). Populated by streaming
         # helpers in api_caller.py; consumed by layer_runners via consume_last_chat_usage().
         self._last_stream_usage: dict[str, dict] = {}
+        # Weight (in tokens) of the context WE inject into the dispatcher, broken
+        # down by source (system/tools/memory/workspace/sessions/workers). Computed
+        # at assembly time in chat_*_stream; surfaced via consume_last_chat_usage().
+        # This is what we control — unlike the model-reported usage, which in CLI
+        # mode is inflated by Claude Code's own prompt + MCP tool schemas.
+        self._last_context_breakdown: dict[str, dict] = {}
 
         logger.info(
             f"ClaudeService initialized — cli={self.use_cli} native={self.use_native} | "
@@ -517,16 +523,82 @@ class ClaudeService(ApiCallerMixin):
         collected during the last streaming call for this chat_id."""
         return self._pending_delegates.pop(chat_id, [])
 
+    def _record_context_breakdown(
+        self,
+        chat_id: str,
+        *,
+        base_prompt,
+        dynamic_context: str | None,
+        memory_context: str | None,
+        live_state_block: str | None,
+        worker_events_block: str | None,
+        session_handoff_block: str | None,
+        active_workers_context: str | None,
+        messages: list[dict] | None,
+        mcp_role: str,
+    ) -> None:
+        """Measure the token weight of the context WE inject, by source.
+
+        Buckets sum to ``total``: system (base prompt) + tools (MCP/tool schemas)
+        + the dynamic context block (which already contains memory + workers +
+        workspace/cards) + sessions (conversation history). memory/workers are
+        reported as subsets of the dynamic block; workspace is the remainder.
+        """
+        try:
+            import json
+            from app.services.token_counter import count_tokens, using_exact_tokenizer
+            from app.services.llm.tool_defs import get_claude_tools
+
+            base_text = base_prompt if isinstance(base_prompt, str) else (
+                "".join(b.get("text", "") for b in base_prompt if isinstance(b, dict))
+                if isinstance(base_prompt, list) else ""
+            )
+            system_tok = count_tokens(base_text)
+            try:
+                tools_tok = count_tokens(json.dumps(get_claude_tools(role=mcp_role)))
+            except Exception:
+                tools_tok = 0
+            dyn_tok = count_tokens(dynamic_context or "")
+            memory_tok = count_tokens(memory_context or "")
+            workers_tok = sum(count_tokens(x or "") for x in (
+                live_state_block, worker_events_block, session_handoff_block, active_workers_context,
+            ))
+            # Workspace/cards = whatever's left of the dynamic block after the
+            # memory + ambient/worker sub-blocks (also covers time/worker-classes/misc).
+            workspace_tok = max(0, dyn_tok - memory_tok - workers_tok)
+
+            def _msg_text(m: dict) -> str:
+                c = m.get("content")
+                return c if isinstance(c, str) else json.dumps(c)
+            sessions_tok = sum(count_tokens(_msg_text(m)) for m in (messages or []))
+
+            total = system_tok + tools_tok + dyn_tok + sessions_tok
+            self._last_context_breakdown[chat_id] = {
+                "system": system_tok,
+                "tools": tools_tok,
+                "memory": memory_tok,
+                "workspace": workspace_tok,
+                "workers": workers_tok,
+                "sessions": sessions_tok,
+                "total": total,
+                "exact": using_exact_tokenizer(),
+            }
+        except Exception as e:  # pragma: no cover — never break a chat over a metric
+            logger.debug("context breakdown failed for %s: %s", chat_id, e)
+
     def consume_last_chat_usage(self, chat_id: str, layer: str) -> dict | None:
         """Return and clear usage stats from the most recent chat stream.
 
-        The returned dict is shaped for the WebSocket payload (camelCase)
-        and augmented with the model's static context window from the
-        capability registry. Returns None if no usage was recorded.
+        The returned dict is shaped for the WebSocket payload (camelCase) and
+        augmented with the model's static context window and the per-source
+        weight of the context WE inject (``contextBreakdown``). Returns None
+        only if neither model usage nor a context breakdown was recorded.
         """
         raw = self._last_stream_usage.pop(chat_id, None)
-        if not raw:
+        breakdown = self._last_context_breakdown.pop(chat_id, None)
+        if not raw and not breakdown:
             return None
+        raw = raw or {}
         model = self.deep_model if layer == "deep" else self.fast_model
         from app.services.llm.capability_registry import lookup as _caps_lookup
         caps = _caps_lookup(model)
@@ -537,6 +609,7 @@ class ClaudeService(ApiCallerMixin):
             "cacheCreationTokens": int(raw.get("cache_creation_input_tokens", 0) or 0),
             "contextWindow": int(caps.context_window),
             "model": model,
+            "contextBreakdown": breakdown,
         }
 
     # ------------------------------------------------------------------
@@ -576,9 +649,9 @@ class ClaudeService(ApiCallerMixin):
     ) -> AsyncIterator[str]:
         """Layer 1 (streaming): Yield tokens as they arrive from the fast layer.
 
-        Native Anthropic path: uses delegate_action tool_use for dispatching.
-        Proxy path: zero tools, relies on <delegate> XML blocks in text.
-        CLI+MCP path: inline tools via MCP + <delegate> XML blocks for complex tasks.
+        Native Anthropic path: uses voxyflow.delegate tool_use for dispatching.
+        Proxy path: no native tool support — worker delegation not available.
+        CLI+MCP path: inline tools via MCP + voxyflow.delegate tool for complex tasks.
         """
         use_native_delegate = self.fast_client_type == "anthropic"
         use_openai_delegate = self.fast_client_type == "openai"
@@ -681,31 +754,31 @@ class ClaudeService(ApiCallerMixin):
                     "My inline tools: memory_search, memory_save, knowledge_search, "
                     "card_list, card_get, card_create, card_update, card_move, "
                     "workers_list, workers_get_result, workers_read_artifact. For complex tasks (research, code, "
-                    "multi-step ops), I delegate to background workers via delegate_action."
+                    "multi-step ops), I delegate to background workers via the `voxyflow.delegate` MCP tool."
                 )
             elif self.fast_client_type == "codex":
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
                     "I converse briefly, use read-only MCP tools only to inspect state, "
-                    "and delegate action work to background workers with <delegate> blocks. "
-                    "I do not perform implementation, research, filesystem, shell, card writes, "
-                    "or multi-step work inline."
+                    "and delegate action work to background workers by calling the "
+                    "`voxyflow.delegate` MCP tool. I do not perform implementation, "
+                    "research, filesystem, shell, card writes, or multi-step work inline."
                 )
             elif use_cli_mcp:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
                     "I converse with you directly and use MCP tools for fast operations "
                     "(card CRUD, memory search, workspace/wiki lookups). For complex tasks "
-                    "(research, code, multi-step ops), I include <delegate> blocks in my "
-                    "response to trigger background workers."
+                    "(research, code, multi-step ops), I call the `voxyflow.delegate` MCP "
+                    "tool to trigger background workers."
                 )
             else:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-                    "I converse with you directly and delegate all actions to background workers "
-                    "via <delegate> blocks. I never execute tools myself. When you ask me to do "
-                    "something like a web search or create a card, I respond briefly and include "
-                    "a <delegate> block at the end of my message to trigger the worker. "
+                    "I converse with you directly and delegate complex actions to background "
+                    "workers via the `voxyflow.delegate` tool. When you ask me to do "
+                    "something like a web search or run code, I respond briefly and call "
+                    "`voxyflow.delegate` to trigger the worker. "
                     "The worker handles it in the background and the result appears in the chat."
                 )
             priming = [
@@ -716,6 +789,21 @@ class ClaudeService(ApiCallerMixin):
                 {"role": "assistant", "content": priming_assistant},
             ]
             primed_messages = priming + primed_messages
+
+        # Measure the weight of the context we inject (system/tools/memory/
+        # workspace/sessions/workers) for the context-usage indicator.
+        self._record_context_breakdown(
+            chat_id,
+            base_prompt=base_prompt,
+            dynamic_context=dynamic_context,
+            memory_context=memory_context,
+            live_state_block=live_state_block,
+            worker_events_block=worker_events_block,
+            session_handoff_block=session_handoff_block,
+            active_workers_context=active_workers_context,
+            messages=primed_messages,
+            mcp_role="dispatcher",
+        )
 
         # Clear any previous pending delegates for this chat
         self._pending_delegates.pop(chat_id, None)
@@ -760,7 +848,7 @@ class ClaudeService(ApiCallerMixin):
                 f"{len(self._pending_delegates.get(chat_id, []))} delegates"
             )
         elif use_cli_mcp:
-            # CLI+MCP: inline tools via MCP, <delegate> XML for complex tasks
+            # CLI+MCP: inline tools via MCP, voxyflow.delegate tool for complex tasks
             # For persistent sessions: if process exists, send only the new message
             # with dynamic context as prefix (saves tokens)
             is_persistent = (
@@ -787,7 +875,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.fast_client,
                 client_type=self.fast_client_type,
                 use_tools=True,
-                mcp_role=("dispatcher_codex" if self.fast_client_type == "codex" else "dispatcher"),
+                mcp_role="dispatcher",
                 chat_level=chat_level,
                 chat_id=chat_id,
                 session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
@@ -799,7 +887,7 @@ class ClaudeService(ApiCallerMixin):
             logger.info(
                 f"[chat_fast_stream] Local CLI+MCP path — "
                 f"{'persistent' if is_persistent else 'new session'}, "
-                f"inline tools via MCP, XML delegates"
+                f"inline tools via MCP, voxyflow.delegate tool"
             )
         else:
             # Proxy fallback: no tools, XML delegate blocks
@@ -844,9 +932,9 @@ class ClaudeService(ApiCallerMixin):
     ) -> AsyncIterator[str]:
         """Deep layer (streaming): Yield tokens from the deep model directly to chat.
 
-        Native Anthropic path: uses delegate_action tool_use for dispatching.
-        Proxy path: zero tools, relies on <delegate> XML blocks in text.
-        CLI+MCP path: inline tools via MCP + <delegate> XML blocks for complex tasks.
+        Native Anthropic path: uses voxyflow.delegate tool_use for dispatching.
+        Proxy path: no native tool support — worker delegation not available.
+        CLI+MCP path: inline tools via MCP + voxyflow.delegate tool for complex tasks.
         """
         use_native_delegate = self.deep_client_type == "anthropic"
         use_openai_delegate = self.deep_client_type == "openai"
@@ -930,32 +1018,32 @@ class ClaudeService(ApiCallerMixin):
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
                     "I converse with you directly and delegate all actions to background workers "
-                    "using the delegate_action tool. I never execute actions myself. When you ask "
-                    "me to do something, I respond briefly and call delegate_action to trigger the worker."
+                    "using the `voxyflow.delegate` MCP tool. I never execute actions myself. When you ask "
+                    "me to do something, I respond briefly and call `voxyflow.delegate` to trigger the worker."
                 )
             elif self.deep_client_type == "codex":
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. "
                     "I'm a dispatcher — I converse briefly, use read-only MCP tools only "
-                    "to inspect state, and delegate action work to background workers with "
-                    "<delegate> blocks. I do not perform implementation, research, filesystem, "
-                    "shell, card writes, or multi-step work inline."
+                    "to inspect state, and delegate action work to background workers by "
+                    "calling the `voxyflow.delegate` MCP tool. I do not perform implementation, "
+                    "research, filesystem, shell, card writes, or multi-step work inline."
                 )
             elif use_cli_mcp:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
                     "I converse with you directly and use MCP tools for fast operations "
                     "(card CRUD, memory search, workspace/wiki lookups). For complex tasks "
-                    "(research, code, multi-step ops), I include <delegate> blocks in my "
-                    "response to trigger background workers."
+                    "(research, code, multi-step ops), I call the `voxyflow.delegate` MCP "
+                    "tool to trigger background workers."
                 )
             else:
                 priming_assistant = (
                     "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-                    "I converse with you directly and delegate all actions to background workers "
-                    "via <delegate> blocks. I never execute tools myself. When you ask me to do "
-                    "something like a web search or create a card, I respond briefly and include "
-                    "a <delegate> block at the end of my message to trigger the worker. "
+                    "I converse with you directly and delegate complex actions to background "
+                    "workers via the `voxyflow.delegate` tool. When you ask me to do "
+                    "something like a web search or run code, I respond briefly and call "
+                    "`voxyflow.delegate` to trigger the worker. "
                     "The worker handles it in the background and the result appears in the chat."
                 )
             priming = [
@@ -966,6 +1054,20 @@ class ClaudeService(ApiCallerMixin):
                 {"role": "assistant", "content": priming_assistant},
             ]
             primed_messages = priming + primed_messages
+
+        # Measure the weight of the context we inject (deep layer).
+        self._record_context_breakdown(
+            chat_id,
+            base_prompt=base_prompt,
+            dynamic_context=dynamic_context,
+            memory_context=memory_context,
+            live_state_block=live_state_block,
+            worker_events_block=worker_events_block,
+            session_handoff_block=session_handoff_block,
+            active_workers_context=active_workers_context,
+            messages=primed_messages,
+            mcp_role="dispatcher",
+        )
 
         # Clear any previous pending delegates for this chat
         self._pending_delegates.pop(chat_id, None)
@@ -1028,7 +1130,7 @@ class ClaudeService(ApiCallerMixin):
                 client=self.deep_client,
                 client_type=self.deep_client_type,
                 use_tools=True,
-                mcp_role=("dispatcher_codex" if self.deep_client_type == "codex" else "dispatcher"),
+                mcp_role="dispatcher",
                 chat_level=chat_level,
                 chat_id=chat_id,
                 session_id=session_id, workspace_id=workspace_id or "", card_id=card_id,
@@ -1037,7 +1139,7 @@ class ClaudeService(ApiCallerMixin):
             ):
                 full_response += token
                 yield token
-            logger.info(f"[chat_deep_stream] Local CLI+MCP path — inline tools via MCP, XML delegates")
+            logger.info(f"[chat_deep_stream] Local CLI+MCP path — inline tools via MCP, voxyflow.delegate tool")
         else:
             full_response = ""
             async for token in self._call_api_stream(

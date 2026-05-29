@@ -40,8 +40,8 @@ only, not tool escalation. Worker access is enforced via role tags in
 1. User sends message
 2. Chat Agent (Dispatcher) streams a conversational response immediately and may
    call lightweight tools inline (search memory, create a card, etc.)
-3. For heavier work the Dispatcher emits `<delegate>` blocks
-4. The orchestrator parses `<delegate>` blocks and spawns background workers
+3. For heavier work the Dispatcher calls the `voxyflow.delegate` MCP tool
+4. The orchestrator collects `voxyflow.delegate` tool_use calls and spawns background workers
 5. Workers run the strict lifecycle below and report structured results
 6. **The conversation is never blocked** — Workers run in the background
 
@@ -859,13 +859,14 @@ CLAUDE_SONNET_MODEL=claude-sonnet-4-6
 CLAUDE_DEEP_MODEL=claude-opus-4-7
 ```
 
-#### Named endpoints ("My Machines")
+#### Named endpoints ("My Providers")
 
 Users can save arbitrary provider endpoints (local boxes, remote API accounts)
-in Settings → Models. Each one persists to `ModelsSettings.endpoints[]` as a
+in Settings → Models & Providers. Each one persists to
+`ModelsSettings.endpoints[]` as a
 `ProviderEndpoint { id, name, provider_type, url, api_key }`. Layers then
 reference endpoints by `endpoint_id` — resolved at call time via
-`_resolve_endpoint_refs()`, so renaming a machine doesn't break routing.
+`_resolve_endpoint_refs()`, so renaming a provider doesn't break routing.
 Reachability is probed in parallel on `GET /api/models/available`.
 
 #### Model capability registry

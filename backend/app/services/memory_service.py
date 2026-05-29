@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -99,6 +100,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
         self._chromadb_enabled = False
         self._client = None
         self._ef = None
+        self._chroma_lock = threading.RLock()
         # B4: per-chat message counter for throttling extraction
         self._extraction_counters: dict[str, int] = {}
 
@@ -186,6 +188,7 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             new_col = self._client.get_or_create_collection(
                 name=name,
                 metadata={"hnsw:space": "cosine"},
+                embedding_function=self._ef,
             )
         except Exception as e:
             logger.error(f"[repair] {name}: failed to recreate collection: {e}")
@@ -350,7 +353,8 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             # Remove None values
             meta = {k: v for k, v in meta.items() if v is not None}
 
-            col.upsert(ids=[doc_id], documents=[text], metadatas=[meta])
+            with self._chroma_lock:
+                col.upsert(ids=[doc_id], documents=[text], metadatas=[meta])
             logger.info(f"store_memory: stored doc {doc_id} in {collection}")
             return doc_id
         except Exception as e:
@@ -363,8 +367,9 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
             return False
 
         try:
-            col = self._get_or_create_collection(collection)
-            col.delete(ids=[doc_id])
+            with self._chroma_lock:
+                col = self._get_or_create_collection(collection)
+                col.delete(ids=[doc_id])
             logger.info(f"delete_memory: deleted {doc_id} from {collection}")
             return True
         except Exception as e:
@@ -387,11 +392,12 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
         deleted_from: list[str] = []
         for name in collections:
             try:
-                col = self._get_or_create_collection(name)
-                existing = col.get(ids=[doc_id], include=[])
-                if not existing.get("ids"):
-                    continue
-                col.delete(ids=[doc_id])
+                with self._chroma_lock:
+                    col = self._get_or_create_collection(name)
+                    existing = col.get(ids=[doc_id], include=[])
+                    if not existing.get("ids"):
+                        continue
+                    col.delete(ids=[doc_id])
                 deleted_from.append(name)
                 logger.info(f"delete_memory_cascade: deleted {doc_id} from {name}")
             except Exception as e:
@@ -443,20 +449,21 @@ class MemoryService(MemoryExtractionMixin, MemoryContextMixin):
 
         for col_name in collections:
             try:
-                col = self._get_or_create_collection(col_name)
-                count = col.count()
-                if count == 0:
-                    continue
+                with self._chroma_lock:
+                    col = self._get_or_create_collection(col_name)
+                    count = col.count()
+                    if count == 0:
+                        continue
 
-                fetch_n = min(limit + offset, count)
-                query_kwargs = {
-                    "query_texts": [query],
-                    "n_results": fetch_n,
-                }
-                if filters:
-                    query_kwargs["where"] = filters
+                    fetch_n = min(limit + offset, count)
+                    query_kwargs = {
+                        "query_texts": [query],
+                        "n_results": fetch_n,
+                    }
+                    if filters:
+                        query_kwargs["where"] = filters
 
-                results = col.query(**query_kwargs)
+                    results = col.query(**query_kwargs)
 
                 docs = results.get("documents", [[]])[0]
                 distances = results.get("distances", [[]])[0]

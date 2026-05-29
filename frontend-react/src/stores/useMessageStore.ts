@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message } from '../types';
+import type { Message, MessageDelegate } from '../types';
 import { generateId } from '../lib/utils';
 
 // Evict legacy persisted chat messages. Keeping them in localStorage caused
@@ -49,6 +49,13 @@ export interface MessageState {
 
   // Queries (non-reactive helpers)
   getMessages: (workspaceId?: string, sessionId?: string) => Message[];
+
+  /**
+   * Attach a delegate payload to the most recent non-streaming assistant message
+   * for the given sessionId. Called when task:started fires so the DelegateBadge
+   * can appear in the bubble that triggered the delegate.
+   */
+  attachDelegateToLastMessage: (sessionId: string, delegate: MessageDelegate) => void;
 }
 
 export const useMessageStore = create<MessageState>()((set, get) => ({
@@ -133,5 +140,32 @@ export const useMessageStore = create<MessageState>()((set, get) => ({
     if (workspaceId) msgs = msgs.filter((m) => m.workspaceId === workspaceId);
     if (sessionId) msgs = msgs.filter((m) => m.sessionId === sessionId);
     return msgs;
+  },
+
+  attachDelegateToLastMessage(sessionId, delegate) {
+    set((s) => {
+      // Find the most recent completed (non-streaming) assistant message for this session.
+      const messages = [...s.messages];
+      let targetIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.role === 'assistant' && m.sessionId === sessionId && !m.streaming) {
+          targetIdx = i;
+          break;
+        }
+      }
+      if (targetIdx === -1) return s; // no suitable message found — discard silently
+      const target = messages[targetIdx];
+      const existingDelegates = target.delegates ?? [];
+      // Deduplicate: don't add the same task_id twice
+      if (delegate._task_id && existingDelegates.some((d) => d._task_id === delegate._task_id)) {
+        return s;
+      }
+      messages[targetIdx] = {
+        ...target,
+        delegates: [...existingDelegates, delegate],
+      };
+      return { messages };
+    });
   },
 }));

@@ -5,8 +5,10 @@ GET  /api/worker-tasks/{task_id}    → get full details of a specific task
 GET  /api/worker-tasks/{task_id}/peek   → live peek (running) or DB fallback (finished)
 POST /api/worker-tasks/{task_id}/cancel → cancel a running worker task
 POST /api/worker-tasks/{task_id}/steer  → inject a steering message into a running worker task
+POST /api/worker-tasks/delegate-queue   → internal: queue a voxyflow.delegate payload from MCP subprocess
 """
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -16,7 +18,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, WorkerTask
 
+logger = logging.getLogger("voxyflow.worker_tasks")
+
 router = APIRouter(prefix="/api/worker-tasks", tags=["worker-tasks"])
+
+
+class _DelegateQueueBody(BaseModel):
+    chat_id: str
+    action: str
+    description: str
+    complexity: Optional[str] = None
+    context: Optional[str] = None
+    card_id: Optional[str] = None
+
+
+@router.post("/delegate-queue")
+async def queue_delegate_from_subprocess(body: _DelegateQueueBody):
+    """Receive a voxyflow.delegate payload from the MCP stdio subprocess and
+    store it in ClaudeService._pending_delegates so the orchestrator can spawn
+    a worker.  This endpoint is called by voxyflow_delegate_handler when it
+    runs inside the MCP stdio subprocess (a separate OS process that cannot
+    share in-process memory with the FastAPI backend).
+    """
+    try:
+        from app.services.claude_service import ClaudeService
+        svc = ClaudeService._instance
+        if svc is None:
+            logger.warning("[delegate-queue] ClaudeService not initialised — delegate lost for chat %s", body.chat_id)
+            return {"success": False, "error": "ClaudeService not ready"}
+        payload = body.model_dump(exclude_none=True)
+        payload.pop("chat_id", None)
+        svc._pending_delegates.setdefault(body.chat_id, []).append(payload)
+        logger.info("[delegate-queue] Queued delegate for chat %s: action=%s", body.chat_id, body.action)
+        return {"success": True, "status": "queued"}
+    except Exception as exc:
+        logger.error("[delegate-queue] Failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("")

@@ -15,11 +15,16 @@ import asyncio
 import json
 import logging
 import os
-import re
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import HTTPException
+
+# Canonical divider / HTML-comment directive parser lives in workspace_autonomy
+# (it has the fuller version). Import it here so the scheduler gate and the UI
+# "actionable" display never drift. Safe at module load: workspace_autonomy does
+# not import job_runner at top level (only lazily inside functions).
+from app.services.workspace_autonomy import file_has_directive as _file_has_directive
 
 logger = logging.getLogger("voxyflow.jobs")
 
@@ -35,39 +40,6 @@ JOBS_FILE = VOXYFLOW_DIR / "jobs.json"
 # ---------------------------------------------------------------------------
 # Gate helpers
 # ---------------------------------------------------------------------------
-
-
-_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-
-
-def _file_has_directive(path: str | Path, divider: str = "---") -> bool:
-    """Return True if the file has actionable content below the divider line.
-
-    Finds the first line whose stripped value equals ``divider``, takes everything
-    after it, removes HTML comments, and returns True if any non-whitespace
-    content remains. Returns False if the file is missing, unreadable, or has
-    no divider — the divider is the explicit marker for "directives go here".
-    """
-    try:
-        p = Path(path).expanduser()
-        if not p.is_file():
-            return False
-        text = p.read_text(encoding="utf-8")
-    except Exception:
-        return False
-
-    lines = text.splitlines()
-    below_idx: int | None = None
-    for i, line in enumerate(lines):
-        if line.strip() == divider:
-            below_idx = i + 1
-            break
-    if below_idx is None:
-        return False
-
-    below = "\n".join(lines[below_idx:])
-    below = _HTML_COMMENT_RE.sub("", below)
-    return bool(below.strip())
 
 
 def _check_payload_gate(job: dict, payload: dict) -> dict | None:

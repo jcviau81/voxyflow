@@ -131,7 +131,10 @@ class Settings(BaseSettings):
     claude_api_key: str = ""         # Loaded from keyring / env ANTHROPIC_API_KEY
     claude_api_base: str = ""        # Empty = default api.anthropic.com
 
-    # Claude API via proxy (OpenAI-compatible, fallback when claude_use_native=False)
+    # Claude via OpenAI-compatible HTTP endpoint (fallback when claude_use_native=False).
+    # The historical `voxyflow-proxy` Claude-Max proxy (port 3457) is retired
+    # — see docs/CONFIG.md. Override `claude_proxy_url` only if you point the
+    # client at a self-hosted OpenAI-compatible endpoint.
     claude_proxy_url: str = "http://localhost:3457/v1"
     searxng_url: str = "http://localhost:8888"
     claude_fast_model: str = "claude-haiku-4-6"

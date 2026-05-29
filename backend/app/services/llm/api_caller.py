@@ -29,10 +29,16 @@ from app.services.llm.model_utils import (
 )
 from app.services.llm.tool_defs import (
     DELEGATE_ACTION_TOOL,
+    VOXYFLOW_DELEGATE_TOOL,
     _mcp_tool_name_from_claude,
     _call_mcp_tool,
     anthropic_to_openai_tools,
     get_claude_tools,
+)
+from app.tools.delegate_tool import (
+    TOOL_NAME_SAFE as _DELEGATE_TOOL_NAME_SAFE,
+    validate_delegate_input,
+    make_tool_result_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -322,13 +328,14 @@ class ApiCallerMixin:
 
         # Build dispatcher tool schemas from the registry (single source of truth)
         dispatcher_tools = get_claude_tools(role="dispatcher")
+        all_tools = [VOXYFLOW_DELEGATE_TOOL] + dispatcher_tools
 
         kwargs = {
             "model": model,
             "max_tokens": self.max_tokens,
             "system": system,
             "messages": clean_messages,
-            "tools": [DELEGATE_ACTION_TOOL] + dispatcher_tools,
+            "tools": all_tools,
         }
         extra_headers = self._anthropic_extra_headers(model)
         if extra_headers:
@@ -397,19 +404,32 @@ class ApiCallerMixin:
                     return
 
                 # Separate dispatcher tools from delegate tool calls
+                # Accept both the new canonical name and the legacy name for backward compat.
+                _is_delegate = lambda b: b.name in (_DELEGATE_TOOL_NAME_SAFE, "delegate_action")
                 tool_blocks = [b for b in tool_use_blocks if b.name in dispatcher_tool_names]
-                delegate_blocks = [b for b in tool_use_blocks if b.name == "delegate_action"]
-                unknown_blocks = [b for b in tool_use_blocks if b.name not in dispatcher_tool_names and b.name != "delegate_action"]
+                delegate_blocks = [b for b in tool_use_blocks if _is_delegate(b)]
+                unknown_blocks = [b for b in tool_use_blocks if b.name not in dispatcher_tool_names and not _is_delegate(b)]
 
                 for b in unknown_blocks:
                     logger.warning(f"[NativeDelegate] Unexpected tool_use: {b.name} — ignoring")
 
-                # Collect delegates
+                # Collect delegates (validate strict schema for new tool name)
+                # Track per-block validation errors so we can surface them as
+                # tool_result errors to the LLM for self-correction.
+                _delegate_validation_errors: dict[str, str] = {}
                 for block in delegate_blocks:
-                    self._pending_delegates.setdefault(chat_id, []).append(block.input or {})
+                    payload = block.input or {}
+                    if block.name == _DELEGATE_TOOL_NAME_SAFE:
+                        ok, err = validate_delegate_input(payload)
+                        if not ok:
+                            logger.warning(f"[NativeDelegate] Schema validation failed: {err}")
+                            _delegate_validation_errors[block.id] = err
+                            # Don't collect invalid payloads — force self-correction
+                            continue
+                    self._pending_delegates.setdefault(chat_id, []).append(payload)
                     logger.info(
-                        f"[NativeDelegate] Collected delegate_action: "
-                        f"action={block.input.get('action')}, summary={block.input.get('summary', '')!r}"
+                        f"[NativeDelegate] Collected {block.name}: "
+                        f"action={payload.get('action')}, desc={str(payload.get('description', payload.get('summary', '')))[:60]!r}"
                     )
 
                 # Execute dispatcher tools via the registry
@@ -450,6 +470,14 @@ class ApiCallerMixin:
                                 "tool_use_id": block.id,
                                 "content": tool_results_map[block.id],
                             })
+                        elif block.id in _delegate_validation_errors:
+                            # Schema validation failed — send error so LLM can self-correct
+                            tool_results_content.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "is_error": True,
+                                "content": make_tool_result_error(_delegate_validation_errors[block.id]),
+                            })
                         else:
                             # Delegate or unknown — acknowledge
                             tool_results_content.append({
@@ -480,16 +508,26 @@ class ApiCallerMixin:
                             "input": block.input,
                         })
 
-                    continuation_messages = list(clean_messages) + [
-                        {"role": "assistant", "content": assistant_content},
-                        {"role": "user", "content": [
-                            {
+                    # Build per-block tool_result (success or validation error)
+                    _cont_results = []
+                    for block in tool_use_blocks:
+                        if block.id in _delegate_validation_errors:
+                            _cont_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "is_error": True,
+                                "content": make_tool_result_error(_delegate_validation_errors[block.id]),
+                            })
+                        else:
+                            _cont_results.append({
                                 "type": "tool_result",
                                 "tool_use_id": block.id,
                                 "content": json.dumps({"status": "delegated", "message": "Action dispatched to background worker."}),
-                            }
-                            for block in tool_use_blocks
-                        ]},
+                            })
+
+                    continuation_messages = list(clean_messages) + [
+                        {"role": "assistant", "content": assistant_content},
+                        {"role": "user", "content": _cont_results},
                     ]
 
                     # Get the final response (no tools this time — just let Claude finish talking)
@@ -545,7 +583,8 @@ class ApiCallerMixin:
 
         dispatcher_tools = get_claude_tools(role="dispatcher")
         dispatcher_tool_names = {t["name"] for t in dispatcher_tools}
-        openai_tools = anthropic_to_openai_tools([DELEGATE_ACTION_TOOL] + dispatcher_tools)
+        _all_oi_tools_src = [VOXYFLOW_DELEGATE_TOOL] + dispatcher_tools
+        openai_tools = anthropic_to_openai_tools(_all_oi_tools_src)
 
         max_inline_rounds = 5
 
@@ -655,11 +694,22 @@ class ApiCallerMixin:
                     except json.JSONDecodeError:
                         arguments = {}
 
-                    if name == "delegate_action":
+                    if name in (_DELEGATE_TOOL_NAME_SAFE, "delegate_action"):
+                        # Validate strict schema for the new canonical tool name
+                        if name == _DELEGATE_TOOL_NAME_SAFE:
+                            ok, err = validate_delegate_input(arguments)
+                            if not ok:
+                                logger.warning(f"[NativeDelegate-OpenAI] Schema validation failed: {err}")
+                                tool_results.append({
+                                    "role": "tool",
+                                    "tool_call_id": tc["id"],
+                                    "content": make_tool_result_error(err),
+                                })
+                                continue
                         self._pending_delegates.setdefault(chat_id, []).append(arguments)
                         logger.info(
-                            f"[NativeDelegate-OpenAI] Collected delegate_action: "
-                            f"action={arguments.get('action')}, summary={arguments.get('summary', '')!r}"
+                            f"[NativeDelegate-OpenAI] Collected {name}: "
+                            f"action={arguments.get('action')}, desc={str(arguments.get('description', arguments.get('summary', '')))[:60]!r}"
                         )
                         tool_results.append({
                             "role": "tool",

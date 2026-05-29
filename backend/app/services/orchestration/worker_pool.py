@@ -135,6 +135,17 @@ class DeepWorkerPool:
         self._completed_tasks: list[dict] = []  # [{task_id, action, model, completed_at, result}]
         self._listener_task: asyncio.Task | None = None
         self._cleanup_task: asyncio.Task | None = None
+        # NOTE: this semaphore is PER-POOL (one pool per session/bus), so it caps
+        # MAX_WORKERS concurrent workers *per session*, not globally. With N active
+        # sessions the real ceiling is N * MAX_WORKERS workers. For CLI providers
+        # this is bounded by the process-global CliRateGate (CLI_WORKER_CONCURRENT),
+        # but non-CLI providers (anthropic/openai/ollama/...) have NO global cap and
+        # can fan out to N * MAX_WORKERS concurrent API calls.
+        # TODO(concurrency): add a module-level shared semaphore as a global cap for
+        # non-CLI workers. Doing it correctly requires acquiring it *after* provider
+        # resolution inside _execute_event (so CLI workers skip it) while releasing
+        # in _on_task_done — splitting acquire/release across methods — so it is
+        # deferred to a dedicated change rather than risking a leak/deadlock here.
         self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
         self._result_contents: dict[str, str] = {}  # task_id → actual result content
         self._task_tool_events: dict[str, list[dict]] = {}  # task_id → bounded tool event buffer
@@ -233,8 +244,24 @@ class DeepWorkerPool:
         for task_id, task in list(self._active_tasks.items()):
             task.cancel()
         self._active_tasks.clear()
-        # Mark cancelled tasks in the DB ledger
+        # Mark cancelled tasks in BOTH the file-store session and the DB
+        # ledger. The worker's own ``except asyncio.CancelledError`` branch
+        # (run_task) normally takes care of this, but ``stop()`` does not
+        # await the cancelled tasks — if the backend exits before that
+        # handler runs, the session_store stays on ``status=running`` and
+        # ``check_timeouts`` later flips it to ``timed_out``, which the UI
+        # reports as a phantom timeout. Sync the file-store eagerly so the
+        # status is always terminal once stop() returns.
+        _wss_stop = get_worker_session_store()
         for task_id in cancelled_ids:
+            try:
+                _wss_stop.update_status(
+                    task_id,
+                    "cancelled",
+                    result_summary="Session closed — task cancelled",
+                )
+            except Exception as e:
+                logger.warning(f"[DeepWorkerPool] Failed to update session_store for {task_id}: {e}")
             try:
                 await self._ledger_update(
                     task_id, "cancelled",
@@ -316,6 +343,21 @@ class DeepWorkerPool:
             pass
 
         self._semaphore.release()
+
+        # Sync BOTH the file-store session and the DB ledger. The worker's
+        # own ``except asyncio.CancelledError`` branch handles the happy
+        # path, but if ``wait_for`` above timed out (worker didn't process
+        # the cancel within 2s) the session_store can still be on
+        # ``running`` when this method returns — ``check_timeouts`` would
+        # later flip it to ``timed_out`` and surface a phantom timeout.
+        try:
+            get_worker_session_store().update_status(
+                task_id,
+                "cancelled",
+                result_summary="User cancelled",
+            )
+        except Exception as e:
+            logger.warning(f"[DeepWorkerPool] Failed to update session_store for {task_id}: {e}")
 
         # Update DB ledger
         await self._ledger_update(task_id, "cancelled", error="User cancelled")
@@ -401,18 +443,6 @@ class DeepWorkerPool:
             })
 
         return {"active": active, "completed": completed}
-
-    async def _summarize_result(self, result: str, intent: str, max_chars: int = 0) -> str:
-        """Return a dispatcher-sized preview of the worker result.
-
-        The full output lives in the artifact file.  The dispatcher gets the
-        first DISPATCHER_PREVIEW_CHARS here and can call read_artifact for more.
-        No LLM summarization — just mechanical truncation.
-        """
-        limit = max_chars or DISPATCHER_PREVIEW_CHARS
-        if len(result) <= limit:
-            return result
-        return result[:limit] + f"\n[... truncated — {len(result):,} chars total ...]"
 
     # ------------------------------------------------------------------
     # Worker lifecycle: closeout pass + local fallback
@@ -898,6 +928,12 @@ class DeepWorkerPool:
         If a matching WorkerClass is found (by explicit id or intent pattern),
         the worker class model/provider is used instead of the default layer.
         """
+        # Bind _wss before the try block. The except/CancelledError handlers below
+        # reference it; if an exception fires before the original binding (e.g. in
+        # resolve_endpoint_for_class during worker-class resolution) the handler
+        # would otherwise raise UnboundLocalError and mask the real error, silently
+        # dropping the task.
+        _wss = get_worker_session_store()
         try:
             # Resolve worker class (if any) before registering, so we log the right model.
             # Precedence: worker_class.model (if matched) > default_worker_model (fallback).
@@ -1038,7 +1074,6 @@ class DeepWorkerPool:
             if event.task_id in self._task_meta:
                 self._task_meta[event.task_id]["model"] = _effective_model
 
-            _wss = get_worker_session_store()
             _task_card_id = event.data.get("card_id")
 
             # --- Card lifecycle: auto-create if missing, move to in-progress ---
@@ -1747,21 +1782,32 @@ class DeepWorkerPool:
         }
         try:
             from app.services.ws_broadcast import ws_broadcast
-            if self._ws is not None:
-                await self._ws.send_json(message)
-                await ws_broadcast.emit_to_others(self._ws, event_type, {"taskId": task_id, **payload})
+            ws = self._ws
+            if ws is not None:
+                try:
+                    await ws.send_json(message)
+                    await ws_broadcast.emit_to_others(ws, event_type, {"taskId": task_id, **payload})
+                    return
+                except Exception:
+                    # WS may have been replaced by session:sync — retry once with current ref
+                    retry_ws = self._ws
+                    if retry_ws is not None and retry_ws is not ws:
+                        await retry_ws.send_json(message)
+                        await ws_broadcast.emit_to_others(retry_ws, event_type, {"taskId": task_id, **payload})
+                        logger.info(f"[DeepWorkerPool] Retried {event_type} on reconnected WS for task {task_id}")
+                        return
+                    raise
             else:
                 ws_broadcast.emit_sync(event_type, {"taskId": task_id, **payload})
         except Exception as e:
             logger.warning(f"[DeepWorkerPool] Failed to send {event_type} via WS: {e}")
-            if event_type in ("task:completed", "task:cancelled", "task:timeout"):
-                session_id = payload.get("sessionId", self._bus.session_id)
-                if session_id:
-                    try:
-                        await pending_store.store(session_id, message)
-                        logger.info(f"[DeepWorkerPool] Stored pending result for task {task_id}")
-                    except Exception as store_err:
-                        logger.error(f"[DeepWorkerPool] Failed to store pending result: {store_err}")
+            session_id = payload.get("sessionId", self._bus.session_id)
+            if session_id:
+                try:
+                    await pending_store.store(session_id, message)
+                    logger.info(f"[DeepWorkerPool] Stored pending {event_type} for task {task_id}")
+                except Exception as store_err:
+                    logger.error(f"[DeepWorkerPool] Failed to store pending {event_type}: {store_err}")
 
     # ------------------------------------------------------------------
     # Card Lifecycle helpers (system-managed)

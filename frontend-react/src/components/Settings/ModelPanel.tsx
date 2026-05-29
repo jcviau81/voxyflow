@@ -2,11 +2,11 @@
  * ModelPanel — Models & Providers settings panel.
  *
  * Redesigned UX:
- *  - Section 1: "My Providers" — card grid showing each endpoint as a machine card
+ *  - Section 1: "My Providers" — card grid showing each endpoint as a provider card
  *    with real-time status dot, provider type, short URL, available models, edit/delete
  *  - Section 2: Layer configuration — Fast / Deep rows with source dropdown
- *    combining machines + cloud providers, model picker, test button
- *  - Inline form for adding/editing machines (no modal)
+ *    combining providers + cloud providers, model picker, test button
+ *  - Inline form for adding/editing providers (no modal)
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -212,7 +212,11 @@ const LOCAL_PROVIDER_TYPES = new Set(['ollama', 'lmstudio']);
 
 // Static fallback model lists for cloud providers (shown when API listing is unavailable)
 const STATIC_MODELS: Record<string, string[]> = {
-  cli: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7'],
+  // Aliases only — the Claude CLI resolves opus/sonnet/haiku to the latest
+  // model (opus → Opus 4.8 today), so no hardcoded version names. Transient
+  // placeholder / error fallback; the live list (incl. real claude-* ids when
+  // an Anthropic key is configured) comes from /api/models/list?provider_type=cli.
+  cli: ['opus', 'sonnet', 'haiku'],
   codex: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2'],
   anthropic: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-5', 'claude-opus-4-5'],
   groq: [
@@ -284,6 +288,53 @@ function providerLabel(type: string): string {
 }
 
 const apiFetch = sharedApiFetch;
+
+// ── SourceOptions ────────────────────────────────────────────────────────────
+// Shared <optgroup> contents for every source picker (Layers, Worker Classes,
+// Default Worker, Comparison). Renders the optional "Layer Aliases" group, then
+// "My Providers" (saved endpoints, with a reachability bullet) and "Cloud
+// Providers". Extracted to keep all pickers in sync — previously this JSX was
+// duplicated 4x and the reachability bullets had already diverged (escaped
+// ● vs literal ● glyphs).
+
+interface SourceOptionsProps {
+  providers: ProviderMeta[];
+  endpoints: ProviderEndpoint[];
+  endpointStatuses: EndpointStatus[];
+  aliasOptions?: { value: string; label: string }[];
+}
+
+function SourceOptions({ providers, endpoints, endpointStatuses, aliasOptions }: SourceOptionsProps) {
+  return (
+    <>
+      {aliasOptions && aliasOptions.length > 0 && (
+        <optgroup label="Layer Aliases">
+          {aliasOptions.map(o => (
+            <option key={o.value} value={`alias:${o.value}`}>{o.label}</option>
+          ))}
+        </optgroup>
+      )}
+      {endpoints.length > 0 && (
+        <optgroup label="My Providers">
+          {endpoints.map(ep => {
+            const st = endpointStatuses.find(s => s.id === ep.id);
+            const dot = st ? (st.reachable ? '● ' : '○ ') : '  ';
+            return (
+              <option key={ep.id} value={`ep:${ep.id}`}>
+                {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
+              </option>
+            );
+          })}
+        </optgroup>
+      )}
+      <optgroup label="Cloud Providers">
+        {providers.map(p => (
+          <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
+        ))}
+      </optgroup>
+    </>
+  );
+}
 
 // ── StatusDot ──────────────────────────────────────────────────────────────
 
@@ -1004,24 +1055,11 @@ function LayerRow({
               value={selectionValue}
               onChange={e => handleSelectionChange(e.target.value)}
             >
-              {endpoints.length > 0 && (
-                <optgroup label="My Providers">
-                  {endpoints.map(ep => {
-                    const st = endpointStatuses.find(s => s.id === ep.id);
-                    const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
-                    return (
-                      <option key={ep.id} value={`ep:${ep.id}`}>
-                        {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              )}
-              <optgroup label="Cloud Providers">
-                {providers.map(p => (
-                  <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
-                ))}
-              </optgroup>
+              <SourceOptions
+                providers={providers}
+                endpoints={endpoints}
+                endpointStatuses={endpointStatuses}
+              />
             </select>
           </div>
         </div>
@@ -1090,7 +1128,7 @@ function LayerRow({
             </button>
             <div className="text-xs w-20 shrink-0">
               {testState === 'ok'      && <span className="text-green-400">{testLatency != null ? `\u2713 ${testLatency}ms` : '\u2713 OK'}</span>}
-              {testState === 'fail'    && <span className="text-red-400" title={testError}>\u2717 Error</span>}
+              {testState === 'fail'    && <span className="text-red-400" title={testError}>{'\u2717'} Error</span>}
               {testState === 'testing' && <span className="text-muted-foreground">...</span>}
             </div>
           </div>
@@ -1242,7 +1280,7 @@ function WorkerClassesPanel({
 
   function startAdd() {
     if (editingSection !== null) return;
-    const wc: WorkerClass = { ...EMPTY_WORKER_CLASS, id: crypto.randomUUID() };
+    const wc: WorkerClass = { ...EMPTY_WORKER_CLASS, id: newId() };
     setDraft(wc);
     setIsAdding(true);
     setEditingId(wc.id);
@@ -1471,24 +1509,11 @@ function WorkerClassesPanel({
               value={getSourceValue(draft)}
               onChange={e => handleSourceChange(e.target.value)}
             >
-              {endpoints.length > 0 && (
-                <optgroup label="My Providers">
-                  {endpoints.map(ep => {
-                    const st = endpointStatuses.find(s => s.id === ep.id);
-                    const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
-                    return (
-                      <option key={ep.id} value={`ep:${ep.id}`}>
-                        {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              )}
-              <optgroup label="Cloud Providers">
-                {providers.map(p => (
-                  <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
-                ))}
-              </optgroup>
+              <SourceOptions
+                providers={providers}
+                endpoints={endpoints}
+                endpointStatuses={endpointStatuses}
+              />
             </select>
           </div>
 
@@ -1679,7 +1704,7 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
       });
       apiFetch<{ prompt: string }>(`/api/models/benchmark/prompt?${params}`)
         .then(data => {
-          if (!promptEdited) setPrompt(data.prompt);
+          setPrompt(data.prompt);
         })
         .catch(() => {
           // Fallback: generic prompt
@@ -1819,24 +1844,11 @@ function ComparisonPanel({ providers, endpoints, endpointStatuses, workerClasses
           value={slot.sourceValue}
           onChange={e => handleSourceChange(e.target.value, setSlot)}
         >
-          {endpoints.length > 0 && (
-            <optgroup label="My Providers">
-              {endpoints.map(ep => {
-                const st = endpointStatuses.find(s => s.id === ep.id);
-                const dot = st ? (st.reachable ? '\u25CF ' : '\u25CB ') : '  ';
-                return (
-                  <option key={ep.id} value={`ep:${ep.id}`}>
-                    {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
-                  </option>
-                );
-              })}
-            </optgroup>
-          )}
-          <optgroup label="Cloud Providers">
-            {providers.map(p => (
-              <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
-            ))}
-          </optgroup>
+          <SourceOptions
+            providers={providers}
+            endpoints={endpoints}
+            endpointStatuses={endpointStatuses}
+          />
         </select>
         <div className="flex items-center gap-1.5">
           {showDropdown ? (
@@ -2350,29 +2362,12 @@ function DefaultWorkerModelSection({
               value={selectionValue}
               onChange={e => handleSelectionChange(e.target.value)}
             >
-              <optgroup label="Layer Aliases">
-                {LAYER_ALIAS_OPTIONS.map(o => (
-                  <option key={o.value} value={`alias:${o.value}`}>{o.label}</option>
-                ))}
-              </optgroup>
-              {endpoints.length > 0 && (
-                <optgroup label="My Providers">
-                  {endpoints.map(ep => {
-                    const st = endpointStatuses.find(s => s.id === ep.id);
-                    const dot = st ? (st.reachable ? '● ' : '○ ') : '  ';
-                    return (
-                      <option key={ep.id} value={`ep:${ep.id}`}>
-                        {dot}{ep.name || shortUrl(ep.url)} ({providerLabel(ep.provider_type)})
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              )}
-              <optgroup label="Cloud Providers">
-                {providers.map(p => (
-                  <option key={p.type} value={`pt:${p.type}`}>{p.label}</option>
-                ))}
-              </optgroup>
+              <SourceOptions
+                providers={providers}
+                endpoints={endpoints}
+                endpointStatuses={endpointStatuses}
+                aliasOptions={LAYER_ALIAS_OPTIONS}
+              />
             </select>
           </div>
         </div>
@@ -2605,22 +2600,24 @@ export function ModelPanel() {
         </p>
       </div>
 
-      {/* ── Section 1: Machines Grid ── */}
-      <Controller
-        control={control}
-        name="endpoints"
-        render={({ field }) => (
-          <MachinesGrid
-            endpoints={field.value ?? []}
-            onChange={field.onChange}
-            providers={providers}
-            endpointStatuses={endpointStatuses}
-            editingSection={editingSection}
-            setEditingSection={setEditingSection}
-            saveAll={saveAll}
-          />
-        )}
-      />
+      {/* ── Section 1: Providers Grid ── */}
+      <div data-section="my-providers">
+        <Controller
+          control={control}
+          name="endpoints"
+          render={({ field }) => (
+            <MachinesGrid
+              endpoints={field.value ?? []}
+              onChange={field.onChange}
+              providers={providers}
+              endpointStatuses={endpointStatuses}
+              editingSection={editingSection}
+              setEditingSection={setEditingSection}
+              saveAll={saveAll}
+            />
+          )}
+        />
+      </div>
 
       {/* ── Section 2: Layers ── */}
       <div className="flex flex-col gap-3">
@@ -2664,23 +2661,25 @@ export function ModelPanel() {
       />
 
       {/* ── Section 3: Worker Classes ── */}
-      <Controller
-        control={control}
-        name="worker_classes"
-        render={({ field }) => (
-          <WorkerClassesPanel
-            workerClasses={field.value ?? []}
-            onChange={field.onChange}
-            providers={providers}
-            endpoints={endpoints}
-            endpointStatuses={endpointStatuses}
-            editingSection={editingSection}
-            setEditingSection={setEditingSection}
-            saveAll={saveAll}
-            isSaving={saveMutation.isPending}
-          />
-        )}
-      />
+      <div data-section="worker-classes">
+        <Controller
+          control={control}
+          name="worker_classes"
+          render={({ field }) => (
+            <WorkerClassesPanel
+              workerClasses={field.value ?? []}
+              onChange={field.onChange}
+              providers={providers}
+              endpoints={endpoints}
+              endpointStatuses={endpointStatuses}
+              editingSection={editingSection}
+              setEditingSection={setEditingSection}
+              saveAll={saveAll}
+              isSaving={saveMutation.isPending}
+            />
+          )}
+        />
+      </div>
 
       {/* ── Section 4: LLM Comparison ── */}
       <ComparisonPanel

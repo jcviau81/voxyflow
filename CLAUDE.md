@@ -21,7 +21,7 @@ Spawns `claude -p` subprocesses. Uses Claude Max subscription directly.
 - **File**: `backend/app/services/llm/cli_backend.py`
 - Chat layers: streaming via `--output-format stream-json`, MCP tools for inline ops
 - Workers: non-streaming with `--mcp-config` for full Voxyflow MCP tool access
-- Delegates: XML `<delegate>` blocks in text (parsed by orchestrator)
+- Delegates: `voxyflow.delegate` MCP tool_use (native tool call, no XML markup)
 - Personality mode: `native_tools="claude_cli_mcp"` in personality_service.py
 - Permissions: `--permission-mode bypassPermissions` (MCP tools are our own REST API)
 - `--strict-mcp-config` prevents Claude Code's own MCP servers from polluting context
@@ -34,7 +34,7 @@ Spawns `codex exec --json` subprocesses. Uses the local Codex CLI login and can 
 - Prompt input: stdin; output parsing: Codex JSONL events (`thread.started`, `turn.completed.usage`, `item.completed`, `mcp_tool_call`, `command_execution`, `turn.failed`)
 - MCP loading: per-call `-c mcp_servers.*` overrides; never mutates `~/.codex/config.toml`
 - Personality mode: `native_tools="codex_mcp"`
-- Dispatcher MCP role: `dispatcher_codex`, backed by `TOOLS_DISPATCHER_CODEX` read-only tools
+- Dispatcher MCP role: `dispatcher_codex`, backed by `TOOLS_DISPATCHER_CODEX` (same inline tools as the Claude dispatcher; the role stays separate only for the Codex-specific prompt)
 - Worker lifecycle fallback: fenced JSON blocks `voxyflow_worker_claim` and `voxyflow_worker_complete`
 - Capacity handling: detects `Selected model is at capacity`, dedupes repeated errors, and retries fallback models (`gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.5`, `gpt-5.2`)
 
@@ -122,7 +122,7 @@ Memory context injection uses three tiers with token budgets:
 
 ## Tool Access Architecture — Dispatcher vs Worker
 
-**This is a hard boundary.** Tool access is determined by role, not by model tier. Fast and deep dispatchers normally get the same dispatcher tools; the model choice only changes reasoning/cost. Codex CLI is the deliberate exception: Codex dispatchers use the stricter `dispatcher_codex` role to keep them read-only and delegation-first. Workers run in background subprocesses and get full MCP tool access.
+**This is a hard boundary.** Tool access is determined by role, not by model tier. Fast and deep dispatchers normally get the same dispatcher tools; the model choice only changes reasoning/cost. Codex dispatchers use a distinct `dispatcher_codex` role, but it now carries the **same inline toolset** as the Claude dispatcher (it was formerly read-only, which made Codex spawn workers for trivial CRUD); the role stays separate only so the Codex prompt can differ. Workers run in background subprocesses and get full MCP tool access.
 
 ### Dispatcher (fast + deep chat) — `TOOLS_DISPATCHER`
 Lightweight, non-blocking tools only. The dispatcher streams responses to the user
@@ -145,7 +145,7 @@ with `task.peek`/`task.cancel` for worker control. `kg.*` is dispatcher-allowed
 too — temporal model is local + reversible, no reason to spawn a worker.)
 
 ### Codex Dispatcher — `TOOLS_DISPATCHER_CODEX`
-Read-only inspection tools only. Codex dispatchers can inspect workspaces/cards/wiki/docs/jobs, memory and knowledge search, KG query/timeline/stats, sessions, endpoints, undo history, worker results, and `task.peek`. They should delegate action work instead of mutating state inline.
+`TOOLS_DISPATCHER_CODEX = set(TOOLS_DISPATCHER)` — the Codex dispatcher gets the **same inline tools** as the Claude dispatcher (full kanban/memory/KG CRUD incl. row-level sub-resources and deletes, worker monitoring + `ack_artifact`, `task.peek`, `voxyflow.delegate`). It was formerly a read-only subset, but that made Codex spawn a worker for trivial ops (e.g. "clean up the cards" → delegate a worker to delete cards). The Codex prompt (`_build_codex_mcp_delegate_instructions`) steers it to do instant/local CRUD inline (single-user DB + undo journal make that safe) and delegate only subprocess/heavy work. The role stays separate so the Codex prompt — fenced-fallback handling, `voxyflow.workers` action surface — can differ.
 
 ### Worker — `TOOLS_WORKER`
 Full MCP tool access. Workers run as background subprocesses spawned via
@@ -177,8 +177,8 @@ When adding new tools: add to `TOOLS_WORKER` in `registry.py`. Only add to `TOOL
 1. User message → `chat_fast_stream()` or `chat_deep_stream()` (model selection only)
 2. System prompt built (personality + dispatcher + delegate instructions)
 3. Provider path runs the selected dispatcher model (`claude -p`, `codex exec --json`, or API provider) with the matching dispatcher tool role
-4. Model responds conversationally + calls allowed dispatcher tools inline + emits `<delegate>` for complex/action tasks
-5. Orchestrator parses `<delegate>` blocks → spawns workers (with full `TOOLS_WORKER` access)
+4. Model responds conversationally + calls allowed dispatcher tools inline + calls `voxyflow.delegate` for complex/action tasks
+5. Orchestrator collects `voxyflow.delegate` tool_use calls → spawns workers (with full `TOOLS_WORKER` access)
 
 ## Dev Restart
 Backend runs via systemd (uvicorn on port 8000), frontend built with Vite and served via a reverse proxy.

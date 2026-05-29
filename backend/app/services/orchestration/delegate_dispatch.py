@@ -1,7 +1,7 @@
 """Delegate dispatch + direct-action pipeline — extracted from chat_orchestration.
 
 Handles the post-stream work that follows a dispatcher response:
-  - Parsing <delegate> JSON blocks and native delegate_action tool_use blocks
+  - Handling native voxyflow.delegate tool_use blocks
   - Dispatching eligible read/write actions directly (DirectExecutor)
   - Deduplicating against active workers, then emitting ActionIntent events
   - Running the destructive-action confirmation gate
@@ -11,13 +11,15 @@ top-level orchestrator file navigable. The mixin depends on instance
 state set up by ChatOrchestrator.__init__ (``self._claude``,
 ``self._worker_pools``, ``self._pending_confirms*``, ``self.start_worker_pool``,
 ``self._handle_message_inner``) — it is not usable standalone.
+
+NOTE (2026-05-27): The legacy ``<delegate>`` XML markup parser has been removed.
+All dispatchers must use the native ``voxyflow.delegate`` MCP tool_use path.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import re
 import time
 from uuid import uuid4
 
@@ -39,13 +41,6 @@ class DelegateDispatchMixin:
     usual attributes (self._claude, self._worker_pools, self._pending_confirms,
     self._pending_confirms_lock, and self._handle_message_inner).
     """
-
-    async def _parse_and_emit_delegates_safe(self, **kwargs) -> None:
-        """Wrapper that catches errors so background task doesn't crash silently."""
-        try:
-            await self._parse_and_emit_delegates(**kwargs)
-        except Exception as e:
-            logger.error(f"[Orchestrator] Background delegate parsing failed: {e}", exc_info=True)
 
     async def _emit_native_delegates_safe(self, **kwargs) -> None:
         """Wrapper for native delegate emission."""
@@ -84,7 +79,7 @@ class DelegateDispatchMixin:
             logger.error(f"[Orchestrator] Memory auto-extraction failed: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
-    # Deduplication helper (shared by native + XML paths)
+    # Deduplication helper (native voxyflow.delegate path)
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -262,10 +257,10 @@ class DelegateDispatchMixin:
         chat_id: str | None = None,
         callback_depth: int = 0,
     ) -> None:
-        """Convert native delegate_action tool_use blocks to ActionIntent events.
+        """Convert native voxyflow.delegate tool_use blocks to ActionIntent events.
 
-        This is the structured counterpart to _parse_and_emit_delegates — same output,
-        but the input is already parsed JSON from Claude's tool_use (no regex needed).
+        Input is already parsed JSON from Claude's tool_use (no regex needed).
+        This is the only active delegate emission path since 2026-05-27.
         """
         if not delegates:
             return
@@ -369,146 +364,6 @@ class DelegateDispatchMixin:
                 await bus.emit(event)
                 get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
                 logger.info(f"[Orchestrator] Emitted native delegate: {intent} → task {task_id} (model={model}, cb_depth={callback_depth})")
-
-        await asyncio.shield(_emit_all())
-
-    # ------------------------------------------------------------------
-    # Event Bus: Delegate parsing (XML fallback)
-    # ------------------------------------------------------------------
-
-    _DELEGATE_PATTERN = re.compile(
-        r'<delegate>\s*(\{.*?\})\s*</delegate>',
-        re.DOTALL,
-    )
-
-    async def _parse_and_emit_delegates(
-        self,
-        fast_response: str,
-        session_id: str,
-        websocket: WebSocket,
-        workspace_name: str | None = None,
-        chat_level: str = "general",
-        project_context: dict | None = None,
-        card_context: dict | None = None,
-        workspace_id: str | None = None,
-        chat_id: str | None = None,
-        callback_depth: int = 0,
-    ) -> None:
-        """Parse <delegate> blocks from the Fast response and emit ActionIntent events."""
-        # Debug: log the tail of the response to verify delegate blocks are present
-        response_preview = fast_response[-300:] if len(fast_response) > 300 else fast_response
-        logger.info(f"[Orchestrator] Parsing delegates from response (len={len(fast_response)}), tail: {response_preview!r}")
-        matches = self._DELEGATE_PATTERN.findall(fast_response)
-        if not matches:
-            return
-
-        # First pass: separate direct-eligible delegates from worker delegates
-        parsed_delegates = []
-        for match in matches:
-            try:
-                data = json.loads(match)
-                parsed_delegates.append(data)
-            except (json.JSONDecodeError, Exception) as e:
-                logger.warning(f"[Orchestrator] Failed to parse delegate block: {e}")
-
-        # Read actions now execute direct — results injected via worker feedback loop.
-        worker_delegates = []
-        for data in parsed_delegates:
-            if DirectExecutor.is_direct_eligible(data):
-                logger.info(f"[Orchestrator] Fast-path direct (XML): {data.get('action')} (skipping worker)")
-                await self._execute_direct_action(
-                    data=data,
-                    websocket=websocket,
-                    session_id=session_id,
-                    workspace_id=workspace_id,
-                    chat_id=chat_id,
-                )
-            else:
-                worker_delegates.append(data)
-
-        if not worker_delegates:
-            return
-
-        # Ensure worker pool is running (also updates WS on reconnect)
-        self.start_worker_pool(session_id, websocket)
-
-        # --- Deduplication ---
-        worker_delegates, skipped = self._dedup_delegates(
-            worker_delegates, self._worker_pools.get(session_id)
-        )
-        if skipped:
-            await self._notify_delegates_skipped(
-                websocket=websocket,
-                session_id=session_id,
-                chat_id=chat_id,
-                skipped=skipped,
-            )
-        if not worker_delegates:
-            return
-
-        bus = event_bus_registry.get_or_create(session_id)
-
-        # Shield the emit loop so that a WebSocket-disconnect cancel on the
-        # parent background task does not interrupt mid-spawn.
-        async def _emit_all() -> None:
-            for data in worker_delegates:
-                try:
-                    intent = data.get("intent") or data.get("action") or "unknown"
-                    summary = data.get("summary") or data.get("description") or ""
-                    complexity = data.get("complexity") or "simple"
-
-                    resolved = resolve_worker_model(
-                        data=data,
-                        card_context=card_context,
-                        intent=intent,
-                        complexity=complexity,
-                    )
-                    model = resolved.model
-                    _worker_class_id_override = resolved.worker_class_id
-                    intent_type = resolved.intent_type
-
-                    task_id = f"task-{uuid4().hex[:8]}"
-
-                    # Extract card_id from card_context for direct access
-                    card_id = card_context.get("id") if card_context else None
-                    # Same-turn linkage (see _emit_native_delegates for rationale).
-                    if not card_id:
-                        card_id = data.get("card_id") or turn_card_registry.pop_created_card(chat_id or "")
-
-                    event_data = {
-                        "workspace_name": workspace_name,
-                        "chat_level": chat_level,
-                        "project_context": project_context,
-                        "card_context": card_context,
-                        "card_id": card_id,
-                        "dispatcher_chat_id": chat_id,
-                        **data,  # Include original delegate data
-                        # Fallback chain: delegate.data['workspace_id'] → session workspace_id → None
-                        "workspace_id": data.get("workspace_id") or workspace_id,
-                    }
-                    # Restore card_id after spread (data['card_id'] would overwrite with None)
-                    event_data["card_id"] = card_id
-                    if _worker_class_id_override:
-                        event_data["worker_class_id"] = _worker_class_id_override
-
-                    event = ActionIntent(
-                        task_id=task_id,
-                        intent_type=intent_type,
-                        intent=intent,
-                        summary=summary,
-                        data=event_data,
-                        session_id=session_id,
-                        complexity=complexity,
-                        model=model,
-                        callback_depth=callback_depth,
-                    )
-
-                    await bus.emit(event)
-                    get_timeline().record(session_id, "delegated", intent, task_id=task_id, model=model, summary=summary)
-                    logger.info(f"[Orchestrator] Emitted delegate: {intent} → task {task_id} (cb_depth={callback_depth})")
-
-                except Exception as e:
-                    logger.warning(f"[Orchestrator] Failed to emit delegate: {e}")
 
         await asyncio.shield(_emit_all())
 
@@ -757,7 +612,7 @@ class DelegateDispatchMixin:
                     parts.append("- [{}] {} (id: {})".format(s, t, cid))
                 return "\n".join(parts)
             return "card.list completed ({} ms)".format(duration)
-        elif action in ("workspace.list", "list_projects"):
+        elif action in ("workspace.list", "list_workspaces"):
             if isinstance(api_result, list):
                 count = len(api_result)
                 parts = ["Found {} workspace(s):".format(count)]

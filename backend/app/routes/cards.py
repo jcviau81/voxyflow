@@ -1274,8 +1274,18 @@ async def list_relations(
 
     all_relations = []
 
+    # Batch-fetch related cards to avoid N+1 db.get calls.
+    related_ids = {rel.target_card_id for rel in src_results}
+    related_ids |= {rel.source_card_id for rel in tgt_results}
+    related_by_id: dict[str, Card] = {}
+    if related_ids:
+        related_cards = (
+            await db.execute(select(Card).where(Card.id.in_(related_ids)))
+        ).scalars().all()
+        related_by_id = {c.id: c for c in related_cards}
+
     for rel in src_results:
-        related = await db.get(Card, rel.target_card_id)
+        related = related_by_id.get(rel.target_card_id)
         if related:
             all_relations.append(RelationResponse(
                 id=rel.id,
@@ -1289,7 +1299,7 @@ async def list_relations(
             ))
 
     for rel in tgt_results:
-        related = await db.get(Card, rel.source_card_id)
+        related = related_by_id.get(rel.source_card_id)
         if related:
             # Invert display: from the perspective of this card (target)
             display_type = _invert_relation_type(rel.relation_type)
@@ -1414,12 +1424,12 @@ async def enrich_card(
     except (json.JSONDecodeError, KeyError) as e:
         logger.error(f"enrich_card: parse error for card_id={card_id!r}: {e}")
         raise HTTPException(500, f"Enrichment failed: could not parse AI response")
-    except httpx.HTTPError as e:
-        logger.error(f"enrich_card: HTTP error for card_id={card_id!r}: {e}")
-        raise HTTPException(502, f"Enrichment failed: upstream API error")
     except httpx.TimeoutException as e:
         logger.error(f"enrich_card: timeout for card_id={card_id!r}: {e}")
         raise HTTPException(504, f"Enrichment failed: upstream timeout")
+    except httpx.HTTPError as e:
+        logger.error(f"enrich_card: HTTP error for card_id={card_id!r}: {e}")
+        raise HTTPException(502, f"Enrichment failed: upstream API error")
 
 
 # ── Card File References ─────────────────────────────────────────────────────

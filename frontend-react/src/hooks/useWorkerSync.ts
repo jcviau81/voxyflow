@@ -12,6 +12,7 @@
 import { useEffect } from 'react';
 import { useWS } from '../providers/WebSocketProvider';
 import { useWorkerStore } from '../stores/useWorkerStore';
+import { useMessageStore } from '../stores/useMessageStore';
 
 export function useWorkerSync(): void {
   const { subscribe } = useWS();
@@ -29,6 +30,8 @@ export function useWorkerSync(): void {
     purgeExpired,
   } = useWorkerStore();
 
+  const { attachDelegateToLastMessage } = useMessageStore();
+
   // ── Load snapshot on mount (all workspaces) ─────────────────────────────
   useEffect(() => {
     void loadSnapshot(null);
@@ -37,7 +40,26 @@ export function useWorkerSync(): void {
   // ── WS event subscriptions ─────────────────────────────────────────────
   useEffect(() => {
     const unsubs = [
-      subscribe('task:started', handleTaskStarted),
+      subscribe('task:started', (payload) => {
+        // Forward to worker store for panel tracking
+        handleTaskStarted(payload);
+        // Attach delegate badge to the triggering message (dispatched from a chat session)
+        const sessionId = (payload.sessionId as string) ?? '';
+        const taskId = (payload.taskId as string) ?? '';
+        if (sessionId && taskId) {
+          const action = (payload.intent as string) || 'unknown';
+          const description = (payload.summary as string) || '';
+          const complexity = payload.complexity as 'simple' | 'standard' | 'complex' | undefined;
+          const card_id = (payload.cardId as string) || undefined;
+          attachDelegateToLastMessage(sessionId, {
+            action,
+            description,
+            complexity,
+            card_id,
+            _task_id: taskId,
+          });
+        }
+      }),
       subscribe('task:progress', handleTaskProgress),
       subscribe('task:completed', handleTaskCompleted),
       subscribe('task:cancelled', handleTaskCancelled),
@@ -72,6 +94,7 @@ export function useWorkerSync(): void {
     handleCliSessionStarted,
     handleCliSessionEnded,
     handleJobSessionStarted,
+    attachDelegateToLastMessage,
   ]);
 
   // ── Visibility re-sync ────────────────────────────────────────────────

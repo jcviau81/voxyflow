@@ -25,6 +25,11 @@ from app.services.logging_config import bind_contextvars
 
 logger = logging.getLogger(__name__)
 
+# Debounce window after first steer directive fires: gives rapid second directives
+# time to arrive in message_queue before spawning the resume.  Configurable at
+# import time for tests (patch app.services.llm.codex_backend._STEER_DEBOUNCE_SECS).
+_STEER_DEBOUNCE_SECS: float = 0.8
+
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent.parent
 _MCP_STDIO_PATH = _BACKEND_DIR / "mcp_stdio.py"
 _VOXYFLOW_ROOT = _BACKEND_DIR.parent
@@ -156,16 +161,34 @@ def _codex_tool_name_to_mcp(raw_tool: str) -> str:
     return candidate.replace("_", ".", 1)
 
 
+@dataclass
+class _CallContext:
+    """Per-call mutable state for a single ``_call_once`` invocation.
+
+    The backend is used as a singleton across concurrent calls, so steer /
+    thread / usage state MUST NOT live on instance fields — otherwise tasks
+    race (steer resumes the wrong thread, directives mix across tasks, usage
+    is mis-attributed). Each ``_call_once`` owns one of these.
+    """
+    thread_id: str = ""
+    usage: dict = field(default_factory=dict)
+    pending_steer_directives: list[str] = field(default_factory=list)
+    last_steer_at: float = 0.0
+
+
 @dataclass(frozen=True)
 class CodexCallResult:
     ok: bool
     cancelled: bool
     response: str
+    steered: bool = False   # True when cancelled mid-exec by a steer directive
     usage: dict = field(default_factory=dict)
+    thread_id: str = ""
+    steer_directives: tuple[str, ...] = ()
 
     @classmethod
-    def success(cls, response: str, usage: dict) -> "CodexCallResult":
-        return cls(ok=True, cancelled=False, response=response, usage=usage)
+    def success(cls, response: str, usage: dict, thread_id: str = "") -> "CodexCallResult":
+        return cls(ok=True, cancelled=False, response=response, usage=usage, thread_id=thread_id)
 
     @classmethod
     def error(cls, response: str) -> "CodexCallResult":
@@ -175,14 +198,26 @@ class CodexCallResult:
     def cancel(cls) -> "CodexCallResult":
         return cls(ok=False, cancelled=True, response="[Task cancelled by supervisor]", usage={})
 
+    @classmethod
+    def steer(cls, thread_id: str, directives: list[str]) -> "CodexCallResult":
+        """Returned when a steer directive caused proc cancellation; resume needed."""
+        return cls(
+            ok=False, cancelled=False, response="", steered=True, usage={},
+            thread_id=thread_id, steer_directives=tuple(directives),
+        )
+
 
 class CodexCliBackend:
     """Manages Codex CLI subprocess calls."""
 
     def __init__(self, cli_path: str = "codex"):
         self._configured_cli_path = cli_path
+        # Snapshots of the LAST completed call, for the external last_usage /
+        # last_thread_id properties only. All per-call/steer state lives in a
+        # _CallContext local to each _call_once — see _CallContext docstring.
         self._last_usage: dict = {}
         self._last_thread_id: str = ""
+        # chat_id -> thread_id mapping for resume across calls (correct: keyed).
         self._thread_ids_by_chat: dict[str, str] = {}
 
     @property
@@ -199,6 +234,18 @@ class CodexCliBackend:
 
     def get_thread_id(self, chat_id: str) -> str:
         return self._thread_ids_by_chat.get(chat_id, "")
+
+    def _build_steer_prompt(self, directives: list[str]) -> str:
+        """Build the resume prompt that injects steer directive(s) for cancel+resume."""
+        if len(directives) == 1:
+            directive_text = directives[0]
+        else:
+            directive_text = "\n".join(f"- {d}" for d in directives)
+        return (
+            f"[STEER] L'utilisateur a injecté la directive suivante mid-execution: "
+            f"{directive_text}\n\n"
+            "[CONTINUE] Reprends en tenant compte de cette nouvelle instruction."
+        )
 
     def _build_args(
         self,
@@ -376,7 +423,14 @@ class CodexCliBackend:
         cwd: str = "",
         sandbox: str = "workspace-write",
     ) -> tuple[str, dict]:
-        """Run one Codex exec turn and return ``(response_text, usage)``."""
+        """Run one Codex exec turn and return ``(response_text, usage)``.
+
+        When a steer directive is received mid-execution (via message_queue),
+        the running ``codex exec`` process is cancelled and a new
+        ``codex exec resume <thread_id>`` is spawned with the directive
+        prepended as a [STEER]/[CONTINUE] prompt.  Multiple directives
+        arriving within 800 ms are accumulated into a single resume prompt.
+        """
         prompt = _format_prompt(system, messages)
         fallback_models = [model] + _capacity_fallback_models(model)
         last_result: CodexCallResult | None = None
@@ -411,6 +465,58 @@ class CodexCliBackend:
                 card_id=card_id,
             )
             last_result = result
+
+            # ── Steer cancel+resume path ──────────────────────────────────────
+            if result.steered:
+                # Per-call directives collected by _call_once before it returned.
+                directives = list(result.steer_directives)
+                # Debounce: let rapid second directives land in the queue.
+                await asyncio.sleep(_STEER_DEBOUNCE_SECS)
+                # Drain any additional directives accumulated during debounce.
+                while message_queue and not message_queue.empty():
+                    try:
+                        extra = message_queue.get_nowait()
+                        directives.append(extra)
+                    except asyncio.QueueEmpty:
+                        break
+                thread_id = result.thread_id
+                if not thread_id:
+                    logger.warning(
+                        "[CodexCLI] Steer received but no thread_id available; cannot resume"
+                    )
+                    return "[Steer failed: no active thread_id to resume]", {}
+                steer_prompt = self._build_steer_prompt(directives)
+                steer_start = time.monotonic()
+                logger.info(
+                    "[CodexCLI] Steer cancel+resume: thread_id=%r directives=%d prompt_len=%d",
+                    thread_id, len(directives), len(steer_prompt),
+                )
+                steer_result = await self._call_once(
+                    model=candidate_model,
+                    prompt=steer_prompt,
+                    cancel_event=cancel_event,
+                    tool_callback=tool_callback,
+                    resume_thread_id=thread_id,
+                    message_queue=message_queue,
+                    session_id=session_id,
+                    chat_id=chat_id,
+                    workspace_id=workspace_id,
+                    session_type=session_type,
+                    task_id=task_id,
+                    cwd=cwd,
+                    sandbox=sandbox,
+                    use_tools=use_tools,
+                    mcp_role=mcp_role,
+                    card_id=card_id,
+                )
+                elapsed_ms = (time.monotonic() - steer_start) * 1000
+                logger.info(
+                    "[CodexCLI] Steer resume complete: thread_id=%r elapsed=%.0fms ok=%s",
+                    thread_id, elapsed_ms, steer_result.ok,
+                )
+                return steer_result.response, steer_result.usage
+            # ─────────────────────────────────────────────────────────────────
+
             if result.ok or not _is_capacity_error(result.response):
                 return result.response, result.usage
         assert last_result is not None
@@ -462,6 +568,9 @@ class CodexCliBackend:
             cwd=cwd or None,
         )
 
+        # Per-call state — never instance fields (singleton races across calls).
+        ctx = _CallContext()
+
         _cancel = cancel_event or asyncio.Event()
         _reg_id = new_cli_session_id()
         get_cli_session_registry().register(CliSession(
@@ -494,8 +603,60 @@ class CodexCliBackend:
                     pass
             cancel_task = asyncio.create_task(_watch_cancel())
 
+        # ── Steer watcher ────────────────────────────────────────────────────
+        # Watches message_queue for steering directives injected mid-execution.
+        # On first directive: cancel running proc (triggers resume in call()).
+        # Post-completion directives are logged as no-op and discarded.
+        steer_task = None
+        if message_queue:
+            async def _watch_steer_queue():
+                while proc.returncode is None:
+                    try:
+                        directive = await asyncio.wait_for(
+                            message_queue.get(), timeout=0.5
+                        )
+                    except asyncio.TimeoutError:
+                        continue
+                    except asyncio.CancelledError:
+                        return
+                    # Race guard: proc may have naturally exited while we waited.
+                    if proc.returncode is not None:
+                        logger.debug(
+                            "[CodexCLI] Steer arrived post-completion (no-op): %r",
+                            directive[:80],
+                        )
+                        return
+                    if not ctx.thread_id:
+                        # thread_id not parsed from the event stream yet (steer
+                        # arrived before thread.started). Don't drop it — re-queue
+                        # and keep watching so an early directive is still applied
+                        # once the thread_id is known a tick later.
+                        logger.debug(
+                            "[CodexCLI] Steer received before thread_id known; "
+                            "re-queueing directive: %r", directive[:80],
+                        )
+                        await message_queue.put(directive)
+                        await asyncio.sleep(0.05)
+                        continue
+                    # Accumulate and trigger cancel.
+                    ctx.pending_steer_directives.append(directive)
+                    ctx.last_steer_at = time.monotonic()
+                    logger.info(
+                        "[CodexCLI] Steer mid-execution: thread_id=%r directive=%r — "
+                        "cancelling proc for cancel+resume",
+                        ctx.thread_id, directive[:80],
+                    )
+                    try:
+                        proc.terminate()
+                    except ProcessLookupError:
+                        pass
+                    # Break: one cancel is enough; rapid 2nd directives are
+                    # collected during the debounce window in call().
+                    return
+            steer_task = asyncio.create_task(_watch_steer_queue())
+        # ─────────────────────────────────────────────────────────────────────
+
         response_parts: list[str] = []
-        usage: dict = {}
         stderr_task = asyncio.create_task(proc.stderr.read())
         assert proc.stdin is not None
         proc.stdin.write(prompt.encode("utf-8"))
@@ -503,6 +664,7 @@ class CodexCliBackend:
         proc.stdin.close()
         await proc.stdin.wait_closed()
 
+        stdout_failed = False
         try:
             assert proc.stdout is not None
             async for raw_line in proc.stdout:
@@ -517,19 +679,39 @@ class CodexCliBackend:
                 await self._handle_event(
                     event,
                     response_parts,
-                    usage,
+                    ctx,
                     tool_callback,
                     chat_id=chat_id,
                 )
+        except BaseException:
+            stdout_failed = True
+            raise
         finally:
             get_cli_session_registry().deregister(_reg_id)
+            if steer_task:
+                steer_task.cancel()
+                try:
+                    await steer_task
+                except asyncio.CancelledError:
+                    pass
             if cancel_task:
                 cancel_task.cancel()
                 try:
                     await cancel_task
                 except asyncio.CancelledError:
                     pass
-            if message_queue:
+            # If the stdout loop raised, stderr_task would otherwise leak
+            # pending — it's only awaited on the normal path below. Cancel it
+            # here so it never outlives _call_once.
+            if stdout_failed and not stderr_task.done():
+                stderr_task.cancel()
+                try:
+                    await stderr_task
+                except asyncio.CancelledError:
+                    pass
+            # Drain message_queue only when no steer is pending; if steer was
+            # triggered, call() needs the queue intact for the debounce window.
+            if message_queue and not ctx.pending_steer_directives:
                 while not message_queue.empty():
                     try:
                         message_queue.get_nowait()
@@ -541,6 +723,13 @@ class CodexCliBackend:
 
         if cancel_event and cancel_event.is_set():
             return CodexCallResult.cancel()
+        # Steer path: proc was terminated by _watch_steer_queue(); signal caller.
+        if ctx.pending_steer_directives:
+            logger.debug(
+                "[CodexCLI] Proc exited due to steer (returncode=%s); "
+                "signalling cancel+resume to call()", proc.returncode,
+            )
+            return CodexCallResult.steer(ctx.thread_id, ctx.pending_steer_directives)
         if proc.returncode != 0:
             detail = stderr_text or _dedupe_lines(response_parts)
             if not detail:
@@ -548,6 +737,8 @@ class CodexCliBackend:
             logger.error("[CodexCLI] Process exited with code %s: %s", proc.returncode, detail[:500])
             return CodexCallResult.error(f"[Codex CLI error: {detail}]")
 
+        usage = ctx.usage
+        # Snapshot for the external last_usage property (last-completed call).
         self._last_usage = usage
         response = "\n\n".join(part for part in response_parts if part).strip()
         logger.info(
@@ -556,28 +747,31 @@ class CodexCliBackend:
             usage.get("input_tokens", 0),
             usage.get("output_tokens", 0),
         )
-        return CodexCallResult.success(response, usage)
+        return CodexCallResult.success(response, usage, ctx.thread_id)
 
     async def _handle_event(
         self,
         event: dict,
         response_parts: list[str],
-        usage: dict,
+        ctx: "_CallContext",
         tool_callback: Optional[Callable],
         *,
         chat_id: str = "",
     ) -> None:
         event_type = event.get("type")
         if event_type == "thread.started":
-            self._last_thread_id = event.get("thread_id", "") or ""
-            if chat_id and self._last_thread_id:
-                self._thread_ids_by_chat[chat_id] = self._last_thread_id
+            thread_id = event.get("thread_id", "") or ""
+            ctx.thread_id = thread_id
+            # Snapshot for the external last_thread_id property.
+            self._last_thread_id = thread_id
+            if chat_id and thread_id:
+                self._thread_ids_by_chat[chat_id] = thread_id
             return
         if event_type == "turn.completed":
             raw_usage = event.get("usage")
             if isinstance(raw_usage, dict):
-                usage.clear()
-                usage.update(raw_usage)
+                ctx.usage.clear()
+                ctx.usage.update(raw_usage)
             return
         if event_type == "error":
             message = _extract_codex_error_message(event.get("message") or event)

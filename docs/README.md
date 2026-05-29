@@ -41,7 +41,7 @@ Voxyflow is a voice-first workspace management assistant that lives locally. You
 │  ┌──────────────────────────────────────────────────┐   │
 │  │  Chat Agent (Dispatcher)                          │   │
 │  │  TOOLS_DISPATCHER or TOOLS_DISPATCHER_CODEX       │   │
-│  │  Converses + inspects state + emits <delegate>    │   │
+│  │  Converses + inspects state + calls voxyflow.delegate │  │
 │  └───────┬──────────────────────────────────────────┘   │
 │          │ dispatches                                   │
 │  ┌───────▼──────────────────────────────────────────┐   │

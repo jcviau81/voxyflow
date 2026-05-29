@@ -151,15 +151,23 @@ class SteerableMixin:
         )
 
         await gate.acquire(is_worker=_is_worker)
-        # gate.release() in the finally block below
-        proc = await asyncio.create_subprocess_exec(
-            self.cli_path, *args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
-            cwd=cwd or None,
-        )
+        # NOTE: gate.release() runs in the finally block below. Subprocess spawn
+        # is guarded so the gate is released if create_subprocess_exec fails;
+        # everything after spawn (initial stdin write, steer task, streaming
+        # loop) runs INSIDE the try so the slot is always released on any error
+        # or cancellation.
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.cli_path, *args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=16 * 1024 * 1024,  # 16MB line limit (default 64KB too small for large tool results)
+                cwd=cwd or None,
+            )
+        except BaseException:
+            gate.release(is_worker=_is_worker)
+            raise
 
         _cancel = cancel_event or asyncio.Event()
         _steer_q: asyncio.Queue = steer_queue or asyncio.Queue()
@@ -172,57 +180,9 @@ class SteerableMixin:
             task_id=task_id, steer_queue=_steer_q,
         ))
 
-        # Send initial user message in stream-json format
-        initial_msg = json.dumps({
-            "type": "user",
-            "message": {"role": "user", "content": prompt},
-        }) + "\n"
-        proc.stdin.write(initial_msg.encode("utf-8"))
-        await proc.stdin.drain()
-        logger.debug(f"[CLI-steer] Sent initial message ({len(prompt)} chars)")
-
         # --- Concurrent tasks ---
         cancel_task = None
         steer_task = None
-
-        if cancel_event:
-            async def _watch_cancel():
-                while not cancel_event.is_set():
-                    await asyncio.sleep(0.5)
-                logger.info("[CLI-steer] cancel_event set — terminating subprocess")
-                try:
-                    proc.terminate()
-                    await asyncio.sleep(2)
-                    if proc.returncode is None:
-                        proc.kill()
-                except ProcessLookupError:
-                    pass
-            cancel_task = asyncio.create_task(_watch_cancel())
-
-        async def _watch_steer():
-            """Forward steering messages from the queue to stdin."""
-            try:
-                while proc.returncode is None:
-                    try:
-                        msg = await asyncio.wait_for(_steer_q.get(), timeout=1.0)
-                    except asyncio.TimeoutError:
-                        continue
-                    if proc.returncode is not None or proc.stdin.is_closing():
-                        logger.warning(f"[CLI-steer] Steer dropped (stdin closed): {str(msg)[:80]}")
-                        break
-                    steer_event = json.dumps({
-                        "type": "user",
-                        "message": {"role": "user", "content": f"[STEERING] {msg}"},
-                    }) + "\n"
-                    proc.stdin.write(steer_event.encode("utf-8"))
-                    await proc.stdin.drain()
-                    logger.info(f"[CLI-steer] Injected steering message: {str(msg)[:100]}")
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                logger.warning(f"[CLI-steer] Steer watcher error: {e}")
-
-        steer_task = asyncio.create_task(_watch_steer())
 
         result_text = ""
         usage = {}
@@ -231,6 +191,54 @@ class SteerableMixin:
         _registry = get_cli_session_registry()
 
         try:
+            # Send initial user message in stream-json format
+            initial_msg = json.dumps({
+                "type": "user",
+                "message": {"role": "user", "content": prompt},
+            }) + "\n"
+            proc.stdin.write(initial_msg.encode("utf-8"))
+            await proc.stdin.drain()
+            logger.debug(f"[CLI-steer] Sent initial message ({len(prompt)} chars)")
+
+            if cancel_event:
+                async def _watch_cancel():
+                    while not cancel_event.is_set():
+                        await asyncio.sleep(0.5)
+                    logger.info("[CLI-steer] cancel_event set — terminating subprocess")
+                    try:
+                        proc.terminate()
+                        await asyncio.sleep(2)
+                        if proc.returncode is None:
+                            proc.kill()
+                    except ProcessLookupError:
+                        pass
+                cancel_task = asyncio.create_task(_watch_cancel())
+
+            async def _watch_steer():
+                """Forward steering messages from the queue to stdin."""
+                try:
+                    while proc.returncode is None:
+                        try:
+                            msg = await asyncio.wait_for(_steer_q.get(), timeout=1.0)
+                        except asyncio.TimeoutError:
+                            continue
+                        if proc.returncode is not None or proc.stdin.is_closing():
+                            logger.warning(f"[CLI-steer] Steer dropped (stdin closed): {str(msg)[:80]}")
+                            break
+                        steer_event = json.dumps({
+                            "type": "user",
+                            "message": {"role": "user", "content": f"[STEERING] {msg}"},
+                        }) + "\n"
+                        proc.stdin.write(steer_event.encode("utf-8"))
+                        await proc.stdin.drain()
+                        logger.info(f"[CLI-steer] Injected steering message: {str(msg)[:100]}")
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.warning(f"[CLI-steer] Steer watcher error: {e}")
+
+            steer_task = asyncio.create_task(_watch_steer())
+
             async for raw_line in proc.stdout:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if not line:
@@ -336,11 +344,19 @@ class SteerableMixin:
     async def steer_worker(self, task_id: str, message: str) -> bool:
         """Inject a steering message into a running worker subprocess.
 
-        Finds the active CliSession by task_id and puts the message into its
-        steer_queue.  The _watch_steer coroutine inside call_steerable() will
-        forward it to the subprocess stdin.
+        **Claude CLI (stream-json) path**: finds the active CliSession by
+        task_id and puts the message into its steer_queue.  The _watch_steer
+        coroutine inside call_steerable() forwards it to stdin.
 
-        Returns True if the session was found, False otherwise.
+        **Codex CLI path**: steer goes through the ``message_queue`` parameter
+        that is passed directly to ``_call_api_codex()`` → ``codex_backend.call()``
+        → ``_call_once()``.  The ``CodexCliBackend._call_once()`` contains its
+        own ``_watch_steer_queue()`` coroutine that reads from that queue and
+        performs a cancel+resume automatically.  This method is NOT the entry
+        point for Codex tasks; ``DeepWorkerPool.steer_task()`` handles routing
+        via the task-scoped message_queue.
+
+        Returns True if the Claude CLI session was found, False otherwise.
         """
         registry = get_cli_session_registry()
         session = registry.get_by_task_id(task_id)
@@ -348,7 +364,10 @@ class SteerableMixin:
             logger.warning(f"[CLI-steer] steer_worker: no active session for task_id={task_id!r}")
             return False
         if session.steer_queue is None:
-            logger.warning(f"[CLI-steer] steer_worker: session has no steer_queue (task_id={task_id!r})")
+            logger.warning(
+                f"[CLI-steer] steer_worker: session has no steer_queue for "
+                f"task_id={task_id!r} — Codex steer goes through message_queue"
+            )
             return False
         await session.steer_queue.put(message)
         logger.info(f"[CLI-steer] Queued steer for task {task_id}: {message[:100]!r}")

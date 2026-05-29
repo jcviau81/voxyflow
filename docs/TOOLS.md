@@ -59,7 +59,7 @@ worker monitor/control, and endpoint CRUD.
 
 Read-only: workspace/card/wiki/doc/job/session/endpoint/undo reads, memory and
 knowledge search, KG query/timeline/stats, worker result reads, and `task.peek`.
-It should inspect state and emit `<delegate>` when work needs actions.
+It should inspect state and call `voxyflow.delegate` when work needs actions.
 
 ### Worker-only (representative)
 
@@ -659,25 +659,46 @@ deltas have been received (prevents double text when the CLI streams normally).
 
 ## The Delegate Pattern
 
-The **dispatcher** (Fast layer) uses `<delegate>` blocks instead of `<tool_call>`:
+The dispatcher (Fast layer) dispatches tasks via the **`voxyflow.delegate` MCP tool** (native tool_use).
 
-```xml
-<delegate>
-{"action": "create_card", "model": "haiku", "description": "...", "context": "..."}
-</delegate>
+### `voxyflow.delegate` — canonical tool schema
+
+```json
+{
+  "action":      "string (required) — short verb describing the task intent",
+  "description": "string (required) — full task specification for the worker",
+  "complexity":  "'simple' | 'standard' | 'complex' (optional)",
+  "card_id":     "uuid string (optional) — card to work on",
+  "context":     "string (optional) — additional background context"
+}
 ```
 
-These are parsed by `ChatOrchestrator`, converted to `ActionIntent` objects, and emitted to the `SessionEventBus`. Workers in the `DeepWorkerPool` pick them up and execute them with full tool access.
+**Provider paths (one unified schema, four call sites):**
+| Provider | Format |
+|----------|--------|
+| Anthropic HTTP API | Native `tool_use` block → `voxyflow_delegate` |
+| OpenAI HTTP (compat) | `function` call → `voxyflow_delegate` |
+| Claude CLI / Codex CLI (MCP stdio) | MCP tool_use → `voxyflow.delegate` |
+| Gemini HTTP | `functionDeclaration` → `voxyflow_delegate` (schema defined, not yet wired) |
+
+When the dispatcher calls `voxyflow.delegate`, `ChatOrchestrator` converts the payload to an `ActionIntent` and emits it to the `SessionEventBus`. Workers in `DeepWorkerPool` pick them up and execute with full tool access.
 
 **Key difference:**
 - `<tool_call>` = direct tool execution within the current layer
-- `<delegate>` = dispatch to a background worker with its own tool access
+- `voxyflow.delegate` = dispatch to a background worker with its own tool access
 
 > **⚠️ Exception: `model: "direct"` delegates bypass the worker pipeline entirely.**
 >
 > When a delegate has `model: "direct"`, the `DirectExecutor` calls the MCP tool handler inline — no `ActionIntent` is emitted, no worker is spawned, no LLM is involved. It's atomic CRUD, equivalent to a direct REST API call.
 >
-> Only delegates with `model: "haiku"` / `"sonnet"` / `"opus"` go through the full `SessionEventBus` → `DeepWorkerPool` → `ClaudeService.execute_worker_task()` pipeline. The class name is historical; it now routes through the selected provider.
+> Only delegates with `model: "haiku"` / `"sonnet"` / `"opus"` go through the full `SessionEventBus` → `DeepWorkerPool` → `ClaudeService.execute_worker_task()` pipeline.
+
+### Legacy `<delegate>` XML markup (REMOVED 2026-05-27)
+
+The old XML `<delegate>` format has been removed. The backend parser no longer processes
+these blocks — any `<delegate>...</delegate>` text in an assistant response is rendered
+as plain prose to the user. All dispatchers must use the native `voxyflow.delegate`
+MCP tool_use path instead.
 
 ---
 
