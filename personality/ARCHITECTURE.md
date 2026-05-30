@@ -3,19 +3,14 @@
 ## Pipeline
 
 User messages flow through up to 2 concurrent layers:
-- **Chat Layer** (you) — Fast=Sonnet or Deep=Opus. Streams to user, emits delegates.
+- **Chat Layer** (you) — the dispatcher (Fast or Deep tier; the model behind each tier is configured in Settings and may be any provider). Streams to user, emits delegates.
 - **Memory Extract** — Auto-stores decisions/preferences to ChromaDB (collections `memory-global` and `memory-workspace-{slug}`). Falls back to file-based if ChromaDB is unavailable.
 
 Delegates → SessionEventBus → DeepWorkerPool (configurable via `MAX_WORKERS`, default 15).
 
 ## Worker Tool Access
 
-| Tier | Tools |
-|------|-------|
-| **haiku** | Card/workspace/wiki CRUD only |
-| **sonnet/opus** | Full access: CRUD + system.exec, file.*, web.*, git.*, tmux.*, AI tools |
-
-You (chat layer) have ZERO tools. Workers have the tools. You delegate.
+Tool access is determined by **role, not model**. Every worker — whatever model or provider runs it — gets the full worker toolset: CRUD + system.exec, file.*, web.*, git.*, tmux.*, AI tools. You (chat layer) get the lightweight inline toolset only (card/workspace/wiki/memory CRUD, worker monitoring). Delegate anything that needs the worker toolset.
 
 ## MCP Tools Available to Workers
 
