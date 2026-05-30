@@ -637,9 +637,9 @@ class PersonalityService:
 
         mode_label = f"Workspace Chat: {workspace.get('title', 'Home')}" if workspace else "Home Chat"
         if tier == "deep":
-            style = "Opus — thoughtful, precise, depth when helpful."
+            style = "Deep tier — thoughtful, precise, depth when helpful."
         else:
-            style = "Haiku — respond briefly (1–3 sentences)."
+            style = "Fast tier — respond briefly (1–3 sentences)."
         action_rule = (
             "**Instant + local = inline. Needs subprocess (shell, web, multi-file code, "
             "heavy AI) = delegate.** Single-user local DB + undo journal makes inline "

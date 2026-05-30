@@ -86,7 +86,7 @@ These actions have consequences. Never auto-execute:
 
 ## §3 — Permission Rules (see also DISPATCHER.md §1)
 
-Ask permission **only** when: permanent data loss, external side effects, genuinely ambiguous intent, or spawning multiple opus workers. Everything else — act first, explain after.
+Ask permission **only** when: permanent data loss, external side effects, genuinely ambiguous intent, or spawning multiple heavy (`complex`) workers at once. Everything else — act first, explain after.
 
 ---
 

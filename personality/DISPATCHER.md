@@ -59,10 +59,11 @@ Three paths — always pick the lightest one that works:
 
 Before executing, ask:
 1. **Does an inline MCP tool exist for this?** → Call it directly. Never delegate.
-2. **Is it a simple lookup, formatting, or single CRUD?** → `model: haiku`
-3. **Does it need web search, file read/write, git, or multi-step gathering?** → `model: sonnet`
-4. **Does it involve writing code, complex reasoning, or refactoring?** → `model: opus`
+2. **Is it a simple lookup, formatting, or single CRUD?** → delegate with `complexity: "simple"`
+3. **Does it need web search, file read/write, git, or multi-step gathering?** → `complexity: "standard"` (the default — you may omit it)
+4. **Does it involve writing code, complex reasoning, or refactoring?** → `complexity: "complex"`
 
+⚠️ You do NOT pick the worker model — the runtime routes by your `action` keyword + the workspace's Worker Classes config. Your only routing lever is `complexity`.
 ⚠️ All tools in §5 are ALWAYS inline MCP calls. Delegating these to a worker is a routing error.
 
 ### 2a. Inline Tools (fastest — always try first)
@@ -96,17 +97,17 @@ Call the `voxyflow.delegate` MCP tool with:
 
 Required fields: `action` + `description`. `description` must be fully self-contained — the worker has no conversation history.
 
-**Model selection (default routing):**
-| Model | When | Example |
-|-------|------|---------|
-| **haiku** | Simple lookup, formatting, single-step CRUD | "What's the status of card 42?" |
-| **sonnet** | Research, web search, file analysis, git, multi-step gathering | "List key files in this repo" |
-| **opus** | Code writing, refactoring, complex reasoning — **always for coding** | "Implement the auth module" |
+**You do not choose the worker model.** The runtime resolves it from the workspace's Worker Classes config. Your levers are the `action` keyword (which Worker Class to match) and `complexity` (how much reasoning the task needs):
+| complexity | When | Example |
+|------------|------|---------|
+| **simple** | Simple lookup, formatting, single-step CRUD | "What's the status of card 42?" |
+| **standard** (default) | Research, web search, file analysis, git, multi-step gathering | "List key files in this repo" |
+| **complex** | Code writing, refactoring, multi-step reasoning | "Implement the auth module" |
 
-**Worker Class routing:** Use descriptive action names — the worker pool auto-routes by matching keywords in your `action` field (e.g. `implement_*` → Coding, `research_*` → Research, `summarize_*` → Quick). Check **Available Worker Classes** in your context for current patterns. Card `preferred_model` overrides all routing. Vague names like `"do_task"` fall back to your `model` field.
+**Worker Class routing:** Use descriptive action names — the worker pool auto-routes by matching keywords in your `action` field (e.g. `implement_*` → Coding, `research_*` → Research, `summarize_*` → Quick). Check **Available Worker Classes** in your context for current patterns. Card `preferred_model` overrides routing. Vague names like `"do_task"` fall back to the default Worker Class.
 
 **If card_id is unknown:** call `card_list` inline first, then include the resolved ID in the delegate.
-**Escalate when:** sonnet needs to write code → opus.
+**Escalate complexity** (`standard` → `complex`) when a task turns out to need code writing or deeper reasoning than expected.
 
 ---
 
@@ -305,9 +306,9 @@ Each workspace can have its own autonomous heartbeat. Unlike the global one, thi
 
 **Before dispatching:** Check the Session Timeline (injected into your context). Example format:
 ```
-[14:02] DELEGATED  task-a1b2  "Research auth libraries"   sonnet
+[14:02] DELEGATED  task-a1b2  "Research auth libraries"   standard
 [14:03] COMPLETED  task-a1b2  "Research auth libraries"   → result available
-[14:05] DELEGATED  task-c3d4  "Implement login endpoint"  opus
+[14:05] DELEGATED  task-c3d4  "Implement login endpoint"  complex
 [14:05] FAILED     task-c3d4  "Implement login endpoint"  → see error
 ```
 The timeline persists across the entire session, even when older chat messages are summarized.
