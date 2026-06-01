@@ -51,6 +51,7 @@ def reload_layer_models(service: "ClaudeService") -> None:
     # delegates that don't match any worker class) to any provider — without
     # them, the default worker always falls back to the Fast layer's provider.
     from app.services.settings_loader import (
+        set_default_worker_effort,
         set_default_worker_endpoint_id,
         set_default_worker_model,
         set_default_worker_provider_type,
@@ -60,6 +61,7 @@ def reload_layer_models(service: "ClaudeService") -> None:
         set_default_worker_model(dwm)
     set_default_worker_provider_type(overrides.get("default_worker_provider_type", ""))
     set_default_worker_endpoint_id(overrides.get("default_worker_endpoint_id", ""))
+    set_default_worker_effort(overrides.get("default_worker_effort", ""))
 
     # Haiku is a utility layer (summarization, memory extraction). If the user
     # hasn't configured it explicitly, mirror Fast's provider/model so it works

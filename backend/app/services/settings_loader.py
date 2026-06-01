@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 _default_worker_model: str = "sonnet"
 _default_worker_provider_type: str = ""
 _default_worker_endpoint_id: str = ""
+# Canonical reasoning-effort for the default worker (no class match). "" =
+# model/CLI default (no flag emitted). See services/llm/reasoning_effort.py.
+_default_worker_effort: str = ""
 
 _SETTINGS_KEY = "app_settings"
 
@@ -58,6 +61,18 @@ def set_default_worker_endpoint_id(endpoint_id: str) -> None:
     """Update the cached default worker endpoint id. Empty string clears the override."""
     global _default_worker_endpoint_id
     _default_worker_endpoint_id = (endpoint_id or "").strip()
+
+
+def get_default_worker_effort() -> str:
+    """Return the canonical reasoning-effort for the default worker (empty = model default)."""
+    return _default_worker_effort
+
+
+def set_default_worker_effort(effort: str) -> None:
+    """Update the cached default worker effort. Empty/unknown clears it (model default)."""
+    global _default_worker_effort
+    from app.services.llm.reasoning_effort import normalize_effort
+    _default_worker_effort = normalize_effort(effort)
 
 
 def load_mcp_servers_sync() -> list[dict]:

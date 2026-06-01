@@ -48,6 +48,9 @@ interface WorkerClass {
   provider_type: string;
   model: string;
   intent_patterns: string[];
+  // Canonical reasoning-effort: '' (model default) | low | medium | high | max.
+  // Mapped per-provider on CLI workers (Claude --effort, Codex model_reasoning_effort).
+  effort?: string;
 }
 
 interface ModelsSettings {
@@ -62,6 +65,8 @@ interface ModelsSettings {
   // Mirrors the WorkerClass shape (endpoint_id + provider_type + model).
   default_worker_provider_type: string;
   default_worker_endpoint_id: string;
+  // Reasoning-effort for the default worker (no class match). '' = model default.
+  default_worker_effort: string;
 
   endpoints: ProviderEndpoint[];
   worker_classes: WorkerClass[];
@@ -132,6 +137,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-opus-4-7',
+    effort: 'max',
     intent_patterns: ['architect', 'architecture', 'system_design', 'structural', 'redesign'],
   },
   {
@@ -141,6 +147,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-opus-4-7',
+    effort: 'high',
     intent_patterns: ['multi_file', 'multifile', 'major_refactor', 'complex_implement', 'complex_feature', 'large_refactor'],
   },
   {
@@ -150,6 +157,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-sonnet-4-6',
+    effort: 'high',
     intent_patterns: ['debug', 'refactor', 'implement', 'unit test', 'fix bug', 'code review', 'write code'],
   },
   {
@@ -159,6 +167,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-opus-4-7',
+    effort: 'high',
     intent_patterns: ['research', 'investigate', 'analyze', 'compare alternatives', 'feasibility', 'fact check'],
   },
   {
@@ -168,6 +177,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-sonnet-4-6',
+    effort: 'medium',
     intent_patterns: ['brainstorm', 'brainstorming', 'creative writing', 'story', 'narrative', 'ideation'],
   },
   {
@@ -177,6 +187,7 @@ const DEFAULT_WORKER_CLASSES: WorkerClass[] = [
     endpoint_id: '',
     provider_type: 'cli',
     model: 'claude-haiku-4-5-20251001',
+    effort: 'low',
     intent_patterns: ['summarize', 'summarization', 'tldr', 'reformat', 'rephrase'],
   },
 ];
@@ -189,6 +200,7 @@ const DEFAULT_MODELS: ModelsSettings = {
   default_worker_model: 'sonnet',
   default_worker_provider_type: '',
   default_worker_endpoint_id: '',
+  default_worker_effort: '',
   endpoints: [],
   worker_classes: DEFAULT_WORKER_CLASSES,
 };
@@ -1248,7 +1260,20 @@ const EMPTY_WORKER_CLASS: WorkerClass = {
   provider_type: 'cli',
   model: '',
   intent_patterns: [],
+  effort: '',
 };
+
+// Canonical reasoning-effort options shared by the worker-class editor and the
+// default-worker selector. '' = model/CLI default (no flag emitted). Mapped
+// per-provider on CLI workers (Claude --effort; Codex model_reasoning_effort,
+// where max clamps to high).
+const EFFORT_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Default (model)' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'max', label: 'Max' },
+];
 
 interface WorkerClassesPanelProps {
   workerClasses: WorkerClass[];
@@ -1435,6 +1460,11 @@ function WorkerClassesPanel({
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
                 {wc.model && <span className="font-mono">{wc.model}</span>}
+                {wc.effort && (
+                  <span className="ml-2 px-1.5 py-0.5 rounded bg-muted font-mono" title="Reasoning effort (CLI workers)">
+                    effort: {wc.effort}
+                  </span>
+                )}
                 {wc.description && <span className="ml-2">{wc.description}</span>}
               </div>
               {wc.intent_patterns.length > 0 && (
@@ -1545,6 +1575,24 @@ function WorkerClassesPanel({
                 <span className="text-xs text-muted-foreground">Loading...</span>
               )}
             </div>
+          </div>
+
+          {/* Reasoning effort */}
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-muted-foreground">Reasoning effort</label>
+            <select
+              className="setting-input text-sm rounded border border-input bg-background px-3 py-1.5 w-full"
+              value={draft.effort ?? ''}
+              onChange={e => setDraft({ ...draft, effort: e.target.value })}
+            >
+              {EFFORT_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <span className="text-[11px] text-muted-foreground">
+              CLI workers only — Claude <code>--effort</code>, Codex <code>model_reasoning_effort</code> (max → high).
+              Default = the model's own effort.
+            </span>
           </div>
 
           {/* Intent Patterns */}
@@ -2139,9 +2187,10 @@ function DefaultWorkerModelSection({
   const model        = useWatch({ control, name: 'default_worker_model' }) ?? 'sonnet';
   const providerType = useWatch({ control, name: 'default_worker_provider_type' }) ?? '';
   const endpointId   = useWatch({ control, name: 'default_worker_endpoint_id' }) ?? '';
+  const effort       = useWatch({ control, name: 'default_worker_effort' }) ?? '';
 
   // Snapshot for cancel
-  const snapshotRef = useRef<{ model: string; providerType: string; endpointId: string } | null>(null);
+  const snapshotRef = useRef<{ model: string; providerType: string; endpointId: string; effort: string } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Source = "alias:<sonnet|haiku|opus>" | "ep:<id>" | "pt:<provider_type>"
@@ -2259,6 +2308,7 @@ function DefaultWorkerModelSection({
       model: (watch('default_worker_model') ?? 'sonnet') as string,
       providerType: (watch('default_worker_provider_type') ?? '') as string,
       endpointId: (watch('default_worker_endpoint_id') ?? '') as string,
+      effort: (watch('default_worker_effort') ?? '') as string,
     };
     setSaveError(null);
     setEditingSection(sectionKey);
@@ -2269,6 +2319,7 @@ function DefaultWorkerModelSection({
       setValue('default_worker_model',         snapshotRef.current.model);
       setValue('default_worker_provider_type', snapshotRef.current.providerType);
       setValue('default_worker_endpoint_id',   snapshotRef.current.endpointId);
+      setValue('default_worker_effort',        snapshotRef.current.effort);
     }
     snapshotRef.current = null;
     setSaveError(null);
@@ -2282,6 +2333,7 @@ function DefaultWorkerModelSection({
         default_worker_model:         (watch('default_worker_model') ?? '') as string,
         default_worker_provider_type: (watch('default_worker_provider_type') ?? '') as string,
         default_worker_endpoint_id:   (watch('default_worker_endpoint_id') ?? '') as string,
+        default_worker_effort:        (watch('default_worker_effort') ?? '') as string,
       });
       snapshotRef.current = null;
     } catch (err) {
@@ -2320,6 +2372,11 @@ function DefaultWorkerModelSection({
               : (model
                   ? <span className="font-mono">{model}</span>
                   : <span className="italic">No model selected</span>)}
+            {effort && (
+              <span className="ml-2 px-1.5 py-0.5 rounded bg-muted font-mono" title="Reasoning effort (CLI workers)">
+                effort: {effort}
+              </span>
+            )}
           </div>
           <div className="text-xs text-muted-foreground mt-0.5 italic">{DESCRIPTION}</div>
           {!isAlias && <CapabilityBadges model={model ?? ''} />}
@@ -2423,6 +2480,26 @@ function DefaultWorkerModelSection({
             </div>
           </div>
         )}
+
+        {/* Reasoning effort — applies to CLI workers (alias or explicit provider) */}
+        <div className="flex flex-col gap-1 min-w-[150px]">
+          <label className="text-xs text-muted-foreground">Effort</label>
+          <Controller
+            control={control}
+            name="default_worker_effort"
+            render={({ field }) => (
+              <select
+                className="setting-input text-sm rounded border border-input bg-background px-2 py-1.5 flex-1"
+                value={field.value ?? ''}
+                onChange={field.onChange}
+              >
+                {EFFORT_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            )}
+          />
+        </div>
 
         {/* Test button + result — only when a real provider is selected */}
         {!isAlias && (
@@ -2530,6 +2607,7 @@ export function ModelPanel() {
       default_worker_model: sm.default_worker_model ?? dm.default_worker_model,
       default_worker_provider_type: sm.default_worker_provider_type ?? dm.default_worker_provider_type,
       default_worker_endpoint_id: sm.default_worker_endpoint_id ?? dm.default_worker_endpoint_id,
+      default_worker_effort: sm.default_worker_effort ?? dm.default_worker_effort,
       endpoints: sm.endpoints ?? [],
       worker_classes: sm.worker_classes?.length ? sm.worker_classes : DEFAULT_WORKER_CLASSES,
     };

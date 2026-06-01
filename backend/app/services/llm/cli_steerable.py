@@ -62,6 +62,7 @@ class SteerableMixin:
         card_id: str = "",
         chat_id: str = "",
         worker_id: str = "",
+        effort: str = "",
     ) -> list[str]:
         """Build CLI args for a steerable worker using --input-format stream-json.
 
@@ -69,6 +70,10 @@ class SteerableMixin:
         injected into stdin while the process runs.  Session persistence is
         enabled (we omit --no-session-persistence) so the process keeps its
         conversation context across multi-turn steering.
+
+        ``effort`` is a canonical Voxyflow level (low/medium/high/max); when set
+        it is mapped to Claude's ``--effort`` flag. Empty = model default (the
+        flag is omitted). Models that don't support effort ignore the flag.
         """
         args = [
             "-p",
@@ -80,6 +85,12 @@ class SteerableMixin:
             "--verbose",
             "--include-partial-messages",
         ]
+        # Reasoning-effort control (per-invocation). Omitted when unset so the
+        # CLI/model default applies — the historical behaviour.
+        from app.services.llm.reasoning_effort import claude_effort
+        _eff = claude_effort(effort)
+        if _eff:
+            args.extend(["--effort", _eff])
         # Always disable built-in CLI tools
         args.extend(["--tools", ""])
 
@@ -120,6 +131,7 @@ class SteerableMixin:
         task_id: str = "",
         steer_queue: Optional[asyncio.Queue] = None,
         cwd: str = "",
+        effort: str = "",
     ) -> tuple[str, dict]:
         """Steerable CLI call — keeps stdin open so steering messages can be injected.
 
@@ -139,6 +151,7 @@ class SteerableMixin:
             workspace_id=workspace_id, card_id=card_id,
             chat_id=chat_id,
             worker_id=(task_id or (session_id if session_type == "worker" else "")),
+            effort=effort,
         )
 
         gate = get_rate_gate()

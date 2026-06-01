@@ -207,6 +207,7 @@ class WorkerClass(BaseModel):
     provider_type: str = ""            # e.g. "cli", "codex", "ollama", "anthropic"
     model: str = ""                    # e.g. "qwen2.5:32b"
     intent_patterns: list[str] = []    # simple keyword patterns for auto-routing
+    effort: str = ""                   # canonical reasoning-effort: ""|low|medium|high|max ("" = model default)
 
 
 class ModelsSettings(BaseModel):
@@ -240,6 +241,10 @@ class ModelsSettings(BaseModel):
     # Mirrors the WorkerClass shape (endpoint_id + provider_type + model).
     default_worker_provider_type: str = ""
     default_worker_endpoint_id: str = ""
+    # Reasoning-effort for the default worker (no class match). Canonical level:
+    # ""|low|medium|high|max ("" = model/CLI default). Mapped per-provider —
+    # Claude --effort, Codex model_reasoning_effort (max→high).
+    default_worker_effort: str = ""
 
     # Named provider endpoints (user's machines / remote instances)
     endpoints: list[ProviderEndpoint] = []

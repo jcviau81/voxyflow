@@ -17,6 +17,7 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-opus-4-7",
+        "effort": "max",
         "intent_patterns": ["architect", "architecture", "system_design", "structural", "redesign"],
     },
     {
@@ -26,6 +27,7 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-opus-4-7",
+        "effort": "high",
         "intent_patterns": ["multi_file", "multifile", "major_refactor", "complex_implement", "complex_feature", "large_refactor"],
     },
     {
@@ -35,6 +37,7 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-opus-4-7",
+        "effort": "high",
         # Tightened: 'code'/'fix'/'test' alone match too broadly (QR code,
         # fix typo, test plan). Use multi-word phrases or unambiguous verbs.
         "intent_patterns": ["debug", "refactor", "implement", "unit test", "fix bug", "code review", "write code"],
@@ -46,6 +49,7 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-opus-4-7",
+        "effort": "high",
         # Dropped 'explain' (too broad — any "explain X" task matched).
         # Added web-search phrases so research → local LLM + SearXNG routes
         # pick up "search the web", "recherche", etc.
@@ -62,6 +66,7 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-sonnet-4-6",
+        "effort": "medium",
         # Dropped standalone 'write'/'draft' (matched "write code", "draft email").
         "intent_patterns": ["brainstorm", "brainstorming", "creative writing", "story", "narrative", "ideation"],
     },
@@ -72,6 +77,7 @@ DEFAULT_WORKER_CLASSES = [
         "endpoint_id": "",
         "provider_type": "cli",
         "model": "claude-haiku-4-5-20251001",
+        "effort": "low",
         # Tightened: dropped 'quick','short','simple','format' (matched stray
         # words in delivery-format text like "Quick-start steps").
         "intent_patterns": ["summarize", "summarization", "tldr", "reformat", "rephrase"],

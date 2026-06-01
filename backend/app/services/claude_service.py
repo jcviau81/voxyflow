@@ -1264,6 +1264,7 @@ class ClaudeService(ApiCallerMixin):
         session_id: str = "",
         task_id: str = "",
         endpoint_config: Optional[dict] = None,
+        effort: str = "",
     ) -> str:
         """Execute a delegated task with the specified worker model (haiku/sonnet/opus).
 
@@ -1271,6 +1272,10 @@ class ClaudeService(ApiCallerMixin):
         a provider-specific client is created for that endpoint instead of using
         the default haiku/sonnet/opus clients.
         Model can be a short name ('opus') or full ID ('claude-opus-4-6').
+
+        ``effort`` is the canonical worker reasoning-effort level resolved by the
+        pool (worker-class effort → default_worker_effort). Forwarded to the CLI
+        subprocess paths; "" = model default.
         """
         card_id = card_context.get("id", "") if card_context else ""
 
@@ -1392,6 +1397,7 @@ class ClaudeService(ApiCallerMixin):
             session_type="worker",
             task_id=task_id,
             cwd=worker_cwd,
+            effort=effort,
         )
         return (_strip_think_tags(result) if _is_thinking_model(model_name) else result) if result else result
 
@@ -1408,11 +1414,13 @@ class ClaudeService(ApiCallerMixin):
         session_id: str = "",
         task_id: str = "",
         endpoint_config: Optional[dict] = None,
+        effort: str = "",
     ) -> str:
         """Lightweight worker — minimal prompt, no personality, no workspace context.
 
         For tasks that need LLM judgment but not full context (enrich, summarize,
-        research). Saves ~80% tokens vs execute_worker_task.
+        research). Saves ~80% tokens vs execute_worker_task. ``effort`` is the
+        canonical worker reasoning-effort level (forwarded to the CLI paths).
         """
         card_id = card_context.get("id", "") if card_context else ""
 
@@ -1464,6 +1472,7 @@ class ClaudeService(ApiCallerMixin):
             session_type="worker",
             task_id=task_id,
             cwd=str(workspace_workdir(workspace_id)),
+            effort=effort,
         )
         return result or ""
 

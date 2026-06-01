@@ -986,6 +986,15 @@ class DeepWorkerPool:
             # event.model is the dispatcher's LLM-suggested hint — kept only for logging;
             # user-configured Worker Classes and Default Worker Model are authoritative.
             _worker_class = await self._resolve_worker_class(event)
+
+            # Worker reasoning-effort: the matched worker class's effort wins,
+            # else the configured default_worker_effort. "" = model/CLI default
+            # (no --effort / model_reasoning_effort emitted — historical behavior).
+            _effort = ((_worker_class or {}).get("effort") or "").strip()
+            if not _effort:
+                from app.services.settings_loader import get_default_worker_effort
+                _effort = (get_default_worker_effort() or "").strip()
+
             _explicit_model = event.model  # what the dispatcher explicitly requested
             _effective_model = _explicit_model or get_default_worker_model()
             _endpoint_config: dict | None = None  # resolved endpoint for worker class
@@ -1433,6 +1442,7 @@ class DeepWorkerPool:
                         session_id=event.session_id or "",
                         task_id=event.task_id,
                         endpoint_config=_endpoint_config,
+                        effort=_effort,
                     )
                 else:
                     result_content = await self._claude.execute_worker_task(
@@ -1449,6 +1459,7 @@ class DeepWorkerPool:
                         session_id=event.session_id or "",
                         task_id=event.task_id,
                         endpoint_config=_endpoint_config,
+                        effort=_effort,
                     )
             except asyncio.CancelledError:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")

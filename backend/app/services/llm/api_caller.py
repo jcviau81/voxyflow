@@ -1565,12 +1565,16 @@ class ApiCallerMixin:
         session_type: str = "worker",
         task_id: str = "",
         cwd: str = "",
+        effort: str = "",
     ) -> str:
         """Non-streaming call via Claude CLI subprocess.
 
         When *task_id* is provided (worker context) and *message_queue* is
         set, uses the steerable path (--input-format stream-json) so mid-
         execution steering messages can be injected via the queue.
+
+        ``effort`` (canonical worker reasoning-effort level) is forwarded to the
+        steerable worker path only; "" = model default.
         """
         if task_id and tool_callback and use_tools:
             # Steerable worker path: keeps stdin open for mid-execution steering
@@ -1590,6 +1594,7 @@ class ApiCallerMixin:
                 task_id=task_id,
                 steer_queue=message_queue,
                 cwd=cwd,
+                effort=effort,
             )
         else:
             text, usage = await self._cli_backend.call(
@@ -1702,6 +1707,7 @@ class ApiCallerMixin:
         session_type: str = "worker",
         task_id: str = "",
         cwd: str = "",
+        effort: str = "",
     ) -> str:
         if not getattr(self, "_codex_backend", None):
             from app.services.llm.codex_backend import CodexCliBackend
@@ -1722,6 +1728,7 @@ class ApiCallerMixin:
             session_type=session_type,
             task_id=task_id,
             cwd=cwd,
+            effort=effort,
         )
         _log_token_usage(
             layer=layer,
@@ -1821,8 +1828,15 @@ class ApiCallerMixin:
         session_type: str = "worker",
         task_id: str = "",
         cwd: str = "",
+        effort: str = "",
     ) -> str:
-        """Dispatch to native Anthropic SDK, CLI subprocess, OpenAI-compat, or server-side tools."""
+        """Dispatch to native Anthropic SDK, CLI subprocess, OpenAI-compat, or server-side tools.
+
+        ``effort`` is a canonical Voxyflow worker reasoning-effort level
+        (low/medium/high/max; "" = model default). Honored by the CLI subprocess
+        paths (Claude ``--effort`` / Codex ``model_reasoning_effort``); ignored
+        by the HTTP/SDK paths for now.
+        """
         api_client = client or self.fast_client
         # Honor explicit client_type even when client is None — CLI mode legitimately
         # passes client=None with client_type="cli", and inferring from fast_client_type
@@ -1836,7 +1850,7 @@ class ApiCallerMixin:
                 cancel_event=cancel_event, message_queue=message_queue,
                 tool_callback=tool_callback,
                 session_id=session_id, workspace_id=workspace_id, card_id=card_id,
-                session_type=session_type, task_id=task_id, cwd=cwd,
+                session_type=session_type, task_id=task_id, cwd=cwd, effort=effort,
             )
         if ct == "cli":
             return await self._call_api_cli(
@@ -1845,7 +1859,7 @@ class ApiCallerMixin:
                 cancel_event=cancel_event, message_queue=message_queue,
                 tool_callback=tool_callback,
                 session_id=session_id, workspace_id=workspace_id, card_id=card_id,
-                session_type=session_type, task_id=task_id, cwd=cwd,
+                session_type=session_type, task_id=task_id, cwd=cwd, effort=effort,
             )
         if ct == "anthropic":
             return await self._call_api_anthropic(
