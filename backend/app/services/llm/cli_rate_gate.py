@@ -172,5 +172,23 @@ _rate_gate: CliRateGate | None = None
 def get_rate_gate() -> CliRateGate:
     global _rate_gate
     if _rate_gate is None:
-        _rate_gate = CliRateGate()
+        # Source of truth is config.settings (which honors the CLI_* env vars
+        # via pydantic-settings). Reading it here — at first use, after startup
+        # has loaded config — instead of only the import-time module constants
+        # makes the cli_session_concurrent / cli_worker_concurrent /
+        # cli_min_spacing_ms config fields actually take effect rather than
+        # being dead-wired.
+        try:
+            from app.config import get_settings
+            s = get_settings()
+            _rate_gate = CliRateGate(
+                session_concurrent=s.cli_session_concurrent,
+                worker_concurrent=s.cli_worker_concurrent,
+                min_spacing_ms=s.cli_min_spacing_ms,
+            )
+        except Exception as e:  # pragma: no cover - settings always load in practice
+            logger.warning(
+                "[RateGate] Could not load settings (%s) — using env/defaults", e
+            )
+            _rate_gate = CliRateGate()
     return _rate_gate

@@ -146,7 +146,18 @@ class DeepWorkerPool:
         # resolution inside _execute_event (so CLI workers skip it) while releasing
         # in _on_task_done — splitting acquire/release across methods — so it is
         # deferred to a dedicated change rather than risking a leak/deadlock here.
-        self._semaphore = asyncio.Semaphore(self.MAX_WORKERS)
+        # Per-session worker cap. Source of truth is config.settings.max_workers
+        # (which honors the MAX_WORKERS env var via pydantic-settings); fall back
+        # to the class-level env read only if settings can't be loaded. Reading
+        # it here — at pool creation, after startup loaded config — rather than
+        # only the import-time class attribute keeps the max_workers config field
+        # from being dead-wired.
+        try:
+            from app.config import get_settings
+            self._max_workers = get_settings().max_workers
+        except Exception:  # pragma: no cover - settings always load in practice
+            self._max_workers = self.MAX_WORKERS
+        self._semaphore = asyncio.Semaphore(self._max_workers)
         self._result_contents: dict[str, str] = {}  # task_id → actual result content
         self._task_tool_events: dict[str, list[dict]] = {}  # task_id → bounded tool event buffer
         self._MAX_TOOL_EVENTS = 50
@@ -828,6 +839,22 @@ class DeepWorkerPool:
         """Listen on the bus and spawn workers for each event."""
         try:
             async for event in self._bus.listen():
+                # Idempotency guard: _listen_loop is the only coroutine that
+                # INSERTS into _active_tasks (cancel_task / _on_task_done / stop
+                # only remove), so a task_id already present means a duplicate
+                # spawn of an already-in-flight task — a literal re-emit of the
+                # same ActionIntent, or an (astronomically unlikely) uuid4-prefix
+                # collision (all emit paths mint fresh uuid ids). Spawning anyway
+                # would orphan the in-flight task: the first task's done-callback
+                # would later pop and release the slot of the SECOND task,
+                # corrupting semaphore accounting. Skip BEFORE acquiring a slot.
+                if event.task_id in self._active_tasks:
+                    logger.warning(
+                        "[DeepWorkerPool] Duplicate spawn for task_id %s — "
+                        "already active; skipping",
+                        event.task_id,
+                    )
+                    continue
                 await self._semaphore.acquire()
                 self._task_meta[event.task_id] = {
                     "action": event.intent or "unknown",
@@ -853,39 +880,58 @@ class DeepWorkerPool:
             return
         self._task_message_queues.pop(task_id, None)
         removed = self._active_tasks.pop(task_id, None)
+        # Release the per-session slot ONLY when WE popped the task here. The
+        # cancel path (cancel_task) pops _active_tasks and releases the
+        # semaphore itself, so on that path removed is None and we must NOT
+        # release again — a double release would inflate the pool's capacity.
         if removed is not None:
             self._semaphore.release()
-            meta = self._task_meta.pop(task_id, None)
-            if meta:
-                success = True
-                result = "success"
-                if removed.cancelled():
-                    result = "cancelled"
-                    success = False
-                elif removed.exception():
-                    result = f"error: {removed.exception()}"
-                    success = False
-                actual_result = self._result_contents.pop(task_id, result)
-                self._completed_tasks.append({
-                    "task_id": task_id,
-                    "action": meta["action"],
-                    "model": meta["model"],
-                    "description": meta.get("description", ""),
-                    "completed_at": time.time(),
-                    "result": actual_result,
-                    "success": success,
-                })
 
-            # Schedule tool event buffer cleanup after 60s
-            def _cleanup_tool_events(tid: str = task_id) -> None:
-                self._task_tool_events.pop(tid, None)
-                self._task_tool_counts.pop(tid, None)
+        # Per-task bookkeeping cleanup runs UNCONDITIONALLY — even on the cancel
+        # path (removed is None). Previously this was gated behind
+        # `removed is not None`, so every cancelled / stalled / repetition-killed
+        # task permanently leaked _task_meta / _result_contents / tool-event
+        # buffer entries for the pool's lifetime.
+        meta = self._task_meta.pop(task_id, None)
+        if meta:
+            success = True
+            result = "success"
+            if removed is None:
+                # cancel_task already popped the task → it was cancelled.
+                result = "cancelled"
+                success = False
+            elif removed.cancelled():
+                result = "cancelled"
+                success = False
+            elif removed.exception():
+                result = f"error: {removed.exception()}"
+                success = False
+            actual_result = self._result_contents.pop(task_id, result)
+            self._completed_tasks.append({
+                "task_id": task_id,
+                "action": meta["action"],
+                "model": meta["model"],
+                "description": meta.get("description", ""),
+                "completed_at": time.time(),
+                "result": actual_result,
+                "success": success,
+            })
+        else:
+            # No meta (already cleaned by a prior call) — still drop any
+            # lingering result content so it can't leak.
+            self._result_contents.pop(task_id, None)
 
-            try:
-                loop = asyncio.get_running_loop()
-                loop.call_later(60, _cleanup_tool_events)
-            except RuntimeError:
-                _cleanup_tool_events()
+        # Schedule tool-event buffer cleanup after 60s (always — cancelled tasks
+        # leak these buffers otherwise).
+        def _cleanup_tool_events(tid: str = task_id) -> None:
+            self._task_tool_events.pop(tid, None)
+            self._task_tool_counts.pop(tid, None)
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_later(60, _cleanup_tool_events)
+        except RuntimeError:
+            _cleanup_tool_events()
 
     async def _resolve_worker_class(self, event: ActionIntent) -> dict | None:
         """Try to resolve a worker class for this event.
@@ -1780,28 +1826,44 @@ class DeepWorkerPool:
             "payload": {"taskId": task_id, **payload},
             "timestamp": int(time.time() * 1000),
         }
-        try:
-            from app.services.ws_broadcast import ws_broadcast
-            ws = self._ws
-            if ws is not None:
-                try:
-                    await ws.send_json(message)
-                    await ws_broadcast.emit_to_others(ws, event_type, {"taskId": task_id, **payload})
-                    return
-                except Exception:
-                    # WS may have been replaced by session:sync — retry once with current ref
-                    retry_ws = self._ws
-                    if retry_ws is not None and retry_ws is not ws:
+        from app.services.ws_broadcast import ws_broadcast
+        ws = self._ws
+        delivered = False
+        if ws is not None:
+            try:
+                await ws.send_json(message)
+                await ws_broadcast.emit_to_others(ws, event_type, {"taskId": task_id, **payload})
+                delivered = True
+            except Exception:
+                # WS may have been replaced by session:sync — retry once with current ref
+                retry_ws = self._ws
+                if retry_ws is not None and retry_ws is not ws:
+                    try:
                         await retry_ws.send_json(message)
                         await ws_broadcast.emit_to_others(retry_ws, event_type, {"taskId": task_id, **payload})
                         logger.info(f"[DeepWorkerPool] Retried {event_type} on reconnected WS for task {task_id}")
-                        return
-                    raise
-            else:
+                        delivered = True
+                    except Exception as e:
+                        logger.warning(f"[DeepWorkerPool] Failed to send {event_type} via WS for task {task_id}: {e}")
+                else:
+                    logger.warning(f"[DeepWorkerPool] Failed to send {event_type} via WS for task {task_id} (socket dead)")
+        else:
+            # Headless / background pool — no bound WS. Best-effort live broadcast
+            # to any client currently connected to this session...
+            try:
                 ws_broadcast.emit_sync(event_type, {"taskId": task_id, **payload})
-        except Exception as e:
-            logger.warning(f"[DeepWorkerPool] Failed to send {event_type} via WS: {e}")
-            session_id = payload.get("sessionId", self._bus.session_id)
+            except Exception as e:
+                logger.warning(f"[DeepWorkerPool] emit_sync failed for {event_type}: {e}")
+            # ...but emit_sync can't confirm receipt and there's no bound socket
+            # to retry on, so fall through and ALWAYS persist for redelivery.
+
+        # Persist for redelivery whenever live delivery wasn't confirmed. This
+        # covers a dead bound socket AND the headless (ws=None) case, which
+        # previously dropped task:* events whenever no client was listening.
+        if not delivered:
+            # `or` (not dict.get's default) so an explicitly-passed empty
+            # sessionId still falls back to the bus id instead of dropping.
+            session_id = payload.get("sessionId") or self._bus.session_id
             if session_id:
                 try:
                     await pending_store.store(session_id, message)
