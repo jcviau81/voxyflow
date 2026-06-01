@@ -243,88 +243,6 @@ class ClaudeService(ApiCallerMixin):
         from app.services.llm.model_reload import reload_layer_models
         reload_layer_models(self)
 
-    async def call_with_worker_class(
-        self,
-        worker_class_id: str,
-        messages: list[dict],
-        system: str = "",
-        **kwargs,
-    ) -> str:
-        """Call an LLM using a named worker class configuration.
-
-        Resolves the worker class by id, looks up its endpoint/provider/model,
-        and dispatches the call through the provider abstraction layer.
-        Falls back to the deep layer if the worker class is not found.
-        """
-        from app.services.llm.worker_class_resolver import resolve_by_id, resolve_endpoint_for_class
-        from app.services.llm.provider_factory import get_provider
-        from app.services.llm.providers.base import CompletionRequest
-
-        wc = await resolve_by_id(worker_class_id)
-        if not wc:
-            logger.warning(
-                "[ClaudeService] Worker class %r not found — falling back to deep layer",
-                worker_class_id,
-            )
-            # Fall back to deep layer
-            return await self._call_api(
-                self.deep_client,
-                self.deep_client_type,
-                self.deep_model,
-                messages,
-                system=system,
-                **kwargs,
-            )
-
-        resolved = await resolve_endpoint_for_class(wc)
-        provider_type = resolved["provider_type"]
-        model = resolved["model"]
-        url = resolved["url"]
-        api_key = resolved["api_key"]
-
-        if not provider_type or provider_type in ("cli", "codex"):
-            # Local CLI mode — route through _call_api with the selected client_type.
-            logger.info(
-                "[ClaudeService] Worker class %r uses %s — routing via local CLI backend with model %s",
-                wc.get("name"), provider_type or "default", model or self.deep_model,
-            )
-            return await self._call_api(
-                model=model or self.deep_model,
-                system=system,
-                messages=messages,
-                client=None,
-                client_type=provider_type or self.deep_client_type,
-                **kwargs,
-            )
-
-        try:
-            provider = get_provider(provider_type=provider_type, url=url, api_key=api_key)
-            req = CompletionRequest(
-                messages=messages,
-                model=model,
-                system=system,
-                max_tokens=kwargs.get("max_tokens", self.max_tokens),
-            )
-            result = await provider.complete(req)
-            logger.info(
-                "[ClaudeService] Worker class %r completed via %s/%s",
-                wc.get("name"), provider_type, model,
-            )
-            return result.content
-        except Exception as exc:
-            logger.warning(
-                "[ClaudeService] Worker class %r failed (%s) — falling back to deep layer",
-                wc.get("name"), exc,
-            )
-            return await self._call_api(
-                self.deep_client,
-                self.deep_client_type,
-                self.deep_model,
-                messages,
-                system=system,
-                **kwargs,
-            )
-
     def _infer_layer(self, model: str) -> str:
         """Map a model name to a conceptual layer for token logging."""
         if model == self.fast_model:
@@ -1264,6 +1182,7 @@ class ClaudeService(ApiCallerMixin):
         session_id: str = "",
         task_id: str = "",
         endpoint_config: Optional[dict] = None,
+        effort: str = "",
     ) -> str:
         """Execute a delegated task with the specified worker model (haiku/sonnet/opus).
 
@@ -1271,6 +1190,10 @@ class ClaudeService(ApiCallerMixin):
         a provider-specific client is created for that endpoint instead of using
         the default haiku/sonnet/opus clients.
         Model can be a short name ('opus') or full ID ('claude-opus-4-6').
+
+        ``effort`` is the canonical worker reasoning-effort level resolved by the
+        pool (worker-class effort → default_worker_effort). Forwarded to the CLI
+        subprocess paths; "" = model default.
         """
         card_id = card_context.get("id", "") if card_context else ""
 
@@ -1392,6 +1315,7 @@ class ClaudeService(ApiCallerMixin):
             session_type="worker",
             task_id=task_id,
             cwd=worker_cwd,
+            effort=effort,
         )
         return (_strip_think_tags(result) if _is_thinking_model(model_name) else result) if result else result
 
@@ -1408,11 +1332,13 @@ class ClaudeService(ApiCallerMixin):
         session_id: str = "",
         task_id: str = "",
         endpoint_config: Optional[dict] = None,
+        effort: str = "",
     ) -> str:
         """Lightweight worker — minimal prompt, no personality, no workspace context.
 
         For tasks that need LLM judgment but not full context (enrich, summarize,
-        research). Saves ~80% tokens vs execute_worker_task.
+        research). Saves ~80% tokens vs execute_worker_task. ``effort`` is the
+        canonical worker reasoning-effort level (forwarded to the CLI paths).
         """
         card_id = card_context.get("id", "") if card_context else ""
 
@@ -1464,6 +1390,7 @@ class ClaudeService(ApiCallerMixin):
             session_type="worker",
             task_id=task_id,
             cwd=str(workspace_workdir(workspace_id)),
+            effort=effort,
         )
         return result or ""
 

@@ -262,11 +262,16 @@ class CodexCliBackend:
         card_id: str = "",
         chat_id: str = "",
         worker_id: str = "",
+        reasoning_effort: str = "",
     ) -> list[str]:
         """Build Codex CLI args.
 
         The prompt is read from stdin via ``-`` so large worker prompts do not
         hit shell/argv length limits.
+
+        ``reasoning_effort`` is a canonical Voxyflow level (low/medium/high/max)
+        mapped to Codex's ``model_reasoning_effort`` config (max → high). Empty
+        = model default (no override emitted).
         """
         args: list[str] = []
         # Root-level (global) flags MUST come BEFORE the `exec` subcommand.
@@ -286,6 +291,12 @@ class CodexCliBackend:
             args.extend(["-m", model])
         if sandbox:
             args.extend(["-s", sandbox])
+        # Reasoning-effort override (root-level config flag, before `exec`).
+        # Omitted when unset so Codex's own default applies.
+        from app.services.llm.reasoning_effort import codex_reasoning_effort
+        _re = codex_reasoning_effort(reasoning_effort)
+        if _re:
+            args.extend(["-c", f'model_reasoning_effort="{_re}"'])
         if use_tools:
             args.extend(self._build_mcp_config_args(
                 role=mcp_role,
@@ -422,6 +433,7 @@ class CodexCliBackend:
         task_id: str = "",
         cwd: str = "",
         sandbox: str = "workspace-write",
+        effort: str = "",
     ) -> tuple[str, dict]:
         """Run one Codex exec turn and return ``(response_text, usage)``.
 
@@ -463,6 +475,7 @@ class CodexCliBackend:
                 use_tools=use_tools,
                 mcp_role=mcp_role,
                 card_id=card_id,
+                reasoning_effort=effort,
             )
             last_result = result
 
@@ -508,6 +521,7 @@ class CodexCliBackend:
                     use_tools=use_tools,
                     mcp_role=mcp_role,
                     card_id=card_id,
+                    reasoning_effort=effort,
                 )
                 elapsed_ms = (time.monotonic() - steer_start) * 1000
                 logger.info(
@@ -541,6 +555,7 @@ class CodexCliBackend:
         use_tools: bool,
         mcp_role: str,
         card_id: str,
+        reasoning_effort: str = "",
     ) -> CodexCallResult:
         args = self._build_args(
             model,
@@ -553,6 +568,7 @@ class CodexCliBackend:
             card_id=card_id,
             chat_id=chat_id,
             worker_id=(task_id if session_type == "worker" else ""),
+            reasoning_effort=reasoning_effort,
         )
         logger.info(
             "[CodexCLI] Spawning: %s %s model=%s prompt_len=%s",
