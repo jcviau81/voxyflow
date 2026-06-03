@@ -1,19 +1,25 @@
 import { useRef, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Trash2, Loader2, File, FileText, FileCode, BookOpen, Sheet } from 'lucide-react';
+import { Upload, Trash2, Loader2, File, FileText, FileCode, BookOpen, Sheet, Image as ImageIcon, AlertTriangle } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useToastStore } from '../../stores/useToastStore';
 import type { LucideIcon } from 'lucide-react';
 
+// Shape returned by GET /api/workspaces/{id}/documents — must match the backend
+// DocumentResponse (size_bytes / filetype / chunk_count / indexed_at), NOT the
+// older file_size / mime_type guess that crashed the render.
 interface WorkspaceDocument {
   id: string;
   filename: string;
-  file_size: number;
-  mime_type: string;
+  filetype: string;        // ".pdf", ".png", … (extension, may be "")
+  size_bytes: number;
+  chunk_count: number;
   created_at: string;
+  indexed_at: string | null;
 }
 
 function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -27,21 +33,26 @@ function formatDate(iso: string): string {
   }
 }
 
-function getDocIconComponent(filename: string, mimeType: string): LucideIcon {
+const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'svg', 'heic'];
+const CODE_EXTS = ['md', 'markdown', 'txt', 'json', 'yaml', 'yml', 'html', 'htm', 'xml', 'csv', 'py', 'js', 'ts', 'tsx', 'sh', 'log'];
+
+// Derive the icon from the filename extension only. The previous version read a
+// non-existent `mime_type` field and called `.includes()` on undefined, which
+// threw during render and white-screened the whole panel.
+function getDocIconComponent(filename: string): LucideIcon {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  if (ext === 'pdf' || mimeType === 'application/pdf') return BookOpen;
-  if (ext === 'xlsx' || ext === 'xls' || mimeType.includes('spreadsheet') || mimeType.includes('excel')) return Sheet;
-  if (ext === 'docx' || ext === 'doc' || mimeType.includes('word') || mimeType.includes('msword')) return FileText;
-  if (ext === 'md') return FileCode;
+  if (ext === 'pdf') return BookOpen;
+  if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') return Sheet;
+  if (ext === 'docx' || ext === 'doc') return FileText;
+  if (IMAGE_EXTS.includes(ext)) return ImageIcon;
+  if (CODE_EXTS.includes(ext)) return FileCode;
   return File;
 }
 
-function DocIcon({ filename, mimeType }: { filename: string; mimeType: string }) {
-  const Icon = getDocIconComponent(filename, mimeType);
+function DocIcon({ filename }: { filename: string }) {
+  const Icon = getDocIconComponent(filename);
   return <Icon size={14} className="shrink-0 text-muted-foreground" />;
 }
-
-const ALLOWED_EXTS = ['.txt', '.md', '.pdf', '.docx', '.xlsx'];
 
 export function WorkspaceDocuments() {
   const workspaceId = useWorkspaceStore(s => s.currentWorkspaceId);
@@ -49,6 +60,7 @@ export function WorkspaceDocuments() {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
 
   const { data: docs = [] } = useQuery<WorkspaceDocument[]>({
     queryKey: ['workspaces', workspaceId, 'documents'],
@@ -74,12 +86,14 @@ export function WorkspaceDocuments() {
       }
       return res.json() as Promise<WorkspaceDocument>;
     },
-    onSuccess: () => {
+    onSuccess: (doc) => {
       void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] });
-      showToast('Document indexed', 'success', 3000);
+      if (doc && doc.chunk_count === 0) {
+        showToast(`"${doc.filename}" stored but no text could be indexed`, 'info', 4000);
+      }
     },
-    onError: (err: Error) => {
-      showToast(`Upload failed: ${err.message}`, 'error');
+    onError: (err: Error, file) => {
+      showToast(`Upload failed${file ? ` (${file.name})` : ''}: ${err.message}`, 'error');
     },
   });
 
@@ -97,29 +111,46 @@ export function WorkspaceDocuments() {
     },
   });
 
-  const handleFile = useCallback((file: File) => {
-    const ext = '.' + (file.name.split('.').pop()?.toLowerCase() ?? '');
-    if (!ALLOWED_EXTS.includes(ext)) {
-      showToast(`File type not supported: ${ext}`, 'error');
-      return;
+  // Upload all selected/dropped files. The backend accepts any type and stores
+  // a record even when it cannot extract text, so there is no client-side gate.
+  const handleFiles = useCallback(async (files: FileList | File[]) => {
+    const arr = Array.from(files);
+    if (arr.length === 0) return;
+    let indexed = 0;
+    setUploadingCount(c => c + arr.length);
+    for (const file of arr) {
+      try {
+        await uploadMutation.mutateAsync(file);
+        indexed += 1;
+      } catch {
+        /* per-file error toast already fired in onError */
+      } finally {
+        setUploadingCount(c => c - 1);
+      }
     }
-    uploadMutation.mutate(file);
+    if (arr.length > 1 && indexed > 0) {
+      showToast(`Uploaded ${indexed}/${arr.length} file${arr.length === 1 ? '' : 's'}`, 'success', 3000);
+    } else if (arr.length === 1 && indexed === 1) {
+      showToast('Document indexed', 'success', 3000);
+    }
   }, [uploadMutation, showToast]);
 
   const handleFileInputChange = useCallback(() => {
-    const file = fileInputRef.current?.files?.[0];
-    if (file) {
-      handleFile(file);
+    const files = fileInputRef.current?.files;
+    if (files && files.length > 0) {
+      void handleFiles(files);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [handleFile]);
+  }, [handleFiles]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleFile(file);
-  }, [handleFile]);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) void handleFiles(files);
+  }, [handleFiles]);
+
+  const isUploading = uploadingCount > 0;
 
   if (!workspaceId) {
     return (
@@ -144,19 +175,19 @@ export function WorkspaceDocuments() {
         <button
           className="btn btn-primary docs-upload-btn"
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploadMutation.isPending}
+          disabled={isUploading}
         >
-          {uploadMutation.isPending
-            ? <><Loader2 size={13} className="animate-spin" /> Uploading…</>
+          {isUploading
+            ? <><Loader2 size={13} className="animate-spin" /> Uploading{uploadingCount > 1 ? ` ${uploadingCount}…` : '…'}</>
             : <><Upload size={13} /> Upload</>}
         </button>
       </div>
 
-      {/* Hidden file input */}
+      {/* Hidden file input — any type, multiple files */}
       <input
         ref={fileInputRef}
         type="file"
-        accept=".txt,.md,.pdf,.docx,.xlsx"
+        multiple
         style={{ display: 'none' }}
         onChange={handleFileInputChange}
       />
@@ -170,7 +201,7 @@ export function WorkspaceDocuments() {
         onClick={() => fileInputRef.current?.click()}
       >
         <span style={{ color: 'var(--color-text-muted, #888)', fontSize: '13px' }}>
-          Drag &amp; drop files here, or click <strong>Upload</strong>
+          Drag &amp; drop files here, or click <strong>Upload</strong> — PDF, Office, images, or any file
         </span>
       </div>
 
@@ -184,24 +215,32 @@ export function WorkspaceDocuments() {
             No documents yet. Upload files to give Voxy context about this workspace.
           </div>
         ) : (
-          docs.map((doc) => (
-            <div key={doc.id} className="doc-item">
-              <span className="doc-icon"><DocIcon filename={doc.filename} mimeType={doc.mime_type} /></span>
-              <span className="doc-name">{doc.filename}</span>
-              <span className="doc-meta">{formatBytes(doc.file_size)} · {formatDate(doc.created_at)}</span>
-              <button
-                className="btn btn-ghost doc-delete"
-                title="Delete document"
-                style={{ padding: '4px 8px', fontSize: '14px', opacity: 0.6 }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.6'; }}
-                onClick={() => deleteMutation.mutate({ docId: doc.id, filename: doc.filename })}
-                disabled={deleteMutation.isPending}
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))
+          docs.map((doc) => {
+            const notIndexed = !doc.chunk_count;
+            return (
+              <div key={doc.id} className="doc-item">
+                <span className="doc-icon"><DocIcon filename={doc.filename} /></span>
+                <span className="doc-name">{doc.filename}</span>
+                <span className="doc-meta">
+                  {formatBytes(doc.size_bytes)} · {formatDate(doc.created_at)}
+                  {notIndexed
+                    ? <span title="Stored, but no searchable text was extracted" style={{ marginLeft: 6, color: 'var(--color-warning, #d4a72c)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><AlertTriangle size={11} /> not indexed</span>
+                    : <span style={{ marginLeft: 6, opacity: 0.7 }}>· {doc.chunk_count} chunk{doc.chunk_count === 1 ? '' : 's'}</span>}
+                </span>
+                <button
+                  className="btn btn-ghost doc-delete"
+                  title="Delete document"
+                  style={{ padding: '4px 8px', fontSize: '14px', opacity: 0.6 }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.6'; }}
+                  onClick={() => deleteMutation.mutate({ docId: doc.id, filename: doc.filename })}
+                  disabled={deleteMutation.isPending}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
     </div>
