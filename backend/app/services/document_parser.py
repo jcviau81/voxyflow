@@ -2,7 +2,10 @@
 Extensible document parser system for Voxyflow RAG pipeline.
 
 Phase 1: .txt, .md, .markdown support.
-Phase 2: PDF, DOCX, XLSX support (graceful — skipped if deps missing).
+Phase 2: PDF, DOCX, XLSX/CSV support (graceful — skipped if deps missing).
+Phase 3: PPTX (python-pptx) + HTML (bs4/regex) parsers, plus a `best_effort_text`
+         decoder for arbitrary text-like files. Images and scanned PDFs are
+         handled out-of-band via the vision pipeline (see document_ingest).
 """
 
 import re
@@ -24,8 +27,9 @@ class UnsupportedFileType(Exception):
     def __init__(self, extension: str):
         self.extension = extension
         super().__init__(
-            f"Unsupported file type: {extension!r}. "
-            "Supported formats: .txt, .md, .pdf, .docx, .xlsx, .xls, .csv."
+            f"No dedicated parser for file type: {extension!r}. "
+            "Dedicated formats: .txt, .md, .pdf, .docx, .xlsx, .csv, .pptx, .html. "
+            "Other types fall back to best-effort text extraction or are stored as-is."
         )
 
 
@@ -213,9 +217,14 @@ class PDFParser(BaseParser):
 
 
 class DocxParser(BaseParser):
-    """Parser for Word documents. Requires python-docx>=1.1.0."""
+    """Parser for Word documents. Requires python-docx>=1.1.0.
 
-    supported_extensions = ['.docx', '.doc']
+    Only the modern Office Open XML ``.docx`` is supported — python-docx cannot
+    read the legacy binary ``.doc`` (OLE) format, so ``.doc`` is intentionally
+    not registered here and falls through to best-effort handling in ingest.
+    """
+
+    supported_extensions = ['.docx']
 
     def parse(self, content: bytes, filename: str) -> ParsedDocument:
         import io
@@ -247,11 +256,14 @@ class XlsxParser(BaseParser):
     """
     Parser for spreadsheets.
 
-    - .xlsx / .xls: requires openpyxl>=3.1.0
+    - .xlsx: requires openpyxl>=3.1.0
     - .csv: no external dependency required
+
+    Legacy binary ``.xls`` is not supported (openpyxl reads only the modern XML
+    format); it falls through to best-effort handling in ingest.
     """
 
-    supported_extensions = ['.xlsx', '.xls', '.csv']
+    supported_extensions = ['.xlsx', '.csv']
 
     def parse(self, content: bytes, filename: str) -> ParsedDocument:
         ext = Path(filename).suffix.lower()
@@ -306,6 +318,145 @@ class XlsxParser(BaseParser):
 
 
 # ---------------------------------------------------------------------------
+# PPTX parser
+# ---------------------------------------------------------------------------
+
+
+class PptxParser(BaseParser):
+    """Parser for PowerPoint decks. Requires python-pptx>=0.6."""
+
+    supported_extensions = ['.pptx']
+
+    def parse(self, content: bytes, filename: str) -> ParsedDocument:
+        import io
+        from pptx import Presentation  # type: ignore[import]
+
+        prs = Presentation(io.BytesIO(content))
+        slide_texts: list[str] = []
+        for idx, slide in enumerate(prs.slides, start=1):
+            parts: list[str] = []
+            for shape in slide.shapes:
+                if getattr(shape, "has_text_frame", False):
+                    txt = shape.text_frame.text
+                    if txt and txt.strip():
+                        parts.append(txt.strip())
+                if getattr(shape, "has_table", False):
+                    for row in shape.table.rows:
+                        cells = [c.text for c in row.cells]
+                        if any(c.strip() for c in cells):
+                            parts.append("\t".join(cells))
+            if getattr(slide, "has_notes_slide", False):
+                notes_tf = slide.notes_slide.notes_text_frame
+                if notes_tf and notes_tf.text.strip():
+                    parts.append(f"(notes) {notes_tf.text.strip()}")
+            if parts:
+                slide_texts.append(f"[Slide {idx}]\n" + "\n".join(parts))
+
+        text = "\n\n".join(slide_texts)
+        chunks = _split_into_chunks(text)
+        return ParsedDocument(
+            text=text,
+            chunks=chunks,
+            metadata={
+                'filename': filename,
+                'filetype': '.pptx',
+                'size_bytes': len(content),
+                'chunk_count': len(chunks),
+                'slide_count': len(slide_texts),
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# HTML parser
+# ---------------------------------------------------------------------------
+
+
+def _html_to_text(raw: str) -> str:
+    """Strip an HTML document to readable text (bs4 if available, regex fallback)."""
+    try:
+        from bs4 import BeautifulSoup  # type: ignore[import]
+
+        soup = BeautifulSoup(raw, 'html.parser')
+        for tag in soup(['script', 'style', 'noscript', 'template']):
+            tag.decompose()
+        return soup.get_text(separator='\n')
+    except Exception:
+        import html as _html
+        import re
+
+        cleaned = re.sub(r'(?is)<(script|style).*?</\1>', ' ', raw)
+        cleaned = re.sub(r'(?s)<[^>]+>', ' ', cleaned)
+        return _html.unescape(cleaned)
+
+
+class HtmlParser(BaseParser):
+    """Parser for HTML files — strips tags to readable text."""
+
+    supported_extensions = ['.html', '.htm']
+
+    def parse(self, content: bytes, filename: str) -> ParsedDocument:
+        try:
+            raw = content.decode('utf-8')
+        except UnicodeDecodeError:
+            raw = content.decode('latin-1', errors='replace')
+
+        text = _html_to_text(raw)
+        # Collapse the runs of blank lines bs4/regex stripping tends to produce.
+        text = re.sub(r'\n{3,}', '\n\n', text).strip()
+        chunks = _split_into_chunks(text)
+        return ParsedDocument(
+            text=text,
+            chunks=chunks,
+            metadata={
+                'filename': filename,
+                'filetype': Path(filename).suffix.lower(),
+                'size_bytes': len(content),
+                'chunk_count': len(chunks),
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# Best-effort plain-text decode (for unknown / arbitrary file types)
+# ---------------------------------------------------------------------------
+
+
+def best_effort_text(content: bytes, *, max_check: int = 8192) -> str | None:
+    """Decode bytes to text if they look textual; return None for binary blobs.
+
+    Used as the fallback for file types with no dedicated parser (source code,
+    JSON, YAML, logs, config, …) so "pretty much any text file" indexes without
+    a bespoke parser, while true binaries (zip, images, executables) are detected
+    and left for the caller to store without indexing.
+    """
+    if not content:
+        return ""
+
+    sample = content[:max_check]
+    if b"\x00" in sample:
+        return None  # NUL byte → binary
+
+    text: str | None = None
+    for enc in ("utf-8", "utf-16", "latin-1"):
+        try:
+            text = content.decode(enc)
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    if text is None:
+        return None
+
+    sample_text = text[:max_check]
+    if not sample_text:
+        return text
+    printable = sum(1 for ch in sample_text if ch.isprintable() or ch in "\t\n\r\f\v")
+    if printable / len(sample_text) < 0.85:
+        return None  # mostly control bytes → treat as binary
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -349,10 +500,20 @@ class DocumentParserRegistry:
             import openpyxl  # noqa: F401
             self.register(xlsx_parser)
         except ImportError:
-            logger.debug("DocumentParserRegistry: openpyxl not installed — XLSX/XLS support disabled, registering CSV only")
+            logger.debug("DocumentParserRegistry: openpyxl not installed — XLSX support disabled, registering CSV only")
             # Register CSV support only (no openpyxl needed for .csv)
             self._parsers['.csv'] = xlsx_parser
             logger.debug("DocumentParserRegistry: registered XlsxParser for '.csv'")
+
+        # Phase 3 — PPTX parser (graceful: skipped if python-pptx not installed)
+        try:
+            import pptx  # noqa: F401
+            self.register(PptxParser())
+        except ImportError:
+            logger.debug("DocumentParserRegistry: python-pptx not installed — PPTX support disabled")
+
+        # Phase 3 — HTML parser (no hard dependency: bs4 if present, regex fallback otherwise)
+        self.register(HtmlParser())
 
     def register(self, parser: BaseParser) -> None:
         """Register a parser for all its supported extensions."""

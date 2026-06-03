@@ -22,7 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Document, Workspace, get_db, new_uuid, utcnow
 from app.models.document import DocumentListResponse, DocumentResponse
-from app.services.document_parser import UnsupportedFileType, get_document_parser_registry
+from app.services.document_ingest import ingest_document
+from app.services.document_parser import ParsedDocument
 from app.services.rag_service import RAGService, get_rag_service
 
 logger = logging.getLogger(__name__)
@@ -79,25 +80,23 @@ async def upload_document(
     content = await file.read()
     size_bytes = len(content)
 
-    # Parse document
-    registry = get_document_parser_registry()
+    # Extract text (best-effort — never rejects a file). Images/scanned PDFs go
+    # through the vision pipeline; unknown text-like files are decoded; true
+    # binaries are stored with zero chunks. See services/document_ingest.py.
     try:
-        parser = registry.get_parser(filename)
-        parsed = parser.parse(content, filename)
-    except UnsupportedFileType as e:
-        supported = ", ".join(sorted(registry.supported_extensions))
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=(
-                f"Unsupported file type: {ext!r}. "
-                f"Supported formats: {supported}."
-            ),
-        )
-    except Exception as e:
-        logger.error(f"Document parsing failed for {filename!r}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Failed to parse document: {e}",
+        parsed = await ingest_document(content, filename)
+    except Exception as e:  # defensive — ingest_document is contracted not to raise
+        logger.error(f"Document ingest failed for {filename!r}: {e}")
+        parsed = ParsedDocument(
+            text="",
+            chunks=[],
+            metadata={
+                "filename": filename,
+                "filetype": ext,
+                "size_bytes": size_bytes,
+                "chunk_count": 0,
+                "extraction": "error",
+            },
         )
 
     # Create DB record

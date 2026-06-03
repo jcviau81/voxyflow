@@ -4,6 +4,7 @@ import {
   Upload, Save, Eye, Pencil, Trash2, Plus, Loader2,
   File, FileText, FileCode, BookOpen, Sheet,
   Files, BookMarked, Database, Settings,
+  Image as ImageIcon, AlertTriangle,
   type LucideIcon,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -16,9 +17,11 @@ import { MarkdownPreview } from '../ui/MarkdownPreview';
 interface WorkspaceDocument {
   id: string;
   filename: string;
-  file_size: number;
-  mime_type: string;
+  filetype: string;        // ".pdf", ".png", … (extension, may be "")
+  size_bytes: number;
+  chunk_count: number;
   created_at: string;
+  indexed_at: string | null;
 }
 
 interface WikiPageSummary {
@@ -36,6 +39,7 @@ interface WikiPageDetail extends WikiPageSummary {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -49,21 +53,26 @@ function formatDate(iso: string): string {
   }
 }
 
-function getDocIconComponent(filename: string, mimeType: string): LucideIcon {
+const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'svg', 'heic'];
+const CODE_EXTS = ['md', 'markdown', 'txt', 'json', 'yaml', 'yml', 'html', 'htm', 'xml', 'csv', 'py', 'js', 'ts', 'tsx', 'sh', 'log'];
+
+// Derive the icon from the filename extension only. The previous version read a
+// non-existent `mime_type` field and called `.includes()` on undefined, which
+// threw during render and crashed the Documents tab.
+function getDocIconComponent(filename: string): LucideIcon {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  if (ext === 'pdf' || mimeType === 'application/pdf') return BookOpen;
-  if (ext === 'xlsx' || ext === 'xls' || mimeType.includes('spreadsheet') || mimeType.includes('excel')) return Sheet;
-  if (ext === 'docx' || ext === 'doc' || mimeType.includes('word') || mimeType.includes('msword')) return FileText;
-  if (ext === 'md') return FileCode;
+  if (ext === 'pdf') return BookOpen;
+  if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') return Sheet;
+  if (ext === 'docx' || ext === 'doc') return FileText;
+  if (IMAGE_EXTS.includes(ext)) return ImageIcon;
+  if (CODE_EXTS.includes(ext)) return FileCode;
   return File;
 }
 
-function DocIcon({ filename, mimeType, size = 14 }: { filename: string; mimeType: string; size?: number }) {
-  const Icon = getDocIconComponent(filename, mimeType);
+function DocIcon({ filename, size = 14 }: { filename: string; size?: number }) {
+  const Icon = getDocIconComponent(filename);
   return <Icon size={size} className="shrink-0 text-muted-foreground" />;
 }
-
-const ALLOWED_EXTS = ['.txt', '.md', '.pdf', '.docx', '.xlsx'];
 
 type KnowledgeTab = 'documents' | 'wiki' | 'rag';
 
@@ -78,6 +87,7 @@ function DocumentsTab({ workspaceId }: DocumentsTabProps) {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
 
   const { data: docs = [] } = useQuery<WorkspaceDocument[]>({
     queryKey: ['workspaces', workspaceId, 'documents'],
@@ -101,11 +111,13 @@ function DocumentsTab({ workspaceId }: DocumentsTabProps) {
       }
       return res.json() as Promise<WorkspaceDocument>;
     },
-    onSuccess: () => {
+    onSuccess: (doc) => {
       void qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] });
-      showToast('Document indexed', 'success', 3000);
+      if (doc && doc.chunk_count === 0) {
+        showToast(`"${doc.filename}" stored but no text could be indexed`, 'info', 4000);
+      }
     },
-    onError: (err: Error) => showToast(`Upload failed: ${err.message}`, 'error'),
+    onError: (err: Error, file) => showToast(`Upload failed${file ? ` (${file.name})` : ''}: ${err.message}`, 'error'),
   });
 
   const deleteMutation = useMutation({
@@ -120,36 +132,53 @@ function DocumentsTab({ workspaceId }: DocumentsTabProps) {
     onError: () => showToast('Delete failed', 'error'),
   });
 
-  const handleFile = useCallback((file: File) => {
-    const ext = '.' + (file.name.split('.').pop()?.toLowerCase() ?? '');
-    if (!ALLOWED_EXTS.includes(ext)) {
-      showToast(`File type not supported: ${ext}`, 'error');
-      return;
+  // Upload all selected/dropped files. The backend accepts any type and stores
+  // a record even when it cannot extract text, so there is no client-side gate.
+  const handleFiles = useCallback(async (files: FileList | File[]) => {
+    const arr = Array.from(files);
+    if (arr.length === 0) return;
+    let indexed = 0;
+    setUploadingCount(c => c + arr.length);
+    for (const file of arr) {
+      try {
+        await uploadMutation.mutateAsync(file);
+        indexed += 1;
+      } catch {
+        /* per-file error toast already fired in onError */
+      } finally {
+        setUploadingCount(c => c - 1);
+      }
     }
-    uploadMutation.mutate(file);
+    if (arr.length > 1 && indexed > 0) {
+      showToast(`Uploaded ${indexed}/${arr.length} files`, 'success', 3000);
+    } else if (arr.length === 1 && indexed === 1) {
+      showToast('Document indexed', 'success', 3000);
+    }
   }, [uploadMutation, showToast]);
 
   const handleFileInputChange = useCallback(() => {
-    const file = fileInputRef.current?.files?.[0];
-    if (file) {
-      handleFile(file);
+    const files = fileInputRef.current?.files;
+    if (files && files.length > 0) {
+      void handleFiles(files);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [handleFile]);
+  }, [handleFiles]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleFile(file);
-  }, [handleFile]);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) void handleFiles(files);
+  }, [handleFiles]);
+
+  const isUploading = uploadingCount > 0;
 
   return (
     <div className="knowledge-view">
       <input
         ref={fileInputRef}
         type="file"
-        accept=".txt,.md,.pdf,.docx,.xlsx"
+        multiple
         style={{ display: 'none' }}
         onChange={handleFileInputChange}
       />
@@ -158,10 +187,10 @@ function DocumentsTab({ workspaceId }: DocumentsTabProps) {
         <button
           className="btn flex flex-col btn-primary place-items-center text-center"
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploadMutation.isPending}
+          disabled={isUploading}
         >
-          {uploadMutation.isPending
-            ? <><Loader2 size={13} className="animate-spin" /> Uploading…</>
+          {isUploading
+            ? <><Loader2 size={13} className="animate-spin" /> Uploading{uploadingCount > 1 ? ` ${uploadingCount}…` : '…'}</>
             : <><Upload size={13} /> Upload</>}
         </button>
       </div>
@@ -173,7 +202,7 @@ function DocumentsTab({ workspaceId }: DocumentsTabProps) {
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
       >
-        <span>Drag &amp; drop files here, or click <strong>Upload</strong></span>
+        <span>Drag &amp; drop files here, or click <strong>Upload</strong> — PDF, Office, images, or any file</span>
       </div>
 
       <div className="knowledge-list place-items-center">
@@ -183,10 +212,15 @@ function DocumentsTab({ workspaceId }: DocumentsTabProps) {
           docs.map((doc) => (
             <div key={doc.id} className="knowledge-item">
               <span className="knowledge-item-icon">
-                <DocIcon filename={doc.filename} mimeType={doc.mime_type} />
+                <DocIcon filename={doc.filename} />
               </span>
               <span className="knowledge-item-name">{doc.filename}</span>
-              <span className="knowledge-item-meta">{formatBytes(doc.file_size)} · {formatDate(doc.created_at)}</span>
+              <span className="knowledge-item-meta">
+                {formatBytes(doc.size_bytes)} · {formatDate(doc.created_at)}
+                {!doc.chunk_count
+                  ? <span title="Stored, but no searchable text was extracted" style={{ marginLeft: 6, color: 'var(--color-warning, #d4a72c)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><AlertTriangle size={11} /> not indexed</span>
+                  : <span style={{ marginLeft: 6, opacity: 0.7 }}>· {doc.chunk_count} chunk{doc.chunk_count === 1 ? '' : 's'}</span>}
+              </span>
               <button
                 className="btn btn-ghost knowledge-item-delete"
                 title="Delete"
