@@ -158,10 +158,11 @@ Cards are the core unit of everything:
 
 Untracked sticky-note cards outside any workspace. Color-coded (6 colors). Same card model — unified data.
 
-### 🤖 Agent Personas (6 Specialists)
+### 🤖 Agent Personas (7 Types: 1 Default + 6 Specialists)
 
 | Agent | Role |
 |-------|------|
+| ⚡ General | Default fallback — general tasks, conversation, coordination |
 | 🔍 Researcher | Deep analysis, fact-checking, long-form |
 | 💻 Coder | Code generation, debugging, optimization |
 | 🎨 Designer | UI/UX thinking, visual design guidance |
@@ -169,7 +170,7 @@ Untracked sticky-note cards outside any workspace. Color-coded (6 colors). Same 
 | ✍️ Writer | Content, marketing, storytelling |
 | 🧪 QA | Testing strategies, edge cases, validation |
 
-Auto-routing detects the best agent from keywords and context.
+Auto-routing detects the best specialist from keywords and context, falling back to `general` when no specialist matches.
 
 ### 🎤 Voice
 
@@ -267,8 +268,8 @@ voxyflow/
 │   ├── DISPATCHER.md
 │   ├── WORKER.md
 │   ├── AGENTS.md
-│   ├── IDENTITY.md
-│   └── USER.md
+│   ├── IDENTITY.md                     # auto-generated at startup (not committed)
+│   └── USER.md                         # auto-generated at startup (not committed)
 └── docs/                               # Documentation
     ├── SETUP.md                        # Installation guide
     ├── CONTEXT_GUIDE.md                # Context system + workflow examples

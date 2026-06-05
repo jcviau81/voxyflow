@@ -86,6 +86,8 @@ export function useCreateWorkspace() {
     mutationFn: async (data: {
       name: string;
       description?: string;
+      emoji?: string;
+      color?: string;
       localPath?: string;
       githubRepo?: string;
       githubUrl?: string;
@@ -96,6 +98,8 @@ export function useCreateWorkspace() {
         title: data.name,
         description: data.description ?? '',
       };
+      if (data.emoji) body.emoji = data.emoji;
+      if (data.color) body.color = data.color;
       if (data.localPath) body.local_path = data.localPath;
       if (data.githubRepo) body.github_repo = data.githubRepo;
       if (data.githubUrl) body.github_url = data.githubUrl;
@@ -122,6 +126,8 @@ export function useUpdateWorkspace() {
       if (updates.name !== undefined) body.title = updates.name;
       if (updates.title !== undefined) body.title = updates.title;
       if (updates.description !== undefined) body.description = updates.description;
+      if (updates.emoji !== undefined) body.emoji = updates.emoji;
+      if (updates.color !== undefined) body.color = updates.color;
       if (updates.localPath !== undefined) body.local_path = updates.localPath;
       if (updates.githubRepo !== undefined) body.github_repo = updates.githubRepo;
       if (updates.githubUrl !== undefined) body.github_url = updates.githubUrl;

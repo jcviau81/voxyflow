@@ -1468,6 +1468,10 @@ class DeepWorkerPool:
                 return
             finally:
                 stall_task.cancel()
+                try:
+                    await stall_task
+                except asyncio.CancelledError:
+                    pass
 
             if not result_content:
                 try:

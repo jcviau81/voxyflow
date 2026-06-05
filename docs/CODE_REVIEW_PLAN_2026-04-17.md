@@ -98,8 +98,8 @@ Snapshot review of the Voxyflow codebase (~79 backend Python files, 121 TS/TSX f
   `_sanitize_api_key()` helper drops the redacted sentinel before it reaches any SDK client; applied to all three factories (anthropic sync/async, openai-compat).
 - [x] **M19. Release CLI worker slot on subprocess exit, not consumer exit** — `backend/app/services/llm/cli_backend.py` (`stream()`)
   Refactored with a decoupled drain task: a background `_drain_stdout()` coroutine pushes lines through an `asyncio.Queue` and releases the rate-gate semaphore the moment stdout closes (EOF sentinel), regardless of how long the consumer takes to iterate. Slow UI consumers no longer pin worker slots.
-- [ ] **M20. Make tool callbacks consistent + wire into streaming CLI** — `backend/app/services/llm/api_caller.py:274-275, 645, 1081-1083, 1487-1493`
-  Inconsistent async/sync checks; streaming CLI path accepts no `tool_callback`, so streaming chat gets no tool visibility.
+- [~] **M20. Make tool callbacks consistent + wire into streaming CLI** — `backend/app/services/llm/api_caller.py`, `cli_backend.py`, `cli_persistent_chat.py`, `model_utils.py`
+  **Plumbing landed (2026-06-05 review, see `docs/CODE_REVIEW_2026-06-05.md`).** Added a shared coroutine-aware `invoke_tool_callback()` helper in `model_utils.py` and routed every callback site through it (fixing the live `_call_api_openai` async-drop). `_call_api_stream_cli` now accepts `tool_callback` and threads it into `cli_backend.stream()` and `cli_persistent_chat.stream_persistent()`, whose stream-json parsers now detect `tool_use`/`tool_result` frames and fire the callback. **Remaining:** the dispatcher *streaming* call sites in `claude_service.py` don't yet construct a callback to pass (so streaming chat tool visibility is enabled but not yet emitted), and Codex streaming parity is deferred (TODO in `api_caller.py`).
 
 ### Frontend
 

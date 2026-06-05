@@ -1268,9 +1268,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const handleVoiceStop = useCallback(() => {
     if (voiceAutoSendBufferRef.current) {
-      setTimeout(() => flushVoiceAutoSend(), 300);
+      if (voiceAutoSendTimerRef.current) clearTimeout(voiceAutoSendTimerRef.current);
+      voiceAutoSendTimerRef.current = setTimeout(() => {
+        flushVoiceAutoSend();
+      }, 300);
     }
   }, [flushVoiceAutoSend]);
+
+  // Clear any pending voice auto-send timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (voiceAutoSendTimerRef.current) clearTimeout(voiceAutoSendTimerRef.current);
+    };
+  }, []);
 
   // --- Create card from suggestion ---
   const createCardFromSuggestion = useCallback(

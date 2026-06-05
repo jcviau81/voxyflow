@@ -1113,13 +1113,13 @@ _TOOL_DEFINITIONS: list[dict] = [
 
     {
         "name": "system.exec",
-        "description": "Run a shell command on the local machine. Returns stdout, stderr, exit_code, and duration. cwd defaults to the workspace and must stay under it.",
+        "description": "Run a shell command on the local machine. Returns stdout, stderr, exit_code, and duration. cwd defaults to the workspace root; any existing directory is allowed (no sandbox confinement on single-user installs).",
         "inputSchema": {
             "type": "object",
             "required": ["command"],
             "properties": {
                 "command": {"type": "string", "description": "Shell command to execute"},
-                "cwd": {"type": "string", "description": "Working directory (optional; must be under ~/.voxyflow/sandbox). Defaults to the workspace root."},
+                "cwd": {"type": "string", "description": "Working directory (optional; defaults to the workspace root). No confinement enforced on single-user installs."},
                 "timeout": {"type": "integer", "description": "Timeout in seconds (default 30, max 300)", "default": 30},
             },
         },

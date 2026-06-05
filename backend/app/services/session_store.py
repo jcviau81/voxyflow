@@ -50,13 +50,40 @@ class SessionStore:
                 self._file_locks[chat_id] = lock
             return lock
 
-    def _get_session_path(self, chat_id: str) -> Path:
-        """Get file path for a chat session."""
+    def _drop_file_lock(self, chat_id: str) -> None:
+        """Reclaim a chat_id's per-file lock when its session ends.
+
+        Without this, ``_file_locks`` grows one entry per unique chat_id
+        forever. Pop-on-delete ties the lock's lifetime to the session's,
+        which is safe because clear/delete are the terminal operations for a
+        chat_id — no concurrent writer should still hold or want the lock.
+        (Recency-based eviction is *not* safe here: it could drop a live lock
+        and re-introduce the file race ``_get_file_lock`` exists to prevent.)
+        """
+        with self._locks_guard:
+            self._file_locks.pop(chat_id, None)
+
+    def _safe_session_path(self, chat_id: str, suffix: str) -> Path:
+        """Build a session file path from chat_id, guarding against traversal.
+
+        Sanitizes chat_id (colons → subdirs, strip ``..``) then resolves the
+        result and verifies it stays inside ``sessions_dir``. A crafted
+        chat_id that escapes the base dir raises ValueError rather than
+        silently reading/writing outside the session store. ``suffix`` is the
+        full file ending, e.g. ``".json"`` or ``".summary.json"``.
+        """
         # Sanitize chat_id for filesystem: colons → subdirs, strip ..
         safe_id = chat_id.replace(":", "/").replace("..", "")
-        path = self.sessions_dir / f"{safe_id}.json"
+        path = self.sessions_dir / f"{safe_id}{suffix}"
+        base = self.sessions_dir.resolve()
+        if not path.resolve().is_relative_to(base):
+            raise ValueError(f"chat_id escapes session store: {chat_id!r}")
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
+
+    def _get_session_path(self, chat_id: str) -> Path:
+        """Get file path for a chat session."""
+        return self._safe_session_path(chat_id, ".json")
 
     def save_message(self, chat_id: str, message: dict):
         """Append a message to a session file (thread-safe, atomic write)."""
@@ -240,10 +267,7 @@ class SessionStore:
 
     def _get_summary_path(self, chat_id: str) -> Path:
         """Get file path for a chat session's summary."""
-        safe_id = chat_id.replace(":", "/").replace("..", "")
-        path = self.sessions_dir / f"{safe_id}.summary.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return path
+        return self._safe_session_path(chat_id, ".summary.json")
 
     def load_summary(self, chat_id: str) -> dict | None:
         """Load the persisted conversation summary for a chat session.
@@ -303,6 +327,7 @@ class SessionStore:
             archive_suffix = datetime.now().strftime("%Y%m%d-%H%M%S")
             archive_path = path.with_suffix(f".archived-{archive_suffix}.json")
             path.rename(archive_path)
+        self._drop_file_lock(chat_id)
 
     def delete_session(self, chat_id: str) -> None:
         """Permanently delete a session file (and its summary) from disk."""
@@ -318,6 +343,7 @@ class SessionStore:
                 summary_path.unlink()
             except OSError:
                 pass
+        self._drop_file_lock(chat_id)
 
     def list_sessions(self, prefix: str = "") -> List[dict]:
         """List all sessions, optionally filtered by prefix."""

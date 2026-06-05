@@ -700,7 +700,8 @@ class SchedulerService:
                             try:
                                 from apscheduler.triggers.cron import CronTrigger
                                 cron_expr = card.recurrence.replace("cron:", "").strip()
-                                trigger = CronTrigger.from_crontab(cron_expr)
+                                trigger = CronTrigger.from_crontab(cron_expr, timezone=timezone.utc)
+                                base = base if base.tzinfo else base.replace(tzinfo=timezone.utc)
                                 new_next = trigger.get_next_fire_time(None, base)
                             except Exception:
                                 new_next = base + timedelta(days=1)

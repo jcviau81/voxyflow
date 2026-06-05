@@ -17,7 +17,10 @@ Tier 2 — App settings (routes/settings.py, DB app_settings table):
 
   VOXYFLOW_DIR  — app directory (source code, personality/ system prompts)
                   Override: VOXYFLOW_DIR env var
-                  Default: ~/voxyflow
+                  Default: ~/.voxyflow
+
+  Note: VOXYFLOW_DIR and VOXYFLOW_DATA_DIR both default to ~/.voxyflow for
+  single-user installs; override VOXYFLOW_DIR if the source lives elsewhere.
 
   VOXYFLOW_DATA_DIR — data directory (SQLite DB, settings.json, worker sessions, jobs)
                        Override: VOXYFLOW_DATA_DIR env var

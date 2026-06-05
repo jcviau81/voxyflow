@@ -247,16 +247,34 @@ class MemoryContextMixin:
             include_daily=include_daily,
         )
 
-    def _build_l0_identity(self, workspace_id: str) -> Optional[str]:
-        """L0: Pinned KG entities — workspace identity. Sync-safe (reads from cache)."""
+    def _build_l0_identity(self, workspace_id: str, budget: int = 100) -> Optional[str]:
+        """L0: Pinned KG entities — workspace identity. Sync-safe (reads from cache).
+
+        ``budget`` caps the rendered output (estimated tokens; defaults to the
+        documented ~100-token L0 allotment). Pinned entities
+        are appended in order until the running estimate would exceed it; the
+        rest are dropped so a workspace with many pinned facts can't blow past
+        the documented ~100-token L0 allotment.
+        """
         try:
             from app.services.knowledge_graph_service import get_knowledge_graph_service
             kg = get_knowledge_graph_service()
             pinned = kg.get_pinned_context(workspace_id or "system-main")
             if not pinned:
                 return None
-            lines = [f"- {e['name']} ({e['entity_type']}): {e['value']}" for e in pinned]
-            return "**Workspace identity:**\n" + "\n".join(lines)
+            header = "**Workspace identity:**"
+            lines: list[str] = []
+            token_count = self._estimate_tokens(header)
+            for e in pinned:
+                line = f"- {e['name']} ({e['entity_type']}): {e['value']}"
+                line_tokens = self._estimate_tokens(line)
+                if lines and token_count + line_tokens > budget:
+                    break
+                lines.append(line)
+                token_count += line_tokens
+            if not lines:
+                return None
+            return header + "\n" + "\n".join(lines)
         except Exception:
             logger.debug("_build_l0_identity failed", exc_info=True)
             return None
@@ -574,9 +592,9 @@ class MemoryContextMixin:
         proc_texts: set[str] = set()
 
         try:
-            # L0: Workspace identity from KG pinned cache
+            # L0: Workspace identity from KG pinned cache (capped ~100 tokens)
             if 0 in layers:
-                l0 = self._build_l0_identity(workspace_id)
+                l0 = self._build_l0_identity(workspace_id, min(100, remaining))
                 if l0:
                     sections.append(l0)
                     remaining -= self._estimate_tokens(l0)

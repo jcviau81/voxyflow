@@ -967,7 +967,10 @@ def build_handlers(
             try:
                 safe_id = chat_id.replace(":", "/").replace("..", "")
                 data_dir = os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
-                summary_path = Path(data_dir) / "sessions" / f"{safe_id}.summary.json"
+                sessions_dir = (Path(data_dir) / "sessions").resolve()
+                summary_path = (Path(data_dir) / "sessions" / f"{safe_id}.summary.json").resolve()
+                if not summary_path.is_relative_to(sessions_dir):
+                    return {"success": True, "chat_id": chat_id, "total_messages": 0, "timeline": "", "summary": "No messages found."}
                 if summary_path.exists():
                     summary_data = json.loads(summary_path.read_text())
                     summary_text = summary_data.get("summary_text", "")
@@ -1154,12 +1157,24 @@ async def voxyflow_delegate_handler(params: dict) -> dict:
                 client = _get_http_client()
                 resp = await client.post("/api/worker-tasks/delegate-queue", json=body)
                 resp.raise_for_status()
+                # The endpoint can reply HTTP 200 with {"success": False, ...}
+                # (e.g. "ClaudeService not ready") — propagate that as a failure
+                # rather than falsely reporting the delegate was queued.
+                try:
+                    queue_result = resp.json()
+                except Exception:
+                    queue_result = {}
+                if isinstance(queue_result, dict) and queue_result.get("success") is False:
+                    err_msg = queue_result.get("error") or "delegate queue rejected"
+                    logger.warning(f"[voxyflow.delegate MCP/stdio] Queue rejected delegate: {err_msg}")
+                    return {"success": False, "error": f"Failed to queue delegate: {err_msg}"}
                 logger.info(
                     f"[voxyflow.delegate MCP/stdio] POSTed delegate to backend for chat {chat_id}: "
                     f"action={params.get('action')}"
                 )
             except Exception as http_err:
                 logger.warning(f"[voxyflow.delegate MCP/stdio] HTTP queue failed: {http_err}")
+                return {"success": False, "error": f"Failed to queue delegate: {http_err}"}
         else:
             logger.warning("[voxyflow.delegate MCP] No chat_id available — delegate lost. Set VOXYFLOW_CHAT_ID.")
     except Exception as e:

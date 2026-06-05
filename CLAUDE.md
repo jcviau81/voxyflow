@@ -13,7 +13,7 @@ Each layer (Fast/Deep) can independently use any provider via Settings UI or `ba
 ### Provider Abstraction
 - **Base class**: `backend/app/services/llm/providers/base.py` — `LLMProvider` ABC with `complete()`, `stream()`, `get_capabilities()`, `list_models()`
 - **Factory**: `backend/app/services/llm/provider_factory.py` — `get_provider(provider_type, url, api_key)` with instance caching
-- **Capability registry**: `backend/app/services/llm/capability_registry.py` — static database of 80+ models with tool-use, vision, context window flags; longest-prefix matching
+- **Capability registry**: `backend/app/services/llm/capability_registry.py` — static database of 65+ models with tool-use, vision, context window flags; longest-prefix matching
 - **Supported provider types**: `cli`, `codex`, `anthropic`, `openai`, `openrouter`, `ollama`, `groq`, `mistral`, `gemini`, `lmstudio`
 
 ### 1. Claude CLI Subprocess (`provider_type: "cli"` or `CLAUDE_USE_CLI=true`)
@@ -84,7 +84,7 @@ Users can save named LLM endpoints (local or remote machines) in Settings.
 - `backend/app/services/llm/providers/codex.py` — Codex provider metadata/listing
 - `backend/app/services/llm/client_factory.py` — SDK client creation
 - `backend/app/services/llm/provider_factory.py` — `get_provider()` factory, `infer_provider_type()`, provider instance cache
-- `backend/app/services/llm/capability_registry.py` — Static model capability registry (80+ models), prefix matching, `lru_cache`
+- `backend/app/services/llm/capability_registry.py` — Static model capability registry (65+ models), prefix matching, `lru_cache`
 - `backend/app/services/llm/providers/base.py` — `LLMProvider` ABC, `CompletionRequest`, `CompletionResponse`
 - `backend/app/services/llm/providers/openai_compat.py` — OpenAI-compatible provider (also used by Groq, Mistral, Gemini, LM Studio)
 - `backend/app/services/llm/providers/ollama.py` — Ollama provider (extends OpenAI-compat + native `/api/tags`)

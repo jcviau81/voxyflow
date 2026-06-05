@@ -1,11 +1,29 @@
 """Model name resolution and output post-processing utilities."""
 
+import asyncio
 import logging
 import re
 import threading
 from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Tool-visibility callback invocation (coroutine-aware)
+# ---------------------------------------------------------------------------
+
+async def invoke_tool_callback(callback, name, args, result):
+    """Invoke a tool-visibility callback, awaiting it if it returns a coroutine/future.
+    Swallows callback errors (logged)."""
+    if callback is None:
+        return
+    try:
+        ret = callback(name, args, result)
+        if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
+            await ret
+    except Exception as e:
+        logger.debug("tool_callback raised: %s", e)
 
 # ---------------------------------------------------------------------------
 # LRU Dict — bounded dict that evicts the oldest entry on overflow

@@ -24,6 +24,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
+import { matchesCard } from '@/lib/cardFilter';
 import type { Card, CardStatus } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -626,11 +627,7 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
       const cards = cardsByColumn[status] ?? [];
       total += cards.length;
       cards.forEach((card) => {
-        if (query && !card.title.toLowerCase().includes(query.toLowerCase())) return;
-        if (priorityFilter !== null && card.priority !== priorityFilter) return;
-        if (agentFilter && (card.agentType || 'general') !== agentFilter) return;
-        if (tagFilter && !card.tags.some((t) => t.toLowerCase() === tagFilter.toLowerCase())) return;
-        visible++;
+        if (matchesCard(card, { query, priorityFilter, agentFilter, tagFilter })) visible++;
       });
     }
     return { visible, total };
@@ -731,9 +728,13 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
         }
       }
 
-      // Handle reorder within same column
+      // Handle reorder within the target column.
+      // Read FRESH state from the store — a status-change mutation may have just
+      // run above, so the memoized cardsByColumn snapshot can be stale.
       const overCard = over?.data.current?.card as Card | undefined;
-      const columnCards = cardsByColumn[targetStatus] ?? [];
+      const columnCards = Object.values(useCardStore.getState().cardsById)
+        .filter((c) => c.workspaceId === workspaceId && !c.archivedAt && c.status === targetStatus)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       const oldIndex = columnCards.findIndex((c) => c.id === activeCardData.id);
       const overIndex = overCard
         ? columnCards.findIndex((c) => c.id === overCard.id)
@@ -753,7 +754,7 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
         }
       }
     },
-    [workspaceId, patchCard, reorderCards, cardsByColumn, resolveTargetStatus, showToast],
+    [workspaceId, patchCard, reorderCards, resolveTargetStatus, showToast],
   );
 
   // ── Action handlers ──────────────────────────────────────────────────────
@@ -875,46 +876,96 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
   // ── Bulk actions ─────────────────────────────────────────────────────────
 
   const handleBulkMove = useCallback(
-    (status: CardStatus) => {
-      selectedIds.forEach((id) => {
-        updateCardStore(id, { status });
-        patchCard.mutate({ cardId: id, updates: { status }, workspaceId: workspaceId ?? undefined });
-      });
+    async (status: CardStatus) => {
+      const ids = Array.from(selectedIds);
+      let failed = 0;
+      await Promise.all(
+        ids.map(async (id) => {
+          const prior = useCardStore.getState().cardsById[id];
+          updateCardStore(id, { status });
+          try {
+            await patchCard.mutateAsync({ cardId: id, updates: { status }, workspaceId: workspaceId ?? undefined });
+          } catch {
+            // Roll back the optimistic status change.
+            if (prior) useCardStore.getState().upsertCard(prior);
+            failed++;
+          }
+        }),
+      );
       // If moving to Done, insert selected cards at the top of the Done column
       if (status === 'done') {
-        const selectedArr = Array.from(selectedIds);
         const currentDoneCards = Object.values(useCardStore.getState().cardsById)
           .filter((c) => c.workspaceId === workspaceId && !c.archivedAt && c.status === 'done')
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        const previousOrder = currentDoneCards.map((c) => c.id);
         const doneIds = [
-          ...selectedArr,
+          ...ids,
           ...currentDoneCards.filter((c) => !selectedIds.has(c.id)).map((c) => c.id),
         ];
         useCardStore.getState().reorderCards(doneIds);
-        reorderCards.mutate(doneIds);
+        try {
+          await reorderCards.mutateAsync(doneIds);
+        } catch {
+          // Roll back the optimistic reorder.
+          useCardStore.getState().reorderCards(previousOrder);
+        }
       }
-      showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
+      if (failed > 0) {
+        showToast(`Failed to move ${failed} card${failed === 1 ? '' : 's'}`, 'error');
+      } else {
+        showToast(`Moved ${ids.length} cards to ${status}`, 'success');
+      }
       clearSelection();
     },
     [selectedIds, patchCard, reorderCards, updateCardStore, showToast, clearSelection, workspaceId],
   );
 
-  const handleBulkArchive = useCallback(() => {
-    selectedIds.forEach((id) => {
-      deleteCardStore(id);
-      archiveCardMut.mutate({ cardId: id, workspaceId: workspaceId ?? undefined });
-    });
-    showToast(`Archived ${selectedIds.size} cards`, 'success');
+  const handleBulkArchive = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    let failed = 0;
+    await Promise.all(
+      ids.map(async (id) => {
+        const prior = useCardStore.getState().cardsById[id];
+        deleteCardStore(id);
+        try {
+          await archiveCardMut.mutateAsync({ cardId: id, workspaceId: workspaceId ?? undefined });
+        } catch {
+          // Roll back the optimistic removal.
+          if (prior) useCardStore.getState().upsertCard(prior);
+          failed++;
+        }
+      }),
+    );
+    if (failed > 0) {
+      showToast(`Failed to archive ${failed} card${failed === 1 ? '' : 's'}`, 'error');
+    } else {
+      showToast(`Archived ${ids.length} cards`, 'success');
+    }
     clearSelection();
   }, [selectedIds, archiveCardMut, deleteCardStore, showToast, clearSelection, workspaceId]);
 
-  const handleBulkDelete = useCallback(() => {
+  const handleBulkDelete = useCallback(async () => {
     if (!confirm(`Delete ${selectedIds.size} cards permanently? This cannot be undone.`)) return;
-    selectedIds.forEach((id) => {
-      deleteCardStore(id);
-      deleteCardMut.mutate({ cardId: id, workspaceId: workspaceId ?? undefined });
-    });
-    showToast(`Deleted ${selectedIds.size} cards`, 'success');
+    const ids = Array.from(selectedIds);
+    let failed = 0;
+    await Promise.all(
+      ids.map(async (id) => {
+        const prior = useCardStore.getState().cardsById[id];
+        deleteCardStore(id);
+        try {
+          await deleteCardMut.mutateAsync({ cardId: id, workspaceId: workspaceId ?? undefined });
+        } catch {
+          // Roll back the optimistic removal.
+          if (prior) useCardStore.getState().upsertCard(prior);
+          failed++;
+        }
+      }),
+    );
+    if (failed > 0) {
+      showToast(`Failed to delete ${failed} card${failed === 1 ? '' : 's'}`, 'error');
+    } else {
+      showToast(`Deleted ${ids.length} cards`, 'success');
+    }
     clearSelection();
   }, [selectedIds, deleteCardMut, deleteCardStore, workspaceId, showToast, clearSelection]);
 

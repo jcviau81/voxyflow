@@ -80,15 +80,13 @@ def _reconcile_orphan_worker_sessions() -> None:
 
 async def _sync_settings_from_db(claude_service: "ClaudeService") -> None:
     """Pull settings.json from DB, then trigger a ClaudeService model reload."""
-    from app.routes.settings import _load_settings_from_db, AppSettings, SETTINGS_FILE
+    from app.routes.settings import _load_settings_from_db, AppSettings, _write_settings_file_redacted
 
     try:
         db_settings = await _load_settings_from_db()
         if db_settings:
             merged = AppSettings(**db_settings).dict()
-            os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-            with open(SETTINGS_FILE, "w") as f:
-                json.dump(merged, f, indent=2)
+            await asyncio.to_thread(_write_settings_file_redacted, merged)
             logger.info("✅ Settings synced from DB → settings.json")
         claude_service.reload_models()
     except Exception:

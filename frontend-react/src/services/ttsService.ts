@@ -213,6 +213,8 @@ class TtsService {
 
     this._streamAbort = new AbortController();
 
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+
     try {
       const response = await fetch('/api/settings/tts/speak_stream', {
         method: 'POST',
@@ -225,7 +227,7 @@ class TtsService {
         throw new Error(`speak_stream returned ${response.status}`);
       }
 
-      const reader = response.body.getReader();
+      reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -298,6 +300,7 @@ class TtsService {
       this._isSpeaking = false;
       this._notifyEnd();
     } finally {
+      if (reader) reader.cancel().catch(() => {});
       this._streamAbort = null;
     }
 

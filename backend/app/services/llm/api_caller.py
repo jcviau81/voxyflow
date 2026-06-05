@@ -25,6 +25,7 @@ from app.services.llm.model_utils import (
     _is_thinking_model,
     _inject_no_think,
     _flatten_system,
+    invoke_tool_callback,
     make_think_stream_filter,
 )
 from app.services.llm.tool_defs import (
@@ -271,13 +272,7 @@ class ApiCallerMixin:
 
                         result = await _call_mcp_tool(mcp_name, arguments)
 
-                        if tool_callback:
-                            try:
-                                ret = tool_callback(mcp_name, arguments, result)
-                                if asyncio.iscoroutine(ret):
-                                    await ret
-                            except Exception as e:
-                                logger.debug("tool_callback raised (non-fatal): %s", e)
+                        await invoke_tool_callback(tool_callback, mcp_name, arguments, result)
 
                         tool_results.append({
                             "type": "tool_result",
@@ -916,11 +911,7 @@ class ApiCallerMixin:
 
                     result = await _call_mcp_tool(mcp_name, arguments)
 
-                    if tool_callback:
-                        try:
-                            tool_callback(mcp_name, arguments, result)
-                        except Exception as e:
-                            logger.debug("tool_callback raised (non-fatal): %s", e)
+                    await invoke_tool_callback(tool_callback, mcp_name, arguments, result)
 
                     tool_results.append({
                         "type": "tool_result",
@@ -1020,11 +1011,7 @@ class ApiCallerMixin:
 
                         result = await _call_mcp_tool(mcp_name, arguments)
 
-                        if tool_callback:
-                            try:
-                                tool_callback(mcp_name, arguments, result)
-                            except Exception as e:
-                                logger.debug("tool_callback raised (non-fatal): %s", e)
+                        await invoke_tool_callback(tool_callback, mcp_name, arguments, result)
 
                         tool_results.append({
                             "role": "tool",
@@ -1172,11 +1159,7 @@ class ApiCallerMixin:
 
                     result = await _call_mcp_tool(mcp_name, arguments)
 
-                    if tool_callback:
-                        try:
-                            tool_callback(mcp_name, arguments, result)
-                        except Exception as e:
-                            logger.debug("tool_callback raised (non-fatal): %s", e)
+                    await invoke_tool_callback(tool_callback, mcp_name, arguments, result)
 
                     tool_results.append({
                         "role": "tool",
@@ -1319,14 +1302,8 @@ class ApiCallerMixin:
                 text_content, tool_calls = parser.parse(synthetic_text)
                 if tool_calls:
                     results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
-                    if tool_callback:
-                        for _tc, _result in zip(tool_calls, results):
-                            try:
-                                ret = tool_callback(_tc.name, _tc.arguments, _result)
-                                if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
-                                    await ret
-                            except Exception as e:
-                                logger.warning(f"[ServerTools] tool_callback error: {e}")
+                    for _tc, _result in zip(tool_calls, results):
+                        await invoke_tool_callback(tool_callback, _tc.name, _tc.arguments, _result)
                     # Build tool result messages in OpenAI format for native tool_calls path
                     api_messages.append(msg.model_dump(exclude_unset=True))
                     for tc, result in zip(native_tool_calls, results):
@@ -1361,14 +1338,8 @@ class ApiCallerMixin:
             results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
 
             # Fire callbacks (supports both sync and async callbacks)
-            if tool_callback:
-                for tc, result in zip(tool_calls, results):
-                    try:
-                        ret = tool_callback(tc.name, tc.arguments, result)
-                        if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
-                            await ret
-                    except Exception as e:
-                        logger.warning(f"[ServerTools] tool_callback error: {e}")
+            for tc, result in zip(tool_calls, results):
+                await invoke_tool_callback(tool_callback, tc.name, tc.arguments, result)
 
             # Build result injection
             result_blocks = []
@@ -1477,12 +1448,8 @@ class ApiCallerMixin:
         # Execute tool calls from the streamed response
         results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
 
-        if tool_callback:
-            for tc, result in zip(tool_calls, results):
-                try:
-                    tool_callback(tc.name, tc.arguments, result)
-                except Exception as e:
-                    logger.debug("tool_callback raised (non-fatal): %s", e)
+        for tc, result in zip(tool_calls, results):
+            await invoke_tool_callback(tool_callback, tc.name, tc.arguments, result)
 
         # Build result injection
         result_blocks = []
@@ -1523,12 +1490,8 @@ class ApiCallerMixin:
 
             results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
 
-            if tool_callback:
-                for tc, result in zip(tool_calls, results):
-                    try:
-                        tool_callback(tc.name, tc.arguments, result)
-                    except Exception as e:
-                        logger.debug("tool_callback raised (non-fatal): %s", e)
+            for tc, result in zip(tool_calls, results):
+                await invoke_tool_callback(tool_callback, tc.name, tc.arguments, result)
 
             result_blocks = []
             for tc, result in zip(tool_calls, results):
@@ -1646,6 +1609,7 @@ class ApiCallerMixin:
         card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
     ) -> AsyncIterator[str]:
         """Streaming call via Claude CLI subprocess.
 
@@ -1657,7 +1621,7 @@ class ApiCallerMixin:
                 model=model, system=system, messages=messages,
                 chat_id=chat_id, use_tools=use_tools, mcp_role=mcp_role,
                 session_id=session_id, workspace_id=workspace_id, card_id=card_id,
-                session_type=session_type, cwd=cwd,
+                session_type=session_type, cwd=cwd, tool_callback=tool_callback,
             ):
                 yield token
         else:
@@ -1666,7 +1630,7 @@ class ApiCallerMixin:
                 use_tools=use_tools, mcp_role=mcp_role,
                 session_id=session_id, chat_id=chat_id,
                 workspace_id=workspace_id, card_id=card_id,
-                session_type=session_type, cwd=cwd,
+                session_type=session_type, cwd=cwd, tool_callback=tool_callback,
             ):
                 yield token
         # Log token usage from the completed stream
@@ -1907,6 +1871,8 @@ class ApiCallerMixin:
         ct = client_type if client_type is not None else self.fast_client_type
 
         if ct == "codex":
+            # TODO(M20): wire tool_callback into the Codex streaming path for
+            # tool-visibility parity with the Claude CLI path (out of scope this pass).
             async for token in self._call_api_stream_codex(
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
@@ -1921,7 +1887,7 @@ class ApiCallerMixin:
                 model=model, system=system, messages=messages,
                 use_tools=use_tools, mcp_role=mcp_role, layer=layer, chat_id=chat_id,
                 session_id=session_id, workspace_id=workspace_id, card_id=card_id,
-                session_type=session_type, cwd=cwd,
+                session_type=session_type, cwd=cwd, tool_callback=tool_callback,
             ):
                 yield token
             return

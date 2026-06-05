@@ -389,7 +389,6 @@ export function WorkspaceForm({ mode, workspace, prefillTitle, onClose }: Worksp
           githubBranch: githubConnected?.default_branch,
           githubLanguage: githubConnected?.language ?? undefined,
           inheritMainContext: workspace.isSystem ? undefined : inheritMainContext,
-          ...(selectedStatus === 'archived' && !workspace.archived ? {} : {}),
         },
       });
       // Handle status change separately

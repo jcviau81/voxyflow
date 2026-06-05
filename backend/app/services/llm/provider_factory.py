@@ -147,7 +147,7 @@ def get_provider(
         return _cache(OllamaProvider(base_url=resolved_url or "http://localhost:11434", api_key=api_key))
 
     if ptype == ProviderType.ANTHROPIC:
-        return _cache(AnthropicProvider(api_key=api_key))
+        return _cache(AnthropicProvider(api_key=api_key, api_base=resolved_url))
 
     if ptype == ProviderType.CLI:
         from app.services.llm.providers.cli import CliProvider

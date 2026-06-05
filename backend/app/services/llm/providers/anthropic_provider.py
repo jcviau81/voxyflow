@@ -110,7 +110,14 @@ class AnthropicProvider(LLMProvider):
 
         for block in final.content:
             if getattr(block, "type", "") == "tool_use":
-                block_input = block.input if isinstance(block.input, dict) else {}
+                if isinstance(block.input, dict):
+                    block_input = block.input
+                else:
+                    logger.debug(
+                        "[Anthropic] tool_use %r input is not a dict; forwarding raw",
+                        block.name,
+                    )
+                    block_input = {"_raw_input": str(block.input)}
                 yield ToolUseBlock(id=block.id, name=block.name, input=block_input)
 
         usage: dict | None = None

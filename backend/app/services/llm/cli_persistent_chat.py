@@ -24,7 +24,7 @@ from app.services.cli_session_registry import (
     CliSession, get_cli_session_registry, new_cli_session_id,
 )
 from app.services.llm.cli_rate_gate import get_rate_gate
-from app.services.llm.model_utils import _flatten_system
+from app.services.llm.model_utils import _flatten_system, invoke_tool_callback
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ class PersistentChatProcess:
     turn_lock: asyncio.Lock
     chat_id: str
     registry_id: str
+    tool_callback: object = None  # tool-visibility callback bound at spawn time
 
 
 class PersistentChatMixin:
@@ -66,6 +67,7 @@ class PersistentChatMixin:
         proc: asyncio.subprocess.Process,
         response_queue: asyncio.Queue,
         usage_holder: dict,
+        tool_callback=None,
     ) -> None:
         """Background task: reads stdout events and routes tokens to response_queue.
 
@@ -75,7 +77,8 @@ class PersistentChatMixin:
         When MCP tools are active, the CLI emits full assistant/user messages
         (not stream_event deltas) for the tool loop. Text content from the
         final assistant message is forwarded to the queue so it reaches the
-        WebSocket stream.
+        WebSocket stream. ``tool_callback`` (if provided) is invoked with
+        ``(tool_name, arguments, result)`` for each completed MCP tool call.
         """
         # Track text already queued so we don't duplicate from the result event
         queued_length = 0
@@ -83,6 +86,9 @@ class PersistentChatMixin:
         # turn. Reset on every `result` event. Preferred over `result.usage`
         # which is cumulative across all tool-use rounds.
         last_assistant_usage: dict = {}
+        # Track pending tool_use blocks: id → {name, arguments} so tool_result
+        # events (type="user") can be paired and forwarded to tool_callback.
+        pending_tools: dict = {}
         try:
             async for raw_line in proc.stdout:
                 line = raw_line.decode("utf-8", errors="replace").strip()
@@ -115,13 +121,48 @@ class PersistentChatMixin:
                     round_usage = msg.get("usage")
                     if isinstance(round_usage, dict) and round_usage:
                         last_assistant_usage = dict(round_usage)
-                    if queued_length == 0:
-                        for block in msg.get("content", []):
-                            if block.get("type") == "text":
-                                text = block.get("text", "")
-                                if text:
-                                    queued_length += len(text)
-                                    await response_queue.put(text)
+                    for block in msg.get("content", []):
+                        btype = block.get("type")
+                        if btype == "tool_use":
+                            tid = block.get("id", "")
+                            pending_tools[tid] = {
+                                "name": block.get("name", ""),
+                                "arguments": block.get("input", {}),
+                            }
+                        elif btype == "text" and queued_length == 0:
+                            text = block.get("text", "")
+                            if text:
+                                queued_length += len(text)
+                                await response_queue.put(text)
+
+                elif event_type == "user":
+                    # Tool results come as type="user" with content[].type="tool_result".
+                    # Pair each with its originating tool_use and fire tool_callback.
+                    msg = event.get("message", {})
+                    for block in msg.get("content", []):
+                        if block.get("type") == "tool_result":
+                            tid = block.get("tool_use_id", "")
+                            tool_info = pending_tools.pop(tid, None)
+                            if not (tool_info and tool_callback):
+                                continue
+                            # Strip MCP prefix (mcp__voxyflow__) for cleaner names
+                            raw_name = tool_info["name"]
+                            name = (
+                                raw_name.replace("mcp__voxyflow__", "").replace("_", ".", 1)
+                                if raw_name.startswith("mcp__voxyflow__")
+                                else raw_name
+                            )
+                            tool_args = tool_info["arguments"]
+                            # Extract text from content blocks
+                            result_content = block.get("content", "")
+                            if isinstance(result_content, list):
+                                result_content = " ".join(
+                                    b.get("text", "") for b in result_content
+                                    if isinstance(b, dict)
+                                )
+                            await invoke_tool_callback(
+                                tool_callback, name, tool_args, {"content": result_content}
+                            )
 
                 elif event_type == "result":
                     # Prefer last-assistant (per-call) over result.usage (cumulative).
@@ -158,6 +199,7 @@ class PersistentChatMixin:
         workspace_id: str = "",
         card_id: str = "",
         cwd: str = "",
+        tool_callback=None,
     ) -> PersistentChatProcess:
         """Spawn a persistent claude -p process for multi-turn chat."""
         system_prompt = _flatten_system(system)
@@ -206,7 +248,9 @@ class PersistentChatMixin:
         response_queue: asyncio.Queue[str | None] = asyncio.Queue()
         usage_holder: dict = {}
         reader_task = asyncio.create_task(
-            self._persistent_stdout_reader(proc, response_queue, usage_holder)
+            self._persistent_stdout_reader(
+                proc, response_queue, usage_holder, tool_callback=tool_callback
+            )
         )
 
         pcp = PersistentChatProcess(
@@ -217,6 +261,7 @@ class PersistentChatMixin:
             turn_lock=asyncio.Lock(),
             chat_id=chat_id,
             registry_id=_reg_id,
+            tool_callback=tool_callback,
         )
         self._persistent_chats[chat_id] = pcp
         return pcp
@@ -235,11 +280,16 @@ class PersistentChatMixin:
         card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
+        tool_callback=None,
     ) -> AsyncIterator[str]:
         """Persistent streaming — reuses subprocess across turns.
 
         First call spawns the process with full history. Subsequent calls
         inject only the new user message via stdin stream-json.
+
+        ``tool_callback`` (if provided) is bound to the persistent process at
+        spawn time and invoked for each completed MCP tool call. It is captured
+        once per process; subsequent turns reuse the spawn-time callback.
         """
         pcp = self._persistent_chats.get(chat_id)
 
@@ -276,7 +326,7 @@ class PersistentChatMixin:
                     chat_id=chat_id, model=model, system=system, messages=messages,
                     use_tools=use_tools, mcp_role=mcp_role,
                     session_id=session_id, workspace_id=workspace_id, card_id=card_id,
-                    cwd=cwd,
+                    cwd=cwd, tool_callback=tool_callback,
                 )
                 # Yield tokens from the first turn
                 async with pcp.turn_lock:
@@ -362,6 +412,7 @@ class PersistentChatMixin:
                 use_tools=use_tools, mcp_role=mcp_role,
                 session_id=session_id, chat_id=chat_id,
                 workspace_id=workspace_id, session_type=session_type,
+                tool_callback=tool_callback,
             ):
                 yield token
         finally:

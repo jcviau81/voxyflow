@@ -144,6 +144,10 @@ async def init_db():
             await conn.execute(text("ALTER TABLE workspaces ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT 0"))
         if "inherit_main_context" not in ws_columns:
             await conn.execute(text("ALTER TABLE workspaces ADD COLUMN inherit_main_context BOOLEAN NOT NULL DEFAULT 1"))
+        if "emoji" not in ws_columns:
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN emoji TEXT"))
+        if "color" not in ws_columns:
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN color TEXT"))
 
         # Ensure the system "Home" workspace exists (formerly "Main", briefly "Global")
         SYSTEM_MAIN_ID = "system-main"
@@ -363,6 +367,8 @@ class Workspace(Base):
     description = Column(Text, default="")
     status = Column(String, default="active")  # active | archived
     context = Column(Text, default="")  # relevant docs, requirements summary
+    emoji = Column(String, nullable=True)  # workspace icon emoji
+    color = Column(String, nullable=True)  # workspace accent color
     is_system = Column(Boolean, default=False)  # True for the built-in "Home" workspace
     deletable = Column(Boolean, default=True)   # False for system workspaces
     github_repo = Column(String, nullable=True)      # "owner/repo"

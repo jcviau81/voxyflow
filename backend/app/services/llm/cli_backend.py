@@ -34,7 +34,7 @@ from app.services.llm.cli_retry import (
     MAX_RETRIES, compute_backoff, is_transient_error, parse_rate_limit_event,
 )
 from app.services.llm.cli_steerable import SteerableMixin
-from app.services.llm.model_utils import _flatten_system
+from app.services.llm.model_utils import _flatten_system, invoke_tool_callback
 
 logger = logging.getLogger(__name__)
 
@@ -845,11 +845,17 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
     ) -> AsyncIterator[str]:
         """Streaming CLI call via --output-format stream-json.
 
         Yields text tokens as they arrive. Usage stats available via
         self.last_usage after iteration completes.
+
+        When MCP tools are active the CLI emits full assistant/user messages
+        for the tool loop; ``tool_callback`` (if provided) is invoked with
+        ``(tool_name, arguments, result)`` for each completed MCP tool call,
+        mirroring the non-streaming ``_call_with_tool_events`` path.
         """
         system_prompt = _flatten_system(system)
         prompt = _format_messages(messages)
@@ -904,6 +910,10 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         # Per-API-call usage from the last `assistant` event (see _call_with_tool_events
         # for rationale).
         last_assistant_usage: dict = {}
+        # Track pending tool_use blocks: id → {name, arguments} so tool_result
+        # events (type="user") can be paired with their originating call and
+        # forwarded to tool_callback (mirrors _call_with_tool_events).
+        pending_tools: dict[str, dict] = {}
 
         # Decouple subprocess draining from consumer speed: a background task
         # pulls every stdout line into a queue and releases the gate as soon as
@@ -966,13 +976,48 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                     round_usage = msg.get("usage")
                     if isinstance(round_usage, dict) and round_usage:
                         last_assistant_usage = dict(round_usage)
-                    if yielded_length == 0:
-                        for block in msg.get("content", []):
-                            if block.get("type") == "text":
-                                text = block.get("text", "")
-                                if text:
-                                    yielded_length += len(text)
-                                    yield text
+                    for block in msg.get("content", []):
+                        btype = block.get("type")
+                        if btype == "tool_use":
+                            tid = block.get("id", "")
+                            pending_tools[tid] = {
+                                "name": block.get("name", ""),
+                                "arguments": block.get("input", {}),
+                            }
+                        elif btype == "text" and yielded_length == 0:
+                            text = block.get("text", "")
+                            if text:
+                                yielded_length += len(text)
+                                yield text
+
+                elif event_type == "user":
+                    # Tool results come as type="user" with content[].type="tool_result".
+                    # Pair each with its originating tool_use and fire tool_callback.
+                    msg = event.get("message", {})
+                    for block in msg.get("content", []):
+                        if block.get("type") == "tool_result":
+                            tid = block.get("tool_use_id", "")
+                            tool_info = pending_tools.pop(tid, None)
+                            if not (tool_info and tool_callback):
+                                continue
+                            # Strip MCP prefix (mcp__voxyflow__) for cleaner names
+                            raw_name = tool_info["name"]
+                            name = (
+                                raw_name.replace("mcp__voxyflow__", "").replace("_", ".", 1)
+                                if raw_name.startswith("mcp__voxyflow__")
+                                else raw_name
+                            )
+                            tool_args = tool_info["arguments"]
+                            # Extract text from content blocks
+                            result_content = block.get("content", "")
+                            if isinstance(result_content, list):
+                                result_content = " ".join(
+                                    b.get("text", "") for b in result_content
+                                    if isinstance(b, dict)
+                                )
+                            await invoke_tool_callback(
+                                tool_callback, name, tool_args, {"content": result_content}
+                            )
 
                 elif event_type == "result":
                     # Final result — extract usage for token logging

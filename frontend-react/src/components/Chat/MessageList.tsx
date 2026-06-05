@@ -60,7 +60,6 @@ export function MessageList({
 }: MessageListProps) {
   const allMessages = useMessageStore((s) => s.messages);
   const removeMessage = useMessageStore((s) => s.removeMessage);
-  const addMessage = useMessageStore((s) => s.addMessage);
   const showToast = useToastStore((s) => s.showToast);
   const pendingAssistantForSession = useMessageStore((s) =>
     sessionId ? !!s.pendingAssistantBySession[sessionId] : false,
@@ -227,32 +226,22 @@ export function MessageList({
         return;
       }
 
-      // Optimistic remove. On failure we re-insert via addMessage; the
-      // restored message gets a new id (zustand store assigns one) — fine
-      // because the original id only mattered for the server round-trip.
-      removeMessage(messageId);
-
+      // Pessimistic delete: await the server round-trip first and only remove
+      // the message from the UI once the DELETE succeeds. On failure we keep
+      // the message in place (preserving its id) and surface the error toast.
       try {
         const res = await authFetch(
           `/api/sessions/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`,
           { method: 'DELETE' },
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        removeMessage(messageId);
       } catch (err) {
         console.error('[MessageList] delete failed', err);
         showToast('Failed to delete message', 'error');
-        addMessage({
-          role: target.role,
-          content: target.content,
-          workspaceId: target.workspaceId,
-          sessionId: target.sessionId,
-          cardId: target.cardId,
-          model: target.model,
-          enrichment: target.enrichment,
-        });
       }
     },
-    [sessionId, cardId, workspaceId, removeMessage, addMessage, showToast],
+    [sessionId, cardId, workspaceId, removeMessage, showToast],
   );
 
   const lastMessage = messages[messages.length - 1];

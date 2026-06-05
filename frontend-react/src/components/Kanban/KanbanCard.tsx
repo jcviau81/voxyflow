@@ -1,6 +1,7 @@
 import React, { useMemo, useCallback, useState } from 'react';
 import { Pin, Copy, Pencil, FolderInput, Archive, Timer, Play, CheckSquare, Link2, Folder } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { matchesCard } from '@/lib/cardFilter';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -160,13 +161,10 @@ export function KanbanCard({
 
   // ── Visibility filter ────────────────────────────────────────────────────
 
-  const isVisible = useMemo(() => {
-    if (query && !card.title.toLowerCase().includes(query.toLowerCase())) return false;
-    if (priorityFilter !== null && card.priority !== priorityFilter) return false;
-    if (agentFilter && (card.agentType || 'general') !== agentFilter) return false;
-    if (tagFilter && !card.tags.some((t) => t.toLowerCase() === tagFilter.toLowerCase())) return false;
-    return true;
-  }, [card, query, priorityFilter, agentFilter, tagFilter]);
+  const isVisible = useMemo(
+    () => matchesCard(card, { query, priorityFilter, agentFilter, tagFilter }),
+    [card, query, priorityFilter, agentFilter, tagFilter],
+  );
 
   // ── Dependency / blocked state ────────────────────────────────────────────
 
@@ -276,11 +274,13 @@ export function KanbanCard({
   };
 
   const handleArchive = async () => {
+    deleteCardStore(card.id);
     try {
-      deleteCardStore(card.id);
       await archiveCard.mutateAsync({ cardId: card.id, workspaceId: card.workspaceId ?? undefined });
       showToast(`"${card.title}" archived`, 'success');
     } catch {
+      // Roll back the optimistic removal.
+      useCardStore.getState().upsertCard(card);
       showToast('Archive failed', 'error');
     }
   };

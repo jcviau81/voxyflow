@@ -401,7 +401,22 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
       }
     } catch { /* ignore */ }
 
-    // Show one-time engine hint
+    return () => {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+      if (wakeWordEnabled) wakeWordService.stop().catch(() => {});
+    };
+    // Known gap: `wakeWordEnabled` is captured at mount. If the user toggles
+    // wake-word on after mount and then unmounts, stop() will not run from
+    // this effect — the service's own state handling covers that case.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Show one-time engine hint ────────────────────────────────────────────
+
+  useEffect(() => {
     if (sttService.currentEngine === 'webspeech') {
       const hintShown = localStorage.getItem('voxyflow_stt_hint_shown');
       if (!hintShown) {
@@ -418,17 +433,6 @@ export function VoiceInput({ sttBuiltinEnabled = true, className, compact = fals
         }, 3000);
       }
     }
-
-    return () => {
-      if (wakeLockRef.current) {
-        wakeLockRef.current.release().catch(() => {});
-        wakeLockRef.current = null;
-      }
-      if (wakeWordEnabled) wakeWordService.stop().catch(() => {});
-    };
-    // Known gap: `wakeWordEnabled` is captured at mount. If the user toggles
-    // wake-word on after mount and then unmounts, stop() will not run from
-    // this effect — the service's own state handling covers that case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -565,7 +565,7 @@ async def file_read(params: dict) -> dict:
     logger.info(f"[file.read] Reading: {resolved} (offset={offset}, limit={limit})")
 
     try:
-        text = resolved.read_text(encoding="utf-8", errors="replace")
+        text = await asyncio.to_thread(resolved.read_text, encoding="utf-8", errors="replace")
         lines = text.split("\n")
         total_lines = len(lines)
 
@@ -625,10 +625,12 @@ async def file_write(params: dict) -> dict:
         resolved.parent.mkdir(parents=True, exist_ok=True)
 
         if mode == "append":
-            with open(resolved, "a", encoding="utf-8") as f:
-                f.write(content)
+            def _append():
+                with open(resolved, "a", encoding="utf-8") as f:
+                    f.write(content)
+            await asyncio.to_thread(_append)
         else:
-            resolved.write_text(content, encoding="utf-8")
+            await asyncio.to_thread(resolved.write_text, content, encoding="utf-8")
 
         return {
             "success": True,
@@ -675,7 +677,7 @@ async def file_patch(params: dict) -> dict:
     logger.info(f"[file.patch] Patching: {resolved} (old={len(old_str)} chars, new={len(new_str)} chars)")
 
     try:
-        content = resolved.read_text(encoding="utf-8")
+        content = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
 
         if old_str not in content:
             return {"success": False, "error": f"String not found in {path_str}", "path": str(resolved)}
@@ -683,7 +685,7 @@ async def file_patch(params: dict) -> dict:
         count = content.count(old_str)
         new_content = content.replace(old_str, new_str, 1)  # replace first occurrence only
 
-        resolved.write_text(new_content, encoding="utf-8")
+        await asyncio.to_thread(resolved.write_text, new_content, encoding="utf-8")
 
         return {
             "success": True,
