@@ -504,7 +504,7 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
   const archiveCardMut = useArchiveCard();
   const { send: wsSend, subscribe } = useWS();
 
-  // Worker execution status — poll every 3s to show per-card activity badges
+  // Worker execution status — live from the WS-fed worker store (no polling)
   const { isCardActive } = useWorkerStatus(workspaceId ?? '');
 
   // Sync fetched cards into Zustand store

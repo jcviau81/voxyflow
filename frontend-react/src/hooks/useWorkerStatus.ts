@@ -1,66 +1,33 @@
-import { useState, useEffect, useCallback } from 'react';
-
-interface WorkerSession {
-  task_id: string;
-  session_id: string;
-  workspace_id?: string;
-  card_id?: string;
-  status: string;
-  model?: string;
-  intent?: string;
-  summary?: string;
-  start_time?: number;
-  end_time?: number;
-  result_summary?: string;
-}
+import { useCallback } from 'react';
+import { useWorkerStore, type WorkerInfo } from '../stores/useWorkerStore';
 
 /**
- * useWorkerStatus — polls the worker sessions API every 3 seconds
- * and provides an `isCardActive` function to check if a specific card
- * has an active (running/pending) worker session.
+ * useWorkerStatus — derives per-card worker activity from useWorkerStore.
+ *
+ * The store is kept live by useWorkerSync via the WS task:* events, so
+ * `isCardActive` flips the instant a worker starts (task:started) or finishes
+ * (task:completed/cancelled) — no 3s polling lag, no redundant fetches.
+ *
+ * The `workspaceId` arg scopes the returned `sessions` list; `isCardActive`
+ * matches on cardId across all tracked workers (a card belongs to one
+ * workspace, so cross-workspace collisions don't happen).
  */
+const ACTIVE_STATUSES = new Set<WorkerInfo['status']>(['pending', 'running']);
+
 export function useWorkerStatus(workspaceId: string) {
-  const [sessions, setSessions] = useState<WorkerSession[]>([]);
+  // Subscribe to the whole worker map so any task:* event re-renders consumers.
+  const workers = useWorkerStore((s) => s.workers);
 
-  useEffect(() => {
-    if (!workspaceId) return;
-
-    // In-flight guard: a poll started before a workspace switch must not
-    // overwrite state after the effect has been torn down.
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/workers/sessions?workspace_id=${encodeURIComponent(workspaceId)}`);
-        if (cancelled) return;
-        if (res.ok) {
-          const data = await res.json();
-          if (cancelled) return;
-          // API returns { sessions: [...] }
-          setSessions(data.sessions ?? []);
-        }
-      } catch {
-        // Ignore network errors during polling
-      }
-    };
-
-    poll();
-    const interval = setInterval(poll, 3000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [workspaceId]);
+  const sessions = Object.values(workers).filter(
+    (w) => !workspaceId || w.workspaceId === workspaceId,
+  );
 
   const isCardActive = useCallback(
-    (cardId: string): boolean => {
-      return sessions.some(
-        (s) =>
-          s.card_id === cardId &&
-          (s.status === 'running' || s.status === 'pending'),
-      );
-    },
-    [sessions],
+    (cardId: string): boolean =>
+      Object.values(workers).some(
+        (w) => w.cardId === cardId && ACTIVE_STATUSES.has(w.status),
+      ),
+    [workers],
   );
 
   return { isCardActive, sessions };
