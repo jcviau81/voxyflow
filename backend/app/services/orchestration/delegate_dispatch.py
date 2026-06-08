@@ -108,10 +108,13 @@ class DelegateDispatchMixin:
         def _key(action: str, desc: str) -> tuple[str, str]:
             return (action.lower(), desc.lower()[:200].strip())
 
-        already = {
-            _key(t["action"], t.get("description", ""))
-            for t in active_tasks
-        }
+        # key → the active task that owns it, so a duplicate_summary collision
+        # can point the dispatcher at the worker already doing the job (read its
+        # artifact / wait) instead of vaguely telling it to "change the intent".
+        already_tasks: dict[tuple[str, str], dict] = {}
+        for t in active_tasks:
+            already_tasks.setdefault(_key(t["action"], t.get("description", "")), t)
+        already = set(already_tasks)
         # card_id → first active task on that card (for the skip notice)
         active_by_card: dict[str, dict] = {}
         for t in active_tasks:
@@ -134,7 +137,10 @@ class DelegateDispatchMixin:
                 collision = "card_busy"
 
             if collision:
-                blocking = active_by_card.get(card_id) if card_id else None
+                if collision == "duplicate_summary":
+                    blocking = already_tasks.get(k)
+                else:
+                    blocking = active_by_card.get(card_id) if card_id else None
                 logger.warning(
                     f"[Orchestrator] Dedup ({collision}): skipping delegate "
                     f"'{action}' card_id={card_id} — "
@@ -192,10 +198,17 @@ class DelegateDispatchMixin:
                     f"Attends qu'il finisse, puis lis-le avec workers.read_artifact."
                 )
             elif reason == "duplicate_summary":
-                lines.append(
-                    f"- Refusé: '{s.get('action')}' — un worker actif a déjà la même description. "
-                    f"Attends ou modifie l'intent."
-                )
+                if blocker:
+                    lines.append(
+                        f"- Refusé: '{s.get('action')}' — le worker `{blocker}` fait déjà "
+                        f"exactement ça (depuis {running}s). Attends qu'il finisse, puis lis "
+                        f"son résultat avec workers.read_artifact. Ne relance pas la même tâche."
+                    )
+                else:
+                    lines.append(
+                        f"- Refusé: '{s.get('action')}' — un worker actif a déjà la même tâche. "
+                        f"Attends qu'il finisse et lis son résultat plutôt que de relancer."
+                    )
             else:
                 lines.append(f"- Refusé: '{s.get('action')}' — raison={reason}.")
 

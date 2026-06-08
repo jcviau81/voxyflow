@@ -593,6 +593,10 @@ class DeepWorkerPool:
             return
 
         text = (result_content or event.summary or "").strip()
+        # Raw worker text is usually reasoning / logs / tool output with heavy
+        # whitespace and newlines. Collapse it so the dispatcher-facing summary
+        # reads as a single prose blurb instead of a broken multi-line dump.
+        text = " ".join(text.split())
         if len(text) > 1500:
             summary = text[:1500] + "…"
         elif text:
@@ -1225,6 +1229,10 @@ class DeepWorkerPool:
                 f"next_step=\"...\"). Stop immediately after.\n"
                 f"\nThe summary is the ONLY thing the dispatcher sees. Write it for a reader who has "
                 f"not seen the raw output. Use pointers to flag important sections of the artifact.\n"
+                f"\n⚠️ worker.complete is what makes your work LAND. If you stop without calling it, "
+                f"the dispatcher only gets raw auto-extracted text and treats the task as unfinished — "
+                f"so the user re-asks. ALWAYS finish with worker.complete, even on partial/failed work "
+                f"(say what you did and why it stopped).\n"
             )
 
             if is_move_or_update:
