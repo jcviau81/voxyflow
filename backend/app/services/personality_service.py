@@ -1179,7 +1179,13 @@ def get_personality_service() -> PersonalityService:
 # ambient signals without being forced into a response turn.
 # ---------------------------------------------------------------------------
 
-_STATUS_GLYPH = {"success": "✓", "ok": "✓", "failed": "✗", "error": "✗"}
+_STATUS_GLYPH = {
+    "success": "✓", "ok": "✓",
+    "failed": "✗", "error": "✗",
+    "partial": "◐",
+    "cancelled": "⊘",
+    "timed_out": "⏱",
+}
 
 
 def _fmt_delta_seconds(seconds: float) -> str:
@@ -1405,12 +1411,14 @@ def build_live_state_block(
     """
     lines: list[str] = ["## Live state"]
     if running_worker_intents:
-        # Summarise active workers by intent (first 3) so Voxy sees *what's*
-        # running, not just a number.
-        brief = ", ".join(running_worker_intents[:3])
+        # List active workers one per line so Voxy sees *what each is doing*
+        # (intent + claim plan), not just a count. Capped at 3 to stay within
+        # the block's small budget.
+        lines.append(f"- Active workers: {int(active_workers or 0)}")
+        for intent in running_worker_intents[:3]:
+            lines.append(f"    • {intent}")
         if len(running_worker_intents) > 3:
-            brief += f", +{len(running_worker_intents) - 3}"
-        lines.append(f"- Active workers: {int(active_workers or 0)} ({brief})")
+            lines.append(f"    • +{len(running_worker_intents) - 3} more")
     else:
         lines.append(f"- Active workers: {int(active_workers or 0)}")
     if next_job and next_job.get("name"):

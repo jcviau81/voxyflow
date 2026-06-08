@@ -803,10 +803,13 @@ class DeepWorkerPool:
         """Return a short intent/action label for each active worker tied to this chat.
 
         Feeds the enriched Live-state heartbeat so Voxy sees *what's* running,
-        not just a count. Order is not guaranteed; cap at 10 entries.
+        not just a count. When the worker has claimed the task, its one-line
+        plan (voxyflow.worker.claim) is appended so the dispatcher knows what
+        each worker is actually doing. Order is not guaranteed; cap at 10.
         """
         if not dispatcher_chat_id:
             return []
+        supervisor = get_worker_supervisor()
         out: list[str] = []
         for task_id in list(self._active_tasks.keys()):
             meta = self._task_meta.get(task_id)
@@ -815,7 +818,18 @@ class DeepWorkerPool:
             if meta.get("dispatcher_chat_id") != dispatcher_chat_id:
                 continue
             label = str(meta.get("action") or "unknown")[:24]
-            out.append(label)
+            try:
+                st = supervisor.get_status(task_id) or {}
+                plan = (st.get("claim_plan") or "").strip()
+            except Exception:
+                plan = ""
+            if plan:
+                plan = " ".join(plan.split())  # collapse whitespace/newlines
+                if len(plan) > 80:
+                    plan = plan[:79].rstrip() + "…"
+                out.append(f"{label} — {plan}")
+            else:
+                out.append(label)
             if len(out) >= 10:
                 break
         return out
@@ -1465,6 +1479,42 @@ class DeepWorkerPool:
                 logger.info(f"[DeepWorker] Task {event.task_id} was cancelled")
                 _wss.update_status(event.task_id, "cancelled")
                 await self._ledger_update(event.task_id, "cancelled")
+                # Surface the cancel/stall to the dispatcher. Without this an
+                # interrupted worker is invisible in the ambient worker-events
+                # block (this branch never reaches the normal recording path),
+                # so the dispatcher assumes it's still running or silently
+                # re-delegates. Distinguish a stall-timeout from a user cancel
+                # via the supervisor's problem reason.
+                dispatcher_chat_id = event.data.get("dispatcher_chat_id")
+                if dispatcher_chat_id:
+                    try:
+                        st = get_worker_supervisor().get_status(event.task_id) or {}
+                        problem = (st.get("problem_reason") or "").strip()
+                    except Exception:
+                        problem = ""
+                    if problem.startswith("stalled"):
+                        status_label = "timed_out"
+                        reason = f"Worker stalled with no activity and was stopped ({problem})."
+                    elif problem:
+                        status_label = "failed"
+                        reason = f"Worker stopped — {problem}."
+                    else:
+                        status_label = "cancelled"
+                        reason = "Worker was cancelled before it completed."
+                    try:
+                        self.record_worker_event(
+                            dispatcher_chat_id,
+                            task_id=event.task_id,
+                            intent=event.intent or "",
+                            status=status_label,
+                            summary_line=reason,
+                        )
+                        self._schedule_dispatcher_callback(dispatcher_chat_id, event)
+                    except Exception as _rec_err:
+                        logger.warning(
+                            f"[DeepWorker] Failed to record cancel event for "
+                            f"{event.task_id}: {_rec_err}"
+                        )
                 return
             finally:
                 stall_task.cancel()
