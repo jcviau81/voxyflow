@@ -585,7 +585,11 @@ class ClaudeService(ApiCallerMixin):
         if self.memory._has_extractable_signal([{"content": user_message, "role": "user"}]):
             fast_layers = (0, 1, 2)
 
-        memory_context = self.memory.build_memory_context(
+        # Kick the (blocking) embedding + ChromaDB memory query onto a worker
+        # thread so it doesn't stall the event loop, and overlaps with the base
+        # prompt build + worker-classes load below. Awaited just before use.
+        memory_task = asyncio.create_task(asyncio.to_thread(
+            self.memory.build_memory_context,
             workspace_name=workspace_name,
             workspace_id=workspace_id,
             include_long_term=False,
@@ -593,7 +597,7 @@ class ClaudeService(ApiCallerMixin):
             query=user_message,
             budget=600,
             layers=fast_layers,
-        )
+        ))
         # Determine tool mode for personality prompt.
         # OpenAI-compat dispatchers (Qwen via Ollama, Groq, etc.) use the same
         # native delegate_action tool-call protocol as Anthropic — XML delegates
@@ -620,6 +624,9 @@ class ClaudeService(ApiCallerMixin):
         # Collect dynamic context (changes per-call — injected OUTSIDE the cached block)
         dynamic_parts: list[str] = []
         wc_list = await self._load_worker_classes_context()
+        # Resolve the memory context now (kicked off on a thread above) — its
+        # blocking work overlapped with the base prompt + worker-classes load.
+        memory_context = await memory_task
 
         # Workspace/card context + memory — dynamic, must NOT be in base_prompt
         dynamic_context = self.personality.build_dynamic_context_block(
@@ -863,7 +870,11 @@ class ClaudeService(ApiCallerMixin):
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
         recent = await self._get_windowed_history(chat_id)  # windowed messages for the API
 
-        memory_context = self.memory.build_memory_context(
+        # Kick the (blocking) embedding + ChromaDB memory query onto a worker
+        # thread so it doesn't stall the event loop, and overlaps with the base
+        # prompt build + worker-classes load below. Awaited just before use.
+        memory_task = asyncio.create_task(asyncio.to_thread(
+            self.memory.build_memory_context,
             workspace_name=workspace_name,
             workspace_id=workspace_id,
             include_long_term=True,
@@ -871,7 +882,7 @@ class ClaudeService(ApiCallerMixin):
             query=user_message,
             budget=1500,
             layers=(0, 1, 2),
-        )
+        ))
         # Determine tool mode for personality prompt — OpenAI-compat uses native
         # delegate_action tool calls (same prompt shape as Anthropic native).
         native_tools_mode = (
@@ -890,6 +901,9 @@ class ClaudeService(ApiCallerMixin):
         # Collect dynamic context (changes per-call — injected OUTSIDE the cached block)
         dynamic_parts: list[str] = []
         wc_list = await self._load_worker_classes_context()
+        # Resolve the memory context now (kicked off on a thread above) — its
+        # blocking work overlapped with the base prompt + worker-classes load.
+        memory_context = await memory_task
 
         # Workspace/card context + memory — dynamic, must NOT be in base_prompt
         dynamic_context = self.personality.build_dynamic_context_block(
