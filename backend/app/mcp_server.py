@@ -339,6 +339,38 @@ for _g in _TOOL_GROUPS.values():
     _GROUPED_TOOL_NAMES.update(_g["actions"].values())
 
 
+# ---------------------------------------------------------------------------
+# Bulk-capable tools — map tool name → the path param that may be a LIST.
+#
+# Only operations where the SAME action + params apply to every id belong here
+# (the id is the only thing that varies): deletes, archive/restore, move-to-
+# status. NOT create/update/enrich — those carry per-item content, so a list
+# makes no sense. When a caller passes the plural (e.g. card_ids) instead of
+# the singular, the dispatch loops the existing single-id call N times locally,
+# so the model makes ONE tool call instead of N (which used to make the chat
+# sit silent for a minute while it deleted things one by one).
+# ---------------------------------------------------------------------------
+_BULK_TOOLS: dict[str, str] = {
+    "voxyflow.card.move": "card_id",
+    "voxyflow.card.archive": "card_id",
+    "voxyflow.card.delete": "card_id",
+    "voxyflow.card.restore": "card_id",
+    "voxyflow.workspace.delete": "workspace_id",
+    "voxyflow.workspace.archive": "workspace_id",
+    "voxyflow.workspace.restore": "workspace_id",
+    "voxyflow.doc.delete": "document_id",
+    "voxyflow.wiki.delete": "page_id",
+    "voxyflow.card.relation.delete": "relation_id",
+    "voxyflow.card.time.delete": "entry_id",
+    "voxyflow.card.checklist.delete": "item_id",
+}
+
+
+def _bulk_plural(param: str) -> str:
+    """card_id → card_ids, page_id → page_ids, etc."""
+    return param + "s"
+
+
 def _build_consolidated_tools() -> list[dict]:
     """Build consolidated MCP tool list from _TOOL_GROUPS + ungrouped tools.
 
@@ -361,6 +393,23 @@ def _build_consolidated_tools() -> list[dict]:
             tool_def = _find_tool(tool_name)
             if not tool_def:
                 continue
+            # Bulk-capable action → expose a plural ids array alongside the
+            # singular so the model can apply this action to many in one call.
+            bulk_param = _BULK_TOOLS.get(tool_name)
+            if bulk_param:
+                plural = _bulk_plural(bulk_param)
+                if plural not in all_props:
+                    all_props[plural] = {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            f"PREFERRED for acting on multiple items: pass ALL {bulk_param}s here "
+                            f"in ONE call. Never call this action in a loop / repeatedly with a "
+                            f"single {bulk_param} — collect the ids and pass {plural} once."
+                        ),
+                    }
+                    used_by[plural] = []
+                used_by[plural].append(action_name)
             for prop_name, prop_schema in tool_def["inputSchema"].get("properties", {}).items():
                 if prop_name in injectable:
                     continue
@@ -510,6 +559,33 @@ def _build_url_and_payload(
 
 async def _call_api(tool_def: dict, params: dict) -> dict:
     """Execute a tool — either via REST API (_http) or direct handler (_handler)."""
+
+    # Bulk fan-out: a bulk-capable tool given the plural ids list runs the
+    # single-id op once per id, locally, and returns an aggregate. One model
+    # tool call → N fast local REST calls (no per-item model round-trips).
+    bulk_param = _BULK_TOOLS.get(tool_def.get("name", ""))
+    if bulk_param:
+        plural = _bulk_plural(bulk_param)
+        ids = params.get(plural)
+        if isinstance(ids, list) and ids:
+            rest = {k: v for k, v in params.items() if k != plural}
+            ok_items: list[dict] = []
+            errors: list[dict] = []
+            for _id in ids:
+                try:
+                    r = await _call_api(tool_def, {**rest, bulk_param: _id})
+                    succeeded = r.get("success", True) if isinstance(r, dict) else True
+                    (ok_items if succeeded else errors).append({"id": _id, "result": r})
+                except Exception as e:
+                    errors.append({"id": _id, "error": str(e)[:200]})
+            return {
+                "success": len(errors) == 0,
+                "bulk": True,
+                "requested": len(ids),
+                "succeeded": len(ok_items),
+                "failed": len(errors),
+                "errors": errors,
+            }
 
     # System tools use direct async handlers
     if "_handler" in tool_def:
