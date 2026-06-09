@@ -335,10 +335,23 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         else:
             args.extend(["--output-format", "json"])
 
-        # Chat layers: disable built-in tools for clean streaming
+        # Chat layers: expose MCP tools but block Claude Code's built-in
+        # execution/file/web/subagent tools (keeps the dispatcher↔worker boundary).
         # Workers: keep native tools (Bash, Read, Edit, etc.) + add MCP for Voxyflow ops
         if not native_tools:
-            args.extend(["--tools", ""])
+            # IMPORTANT: do NOT use `--tools ""` here. Since claude CLI ~v2.1,
+            # an empty --tools list sets the available-tool set to ZERO, which
+            # also hides the MCP tools — so the dispatcher had no callable tools
+            # and emitted tool-call XML as plain text (e.g. "<function_calls>
+            # <invoke name=...>") instead of actually creating cards / delegating.
+            # Verified: `--tools default` makes the model invoke real MCP tool_use
+            # blocks again; the disallow list keeps the dangerous built-ins off.
+            args.extend(["--tools", "default"])
+            args.extend([
+                "--disallowedTools",
+                "Bash", "BashOutput", "KillShell", "Read", "Edit", "Write",
+                "NotebookEdit", "Glob", "Grep", "WebFetch", "WebSearch", "Task",
+            ])
         else:
             # Hard-block built-in WebSearch for workers — they must use voxyflow.web.search
             # (SearXNG) instead. This is a CLI-level block, not just a prompt instruction.
