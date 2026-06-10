@@ -46,6 +46,7 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 JobType = Literal[
     "reminder", "rag_index",
     "execute_board", "execute_card", "agent_task",
+    "nl_task", "memory_curation",
     "recurrence", "session_cleanup", "chromadb_backup",
 ]
 

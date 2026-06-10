@@ -94,6 +94,9 @@ TOOLS_DISPATCHER = {
 
     # ---- Jobs (cron-like; all REST CRUD, instant) ----
     "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
+    # schedule_nl = create a recurring natural-language task (instant local
+    # jobs.json write; execution happens later via the scheduler).
+    "voxyflow.jobs.schedule_nl",
 
     # ---- Per-workspace autonomy — thin REST wrappers, instant/non-blocking ----
     "voxyflow.autonomy.enable", "voxyflow.autonomy.disable", "voxyflow.autonomy.run_now",

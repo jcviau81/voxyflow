@@ -46,7 +46,10 @@ from app.mcp_tools_defs import (
 # the split list reproduced it exactly before the mutation as well.
 # 2026-06: re-pinned after adding SKILL_TOOLS + SCRIPT_TOOLS (105 → 110 tools);
 # the previous snapshot was d00bfd752f44180443318df7c60cb69059fd195313b3e1206e695de915ed90d1.
-SNAPSHOT_SHA256 = "058e08a36e03fe94475a890396143c4934f9295f612527b5eb2d86e4a7af76a6"
+# 2026-06-10: re-pinned after adding voxyflow.jobs.schedule_nl to OPS_JOBS_TOOLS
+# (110 → 111 tools); the previous snapshot was
+# 058e08a36e03fe94475a890396143c4934f9295f612527b5eb2d86e4a7af76a6.
+SNAPSHOT_SHA256 = "484f131153e9264e29d2b243b677c253f4bb03a1e2fa54c7cb07e49e70093c49"
 
 SNAPSHOT_NAMES = [
     "voxyflow.card.create_unassigned",
@@ -110,6 +113,7 @@ SNAPSHOT_NAMES = [
     "voxyflow.jobs.create",
     "voxyflow.jobs.update",
     "voxyflow.jobs.delete",
+    "voxyflow.jobs.schedule_nl",
     "voxyflow.heartbeat.read",
     "voxyflow.heartbeat.write",
     "voxyflow.autonomy.status",
@@ -180,7 +184,7 @@ def _structure_hash(defs):
 
 class TestToolDefsSplitEquivalence:
     def test_tool_count(self):
-        assert len(_TOOL_DEFINITIONS) == len(SNAPSHOT_NAMES) == 110
+        assert len(_TOOL_DEFINITIONS) == len(SNAPSHOT_NAMES) == 111
 
     def test_names_in_original_order(self):
         assert [t["name"] for t in _TOOL_DEFINITIONS] == SNAPSHOT_NAMES

@@ -32,7 +32,7 @@ MIGRATION_FLAG_FILE = Path(CHROMA_PERSIST_DIR) / ".memory_migrated"
 GLOBAL_COLLECTION = "memory-global"
 
 VALID_TYPES = {"decision", "preference", "lesson", "fact", "context", "procedure"}
-VALID_SOURCES = {"chat", "manual", "auto-extract", "worker_summary", "worker"}
+VALID_SOURCES = {"chat", "manual", "auto-extract", "worker_summary", "worker", "curation"}
 VALID_IMPORTANCE = {"high", "medium", "low"}
 
 # ---------------------------------------------------------------------------

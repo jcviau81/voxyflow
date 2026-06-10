@@ -31,6 +31,10 @@ class DelegateInstructionsMixin:
             "formatted\"), offer to save it as a skill via `voxyflow.skill.save` — "
             "workers and future chats will see it in their skills catalog and load "
             "it on demand."
+            "\n\n## ⏰ Recurring asks — schedule them\n"
+            "When the user asks for something recurring (\"every morning…\", \"chaque "
+            "vendredi à 17h…\"), create it with `voxyflow.jobs.schedule_nl` (prompt + "
+            "schedule + deliver) and confirm the schedule back to them."
         )
         if native_tools == "codex_mcp":
             tail += self._build_codex_mcp_delegate_instructions()

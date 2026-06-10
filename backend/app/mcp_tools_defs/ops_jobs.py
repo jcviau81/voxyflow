@@ -86,6 +86,44 @@ OPS_JOBS_TOOLS: list[dict] = [
         },
         "_http": ("DELETE", "/api/jobs/{job_id}", None),
     },
+    {
+        "name": "voxyflow.jobs.schedule_nl",
+        "description": (
+            "Schedule a recurring natural-language task ('every Friday at 5pm review "
+            "stalled cards and message me'). Each run executes the prompt through the "
+            "agent pipeline (workers do the heavy lifting) and delivers the result to "
+            "chat and/or web push. Workspace scope is taken from the current chat "
+            "automatically. Use this whenever the user asks for something recurring."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["prompt", "schedule"],
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "The task in natural language — self-contained instruction executed on every run",
+                },
+                "schedule": {
+                    "description": (
+                        "Cron string ('0 17 * * fri'), shorthand ('every_30min', 'every_1h', "
+                        "'every_day'), or object {every: 'minute'|'hour'|'day'|'week'|'weekdays', "
+                        "at: 'HH:MM', weekday: 'mon'..'sun'}"
+                    ),
+                },
+                "deliver": {
+                    "type": "string",
+                    "enum": ["chat", "push", "both"],
+                    "description": "Where to deliver each run's result (default both)",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Short job name shown in the Jobs panel (defaults to the prompt's first words)",
+                },
+            },
+        },
+        "_handler": "jobs_schedule_nl",
+        "_scope": "voxyflow",
+    },
 
     # ======================================================================
     # HEARTBEAT — read/write ~/.voxyflow/sandbox/heartbeat.md

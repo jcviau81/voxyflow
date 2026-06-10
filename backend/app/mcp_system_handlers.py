@@ -1145,6 +1145,85 @@ def build_handlers(
                 response["result"] = ret
         return response
 
+    # ---- Natural-language scheduled tasks (voxyflow.jobs.schedule_nl) -------
+
+    async def jobs_schedule_nl(params: dict) -> dict:
+        """Create a recurring nl_task job from a natural-language prompt.
+
+        Workspace scoping comes from VOXYFLOW_WORKSPACE_ID (never a schema
+        param) — a workspace chat schedules a workspace-scoped task, the
+        general chat a general one. The job itself is created via the REST
+        API so APScheduler registration happens in the backend process even
+        when this handler runs in the MCP stdio subprocess.
+        """
+        prompt = (params.get("prompt") or "").strip()
+        if not prompt:
+            return {"success": False, "error": "prompt is required"}
+
+        from app.services.scheduler_service import normalize_schedule
+        try:
+            schedule = normalize_schedule(params.get("schedule"))
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"Invalid schedule: {e}",
+                "hint": (
+                    "Pass a cron string ('0 17 * * fri'), a shorthand "
+                    "('every_30min', 'every_1h', 'every_day'), or an object "
+                    "{every: 'day'|'week'|..., at: 'HH:MM', weekday: 'fri'}."
+                ),
+            }
+
+        deliver = str(params.get("deliver") or "both").strip().lower()
+        if deliver not in ("chat", "push", "both"):
+            deliver = "both"
+
+        name = (params.get("name") or "").strip()
+        if not name:
+            words = prompt.split()
+            name = " ".join(words[:8])[:60] or "Scheduled task"
+
+        payload: dict = {"prompt": prompt, "deliver": deliver}
+        env_workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        if env_workspace_id and env_workspace_id != "system-main":
+            payload["workspace_id"] = env_workspace_id
+
+        body = {
+            "name": name,
+            "type": "nl_task",
+            "schedule": schedule,
+            "enabled": True,
+            "payload": payload,
+        }
+        try:
+            client = _get_http_client()
+            resp = await client.post("/api/jobs", json=body)
+            if resp.status_code >= 400:
+                return {
+                    "success": False,
+                    "error": f"HTTP {resp.status_code} creating job",
+                    "detail": resp.text[:500],
+                }
+            job = resp.json()
+        except Exception as e:
+            logger.error(f"[mcp.jobs.schedule_nl] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+        logger.info(
+            f"[mcp.jobs.schedule_nl] created job {job.get('id')!r} "
+            f"schedule={schedule!r} workspace={payload.get('workspace_id') or 'general'} "
+            f"deliver={deliver}"
+        )
+        return {
+            "success": True,
+            "job_id": job.get("id"),
+            "name": name,
+            "schedule": schedule,
+            "deliver": deliver,
+            "workspace_id": payload.get("workspace_id"),
+            "message": f"Scheduled '{name}' ({schedule}, deliver={deliver}).",
+        }
+
     _heartbeat_path = Path(
         os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
     ) / "sandbox" / "heartbeat.md"
@@ -1323,6 +1402,7 @@ def build_handlers(
         "skill_get": skill_get,
         "skill_save": skill_save,
         "skill_delete": skill_delete,
+        "jobs_schedule_nl": jobs_schedule_nl,
         "script_run": script_run,
         "kg_add": kg_add,
         "kg_query": kg_query,

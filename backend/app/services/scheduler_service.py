@@ -40,6 +40,103 @@ def _now_iso() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Schedule normalization — shared by the voxyflow.jobs.schedule_nl MCP tool
+# ---------------------------------------------------------------------------
+
+# Day names accepted in the {every: "week", weekday: ...} object form.
+_WEEKDAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+_WEEKDAY_ALIASES = {
+    "sunday": "sun", "monday": "mon", "tuesday": "tue", "wednesday": "wed",
+    "thursday": "thu", "friday": "fri", "saturday": "sat",
+    # French
+    "dimanche": "sun", "lundi": "mon", "mardi": "tue", "mercredi": "wed",
+    "jeudi": "thu", "vendredi": "fri", "samedi": "sat",
+}
+
+
+def _parse_at(at) -> tuple[int, int]:
+    """Parse an 'HH:MM' (or 'HH') time-of-day string. Raises ValueError."""
+    s = str(at or "").strip()
+    m = re.match(r"^(\d{1,2})(?::(\d{2}))?$", s)
+    if not m:
+        raise ValueError(f"invalid 'at' time {at!r} — expected 'HH:MM'")
+    hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    if hour > 23 or minute > 59:
+        raise ValueError(f"invalid 'at' time {at!r} — hour 0-23, minute 0-59")
+    return hour, minute
+
+
+def _weekday_token(weekday) -> str:
+    """Normalize a weekday (name, alias, or 0-6 with 0=Sunday) to a cron day name."""
+    if isinstance(weekday, int) or (isinstance(weekday, str) and weekday.strip().isdigit()):
+        n = int(weekday)
+        if not 0 <= n <= 6:
+            raise ValueError(f"invalid weekday {weekday!r} — 0 (Sunday) to 6 (Saturday)")
+        return _WEEKDAY_NAMES[n]
+    s = str(weekday or "").strip().lower()
+    s = _WEEKDAY_ALIASES.get(s, s)
+    if s not in _WEEKDAY_NAMES:
+        raise ValueError(
+            f"invalid weekday {weekday!r} — use mon..sun (or 0-6, 0=Sunday)"
+        )
+    return s
+
+
+def normalize_schedule(schedule) -> str:
+    """Normalize/validate a user-supplied schedule into the jobs.json format.
+
+    Accepts:
+      - a cron string ("0 17 * * fri") or shorthand ("every_30min", "every_day")
+      - an object {every: "minute|hour|day|week", at?: "HH:MM", weekday?: "fri"|0-6}
+
+    Returns the canonical schedule string ready for ``register_user_job``.
+    Raises ValueError with a clear message on garbage input.
+    """
+    if isinstance(schedule, dict):
+        every = str(schedule.get("every") or "").strip().lower()
+        at = schedule.get("at")
+        if every in ("minute", "minutely", "every_minute"):
+            return "every_1min"
+        if every in ("hour", "hourly", "every_hour"):
+            return "every_1h"
+        if every in ("day", "daily", "every_day"):
+            hour, minute = _parse_at(at) if at else (9, 0)
+            return f"{minute} {hour} * * *"
+        if every in ("week", "weekly", "every_week"):
+            hour, minute = _parse_at(at) if at else (9, 0)
+            day = _weekday_token(schedule.get("weekday", "mon"))
+            return f"{minute} {hour} * * {day}"
+        if every in ("weekday", "weekdays"):
+            hour, minute = _parse_at(at) if at else (9, 0)
+            return f"{minute} {hour} * * mon-fri"
+        raise ValueError(
+            f"invalid schedule object: every={schedule.get('every')!r} — "
+            "use 'minute' | 'hour' | 'day' | 'week' | 'weekdays' (+ at: 'HH:MM', weekday)"
+        )
+
+    s = str(schedule or "").strip()
+    if not s:
+        raise ValueError("schedule is required (cron string, shorthand, or object form)")
+
+    # Validate by running it through the same parser APScheduler registration
+    # uses; cron strings are additionally checked with CronTrigger when present.
+    trigger_type, trigger_kwargs = SchedulerService._parse_schedule(None, s)
+    if trigger_type == "cron":
+        expr = trigger_kwargs["crontab"]
+        if len(expr.split()) != 5:
+            raise ValueError(
+                f"invalid cron expression {s!r} — expected 5 fields (m h dom mon dow)"
+            )
+        if _APSCHEDULER_AVAILABLE:
+            from apscheduler.triggers.cron import CronTrigger
+            try:
+                CronTrigger.from_crontab(expr)
+            except Exception as e:
+                raise ValueError(f"invalid cron expression {s!r}: {e}") from e
+    return s
+
+
+# ---------------------------------------------------------------------------
 # SchedulerService
 # ---------------------------------------------------------------------------
 
@@ -143,6 +240,18 @@ class SchedulerService:
             "builtin": True,
             "payload": {},
         },
+        # Memory curation — Honcho-style nightly distillation of recent chats
+        # into long-term memory + temporal KG. Disabled by default: the user
+        # opts in from the Jobs panel (or via voxyflow.jobs.update).
+        {
+            "id": "builtin-memory-curation",
+            "name": "Memory Curation",
+            "type": "memory_curation",
+            "schedule": "30 2 * * *",
+            "enabled": False,
+            "builtin": True,
+            "payload": {},
+        },
     ]
 
     @staticmethod
@@ -192,6 +301,24 @@ class SchedulerService:
                 if default["id"] not in existing_ids:
                     existing.append(dict(default))
                     added += 1
+
+        # One-shot seed of builtin-memory-curation on installs that were
+        # seeded BEFORE the job existed (their .jobs_defaults_seeded marker
+        # blocks the loop above). Its own marker keeps a later user delete
+        # from being silently re-added on every boot.
+        curation_marker = jobs_file.parent / ".jobs_curation_seeded"
+        if not curation_marker.exists():
+            if not any(j.get("id") == "builtin-memory-curation" for j in existing):
+                for default in self._DEFAULT_JOBS:
+                    if default["id"] == "builtin-memory-curation":
+                        existing.append(dict(default))
+                        added += 1
+                        break
+            try:
+                jobs_file.parent.mkdir(parents=True, exist_ok=True)
+                curation_marker.touch()
+            except OSError:
+                pass
 
         if migrated or added:
             jobs_file.parent.mkdir(parents=True, exist_ok=True)

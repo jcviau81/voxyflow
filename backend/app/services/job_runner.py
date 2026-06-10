@@ -176,6 +176,10 @@ async def _execute_job(job: dict) -> dict:
             return await _run_agent_task(job, payload)
         elif job_type == "standup":
             return await _run_standup(job, payload)
+        elif job_type == "memory_curation":
+            return await _run_memory_curation(job, payload)
+        elif job_type == "nl_task":
+            return await _run_nl_task(job, payload)
         elif job_type in ("heartbeat", "recurrence", "session_cleanup", "chromadb_backup"):
             return await _run_builtin(job, job_type)
         else:
@@ -387,6 +391,190 @@ async def _run_standup(job: dict, payload: dict) -> dict:
         "status": "ok",
         "message": f"Standup generated for {workspace_title}",
         "summary": summary,
+    }
+
+
+async def _run_memory_curation(job: dict, payload: dict) -> dict:
+    """Periodic memory curation — distill recent chats into memory + temporal KG.
+
+    Thin adapter: the actual loop (scope discovery, LLM distillation, dedupe,
+    invalidate-then-add KG reconciliation) lives in
+    ``app.services.memory_curation``. Strict workspace isolation is enforced
+    there — each scope only ever touches its own collections.
+    """
+    from app.services.memory_curation import run_memory_curation
+
+    return await run_memory_curation(job, payload)
+
+
+# ---------------------------------------------------------------------------
+# nl_task — natural-language scheduled tasks with chat/push delivery
+# ---------------------------------------------------------------------------
+
+
+def _collect_nl_task_summary(chat_id: str) -> str:
+    """Best-effort result summary for an nl_task run.
+
+    The dispatcher pipeline persists assistant turns to the session store under
+    the ephemeral job chat_id (chat_history._append_and_persist) — the LAST
+    assistant message is the post-worker-callback wrap-up, which is exactly the
+    user-facing summary we want to deliver.
+    """
+    try:
+        from app.services.session_store import session_store
+
+        messages = session_store.load_session(chat_id)
+    except Exception as e:
+        logger.warning(f"[Jobs][NlTask] Could not load session {chat_id}: {e}")
+        return ""
+    for m in reversed(messages):
+        if m.get("role") != "assistant":
+            continue
+        if m.get("type") == "enrichment":
+            continue
+        content = (m.get("content") or "").strip()
+        if content:
+            return content
+    return ""
+
+
+async def _deliver_nl_task_result(
+    job: dict,
+    workspace_id: str | None,
+    deliver: str,
+    summary: str,
+    success: bool,
+) -> None:
+    """Deliver an nl_task result to the user's real chat session and/or web push.
+
+    Job-spawned runs have no live websocket session, so the worker-completion
+    pipeline alone can't reach the user — we persist the summary into the
+    general (or workspace) chat history and fire a push notification ourselves.
+    """
+    job_id = job.get("id", "")
+    job_name = job.get("name") or "Scheduled task"
+    target_chat = f"workspace:{workspace_id}" if workspace_id else "workspace:system-main"
+    body = summary.strip() or ("Task completed — no summary was produced." if success
+                               else "Task failed — check the jobs panel for details.")
+
+    if deliver in ("chat", "both"):
+        try:
+            from app.services.session_store import session_store
+
+            status_word = "completed" if success else "FAILED"
+            session_store.save_message(target_chat, {
+                "role": "assistant",
+                "content": f"⏰ **{job_name}** — scheduled run {status_word}\n\n{body}",
+                "type": "nl_task_result",
+                "model": "scheduler",
+                "job_id": job_id,
+            })
+            from app.services.ws_broadcast import ws_broadcast
+            ws_broadcast.emit_sync("nl_task:completed", {
+                "jobId": job_id,
+                "jobName": job_name,
+                "chatId": target_chat,
+                "workspaceId": workspace_id,
+                "success": success,
+                "summary": body[:500],
+            })
+        except Exception as e:
+            logger.warning(f"[Jobs][NlTask] chat delivery failed for '{job_name}': {e}")
+
+    if deliver in ("push", "both"):
+        try:
+            from app.services.push_service import build_deep_link, notify_user
+
+            await notify_user(
+                event="nl_task_result",
+                title=f"⏰ {job_name}" if success else f"⏰ {job_name} (failed)",
+                body=body[:140],
+                url=build_deep_link(workspace_id, None),
+                tag=f"nltask-{job_id}",
+            )
+        except Exception as e:
+            logger.warning(f"[Jobs][NlTask] push delivery failed for '{job_name}': {e}")
+
+
+async def _run_nl_task(job: dict, payload: dict) -> dict:
+    """Execute a natural-language scheduled task and deliver the result.
+
+    The prompt runs through the orchestrator exactly like an autonomy tick /
+    agent_task — the dispatcher delegates heavy work to workers (full
+    TOOLS_WORKER, workspace-scoped when ``workspace_id`` is set), and the
+    handler waits for the pool to drain before collecting the summary.
+    Delivery: ``payload.deliver`` = 'chat' | 'push' | 'both' (default both).
+    """
+    prompt = payload.get("prompt") or payload.get("instruction")
+    if isinstance(prompt, list):
+        prompt = "\n".join(prompt)
+    if not prompt or not str(prompt).strip():
+        return {"status": "error", "message": "Missing prompt in payload"}
+    prompt = str(prompt).strip()
+
+    workspace_id = payload.get("workspace_id") or None
+    deliver = str(payload.get("deliver") or "both").strip().lower()
+    if deliver not in ("chat", "push", "both"):
+        deliver = "both"
+
+    logger.info(
+        f"[Jobs][NlTask] Starting '{job.get('name')}' "
+        f"(workspace={workspace_id or 'none'}, deliver={deliver})"
+    )
+
+    from app.main import _orchestrator
+
+    job_id = job.get("id") or uuid4().hex
+    session_id = f"job-{job_id}"
+    chat_id = f"job:{job_id}-{uuid4().hex[:8]}"
+    message_id = f"nl-task-{uuid4().hex[:8]}"
+
+    _emit_job_session(job, chat_id, workspace_id)
+
+    user_message = (
+        f"[SCHEDULED TASK — {job.get('name', 'nl_task')}]\n\n"
+        f"{prompt}\n\n"
+        "This is an unattended scheduled run — the user is not watching this chat. "
+        "Execute the task now (delegate to workers for anything heavy: web, files, "
+        "shell, research), then finish with a concise, self-contained result summary "
+        "the user can read later."
+    )
+
+    status = "ok"
+    error_msg: str | None = None
+    try:
+        bg_tasks = await _orchestrator.handle_message(
+            websocket=_BroadcastWS(),
+            content=user_message,
+            message_id=message_id,
+            chat_id=chat_id,
+            workspace_id=workspace_id,
+            chat_level="workspace" if workspace_id else "general",
+            session_id=session_id,
+        )
+        if bg_tasks:
+            results = await asyncio.gather(*bg_tasks, return_exceptions=True)
+            for r in results:
+                if isinstance(r, Exception):
+                    logger.warning(f"[Jobs][NlTask] Background task failed: {r}")
+    except Exception as e:
+        status = "error"
+        error_msg = str(e)
+        logger.error(f"[Jobs][NlTask] '{job.get('name')}' failed: {e}", exc_info=True)
+    finally:
+        # Waits for the worker pool to drain so delegate results land in the
+        # session before we collect the summary.
+        await _cleanup_job_session(chat_id, session_id)
+
+    summary = _collect_nl_task_summary(chat_id)
+    await _deliver_nl_task_result(job, workspace_id, deliver, summary, success=(status == "ok"))
+
+    if status != "ok":
+        return {"status": "error", "message": error_msg or "nl_task failed"}
+    return {
+        "status": "ok",
+        "message": f"nl_task completed: {job.get('name')} (delivered via {deliver})",
+        "summary": summary[:500],
     }
 
 
