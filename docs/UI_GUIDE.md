@@ -86,8 +86,8 @@ Navigate between tabs: `Ctrl+Tab`
 Displayed below the TabBar when a workspace or Home is active. Contains:
 - Emoji and workspace name (or "Home" for the main tab)
 - View tabs depending on context:
-  - **Home**: Chat, Kanban, Board, Knowledge
-  - **Workspace**: Chat, Kanban, Board, Knowledge, Stats
+  - **Home**: Chat, Kanban, Backlog, Knowledge, Archives
+  - **Workspace**: Chat, Kanban, Backlog, Knowledge, Archives, Stats
 
 Clicking a view tab changes the main content without switching tabs.
 
@@ -209,7 +209,7 @@ A whiteboard-style space with colored sticky notes. Each note is independent fro
 
 - **Create a note** — quick input form at the top (title + color + click "Add")
 - **Delete a note** — delete button on the note
-- **Promote a note to a Kanban card** — "Promote" button on the note → transforms the sticky note into a full Kanban card in the "Idea" column
+- **Promote a note to the Kanban** — drag the note onto the Todo / In Progress / Done drop targets to move it into the Kanban flow
 - **Filter notes** — same filter bar as the Kanban (search, priority, agent, tags)
 
 ---
@@ -303,7 +303,7 @@ Clicking on any card (Kanban or Backlog) opens the Card Detail Modal.
 | Element | Description |
 |---------|-------------|
 | **Title** | Inline editable text field |
-| **StatusButtons** | Status buttons: Idea → Todo → In Progress → Done |
+| **StatusButtons** | Status buttons: To Do → In Progress → Done |
 | **AgentSelector** | Choose which AI agent is assigned to the card |
 | **Tags** | Add/remove free-form tags |
 | **Color** | 6 background colors for the card |

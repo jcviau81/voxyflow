@@ -16,7 +16,7 @@ Voxyflow is a voice-first workspace management assistant that lives locally. You
 - **Multi-provider LLM** — Claude CLI, Codex CLI, Anthropic API, OpenAI, OpenRouter, Groq, Mistral, Gemini, Ollama, LM Studio — per-layer and per-worker picks via Settings
 - **Strict worker lifecycle** — Workers run `claim → work → complete` and deliver structured summaries (not raw dumps) to the dispatcher
 - **RAG knowledge base** — Per-workspace ChromaDB collections; upload `.txt`/`.md` docs to inject into context
-- **Free Board** — Sticky-note scratchpad for the general chat with 6 pastel colors
+- **Backlog** — Sticky-note scratchpad view with 6 pastel colors, in Home and every workspace
 - **Opportunities panel** — AI-suggested cards from conversation analysis
 - **Personality system** — Fully configurable bot name, tone, warmth, language, and personality files
 - **PWA** — Installable, offline-capable service worker
@@ -77,12 +77,13 @@ Voxyflow is a voice-first workspace management assistant that lives locally. You
 ### Frontend
 | Layer | Technology |
 |-------|-----------|
-| Language | TypeScript 5.5 (Vanilla — no framework) |
-| Build | Webpack 5 + ts-loader |
-| Styles | Plain CSS with CSS variables |
+| Framework | React 19 + TypeScript |
+| Build | Vite |
+| State | Zustand + TanStack Query |
+| Styles | Tailwind CSS |
 | Markdown | marked + highlight.js + DOMPurify |
-| PWA | Workbox (service worker) |
-| Tests | Jest (unit) + Playwright (e2e) |
+| PWA | Vite PWA + Workbox (service worker) |
+| Tests | Playwright (e2e) |
 
 ### Backend
 | Layer | Technology |
@@ -108,6 +109,13 @@ Voxyflow is a voice-first workspace management assistant that lives locally. You
 ## Quick Start
 
 ```bash
+# One-shot install (venv, deps, frontend build, systemd services, voxy CLI)
+./install.sh
+```
+
+Or manually, for development:
+
+```bash
 # Backend
 cd backend && python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
@@ -126,14 +134,21 @@ See [SETUP.md](SETUP.md) for the full installation guide.
 | Doc | Contents |
 |-----|---------|
 | [SETUP.md](SETUP.md) | Installation & configuration (LLM backend, XTTS, onboarding) |
+| [CLI.md](CLI.md) | `voxy` power CLI — every command and option |
 | [CONTEXT_GUIDE.md](CONTEXT_GUIDE.md) | Context management, workflow examples, DailyOps setup |
+| [UI_GUIDE.md](UI_GUIDE.md) | Interface guide — every view explained |
 | [FEATURES.md](FEATURES.md) | Complete feature reference |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture deep-dive |
+| [ARCHITECTURE.md](../ARCHITECTURE.md) | Technical architecture deep-dive |
 | [API.md](API.md) | REST & WebSocket API reference |
+| [API_REFERENCE.md](API_REFERENCE.md) | Complete endpoint-by-endpoint REST reference |
 | [CHAT_SCOPES.md](CHAT_SCOPES.md) | Chat levels technical reference (tools, routing, session model) |
 | [AGENTS.md](AGENTS.md) | 7 specialist agents — personas, routing, tool access |
 | [MEMORY.md](MEMORY.md) | Memory service — persistent cross-session recall |
+| [PERSONALITY.md](PERSONALITY.md) | Personality layer — files, prompts, identity |
+| [NOMENCLATURE.md](NOMENCLATURE.md) | Canonical vocabulary — official terms for every entity |
 | [VOICE_FLOW.md](VOICE_FLOW.md) | Voice pipeline — STT engines, wake word, TTS streaming |
 | [TOOLS.md](TOOLS.md) | MCP tool registry — categories, layer access control |
 | [CODEX_CLI.md](CODEX_CLI.md) | Native OpenAI Codex CLI provider and MCP behavior |
+| [CONFIG.md](CONFIG.md) | Runtime environment toggles |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment guide — systemd, reverse proxy |
 | [DATA_MODEL.md](DATA_MODEL.md) | SQLAlchemy models and schema |

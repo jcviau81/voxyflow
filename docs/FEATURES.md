@@ -273,7 +273,7 @@ Workspaces open in browser-like tabs at the top of the interface:
 Each workspace has multiple view modes, accessible via tabs in the workspace header:
 
 #### 📋 Kanban
-Default view. 4-column board (Idea / Todo / In Progress / Done) with:
+Default view. 4-column board (Backlog / Todo / In Progress / Done) with:
 - **2-row header** — top row: view switcher + actions (Meeting Notes, Brief, Health, Standup, Prioritize); bottom row: filter bar (search + priority/agent/tag chips)
 - Cards draggable between columns
 - Opportunities panel (AI card suggestions)
@@ -353,7 +353,7 @@ Cards are created via the Card Form (click `+` in any column, or "Create from su
 |-------|-------|
 | Title | Required |
 | Description | Markdown-supported |
-| Status | `card` / `todo` / `in-progress` / `done` |
+| Status | `backlog` / `todo` / `in-progress` / `done` |
 | Priority | 0=none, 1=low, 2=medium, 3=high, 4=critical |
 | Agent | Chip selector for the 7 agent types |
 | Context | Notes for the agent (injected as agent context) |
@@ -661,6 +661,18 @@ AI code review on any code snippet:
 
 ---
 
+### Skills 📚
+
+Reusable "how to do X" procedures stored as `SKILL.md` files (agentskills.io format) under `~/.voxyflow/skills/`, global or per-workspace. Workers distill non-obvious multi-step procedures into skills at closeout; dispatchers see a compact catalog in their prompt and load full instructions on demand via `voxyflow.skill.get`. Inspect from the terminal with `voxy skills list` / `voxy skills show NAME` (see [CLI.md](CLI.md)).
+
+---
+
+### Memory Curation 🧠
+
+A nightly scheduled job (`memory_curation`) re-reads recent chat sessions per scope and distills durable facts (preferences, corrections, decisions) into long-term memory: new memories go to ChromaDB (semantically deduped), facts go to the temporal knowledge graph, and contradicted KG facts are closed (`valid_to` set) rather than deleted — the audit trail survives. Scopes never cross workspace-isolation boundaries.
+
+---
+
 ## 6. RAG / Knowledge Base
 
 ### Overview
@@ -924,6 +936,10 @@ The most flexible job type — sends a freeform instruction through the chat pip
 - **`workspace_id`** (optional) — scope the agent to a specific workspace's context and memories
 
 Use this for autonomous tasks that don't map to a single card: SSH checks, pipeline runs, outreach campaigns, etc.
+
+#### Natural-Language Scheduled Tasks
+
+From any chat, asking for something recurring ("every Friday at 5pm review stalled cards and message me") triggers the `voxyflow.jobs.schedule_nl` MCP tool — it creates a recurring job whose prompt runs through the agent pipeline on each occurrence, with results delivered to chat and/or web push. Workspace scope is taken from the current chat automatically.
 
 #### Execute Card (`execute_card`)
 
@@ -1206,7 +1222,7 @@ Voxyflow exposes a built-in MCP server with 100+ tool definitions, filtered by r
 - **SSE transport** — `/mcp/sse` for web clients
 - **Stdio transport** — `backend/mcp_stdio.py` for Claude Code, Codex CLI, Cursor, and other MCP clients
 - Tools cover cards, workspaces, wiki, documents, AI operations, system, file, git, worker lifecycle, memory, knowledge graph, and more
-- Codex dispatchers use a read-only `TOOLS_DISPATCHER_CODEX` role and delegate action work
+- Codex dispatchers use a distinct `TOOLS_DISPATCHER_CODEX` role with the same inline tools as the Claude dispatcher — only the Codex-specific prompt differs
 
 ### Focus Sessions (DB)
 

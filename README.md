@@ -67,7 +67,7 @@ You ─────────────────────────�
 
 The **Dispatcher** (Chat Agent) handles your conversation and lightweight state inspection through role-scoped tools. When it detects a task, it spawns a **Worker** in the background. The Worker executes (research, CRUD, code, file ops, web, git, etc.), and when it's done, the result arrives in your conversation naturally.
 
-Codex CLI dispatchers use a stricter read-only tool profile so their default reflex is to inspect state and delegate execution to workers.
+Codex CLI dispatchers run a separate `dispatcher_codex` role with the same inline toolset as the Claude dispatcher — only the prompt differs.
 
 You never wait. You keep talking, thinking, planning — and results show up when they're ready.
 
@@ -137,6 +137,7 @@ You never wait. You keep talking, thinking, planning — and results show up whe
 - **GitHub Integration** — Link repos, auth via `gh` CLI or PAT
 - **Tech Stack Detection** — Auto-detect workspace technologies
 - **Export / Import** — Full workspace snapshots as JSON
+- **Command Palette** — `Ctrl+K` fuzzy search across navigation, views, and actions
 
 ### 🃏 Cards
 
@@ -154,9 +155,9 @@ Cards are the core unit of everything:
 - **Pomodoro Focus Mode** — timer-based focused work sessions
 - **Duplicate** with one click, bulk actions toolbar
 
-### 📝 Main Board (FreeBoard)
+### 📝 Backlog
 
-Untracked sticky-note cards outside any workspace. Color-coded (6 colors). Same card model — unified data.
+Sticky-note scratchpad view (internal view id: `freeboard`) — quick cards outside the Kanban flow, in Home or any workspace. Color-coded (6 colors). Same card model — unified data.
 
 ### 🤖 Agent Personas (7 Types: 1 Default + 6 Specialists)
 
@@ -201,12 +202,21 @@ Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server — t
 
 Tools span: card CRUD, workspace management, wiki, AI operations, web search, file ops, git, tmux, scheduler jobs, worker lifecycle, memory, and knowledge graph operations. Tool access is role-scoped in `backend/app/tools/registry.py`.
 
+### 📚 Skills
+
+Reusable "how to do X" procedures stored as `SKILL.md` files (agentskills.io format), global or per-workspace. Workers distill learned procedures into skills; dispatchers load them on demand. Browse with `voxy skills`.
+
+### 🧠 Memory
+
+Persistent cross-session memory (ChromaDB) plus a temporal knowledge graph. A nightly **memory curation** job distills recent chat history into durable facts and reconciles them with what's already stored.
+
 ### ⏰ Scheduler
 
 - **Heartbeat** — Periodic health checks
 - **RAG Indexing** — Auto-index uploaded documents
 - **Recurring Cards** — Scheduled execution of cards on schedule (checks every 5 minutes)
 - **Board Run** — Scheduled execution of a Kanban board in a workspace (cron-based)
+- **Natural-language scheduled tasks** — "every Friday at 5pm review stalled cards" via the `voxyflow.jobs.schedule_nl` tool, straight from chat
 - **Custom Jobs** — Create via Settings → Jobs or API
 
 ---
@@ -216,7 +226,14 @@ Tools span: card CRUD, workspace management, wiki, AI operations, web search, fi
 ```bash
 git clone https://github.com/your-org/voxyflow.git
 cd voxyflow
+./install.sh
+```
 
+The one-shot installer sets up the Python venv and dependencies, builds the frontend, installs the systemd user services, and installs the `voxy` CLI.
+
+Prefer manual control, or want details on LLM backends, XTTS, and onboarding? See [docs/SETUP.md](docs/SETUP.md). For development you can also run the pieces by hand:
+
+```bash
 # Backend
 cd backend
 python3.12 -m venv venv && source venv/bin/activate
@@ -229,7 +246,21 @@ cd frontend-react
 npm install && npm run dev
 ```
 
-Full installation guide: [docs/SETUP.md](docs/SETUP.md)
+---
+
+## voxy CLI
+
+A power CLI over the REST/WS API — chat, kanban, workers, jobs, and skills from the terminal (installed by `./install.sh`):
+
+```bash
+voxy status                 # backend health + counts overview
+voxy use myproject          # set a persistent default workspace
+voxy chat "what's on deck?" # one-shot chat, streams live (omit message for a REPL)
+voxy doctor                 # full install diagnostics (--fix to repair)
+voxy update                 # git pull, rebuild what changed, restart services
+```
+
+Full reference: [docs/CLI.md](docs/CLI.md)
 
 ---
 
@@ -263,6 +294,8 @@ voxyflow/
 │       ├── services/                   # TTS, STT, WebSocket client
 │       ├── stores/                     # Zustand state stores
 │       └── pages/                      # Top-level pages
+├── cli/                                # voxy — power CLI over the REST/WS API
+│   └── voxy/
 ├── personality/                        # AI personality files
 │   ├── SOUL.md
 │   ├── DISPATCHER.md
@@ -272,10 +305,10 @@ voxyflow/
 │   └── USER.md                         # auto-generated at startup (not committed)
 └── docs/                               # Documentation
     ├── SETUP.md                        # Installation guide
+    ├── CLI.md                          # voxy CLI reference
     ├── CONTEXT_GUIDE.md                # Context system + workflow examples
     ├── UI_GUIDE.md                     # Interface guide (view by view)
     ├── FEATURES.md                     # Complete feature reference
-    ├── ARCHITECTURE.md                 # Technical deep-dive
     ├── API.md                          # REST & WebSocket API reference
     ├── AGENTS.md                       # Agent personas reference
     ├── VOICE_FLOW.md                   # Voice pipeline details
@@ -308,6 +341,7 @@ voxyflow/
 |-----|---------|
 | [ROADMAP.md](ROADMAP.md) | What's shipping now, next, and later |
 | [SETUP.md](docs/SETUP.md) | Full installation guide — LLM backend, XTTS, onboarding |
+| [CLI.md](docs/CLI.md) | `voxy` CLI reference — every command and option |
 | [CONTEXT_GUIDE.md](docs/CONTEXT_GUIDE.md) | Context system + DailyOps workflow example |
 | [UI_GUIDE.md](docs/UI_GUIDE.md) | Interface guide — every view explained |
 | [FEATURES.md](docs/FEATURES.md) | Complete feature reference |
