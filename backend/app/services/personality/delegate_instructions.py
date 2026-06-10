@@ -24,6 +24,14 @@ class DelegateInstructionsMixin:
         if proactive:
             tail += "\n\n" + proactive
         tail += "\n\n" + self._build_reserved_ports_rule(role="dispatcher")
+        tail += (
+            "\n\n## 🧠 Skills — capture repeatable know-how\n"
+            "When the user describes a repeatable procedure or a preference for HOW "
+            "to do something (\"always deploy like this\", \"here's how I want reports "
+            "formatted\"), offer to save it as a skill via `voxyflow.skill.save` — "
+            "workers and future chats will see it in their skills catalog and load "
+            "it on demand."
+        )
         if native_tools == "codex_mcp":
             tail += self._build_codex_mcp_delegate_instructions()
         elif native_tools == "claude_cli_mcp":

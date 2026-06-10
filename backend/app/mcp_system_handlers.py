@@ -938,6 +938,213 @@ def build_handlers(
             logger.error(f"[mcp.kg.stats] failed: {e}")
             return {"error": str(e)}
 
+    # ---- Skills (learned procedures, agentskills.io SKILL.md format) --------
+    # Scope is enforced by VOXYFLOW_WORKSPACE_ID env var, same pattern as
+    # memory_save — the LLM never passes workspace_id.
+
+    async def skill_list(params: dict) -> dict:
+        from app.services.skill_service import get_skill_service
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        try:
+            skills = get_skill_service().list_skills(workspace_id)
+            return {
+                "success": True,
+                "count": len(skills),
+                "skills": [
+                    {"name": s.name, "description": s.description, "scope": s.scope}
+                    for s in skills
+                ],
+            }
+        except Exception as e:
+            logger.error(f"[mcp.skill.list] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def skill_get(params: dict) -> dict:
+        from app.services.skill_service import get_skill_service
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        name = (params.get("name") or "").strip()
+        if not name:
+            return {"success": False, "error": "name is required"}
+        try:
+            skill = get_skill_service().get_skill(name, workspace_id)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"[mcp.skill.get] failed: {e}")
+            return {"success": False, "error": str(e)}
+        if skill is None:
+            return {
+                "success": False,
+                "error": f"No skill named {name!r} — call voxyflow.skill.list for the catalog.",
+            }
+        return {"success": True, **skill}
+
+    async def skill_save(params: dict) -> dict:
+        from app.services.skill_service import get_skill_service
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        name = (params.get("name") or "").strip()
+        description = (params.get("description") or "").strip()
+        instructions = (params.get("instructions") or "").strip()
+        scope = (params.get("scope") or "workspace").strip().lower()
+        if not name:
+            return {"success": False, "error": "name is required"}
+        if not description:
+            return {"success": False, "error": "description is required"}
+        if not instructions:
+            return {"success": False, "error": "instructions is required"}
+        try:
+            meta = get_skill_service().save_skill(
+                name, description, instructions,
+                scope=scope, workspace_id=workspace_id,
+            )
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"[mcp.skill.save] failed: {e}")
+            return {"success": False, "error": str(e)}
+        logger.info(f"[mcp.skill.save] workspace_id={workspace_id!r} name={meta.name!r} scope={meta.scope}")
+        return {
+            "success": True,
+            "name": meta.name,
+            "scope": meta.scope,
+            "message": f"Skill '{meta.name}' saved ({meta.scope}).",
+        }
+
+    async def skill_delete(params: dict) -> dict:
+        from app.services.skill_service import get_skill_service
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        name = (params.get("name") or "").strip()
+        if not name:
+            return {"success": False, "error": "name is required"}
+        try:
+            deleted = get_skill_service().delete_skill(name, workspace_id)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"[mcp.skill.delete] failed: {e}")
+            return {"success": False, "error": str(e)}
+        if not deleted:
+            return {"success": False, "error": f"No skill named {name!r} in the current scope."}
+        return {"success": True, "message": f"Skill '{name}' deleted."}
+
+    # ---- Programmatic tool calling (voxyflow.script, worker-only) -----------
+
+    _SCRIPT_OUTPUT_MAX = 50_000  # chars — cap on captured prints / result blobs
+
+    async def script_run(params: dict) -> dict:
+        """Run a Python snippet that chains MCP tool calls in one turn.
+
+        The snippet becomes the body of ``async def __script__()`` so
+        ``await call_tool(name, args)`` works at top level. ``call_tool``
+        resolves tools through mcp_server's catalog and enforces the SAME
+        role check as the MCP ``call_tool()`` entry point — a script can
+        never reach a tool its role couldn't call directly.
+
+        Imported lazily through the module object (not ``from``-imports) so
+        there's no import cycle with app.mcp_server and tests can monkeypatch
+        ``mcp_server._call_api`` / ``mcp_server.VOXYFLOW_MCP_ROLE``.
+        """
+        import asyncio
+        import json as _json
+        import re as _re
+        import traceback
+
+        code = params.get("code") or ""
+        if not isinstance(code, str) or not code.strip():
+            return {"success": False, "error": "code is required"}
+        try:
+            timeout_s = int(params.get("timeout_seconds") or 120)
+        except (TypeError, ValueError):
+            timeout_s = 120
+        timeout_s = max(1, min(timeout_s, 600))
+
+        import app.mcp_server as mcp_server  # lazy — avoids module-level cycle
+
+        async def call_tool(name: str, args: dict | None = None) -> dict:
+            import app.tools.registry as registry
+            args = dict(args or {})
+            if name == "voxyflow.script":
+                return {"success": False, "error": "voxyflow.script cannot call itself (no nesting)."}
+            tool_def = mcp_server._find_tool(name)
+            if tool_def is None:
+                return {"success": False, "error": f"Unknown tool: {name}"}
+            # Same role enforcement as mcp_server.call_tool(): dispatcher roles
+            # get the registry set; worker role (None) is bounded by TOOLS_WORKER
+            # so a script cannot reach internal/unregistered surface either.
+            role = mcp_server.VOXYFLOW_MCP_ROLE
+            allowed = mcp_server._allowed_tool_names_for_role(role)
+            if allowed is None:
+                allowed = registry.TOOLS_WORKER
+            if name not in allowed:
+                logger.warning("[mcp.script] Blocked %s from calling tool: %s", role, name)
+                return {
+                    "success": False,
+                    "error": f"Tool '{name}' is not available to {role}.",
+                }
+            return await mcp_server._call_api(tool_def, args)
+
+        output_chunks: list[str] = []
+
+        def _print(*args, sep=" ", end="\n", **_kwargs):
+            output_chunks.append(sep.join(str(a) for a in args) + end)
+
+        # Wrap the user code as an async function body. The trailing
+        # `return locals().get('result')` surfaces a `result` variable when
+        # the script didn't return explicitly.
+        body = "\n".join("    " + line for line in code.splitlines())
+        src = (
+            "async def __script__():\n"
+            f"{body}\n"
+            "    return locals().get('result')\n"
+        )
+        script_globals: dict = {
+            "call_tool": call_tool,
+            "json": _json,
+            "re": _re,
+            "asyncio": asyncio,
+            "print": _print,
+        }
+        try:
+            exec(compile(src, "<voxyflow.script>", "exec"), script_globals)
+        except SyntaxError as e:
+            return {"success": False, "error": f"SyntaxError: {e}"}
+
+        def _captured() -> str:
+            out = "".join(output_chunks)
+            if len(out) > _SCRIPT_OUTPUT_MAX:
+                out = out[:_SCRIPT_OUTPUT_MAX] + "\n… [output truncated]"
+            return out
+
+        try:
+            ret = await asyncio.wait_for(script_globals["__script__"](), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return {
+                "success": False,
+                "error": f"Script timed out after {timeout_s}s",
+                "output": _captured(),
+            }
+        except Exception:
+            tb = traceback.format_exc()
+            return {
+                "success": False,
+                "error": "Script raised an exception",
+                "traceback": tb[-_SCRIPT_OUTPUT_MAX:],
+                "output": _captured(),
+            }
+
+        response: dict = {"success": True, "output": _captured()}
+        if ret is not None:
+            try:
+                blob = _json.dumps(ret, default=str)
+            except Exception:
+                blob = repr(ret)
+            if len(blob) > _SCRIPT_OUTPUT_MAX:
+                response["result"] = blob[:_SCRIPT_OUTPUT_MAX] + "… [result truncated]"
+                response["result_truncated"] = True
+            else:
+                response["result"] = ret
+        return response
+
     _heartbeat_path = Path(
         os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
     ) / "sandbox" / "heartbeat.md"
@@ -1112,6 +1319,11 @@ def build_handlers(
         "workers_read_artifact": workers_read_artifact,
         "workers_ack_artifact": workers_ack_artifact,
         "workers_list_unread": workers_list_unread,
+        "skill_list": skill_list,
+        "skill_get": skill_get,
+        "skill_save": skill_save,
+        "skill_delete": skill_delete,
+        "script_run": script_run,
         "kg_add": kg_add,
         "kg_query": kg_query,
         "kg_timeline": kg_timeline,

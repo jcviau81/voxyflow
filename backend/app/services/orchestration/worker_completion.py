@@ -86,13 +86,18 @@ async def closeout_pass(
         "Steps:\n"
         f"1. Call voxyflow.workers.read_artifact(task_id=\"{event.task_id}\") "
         "to read the artifact. If the artifact is very large, page with offset/length.\n"
-        "2. Call voxyflow.worker.complete exactly once with:\n"
+        "2. OPTIONAL skill capture: if the task involved a non-obvious multi-step "
+        "procedure that would help future tasks, call voxyflow.skill.save "
+        "(name: kebab-case slug, description: 1-2 sentences, instructions: concise "
+        "steps distilled from the artifact). Update an existing skill instead of "
+        "creating a near-duplicate. Skip this for trivial or one-off tasks.\n"
+        "3. Call voxyflow.worker.complete exactly once with:\n"
         "   - status: \"success\" if the task looks complete, \"partial\" otherwise\n"
         "   - summary: 2–4 sentences in plain prose — what was done, what the dispatcher needs to know\n"
         "   - findings: 3–7 short bullets of the most important results\n"
         "   - pointers: list of {label, offset, length} into the artifact for notable sections\n"
         "   - next_step: optional one-liner the dispatcher could act on\n"
-        "3. Stop after voxyflow.worker.complete — do not do anything else."
+        "4. Stop after voxyflow.worker.complete — do not do anything else."
     )
 
     closeout_cancel = asyncio.Event()

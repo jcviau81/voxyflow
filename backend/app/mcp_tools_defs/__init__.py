@@ -18,6 +18,8 @@ from .postprocess import (
     _minimize_card_list,
     _minimize_card_list_archived,
 )
+from .script import SCRIPT_TOOLS
+from .skills import SKILL_TOOLS
 from .system_tools import SYSTEM_TOOLS
 from .wiki_docs_ai import WIKI_DOCS_AI_TOOLS
 from .workers_tasks import (
@@ -39,6 +41,8 @@ __all__ = [
     "TASK_STEER_TOOLS",
     "ENDPOINT_TOOLS",
     "DELEGATE_TOOLS",
+    "SKILL_TOOLS",
+    "SCRIPT_TOOLS",
     "_CARD_LIST_KEEP",
     "_minimal_card",
     "_minimize_card_list",

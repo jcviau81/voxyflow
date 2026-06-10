@@ -255,6 +255,17 @@ class WorkerExecutionMixin:
         if client_type == "codex":
             dynamic_parts.append(CODEX_WORKER_LIFECYCLE_PROMPT)
 
+        # Skills catalog — learned procedures (global + this workspace). Catalog
+        # only (progressive disclosure); the worker loads full instructions on
+        # demand via voxyflow.skill.get.
+        try:
+            from app.services.skill_service import get_skill_service
+            skills_catalog = get_skill_service().build_skills_catalog(workspace_id)
+            if skills_catalog:
+                dynamic_parts.append(skills_catalog)
+        except Exception as e:
+            logger.warning(f"Skills catalog injection failed (execute_worker_task): {e}")
+
         if workspace_id:
             try:
                 pass  # RAG disabled — use knowledge.search tool instead

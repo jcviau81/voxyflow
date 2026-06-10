@@ -26,6 +26,8 @@ from app.mcp_tools_defs import (
     KANBAN_TOOLS,
     MEMORY_KG_TOOLS,
     OPS_JOBS_TOOLS,
+    SCRIPT_TOOLS,
+    SKILL_TOOLS,
     SYSTEM_TOOLS,
     TASK_STEER_TOOLS,
     WIKI_DOCS_AI_TOOLS,
@@ -42,7 +44,9 @@ from app.mcp_tools_defs import (
 # auto-assign (see import note above). The raw pre-import hash of the same
 # monolith was 485855c6ca20f3f613b8673efe90984da4ffaf6548ec3bd6289c9998f1dba261;
 # the split list reproduced it exactly before the mutation as well.
-SNAPSHOT_SHA256 = "d00bfd752f44180443318df7c60cb69059fd195313b3e1206e695de915ed90d1"
+# 2026-06: re-pinned after adding SKILL_TOOLS + SCRIPT_TOOLS (105 → 110 tools);
+# the previous snapshot was d00bfd752f44180443318df7c60cb69059fd195313b3e1206e695de915ed90d1.
+SNAPSHOT_SHA256 = "058e08a36e03fe94475a890396143c4934f9295f612527b5eb2d86e4a7af76a6"
 
 SNAPSHOT_NAMES = [
     "voxyflow.card.create_unassigned",
@@ -150,6 +154,11 @@ SNAPSHOT_NAMES = [
     "voxyflow.endpoint.add",
     "voxyflow.endpoint.remove",
     "voxyflow.delegate",
+    "voxyflow.skill.list",
+    "voxyflow.skill.get",
+    "voxyflow.skill.save",
+    "voxyflow.skill.delete",
+    "voxyflow.script",
 ]
 
 
@@ -171,7 +180,7 @@ def _structure_hash(defs):
 
 class TestToolDefsSplitEquivalence:
     def test_tool_count(self):
-        assert len(_TOOL_DEFINITIONS) == len(SNAPSHOT_NAMES) == 105
+        assert len(_TOOL_DEFINITIONS) == len(SNAPSHOT_NAMES) == 110
 
     def test_names_in_original_order(self):
         assert [t["name"] for t in _TOOL_DEFINITIONS] == SNAPSHOT_NAMES
@@ -202,6 +211,8 @@ class TestToolDefsSplitEquivalence:
             *TASK_STEER_TOOLS,
             *ENDPOINT_TOOLS,
             *DELEGATE_TOOLS,
+            *SKILL_TOOLS,
+            *SCRIPT_TOOLS,
         ]
         assert len(_TOOL_DEFINITIONS) == len(expected)
         for got, want in zip(_TOOL_DEFINITIONS, expected):

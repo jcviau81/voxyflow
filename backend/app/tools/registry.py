@@ -69,6 +69,11 @@ TOOLS_DISPATCHER = {
     # ---- Memory write (instant; scope enforced via env var) ----
     "memory.save", "memory.delete",
 
+    # ---- Skills (learned procedures — instant local file ops, scope
+    # enforced via env var; lets the user say "save this as a skill") ----
+    "voxyflow.skill.list", "voxyflow.skill.get",
+    "voxyflow.skill.save", "voxyflow.skill.delete",
+
     # ---- Knowledge graph (instant local DB ops; temporal model is
     # reversible — kg.invalidate sets valid_to, doesn't hard-delete) ----
     "kg.add", "kg.query", "kg.timeline", "kg.invalidate", "kg.stats",
@@ -144,6 +149,11 @@ _WORKER_EXTRAS = {
 
     # Worker dynamic tool loading
     "tools.load",
+
+    # Programmatic tool calling — runs arbitrary Python in the MCP subprocess
+    # to chain many tool calls in one turn. Arbitrary code execution, so it is
+    # worker-only forever (same boundary as system.exec).
+    "voxyflow.script",
 }
 
 # Sanity guard — fail loudly at import time if a tool is listed in both sets.

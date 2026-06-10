@@ -31,6 +31,14 @@ class WorkerPromptsMixin:
             "Always call `voxyflow.web.search` for any web search task. Never use the built-in WebSearch tool."
         )
 
+        script_rule = (
+            "## Chaining tool calls\n"
+            "When a task needs 3+ sequential kanban/memory/KG tool calls (e.g. list "
+            "cards then act on each), prefer ONE `voxyflow.script` call — a short "
+            "Python script using `await call_tool(name, args)` — instead of issuing "
+            "the calls one by one."
+        )
+
         process_safety_rule = self._build_reserved_ports_rule(role="worker")
 
         return (
@@ -38,6 +46,7 @@ class WorkerPromptsMixin:
             f"## Active Role: Worker (Task Executor)\n\n"
             f"## Available Tools\n{tool_list}\n\n"
             f"{web_search_rule}\n\n"
+            f"{script_rule}\n\n"
             f"{process_safety_rule}\n\n"
             f"## Context\n{context}"
         )

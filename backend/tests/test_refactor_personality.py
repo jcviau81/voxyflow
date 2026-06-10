@@ -120,6 +120,12 @@ def _build_outputs() -> dict[str, str]:
          mock.patch(
              "app.services.time_context.format_now_block",
              return_value="NOW-BLOCK",
+         ), \
+         mock.patch(
+             # Skills catalog is dynamic (reads ~/.voxyflow/skills) — stub it
+             # empty so the golden outputs stay environment-independent.
+             "app.services.skill_service.get_skill_service",
+             return_value=mock.Mock(build_skills_catalog=lambda *a, **k: None),
          ):
         # Chat init blocks
         out["general_init"] = svc.build_general_chat_init()

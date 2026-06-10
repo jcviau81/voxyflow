@@ -263,6 +263,20 @@ class ContextBlocksMixin:
         if memory_context:
             parts.append(f"## Retrieved fragments (may be noisy — raw semantic hits, not curated truth; scores below ~0.20 are background noise)\n{memory_context}")
 
+        # Skills catalog — dynamic like memory (skills change at runtime; the
+        # static prompt must stay byte-identical for KV-cache hits). Workspace
+        # chats see global + workspace skills; general chat (no workspace or
+        # the system-main Home workspace) sees global only — the service
+        # treats ""/"system-main" as global-only.
+        try:
+            from app.services.skill_service import get_skill_service
+            skills_workspace_id = (workspace or {}).get("id") if chat_level in ("workspace", "card") else None
+            skills_catalog = get_skill_service().build_skills_catalog(skills_workspace_id)
+            if skills_catalog:
+                parts.append(skills_catalog)
+        except Exception as e:  # pragma: no cover — defensive
+            logger.debug("skills catalog injection failed: %s", e)
+
         if active_workers_context:
             parts.append(f"## Background Workers Status\n{active_workers_context}")
 

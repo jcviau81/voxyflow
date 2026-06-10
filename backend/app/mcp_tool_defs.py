@@ -29,6 +29,8 @@ from app.mcp_tools_defs import (
     KANBAN_TOOLS,
     MEMORY_KG_TOOLS,
     OPS_JOBS_TOOLS,
+    SCRIPT_TOOLS,
+    SKILL_TOOLS,
     SYSTEM_TOOLS,
     TASK_STEER_TOOLS,
     WIKI_DOCS_AI_TOOLS,
@@ -61,4 +63,6 @@ _TOOL_DEFINITIONS: list[dict] = [
     *TASK_STEER_TOOLS,
     *ENDPOINT_TOOLS,
     *DELEGATE_TOOLS,
+    *SKILL_TOOLS,
+    *SCRIPT_TOOLS,
 ]
