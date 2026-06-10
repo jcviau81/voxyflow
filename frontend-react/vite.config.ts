@@ -47,15 +47,23 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 900,
       rollupOptions: {
         output: {
-          manualChunks(id) {
-            if (!id.includes('node_modules')) return undefined;
-            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/react-router-dom/')) return 'react';
-            if (id.includes('/@tanstack/react-query/')) return 'query';
-            if (id.includes('/@uiw/react-codemirror/') || id.includes('/@codemirror/')) return 'editor';
-            if (id.includes('/react-markdown/') || id.includes('/remark-gfm/') || id.includes('/react-syntax-highlighter/')) return 'markdown';
-            if (id.includes('/@dnd-kit/')) return 'dnd';
-            if (id.includes('/@huggingface/transformers/') || id.includes('/onnxruntime-web/')) return 'voice';
-            return 'vendor';
+          // Rolldown-native chunk grouping (vite 8 = rolldown-vite).
+          // NOTE: this replaces the old function-form `manualChunks`. The shim
+          // rolldown uses for `manualChunks` mis-placed the react/jsx-runtime
+          // CJS interop wrapper inside the `editor` chunk, which force-preloaded
+          // ~650 kB of CodeMirror on every page. Explicit groups with priorities
+          // fix the placement. `editor` and `voice` are only reachable through
+          // dynamic imports (lazy DescriptionEditor / wake-word start).
+          codeSplitting: {
+            groups: [
+              { name: 'react', test: /node_modules\/(?:react|react-dom|react-router|react-router-dom|scheduler)\/|jsx-runtime/, priority: 100 },
+              { name: 'query', test: /node_modules\/@tanstack\/react-query\//, priority: 90 },
+              { name: 'editor', test: /node_modules\/(?:@uiw\/react-codemirror|@codemirror|@lezer)\//, priority: 90 },
+              { name: 'markdown', test: /node_modules\/(?:react-markdown|remark-|rehype-|micromark|mdast-|unist-|hast-|vfile|unified|react-syntax-highlighter)/, priority: 95 },
+              { name: 'dnd', test: /node_modules\/@dnd-kit\//, priority: 90 },
+              { name: 'voice', test: /node_modules\/(?:@huggingface\/transformers|onnxruntime-web)\//, priority: 90 },
+              { name: 'vendor', test: /node_modules/, priority: 10 },
+            ],
           },
         },
       },

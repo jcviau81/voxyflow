@@ -22,6 +22,7 @@ import { Sidebar } from '../Navigation/Sidebar';
 import { TabBar } from '../Navigation/TabBar';
 import { WorkspaceHeader, WorkspaceForm } from '../Workspaces';
 import { NotificationsPanel } from '../RightPanel/NotificationsPanel';
+import { CommandPalette } from '../CommandPalette';
 import { useWorkspaces } from '../../hooks/api/useWorkspaces';
 import { useWorkerSync } from '../../hooks/useWorkerSync';
 
@@ -32,6 +33,7 @@ export function AppShell() {
   const isFullPage = ['/settings', '/jobs', '/workspaces'].includes(location.pathname);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [editWorkspaceId, setEditWorkspaceId] = useState<string | null>(null);
   const theme = useThemeStore((s) => s.theme);
 
@@ -90,7 +92,10 @@ export function AppShell() {
   // Global keyboard shortcuts
   useEffect(() => {
     const handleKeydown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === '1') {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      } else if (e.ctrlKey && e.key === '1') {
         e.preventDefault();
         useViewStore.getState().setView('kanban');
       } else if (e.ctrlKey && e.key === '2') {
@@ -159,6 +164,13 @@ export function AppShell() {
       >
         <NotificationsPanel onClose={closePanel} />
       </aside>
+
+      {/* Global command palette (Cmd/Ctrl+K) */}
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onToggleSidebar={toggleSidebar}
+      />
 
       {/* Global card detail modal */}
       <CardDetailModal />

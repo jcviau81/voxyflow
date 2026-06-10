@@ -23,6 +23,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { matchesCard } from '@/lib/cardFilter';
 import type { Card, CardStatus } from '../../types';
@@ -54,6 +55,10 @@ const COLUMN_DOT_COLORS: Record<string, string> = {
   'in-progress': 'bg-orange-500',
   done: 'bg-emerald-500',
 };
+
+// Columns above this card count switch to windowed rendering (@tanstack/react-virtual).
+// Small columns keep plain rendering so dnd-kit interactions stay 1:1 with the DOM.
+const VIRTUALIZE_THRESHOLD = 40;
 
 // ── Column sort ───────────────────────────────────────────────────────────────────────────────────
 
@@ -96,7 +101,7 @@ interface SortableCardProps {
   isWorkerActive: boolean;
 }
 
-function SortableCard({
+const SortableCard = React.memo(function SortableCard({
   card,
   selectMode,
   isSelected,
@@ -124,7 +129,7 @@ function SortableCard({
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <div className={cn(isExecuting && 'ring-2 ring-yellow-400/60 rounded-lg animate-pulse')}>
+      <div className={cn(isExecuting && 'ring-2 ring-yellow-400/60 rounded-lg animate-pulse motion-reduce:animate-none')}>
         <KanbanCard
           card={card}
           selectMode={selectMode}
@@ -141,7 +146,7 @@ function SortableCard({
       </div>
     </div>
   );
-}
+});
 
 // ── KanbanColumn ───────────────────────────────────────────────────────────────
 
@@ -190,6 +195,20 @@ function KanbanColumn({
   const cardIds = useMemo(() => sortedCards.map((c) => c.id), [sortedCards]);
   const { setNodeRef } = useDroppable({ id: status });
 
+  // ── Windowed rendering for very long columns ────────────────────────────
+  // SortableContext keeps the FULL id list (dnd-kit needs it for index math);
+  // only the DOM is windowed. Small columns render plainly.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualize = sortedCards.length > VIRTUALIZE_THRESHOLD;
+  const virtualizer = useVirtualizer({
+    count: sortedCards.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 120,
+    overscan: 8,
+    enabled: virtualize,
+    getItemKey: (index) => sortedCards[index]?.id ?? index,
+  });
+
   const allSelected = sortedCards.length > 0 && sortedCards.every((c) => selectedIds.has(c.id));
   const someSelected = sortedCards.some((c) => selectedIds.has(c.id));
 
@@ -227,7 +246,9 @@ function KanbanColumn({
   return (
     <div
       ref={setNodeRef}
-      className="group/col flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40"
+      // content-visibility lets the browser skip rendering offscreen columns
+      // (mobile stacks columns vertically); intrinsic-size avoids scroll jumps.
+      className="group/col flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40 [content-visibility:auto] [contain-intrinsic-size:auto_480px]"
       data-status={status}
       data-testid={`kanban-column-${status}`}
     >
@@ -287,29 +308,72 @@ function KanbanColumn({
       {/* Droppable card list */}
       <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
         <div
-          className="flex flex-col gap-2 p-2 min-h-[80px] overflow-y-auto max-h-[calc(100vh-320px)]"
+          ref={scrollRef}
+          className={cn(
+            'p-2 min-h-[80px] overflow-y-auto max-h-[calc(100vh-320px)]',
+            !virtualize && 'flex flex-col gap-2',
+          )}
           onClick={handleCardListClick}
         >
           {sortedCards.length === 0 && (
             <div className="py-8 text-center text-xs text-muted-foreground">No cards</div>
           )}
-          {sortedCards.map((card) => (
-            <SortableCard
-              key={card.id}
-              card={card}
-              selectMode={selectMode}
-              isSelected={selectedIds.has(card.id)}
-              onSelectChange={onSelectChange}
-              query={query}
-              priorityFilter={priorityFilter}
-              agentFilter={agentFilter}
-              tagFilter={tagFilter}
-              onTagClick={onTagClick}
-              onCardClick={onCardClick}
-              isExecuting={executingCardId === card.id}
-              isWorkerActive={isCardActive(card.id)}
-            />
-          ))}
+          {virtualize ? (
+            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+              {virtualizer.getVirtualItems().map((vi) => {
+                const card = sortedCards[vi.index];
+                if (!card) return null;
+                return (
+                  <div
+                    key={card.id}
+                    ref={virtualizer.measureElement}
+                    data-index={vi.index}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${vi.start}px)`,
+                      paddingBottom: 8, // matches the gap-2 of the plain path
+                    }}
+                  >
+                    <SortableCard
+                      card={card}
+                      selectMode={selectMode}
+                      isSelected={selectedIds.has(card.id)}
+                      onSelectChange={onSelectChange}
+                      query={query}
+                      priorityFilter={priorityFilter}
+                      agentFilter={agentFilter}
+                      tagFilter={tagFilter}
+                      onTagClick={onTagClick}
+                      onCardClick={onCardClick}
+                      isExecuting={executingCardId === card.id}
+                      isWorkerActive={isCardActive(card.id)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            sortedCards.map((card) => (
+              <SortableCard
+                key={card.id}
+                card={card}
+                selectMode={selectMode}
+                isSelected={selectedIds.has(card.id)}
+                onSelectChange={onSelectChange}
+                query={query}
+                priorityFilter={priorityFilter}
+                agentFilter={agentFilter}
+                tagFilter={tagFilter}
+                onTagClick={onTagClick}
+                onCardClick={onCardClick}
+                isExecuting={executingCardId === card.id}
+                isWorkerActive={isCardActive(card.id)}
+              />
+            ))
+          )}
         </div>
       </SortableContext>
     </div>

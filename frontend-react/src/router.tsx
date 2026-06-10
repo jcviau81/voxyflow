@@ -10,16 +10,32 @@
  *   /workspace/:id    → Workspace tab (kanban/chat/stats/roadmap/wiki/docs/knowledge)
  *   /settings       → Settings page
  */
+import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { OnboardingGuard } from './components/OnboardingGuard';
+import { PageSkeleton } from './components/ui/PageSkeleton';
 
-import { SettingsPage } from './components/Settings/SettingsPage';
 import { WorkspaceList } from './components/Workspaces';
 import { WorkspacePage } from './pages/WorkspacePage';
-import { OnboardingPage } from './pages/OnboardingPage';
-import { JobsPage } from './pages/JobsPage';
+
+// ── Route-level code splitting ────────────────────────────────────────────────
+// Heavy, rarely-first-visited pages load on demand. WorkspacePage stays eager —
+// it is the landing route and lazy-loading it would only add a waterfall.
+const SettingsPage = lazy(() =>
+  import('./components/Settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+);
+const OnboardingPage = lazy(() =>
+  import('./pages/OnboardingPage').then((m) => ({ default: m.OnboardingPage })),
+);
+const JobsPage = lazy(() =>
+  import('./pages/JobsPage').then((m) => ({ default: m.JobsPage })),
+);
+
+function Lazy({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<PageSkeleton />}>{children}</Suspense>;
+}
 
 function NotFound() {
   return <Navigate to="/" replace />;
@@ -28,7 +44,11 @@ function NotFound() {
 export const router = createBrowserRouter([
   {
     path: 'onboarding',
-    element: <OnboardingPage />,
+    element: (
+      <Lazy>
+        <OnboardingPage />
+      </Lazy>
+    ),
   },
   {
     element: (
@@ -42,8 +62,8 @@ export const router = createBrowserRouter([
       { index: true, element: <WorkspacePage /> },
       { path: 'workspaces', element: <WorkspaceList /> },
       { path: 'workspace/:id', element: <WorkspacePage /> },
-      { path: 'settings', element: <SettingsPage /> },
-      { path: 'jobs', element: <JobsPage /> },
+      { path: 'settings', element: <Lazy><SettingsPage /></Lazy> },
+      { path: 'jobs', element: <Lazy><JobsPage /></Lazy> },
       { path: '*', element: <NotFound /> },
     ],
   },

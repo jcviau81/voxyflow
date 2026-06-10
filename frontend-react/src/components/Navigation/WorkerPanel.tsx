@@ -699,11 +699,34 @@ export function WorkerPanel() {
     return m;
   }, [cliSessions]);
 
-  // Tick for elapsed time
+  // ── Tick for elapsed time — paused when the panel isn't visible ──────────
+  // The sidebar collapses to w-0/overflow-hidden when closed, so an
+  // IntersectionObserver on the panel root reports non-intersecting. We also
+  // pause when the browser tab is hidden. No point re-rendering 1×/s offscreen.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [panelVisible, setPanelVisible] = useState(true);
+  const [docVisible, setDocVisible] = useState(() => !document.hidden);
+
   useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([entry]) => setPanelVisible(entry.isIntersecting));
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const onVis = () => setDocVisible(!document.hidden);
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  const shouldTick = panelVisible && docVisible;
+  useEffect(() => {
+    if (!shouldTick) return;
     const t = setInterval(() => setTick((v) => v + 1), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [shouldTick]);
 
   // Actions
   const cancelTask = useCallback((taskId: string) => {
@@ -759,7 +782,7 @@ export function WorkerPanel() {
   const selectedLive = selectedWorker ? workers[selectedWorker.taskId] ?? selectedWorker : null;
 
   return (
-    <div className="flex flex-col h-full" data-testid="session-panel">
+    <div ref={rootRef} className="flex flex-col h-full" data-testid="session-panel">
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 py-2.5 border-border shrink-0">
         <div className="flex items-center gap-2">

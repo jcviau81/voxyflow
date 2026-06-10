@@ -10,7 +10,7 @@
  * Mobile: tabs switch between the three columns.
  */
 
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import {
@@ -60,8 +60,23 @@ import { RecurrenceSection } from './sections/RecurrenceSection';
 import { RelationsSection } from './Relations';
 import { HistorySection } from './History';
 import { ChatWindow } from '../Chat/ChatWindow';
-import { DescriptionEditor } from './DescriptionEditor';
 import { Archive, Play, Loader2 } from 'lucide-react';
+
+// CodeMirror is heavy (~650 kB chunk) — load it on demand so the modal opens
+// instantly; the editor streams in behind a lightweight skeleton.
+const DescriptionEditor = lazy(() =>
+  import('./DescriptionEditor').then((m) => ({ default: m.DescriptionEditor })),
+);
+
+function EditorSkeleton() {
+  return (
+    <div className="flex h-full min-h-[300px] flex-col gap-2 rounded-md border border-border bg-card p-4">
+      <div className="h-4 w-2/3 rounded bg-muted/50 animate-pulse motion-reduce:animate-none" />
+      <div className="h-4 w-1/2 rounded bg-muted/40 animate-pulse motion-reduce:animate-none" />
+      <div className="h-4 w-3/4 rounded bg-muted/30 animate-pulse motion-reduce:animate-none" />
+    </div>
+  );
+}
 import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 
 // ── Color class map ─────────────────────────────────────────────────────────
@@ -465,11 +480,13 @@ export function CardDetailModal() {
               mobileTab === 'description' ? 'flex' : 'hidden md:flex',
             )}
           >
-            <DescriptionEditor
-              cardId={card.id}
-              value={description}
-              onChange={handleDescriptionChange}
-            />
+            <Suspense fallback={<EditorSkeleton />}>
+              <DescriptionEditor
+                cardId={card.id}
+                value={description}
+                onChange={handleDescriptionChange}
+              />
+            </Suspense>
           </div>
 
           {/* Drag handle: center | right */}
