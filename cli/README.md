@@ -54,6 +54,13 @@ voxy jobs run JOB_ID
 
 voxy skills list [--json]
 voxy skills show NAME
+
+voxy config show [--json]            # all settings (secrets redacted)
+voxy config get PATH                 # e.g. voxy config get models.fast.model
+voxy config set PATH VALUE           # read-modify-write; VALUE parsed as JSON when possible
+
+voxy update [--check|--no-restart|--full]  # git pull + deps/build as needed + restart
+voxy doctor [--fix]                  # diagnose install; --fix restarts/re-auths
 ```
 
 ### Default workspace (`voxy use`)
@@ -67,6 +74,28 @@ Workspace arguments (`-w`) accept either the workspace **id** or its **title**
 (case-insensitive; unique prefixes work too).
 
 All `list` commands take `--json` for scripting.
+
+### Settings (`voxy config`)
+
+Settings live in one document behind `/api/settings`. `get`/`set` address it by
+dotted path (`models.fast.model`, `models.endpoints.0.url`, `voice.tts_enabled`).
+Secrets come back redacted as `***` and are preserved server-side on save.
+
+### Updating (`voxy update`)
+
+On an editable install, `voxy update` pulls the repo (`--ff-only`), then only
+runs the steps the diff requires: pip install when requirements changed,
+frontend rebuild when `frontend-react/` changed, backend restart when
+`backend/` changed — and waits for `/health` to go green. `--check` just
+reports how far behind origin you are; `--full` forces every step.
+
+### Diagnostics (`voxy doctor`)
+
+Checks backend reachability, per-service health, auth token, websocket,
+systemd units, running-commit vs checkout (stale code), frontend build,
+memory store, disk space and the `claude` binary. `--fix` restarts failed
+services and re-bootstraps a rejected token, then re-checks. Exit code 1
+when something is failing (script-friendly).
 
 ## Tests
 

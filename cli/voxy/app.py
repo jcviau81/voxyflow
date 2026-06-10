@@ -12,7 +12,7 @@ import typer
 from . import __version__
 from .chatws import ChatError, ChatSession, ChatTimeout, chat_once
 from .client import CliError, VoxyClient, die, get_workspace
-from .commands import cards, jobs, skills, workers, workspaces
+from .commands import cards, config_cmd, doctor, jobs, skills, update, workers, workspaces
 from .config import (
     clear_default_workspace,
     effective_workspace_ref,
@@ -32,6 +32,9 @@ app.add_typer(cards.app, name="cards")
 app.add_typer(workers.app, name="workers")
 app.add_typer(jobs.app, name="jobs")
 app.add_typer(skills.app, name="skills")
+app.add_typer(config_cmd.app, name="config")
+app.command("update")(update.update)
+app.command("doctor")(doctor.doctor)
 
 
 @app.callback()

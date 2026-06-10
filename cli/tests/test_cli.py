@@ -214,3 +214,128 @@ class TestEffectiveWorkspaceRef:
 
     def test_no_option_no_default_is_general(self):
         assert effective_workspace_ref(None, None) is None
+
+
+# ---------------------------------------------------------------------------
+# voxy config — dotted-path settings access
+# ---------------------------------------------------------------------------
+
+from voxy.commands.config_cmd import get_path, parse_value, set_path  # noqa: E402
+
+SETTINGS = {
+    "assistant_name": "Voxy",
+    "models": {
+        "fast": {"model": "claude-haiku-4-5", "provider_type": "cli"},
+        "endpoints": [{"id": "e1", "name": "Mac", "api_key": "***"}],
+    },
+    "voice": {"tts_enabled": True},
+}
+
+
+class TestDottedPath:
+    def test_get_nested(self):
+        assert get_path(SETTINGS, "models.fast.model") == "claude-haiku-4-5"
+
+    def test_get_list_index(self):
+        assert get_path(SETTINGS, "models.endpoints.0.name") == "Mac"
+
+    def test_get_unknown_key_raises_with_siblings(self):
+        with pytest.raises(CliError, match="unknown key"):
+            get_path(SETTINGS, "models.fastt")
+
+    def test_get_bad_index_raises(self):
+        with pytest.raises(CliError, match="out of range"):
+            get_path(SETTINGS, "models.endpoints.5")
+        with pytest.raises(CliError, match="not a list index"):
+            get_path(SETTINGS, "models.endpoints.first")
+
+    def test_get_descend_into_scalar_raises(self):
+        with pytest.raises(CliError, match="cannot descend"):
+            get_path(SETTINGS, "assistant_name.x")
+
+    def test_set_returns_old_value(self):
+        data = json.loads(json.dumps(SETTINGS))
+        old = set_path(data, "models.fast.model", "claude-sonnet-4-6")
+        assert old == "claude-haiku-4-5"
+        assert data["models"]["fast"]["model"] == "claude-sonnet-4-6"
+
+    def test_set_in_list(self):
+        data = json.loads(json.dumps(SETTINGS))
+        set_path(data, "models.endpoints.0.api_key", "sk-real")
+        assert data["models"]["endpoints"][0]["api_key"] == "sk-real"
+
+    def test_set_unknown_leaf_raises(self):
+        data = json.loads(json.dumps(SETTINGS))
+        with pytest.raises(CliError, match="unknown key"):
+            set_path(data, "models.fast.modle", "x")
+
+    def test_set_scalar_over_container_raises(self):
+        data = json.loads(json.dumps(SETTINGS))
+        with pytest.raises(CliError, match="is a dict"):
+            set_path(data, "models.fast", "oops")
+
+    def test_parse_value(self):
+        assert parse_value("true") is True
+        assert parse_value("5") == 5
+        assert parse_value('{"a": 1}') == {"a": 1}
+        assert parse_value("plain string") == "plain string"
+        assert parse_value("claude-haiku-4-5") == "claude-haiku-4-5"
+
+
+# ---------------------------------------------------------------------------
+# voxy update — repo discovery + diff-driven plan
+# ---------------------------------------------------------------------------
+
+from voxy.repo import find_repo_root, plan_update  # noqa: E402
+
+
+class TestFindRepoRoot:
+    def test_finds_checkout_from_nested_path(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "backend").mkdir()
+        (tmp_path / "cli").mkdir()
+        nested = tmp_path / "cli" / "voxy" / "repo.py"
+        nested.parent.mkdir(parents=True)
+        nested.write_text("")
+        assert find_repo_root(nested) == tmp_path
+
+    def test_none_outside_a_checkout(self, tmp_path):
+        f = tmp_path / "somewhere" / "repo.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("")
+        assert find_repo_root(f) is None
+
+    def test_plain_git_repo_without_layout_is_not_voxyflow(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        f = tmp_path / "x.py"
+        f.write_text("")
+        assert find_repo_root(f) is None
+
+
+class TestPlanUpdate:
+    def test_backend_change_restarts_only(self):
+        plan = plan_update(["backend/app/main.py"])
+        assert plan == {"pip": False, "cli": False, "frontend": False, "backend_restart": True}
+
+    def test_requirements_change_triggers_pip(self):
+        assert plan_update(["backend/requirements.txt"])["pip"] is True
+
+    def test_frontend_change_triggers_build_not_restart(self):
+        plan = plan_update(["frontend-react/src/App.tsx"])
+        assert plan["frontend"] is True
+        assert plan["backend_restart"] is False
+
+    def test_cli_code_change_needs_no_reinstall(self):
+        plan = plan_update(["cli/voxy/app.py"])
+        assert plan["cli"] is False  # editable install — code applies immediately
+
+    def test_cli_packaging_change_reinstalls(self):
+        assert plan_update(["cli/pyproject.toml"])["cli"] is True
+
+    def test_docs_only_change_is_a_noop(self):
+        plan = plan_update(["README.md", "docs/CLI.md"])
+        assert plan == {"pip": False, "cli": False, "frontend": False, "backend_restart": False}
+
+    def test_full_forces_everything(self):
+        plan = plan_update([], full=True)
+        assert all(plan.values())
