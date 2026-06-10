@@ -431,6 +431,9 @@ interface MachineFormProps {
 
 function MachineForm({ draft, allProviders, onChange, onSave, onCancel, isNew }: MachineFormProps) {
   const set = (key: keyof ProviderEndpoint, value: string) => onChange({ ...draft, [key]: value });
+  // Snapshot of the endpoint as it was when the form opened — used to restore the
+  // saved ('***'-redacted) api_key if the user toggles the type away and back.
+  const original = useRef(draft).current;
   const localProviders = allProviders.filter(p => LOCAL_PROVIDER_TYPES.has(p.type));
   const cloudProviders = allProviders.filter(p => CLOUD_PROVIDER_TYPES.has(p.type));
 
@@ -462,7 +465,10 @@ function MachineForm({ draft, allProviders, onChange, onSave, onCancel, isNew }:
             const meta = allProviders.find(p => p.type === pt);
             const defaultUrl = CLOUD_DEFAULT_URLS[pt] ?? meta?.default_url ?? draft.url;
             const autoName = !draft.name.trim() ? (meta?.label ?? pt) : draft.name;
-            onChange({ ...draft, provider_type: pt, url: defaultUrl, api_key: '', name: autoName });
+            // Keep the original key when returning to the original type —
+            // clearing it would overwrite the saved key with '' on save.
+            const apiKey = pt === original.provider_type ? original.api_key : '';
+            onChange({ ...draft, provider_type: pt, url: defaultUrl, api_key: apiKey, name: autoName });
           }}
         >
           <optgroup label="Local servers">
@@ -927,9 +933,16 @@ function LayerRow({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider_type: ep ? ep.provider_type : layer.provider_type,
-          provider_url: ep ? ep.url : layer.provider_url,
-          api_key: ep ? ep.api_key : layer.api_key,
+          // Saved endpoint: send endpoint_id only — the backend resolves the real
+          // url/api_key server-side (the frontend only ever sees redacted '***' keys).
+          // Ad-hoc layer: backend resolves a '***' api_key from saved settings.
+          ...(ep
+            ? { endpoint_id: ep.id }
+            : {
+                provider_type: layer.provider_type,
+                provider_url: layer.provider_url,
+                api_key: layer.api_key,
+              }),
           model: layer.model,
         }),
       });
@@ -2281,9 +2294,15 @@ function DefaultWorkerModelSection({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider_type: ep ? ep.provider_type : providerType,
-          provider_url:  ep ? ep.url           : (pmeta?.default_url ?? ''),
-          api_key:       ep ? ep.api_key       : '',
+          // Saved endpoint: send endpoint_id only — the backend resolves the real
+          // url/api_key server-side (the frontend only ever sees redacted '***' keys).
+          ...(ep
+            ? { endpoint_id: ep.id }
+            : {
+                provider_type: providerType,
+                provider_url:  pmeta?.default_url ?? '',
+                api_key:       '',
+              }),
           model,
         }),
       });

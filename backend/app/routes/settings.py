@@ -321,10 +321,16 @@ def _redact_sensitive(data: dict) -> dict:
     for ep in models.get("endpoints", []):
         if isinstance(ep, dict) and ep.get("api_key"):
             ep["api_key"] = "***"
-    # Redact MCP server api_key fields
+    # Redact MCP server api_key fields + stdio env values (env is the standard
+    # place for secrets like GITHUB_TOKEN — never expose via GET or on disk)
     for srv in redacted.get("mcp_servers", []) or []:
-        if isinstance(srv, dict) and srv.get("api_key"):
+        if not isinstance(srv, dict):
+            continue
+        if srv.get("api_key"):
             srv["api_key"] = "***"
+        env = srv.get("env")
+        if isinstance(env, dict):
+            srv["env"] = {k: ("***" if v else v) for k, v in env.items()}
     return redacted
 
 
@@ -343,16 +349,23 @@ def _merge_sensitive_on_save(incoming: dict, existing: dict) -> dict:
     for ep_in in eps_in:
         if isinstance(ep_in, dict) and ep_in.get("api_key") == "***":
             existing_ep = eps_ex.get(ep_in.get("id"))
-            if existing_ep:
-                ep_in["api_key"] = existing_ep.get("api_key", "")
-    # Merge MCP server api_keys (same '***' sentinel)
+            # New entry (no saved key to merge) → strip the sentinel, never persist '***'
+            ep_in["api_key"] = existing_ep.get("api_key", "") if existing_ep else ""
+    # Merge MCP server api_keys + stdio env values (same '***' sentinel)
     mcp_in = incoming.get("mcp_servers", []) or []
     mcp_ex = {s.get("id"): s for s in (existing.get("mcp_servers", []) or []) if isinstance(s, dict)}
     for srv_in in mcp_in:
-        if isinstance(srv_in, dict) and srv_in.get("api_key") == "***":
-            existing_srv = mcp_ex.get(srv_in.get("id"))
-            if existing_srv:
-                srv_in["api_key"] = existing_srv.get("api_key", "")
+        if not isinstance(srv_in, dict):
+            continue
+        existing_srv = mcp_ex.get(srv_in.get("id"))
+        if srv_in.get("api_key") == "***":
+            srv_in["api_key"] = existing_srv.get("api_key", "") if existing_srv else ""
+        env_in = srv_in.get("env")
+        if isinstance(env_in, dict):
+            env_ex = (existing_srv or {}).get("env") or {}
+            for k, v in env_in.items():
+                if v == "***":
+                    env_in[k] = env_ex.get(k, "")
     return incoming
 
 

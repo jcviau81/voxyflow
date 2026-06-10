@@ -317,6 +317,9 @@ class ApiCallerMixin:
         for the orchestrator to process. Claude receives a synthetic "acknowledged" result
         so it can finish its text response naturally.
         """
+        import queue
+        import threading
+
         clean_messages = [m for m in messages if m.get("role") != "system"]
         if not clean_messages:
             clean_messages = [{"role": "user", "content": "(empty)"}]
@@ -347,24 +350,36 @@ class ApiCallerMixin:
                 streamed_text_parts: list[str] = []
                 tool_use_blocks: list = []
 
-                def _do_stream(_kw=kwargs):
-                    events = []
-                    with client.messages.stream(**_kw) as stream:
-                        for text in stream.text_stream:
-                            events.append(("text", text))
-                        final_msg = stream.get_final_message()
-                        for block in final_msg.content:
-                            if block.type == "tool_use":
-                                events.append(("tool_use", block))
-                        events.append(("stop_reason", final_msg.stop_reason))
-                        events.append(("usage", final_msg.usage))
-                    return events
+                # Thread + queue bridge so text tokens reach the user as they
+                # arrive (same pattern as the OpenAI variant) instead of
+                # buffering the entire response before yielding anything.
+                event_queue: queue.Queue = queue.Queue()
 
-                events = await asyncio.to_thread(_do_stream)
+                def _do_stream(_kw=kwargs):
+                    try:
+                        with client.messages.stream(**_kw) as stream:
+                            for text in stream.text_stream:
+                                event_queue.put(("text", text))
+                            final_msg = stream.get_final_message()
+                            for block in final_msg.content:
+                                if block.type == "tool_use":
+                                    event_queue.put(("tool_use", block))
+                            event_queue.put(("stop_reason", final_msg.stop_reason))
+                            event_queue.put(("usage", final_msg.usage))
+                    except Exception as e:
+                        event_queue.put(("error", e))
+                    finally:
+                        event_queue.put(None)
+
+                threading.Thread(target=_do_stream, daemon=True).start()
 
                 stop_reason = "end_turn"
                 stream_usage = None
-                for event_type, data in events:
+                while True:
+                    item = await asyncio.to_thread(event_queue.get)
+                    if item is None:
+                        break
+                    event_type, data = item
                     if event_type == "text":
                         streamed_text_parts.append(data)
                         yield data
@@ -374,6 +389,8 @@ class ApiCallerMixin:
                         stop_reason = data
                     elif event_type == "usage":
                         stream_usage = data
+                    elif event_type == "error":
+                        raise data
 
                 # Log token usage from the delegate stream
                 if stream_usage:
@@ -481,7 +498,10 @@ class ApiCallerMixin:
                                 "content": json.dumps({"status": "delegated", "message": "Action dispatched to background worker."}),
                             })
 
-                    kwargs["messages"] = list(clean_messages) + [
+                    # Accumulate onto the messages used for THIS round (not the
+                    # original clean_messages) so earlier rounds' tool results
+                    # stay visible to the model on round 2+.
+                    kwargs["messages"] = list(kwargs["messages"]) + [
                         {"role": "assistant", "content": assistant_content},
                         {"role": "user", "content": tool_results_content},
                     ]
@@ -520,7 +540,9 @@ class ApiCallerMixin:
                                 "content": json.dumps({"status": "delegated", "message": "Action dispatched to background worker."}),
                             })
 
-                    continuation_messages = list(clean_messages) + [
+                    # Continue from this round's running message list so tool
+                    # results from earlier inline rounds are preserved.
+                    continuation_messages = list(kwargs["messages"]) + [
                         {"role": "assistant", "content": assistant_content},
                         {"role": "user", "content": _cont_results},
                     ]
@@ -593,7 +615,11 @@ class ApiCallerMixin:
                     "tool_choice": "auto",
                     "stream": True,
                 }
-                stream = client.chat.completions.create(**kwargs)
+                # Sync .create() blocks on connect + TTFB — keep it off the
+                # event loop (a sleeping local endpoint would freeze the backend).
+                stream = await asyncio.to_thread(
+                    lambda kw=kwargs: client.chat.completions.create(**kw)
+                )
 
                 token_queue: queue.Queue[str | None] = queue.Queue()
                 streamed_tool_calls: list[dict] = []
@@ -750,7 +776,10 @@ class ApiCallerMixin:
                         "messages": api_messages,
                         "stream": True,
                     }
-                    final_stream = client.chat.completions.create(**final_kwargs)
+                    # Blocking .create() runs off the event loop (connect + TTFB).
+                    final_stream = await asyncio.to_thread(
+                        lambda kw=final_kwargs: client.chat.completions.create(**kw)
+                    )
                     final_queue: queue.Queue[str | None] = queue.Queue()
                     final_think_feed, final_think_flush = (
                         make_think_stream_filter() if _is_thinking_model(model) else (None, None)
@@ -809,6 +838,9 @@ class ApiCallerMixin:
         buffers them, executes them, then makes a second non-streaming call
         for the final response and yields it as tokens.
         """
+        import queue
+        import threading
+
         clean_messages = [m for m in messages if m.get("role") != "system"]
         if not clean_messages:
             clean_messages = [{"role": "user", "content": "(empty)"}]
@@ -832,26 +864,37 @@ class ApiCallerMixin:
             streamed_text_parts: list[str] = []
             tool_use_blocks: list = []
 
-            def _do_stream():
-                """Run in thread — yields (type, data) tuples via a list."""
-                events = []
-                with client.messages.stream(**kwargs) as stream:
-                    for text in stream.text_stream:
-                        events.append(("text", text))
-                    # After stream, inspect final message for tool_use blocks
-                    final_msg = stream.get_final_message()
-                    for block in final_msg.content:
-                        if block.type == "tool_use":
-                            events.append(("tool_use", block))
-                    events.append(("stop_reason", final_msg.stop_reason))
-                    events.append(("usage", final_msg.usage))
-                return events
+            # Thread + queue bridge so text tokens reach the user as they
+            # arrive instead of buffering the entire response first.
+            event_queue: queue.Queue = queue.Queue()
 
-            events = await asyncio.to_thread(_do_stream)
+            def _do_stream():
+                """Run in thread — pushes (type, data) tuples as they arrive."""
+                try:
+                    with client.messages.stream(**kwargs) as stream:
+                        for text in stream.text_stream:
+                            event_queue.put(("text", text))
+                        # After stream, inspect final message for tool_use blocks
+                        final_msg = stream.get_final_message()
+                        for block in final_msg.content:
+                            if block.type == "tool_use":
+                                event_queue.put(("tool_use", block))
+                        event_queue.put(("stop_reason", final_msg.stop_reason))
+                        event_queue.put(("usage", final_msg.usage))
+                except Exception as e:
+                    event_queue.put(("error", e))
+                finally:
+                    event_queue.put(None)
+
+            threading.Thread(target=_do_stream, daemon=True).start()
 
             stop_reason = "end_turn"
             stream_usage = None
-            for event_type, data in events:
+            while True:
+                item = await asyncio.to_thread(event_queue.get)
+                if item is None:
+                    break
+                event_type, data = item
                 if event_type == "text":
                     streamed_text_parts.append(data)
                     yield data
@@ -861,6 +904,8 @@ class ApiCallerMixin:
                     stop_reason = data
                 elif event_type == "usage":
                     stream_usage = data
+                elif event_type == "error":
+                    raise data
 
             # Log token usage from the stream
             if stream_usage:
@@ -1066,7 +1111,11 @@ class ApiCallerMixin:
             if not use_tools:
                 kwargs["extra_body"] = {"disable_tools": True}
 
-            stream = client.chat.completions.create(**kwargs)
+            # Sync .create() blocks on connect + TTFB — keep it off the
+            # event loop (a sleeping local endpoint would freeze the backend).
+            stream = await asyncio.to_thread(
+                lambda kw=kwargs: client.chat.completions.create(**kw)
+            )
 
             token_queue: queue.Queue[str | None] = queue.Queue()
             streamed_tool_calls: list[dict] = []
@@ -1483,9 +1532,11 @@ class ApiCallerMixin:
             text_content, tool_calls = parser.parse(response_text)
 
             if not tool_calls:
-                # Final text response — yield it
-                if response_text:
-                    yield "\n\n" + response_text
+                # Final text response — yield it (strip <think> reasoning for
+                # thinking models, mirroring the non-streaming sibling)
+                final_text = _strip_think_tags(response_text) if _is_thinking_model(model) else response_text
+                if final_text:
+                    yield "\n\n" + final_text
                 return
 
             results = await executor.execute_batch(tool_calls, timeout=timeout_per_tool)
@@ -1723,10 +1774,14 @@ class ApiCallerMixin:
         if not getattr(self, "_codex_backend", None):
             from app.services.llm.codex_backend import CodexCliBackend
             self._codex_backend = CodexCliBackend()
+        # Per-call usage holder — backend.last_usage is a shared snapshot that
+        # concurrent calls overwrite, misattributing tokens across chat_ids.
+        usage_holder: dict = {}
         async for token in self._codex_backend.stream(
             model=model,
             system=system,
             messages=messages,
+            usage_holder=usage_holder,
             use_tools=use_tools,
             mcp_role=mcp_role,
             session_id=session_id,
@@ -1737,7 +1792,7 @@ class ApiCallerMixin:
             cwd=cwd,
         ):
             yield token
-        usage = self._codex_backend.last_usage
+        usage = usage_holder
         if usage:
             _log_token_usage(
                 layer=layer,

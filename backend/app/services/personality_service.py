@@ -294,7 +294,7 @@ class PersonalityService:
             cards = [c for c in all_cards if c.get("status") != "archived"]
             total = len(cards)
             done = sum(1 for c in cards if c.get("status") == "done")
-            in_progress_cards = [c for c in cards if c.get("status") == "in_progress"]
+            in_progress_cards = [c for c in cards if c.get("status") == "in-progress"]
             todo_cards = [c for c in cards if c.get("status") == "todo"]
             backlog_cards = [c for c in cards if c.get("status") == "backlog"]
 
@@ -334,7 +334,7 @@ class PersonalityService:
                 ts = _parse_ts(c.get("updated_at"))
                 if ts and (now - ts).days > 7:
                     stale_lines.append(
-                        f"  - ⚠️ {c.get('title', 'Untitled')} (in_progress, stale {((now - ts).days)}d)"
+                        f"  - ⚠️ {c.get('title', 'Untitled')} (in-progress, stale {((now - ts).days)}d)"
                     )
                     if len(stale_lines) >= 3:
                         break
@@ -405,7 +405,7 @@ class PersonalityService:
             if workspace:
                 p_cards = [c for c in (workspace.get("cards") or []) if c.get("status") != "archived"]
                 p_done = sum(1 for c in p_cards if c.get("status") == "done")
-                p_ip = sum(1 for c in p_cards if c.get("status") == "in_progress")
+                p_ip = sum(1 for c in p_cards if c.get("status") == "in-progress")
                 parent_line = (
                     f"Parent workspace: {workspace.get('title', 'Untitled')} "
                     f"({len(p_cards)} cards, {p_done} done, {p_ip} in progress)\n"

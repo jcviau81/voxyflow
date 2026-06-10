@@ -165,6 +165,13 @@ class DeepWorkerPool:
         # to the last N for the dispatcher peek; this one reflects true lifetime count.
         self._task_tool_counts: dict[str, int] = {}
         self._task_message_queues: dict[str, asyncio.Queue] = {}  # task_id → steer queue
+        # task_id → the worker's cancel_event. cancel_task()/stop() set it
+        # BEFORE task.cancel() so the CLI backends' _watch_cancel watcher can
+        # terminate the subprocess — a bare asyncio cancel orphans it.
+        self._task_cancel_events: dict[str, asyncio.Event] = {}
+        # Strong refs to fire-and-forget push-notification tasks — the loop
+        # holds only weak refs, so a bare create_task can be GC'd mid-flight.
+        self._bg_push_tasks: set[asyncio.Task] = set()
         # Ambient worker-event buffer keyed by dispatcher_chat_id. Each entry is
         # {task_id, intent, status, finished_at, summary_line}. Drained by the
         # dispatcher on the next user-triggered turn and rendered as a small
@@ -252,9 +259,24 @@ class DeepWorkerPool:
         self._callback_debouncers.clear()
         # Cancel active asyncio tasks and update DB records
         cancelled_ids = list(self._active_tasks.keys())
+        # Signal each worker's cancel_event FIRST — the CLI backends terminate
+        # their subprocess via a _watch_cancel coroutine that polls this event.
+        # A bare task.cancel() aborts only the asyncio task and orphans the
+        # live CLI subprocess (it keeps executing MCP side effects unsupervised).
+        signalled = 0
+        for task_id in cancelled_ids:
+            ev = self._task_cancel_events.get(task_id)
+            if ev is not None and not ev.is_set():
+                ev.set()
+                signalled += 1
+        if signalled:
+            # Give the _watch_cancel watchers (0.5s poll) a beat to issue
+            # proc.terminate() before the hard cancel tears the watchers down.
+            await asyncio.sleep(1.0)
         for task_id, task in list(self._active_tasks.items()):
             task.cancel()
         self._active_tasks.clear()
+        self._task_cancel_events.clear()
         # Mark cancelled tasks in BOTH the file-store session and the DB
         # ledger. The worker's own ``except asyncio.CancelledError`` branch
         # (run_task) normally takes care of this, but ``stop()`` does not
@@ -346,6 +368,24 @@ class DeepWorkerPool:
         logger.info(f"[DeepWorkerPool] Cancelling task {task_id}")
 
         self._active_tasks.pop(task_id, None)
+
+        # Signal the worker's cancel_event BEFORE the asyncio cancel — the CLI
+        # backends terminate their subprocess via a _watch_cancel coroutine
+        # that polls this event; a bare task.cancel() aborts only the asyncio
+        # task and orphans the live CLI subprocess (it keeps executing MCP
+        # side effects with no supervision).
+        cancel_event = self._task_cancel_events.get(task_id)
+        if cancel_event is not None and not cancel_event.is_set():
+            cancel_event.set()
+            # Give _watch_cancel a beat to terminate the subprocess so the
+            # stream loop ends naturally and the worker runs its own cleanup
+            # (registry deregister, rate-gate release). shield() keeps the
+            # timeout from cancelling the task itself — we do that below.
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                pass
+
         task.cancel()
 
         try:
@@ -430,7 +470,10 @@ class DeepWorkerPool:
                 elapsed = int(now - meta["started_at"])
                 tool_events = self._task_tool_events.get(task_id)
                 active.append({
-                    "task_id": task_id[:8],
+                    # Full id, verbatim — task.peek / cancel / read_artifact
+                    # lookups are exact-match, so a truncated id sent to the
+                    # dispatcher would make every follow-up call 404.
+                    "task_id": task_id,
                     "action": meta["action"],
                     "model": meta["model"],
                     "description": meta["description"],
@@ -444,7 +487,7 @@ class DeepWorkerPool:
         for t in self._completed_tasks:
             ago = int(now - t["completed_at"])
             completed.append({
-                "task_id": t["task_id"][:8],
+                "task_id": t["task_id"],
                 "action": t["action"],
                 "model": t["model"],
                 "description": t.get("description", ""),
@@ -734,9 +777,16 @@ class DeepWorkerPool:
             )
             return
 
-        existing = self._callback_debouncers.pop(dispatcher_chat_id, None)
+        existing = self._callback_debouncers.get(dispatcher_chat_id)
         if existing and not existing.done():
-            existing.cancel()
+            if not getattr(existing, "_fired", False):
+                # Still in the debounce sleep — reset the timer.
+                existing.cancel()
+            # else: the debouncer already fired and is mid-callback turn.
+            # Cancelling now would truncate a live dispatcher stream. Leave
+            # it running — the replacement scheduled below serializes behind
+            # the per-chat lock in handle_message, and this completion's
+            # ambient event is only acked once a turn actually renders it.
 
         self._callback_debouncers[dispatcher_chat_id] = asyncio.create_task(
             self._run_debounced_callback(dispatcher_chat_id, event)
@@ -749,6 +799,12 @@ class DeepWorkerPool:
             await asyncio.sleep(self._CALLBACK_DEBOUNCE_SECONDS)
         except asyncio.CancelledError:
             return
+
+        # Mark this debouncer as fired — from here on the scheduler must NOT
+        # cancel it (a callback turn streaming to the user is about to run).
+        _me = asyncio.current_task()
+        if _me is not None:
+            _me._fired = True  # type: ignore[attr-defined]
 
         if self._stopped or not self._orchestrator:
             return
@@ -765,7 +821,8 @@ class DeepWorkerPool:
             logger.info(
                 f"[DeepWorkerPool] Skipping callback for {dispatcher_chat_id} — WS not alive"
             )
-            self._callback_debouncers.pop(dispatcher_chat_id, None)
+            if self._callback_debouncers.get(dispatcher_chat_id) is _me:
+                self._callback_debouncers.pop(dispatcher_chat_id, None)
             return
 
         try:
@@ -787,7 +844,11 @@ class DeepWorkerPool:
                 f"[DeepWorkerPool] Dispatcher callback failed for {dispatcher_chat_id}: {e}"
             )
         finally:
-            self._callback_debouncers.pop(dispatcher_chat_id, None)
+            # Pop ONLY our own registry entry — a replacement debouncer may
+            # already occupy this slot (scheduled while we were mid-turn);
+            # popping it would leave that debouncer running untracked.
+            if self._callback_debouncers.get(dispatcher_chat_id) is _me:
+                self._callback_debouncers.pop(dispatcher_chat_id, None)
 
     def count_active_for_chat(self, dispatcher_chat_id: str) -> int:
         """How many active worker tasks are currently tied to this dispatcher chat?
@@ -1295,6 +1356,10 @@ class DeepWorkerPool:
             supervisor = get_worker_supervisor()
             supervisor.register_task(event.task_id)
             cancel_event = asyncio.Event()
+            # Expose the cancel_event so cancel_task()/stop() can signal the
+            # CLI backends' _watch_cancel watcher (which terminates the
+            # subprocess) — a bare task.cancel() would orphan it.
+            self._task_cancel_events[event.task_id] = cancel_event
             message_queue: asyncio.Queue[str] = asyncio.Queue()
             self._task_message_queues[event.task_id] = message_queue
 
@@ -1744,13 +1809,15 @@ class DeepWorkerPool:
                 _pid = event.data.get("workspace_id")
                 _cid = event.data.get("card_id")
                 _body = (result_content or result_preview or "").strip()[:140] or "Task finished."
-                asyncio.create_task(notify_user(
+                _push_task = asyncio.create_task(notify_user(
                     event="worker_done",
                     title=f"Worker finished: {event.intent or 'task'}",
                     body=_body,
                     url=build_deep_link(_pid, _cid),
                     tag=f"worker-{event.task_id}",
                 ))
+                self._bg_push_tasks.add(_push_task)
+                _push_task.add_done_callback(self._bg_push_tasks.discard)
             except Exception as _push_err:
                 logger.warning(f"[DeepWorker] Web push (success) dispatch failed: {_push_err}")
 
@@ -1851,13 +1918,15 @@ class DeepWorkerPool:
                 _pid = event.data.get("workspace_id")
                 _cid = event.data.get("card_id")
                 _body = str(e)[:140] or "Task failed."
-                asyncio.create_task(notify_user(
+                _push_task = asyncio.create_task(notify_user(
                     event="worker_done",
                     title=f"Worker failed: {event.intent or 'task'}",
                     body=_body,
                     url=build_deep_link(_pid, _cid),
                     tag=f"worker-{event.task_id}",
                 ))
+                self._bg_push_tasks.add(_push_task)
+                _push_task.add_done_callback(self._bg_push_tasks.discard)
             except Exception as _push_err:
                 logger.warning(f"[DeepWorker] Web push (failure) dispatch failed: {_push_err}")
 
@@ -1882,6 +1951,7 @@ class DeepWorkerPool:
                 )
                 self._schedule_dispatcher_callback(dispatcher_chat_id, event)
         finally:
+            self._task_cancel_events.pop(event.task_id, None)
             try:
                 supervisor = get_worker_supervisor()
                 supervisor.cleanup_task(event.task_id)

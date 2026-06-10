@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from uuid import uuid4
 
@@ -35,6 +36,13 @@ logger = logging.getLogger("voxyflow.jobs")
 
 VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow")))
 JOBS_FILE = VOXYFLOW_DIR / "jobs.json"
+
+# Serializes all jobs.json read-modify-write cycles. Three writers touch the
+# file (scheduler last_run updates, routes/jobs.py CRUD, standup scheduling) —
+# without a shared lock a stale snapshot from one writer silently drops
+# another's freshly saved job. Reentrant so a caller can hold the lock across
+# a full load→mutate→save cycle while _load_jobs/_save_jobs take it too.
+JOBS_LOCK = threading.RLock()
 
 
 # ---------------------------------------------------------------------------
@@ -75,28 +83,48 @@ def _check_payload_gate(job: dict, payload: dict) -> dict | None:
 
 def _load_jobs() -> list[dict]:
     """Load jobs from ~/.voxyflow/jobs.json. Returns [] on any error."""
-    if not JOBS_FILE.exists():
-        return []
-    try:
-        with open(JOBS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, list) else []
-    except Exception as e:
-        logger.error(f"Failed to load jobs: {e}")
-        return []
+    with JOBS_LOCK:
+        if not JOBS_FILE.exists():
+            return []
+        try:
+            with open(JOBS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.error(f"Failed to load jobs: {e}")
+            return []
 
 
 def _save_jobs(jobs: list[dict]) -> None:
     """Persist jobs to ~/.voxyflow/jobs.json. Creates dir if needed."""
-    try:
-        VOXYFLOW_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_path = str(JOBS_FILE) + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(jobs, f, indent=2)
-        os.replace(tmp_path, JOBS_FILE)
-    except Exception as e:
-        logger.error(f"Failed to save jobs: {e}")
-        raise HTTPException(500, f"Failed to persist jobs: {e}")
+    with JOBS_LOCK:
+        try:
+            VOXYFLOW_DIR.mkdir(parents=True, exist_ok=True)
+            tmp_path = str(JOBS_FILE) + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(jobs, f, indent=2)
+            os.replace(tmp_path, JOBS_FILE)
+        except Exception as e:
+            logger.error(f"Failed to save jobs: {e}")
+            raise HTTPException(500, f"Failed to persist jobs: {e}")
+
+
+def update_job_fields(job_id: str, **fields) -> bool:
+    """Atomically load jobs.json, patch one job's fields, and save.
+
+    Holds JOBS_LOCK across the whole read-modify-write so a concurrent CRUD
+    save can't be clobbered by a stale snapshot (and vice-versa). Returns
+    False if the job no longer exists.
+    """
+    with JOBS_LOCK:
+        jobs = _load_jobs()
+        idx, existing = _find_job(jobs, job_id)
+        if existing is None:
+            return False
+        existing.update(fields)
+        jobs[idx] = existing
+        _save_jobs(jobs)
+        return True
 
 
 def _find_job(jobs: list[dict], job_id: str) -> tuple[int, dict] | tuple[None, None]:
@@ -146,7 +174,9 @@ async def _execute_job(job: dict) -> dict:
             return await _run_execute_card(job, payload)
         elif job_type == "agent_task":
             return await _run_agent_task(job, payload)
-        elif job_type in ("recurrence", "session_cleanup", "chromadb_backup"):
+        elif job_type == "standup":
+            return await _run_standup(job, payload)
+        elif job_type in ("heartbeat", "recurrence", "session_cleanup", "chromadb_backup"):
             return await _run_builtin(job, job_type)
         else:
             return {"status": "error", "message": f"Unknown job type: {job_type}"}
@@ -261,6 +291,7 @@ async def _run_builtin(job: dict, job_type: str) -> dict:
 
     svc = get_scheduler_service()
     handler_map = {
+        "heartbeat": svc._heartbeat_job,
         "recurrence": svc._recurrence_job,
         "session_cleanup": svc._session_cleanup_job,
         "chromadb_backup": svc._chromadb_backup_job,
@@ -285,6 +316,78 @@ async def _run_reminder(job: dict, payload: dict) -> dict:
     })
 
     return {"status": "ok", "message": f"Reminder delivered: {message}"}
+
+
+async def _run_standup(job: dict, payload: dict) -> dict:
+    """Generate the scheduled daily standup for a workspace and broadcast it.
+
+    Mirrors the prompt built by ``POST /api/workspaces/{id}/standup`` (we can't
+    import the route handler here — services must not depend on routes).
+    """
+    workspace_id = payload.get("workspace_id")
+    if not workspace_id:
+        return {"status": "error", "message": "Missing workspace_id in payload"}
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.database import Workspace, async_session
+
+    async with async_session() as db:
+        stmt = (
+            select(Workspace)
+            .options(selectinload(Workspace.cards))
+            .where(Workspace.id == workspace_id)
+        )
+        result = await db.execute(stmt)
+        workspace = result.scalar_one_or_none()
+        if not workspace:
+            return {"status": "error", "message": f"Workspace not found: {workspace_id}"}
+
+        cards = workspace.cards
+        workspace_title = workspace.title
+        in_progress = [c for c in cards if c.status == "in-progress"]
+        done_cards = [c for c in cards if c.status == "done"]
+        blocked = [c for c in cards if c.priority == 3]  # critical priority = potential blocker
+        todo = [c for c in cards if c.status == "todo"]
+
+        def card_line(c) -> str:
+            agent = f" [{c.agent_type}]" if c.agent_type else ""
+            return f"- {c.title}{agent}"
+
+        in_progress_text = "\n".join(card_line(c) for c in in_progress) or "None"
+        done_text = "\n".join(card_line(c) for c in done_cards) or "None"
+        blocked_text = "\n".join(card_line(c) for c in blocked) or "None"
+        todo_text = "\n".join(card_line(c) for c in todo[:5]) or "None"  # top 5 upcoming
+
+        prompt = (
+            f"Generate a concise daily standup for workspace: **{workspace.title}**\n\n"
+            f"Workspace description: {workspace.description or 'N/A'}\n\n"
+            f"Cards IN PROGRESS:\n{in_progress_text}\n\n"
+            f"Cards DONE:\n{done_text}\n\n"
+            f"BLOCKED / Critical priority:\n{blocked_text}\n\n"
+            f"Next TODO (upcoming):\n{todo_text}\n\n"
+            f"Total cards: {len(cards)} | Done: {len(done_cards)} | In Progress: {len(in_progress)} | Todo: {len(todo)}"
+        )
+
+    from app.services.claude_service import ClaudeService
+
+    summary = await ClaudeService().generate_standup(prompt)
+    logger.info(f"[Jobs][Standup] Generated standup for workspace '{workspace_title}' ({workspace_id})")
+
+    from app.services.ws_broadcast import ws_broadcast
+    ws_broadcast.emit_sync("standup:generated", {
+        "jobId": job.get("id"),
+        "workspaceId": workspace_id,
+        "workspaceName": workspace_title,
+        "summary": summary,
+    })
+
+    return {
+        "status": "ok",
+        "message": f"Standup generated for {workspace_title}",
+        "summary": summary,
+    }
 
 
 async def _run_execute_board(job: dict, payload: dict) -> dict:

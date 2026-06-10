@@ -480,7 +480,12 @@ class CodexCliBackend:
             last_result = result
 
             # ── Steer cancel+resume path ──────────────────────────────────────
-            if result.steered:
+            # Loop: a second directive can arrive while a resume is executing,
+            # in which case the resume itself returns steered — resume again
+            # instead of returning the empty steer result (dropped directive).
+            was_steered = result.steered
+            last_thread_id = ""
+            while result.steered:
                 # Per-call directives collected by _call_once before it returned.
                 directives = list(result.steer_directives)
                 # Debounce: let rapid second directives land in the queue.
@@ -492,19 +497,20 @@ class CodexCliBackend:
                         directives.append(extra)
                     except asyncio.QueueEmpty:
                         break
-                thread_id = result.thread_id
+                thread_id = result.thread_id or last_thread_id
                 if not thread_id:
                     logger.warning(
                         "[CodexCLI] Steer received but no thread_id available; cannot resume"
                     )
                     return "[Steer failed: no active thread_id to resume]", {}
+                last_thread_id = thread_id
                 steer_prompt = self._build_steer_prompt(directives)
                 steer_start = time.monotonic()
                 logger.info(
                     "[CodexCLI] Steer cancel+resume: thread_id=%r directives=%d prompt_len=%d",
                     thread_id, len(directives), len(steer_prompt),
                 )
-                steer_result = await self._call_once(
+                result = await self._call_once(
                     model=candidate_model,
                     prompt=steer_prompt,
                     cancel_event=cancel_event,
@@ -525,10 +531,11 @@ class CodexCliBackend:
                 )
                 elapsed_ms = (time.monotonic() - steer_start) * 1000
                 logger.info(
-                    "[CodexCLI] Steer resume complete: thread_id=%r elapsed=%.0fms ok=%s",
-                    thread_id, elapsed_ms, steer_result.ok,
+                    "[CodexCLI] Steer resume complete: thread_id=%r elapsed=%.0fms ok=%s steered=%s",
+                    thread_id, elapsed_ms, result.ok, result.steered,
                 )
-                return steer_result.response, steer_result.usage
+            if was_steered:
+                return result.response, result.usage
             # ─────────────────────────────────────────────────────────────────
 
             if result.ok or not _is_capacity_error(result.response):
@@ -674,14 +681,18 @@ class CodexCliBackend:
 
         response_parts: list[str] = []
         stderr_task = asyncio.create_task(proc.stderr.read())
-        assert proc.stdin is not None
-        proc.stdin.write(prompt.encode("utf-8"))
-        await proc.stdin.drain()
-        proc.stdin.close()
-        await proc.stdin.wait_closed()
 
         stdout_failed = False
         try:
+            # Inside the try: if `codex exec` dies immediately (bad flag/model
+            # after a CLI update), drain() raises — the finally below must still
+            # deregister the session and cancel the watcher tasks.
+            assert proc.stdin is not None
+            proc.stdin.write(prompt.encode("utf-8"))
+            await proc.stdin.drain()
+            proc.stdin.close()
+            await proc.stdin.wait_closed()
+
             assert proc.stdout is not None
             async for raw_line in proc.stdout:
                 line = raw_line.decode("utf-8", errors="replace").strip()
@@ -890,13 +901,20 @@ class CodexCliBackend:
         model: str,
         system: str | list[dict],
         messages: list[dict],
+        usage_holder: Optional[dict] = None,
         **kwargs,
     ) -> AsyncIterator[str]:
         """Stream-compatible wrapper.
 
         Codex exec JSONL currently provides structured item events rather than
         stable token deltas. We yield the final text once the turn completes.
+
+        ``usage_holder``: optional dict updated in-place with this call's usage
+        — avoids reading the racy shared ``last_usage`` snapshot afterwards
+        (another concurrent call may overwrite it before the caller reads it).
         """
-        text, _usage = await self.call(model, system, messages, **kwargs)
+        text, usage = await self.call(model, system, messages, **kwargs)
+        if usage_holder is not None and usage:
+            usage_holder.update(usage)
         if text:
             yield text

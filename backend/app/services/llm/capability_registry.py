@@ -135,6 +135,14 @@ def lookup(model: str) -> _ModelEntry:
     for key in _SORTED_KEYS:
         if lower.startswith(key):
             return _REGISTRY[key]
+    # Vendor-namespaced ids (OpenRouter/Groq: "anthropic/claude-sonnet-4.6",
+    # "meta-llama/llama-3.3-70b-instruct") and Ollama ":tag" suffixes never
+    # match a bare prefix — retry with the namespace/tag stripped.
+    stripped = lower.rsplit("/", 1)[-1].split(":", 1)[0]
+    if stripped and stripped != lower:
+        for key in _SORTED_KEYS:
+            if stripped.startswith(key):
+                return _REGISTRY[key]
     return _DEFAULT
 
 

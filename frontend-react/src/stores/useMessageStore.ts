@@ -113,9 +113,15 @@ export const useMessageStore = create<MessageState>()((set, get) => ({
         return false;
       };
       const incomingIds = new Set(newMessages.map((m) => m.id));
+      // Empty incoming = explicit clear (Clear Chat / New Session): wipe the
+      // whole scope, streaming bubbles included. Without this, the
+      // newer-than-incoming preservation below would keep everything
+      // (newestIncoming would be 0).
+      const explicitClear = newMessages.length === 0;
       const newestIncoming = newMessages.reduce((mx, m) => Math.max(mx, m.timestamp || 0), 0);
       const kept = s.messages.filter((m) => {
         if (!inScope(m)) return true; // other contexts untouched
+        if (explicitClear) return false;
         if (incomingIds.has(m.id)) return false; // server history supersedes it
         // Preserve local messages the server history doesn't cover YET: a
         // message still streaming, or one newer than anything the backend

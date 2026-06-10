@@ -38,6 +38,18 @@ from app.tools.registry import (
 
 logger = logging.getLogger(__name__)
 
+# Machine-generated dispatcher prompts injected by the orchestrator: worker
+# auto-callbacks (worker_pool._run_debounced_callback) and direct-action
+# re-triggers (delegate_dispatch). They must reach the model as input for the
+# in-flight turn, but they are not real user turns — persisted history tags
+# them type="system" and the reload path drops them from future model context.
+_SYNTHETIC_PROMPT_PREFIXES = ("[worker-callback]", "[SYSTEM: Direct action")
+
+
+def _is_synthetic_prompt(content: str) -> bool:
+    """True if *content* is an orchestrator-injected pseudo-user prompt."""
+    return str(content or "").startswith(_SYNTHETIC_PROMPT_PREFIXES)
+
 
 def _make_cached_system(
     base_prompt: str,
@@ -267,7 +279,14 @@ class ClaudeService(ApiCallerMixin):
         manipulating the list directly.
         """
         if chat_id not in self._histories:
-            self._histories[chat_id] = session_store.get_history_for_claude(chat_id, limit=40)
+            # Drop orchestrator-injected pseudo-user prompts on reload — they
+            # were one-shot inputs (the type tag is stripped by the store, so
+            # match on the known prefixes). The API merges any resulting
+            # consecutive same-role turns.
+            self._histories[chat_id] = [
+                m for m in session_store.get_history_for_claude(chat_id, limit=40)
+                if not (m.get("role") == "user" and _is_synthetic_prompt(m.get("content", "")))
+            ]
         return self._histories[chat_id]
 
     # Keep the underscore alias so existing internal callers don't break.
@@ -576,7 +595,10 @@ class ClaudeService(ApiCallerMixin):
         use_cli_mcp = self.fast_client_type in ("cli", "codex")
         card_id = card_context.get("id", "") if card_context else ""
 
-        await self._append_and_persist_async(chat_id, "user", user_message, model=self.fast_model)
+        await self._append_and_persist_async(
+            chat_id, "user", user_message, model=self.fast_model,
+            msg_type="system" if _is_synthetic_prompt(user_message) else None,
+        )
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
         recent = await self._get_windowed_history(chat_id)  # windowed messages for the API
 
@@ -866,7 +888,10 @@ class ClaudeService(ApiCallerMixin):
         use_cli_mcp = self.deep_client_type in ("cli", "codex")
         card_id = card_context.get("id", "") if card_context else ""
 
-        await self._append_and_persist_async(chat_id, "user", user_message, model=self.deep_model)
+        await self._append_and_persist_async(
+            chat_id, "user", user_message, model=self.deep_model,
+            msg_type="system" if _is_synthetic_prompt(user_message) else None,
+        )
         full_history = self._get_history(chat_id)  # full history for conversation-age checks
         recent = await self._get_windowed_history(chat_id)  # windowed messages for the API
 

@@ -121,6 +121,11 @@ interface StreamState {
   messageId: string;
 }
 
+// Banner appended to a bubble when its stream is force-ended on disconnect.
+// Shared so late chunks resuming into the same bubble can strip it again.
+const TRUNCATION_NOTICE =
+  '\n\n---\n*Connection lost — response may be incomplete. Reconnecting…*';
+
 // ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
@@ -332,7 +337,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     for (const [streamId, stream] of streamingMessagesRef.current) {
       const truncatedContent = stream.content
-        ? stream.content + '\n\n---\n*Connection lost — response may be incomplete. Reconnecting…*'
+        ? stream.content + TRUNCATION_NOTICE
         : '';
       messageStoreRef.current.updateMessage(stream.messageId, {
         streaming: false,
@@ -357,6 +362,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const handleStreamingChunk = useCallback(
     (streamId: string, chunk: string, sessionId?: string, model?: string) => {
       let stream = streamingMessagesRef.current.get(streamId);
+
+      if (!stream) {
+        // Late chunks for a stream we already force-ended (WS blip → truncated
+        // bubble → reconnect re-delivers the tail via fan-out, or the safety
+        // timeout fired on a slow stream): resume into the original bubble
+        // instead of spawning a second one.
+        const finishedMessageId = recentlyFinishedRef.current.get(streamId);
+        if (finishedMessageId) {
+          const existing = useMessageStore
+            .getState()
+            .messages.find((m) => m.id === finishedMessageId);
+          const baseContent = (existing?.content || '').replace(TRUNCATION_NOTICE, '');
+          stream = { content: baseContent, messageId: finishedMessageId };
+          streamingMessagesRef.current.set(streamId, stream);
+          messageStoreRef.current.updateMessage(finishedMessageId, { truncated: false });
+        }
+      }
 
       if (!stream) {
         const message = messageStoreRef.current.addMessage({
@@ -514,16 +536,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         } else if (done && recentlyFinishedRef.current.has(messageId)) {
           // Late 'done' for a stream we already finished (e.g. multi-device
           // fan-out arriving after forceEndAllStreaming cleared the stream).
-          // Update the existing bubble instead of spawning a duplicate.
+          // Update the existing bubble instead of spawning a duplicate. The
+          // backend's done payload usually carries content: "" — never let it
+          // wipe the partial text the user already has (mirrors the
+          // `finalContent || stream.content` fallback in handleStreamComplete).
           const finishedMessageId = recentlyFinishedRef.current.get(messageId)!;
-          messageStoreRef.current.updateMessage(finishedMessageId, {
-            content,
-            streaming: false,
-            truncated: false,
-          });
+          if (content) {
+            messageStoreRef.current.updateMessage(finishedMessageId, {
+              content,
+              streaming: false,
+              truncated: false,
+            });
+          } else {
+            messageStoreRef.current.updateMessage(finishedMessageId, { streaming: false });
+          }
           emitCallbacks('onMessageStreamEnd', { messageId: finishedMessageId, content });
+          flushNextQueuedRef.current();
         } else {
           handleFullResponse(content, effectiveSessionId);
+          // Single-shot non-streamed responses (streaming:false, done:true)
+          // also end the turn — drain any messages queued behind it.
+          if (done) flushNextQueuedRef.current();
         }
 
         if (done && sessionId && usage && typeof usage.contextWindow === 'number') {
@@ -537,6 +570,39 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             contextBreakdown: usage.contextBreakdown,
           });
         }
+      }),
+    );
+
+    // --- chat:error — dispatcher / tool-followup failure for a turn ---
+    // The backend reports failures with chat:error instead of a done=true
+    // chat:response. Surface the error in the chat and release the busy state
+    // (streaming bubble + pending queue) so input doesn't stay wedged.
+    unsubs.push(
+      subscribe('chat:error', (payload) => {
+        const { messageId, error, sessionId } = payload as {
+          messageId?: string;
+          error?: string;
+          sessionId?: string;
+        };
+        const errorNote = `⚠️ **Error:** ${error || 'The model failed to respond.'}`;
+        const stream = messageId ? streamingMessagesRef.current.get(messageId) : undefined;
+        if (stream && messageId) {
+          // Errored mid-stream — finalize the partial bubble with the error.
+          const content = stream.content ? `${stream.content}\n\n---\n${errorNote}` : errorNote;
+          messageStoreRef.current.updateMessage(stream.messageId, {
+            content,
+            streaming: false,
+          });
+          streamingMessagesRef.current.delete(messageId);
+          markRecentlyFinished(messageId, stream.messageId);
+          clearStreamingTimer(messageId);
+          emitCallbacks('onMessageStreamEnd', { messageId: stream.messageId, content });
+        } else {
+          // Errored before any token streamed — add an error bubble.
+          handleFullResponse(errorNote, sessionId);
+        }
+        clearPendingAssistant(sessionId);
+        flushNextQueuedRef.current();
       }),
     );
 
@@ -988,6 +1054,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     queryClient,
     markPendingAssistant,
     clearPendingAssistant,
+    markRecentlyFinished,
+    clearStreamingTimer,
   ]);
 
   // --- Force-end streaming on WS disconnect ---

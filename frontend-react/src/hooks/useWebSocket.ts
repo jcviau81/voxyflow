@@ -308,6 +308,33 @@ export function useWebSocket(): UseWebSocketReturn {
     connectRef.current = connect;
   }, [connect]);
 
+  // --- Recovery after the reconnect budget is exhausted ---
+  // handleDisconnect stops scheduling retries after RECONNECT_MAX_ATTEMPTS
+  // (~3 minutes of backoff). Without this, a longer backend outage leaves
+  // every open tab permanently dead until a full page reload. Network return
+  // ('online') or the tab becoming visible again resets the backoff and
+  // retries once — event-driven, so no hot-looping against a dead backend.
+  useEffect(() => {
+    const tryRecover = () => {
+      if (isClosingRef.current) return;
+      const state = wsRef.current?.readyState;
+      if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) return;
+      if (reconnectTimerRef.current) return; // a retry is already scheduled
+      console.log('[useWebSocket] Network/visibility recovery — retrying connection');
+      reconnectAttemptsRef.current = 0;
+      connectRef.current();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') tryRecover();
+    };
+    window.addEventListener('online', tryRecover);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('online', tryRecover);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
   // --- Lifecycle: connect on mount, cleanup on unmount ---
 
   useEffect(() => {
@@ -357,15 +384,22 @@ export function useWebSocket(): UseWebSocketReturn {
         const queued: QueuedMessage = { type, payload, id, timestamp };
         pendingAcksRef.current.set(messageId, queued);
 
-        // Timeout: if no ACK within 15s, move to offline queue for retry.
+        // Timeout: if no ACK within 15s, retry. While the socket is OPEN the
+        // offline queue would never flush (it only drains after a reconnect,
+        // by which point _dropStale discards the message), so resend directly.
         // Backend idempotency protects against the resend being double-processed.
         const timer = setTimeout(() => {
           pendingAckTimersRef.current.delete(messageId);
           if (pendingAcksRef.current.has(messageId)) {
             const msg = pendingAcksRef.current.get(messageId)!;
             pendingAcksRef.current.delete(messageId);
-            console.warn(`[useWebSocket] No ACK for message ${messageId} after ${ACK_TIMEOUT_MS}ms, re-queuing`);
-            enqueue(msg);
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              console.warn(`[useWebSocket] No ACK for message ${messageId} after ${ACK_TIMEOUT_MS}ms, resending`);
+              wsRef.current.send(JSON.stringify({ type: msg.type, payload: msg.payload, id: msg.id, timestamp: msg.timestamp }));
+            } else {
+              console.warn(`[useWebSocket] No ACK for message ${messageId} after ${ACK_TIMEOUT_MS}ms, re-queuing`);
+              enqueue(msg);
+            }
           }
         }, ACK_TIMEOUT_MS);
         pendingAckTimersRef.current.set(messageId, timer);

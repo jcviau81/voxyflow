@@ -856,12 +856,18 @@ _TOOL_DEFINITIONS: list[dict] = [
             "List worker artifacts that have not yet been acked (acked_at is null), "
             "sorted by created_at desc. Each entry: {task_id, created_at, read_at, "
             "size_bytes, summary_preview (first 200 chars)}. "
-            "Use at session start to find pending deliverables from previous workers."
+            "Use at session start to find pending deliverables from previous workers. "
+            "Auto-scoped to the current workspace; pass scope='all' for system-wide."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "limit": {"type": "integer", "description": "Default 50"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                    "description": "Artifact visibility scope. 'current' (default) shows only this workspace's artifacts; 'all' shows every unread artifact. Ignored in general chat, which always sees all.",
+                },
             },
         },
         "_handler": "workers_list_unread",
@@ -874,7 +880,7 @@ _TOOL_DEFINITIONS: list[dict] = [
             "type": "object",
             "required": ["task_id"],
             "properties": {
-                "task_id": {"type": "string", "description": "Worker task ID (full or partial)"},
+                "task_id": {"type": "string", "description": "Worker task ID (full ID, exact match)"},
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],

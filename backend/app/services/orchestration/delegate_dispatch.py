@@ -10,7 +10,7 @@ Split from ChatOrchestrator (April 2026 code-review pass) to keep the
 top-level orchestrator file navigable. The mixin depends on instance
 state set up by ChatOrchestrator.__init__ (``self._claude``,
 ``self._worker_pools``, ``self._pending_confirms*``, ``self.start_worker_pool``,
-``self._handle_message_inner``) — it is not usable standalone.
+``self.handle_message``) — it is not usable standalone.
 
 NOTE (2026-05-27): The legacy ``<delegate>`` XML markup parser has been removed.
 All dispatchers must use the native ``voxyflow.delegate`` MCP tool_use path.
@@ -39,8 +39,13 @@ class DelegateDispatchMixin:
 
     All methods assume ``self`` is a ``ChatOrchestrator`` instance with the
     usual attributes (self._claude, self._worker_pools, self._pending_confirms,
-    self._pending_confirms_lock, and self._handle_message_inner).
+    self._pending_confirms_lock, and self.handle_message).
     """
+
+    # Pending destructive-action confirmations expire after this many seconds.
+    # An abandoned confirm prompt (closed tab, lost WS message) must not stay
+    # executable indefinitely, nor accumulate without bound.
+    _CONFIRM_TTL_SECONDS = 600
 
     async def _emit_native_delegates_safe(self, **kwargs) -> None:
         """Wrapper for native delegate emission."""
@@ -409,6 +414,7 @@ class DelegateDispatchMixin:
                     "workspace_id": workspace_id,
                     "session_id": session_id,
                     "chat_id": chat_id,
+                    "created_at": time.time(),
                 }
             try:
                 await websocket.send_json({
@@ -514,8 +520,12 @@ class DelegateDispatchMixin:
                 callback_message_id = f"direct-cb-{uuid4().hex[:8]}"
                 logger.info(f"[DirectExecutor] Re-triggering dispatcher after {action}")
 
-                # Call inner directly — we're already under the chat lock
-                await self._handle_message_inner(
+                # Go through the locked entry point: this runs in a detached
+                # background task (the per-chat lock from the originating turn
+                # was already released), so calling _handle_message_inner
+                # directly would let a concurrent user message interleave with
+                # this re-triggered turn on the same chat_id.
+                await self.handle_message(
                     websocket=websocket,
                     content=callback_msg,
                     message_id=callback_message_id,
@@ -645,9 +655,38 @@ class DelegateDispatchMixin:
         websocket: "WebSocket",
     ) -> None:
         """Handle a user's confirmation response for a destructive direct action."""
+        expired_own: dict | None = None
         with self._pending_confirms_lock:
+            # Sweep expired entries — a stale action:confirm must not execute
+            # a destructive action long after the user forgot the context.
+            now = time.time()
+            for tid in [
+                t for t, p in self._pending_confirms.items()
+                if now - p.get("created_at", now) > self._CONFIRM_TTL_SECONDS
+            ]:
+                dropped = self._pending_confirms.pop(tid, None)
+                if tid == task_id:
+                    expired_own = dropped
             pending = self._pending_confirms.pop(task_id, None)
         if not pending:
+            if expired_own:
+                logger.warning(f"[DirectExecutor] Confirmation expired for taskId={task_id} — not executing")
+                try:
+                    await websocket.send_json({
+                        "type": "action:completed",
+                        "payload": {
+                            "taskId": task_id,
+                            "action": expired_own["data"].get("action", "unknown"),
+                            "success": False,
+                            "result": {"error": "Confirmation expired — please ask again."},
+                            "duration_ms": 0,
+                            "sessionId": expired_own.get("session_id"),
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    })
+                except Exception as e:
+                    logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
+                return
             logger.warning(f"[DirectExecutor] No pending confirmation for taskId={task_id}")
             return
 

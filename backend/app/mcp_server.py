@@ -120,6 +120,20 @@ def _auto_injectable_params() -> set[str]:
     return injectable
 
 
+def _injectable_for_tool(tool_name: str, injectable: set[str]) -> set[str]:
+    """Params actually auto-injected for *tool_name*.
+
+    Workspace-ENTITY tools (voxyflow.workspace.*) keep workspace_id visible in
+    their schema: there workspace_id identifies the TARGET workspace
+    (get/update/delete/archive another workspace), not the scope of a child
+    resource — stripping it would make other workspaces unreachable and let
+    the env override silently redirect deletes onto the current workspace.
+    """
+    if tool_name.startswith("voxyflow.workspace."):
+        return injectable - {"workspace_id"}
+    return injectable
+
+
 # ---------------------------------------------------------------------------
 # Workspace scoping for ledger / session tools
 # ---------------------------------------------------------------------------
@@ -164,8 +178,10 @@ async def _lookup_task_workspace(task_id: str) -> str | None:
             if row is not None:
                 return (row.workspace_id or "").strip()
     except Exception as db_err:
+        # Don't return early — fall through to the artifact-frontmatter lookup
+        # below so a transient DB failure doesn't make finished tasks (whose
+        # metadata is readable on disk) report as "not found".
         logger.warning(f"[mcp._lookup_task_workspace] DB lookup failed for {task_id}: {db_err}")
-        return None
 
     # Last resort: artifact frontmatter on disk (no TTL). Lets the dispatcher
     # still scope-check + read tasks whose live/DB rows have been GC'd.
@@ -371,6 +387,20 @@ def _bulk_plural(param: str) -> str:
     return param + "s"
 
 
+def _bulk_array_prop(bulk_param: str) -> dict:
+    """Schema for the plural ids array (shared by consolidated + flat paths)."""
+    plural = _bulk_plural(bulk_param)
+    return {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": (
+            f"PREFERRED for acting on multiple items: pass ALL {bulk_param}s here "
+            f"in ONE call. Never call this action in a loop / repeatedly with a "
+            f"single {bulk_param} — collect the ids and pass {plural} once."
+        ),
+    }
+
+
 def _build_consolidated_tools() -> list[dict]:
     """Build consolidated MCP tool list from _TOOL_GROUPS + ungrouped tools.
 
@@ -399,19 +429,11 @@ def _build_consolidated_tools() -> list[dict]:
             if bulk_param:
                 plural = _bulk_plural(bulk_param)
                 if plural not in all_props:
-                    all_props[plural] = {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": (
-                            f"PREFERRED for acting on multiple items: pass ALL {bulk_param}s here "
-                            f"in ONE call. Never call this action in a loop / repeatedly with a "
-                            f"single {bulk_param} — collect the ids and pass {plural} once."
-                        ),
-                    }
+                    all_props[plural] = _bulk_array_prop(bulk_param)
                     used_by[plural] = []
                 used_by[plural].append(action_name)
             for prop_name, prop_schema in tool_def["inputSchema"].get("properties", {}).items():
-                if prop_name in injectable:
+                if prop_name in _injectable_for_tool(tool_name, injectable):
                     continue
                 if prop_name not in all_props:
                     all_props[prop_name] = dict(prop_schema)
@@ -508,6 +530,7 @@ def _build_url_and_payload(
     path_template: str,
     payload_transformer: Any,
     params: dict,
+    tool_name: str = "",
 ) -> tuple[str, dict, dict]:
     """
     Returns (url, json_body, query_params) after substituting path params.
@@ -520,6 +543,13 @@ def _build_url_and_payload(
 
     env_pid = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
     pid_hard_scope = bool(env_pid) and env_pid != "system-main"
+    # Workspace-ENTITY tools (voxyflow.workspace.*) are exempt from the hard
+    # scope below: there workspace_id IS the target entity (get/update/delete/
+    # archive ANOTHER workspace), not the parent scope of a child resource.
+    # Forcing the env value would silently redirect e.g. "delete workspaces A
+    # and B" onto the CURRENT workspace — irreversible data loss. Explicit ids
+    # are honored; an omitted id still falls back to the env (current) one.
+    workspace_entity_tool = tool_name.startswith("voxyflow.workspace.")
 
     for var in path_vars:
         llm_value = remaining_params.pop(var, None)
@@ -529,7 +559,7 @@ def _build_url_and_payload(
         # always wins over whatever the LLM passes. The schema strips it, but
         # some models re-emit it anyway — this enforces the invariant so a
         # stray/guessed UUID can't leak cards into the wrong workspace.
-        if var == "workspace_id" and pid_hard_scope:
+        if var == "workspace_id" and pid_hard_scope and not workspace_entity_tool:
             if llm_value and llm_value != env_pid:
                 logger.warning(
                     f"[MCP] Ignoring LLM-supplied workspace_id={llm_value!r}; "
@@ -604,8 +634,23 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
     # Voxyflow REST API tools
     method, path_template, payload_transformer = tool_def["_http"]
 
+    # Env-scoped ids (workspace_id/card_id) are stripped from schemas in scoped
+    # chats, but only PATH template vars were injected back. Tools that take
+    # them as BODY/QUERY params (e.g. voxyflow.focus.log) would silently lose
+    # attribution — inject the env value when the tool's schema declares the
+    # param and the model didn't (couldn't) pass it.
+    injectable = _auto_injectable_params()
+    if injectable:
+        schema_props = (tool_def.get("inputSchema") or {}).get("properties", {})
+        for var in injectable & set(schema_props):
+            if not params.get(var):
+                env_value = os.environ.get(f"VOXYFLOW_{var.upper()}", "").strip()
+                if env_value:
+                    params = {**params, var: env_value}
+
     url, json_body, query_params = _build_url_and_payload(
-        method, path_template, payload_transformer, params
+        method, path_template, payload_transformer, params,
+        tool_name=tool_def.get("name", ""),
     )
 
     logger.debug(f"MCP → {method} {url} body={json_body} query={query_params}")
@@ -776,9 +821,22 @@ def _public_tool_defs() -> list[dict]:
     injectable = _auto_injectable_params()
     result = []
     for t in _visible_tools_flat():
+        name = t.get("name", "")
         cleaned = {k: v for k, v in t.items() if not k.startswith("_")}
         if injectable:
-            cleaned["inputSchema"] = _strip_auto_injected(cleaned["inputSchema"], injectable)
+            cleaned["inputSchema"] = _strip_auto_injected(
+                cleaned["inputSchema"], _injectable_for_tool(name, injectable)
+            )
+        # Bulk-capable tools advertise the plural ids array on the flat path
+        # too — same contract as the consolidated builder, so native-SDK/SSE
+        # dispatchers can also do one call for N ids (_call_api honors it).
+        bulk_param = _BULK_TOOLS.get(name)
+        if bulk_param:
+            schema = dict(cleaned["inputSchema"])
+            props = dict(schema.get("properties") or {})
+            props[_bulk_plural(bulk_param)] = _bulk_array_prop(bulk_param)
+            schema["properties"] = props
+            cleaned["inputSchema"] = schema
         result.append(cleaned)
     return result
 
@@ -806,7 +864,9 @@ if MCP_AVAILABLE:
             schema = defn["inputSchema"]
             # Strip injectable params from ungrouped tools (consolidated already stripped)
             if injectable and "_dispatch" not in defn:
-                schema = _strip_auto_injected(schema, injectable)
+                schema = _strip_auto_injected(
+                    schema, _injectable_for_tool(defn["name"], injectable)
+                )
             tools.append(
                 Tool(
                     name=defn["name"],

@@ -80,14 +80,20 @@ class CliRateGate:
         else:
             await self._session_sem.acquire()
         self._active += 1
-        # Enforce minimum spacing
-        async with self._spacing_lock:
-            now = time.monotonic()
-            wait = self._min_spacing - (now - self._last_call)
-            if wait > 0:
-                logger.debug(f"[RateGate] Spacing wait: {wait:.3f}s")
-                await asyncio.sleep(wait)
-            self._last_call = time.monotonic()
+        # Enforce minimum spacing. Cancellation-safe: if the caller is
+        # cancelled while waiting on the spacing lock/sleep, the slot is
+        # returned so the semaphore and counters never leak.
+        try:
+            async with self._spacing_lock:
+                now = time.monotonic()
+                wait = self._min_spacing - (now - self._last_call)
+                if wait > 0:
+                    logger.debug(f"[RateGate] Spacing wait: {wait:.3f}s")
+                    await asyncio.sleep(wait)
+                self._last_call = time.monotonic()
+        except BaseException:
+            self.release(is_worker=is_worker)
+            raise
 
     async def _wait_cooldown(self) -> None:
         """Sleep until the quota cooldown (if any) has elapsed.

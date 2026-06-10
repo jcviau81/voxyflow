@@ -57,15 +57,18 @@ class CodexProvider(LLMProvider):
         )
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamEvent]:
+        # Per-call usage holder — the shared backend.last_usage snapshot is
+        # racy under concurrent Codex calls (another call may overwrite it).
+        usage_holder: dict = {}
         async for token in self._backend.stream(
             model=request.model,
             system=request.system,
             messages=request.messages,
             use_tools=False,
+            usage_holder=usage_holder,
         ):
             yield TextDelta(token)
-        usage = dict(self._backend.last_usage) if self._backend.last_usage else None
-        yield StreamDone(stop_reason="end_turn", usage=usage)
+        yield StreamDone(stop_reason="end_turn", usage=dict(usage_holder) if usage_holder else None)
 
     def get_capabilities(self, model: str) -> ProviderCapabilities:
         entry = caps_db.lookup(model)

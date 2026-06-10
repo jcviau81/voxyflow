@@ -323,7 +323,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                     if t.get("last_tool"):
                         tool_info = f" — last tool: {t['last_tool']} ({t['tool_count']} calls)"
                     lines.append(
-                        f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
+                        f"- {t['task_id']}: {t['action']} ({t['model']}) "
                         f"— running {t['running_seconds']}s{desc}{tool_info}"
                     )
                 parts.append("\n".join(lines))
@@ -333,7 +333,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 for t in completed:
                     status = "done" if t.get("success", True) else "FAILED"
                     lines.append(
-                        f"- task-{t['task_id']}: {t['action']} ({t['model']}) "
+                        f"- {t['task_id']}: {t['action']} ({t['model']}) "
                         f"— {status} {t['seconds_ago']}s ago — {t['result']}"
                     )
                 parts.append("\n".join(lines))

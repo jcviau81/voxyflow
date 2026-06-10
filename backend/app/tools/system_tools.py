@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import shlex
+import signal
 import time
 from datetime import datetime
 from pathlib import Path
@@ -353,12 +354,19 @@ async def system_exec(params: dict) -> dict:
 
     start = time.monotonic()
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *shlex.split(command),
+        # Run through a real shell — the tool contract advertises shell
+        # semantics (pipes, redirects, &&) and the blocklist above is written
+        # against shell constructs. The old create_subprocess_exec path passed
+        # '>' '|' '&&' as literal argv and silently misbehaved.
+        # start_new_session puts the shell in its own process group so a
+        # timeout can kill the whole pipeline, not just the shell.
+        proc = await asyncio.create_subprocess_shell(
+            command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env={**os.environ},
+            start_new_session=True,
         )
         stdout_bytes, stderr_bytes = await asyncio.wait_for(
             proc.communicate(), timeout=timeout
@@ -382,7 +390,11 @@ async def system_exec(params: dict) -> dict:
 
     except asyncio.TimeoutError:
         duration_ms = int((time.monotonic() - start) * 1000)
-        proc.kill()
+        try:
+            # Kill the whole process group (shell + pipeline children).
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()
         return {
             "success": False,
             "error": f"Command timed out after {timeout}s",

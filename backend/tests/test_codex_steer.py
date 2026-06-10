@@ -176,6 +176,51 @@ class TestRapidSteerAccumulation:
 
 
 # ---------------------------------------------------------------------------
+# Test 6b — second steer during the resume triggers another resume
+# ---------------------------------------------------------------------------
+
+
+class TestSteerDuringResume:
+    async def test_second_steer_during_resume_resumes_again(self, monkeypatch):
+        """If a directive arrives while the steer-resume is executing, the
+        resume itself returns steered — call() must resume again with the new
+        directive instead of returning the empty steer result."""
+        backend = _make_backend()
+        queue: asyncio.Queue = asyncio.Queue()
+        monkeypatch.setattr(cb, "_STEER_DEBOUNCE_SECS", 0.0)
+        spawn_log: list[dict] = []
+
+        async def fake_once(**kwargs):
+            spawn_log.append(kwargs)
+            if len(spawn_log) == 1:
+                # First spawn: steer cancels the proc.
+                return cb.CodexCallResult.steer("thread-D2", ["First directive."])
+            if len(spawn_log) == 2:
+                # The resume is itself steered by a late second directive.
+                return cb.CodexCallResult.steer("thread-D2", ["Second directive."])
+            return cb.CodexCallResult.success("final answer", {"output_tokens": 3})
+
+        monkeypatch.setattr(backend, "_call_once", fake_once)
+
+        response, usage = await backend.call(
+            model="gpt-5.4-mini",
+            system="sys",
+            messages=[{"role": "user", "content": "go"}],
+            chat_id="chat-D2",
+            session_type="chat",
+            message_queue=queue,
+        )
+
+        # Three spawns: initial + two resumes — the second directive is honored.
+        assert len(spawn_log) == 3
+        assert "Second directive." in spawn_log[2]["prompt"]
+        assert spawn_log[2]["resume_thread_id"] == "thread-D2"
+        # The final (non-steered) result is what call() returns — not "".
+        assert response == "final answer"
+        assert usage == {"output_tokens": 3}
+
+
+# ---------------------------------------------------------------------------
 # Test 7 — race: steer arrives after natural completion
 # ---------------------------------------------------------------------------
 

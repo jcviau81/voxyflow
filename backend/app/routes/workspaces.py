@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 logger = logging.getLogger(__name__)
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -364,6 +364,33 @@ async def list_workspaces(
     return result.scalars().all()
 
 
+# ---------------------------------------------------------------------------
+# Filesystem / path helpers
+# ---------------------------------------------------------------------------
+# MUST be declared BEFORE /{workspace_id} — Starlette matches routes in
+# registration order, so a later static path would be captured as a
+# workspace_id and 404.
+
+@router.get("/suggest-path")
+async def suggest_workspace_path(name: str):
+    """Return the default workspace path for a workspace name (not created yet)."""
+    ws = get_sandbox_service()
+    path = ws.get_workspace_sandbox(name.strip() or "unnamed")
+    return {"path": str(path)}
+
+
+@router.get("/path-info")
+async def path_info(path: str):
+    """Check if a local path exists."""
+    expanded = Path(path).expanduser().resolve()
+    exists = expanded.exists()
+    return {
+        "path": str(expanded),
+        "exists": exists,
+        "is_dir": expanded.is_dir() if exists else False,
+    }
+
+
 @router.get("/{workspace_id}", response_model=WorkspaceWithCards)
 async def get_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
     stmt = (
@@ -403,6 +430,9 @@ async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)
             await db.execute(select(WorkerTask.id).where(WorkerTask.workspace_id == workspace_id))
         ).all()
     ]
+    # Capture before the row is deleted — accessing the ORM object after
+    # commit would try to refresh a dead row.
+    local_path = workspace.local_path
 
     # Delete all cards belonging to this workspace (cascades to checklist items,
     # attachments, relations, history via ORM relationships).
@@ -457,27 +487,47 @@ async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)
         except Exception as e:
             logger.warning("Could not remove %s: %s", path, e)
 
-    _rmtree(sessions_dir / "workspace" / workspace_id)
-    for cid in card_ids:
-        _rmtree(sessions_dir / "card" / cid)
-    _rmtree(sandbox_dir)
+    def _cleanup_filesystem():
+        from app.routes.cards import ATTACHMENTS_BASE
 
-    if worker_sessions_dir.exists():
-        for fp in worker_sessions_dir.glob("*.json"):
-            try:
-                data = json.loads(fp.read_text())
-                if data.get("workspace_id") == workspace_id:
-                    fp.unlink(missing_ok=True)
-            except Exception as e:
-                logger.debug("worker_sessions prune skipped %s: %s", fp.name, e)
+        _rmtree(sessions_dir / "workspace" / workspace_id)
+        for cid in card_ids:
+            _rmtree(sessions_dir / "card" / cid)
+            _rmtree(ATTACHMENTS_BASE / cid)
+        _rmtree(sandbox_dir)
 
-    if worker_artifacts_dir.exists():
-        for tid in task_ids:
+        # Slug-keyed workspace dir created by create_workspace (workspace.local_path).
+        # Only removed when it lies strictly inside the sandbox root — a
+        # user-specified external path is never touched.
+        if local_path:
             try:
-                (worker_artifacts_dir / f"{tid}.md").unlink(missing_ok=True)
-                (worker_artifacts_dir / f"{tid}.completion.json").unlink(missing_ok=True)
+                sandbox_root = get_sandbox_service().sandbox_root.resolve()
+                resolved = Path(local_path).expanduser().resolve()
+                if resolved != sandbox_root and resolved.is_relative_to(sandbox_root):
+                    _rmtree(resolved)
             except Exception as e:
-                logger.debug("worker_artifacts prune skipped %s: %s", tid, e)
+                logger.warning("Could not remove workspace dir %s: %s", local_path, e)
+
+        if worker_sessions_dir.exists():
+            for fp in worker_sessions_dir.glob("*.json"):
+                try:
+                    data = json.loads(fp.read_text())
+                    if data.get("workspace_id") == workspace_id:
+                        fp.unlink(missing_ok=True)
+                except Exception as e:
+                    logger.debug("worker_sessions prune skipped %s: %s", fp.name, e)
+
+        if worker_artifacts_dir.exists():
+            for tid in task_ids:
+                try:
+                    (worker_artifacts_dir / f"{tid}.md").unlink(missing_ok=True)
+                    (worker_artifacts_dir / f"{tid}.completion.json").unlink(missing_ok=True)
+                except Exception as e:
+                    logger.debug("worker_artifacts prune skipped %s: %s", tid, e)
+
+    # Recursive deletes (sandbox may hold a cloned repo) must not block the
+    # event loop — run the whole best-effort sweep off-thread.
+    await asyncio.to_thread(_cleanup_filesystem)
 
     # Tear down the autonomy heartbeat (if any) last — the directive file
     # lived under sandbox_dir, which we just removed.
@@ -735,13 +785,24 @@ async def import_workspace(body: ExportPayload, db: AsyncSession = Depends(get_d
     For relations and dependencies, old card IDs are mapped to the newly-
     assigned IDs so cross-references remain consistent after import.
     """
-    title = body.workspace.title
+    base_title = body.workspace.title.strip()
 
-    # Check if a workspace with the same title exists → append "(imported)"
-    stmt = select(Workspace).where(Workspace.title == title)
-    existing = await db.execute(stmt)
-    if existing.scalar_one_or_none():
-        title = f"{title} (imported)"
+    async def _title_taken(candidate: str) -> bool:
+        # Same case-insensitive duplicate check as create_workspace.
+        existing = await db.execute(
+            select(Workspace).where(
+                func.lower(Workspace.title) == candidate.lower(),
+                Workspace.status != "archived",
+            )
+        )
+        return existing.scalar_one_or_none() is not None
+
+    # De-duplicate the title: "X" → "X (imported)" → "X (imported 2)" → …
+    title = base_title
+    attempt = 0
+    while await _title_taken(title):
+        attempt += 1
+        title = f"{base_title} (imported)" if attempt == 1 else f"{base_title} (imported {attempt})"
 
     workspace = Workspace(
         id=new_uuid(),
@@ -1292,8 +1353,8 @@ class StandupResponse(BaseModel):
 
 class StandupScheduleRequest(BaseModel):
     enabled: bool = True
-    hour: int = 9    # 09:00 local time
-    minute: int = 0
+    hour: int = Field(default=9, ge=0, le=23)    # 09:00 local time
+    minute: int = Field(default=0, ge=0, le=59)
 
 
 class StandupScheduleResponse(BaseModel):
@@ -1410,6 +1471,20 @@ async def set_standup_schedule(
     }
     jobs.append(new_job)
     await asyncio.to_thread(_save_jobs, jobs)
+
+    # Sync the live APScheduler — otherwise the new schedule only takes effect
+    # after a backend restart (and a replaced job's old trigger keeps firing).
+    # Guarded: a missing scheduler API degrades to jobs.json-only persistence.
+    try:
+        from app.services import scheduler_service as _sched
+        _sched.unregister_standup_job(workspace_id)
+        if body.enabled:
+            _sched.register_standup_job(workspace_id, new_job)
+    except Exception as e:
+        logger.warning(
+            "Standup scheduler sync failed for workspace %s (job persisted to jobs.json): %s",
+            workspace_id, e,
+        )
 
     return StandupScheduleResponse(
         job_id=job_id,
@@ -1751,27 +1826,3 @@ async def smart_prioritize(workspace_id: str, db: AsyncSession = Depends(get_db)
 
     return PrioritizeResponse(ordered_cards=ordered, summary=summary)
 
-
-
-# ---------------------------------------------------------------------------
-# Filesystem / path helpers
-# ---------------------------------------------------------------------------
-
-@router.get("/suggest-path")
-async def suggest_workspace_path(name: str):
-    """Return the default workspace path for a workspace name (not created yet)."""
-    ws = get_sandbox_service()
-    path = ws.get_workspace_sandbox(name.strip() or "unnamed")
-    return {"path": str(path)}
-
-
-@router.get("/path-info")
-async def path_info(path: str):
-    """Check if a local path exists."""
-    expanded = Path(path).expanduser().resolve()
-    exists = expanded.exists()
-    return {
-        "path": str(expanded),
-        "exists": exists,
-        "is_dir": expanded.is_dir() if exists else False,
-    }

@@ -31,6 +31,9 @@ FORBIDDEN_DISPATCHER_TOOLS = {
     "git.commit",
     "web.fetch", "web.search",
     "tmux.run", "tmux.send", "tmux.new", "tmux.kill",
+    # Heavy AI — synchronous LLM call, blocks inline chat (CLAUDE.md lists it
+    # as worker-only alongside voxyflow.ai.*).
+    "voxyflow.card.enrich",
     # NOTE: the following are intentionally NOT forbidden — Voxyflow is
     # single-user local and these are instant DB / queue ops the dispatcher
     # needs inline:

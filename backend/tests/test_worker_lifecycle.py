@@ -611,3 +611,78 @@ async def test_callback_parallel_chats_do_not_coalesce(monkeypatch):
     assert orch.handle_message.await_count == 2
     chats = {call.kwargs["chat_id"] for call in orch.handle_message.await_args_list}
     assert chats == {"chat-A", "chat-B"}
+
+
+@pytest.mark.asyncio
+async def test_callback_mid_turn_not_cancelled_by_new_completion(monkeypatch):
+    """A debouncer that already fired (mid handle_message turn, streaming to
+    the user) must NOT be cancelled by a later worker completion — only
+    debouncers still in their sleep get reset. And the finished turn's
+    cleanup must not pop the replacement debouncer's registry entry."""
+    monkeypatch.setenv("DISPATCHER_WORKER_CALLBACK", "1")
+    orch = _fake_orchestrator()
+    turn_started = asyncio.Event()
+
+    async def slow_turn(**kwargs):
+        turn_started.set()
+        await asyncio.sleep(0.2)
+        return []
+
+    orch.handle_message = AsyncMock(side_effect=slow_turn)
+    pool = _make_pool_for_callbacks(orchestrator=orch, ws=_fake_live_ws(), debounce=0.02)
+
+    pool._schedule_dispatcher_callback("chat-1", _make_event(task_id="T1"))
+    await asyncio.wait_for(turn_started.wait(), timeout=2.0)
+    first = pool._callback_debouncers["chat-1"]
+
+    # Second completion lands while the first callback turn is streaming.
+    pool._schedule_dispatcher_callback("chat-1", _make_event(task_id="T2"))
+    second = pool._callback_debouncers["chat-1"]
+    assert second is not first
+
+    await first
+    assert not first.cancelled(), "live callback turn was cancelled mid-stream"
+    # The first turn's finally must leave the replacement entry in place.
+    assert pool._callback_debouncers.get("chat-1") is second
+
+    await asyncio.sleep(0.5)
+    assert orch.handle_message.await_count == 2
+    assert "chat-1" not in pool._callback_debouncers
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher-facing task ids — must be usable verbatim with task.peek /
+# task.cancel / workers.read_artifact (all exact-match lookups).
+# ---------------------------------------------------------------------------
+
+
+def test_get_active_tasks_returns_full_task_ids():
+    import time as _time
+    from app.services.orchestration.worker_pool import DeepWorkerPool
+
+    pool = DeepWorkerPool.__new__(DeepWorkerPool)
+    pool._active_tasks = {"task-abc12345": MagicMock()}
+    pool._task_meta = {
+        "task-abc12345": {
+            "action": "research",
+            "model": "fast",
+            "description": "probe",
+            "started_at": _time.time(),
+            "card_id": None,
+        }
+    }
+    pool._completed_tasks = [{
+        "task_id": "task-def67890",
+        "action": "enrich",
+        "model": "fast",
+        "description": "",
+        "completed_at": _time.time(),
+        "result": "ok",
+        "success": True,
+    }]
+    pool._task_tool_events = {}
+    pool._task_tool_counts = {}
+
+    info = pool.get_active_tasks()
+    assert info["active"][0]["task_id"] == "task-abc12345"
+    assert info["completed"][0]["task_id"] == "task-def67890"

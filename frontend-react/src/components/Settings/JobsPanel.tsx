@@ -9,7 +9,7 @@
  *  - Schedule presets + cron validation
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Clock, Play, Trash2, Plus, Loader2, X, Pencil,
   Bell, Database, LayoutGrid, Bot, Square,
@@ -105,14 +105,14 @@ const JOB_TYPE_META: Record<JobType, {
   },
 };
 
-const BOARD_STATUSES = ['todo', 'in_progress', 'review', 'done', 'backlog'] as const;
+// Must match the backend's canonical card statuses (backend/app/models/card.py)
+const BOARD_STATUSES = ['backlog', 'todo', 'in-progress', 'done'] as const;
 
 const BOARD_STATUS_LABELS: Record<string, string> = {
-  todo: 'To Do',
-  in_progress: 'In Progress',
-  review: 'Review',
-  done: 'Done',
   backlog: 'Backlog',
+  todo: 'To Do',
+  'in-progress': 'In Progress',
+  done: 'Done',
 };
 
 // ── Schedule presets ──────────────────────────────────────────────────────
@@ -554,8 +554,8 @@ function ExecuteCardPayload({ payload, onChange, workspaces }: {
     finally { setLoadingCards(false); }
   }, []);
 
-  // Re-fetch when workspace changes
-  useState(() => { if (selectedWorkspaceId) fetchCards(selectedWorkspaceId); });
+  // Re-fetch when workspace changes (fetchCards clears the list on empty id)
+  useEffect(() => { fetchCards(selectedWorkspaceId); }, [selectedWorkspaceId, fetchCards]);
 
   return (
     <div className="space-y-3">
@@ -566,8 +566,6 @@ function ExecuteCardPayload({ payload, onChange, workspaces }: {
           onChange={(e) => {
             const pid = e.target.value || undefined;
             onChange({ ...payload, workspace_id: pid, card_id: undefined, card_title: undefined });
-            if (pid) fetchCards(pid);
-            else setCards([]);
           }}
           className="h-8 w-full px-2 text-sm rounded-md border border-input bg-background"
         >

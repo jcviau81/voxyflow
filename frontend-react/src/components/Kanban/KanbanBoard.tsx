@@ -879,12 +879,14 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
     async (status: CardStatus) => {
       const ids = Array.from(selectedIds);
       let failed = 0;
+      const movedIdSet = new Set<string>();
       await Promise.all(
         ids.map(async (id) => {
           const prior = useCardStore.getState().cardsById[id];
           updateCardStore(id, { status });
           try {
             await patchCard.mutateAsync({ cardId: id, updates: { status }, workspaceId: workspaceId ?? undefined });
+            movedIdSet.add(id);
           } catch {
             // Roll back the optimistic status change.
             if (prior) useCardStore.getState().upsertCard(prior);
@@ -892,15 +894,17 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
           }
         }),
       );
-      // If moving to Done, insert selected cards at the top of the Done column
-      if (status === 'done') {
+      // If moving to Done, insert successfully moved cards at the top of the Done
+      // column — failed cards were rolled back to their original column and must
+      // not be included in the Done reorder.
+      if (status === 'done' && movedIdSet.size > 0) {
         const currentDoneCards = Object.values(useCardStore.getState().cardsById)
           .filter((c) => c.workspaceId === workspaceId && !c.archivedAt && c.status === 'done')
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
         const previousOrder = currentDoneCards.map((c) => c.id);
         const doneIds = [
-          ...ids,
-          ...currentDoneCards.filter((c) => !selectedIds.has(c.id)).map((c) => c.id),
+          ...ids.filter((id) => movedIdSet.has(id)),
+          ...currentDoneCards.filter((c) => !movedIdSet.has(c.id)).map((c) => c.id),
         ];
         useCardStore.getState().reorderCards(doneIds);
         try {

@@ -1,7 +1,9 @@
 """Card/Task endpoints — with agent assignment support."""
 
+import asyncio
 import logging
 import mimetypes
+import shutil
 from pathlib import Path
 
 import json
@@ -158,7 +160,7 @@ async def list_unassigned_cards(db: AsyncSession = Depends(get_db)):
     """List all cards on the Main Board (alias for system-main workspace cards)."""
     stmt = (
         select(Card)
-        .where(Card.workspace_id == SYSTEM_MAIN_WORKSPACE_ID)
+        .where(Card.workspace_id == SYSTEM_MAIN_WORKSPACE_ID, Card.archived_at.is_(None))
         .options(selectinload(Card.time_entries), selectinload(Card.dependencies), selectinload(Card.checklist_items))
         .order_by(Card.created_at.desc())
     )
@@ -202,14 +204,23 @@ async def bulk_reorder_cards(
     affected workspace at the end.
     """
     affected_workspace_ids: set[str] = set()
+    # Prefetch workspace_ids in one query instead of a per-card SELECT (N+1).
+    workspace_by_card: dict[str, str | None] = {}
+    if body.ordered_ids:
+        rows = (
+            await db.execute(
+                select(Card.id, Card.workspace_id).where(Card.id.in_(body.ordered_ids))
+            )
+        ).all()
+        workspace_by_card = {cid: wsid for cid, wsid in rows}
+
     for idx, cid in enumerate(body.ordered_ids):
-        existing = await db.get(Card, cid)
-        if not existing:
+        if cid not in workspace_by_card:
             continue
         await db.execute(
             update(Card).where(Card.id == cid).values(position=idx, updated_at=utcnow())
         )
-        affected_workspace_ids.add(existing.workspace_id or 'system-main')
+        affected_workspace_ids.add(workspace_by_card[cid] or 'system-main')
 
     await db.commit()
 
@@ -231,6 +242,7 @@ async def assign_card_to_project(
     if not workspace:
         raise HTTPException(404, "Workspace not found.")
 
+    old_workspace_id = card.workspace_id or 'system-main'
     card.workspace_id = workspace_id
     card.updated_at = utcnow()
 
@@ -240,6 +252,9 @@ async def assign_card_to_project(
     await db.commit()
     await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
+    # Also refresh the source board the card left, or it shows the card as stale.
+    if old_workspace_id != workspace_id:
+        ws_broadcast.emit_sync("cards:changed", {"workspaceId": old_workspace_id, "cardId": card_id})
     return _card_to_response(card)
 
 
@@ -268,6 +283,9 @@ async def unassign_card_from_project(
     await db.commit()
     await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
+    # Also refresh the source board the card left, or it shows the card as stale.
+    if old_workspace_id and old_workspace_id != SYSTEM_MAIN_WORKSPACE_ID:
+        ws_broadcast.emit_sync("cards:changed", {"workspaceId": old_workspace_id, "cardId": card_id})
     return _card_to_response(card)
 
 
@@ -517,6 +535,9 @@ async def delete_card(card_id: str, force: bool = False, db: AsyncSession = Depe
     workspace_id = card.workspace_id or 'system-main'
     await db.delete(card)
     await db.commit()
+    # CardAttachment rows cascade with the card — also remove their files on
+    # disk, mirroring delete_attachment (best-effort, off the event loop).
+    await asyncio.to_thread(shutil.rmtree, ATTACHMENTS_BASE / card_id, ignore_errors=True)
     ws_broadcast.emit_sync("cards:changed", {"workspaceId": workspace_id, "cardId": card_id})
 
 
@@ -673,12 +694,16 @@ async def move_card_to_project(
     if card.workspace_id == target_workspace_id:
         raise HTTPException(400, "Card is already in the target workspace.")
 
+    old_workspace_id = card.workspace_id or 'system-main'
     card.workspace_id = target_workspace_id
     card.updated_at = utcnow()
 
     await db.commit()
     await db.refresh(card, ['time_entries', 'dependencies', 'checklist_items'])
     _broadcast_card_change(card)
+    # Also refresh the source board the card left, or it shows the card as stale.
+    if old_workspace_id != target_workspace_id:
+        ws_broadcast.emit_sync("cards:changed", {"workspaceId": old_workspace_id, "cardId": card_id})
     return _card_to_response(card)
 
 
@@ -1023,15 +1048,6 @@ async def upload_attachment(
 
     filename = file.filename or "attachment"
 
-    # Read and size-check
-    content = await file.read()
-    file_size = len(content)
-    if file_size > MAX_ATTACHMENT_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large ({file_size} bytes). Maximum allowed is {MAX_ATTACHMENT_SIZE} bytes (50 MB).",
-        )
-
     # Determine MIME type
     mime_type = file.content_type or "application/octet-stream"
     if not mime_type or mime_type == "application/octet-stream":
@@ -1046,7 +1062,24 @@ async def upload_attachment(
     storage_dir.mkdir(parents=True, exist_ok=True)
     storage_path = storage_dir / storage_filename
 
-    storage_path.write_bytes(content)
+    # Stream to disk in chunks — never buffer the whole upload in memory.
+    # Abort (and remove the partial file) as soon as the running total
+    # exceeds the limit; disk writes happen off the event loop.
+    chunk_size = 1024 * 1024
+    file_size = 0
+    try:
+        with storage_path.open("wb") as out:
+            while chunk := await file.read(chunk_size):
+                file_size += len(chunk)
+                if file_size > MAX_ATTACHMENT_SIZE:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"File too large (>{file_size} bytes). Maximum allowed is {MAX_ATTACHMENT_SIZE} bytes (50 MB).",
+                    )
+                await asyncio.to_thread(out.write, chunk)
+    except BaseException:
+        storage_path.unlink(missing_ok=True)
+        raise
 
     attachment = CardAttachment(
         id=att_id,
@@ -1458,8 +1491,12 @@ async def add_card_file(card_id: str, body: FileRefRequest, db: AsyncSession = D
     if candidate.is_absolute() or ".." in candidate.parts:
         raise HTTPException(400, "Path traversal not allowed.")
     # Normalise ("./foo" → "foo", collapse "a//b" → "a/b") so duplicates
-    # don't slip in under different string forms.
-    normalised = candidate.as_posix().lstrip("./")
+    # don't slip in under different string forms. pathlib already strips a
+    # leading "./" — do NOT use lstrip("./"), which eats the dot of dotfiles
+    # (".gitignore" → "gitignore").
+    normalised = candidate.as_posix()
+    if normalised == ".":
+        raise HTTPException(400, "Path is required.")
     card = await db.get(Card, card_id)
     if not card:
         raise HTTPException(404, "Card not found.")

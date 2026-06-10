@@ -115,8 +115,10 @@ async def get_session(chat_id: str, limit: int = Query(50, ge=1, le=500)):
     # can target individual messages. No-op once every message has an id.
     session_store.backfill_message_ids(chat_id)
     messages = session_store.get_recent_messages(chat_id, limit)
-    # Filter out internal tool_results messages (system context, not for UI)
-    visible = [m for m in messages if m.get("type") != "tool_results"]
+    # Filter out internal tool-result messages (system context, not for UI).
+    # Both spellings exist in persisted history: "tool_results" (plural,
+    # tool_call_fallback) and "tool_result" (singular, delegate_dispatch).
+    visible = [m for m in messages if m.get("type") not in ("tool_result", "tool_results")]
     return {"chat_id": chat_id, "messages": visible, "count": len(visible)}
 
 

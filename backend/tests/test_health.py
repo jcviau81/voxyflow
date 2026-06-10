@@ -62,3 +62,20 @@ async def test_health_response_shape():
     checks = data["checks"]
     assert "db" in checks, f"Missing 'db' in checks: {checks}"
     assert "chroma" in checks, f"Missing 'chroma' in checks: {checks}"
+
+
+@pytest.mark.asyncio
+async def test_workspaces_static_routes_not_shadowed_by_workspace_id():
+    """Regression: /api/workspaces/suggest-path and /path-info must be registered
+    BEFORE /{workspace_id}, otherwise Starlette matches them as workspace ids
+    and they 404 (breaking the workspace-creation form)."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        r_suggest = await client.get("/api/workspaces/suggest-path", params={"name": "test"})
+        r_info = await client.get("/api/workspaces/path-info", params={"path": "~"})
+
+    assert r_suggest.status_code == 200, f"suggest-path shadowed: {r_suggest.status_code} {r_suggest.text[:200]}"
+    assert "path" in r_suggest.json()
+    assert r_info.status_code == 200, f"path-info shadowed: {r_info.status_code} {r_info.text[:200]}"
+    assert r_info.json()["exists"] is True  # ~ always exists

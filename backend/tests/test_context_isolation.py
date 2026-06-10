@@ -289,13 +289,15 @@ class TestDynamicContextBlock:
         assert "Python, FastAPI" in block
 
     def test_workspace_dynamic_has_card_counts(self):
+        # NOTE: the canonical DB status is "in-progress" (hyphen) — see
+        # app.models.enums.CardStatus. The underscore form was a bug.
         ps = self._ps()
         workspace = {
             "title": "TestWorkspace",
             "cards": [
                 {"status": "done", "title": "Card1"},
                 {"status": "todo", "title": "Card2"},
-                {"status": "in_progress", "title": "Card3"},
+                {"status": "in-progress", "title": "Card3"},
             ],
         }
         block = ps.build_dynamic_context_block(chat_level="workspace", workspace=workspace)
@@ -304,11 +306,23 @@ class TestDynamicContextBlock:
         assert "1 in progress" in block
         assert "1 todo" in block
 
+    def test_workspace_dynamic_lists_in_progress_titles(self):
+        """Regression: in-progress cards (canonical hyphen status) must show
+        in the 'In progress:' block, not '(none)'."""
+        ps = self._ps()
+        workspace = {
+            "title": "TestWorkspace",
+            "cards": [{"status": "in-progress", "title": "ActiveCard"}],
+        }
+        block = ps.build_dynamic_context_block(chat_level="workspace", workspace=workspace)
+        assert "ActiveCard" in block
+        assert "In progress: (none)" not in block
+
     def test_card_dynamic_has_status_and_priority(self):
         ps = self._ps()
-        card = {"title": "Fix bug", "status": "in_progress", "priority": "high"}
+        card = {"title": "Fix bug", "status": "in-progress", "priority": "high"}
         block = ps.build_dynamic_context_block(chat_level="card", card=card)
-        assert "in_progress" in block
+        assert "in-progress" in block
         assert "high" in block
 
     def test_card_dynamic_has_checklist_count(self):
@@ -550,6 +564,88 @@ class TestFastPromptToolInjection:
         prompt = ps.build_fast_prompt(chat_level="general")
         assert "voxyflow.delegate" in prompt, "Fast prompt should instruct on voxyflow.delegate MCP tool"
         assert "<delegate>" not in prompt, "Fast prompt must NOT contain legacy <delegate> XML markup"
+
+
+class TestMemoryFallbackIsolation:
+    """Workspace chats must never fall back to global file memory.
+
+    The file-based fallback (MEMORY.md + daily logs) is general-chat-only
+    context. A fresh workspace (no ChromaDB hits) or a ChromaDB failure must
+    not inject those global files into a workspace chat — 'a clean workspace
+    must show zero knowledge from other contexts'.
+    """
+
+    def _make_service(self, calls):
+        from app.services.memory_service import MemoryService
+
+        class FakeMs(MemoryService):
+            def __init__(self):
+                self._chromadb_enabled = True
+                self.daily_lookback_days = 3
+
+            def search_memory(self, query, collections=None, limit=10, offset=0, **kwargs):
+                return []  # fresh workspace — no memories anywhere
+
+            def _build_l0_identity(self, workspace_id, budget=100):
+                return None  # no KG service in unit tests
+
+            def _load_long_term_memory(self):
+                calls.append("long_term")
+                return "GLOBAL MEMORY"
+
+            def _load_daily_logs(self, days=None):
+                calls.append("daily")
+                return "GLOBAL DAILY"
+
+            def _load_project_memory(self, workspace_name):
+                calls.append(f"workspace:{workspace_name}")
+                return ""
+
+        return FakeMs()
+
+    def test_workspace_empty_chromadb_never_reads_global_files(self):
+        calls: list[str] = []
+        ms = self._make_service(calls)
+        ms._build_chromadb_context(
+            query="test", workspace_id="proj-xyz", workspace_name="Proj",
+            include_long_term=True,
+        )
+        assert "long_term" not in calls, "workspace chat read global MEMORY.md"
+        assert "daily" not in calls, "workspace chat read global daily logs"
+
+    def test_workspace_chromadb_exception_never_reads_global_files(self):
+        calls: list[str] = []
+        ms = self._make_service(calls)
+
+        def _boom(*a, **k):
+            raise RuntimeError("chromadb down")
+
+        ms._build_l2_ondemand = _boom  # force the exception fallback path
+        ms._build_chromadb_context(
+            query="test", workspace_id="proj-xyz", workspace_name="Proj",
+            include_long_term=True,
+        )
+        assert "long_term" not in calls, "exception fallback read global MEMORY.md"
+        assert "daily" not in calls, "exception fallback read global daily logs"
+
+    def test_workspace_queryless_never_reads_global_files(self):
+        """build_memory_context without a query (e.g. tool-call follow-up)."""
+        calls: list[str] = []
+        ms = self._make_service(calls)
+        ms.build_memory_context(
+            workspace_name="Proj", workspace_id="proj-xyz",
+            include_long_term=True, include_daily=True, layers=(0,),
+        )
+        assert "long_term" not in calls, "query-less workspace call read global MEMORY.md"
+        assert "daily" not in calls, "query-less workspace call read global daily logs"
+
+    def test_general_chat_still_gets_global_file_fallback(self):
+        calls: list[str] = []
+        ms = self._make_service(calls)
+        ctx = ms.build_memory_context(include_long_term=True, include_daily=True)
+        assert "long_term" in calls, "general chat lost MEMORY.md fallback"
+        assert "daily" in calls, "general chat lost daily-log fallback"
+        assert ctx and "GLOBAL MEMORY" in ctx
 
 
 # ============================================================================

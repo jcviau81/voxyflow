@@ -160,3 +160,115 @@ def test_cron_recurrence_uses_utc():
     nxt = trigger.get_next_fire_time(None, base)
     assert nxt.hour == 9
     assert nxt.utcoffset().total_seconds() == 0, "next fire must be UTC-anchored"
+
+
+# ---------------------------------------------------------------------------
+# 2026-06-09 — settings redaction/merge holes + /models/test endpoint contract.
+# ---------------------------------------------------------------------------
+def test_redact_sensitive_masks_mcp_stdio_env():
+    import app.routes.settings as s
+
+    data = {
+        "mcp_servers": [
+            {"id": "m1", "transport": "stdio", "command": "gh-mcp",
+             "api_key": "", "env": {"GITHUB_TOKEN": "ghp-REAL", "EMPTY": ""}},
+        ],
+    }
+    red = s._redact_sensitive(data)
+    assert red["mcp_servers"][0]["env"]["GITHUB_TOKEN"] == "***"
+    assert red["mcp_servers"][0]["env"]["EMPTY"] == ""  # empty values stay empty
+    # Original must not be mutated.
+    assert data["mcp_servers"][0]["env"]["GITHUB_TOKEN"] == "ghp-REAL"
+
+
+def test_merge_sensitive_strips_sentinel_for_new_entries_and_restores_env():
+    import app.routes.settings as s
+
+    existing = {
+        "models": {"endpoints": [
+            {"id": "old", "api_key": "sk-OLD-REAL"},
+        ]},
+        "mcp_servers": [
+            {"id": "srv-old", "api_key": "tok-REAL",
+             "env": {"GITHUB_TOKEN": "ghp-REAL"}},
+        ],
+    }
+    incoming = {
+        "models": {"endpoints": [
+            {"id": "old", "api_key": "***"},   # round-tripped sentinel → restore
+            {"id": "new", "api_key": "***"},   # NEW entry → strip, never persist '***'
+        ]},
+        "mcp_servers": [
+            {"id": "srv-old", "api_key": "***",
+             "env": {"GITHUB_TOKEN": "***", "NEW_VAR": "plain"}},
+            {"id": "srv-new", "api_key": "***", "env": {"TOKEN": "***"}},
+        ],
+    }
+    merged = s._merge_sensitive_on_save(incoming, existing)
+    eps = merged["models"]["endpoints"]
+    assert eps[0]["api_key"] == "sk-OLD-REAL"
+    assert eps[1]["api_key"] == ""  # sentinel stripped
+    srvs = merged["mcp_servers"]
+    assert srvs[0]["api_key"] == "tok-REAL"
+    assert srvs[0]["env"]["GITHUB_TOKEN"] == "ghp-REAL"  # env restored
+    assert srvs[0]["env"]["NEW_VAR"] == "plain"          # plaintext untouched
+    assert srvs[1]["api_key"] == ""                      # new server: stripped
+    assert srvs[1]["env"]["TOKEN"] == ""                 # new server env: stripped
+
+
+def test_models_test_resolves_endpoint_id_and_sentinel(monkeypatch):
+    """POST /models/test must resolve endpoint_id / '***' server-side and never
+    pass the redaction sentinel to the provider as an api_key."""
+    import app.routes.models as m
+    import app.services.llm.provider_factory as pf
+
+    cfg = {
+        "fast": {"provider_url": "https://api.groq.com/v1", "api_key": "gsk-LAYER-REAL"},
+        "endpoints": [
+            {"id": "e1", "provider_type": "openai",
+             "url": "https://api.openai.com/v1", "api_key": "sk-EP-REAL"},
+        ],
+    }
+
+    async def fake_load_models_cfg():
+        return cfg
+    monkeypatch.setattr(m, "_load_models_cfg", fake_load_models_cfg)
+
+    seen = {}
+
+    class FakeProvider:
+        async def complete(self, req):
+            class R:
+                content = "hi there friend"
+            return R()
+
+    def fake_get_provider(provider_type="", url="", api_key=""):
+        seen["provider_type"] = provider_type
+        seen["url"] = url
+        seen["api_key"] = api_key
+        return FakeProvider()
+    monkeypatch.setattr(pf, "get_provider", fake_get_provider)
+
+    # (a) endpoint_id → provider_type/url/api_key resolved from saved settings
+    res = asyncio.run(m.test_model_layer({"endpoint_id": "e1", "model": "gpt-4o"}))
+    assert res["success"] is True
+    assert seen["api_key"] == "sk-EP-REAL"
+    assert seen["provider_type"] == "openai"
+    # (c) the response must never echo the real key
+    assert "sk-EP-REAL" not in json.dumps(res)
+
+    # (b) '***' sentinel → real key resolved by matching layer URL, never '***'
+    res = asyncio.run(m.test_model_layer({
+        "provider_type": "groq", "provider_url": "https://api.groq.com/v1",
+        "api_key": "***", "model": "llama-3.3-70b",
+    }))
+    assert res["success"] is True
+    assert seen["api_key"] == "gsk-LAYER-REAL"
+    assert "gsk-LAYER-REAL" not in json.dumps(res)
+
+    # Unknown URL with '***' → key cleared, sentinel never forwarded
+    res = asyncio.run(m.test_model_layer({
+        "provider_type": "openai", "provider_url": "https://other.example/v1",
+        "api_key": "***", "model": "gpt-4o",
+    }))
+    assert seen["api_key"] == ""

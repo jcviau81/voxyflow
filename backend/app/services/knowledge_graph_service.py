@@ -33,14 +33,16 @@ Pinned context (L0):
   refresh (≤30 s TTL).
 """
 
+import asyncio
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.database import async_session, new_uuid, utcnow
 
@@ -76,6 +78,11 @@ class KnowledgeGraphService:
 
     def __init__(self):
         self._pinned_cache: dict[str, tuple[float, list[dict]]] = {}
+        # Event loop captured on async use — lets get_pinned_context (which
+        # may run in a worker thread via asyncio.to_thread) schedule refreshes.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        # Workspaces with a refresh already in flight (dedupes read bursts).
+        self._refresh_inflight: set[str] = set()
 
     # ------------------------------------------------------------------
     # Entity CRUD
@@ -118,14 +125,27 @@ class KnowledgeGraphService:
                 return entity_id
 
             entity_id = new_uuid()
-            await db.execute(text(
-                "INSERT INTO kg_entities (id, name, entity_type, workspace_id, properties, created_at, updated_at) "
-                "VALUES (:id, :name, :etype, :pid, :props, :now, :now)"
-            ), {
-                "id": entity_id, "name": name, "etype": entity_type,
-                "pid": workspace_id, "props": props_json, "now": now,
-            })
-            await db.commit()
+            try:
+                await db.execute(text(
+                    "INSERT INTO kg_entities (id, name, entity_type, workspace_id, properties, created_at, updated_at) "
+                    "VALUES (:id, :name, :etype, :pid, :props, :now, :now)"
+                ), {
+                    "id": entity_id, "name": name, "etype": entity_type,
+                    "pid": workspace_id, "props": props_json, "now": now,
+                })
+                await db.commit()
+            except IntegrityError:
+                # Lost a SELECT-then-INSERT race against a concurrent upsert
+                # (uq_kg_entity_name_type_workspace) — converge on the winner's
+                # id instead of failing (and dropping our relationships).
+                await db.rollback()
+                row = (await db.execute(text(
+                    "SELECT id FROM kg_entities "
+                    "WHERE name = :name AND entity_type = :etype AND workspace_id = :pid"
+                ), {"name": name, "etype": entity_type, "pid": workspace_id})).fetchone()
+                if not row:
+                    raise
+                entity_id = row[0]
             return entity_id
 
     async def add_triple(
@@ -357,25 +377,39 @@ class KnowledgeGraphService:
         self,
         triple_id: Optional[str] = None,
         attribute_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> bool:
         """Close a triple or attribute by setting valid_to = now().
 
         This marks the fact as historical — it remains in the database for
         timeline queries but no longer appears in active queries or stats.
         Idempotent: invalidating an already-closed row returns False.
+
+        ``workspace_id`` restricts the write to facts owned by that
+        workspace's entities. When omitted it falls back to the MCP scoping
+        env var VOXYFLOW_WORKSPACE_ID (same source the MCP handlers use), so
+        an LLM in workspace A can never close workspace B's facts. Empty →
+        unscoped (direct backend callers).
         """
+        pid = (workspace_id or os.environ.get("VOXYFLOW_WORKSPACE_ID", "")).strip() or None
         now = utcnow()
         async with async_session() as db:
             if triple_id:
-                result = await db.execute(text(
-                    "UPDATE kg_triples SET valid_to = :now WHERE id = :id AND valid_to IS NULL"
-                ), {"now": now, "id": triple_id})
+                sql = "UPDATE kg_triples SET valid_to = :now WHERE id = :id AND valid_to IS NULL"
+                params: dict = {"now": now, "id": triple_id}
+                if pid:
+                    sql += " AND subject_id IN (SELECT id FROM kg_entities WHERE workspace_id = :pid)"
+                    params["pid"] = pid
+                result = await db.execute(text(sql), params)
                 await db.commit()
                 return result.rowcount > 0
             if attribute_id:
-                result = await db.execute(text(
-                    "UPDATE kg_attributes SET valid_to = :now WHERE id = :id AND valid_to IS NULL"
-                ), {"now": now, "id": attribute_id})
+                sql = "UPDATE kg_attributes SET valid_to = :now WHERE id = :id AND valid_to IS NULL"
+                params = {"now": now, "id": attribute_id}
+                if pid:
+                    sql += " AND entity_id IN (SELECT id FROM kg_entities WHERE workspace_id = :pid)"
+                    params["pid"] = pid
+                result = await db.execute(text(sql), params)
                 await db.commit()
                 return result.rowcount > 0
         return False
@@ -410,14 +444,54 @@ class KnowledgeGraphService:
     # ------------------------------------------------------------------
 
     def get_pinned_context(self, workspace_id: str) -> list[dict]:
-        """Sync-safe: return cached pinned entities. Async refresh populates the cache."""
+        """Sync-safe: return cached pinned entities.
+
+        On a cache miss/expiry, schedules a background ``refresh_pinned_cache``
+        and serves stale data (if any) meanwhile — so L0 stays populated
+        between writes instead of going silently empty after the 30 s TTL.
+        """
         entry = self._pinned_cache.get(workspace_id)
         if entry and (time.time() - entry[0]) < self.CACHE_TTL:
             return entry[1]
-        return []
+        self._schedule_pinned_refresh(workspace_id)
+        return entry[1] if entry else []
+
+    def _schedule_pinned_refresh(self, workspace_id: str) -> None:
+        """Fire-and-forget pinned-cache refresh, deduped per workspace.
+
+        Safe from the event loop thread (create_task) or from a worker thread
+        (build_memory_context runs in asyncio.to_thread) via the loop captured
+        on the last async refresh.
+        """
+        if workspace_id in self._refresh_inflight:
+            return
+
+        async def _do_refresh():
+            try:
+                await self.refresh_pinned_cache(workspace_id)
+            except Exception:  # noqa: BLE001
+                logger.debug("background pinned cache refresh failed", exc_info=True)
+            finally:
+                self._refresh_inflight.discard(workspace_id)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            self._refresh_inflight.add(workspace_id)
+            loop.create_task(_do_refresh())
+            return
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return  # no loop available — next async caller will populate
+        self._refresh_inflight.add(workspace_id)
+        asyncio.run_coroutine_threadsafe(_do_refresh(), loop)
 
     async def refresh_pinned_cache(self, workspace_id: str):
         """Query DB for entities with pinned=true attribute and update in-memory cache."""
+        # Remember the loop so thread-side reads can schedule refreshes.
+        self._loop = asyncio.get_running_loop()
         async with async_session() as db:
             rows = (await db.execute(text(
                 "SELECT e.id, e.name, e.entity_type, a.value "

@@ -37,6 +37,15 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** DELETE helper for endpoints returning 204 No Content — throws on non-2xx, never parses the body. */
+async function apiDelete(url: string): Promise<void> {
+  const res = await fetch(`${API}${url}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({})) as { detail?: string };
+    throw new Error(detail.detail ?? `HTTP ${res.status}`);
+  }
+}
+
 // --- Query keys ---
 
 export const cardKeys = {
@@ -226,22 +235,12 @@ export function usePatchCard() {
         body: JSON.stringify(updates),
       });
     },
-    onMutate: ({ cardId }) => {
-      // Snapshot the previous card from the Zustand store so we can roll back on error.
-      // Callers (KanbanBoard, FreeBoard, KanbanCard) apply their own optimistic update
-      // before calling mutateAsync — this rollback is a safety net for fire-and-forget
-      // .mutate() call sites that don't await / try-catch.
-      const previousCard = useCardStore.getState().cardsById[cardId];
-      return { previousCard };
-    },
-    onError: (_err, _vars, context) => {
-      // Roll back the optimistic store write if we have a previous snapshot.
-      // Callers that do their own try/catch rollback will simply overwrite this.
-      const previousCard = context?.previousCard;
-      if (previousCard) {
-        useCardStore.getState().upsertCard(previousCard);
-      }
-    },
+    // No onMutate/onError rollback here: callers (KanbanBoard, FreeBoard,
+    // CardDetailModal) apply their optimistic store write BEFORE calling
+    // mutate/mutateAsync, so a snapshot taken in onMutate would already hold
+    // the optimistic value and "rolling back" would re-apply the failed state.
+    // Callers handle their own rollback; onSettled's invalidation re-syncs the
+    // store from the server either way.
     onSettled: (_data, _err, { cardId, workspaceId }) => {
       if (workspaceId) {
         qc.invalidateQueries({ queryKey: cardKeys.byWorkspace(workspaceId) });
@@ -436,7 +435,7 @@ export function useDeleteTimeEntry() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ cardId, entryId }: { cardId: string; entryId: string }) => {
-      await fetch(`${API}/api/cards/${cardId}/time/${entryId}`, { method: 'DELETE' });
+      await apiDelete(`/api/cards/${cardId}/time/${entryId}`);
     },
     onSuccess: (_data, { cardId }) => {
       qc.invalidateQueries({ queryKey: cardKeys.timeEntries(cardId) });
@@ -490,7 +489,7 @@ export function useDeleteChecklistItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ cardId, itemId }: { cardId: string; itemId: string }) => {
-      await fetch(`${API}/api/cards/${cardId}/checklist/${itemId}`, { method: 'DELETE' });
+      await apiDelete(`/api/cards/${cardId}/checklist/${itemId}`);
     },
     onSuccess: (_data, { cardId }) => {
       qc.invalidateQueries({ queryKey: cardKeys.checklist(cardId) });
@@ -522,7 +521,7 @@ export function useDeleteAttachment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ cardId, attachmentId }: { cardId: string; attachmentId: string }) => {
-      await fetch(`${API}/api/cards/${cardId}/attachments/${attachmentId}`, { method: 'DELETE' });
+      await apiDelete(`/api/cards/${cardId}/attachments/${attachmentId}`);
     },
     onSuccess: (_data, { cardId }) => {
       qc.invalidateQueries({ queryKey: cardKeys.attachments(cardId) });
@@ -560,7 +559,7 @@ export function useDeleteRelation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ cardId, relationId }: { cardId: string; relationId: string }) => {
-      await fetch(`${API}/api/cards/${cardId}/relations/${relationId}`, { method: 'DELETE' });
+      await apiDelete(`/api/cards/${cardId}/relations/${relationId}`);
     },
     onSuccess: (_data, { cardId }) => {
       qc.invalidateQueries({ queryKey: cardKeys.relations(cardId) });

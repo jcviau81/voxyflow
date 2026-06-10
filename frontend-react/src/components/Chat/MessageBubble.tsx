@@ -218,8 +218,6 @@ function TtsButton({ text }: TtsButtonProps) {
     return eventBus.on('settings:changed', () => setTtsEnabled(readTtsEnabled()));
   }, []);
 
-  if (!ttsEnabled) return null;
-
   const handleClick = useCallback(async () => {
     if (speaking && ttsService.isSpeaking) {
       ttsService.stop();
@@ -231,6 +229,10 @@ function TtsButton({ text }: TtsButtonProps) {
     await ttsService.speak(plain);
     setSpeaking(false);
   }, [speaking, text]);
+
+  // After all hooks — conditional returns before hooks break the Rules of Hooks
+  // (ttsEnabled flips at runtime via the settings:changed event).
+  if (!ttsEnabled) return null;
 
   return (
     <button

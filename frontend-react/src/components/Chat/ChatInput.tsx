@@ -31,7 +31,7 @@ const DICTATION_AUTO_SEND_DELAY = 3000;
 function looksLikeCode(text: string): boolean {
   const codePatterns = [
     /^(import|export|const|let|var|function|class|if|for|while|return|def|fn|pub)\b/m,
-    /[{}\[\]();]=>/,
+    /[{}\[\]();]|=>/,
     /^\s*(\/\/|#|\/\*|\*)/m,
     /\b(async|await|yield|throw|catch|try)\b/,
   ];

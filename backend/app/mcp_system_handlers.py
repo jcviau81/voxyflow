@@ -730,15 +730,37 @@ def build_handlers(
         Returns artifacts sorted by created_at desc. Each entry includes
         task_id, created_at, read_at, size_bytes, and summary_preview
         (first 200 chars of the completion summary, if available).
+
+        Auto-scoped to the current workspace (same boundary as workers.list);
+        pass scope='all' for a system-wide view.
         """
-        from app.services.worker_artifact_store import list_unread
+        from app.services.worker_artifact_store import list_unread, read_artifact_meta
         try:
             limit = int(params.get("limit", 50) or 50)
         except (TypeError, ValueError):
             limit = 50
         try:
-            items = list_unread(limit=limit)
-            return {"success": True, "unread": items, "count": len(items)}
+            current_pid, scoped = _current_workspace_scope()
+            scope = (params.get("scope") or "").lower()
+            if scope == "all" or not scoped:
+                items = list_unread(limit=limit)
+                scope_label = "all"
+            else:
+                # Workspace chat: only surface artifacts whose meta sidecar
+                # belongs to the current workspace — summary previews from
+                # other workspaces must not leak into this context.
+                items = []
+                for entry in list_unread(limit=1000):
+                    try:
+                        meta = read_artifact_meta(entry.get("task_id") or "")
+                    except Exception:
+                        meta = None
+                    if meta is not None and (meta.get("workspace_id") or "").strip() == current_pid:
+                        items.append(entry)
+                        if len(items) >= limit:
+                            break
+                scope_label = "workspace"
+            return {"success": True, "scope": scope_label, "unread": items, "count": len(items)}
         except Exception as e:
             logger.error(f"[mcp.workers.list_unread] failed: {e}")
             return {"success": False, "error": str(e)}
@@ -855,7 +877,7 @@ def build_handlers(
             result: dict = {"entities": entities, "count": len(entities)}
 
             if include_rels and entities:
-                rels = await kg.query_relationships(workspace_id, entity_name=name, limit=limit)
+                rels = await kg.query_relationships(workspace_id, entity_name=name, as_of=as_of, limit=limit)
                 result["relationships"] = rels
 
             logger.info(f"[mcp.kg.query] workspace={workspace_id} name={name!r} found={len(entities)}")
@@ -1176,9 +1198,19 @@ async def voxyflow_delegate_handler(params: dict) -> dict:
                 logger.warning(f"[voxyflow.delegate MCP/stdio] HTTP queue failed: {http_err}")
                 return {"success": False, "error": f"Failed to queue delegate: {http_err}"}
         else:
+            # No chat_id → nothing can pick the delegate up. Surface the loss
+            # instead of pretending a worker was dispatched.
             logger.warning("[voxyflow.delegate MCP] No chat_id available — delegate lost. Set VOXYFLOW_CHAT_ID.")
+            return {
+                "success": False,
+                "error": (
+                    "No VOXYFLOW_CHAT_ID available — the delegate was NOT queued "
+                    "and no worker will be spawned."
+                ),
+            }
     except Exception as e:
         logger.warning(f"[voxyflow.delegate MCP] Could not queue delegate: {e}")
+        return {"success": False, "error": f"Failed to queue delegate: {e}"}
 
     return {
         "success": True,

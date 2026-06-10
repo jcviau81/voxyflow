@@ -63,7 +63,6 @@ TOOLS_DISPATCHER = {
     "voxyflow.card.checklist.add", "voxyflow.card.checklist.add_bulk",
     "voxyflow.card.checklist.list", "voxyflow.card.checklist.update",
     "voxyflow.card.checklist.delete",
-    "voxyflow.card.enrich",
     "voxyflow.card.relation.add", "voxyflow.card.relation.list", "voxyflow.card.relation.delete",
     "voxyflow.card.time.log", "voxyflow.card.time.list", "voxyflow.card.time.delete",
 
@@ -132,6 +131,9 @@ _WORKER_EXTRAS = {
     # Heavy AI features
     "voxyflow.ai.standup", "voxyflow.ai.brief", "voxyflow.ai.health",
     "voxyflow.ai.prioritize", "voxyflow.ai.review_code",
+    # Synchronous LLM call — blocks inline chat, worker-only per CLAUDE.md
+    # §"Tool Access Architecture" (the dispatcher proposes via delegate).
+    "voxyflow.card.enrich",
 
     # OS / dev-environment access
     "system.exec",

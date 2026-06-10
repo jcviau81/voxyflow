@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { Pin, Copy, Pencil, FolderInput, Archive, Timer, Play, CheckSquare, Link2, Folder } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { matchesCard } from '@/lib/cardFilter';
@@ -142,8 +142,6 @@ export function KanbanCard({
   onCardClick,
   isWorkerActive = false,
 }: KanbanCardProps) {
-  const [isDragging, setIsDragging] = useState(false);
-
   const showToast = useToastStore((s) => s.showToast);
   const { executeCard: executeCardWS } = useChatService();
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -204,19 +202,6 @@ export function KanbanCard({
       onCardClick?.(card.id);
     },
     [selectMode, isSelected, onSelectChange, card.id, selectCard, onCardClick]
-  );
-
-  const handleDragStart = useCallback(
-    (e: React.DragEvent) => {
-      if (selectMode) {
-        e.preventDefault();
-        return;
-      }
-      e.dataTransfer.setData('text/plain', card.id);
-      e.dataTransfer.effectAllowed = 'move';
-      setIsDragging(true);
-    },
-    [selectMode, card.id]
   );
 
   const handleExecute = async () => {
@@ -343,17 +328,13 @@ export function KanbanCard({
         'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 hover:border-border/80',
         card.color && CARD_COLOR_CLASSES[card.color],
         !card.color && 'hover:bg-muted/30',
-        isDragging && 'opacity-40 scale-95',
         isSelected && 'border-primary/60 ring-1 ring-primary/40 bg-primary/5',
         isBlocked && 'border-orange-500/40 bg-orange-500/5',
       )}
-      draggable={!selectMode}
       data-testid="kanban-card"
       data-card-id={card.id}
       data-card-status={card.status}
       onClick={handleCardClick}
-      onDragStart={handleDragStart}
-      onDragEnd={() => setIsDragging(false)}
     >
       {/* Active-worker ping — shown only when a worker is actually running on this card. */}
       {isWorkerActive && (

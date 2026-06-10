@@ -441,7 +441,7 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
             {/* Peek loading state */}
             {peekExpanded && !peekData && (
               <p className="text-[11px] text-muted-foreground px-1 animate-pulse">
-                Fetching live data\u2026
+                {'Fetching live data\u2026'}
               </p>
             )}
 
@@ -512,7 +512,7 @@ function WorkerRow({ worker, onCancel, onSteer, onSelect, isLast, peekData, peek
               value={steerInput}
               onChange={(ev) => setSteerInput(ev.target.value)}
               onKeyDown={onKey}
-              placeholder="Send steering message\u2026"
+              placeholder={'Send steering message\u2026'}
               aria-label="Steering message"
               className="flex-1 text-[12px] bg-transparent outline-none text-foreground placeholder:text-muted-foreground/60"
             />
@@ -577,12 +577,22 @@ function SessionRow({ session, workspaceId, onCancel, onSteer, onSelect, peekDat
 
   return (
     <div>
-      <button
+      {/* div role="button" (like WorkerRow) — a real <button> can't contain the
+          nested "Open card" button (invalid DOM nesting) */}
+      <div
+        role="button"
+        tabIndex={0}
         className={cn(
           'flex items-center gap-1.5 w-full px-2 py-1.5 text-[12px] transition-colors cursor-pointer rounded-lg hover:bg-accent/8',
           isActive ? 'text-foreground' : 'text-muted-foreground',
         )}
         onClick={handleSessionClick}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleSessionClick();
+          }
+        }}
       >
         {hasChildren ? (
           open
@@ -630,7 +640,7 @@ function SessionRow({ session, workspaceId, onCancel, onSteer, onSelect, peekDat
             <ExternalLink size={9} />
           </button>
         )}
-      </button>
+      </div>
 
       {open && hasChildren && (
         <div className="flex flex-col gap-2 mt-1">

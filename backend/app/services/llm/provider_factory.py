@@ -184,7 +184,12 @@ def infer_provider_type(url: str, model: str = "") -> str:
     lower_model = model.lower()
 
     parsed = urlparse(url) if url else None
-    port = parsed.port if parsed else None
+    try:
+        port = parsed.port if parsed else None
+    except ValueError:
+        # Free-text saved URL with a malformed port (e.g. "http://host:abc") —
+        # degrade to the no-port heuristics instead of 500ing /api/models/*.
+        port = None
 
     if port == 11434 or "ollama" in lower_url:
         return ProviderType.OLLAMA

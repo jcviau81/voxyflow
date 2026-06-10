@@ -14,6 +14,7 @@ Tests cover:
 import asyncio
 import os
 import sys
+import time
 import uuid
 
 import pytest
@@ -127,6 +128,42 @@ class TestTriples:
     async def test_invalidate_nonexistent(self, kg):
         ok = await kg.invalidate(triple_id="nonexistent-id")
         assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_invalidate_scoped_to_workspace(self, kg):
+        """A workspace can only invalidate its own facts."""
+        pid_a = _pid()
+        pid_b = _pid()
+        eid1 = await kg.add_entity("app", "component", pid_a)
+        eid2 = await kg.add_entity("Redis", "technology", pid_a)
+        tid = await kg.add_triple(eid1, "uses", eid2)
+
+        # Wrong workspace — refused, fact stays active
+        ok = await kg.invalidate(triple_id=tid, workspace_id=pid_b)
+        assert ok is False
+        assert len(await kg.query_relationships(pid_a)) == 1
+
+        # Owning workspace — closed
+        ok = await kg.invalidate(triple_id=tid, workspace_id=pid_a)
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_invalidate_env_scoping(self, kg):
+        """VOXYFLOW_WORKSPACE_ID scopes invalidate when no explicit workspace_id."""
+        pid_a = _pid()
+        eid = await kg.add_entity("Redis", "technology", pid_a)
+        aid = await kg.add_attribute(eid, "status", "active")
+        prev = os.environ.get("VOXYFLOW_WORKSPACE_ID")
+        try:
+            os.environ["VOXYFLOW_WORKSPACE_ID"] = _pid()  # another workspace
+            assert await kg.invalidate(attribute_id=aid) is False
+            os.environ["VOXYFLOW_WORKSPACE_ID"] = pid_a
+            assert await kg.invalidate(attribute_id=aid) is True
+        finally:
+            if prev is None:
+                os.environ.pop("VOXYFLOW_WORKSPACE_ID", None)
+            else:
+                os.environ["VOXYFLOW_WORKSPACE_ID"] = prev
 
     @pytest.mark.asyncio
     async def test_as_of_sees_invalidated_triple(self, kg):
@@ -279,6 +316,28 @@ class TestPinnedCache:
         pinned = kg.get_pinned_context(pid)
         assert len(pinned) == 1
         assert pinned[0]["name"] == "Redis"
+
+    @pytest.mark.asyncio
+    async def test_pinned_cache_serves_stale_and_schedules_refresh(self, kg):
+        """Expired entries are served stale while a background refresh runs."""
+        pid = _pid()
+        eid = await kg.add_entity("Redis", "technology", pid)
+        await kg.add_attribute(eid, "pinned", "true")
+        await kg.refresh_pinned_cache(pid)
+
+        # Manually expire the entry — read must serve stale data, not []
+        data = kg._pinned_cache[pid][1]
+        kg._pinned_cache[pid] = (time.time() - 999.0, data)
+        pinned = kg.get_pinned_context(pid)
+        assert len(pinned) == 1, "stale pinned data should be served on expiry"
+
+        # The scheduled background refresh re-populates the cache
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if (time.time() - kg._pinned_cache[pid][0]) < 60.0:
+                break
+        assert (time.time() - kg._pinned_cache[pid][0]) < 60.0, \
+            "background refresh did not run"
 
 
 # ============================================================================

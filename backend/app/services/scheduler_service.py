@@ -245,6 +245,20 @@ class SchedulerService:
         self._seed_default_jobs(_jobs_file)
         self.load_user_jobs(_jobs_file)
 
+        # Service-health heartbeat — registered directly (not via jobs.json) so
+        # health status / resource metrics never go stale; it must always run.
+        from apscheduler.triggers.interval import IntervalTrigger
+        self._scheduler.add_job(
+            self._heartbeat_job,
+            trigger=IntervalTrigger(minutes=5),
+            id="builtin-service-heartbeat",
+            name="Service Heartbeat",
+            replace_existing=True,
+            misfire_grace_time=300,
+            coalesce=True,
+            max_instances=1,
+        )
+
         # Run heartbeat immediately at startup (so health status is known right away)
         asyncio.ensure_future(self._heartbeat_job())
 
@@ -288,7 +302,13 @@ class SchedulerService:
         if re.match(r"^every[_\s]?day$", s, re.IGNORECASE):
             return ("interval", {"days": 1})
 
-        # Default: treat as cron expression
+        # Default: treat as cron expression. APScheduler's from_crontab only
+        # accepts 5 fields — normalise legacy 6-field (seconds-first) crontabs
+        # like the persisted standup schedules ("0 M H * * *") by dropping the
+        # leading seconds field.
+        fields = s.split()
+        if len(fields) == 6:
+            s = " ".join(fields[1:])
         return ("cron", {"crontab": s})
 
     def register_user_job(self, job: dict) -> None:
@@ -362,6 +382,73 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"[Jobs] Failed to unregister job {job_id}: {e}")
 
+    # ------------------------------------------------------------------
+    # Standup jobs (per-workspace daily standup)
+    # ------------------------------------------------------------------
+
+    def register_standup_job(self, workspace_id: str, schedule: dict) -> None:
+        """Register (or re-register) a workspace's standup job with APScheduler.
+
+        ``schedule`` is either the full job dict persisted in jobs.json or a
+        partial mapping — in the latter case the persisted standup job for the
+        workspace is loaded from disk. Idempotent: standup reschedules mint a
+        fresh job id, so any previous registration for this workspace is
+        removed first.
+        """
+        if not (self._scheduler and self._scheduler.running):
+            return
+
+        self.unregister_standup_job(workspace_id)
+
+        job: Optional[dict] = None
+        if isinstance(schedule, dict) and schedule.get("id") and schedule.get("type") == "standup":
+            job = schedule
+        else:
+            from app.services.job_runner import _load_jobs
+            for j in _load_jobs():
+                if (
+                    j.get("type") == "standup"
+                    and j.get("payload", {}).get("workspace_id") == workspace_id
+                ):
+                    job = j
+                    break
+        if job is None:
+            logger.warning(
+                f"[Jobs] No persisted standup job for workspace {workspace_id} — nothing to register"
+            )
+            return
+        self.register_user_job(job)
+
+    def unregister_standup_job(self, workspace_id: str) -> None:
+        """Remove a workspace's standup job(s) from APScheduler. Idempotent.
+
+        Matches by the job payload rather than job id — standup job ids are
+        regenerated on every reschedule, so the id alone can't find stale
+        registrations.
+        """
+        if not (self._scheduler and self._scheduler.running):
+            return
+        try:
+            aps_jobs = self._scheduler.get_jobs()
+        except Exception:
+            return
+        for aps_job in aps_jobs:
+            args = getattr(aps_job, "args", None) or []
+            job = args[0] if args else None
+            if not isinstance(job, dict):
+                continue
+            if (
+                job.get("type") == "standup"
+                and job.get("payload", {}).get("workspace_id") == workspace_id
+            ):
+                try:
+                    self._scheduler.remove_job(aps_job.id)
+                    logger.info(
+                        f"[Jobs] Unregistered standup job for workspace {workspace_id} (id={job.get('id')})"
+                    )
+                except Exception as e:
+                    logger.error(f"[Jobs] Failed to unregister standup job {aps_job.id}: {e}")
+
     def get_next_run(self, job_id: str) -> Optional[str]:
         """Return the ISO-formatted next_run_time for a user job, or None."""
         if not (self._scheduler and self._scheduler.running):
@@ -434,7 +521,7 @@ class SchedulerService:
 
         # Lazy import avoids pulling the jobs persistence store at scheduler
         # module-load time; by now the app is fully booted.
-        from app.services.job_runner import _execute_job, _load_jobs, _save_jobs, _find_job
+        from app.services.job_runner import _execute_job, _load_jobs, _find_job, update_job_fields
 
         # Re-check enabled flag from disk — APScheduler may fire after the
         # job was disabled but before remove_job() took effect.
@@ -469,14 +556,12 @@ class SchedulerService:
                 result,
             )
 
-        # Update last_run in jobs.json (best-effort)
+        # Update last_run in jobs.json (best-effort). update_job_fields holds
+        # JOBS_LOCK across the read-modify-write so a concurrent job CRUD save
+        # can't be clobbered by our stale snapshot; run it off-loop since the
+        # lock is a threading lock shared with to_thread route callers.
         try:
-            jobs = _load_jobs()
-            idx, existing = _find_job(jobs, job_id)
-            if existing is not None:
-                existing["last_run"] = _now_iso()
-                jobs[idx] = existing
-                _save_jobs(jobs)
+            await asyncio.to_thread(update_job_fields, job_id, last_run=_now_iso())
         except Exception as e:
             logger.warning(f"[Jobs] Could not update last_run for '{name}': {e}")
 
@@ -685,6 +770,8 @@ class SchedulerService:
 
                         # Advance recurrence_next
                         base = card.recurrence_next or now
+                        if base.tzinfo is None:
+                            base = base.replace(tzinfo=timezone.utc)
                         RECURRENCE_DELTAS = {
                             "15min": timedelta(minutes=15),
                             "30min": timedelta(minutes=30),
@@ -701,12 +788,22 @@ class SchedulerService:
                                 from apscheduler.triggers.cron import CronTrigger
                                 cron_expr = card.recurrence.replace("cron:", "").strip()
                                 trigger = CronTrigger.from_crontab(cron_expr, timezone=timezone.utc)
-                                base = base if base.tzinfo else base.replace(tzinfo=timezone.utc)
-                                new_next = trigger.get_next_fire_time(None, base)
+                                # Compute the next fire strictly after now — using
+                                # the stale `base` would yield a past timestamp
+                                # after downtime and re-fire every hourly sweep.
+                                new_next = trigger.get_next_fire_time(None, max(base, now))
+                                if new_next is None:
+                                    new_next = now + timedelta(days=1)
                             except Exception:
-                                new_next = base + timedelta(days=1)
+                                new_next = now + timedelta(days=1)
                         else:
-                            new_next = base + RECURRENCE_DELTAS.get(card.recurrence, timedelta(days=1))
+                            delta = RECURRENCE_DELTAS.get(card.recurrence, timedelta(days=1))
+                            new_next = base + delta
+                            # Catch up after downtime: never persist a past
+                            # recurrence_next, or the card resets to todo again
+                            # on every subsequent sweep until caught up.
+                            while new_next <= now:
+                                new_next += delta
 
                         # Weekdays: skip weekends
                         if card.recurrence == "weekdays":
