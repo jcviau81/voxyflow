@@ -74,7 +74,7 @@ function pushRecent(id: string): string[] {
 const VIEW_COMMANDS: Array<{ view: ViewMode; label: string; icon: typeof Kanban }> = [
   { view: 'kanban', label: 'Kanban board', icon: SquareKanban },
   { view: 'chat', label: 'Chat', icon: MessageSquare },
-  { view: 'freeboard', label: 'Free board', icon: LayoutGrid },
+  { view: 'freeboard', label: 'Backlog', icon: LayoutGrid },
   { view: 'stats', label: 'Stats', icon: BarChart3 },
   { view: 'knowledge', label: 'Knowledge', icon: BrainCircuit },
 ];
