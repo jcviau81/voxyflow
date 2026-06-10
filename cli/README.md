@@ -29,15 +29,16 @@ pipx install --editable ./cli
 
 ```
 voxy status                          # health + counts overview
+voxy use [WORKSPACE] [--clear]       # set/show/clear the default workspace
 voxy chat "message" [-w WS] [--deep] # one-shot chat, streams live
 voxy chat [-w WS]                    # interactive REPL (/quit, /deep)
 
-voxy ws list [--json]
+voxy ws list [--json]                # › marks the `voxy use` workspace
 voxy ws create TITLE [-d DESC]
 voxy ws delete NAME_OR_ID [-y]
 
-voxy cards list -w WS [--status S] [--json]
-voxy cards add TITLE -w WS [-d DESC]
+voxy cards list [-w WS] [--status S] [--json]
+voxy cards add TITLE [-w WS] [-d DESC]
 voxy cards move CARD_ID STATUS       # backlog / todo / in-progress / done
 voxy cards done CARD_ID
 voxy cards rm CARD_ID [-y]
@@ -54,6 +55,13 @@ voxy jobs run JOB_ID
 voxy skills list [--json]
 voxy skills show NAME
 ```
+
+### Default workspace (`voxy use`)
+
+`voxy use myproject` persists a default workspace in `~/.voxyflow/cli.json`;
+`chat` and `cards` then target it when `-w` is omitted. Explicit `-w` always
+wins, `-w general` forces the general/main chat, and `voxy use --clear`
+(or deleting the workspace) resets to general.
 
 Workspace arguments (`-w`) accept either the workspace **id** or its **title**
 (case-insensitive; unique prefixes work too).

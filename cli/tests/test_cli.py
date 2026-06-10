@@ -161,3 +161,56 @@ class TestFrontmatter:
         meta, body = parse_frontmatter("# Just markdown")
         assert meta == {}
         assert body == "# Just markdown"
+
+
+# ---------------------------------------------------------------------------
+# voxy use — persistent default workspace
+# ---------------------------------------------------------------------------
+
+from voxy.config import (  # noqa: E402
+    clear_default_workspace,
+    effective_workspace_ref,
+    get_default_workspace,
+    load_cli_config,
+    set_default_workspace,
+)
+
+
+class TestCliConfig:
+    def test_roundtrip(self, tmp_path):
+        p = tmp_path / "cli.json"
+        assert get_default_workspace(p) is None
+        set_default_workspace("ws-123", "Voxyflow", p)
+        ws = get_default_workspace(p)
+        assert ws == {"id": "ws-123", "title": "Voxyflow"}
+        clear_default_workspace(p)
+        assert get_default_workspace(p) is None
+
+    def test_clear_preserves_other_keys(self, tmp_path):
+        p = tmp_path / "cli.json"
+        p.write_text('{"other": 1, "workspace": {"id": "a", "title": "A"}}')
+        clear_default_workspace(p)
+        assert load_cli_config(p) == {"other": 1}
+
+    def test_corrupt_file_is_empty_config(self, tmp_path):
+        p = tmp_path / "cli.json"
+        p.write_text("{not json")
+        assert load_cli_config(p) == {}
+        assert get_default_workspace(p) is None
+
+
+class TestEffectiveWorkspaceRef:
+    DEFAULT = {"id": "ws-default", "title": "Default WS"}
+
+    def test_explicit_option_wins(self):
+        assert effective_workspace_ref("other", self.DEFAULT) == "other"
+
+    def test_general_forces_none(self):
+        for ref in ("general", "GENERAL", "main", "home", "none"):
+            assert effective_workspace_ref(ref, self.DEFAULT) is None
+
+    def test_default_applies_when_no_option(self):
+        assert effective_workspace_ref(None, self.DEFAULT) == "ws-default"
+
+    def test_no_option_no_default_is_general(self):
+        assert effective_workspace_ref(None, None) is None

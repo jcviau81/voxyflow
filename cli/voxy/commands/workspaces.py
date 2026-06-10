@@ -6,6 +6,7 @@ import typer
 from rich.table import Table
 
 from ..client import CliError, VoxyClient, die, get_workspace
+from ..config import get_default_workspace
 from ..output import console, fmt_age, fmt_status, print_json
 
 app = typer.Typer(help="Manage workspaces.", no_args_is_help=True)
@@ -26,7 +27,10 @@ def list_workspaces(
         print_json(workspaces)
         return
 
+    default_ws = get_default_workspace()
+    default_id = default_ws["id"] if default_ws else None
     table = Table(title=f"Workspaces ({len(workspaces)})")
+    table.add_column("", width=1)  # active marker (voxy use)
     table.add_column("ID", style="dim", overflow="fold")
     table.add_column("Title", style="bold")
     table.add_column("Status")
@@ -34,6 +38,7 @@ def list_workspaces(
     table.add_column("Age", justify="right")
     for ws in workspaces:
         table.add_row(
+            "[green]›[/green]" if ws.get("id") == default_id else "",
             ws.get("id", ""),
             f"{ws.get('emoji') or ''} {ws.get('title', '')}".strip(),
             fmt_status(ws.get("status")),
@@ -76,4 +81,10 @@ def delete_workspace(
             client.delete(f"/api/workspaces/{ws['id']}")
     except CliError as e:
         raise die(str(e))
+    default_ws = get_default_workspace()
+    if default_ws and default_ws["id"] == ws["id"]:
+        from ..config import clear_default_workspace
+
+        clear_default_workspace()
+        console.print("[dim]cleared default workspace (it was deleted)[/dim]")
     console.print(f"[green]Deleted[/green] workspace [bold]{ws.get('title')}[/bold]")

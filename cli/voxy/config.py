@@ -7,6 +7,10 @@ from pathlib import Path
 
 DEFAULT_URL = "http://localhost:8000"
 TOKEN_PATH = Path.home() / ".voxyflow" / "auth_token"
+CLI_CONFIG_PATH = Path.home() / ".voxyflow" / "cli.json"
+
+# Refs that force the general/main chat even when a default workspace is set.
+GENERAL_REFS = {"general", "main", "home", "none"}
 
 
 def get_base_url() -> str:
@@ -21,6 +25,63 @@ def ws_url(base_url: str) -> str:
     if base_url.startswith("http://"):
         return "ws://" + base_url[len("http://"):] + "/ws"
     return base_url.rstrip("/") + "/ws"
+
+
+# -- persistent CLI config (`voxy use`) ---------------------------------
+
+def load_cli_config(path: Path | None = None) -> dict:
+    """Read ~/.voxyflow/cli.json (empty dict when missing or corrupt)."""
+    p = path if path is not None else CLI_CONFIG_PATH
+    try:
+        import json
+
+        data = json.loads(p.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_cli_config(cfg: dict, path: Path | None = None) -> None:
+    import json
+
+    p = path if path is not None else CLI_CONFIG_PATH
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(cfg, indent=2) + "\n")
+
+
+def get_default_workspace(path: Path | None = None) -> dict | None:
+    """The persisted default workspace ({'id', 'title'}) or None."""
+    ws = load_cli_config(path).get("workspace")
+    return ws if isinstance(ws, dict) and ws.get("id") else None
+
+
+def set_default_workspace(ws_id: str, title: str, path: Path | None = None) -> None:
+    cfg = load_cli_config(path)
+    cfg["workspace"] = {"id": ws_id, "title": title}
+    save_cli_config(cfg, path)
+
+
+def clear_default_workspace(path: Path | None = None) -> None:
+    cfg = load_cli_config(path)
+    cfg.pop("workspace", None)
+    save_cli_config(cfg, path)
+
+
+def effective_workspace_ref(
+    option_value: str | None, default_ws: dict | None
+) -> str | None:
+    """Resolve which workspace ref a command should use.
+
+    Explicit ``-w`` wins; the refs in GENERAL_REFS force the general chat
+    (ref None); otherwise the persisted default applies.
+    """
+    if option_value:
+        if option_value.strip().lower() in GENERAL_REFS:
+            return None
+        return option_value
+    if default_ws:
+        return default_ws["id"]
+    return None
 
 
 def load_token(

@@ -13,7 +13,13 @@ from . import __version__
 from .chatws import ChatError, ChatSession, ChatTimeout, chat_once
 from .client import CliError, VoxyClient, die, get_workspace
 from .commands import cards, jobs, skills, workers, workspaces
-from .config import get_base_url
+from .config import (
+    clear_default_workspace,
+    effective_workspace_ref,
+    get_base_url,
+    get_default_workspace,
+    set_default_workspace,
+)
 from .output import console, print_json
 
 app = typer.Typer(
@@ -38,34 +44,85 @@ def _root(
 
 
 # ---------------------------------------------------------------------------
+# use — persistent default workspace
+# ---------------------------------------------------------------------------
+
+@app.command("use")
+def use(
+    workspace: str = typer.Argument(
+        None, help="Workspace name or id to make the default. Omit to show the current one."
+    ),
+    clear: bool = typer.Option(False, "--clear", help="Clear the default workspace."),
+):
+    """Set the default workspace for all commands (override per-command with -w).
+
+    `-w general` always forces the general chat regardless of the default.
+    """
+    if clear:
+        clear_default_workspace()
+        console.print("[green]Cleared[/green] default workspace — commands target the general chat again.")
+        return
+
+    if not workspace:
+        current = get_default_workspace()
+        if current:
+            console.print(
+                f"default workspace: [bold]{current.get('title', '?')}[/bold] [dim]({current['id']})[/dim]"
+            )
+        else:
+            console.print("[dim]no default workspace set — `voxy use WORKSPACE` to set one[/dim]")
+        return
+
+    try:
+        with VoxyClient() as client:
+            ws = get_workspace(client, workspace)
+    except CliError as e:
+        raise die(str(e))
+    set_default_workspace(ws["id"], ws.get("title", ""))
+    console.print(
+        f"[green]Switched to[/green] [bold]{ws.get('title')}[/bold] [dim]({ws['id']})[/dim] — "
+        "override with -w, reset with `voxy use --clear`."
+    )
+
+
+# ---------------------------------------------------------------------------
 # chat
 # ---------------------------------------------------------------------------
 
-def _resolve_workspace_id(workspace: str | None) -> str | None:
-    if not workspace:
-        return None
+def _resolve_workspace(workspace: str | None) -> tuple[str | None, str | None]:
+    """Effective (workspace_id, title) for chat: -w wins, then `voxy use` default."""
+    default_ws = get_default_workspace()
+    ref = effective_workspace_ref(workspace, default_ws)
+    if ref is None:
+        return None, None
+    if default_ws and ref == default_ws["id"] and not workspace:
+        return default_ws["id"], default_ws.get("title")
     with VoxyClient() as client:
-        return get_workspace(client, workspace)["id"]
+        ws = get_workspace(client, ref)
+    return ws["id"], ws.get("title")
 
 
 @app.command("chat")
 def chat(
     message: str = typer.Argument(None, help="One-shot message. Omit for interactive REPL."),
-    workspace: str = typer.Option(None, "--workspace", "-w", help="Workspace name or id (default: general chat)."),
+    workspace: str = typer.Option(
+        None, "--workspace", "-w",
+        help="Workspace name or id ('general' forces the general chat; default: `voxy use` workspace, else general).",
+    ),
     deep: bool = typer.Option(False, "--deep", help="Use the deep (slow, smart) model layer."),
     timeout: float = typer.Option(120.0, "--timeout", help="Seconds to wait for the full response."),
 ):
     """Chat with Voxy — one-shot if MESSAGE is given, interactive REPL otherwise."""
     base_url = get_base_url()
     try:
-        workspace_id = _resolve_workspace_id(workspace)
+        workspace_id, workspace_title = _resolve_workspace(workspace)
     except CliError as e:
         raise die(str(e))
 
     if message:
         _chat_oneshot(base_url, message, workspace_id, deep, timeout)
     else:
-        _chat_repl(base_url, workspace_id, deep, timeout)
+        _chat_repl(base_url, workspace_id, deep, timeout, workspace_title)
 
 
 def _chat_oneshot(base_url, message, workspace_id, deep, timeout):
@@ -87,10 +144,11 @@ def _chat_oneshot(base_url, message, workspace_id, deep, timeout):
         raise die(f"cannot reach Voxyflow websocket at {base_url} — is the backend running?")
 
 
-def _chat_repl(base_url, workspace_id, deep, timeout):
+def _chat_repl(base_url, workspace_id, deep, timeout, workspace_title=None):
     console.print("[bold]voxy chat[/bold] — interactive. [dim]/quit to exit, /deep to toggle deep mode.[/dim]")
     if workspace_id:
-        console.print(f"[dim]workspace: {workspace_id}[/dim]")
+        console.print(f"[dim]workspace: {workspace_title or workspace_id}[/dim]")
+    ws_tag = f"[dim]{workspace_title}[/dim] " if workspace_title else ""
 
     async def repl():
         nonlocal deep
@@ -104,7 +162,7 @@ def _chat_repl(base_url, workspace_id, deep, timeout):
                 try:
                     line = await asyncio.to_thread(
                         console.input,
-                        f"[bold cyan]you{' (deep)' if deep else ''} ›[/bold cyan] ",
+                        f"{ws_tag}[bold cyan]you{' (deep)' if deep else ''} ›[/bold cyan] ",
                     )
                 except (EOFError, KeyboardInterrupt):
                     break

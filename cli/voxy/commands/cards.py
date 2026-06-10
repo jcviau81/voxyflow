@@ -6,21 +6,34 @@ import typer
 from rich.table import Table
 
 from ..client import CliError, VoxyClient, die, get_workspace
+from ..config import effective_workspace_ref, get_default_workspace
 from ..output import console, fmt_age, fmt_status, print_json
 
 app = typer.Typer(help="Manage kanban cards.", no_args_is_help=True)
 
+WS_HELP = "Workspace name or id (default: the `voxy use` workspace)."
+
+
+def _require_workspace_ref(workspace: str | None) -> str:
+    """Explicit -w, else the `voxy use` default — error when neither is set."""
+    ref = effective_workspace_ref(workspace, get_default_workspace())
+    if not ref:
+        raise CliError(
+            "no workspace given — pass -w WORKSPACE or set a default with `voxy use WORKSPACE`"
+        )
+    return ref
+
 
 @app.command("list")
 def list_cards(
-    workspace: str = typer.Option(..., "--workspace", "-w", help="Workspace name or id."),
+    workspace: str = typer.Option(None, "--workspace", "-w", help=WS_HELP),
     status: str = typer.Option(None, "--status", help="Filter by status (backlog/todo/in-progress/done)."),
     as_json: bool = typer.Option(False, "--json", help="Output raw JSON."),
 ):
     """List cards in a workspace."""
     try:
         with VoxyClient() as client:
-            ws = get_workspace(client, workspace)
+            ws = get_workspace(client, _require_workspace_ref(workspace))
             cards = client.get(f"/api/workspaces/{ws['id']}/cards")
     except CliError as e:
         raise die(str(e))
@@ -54,13 +67,13 @@ def list_cards(
 @app.command("add")
 def add_card(
     title: str = typer.Argument(..., help="Card title."),
-    workspace: str = typer.Option(..., "--workspace", "-w", help="Workspace name or id."),
+    workspace: str = typer.Option(None, "--workspace", "-w", help=WS_HELP),
     description: str = typer.Option("", "--description", "-d", help="Card description."),
 ):
     """Create a card in a workspace."""
     try:
         with VoxyClient() as client:
-            ws = get_workspace(client, workspace)
+            ws = get_workspace(client, _require_workspace_ref(workspace))
             card = client.post(
                 f"/api/workspaces/{ws['id']}/cards",
                 json={"title": title, "description": description},
