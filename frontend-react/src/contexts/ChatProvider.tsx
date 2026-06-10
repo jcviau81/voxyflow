@@ -15,7 +15,6 @@ import { useCardStore } from '../stores/useCardStore';
 import { useToastStore } from '../stores/useToastStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
 import { useUsageStore } from '../stores/useUsageStore';
-import { generateId } from '../lib/utils';
 import {
   SYSTEM_WORKSPACE_ID,
   STREAMING_SAFETY_TIMEOUT,
@@ -26,100 +25,22 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Message } from '../types';
 import { cardKeys, mapRawCard } from '../hooks/api/useCards';
 import { showInPageNotification } from '../services/inPageNotifier';
+import type { ChatCallbacks, ChatContextValue, StreamState } from './chat/types';
+import {
+  convertBackendMessages,
+  convertBroadcastMessage,
+  type BackendMessage,
+} from './chat/messageMapping';
 
-// ---------------------------------------------------------------------------
-// Chat event callback types — components subscribe to these via context
-// ---------------------------------------------------------------------------
-
-export type ChatEventCallback = (data: Record<string, unknown>) => void;
-
-export interface ChatCallbacks {
-  onMessageReceived?: (message: Message) => void;
-  onMessageStreaming?: (data: { messageId: string; content: string; chunk: string }) => void;
-  onMessageStreamEnd?: (data: { messageId: string; content: string }) => void;
-  onMessageEnrichment?: (message: Message) => void;
-  onModelStatus?: (data: { model: string; state: string }) => void;
-  onTaskStarted?: ChatEventCallback;
-  onTaskProgress?: ChatEventCallback;
-  onTaskCompleted?: ChatEventCallback;
-  onTaskCancelled?: ChatEventCallback;
-  onTaskTimeout?: ChatEventCallback;
-  onBoardExecuteCardStart?: ChatEventCallback;
-  onBoardExecuteCardDone?: ChatEventCallback;
-  onBoardExecuteComplete?: ChatEventCallback;
-  onBoardExecuteCancelled?: ChatEventCallback;
-  onBoardExecuteError?: ChatEventCallback;
-  onVoiceFillInput?: (data: { text: string }) => void;
-  onVoiceBufferUpdate?: (data: { text: string }) => void;
-  onVoiceRecordingStop?: () => void;
-  onActionConfirmRequired?: (data: {
-    taskId: string;
-    action: string;
-    message: string;
-    sessionId?: string;
-  }) => Promise<boolean>;
-}
-
-
-// ---------------------------------------------------------------------------
-// Context value
-// ---------------------------------------------------------------------------
-
-export interface ChatContextValue {
-  /** Send a user message to the backend */
-  sendMessage: (
-    content: string,
-    workspaceId?: string,
-    cardId?: string,
-    sessionId?: string,
-  ) => Message;
-  /** Send a hidden system-init message (no user bubble) */
-  sendSystemInit: (
-    contextHint: string,
-    workspaceId?: string,
-    cardId?: string,
-    sessionId?: string,
-  ) => void;
-  /** Load chat history from backend API */
-  loadHistory: (
-    chatId: string,
-    workspaceId?: string,
-    cardId?: string,
-    sessionId?: string,
-    replaceSession?: boolean,
-  ) => Promise<Message[]>;
-  /** Get messages from the local store */
-  getHistory: (workspaceId?: string, sessionId?: string) => Message[];
-  /** Clear all local messages */
-  clearHistory: () => void;
-  /** Simulate character-by-character streaming for a message. Pass an AbortSignal to stop early. */
-  simulateStreaming: (messageId: string, fullContent: string, signal?: AbortSignal) => Promise<void>;
-  /** Set the active session ID (called by ChatWindow) */
-  setActiveSessionId: (sessionId: string | undefined) => void;
-  /** Register event callbacks (returns unsubscribe fn) */
-  registerCallbacks: (callbacks: ChatCallbacks) => () => void;
-  /** Get layer state from localStorage */
-  getLayerState: () => Record<string, boolean>;
-  /** Handle incoming voice transcript (called by VoiceInput component) */
-  handleVoiceTranscript: (transcript: string, isFinal: boolean) => void;
-  /** Handle voice recording stop (called by VoiceInput component) */
-  handleVoiceStop: () => void;
-  /** Create a card from a suggestion (called by Opportunities panel) */
-  createCardFromSuggestion: (data: { title: string; description?: string }) => void;
-  /** Directly spawn a worker to execute a card (bypasses chat layer) */
-  executeCard: (cardId: string, workspaceId?: string) => void;
-}
+// Re-export the chat context types so existing importers
+// (`import { ... } from './ChatProvider'`) keep resolving unchanged.
+export type {
+  ChatEventCallback,
+  ChatCallbacks,
+  ChatContextValue,
+} from './chat/types';
 
 export const ChatContext = createContext<ChatContextValue | null>(null);
-
-// ---------------------------------------------------------------------------
-// Internal streaming state (not reactive — managed via refs)
-// ---------------------------------------------------------------------------
-
-interface StreamState {
-  content: string;
-  messageId: string;
-}
 
 // Banner appended to a bubble when its stream is force-ended on disconnect.
 // Shared so late chunks resuming into the same bubble can strip it again.
@@ -949,24 +870,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             model?: string;
           };
         };
-        if (!message || !message.role || typeof message.content !== 'string') return;
-        if (message.role !== 'user' && message.role !== 'assistant') return;
-
-        // Timestamp from backend is seconds (time.time()) — convert to ms.
-        const tsMs = typeof message.timestamp === 'number'
-          ? Math.round(message.timestamp * 1000)
-          : Date.now();
-
-        const converted: Message = {
-          id: generateId(),
-          role: message.role,
-          content: message.content,
-          timestamp: tsMs,
+        const converted = convertBroadcastMessage(message, {
           sessionId,
           workspaceId: getWorkspaceIdFromSession(sessionId),
-          streaming: false,
-          model: message.model,
-        };
+        });
+        if (!converted) return;
 
         // setMessages dedups by role+timestamp+content-prefix — safe to call
         // even when another tab already injected the same broadcast.
@@ -1005,27 +913,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               .then((r) => (r.ok ? r.json() : null))
               .then((data) => {
                 if (!data?.messages) return;
-                const backendMessages: Array<{
-                  id?: string;
-                  role: string;
-                  content: string;
-                  timestamp?: string;
-                  model?: string;
-                  type?: string;
-                }> = data.messages;
+                const backendMessages: BackendMessage[] = data.messages;
 
-                const converted: Message[] = backendMessages
-                  .filter((m) => m.role === 'user' || m.role === 'assistant')
-                  .filter((m) => m.type !== 'enrichment' && m.type !== 'worker_result')
-                  .map((m) => ({
-                    id: m.id || generateId(),
-                    role: m.role as 'user' | 'assistant',
-                    content: m.content || '',
-                    timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-                    sessionId,
-                    streaming: false,
-                    model: m.model,
-                  }));
+                const converted: Message[] = convertBackendMessages(backendMessages, {
+                  sessionId,
+                });
 
                 if (converted.length > 0) {
                   messageStoreRef.current.replaceSessionMessages(converted, sessionId);
@@ -1214,32 +1106,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const resp = await fetch(`/api/sessions/${chatId}?limit=50`);
         if (!resp.ok) return [];
         const data = await resp.json();
-        const backendMessages: Array<{
-          id?: string;
-          role: string;
-          content: string;
-          timestamp?: string;
-          model?: string;
-          type?: string;
-        }> = data.messages || [];
+        const backendMessages: BackendMessage[] = data.messages || [];
 
-        const converted: Message[] = backendMessages
-          .filter((m) => m.role === 'user' || m.role === 'assistant')
-          .filter((m) => m.type !== 'enrichment' && m.type !== 'worker_result')
-          .map((m) => ({
-            // Prefer the server-assigned id so the manual delete endpoint
-            // can target this message; fall back for ancient sessions
-            // where backfill hasn't run yet.
-            id: m.id || generateId(),
-            role: m.role as 'user' | 'assistant',
-            content: m.content || '',
-            timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-            workspaceId: workspaceId || undefined,
-            cardId: cardId || undefined,
-            sessionId: sessionId || undefined,
-            streaming: false,
-            model: m.model,
-          }));
+        const converted: Message[] = convertBackendMessages(backendMessages, {
+          workspaceId: workspaceId || undefined,
+          cardId: cardId || undefined,
+          sessionId: sessionId || undefined,
+        });
 
         if (converted.length > 0) {
           const store = messageStoreRef.current;
