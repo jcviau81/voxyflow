@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 
 from app.services.direct_executor import CRUD_SIMPLE_INTENTS
-from app.services.orchestration.worker_pool import LIGHTWEIGHT_INTENTS
+from app.services.orchestration.intent_routing import LIGHTWEIGHT_INTENTS
 
 logger = logging.getLogger("voxyflow.orchestration.model_resolution")
 
