@@ -10,12 +10,13 @@
  *   /workspace/:id    → Workspace tab (kanban/chat/stats/roadmap/wiki/docs/knowledge)
  *   /settings       → Settings page
  */
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { OnboardingGuard } from './components/OnboardingGuard';
 import { PageSkeleton } from './components/ui/PageSkeleton';
+import { lazyWithReload } from './lib/lazyWithReload';
 
 import { WorkspaceList } from './components/Workspaces';
 import { WorkspacePage } from './pages/WorkspacePage';
@@ -23,13 +24,13 @@ import { WorkspacePage } from './pages/WorkspacePage';
 // ── Route-level code splitting ────────────────────────────────────────────────
 // Heavy, rarely-first-visited pages load on demand. WorkspacePage stays eager —
 // it is the landing route and lazy-loading it would only add a waterfall.
-const SettingsPage = lazy(() =>
+const SettingsPage = lazyWithReload(() =>
   import('./components/Settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
-const OnboardingPage = lazy(() =>
+const OnboardingPage = lazyWithReload(() =>
   import('./pages/OnboardingPage').then((m) => ({ default: m.OnboardingPage })),
 );
-const JobsPage = lazy(() =>
+const JobsPage = lazyWithReload(() =>
   import('./pages/JobsPage').then((m) => ({ default: m.JobsPage })),
 );
 

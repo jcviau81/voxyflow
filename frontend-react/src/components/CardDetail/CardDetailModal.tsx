@@ -10,7 +10,8 @@
  * Mobile: tabs switch between the three columns.
  */
 
-import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, Suspense } from 'react';
+import { lazyWithReload } from '../../lib/lazyWithReload';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import {
@@ -64,7 +65,7 @@ import { Archive, Play, Loader2 } from 'lucide-react';
 
 // CodeMirror is heavy (~650 kB chunk) — load it on demand so the modal opens
 // instantly; the editor streams in behind a lightweight skeleton.
-const DescriptionEditor = lazy(() =>
+const DescriptionEditor = lazyWithReload(() =>
   import('./DescriptionEditor').then((m) => ({ default: m.DescriptionEditor })),
 );
 
