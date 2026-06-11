@@ -55,6 +55,8 @@ workspace/
 # Playwright
 frontend-react/test-results/
 frontend-react/playwright-report/
+frontend-react/test-results-live/
+frontend-react/playwright-report-live/
 certs/
 
 # User settings (may contain API keys)
