@@ -304,7 +304,9 @@ class AppSettings(BaseModel):
     onboarding_complete: bool = False
     user_name: str = ""
     assistant_name: str = "Voxy"
-    workspace_path: str = str(Path.home() / ".voxyflow" / "workspace")  # absolute path to workspace root
+    # NOTE: a `workspace_path` field used to live here — it was write-only
+    # (nothing ever read it; storage roots come from app.config). Pydantic
+    # silently drops the stale key still present in older saved settings.
 
 
 def _redact_sensitive(data: dict) -> dict:

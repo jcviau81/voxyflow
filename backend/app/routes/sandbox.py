@@ -16,6 +16,21 @@ class FileWriteRequest(BaseModel):
     content: str
 
 
+@router.get("/info")
+async def storage_info(sb: SandboxService = Depends(get_sandbox_service)):
+    """Where Voxyflow stores things on disk (read-only, shown in Settings)."""
+    from app.config import VOXYFLOW_DATA_DIR
+    from app.services.memory_service import CHROMA_PERSIST_DIR
+
+    root = sb.sandbox_root
+    return {
+        "data_dir": str(VOXYFLOW_DATA_DIR),
+        "sandbox_root": str(root),
+        "workspace_areas": str(root / "workspaces" / "<workspace-slug>"),
+        "memory_dir": str(CHROMA_PERSIST_DIR),
+    }
+
+
 @router.get("/files")
 async def list_files(
     path: str = "",
