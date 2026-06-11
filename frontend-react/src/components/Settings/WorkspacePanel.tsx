@@ -1,17 +1,13 @@
 /**
- * WorkspacePanel — Workspace path + Connection settings.
- *
- * Mirrors renderWorkspaceSection() + renderConnectionSection()
- * from frontend/src/components/Settings/SettingsPage.ts (lines 1022–1061).
+ * WorkspacePanel — Workspace path settings.
  *
  * Features:
  *  - Workspace path input with resolved path hint
  *  - Save to /api/settings
- *  - Connection status + reconnect (via WebSocket hook)
  */
 
 import { useState, useEffect } from 'react';
-import { FolderOpen, Globe, Loader2 } from 'lucide-react';
+import { FolderOpen, Loader2 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useToastStore } from '../../stores/useToastStore';
 import { authFetch } from '../../lib/authClient';
@@ -111,18 +107,6 @@ export function WorkspacePanel() {
             </div>
           </div>
         </div>
-      </div>
-
-      {/* ── Connection ── */}
-      <div>
-        <h3 className="flex items-center gap-2 text-base font-semibold mb-4">
-          <Globe size={16} />
-          Connection
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          WebSocket connection status is shown in the status bar. Use the reconnect button if the
-          connection is lost.
-        </p>
       </div>
 
       {/* Save bar */}
