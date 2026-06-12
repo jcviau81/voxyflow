@@ -20,6 +20,13 @@ export async function gotoApp(page: Page, path = '/') {
   await bypassOnboarding(page);
   await page.goto(path);
   await page.waitForLoadState('networkidle');
+  // A message sent before the WS finishes connecting is silently dropped —
+  // wait for the sidebar indicator (tolerate absence on non-shell pages).
+  await page
+    .getByText('connected', { exact: true })
+    .first()
+    .waitFor({ timeout: 15_000 })
+    .catch(() => {});
 }
 
 /**
@@ -130,11 +137,24 @@ export async function sendChat(
   await expect(textarea).toBeVisible({ timeout: 15_000 });
   const before = await bubbleCount(page);
 
-  await textarea.click();
-  await textarea.fill(text);
-  await page.locator('[data-testid="chat-input-send"]').click();
+  // A send fired before the WS session has synced can be silently dropped —
+  // the proof the message registered is the user's own bubble appearing.
+  // Retry the send a few times until it does.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await textarea.click();
+    await textarea.fill(text);
+    await page.locator('[data-testid="chat-input-send"]').click();
+    try {
+      await expect.poll(async () => bubbleCount(page), { timeout: 6_000, intervals: [400] })
+        .toBeGreaterThanOrEqual(before + 1);
+      break;
+    } catch {
+      if (attempt === 3) throw new Error('chat message never registered (no user bubble after 4 sends)');
+      await page.waitForTimeout(2000);
+    }
+  }
 
-  // Wait for user + assistant bubbles to appear (count grows by >=2).
+  // Wait for the assistant bubble on top (count grows by >=2 from baseline).
   await expect.poll(async () => bubbleCount(page), { timeout: replyTimeout, intervals: [500] })
     .toBeGreaterThanOrEqual(before + 2);
 
