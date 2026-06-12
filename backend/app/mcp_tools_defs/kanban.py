@@ -6,7 +6,11 @@ Pure data — every entry follows the schema documented in ``app.mcp_tool_defs``
 
 from __future__ import annotations
 
-from .postprocess import _minimize_card_list, _minimize_card_list_archived
+from .postprocess import (
+    _minimize_card_list,
+    _minimize_card_list_archived,
+    _minimize_workspace_list,
+)
 
 
 KANBAN_TOOLS: list[dict] = [
@@ -63,12 +67,16 @@ KANBAN_TOOLS: list[dict] = [
     },
     {
         "name": "voxyflow.workspace.list",
-        "description": "List all workspaces.",
+        "description": (
+            "List all workspaces (slim rows: id, title, status, emoji, favorite, "
+            "created_at). Use voxyflow.workspace.get for full details of one."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {},
         },
         "_http": ("GET", "/api/workspaces", None),
+        "_post_process": _minimize_workspace_list,
     },
     {
         "name": "voxyflow.workspace.get",

@@ -49,7 +49,11 @@ from app.mcp_tools_defs import (
 # 2026-06-10: re-pinned after adding voxyflow.jobs.schedule_nl to OPS_JOBS_TOOLS
 # (110 → 111 tools); the previous snapshot was
 # 058e08a36e03fe94475a890396143c4934f9295f612527b5eb2d86e4a7af76a6.
-SNAPSHOT_SHA256 = "484f131153e9264e29d2b243b677c253f4bb03a1e2fa54c7cb07e49e70093c49"
+# 2026-06-11: re-pinned after slimming voxyflow.workspace.list (new
+# _post_process + description — large lists spilled to unreadable files in
+# dispatcher chats); the previous snapshot was
+# 484f131153e9264e29d2b243b677c253f4bb03a1e2fa54c7cb07e49e70093c49.
+SNAPSHOT_SHA256 = "dc0154e2e784ed273f3b451398d57e7fb65f416b101a5e0dd6fabc8ed7c3d25c"
 
 SNAPSHOT_NAMES = [
     "voxyflow.card.create_unassigned",
@@ -200,8 +204,12 @@ class TestToolDefsSplitEquivalence:
             by_name["voxyflow.card.list_archived"]["_post_process"]
             is postprocess._minimize_card_list_archived
         )
+        assert (
+            by_name["voxyflow.workspace.list"]["_post_process"]
+            is postprocess._minimize_workspace_list
+        )
         # No other tool carries a _post_process
-        assert sum(1 for t in _TOOL_DEFINITIONS if "_post_process" in t) == 3
+        assert sum(1 for t in _TOOL_DEFINITIONS if "_post_process" in t) == 4
 
     def test_aggregator_is_exact_concatenation(self):
         expected = [

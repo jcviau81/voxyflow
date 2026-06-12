@@ -1,4 +1,4 @@
-"""Post-processing helpers for card.list tool results.
+"""Post-processing helpers for list tool results.
 
 Extracted verbatim from ``app/mcp_tool_defs.py`` (H8 monolith split).
 Pure data — every entry follows the schema documented in ``app.mcp_tool_defs``.
@@ -8,6 +8,26 @@ from __future__ import annotations
 
 
 _CARD_LIST_KEEP = ("id", "title", "status", "priority", "position", "assignee", "agent_type")
+
+_WORKSPACE_LIST_KEEP = ("id", "title", "status", "emoji", "is_favorite", "created_at")
+
+
+def _minimize_workspace_list(data):
+    """Workspace list responses to the minimal fields an LLM actually needs.
+
+    Full workspace rows (description, context, flags, timestamps) × 100+
+    workspaces exceed the CLI's tool-result size limit, which spills the
+    result to a file the dispatcher has no tools to read — turning trivial
+    inline ops ("delete my test workspaces") into forced worker delegations.
+    Falsy fields are dropped per row (emoji/'' , is_favorite/False…).
+    """
+    if not isinstance(data, list):
+        return data
+    return [
+        {k: w[k] for k in _WORKSPACE_LIST_KEEP if w.get(k)}
+        for w in data
+        if isinstance(w, dict)
+    ]
 
 
 def _minimal_card(card: dict) -> dict:
