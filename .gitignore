@@ -67,6 +67,10 @@ settings.json
 personality/USER.md
 personality/IDENTITY.md
 personality/MEMORY.md
+personality/memory/
+
+# Runtime skill storage (VOXYFLOW_DIR/skills — created by skill_service)
+/skills/
 
 # Dispatcher test scripts and results (dev tooling, not part of the app)
 scripts/test-dispatcher.sh

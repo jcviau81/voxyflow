@@ -22,7 +22,11 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-PERSONALITY_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.voxyflow"))) / "personality"
+# Resolved via the canonical app.config constant — single resolution site —
+# so MEMORY.md lives where the settings API and personality loader look for it.
+from app.config import VOXYFLOW_DIR as _VOXYFLOW_DIR
+
+PERSONALITY_DIR = _VOXYFLOW_DIR / "personality"
 MEMORY_FILE = PERSONALITY_DIR / "MEMORY.md"
 MEMORY_DIR = PERSONALITY_DIR / "memory"
 

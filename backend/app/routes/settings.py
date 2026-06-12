@@ -26,11 +26,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.voxyflow")))
-VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
+# Canonical path resolution lives in app.config — single resolution site.
+# (Re-exported below: several modules import these names from here.)
+from app.config import VOXYFLOW_DATA_DIR, VOXYFLOW_DIR
+
 # settings.json lives in the data dir (outside repo) to avoid accidental commits
 SETTINGS_FILE = str(VOXYFLOW_DATA_DIR / "settings.json")
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
+# Legacy personality location — before 2026-06 VOXYFLOW_DIR defaulted to
+# ~/.voxyflow, so existing installs may hold user-authored IDENTITY.md/USER.md
+# there. init_personality_files() migrates them once, best-effort.
+_LEGACY_PERSONALITY_DIR = Path.home() / ".voxyflow" / "personality"
 
 # Serializes the load->mutate->save critical section across settings writers so
 # concurrent writes can't lose updates. Imported by other modules — keep the name.
@@ -670,11 +676,39 @@ async def reset_personality_file(filename: str):
     return {"status": "reset", "filename": filename, "size": len(content)}
 
 
+def _migrate_legacy_personality_files() -> None:
+    """One-time, best-effort copy of user content from the legacy location.
+
+    Pre-2026-06, VOXYFLOW_DIR defaulted to ~/.voxyflow, so user-authored
+    IDENTITY.md/USER.md may live in ~/.voxyflow/personality. If the current
+    PERSONALITY_DIR lacks them but the legacy dir has them, copy them over
+    before template seeding so existing installs keep their content.
+    """
+    try:
+        legacy = _LEGACY_PERSONALITY_DIR.resolve()
+        current = PERSONALITY_DIR.resolve()
+        if legacy == current or not legacy.is_dir():
+            return
+        for filename in EDITABLE_FILES:
+            src = legacy / filename
+            dst = current / filename
+            if (not dst.exists() or dst.stat().st_size == 0) and src.exists() and src.stat().st_size > 0:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+                logger.info("Migrated legacy personality file %s -> %s", src, dst)
+    except Exception as e:  # best-effort — never block startup on migration
+        logger.warning("Legacy personality migration failed: %s", e)
+
+
 async def init_personality_files() -> None:
     """Generate USER.md and IDENTITY.md from templates on first run if missing or empty."""
     data = await _load_settings_from_db() or {}
     bot_name = (data.get("personality", {}) or {}).get("bot_name") or data.get("assistant_name") or "Voxy"
     user_name = data.get("user_name") or ""
+
+    # Migrate user content from the legacy ~/.voxyflow/personality first so
+    # template seeding below doesn't shadow existing user files.
+    await asyncio.to_thread(_migrate_legacy_personality_files)
 
     for filename, template in DEFAULT_TEMPLATES.items():
         if filename not in EDITABLE_FILES:

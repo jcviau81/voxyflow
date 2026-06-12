@@ -11,10 +11,12 @@ import logging
 import os
 from pathlib import Path
 
+# Canonical path resolution lives in app.config — single resolution site.
+from app.config import VOXYFLOW_DIR
+
 logger = logging.getLogger(__name__)
 
 # Voxyflow's own personality directory (NOT OpenClaw workspace)
-VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.voxyflow")))
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
 
 # Personality files — isolated to Voxyflow
@@ -32,6 +34,20 @@ from app.config import SETTINGS_FILE  # ~/.voxyflow/settings.json
 
 _CACHE_TTL = 300  # 5 minutes
 
+# Files we have already warned about (module-level → one warning per file per
+# process, regardless of how many service instances exist).
+_WARNED_MISSING: set[str] = set()
+
+
+def _warn_missing_once(path: Path) -> None:
+    key = str(path)
+    if key not in _WARNED_MISSING:
+        _WARNED_MISSING.add(key)
+        logger.warning(
+            "[personality] %s missing at %s — dispatcher rules degraded",
+            path.name, path,
+        )
+
 
 class PersonalityLoaderMixin:
     """Loads and caches personality files + settings.json."""
@@ -42,6 +58,7 @@ class PersonalityLoaderMixin:
 
     def _read_if_changed(self, path: Path) -> str:
         if not path.exists():
+            _warn_missing_once(path)
             return ""
         try:
             mtime = path.stat().st_mtime
@@ -49,6 +66,8 @@ class PersonalityLoaderMixin:
             if cached and cached[0] == mtime:
                 return cached[1]
             content = path.read_text(encoding="utf-8").strip()
+            if not content:
+                _warn_missing_once(path)  # exists but empty — same degradation
             self._cache[str(path)] = (mtime, content)
             return content
         except Exception as e:

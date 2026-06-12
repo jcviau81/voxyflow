@@ -5,6 +5,9 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# NOTE: TONE/WARMTH/LANGUAGE modifiers + build_system_prompt() are NOT on the
+# dispatcher path — they serve the worker/agent path (worker_prompts.py
+# build_agent_prompt) and are re-exported by personality_service. Keep them.
 TONE_MODIFIERS = {
     "casual": "Use a casual, conversational tone. Be relaxed and natural.",
     "balanced": "Use a balanced tone -- professional but approachable.",
@@ -160,14 +163,11 @@ class DispatcherPromptsMixin:
             style = "Deep tier — thoughtful, precise, depth when helpful."
         else:
             style = "Fast tier — respond briefly (1–3 sentences)."
-        action_rule = (
-            "**Instant + local = inline. Needs subprocess (shell, web, multi-file code, "
-            "heavy AI) = delegate.** Single-user local DB + undo journal makes inline "
-            "writes/deletes safe. When in doubt: would this take >1s or touch the OS? → delegate."
-        )
+        # The inline-vs-delegate boundary lives ONCE in the delegate core rules
+        # (and DISPATCHER.md) — keep this header to tier/mode/style only.
         init_block = (
             f"\n\n## Dispatcher ({tier}) — {mode_label}\n"
-            f"{style} Match the user's language. {action_rule}"
+            f"{style} Match the user's language."
         )
         full_prompt = base + init_block + self._build_dispatcher_tail(native_tools)
         logger.info(
@@ -228,7 +228,7 @@ class DispatcherPromptsMixin:
         elif native_tools:
             tail += self._build_native_delegate_instructions()
         else:
-            tail += self._build_xml_delegate_instructions()
+            tail += self._build_proxy_delegate_instructions()
         full_prompt = base + init_block + tail
         logger.info(
             f"[PersonalityService] Autonomy prompt built: {len(full_prompt)} chars, "
@@ -257,9 +257,9 @@ class DispatcherPromptsMixin:
             f"worker to rewrite `{directive_path}` below its `---` divider. `file.write` is worker-only.\n"
             "- **One concise response per tick.** Each cycle either delegates, updates cards, rewrites "
             "the directive, or logs a no-op. Nothing else.\n\n"
-            "**This REPLACES the 'ACT, DON'T ASK' and 'Worker Delegation Gate' sections from the "
-            "interactive dispatcher protocol.** Those rules protect real users from unsolicited "
-            "delegations; they do not apply when the user is the scheduler itself."
+            "**This REPLACES the interactive Decision Table's confirmation rows.** Those "
+            "confirmations protect a present user; here no user is present — the directive is "
+            "the only authority, and anything it doesn't authorize is a no-op."
         )
 
     def build_deep_prompt(

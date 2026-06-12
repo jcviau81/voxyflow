@@ -5,6 +5,13 @@ running ``_build_outputs()`` against the PRE-split monolithic
 ``personality_service.py``. After the split into ``app/services/personality/``
 mixins, every prompt must remain byte-identical.
 
+RE-CAPTURED 2026-06 for the dispatcher ruleset redesign (shared delegate core
+in delegate_instructions.py, proxy-builder rename, autonomy-rules rewording).
+To regenerate after an INTENTIONAL prompt change, run from backend/:
+  venv/bin/python -c "import sys, json; sys.path.insert(0, 'tests'); \
+    from test_refactor_personality import _build_outputs, GOLDEN_PATH; \
+    GOLDEN_PATH.write_text(json.dumps(_build_outputs(), indent=2, ensure_ascii=False), encoding='utf-8')"
+
 All environment-dependent inputs (personality files, settings.json, ports,
 PID, sandbox dir, wall clock) are stubbed so the outputs are deterministic.
 """

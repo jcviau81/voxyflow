@@ -17,10 +17,12 @@ Tier 2 — App settings (routes/settings.py, DB app_settings table):
 
   VOXYFLOW_DIR  — app directory (source code, personality/ system prompts)
                   Override: VOXYFLOW_DIR env var
-                  Default: ~/.voxyflow
+                  Default: the repo root (computed from this file's location),
+                  so the checked-in personality/ rules are found out of the box.
 
-  Note: VOXYFLOW_DIR and VOXYFLOW_DATA_DIR both default to ~/.voxyflow for
-  single-user installs; override VOXYFLOW_DIR if the source lives elsewhere.
+  Note: VOXYFLOW_DIR points at the SOURCE checkout; VOXYFLOW_DATA_DIR holds
+  runtime data and still defaults to ~/.voxyflow. Override VOXYFLOW_DIR only
+  if the source lives somewhere the default resolution can't see.
 
   VOXYFLOW_DATA_DIR — data directory (SQLite DB, settings.json, worker sessions, jobs)
                        Override: VOXYFLOW_DATA_DIR env var
@@ -40,7 +42,9 @@ from functools import lru_cache
 logger = logging.getLogger(__name__)
 
 # Canonical path constants — import these instead of recomputing in each module
-VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", str(Path.home() / ".voxyflow")))
+# Repo root: this file is backend/app/config.py → parents[2] is the checkout root.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", str(_REPO_ROOT)))
 VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
 VOXYFLOW_SANDBOX_DIR = Path(os.environ.get("VOXYFLOW_SANDBOX_DIR", str(VOXYFLOW_DATA_DIR / "sandbox")))
 SETTINGS_FILE = VOXYFLOW_DATA_DIR / "settings.json"  # lives in data dir (outside repo)

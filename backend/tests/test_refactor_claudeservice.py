@@ -7,8 +7,9 @@ Checks that:
      reaches in today), and the new cleanup_chat() contract works.
   3. chat_fast_stream / chat_deep_stream public signatures are unchanged
      after the dedup into _chat_stream(layer=...).
-  4. Priming texts and worker-lifecycle prompt text are byte-identical to the
-     pre-refactor literals.
+  4. Priming texts honour the dispatcher-redesign invariants (neutral
+     identity, inline-CRUD policy incl. Codex) and worker-lifecycle prompt
+     text is byte-identical to the pre-refactor literals.
   5. Prompt assembly (system blocks + priming injection) of the deduped
      _chat_stream matches the original fast/deep algorithms.
 """
@@ -109,7 +110,13 @@ def test_chat_stream_signatures_preserved():
 # 4. Prompt text byte-identity (literals copied from the pre-refactor source)
 # ---------------------------------------------------------------------------
 
-def test_priming_texts_byte_identical_to_original():
+def test_priming_texts_pinned():
+    """Pin priming invariants (2026-06 dispatcher ruleset redesign).
+
+    All branches must state the same inline-CRUD policy as the DISPATCHER.md
+    decision table (Codex included — it is no longer read-only), and identity
+    must stay neutral (bot name is configurable; no hardcoded 'Voxy').
+    """
     from app.services.llm.chat_streams import _PRIMING_ASSISTANT, _PRIMING_USER
 
     assert _PRIMING_USER == (
@@ -117,67 +124,33 @@ def test_priming_texts_byte_identical_to_original():
         "Who are you, where are you running, and how do you handle action requests?"
     )
 
-    expected = {
-        ("fast", "native"): (
-            "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-            "I converse with you directly and use inline tools for fast operations. "
-            "My inline tools: memory_search, memory_save, knowledge_search, "
-            "card_list, card_get, card_create, card_update, card_move, "
-            "workers_list, workers_get_result, workers_read_artifact. For complex tasks (research, code, "
-            "multi-step ops), I delegate to background workers via the `voxyflow.delegate` MCP tool."
-        ),
-        ("fast", "codex"): (
-            "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-            "I converse briefly, use read-only MCP tools only to inspect state, "
-            "and delegate action work to background workers by calling the "
-            "`voxyflow.delegate` MCP tool. I do not perform implementation, "
-            "research, filesystem, shell, card writes, or multi-step work inline."
-        ),
-        ("fast", "cli_mcp"): (
-            "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-            "I converse with you directly and use MCP tools for fast operations "
-            "(card CRUD, memory search, workspace/wiki lookups). For complex tasks "
-            "(research, code, multi-step ops), I call the `voxyflow.delegate` MCP "
-            "tool to trigger background workers."
-        ),
-        ("fast", "proxy"): (
-            "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-            "I converse with you directly and delegate complex actions to background "
-            "workers via the `voxyflow.delegate` tool. When you ask me to do "
-            "something like a web search or run code, I respond briefly and call "
-            "`voxyflow.delegate` to trigger the worker. "
-            "The worker handles it in the background and the result appears in the chat."
-        ),
-        ("deep", "native"): (
-            "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
-            "I converse with you directly and delegate all actions to background workers "
-            "using the `voxyflow.delegate` MCP tool. I never execute actions myself. When you ask "
-            "me to do something, I respond briefly and call `voxyflow.delegate` to trigger the worker."
-        ),
-        ("deep", "codex"): (
-            "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. "
-            "I'm a dispatcher — I converse briefly, use read-only MCP tools only "
-            "to inspect state, and delegate action work to background workers by "
-            "calling the `voxyflow.delegate` MCP tool. I do not perform implementation, "
-            "research, filesystem, shell, card writes, or multi-step work inline."
-        ),
-        ("deep", "cli_mcp"): (
-            "I'm Voxy, running inside Voxyflow's chat layer as the Deep model. I'm a dispatcher — "
-            "I converse with you directly and use MCP tools for fast operations "
-            "(card CRUD, memory search, workspace/wiki lookups). For complex tasks "
-            "(research, code, multi-step ops), I call the `voxyflow.delegate` MCP "
-            "tool to trigger background workers."
-        ),
-        ("deep", "proxy"): (
-            "I'm Voxy, running inside Voxyflow's chat layer. I'm a dispatcher — "
-            "I converse with you directly and delegate complex actions to background "
-            "workers via the `voxyflow.delegate` tool. When you ask me to do "
-            "something like a web search or run code, I respond briefly and call "
-            "`voxyflow.delegate` to trigger the worker. "
-            "The worker handles it in the background and the result appears in the chat."
-        ),
+    # Structural invariants of the redesigned priming table.
+    assert set(_PRIMING_ASSISTANT) == {
+        (layer, branch)
+        for layer in ("fast", "deep")
+        for branch in ("native", "codex", "cli_mcp", "proxy")
     }
-    assert _PRIMING_ASSISTANT == expected
+    for (layer, branch), text in _PRIMING_ASSISTANT.items():
+        # Neutral identity — never hardcode the configurable bot name.
+        assert "Voxy," not in text and "I'm Voxy" not in text, (layer, branch)
+        assert "dispatcher" in text, (layer, branch)
+        # No provider model names — complexity/tier language only.
+        for forbidden in ("haiku", "sonnet", "opus", "gpt"):
+            assert forbidden not in text.lower(), (layer, branch)
+        # Every branch delegates subprocess work via the delegate tool.
+        assert "voxyflow_delegate" in text or "voxyflow.delegate" in text, (layer, branch)
+
+    # Codex branches must claim the SAME inline capabilities as other
+    # dispatchers — the read-only-era wording was a regression.
+    for layer in ("fast", "deep"):
+        codex_text = _PRIMING_ASSISTANT[(layer, "codex")]
+        assert "read-only" not in codex_text, layer
+        assert "same inline MCP tools" in codex_text, layer
+        assert "including deletes" in codex_text, layer
+    # Tool-bearing branches act inline on instant local operations.
+    for branch in ("native", "cli_mcp"):
+        for layer in ("fast", "deep"):
+            assert "instant local operations" in _PRIMING_ASSISTANT[(layer, branch)], (layer, branch)
 
 
 def test_worker_lifecycle_prompts_byte_identical_to_original():
