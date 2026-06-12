@@ -67,3 +67,69 @@ def _minimize_card_list_archived(data):
     if not isinstance(data, list):
         return data
     return [_minimal_card(c) for c in data if isinstance(c, dict)]
+
+
+def _clip(value, limit: int):
+    """Truncate a string field, flagging the cut so the model knows to .get."""
+    if not isinstance(value, str) or len(value) <= limit:
+        return value
+    return value[:limit] + f"…[+{len(value) - limit} chars — fetch the item for full text]"
+
+
+def _minimize_workspace_get(data):
+    """Slim ``workspace.get``: workspace fields + minimal embedded cards.
+
+    The raw response embeds every card's full description — 200 cards of
+    worker-appended content reaches 200k-1M chars. Card detail is one
+    ``card.get`` away.
+    """
+    if not isinstance(data, dict) or "cards" not in data:
+        return data
+    out = dict(data)
+    out["context"] = _clip(out.get("context"), 2000)
+    out["description"] = _clip(out.get("description"), 2000)
+    cards = out.get("cards")
+    if isinstance(cards, list):
+        out["cards"] = [_minimal_card(c) for c in cards if isinstance(c, dict)]
+    return out
+
+
+def _minimize_card_get(data):
+    """Cap the unbounded text fields of a single card (worker-appended)."""
+    if not isinstance(data, dict):
+        return data
+    out = dict(data)
+    out["description"] = _clip(out.get("description"), 8000)
+    out["agent_context"] = _clip(out.get("agent_context"), 4000)
+    return out
+
+
+def _minimize_card_history(data):
+    """Card history journals full old/new values (incl. whole descriptions)."""
+    entries = data.get("history") if isinstance(data, dict) else data
+    if not isinstance(entries, list):
+        return data
+    slim = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        e = dict(e)
+        for k in ("old_value", "new_value"):
+            e[k] = _clip(e.get(k), 200)
+        slim.append(e)
+    if isinstance(data, dict):
+        return {**data, "history": slim}
+    return slim
+
+
+def _minimize_wiki_get(data):
+    """Cap wiki page content (worker reports can be 50-200k chars)."""
+    if not isinstance(data, dict):
+        return data
+    out = dict(data)
+    content = out.get("content")
+    if isinstance(content, str) and len(content) > 15_000:
+        out["content"] = content[:15_000]
+        out["content_truncated"] = True
+        out["content_total_chars"] = len(content)
+    return out

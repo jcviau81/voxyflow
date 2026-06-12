@@ -78,10 +78,15 @@ TOOLS_DISPATCHER = {
     # reversible — kg.invalidate sets valid_to, doesn't hard-delete) ----
     "kg.add", "kg.query", "kg.timeline", "kg.invalidate", "kg.stats",
 
-    # ---- Destructive whole-entity deletes / exports ----
-    # Single-user local deployment: the user is always present and the undo
-    # journal (voxyflow.undo.*) reverses these, so inline delete is fine.
-    "voxyflow.workspace.delete", "voxyflow.workspace.export",
+    # ---- Destructive whole-entity deletes ----
+    # Single-user local deployment: the user is always present, so inline
+    # delete is fine. NOTE: the undo journal only reverses card create/
+    # archive/duplicate + memory.save — workspace/card/doc/wiki HARD deletes
+    # have no inverse; the dispatcher ruleset gates pattern-deletes on one
+    # short confirmation instead.
+    # (workspace.export removed from the dispatcher: its blob is too big for
+    # chat and the dispatcher has no file tools — it had no inline consumer.)
+    "voxyflow.workspace.delete",
     "voxyflow.card.delete",
     "voxyflow.doc.delete",
     "voxyflow.wiki.delete",

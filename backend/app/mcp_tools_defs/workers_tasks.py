@@ -56,6 +56,8 @@ WORKERS_MONITOR_TOOLS: list[dict] = [
             "required": ["task_id"],
             "properties": {
                 "task_id": {"type": "string"},
+                "offset": {"type": "integer", "description": "result_summary page start (default 0)"},
+                "length": {"type": "integer", "description": "result_summary page size (default and max 15000)"},
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
@@ -74,7 +76,7 @@ WORKERS_MONITOR_TOOLS: list[dict] = [
             "properties": {
                 "task_id": {"type": "string"},
                 "offset": {"type": "integer", "description": "Default 0"},
-                "length": {"type": "integer", "description": "Default 50000"},
+                "length": {"type": "integer", "description": "Default and max 15000 — page with growing offsets"},
                 "scope": {
                     "type": "string",
                     "enum": ["current", "all"],
@@ -397,12 +399,14 @@ DELEGATE_TOOLS: list[dict] = [
     {
         "name": "voxyflow.delegate",
         "description": (
-            "Dispatch a task to a background worker for execution. "
-            "MUST be called whenever the user asks you to DO anything beyond instant read/CRUD "
-            "(research, code, multi-step ops, file changes, tests, analysis). "
-            "You CANNOT execute such tasks yourself — you MUST delegate them. "
-            "The worker will run autonomously and report results back to the user. "
-            "Call this immediately, without asking for confirmation — one call per task."
+            "Dispatch a task to a background worker subprocess. Use for work that "
+            "needs an OS subprocess: shell commands, file changes, web research, "
+            "git, tests, heavy AI/coding. When the user asked for such work, call "
+            "this immediately — no confirmation, one call per task, with a 1-2 "
+            "sentence acknowledgment in your reply. NEVER delegate kanban/memory/KG "
+            "CRUD (do those inline with your own tools — bulk id lists handle many "
+            "items in one call), never delegate reading another worker's output, "
+            "and never delegate because a tool result was large (refine the call instead)."
         ),
         "inputSchema": {
             "type": "object",

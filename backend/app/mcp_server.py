@@ -379,6 +379,7 @@ _BULK_TOOLS: dict[str, str] = {
     "voxyflow.card.relation.delete": "relation_id",
     "voxyflow.card.time.delete": "entry_id",
     "voxyflow.card.checklist.delete": "item_id",
+    "memory.delete": "id",
 }
 
 
@@ -934,13 +935,41 @@ if MCP_AVAILABLE:
             logger.error(f"MCP tool call failed: {name} → {e}")
             result = {"success": False, "error": str(e)}
 
-        return [TextContent(type="text", text=json.dumps(result, default=str, indent=2))]
+        return [TextContent(type="text", text=_serialize_result(original_name, result))]
 
 else:
     server = None
     logger.warning(
         "mcp package not installed — MCP server disabled. "
         "Install with: pip install mcp>=1.0.0"
+    )
+
+
+# Hard ceiling on a single tool result. Past it, the Claude CLI spills the
+# result to a temp file the dispatcher has no tools to read — a dead end.
+# Owning the truncation lets the notice teach the model how to recover.
+MAX_TOOL_RESULT_CHARS = 20_000
+
+
+def _serialize_result(tool_name: str, result) -> str:
+    """JSON-serialize a tool result, truncating oversized payloads in-band.
+
+    Compact separators (no indent) — indentation inflated payloads ~15-30%
+    for zero model benefit.
+    """
+    payload = json.dumps(result, default=str, separators=(",", ":"))
+    if len(payload) <= MAX_TOOL_RESULT_CHARS:
+        return payload
+    logger.warning(
+        "[MCP] %s result truncated: %d chars > %d cap",
+        tool_name, len(payload), MAX_TOOL_RESULT_CHARS,
+    )
+    return (
+        payload[:MAX_TOOL_RESULT_CHARS]
+        + f'\n…[TRUNCATED: full result was {len(payload)} chars. '
+        "Do NOT delegate a worker and do NOT try to read any file for the rest. "
+        "Re-issue a narrower call instead: fetch a single item (.get), "
+        "use filters/offset/length params, or a smaller limit.]"
     )
 
 

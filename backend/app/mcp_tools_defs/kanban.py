@@ -7,8 +7,11 @@ Pure data — every entry follows the schema documented in ``app.mcp_tool_defs``
 from __future__ import annotations
 
 from .postprocess import (
+    _minimize_card_get,
+    _minimize_card_history,
     _minimize_card_list,
     _minimize_card_list_archived,
+    _minimize_workspace_get,
     _minimize_workspace_list,
 )
 
@@ -68,19 +71,28 @@ KANBAN_TOOLS: list[dict] = [
     {
         "name": "voxyflow.workspace.list",
         "description": (
-            "List all workspaces (slim rows: id, title, status, emoji, favorite, "
+            "List workspaces (slim rows: id, title, status, emoji, favorite, "
             "created_at). Use voxyflow.workspace.get for full details of one."
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "archived"],
+                    "description": "Which workspaces to list (default: active).",
+                },
+            },
         },
         "_http": ("GET", "/api/workspaces", None),
         "_post_process": _minimize_workspace_list,
     },
     {
         "name": "voxyflow.workspace.get",
-        "description": "Get a workspace with its cards.",
+        "description": (
+            "Get a workspace with its cards (cards come slim: id, title, status, "
+            "priority — use voxyflow.card.get for a card's full text)."
+        ),
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id"],
@@ -89,6 +101,7 @@ KANBAN_TOOLS: list[dict] = [
             },
         },
         "_http": ("GET", "/api/workspaces/{workspace_id}", None),
+        "_post_process": _minimize_workspace_get,
     },
     {
         "name": "voxyflow.workspace.delete",
@@ -204,6 +217,15 @@ KANBAN_TOOLS: list[dict] = [
                     "type": "string",
                     "description": "Optional — normally auto-injected; only pass a UUID to override.",
                 },
+                "status": {
+                    "type": "string",
+                    "enum": ["backlog", "todo", "in-progress", "done"],
+                    "description": "Optional — only cards in this column.",
+                },
+                "agent_type": {
+                    "type": "string",
+                    "description": "Optional — only cards assigned to this agent type.",
+                },
             },
         },
         "_http": ("GET", "/api/workspaces/{workspace_id}/cards", None),
@@ -211,7 +233,7 @@ KANBAN_TOOLS: list[dict] = [
     },
     {
         "name": "voxyflow.card.get",
-        "description": "Get a card.",
+        "description": "Get a card (long description/agent_context fields are capped in the response).",
         "inputSchema": {
             "type": "object",
             "required": ["card_id"],
@@ -220,6 +242,7 @@ KANBAN_TOOLS: list[dict] = [
             },
         },
         "_http": ("GET", "/api/cards/{card_id}", None),
+        "_post_process": _minimize_card_get,
     },
     {
         "name": "voxyflow.card.update",
@@ -341,7 +364,10 @@ KANBAN_TOOLS: list[dict] = [
     },
     {
         "name": "voxyflow.card.history",
-        "description": "Get change history for a card (max 50 entries, newest first).",
+        "description": (
+            "Get change history for a card (max 50 entries, newest first; "
+            "old/new values truncated to 200 chars)."
+        ),
         "inputSchema": {
             "type": "object",
             "required": ["card_id"],
@@ -350,6 +376,7 @@ KANBAN_TOOLS: list[dict] = [
             },
         },
         "_http": ("GET", "/api/cards/{card_id}/history", None),
+        "_post_process": _minimize_card_history,
     },
 
     # ---- Card Relations ----------------------------------------------------

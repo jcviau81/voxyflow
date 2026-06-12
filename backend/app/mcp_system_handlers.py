@@ -649,7 +649,24 @@ def build_handlers(
                 return {"success": False, "error": f"Worker task not found: {task_id}"}
 
             if full_result is not None:
-                session = {**session, "result_summary": full_result}
+                # Worker results are routinely 50-500k chars — page them so a
+                # single get_result can never blow the tool-result size cap.
+                try:
+                    offset = max(0, int(params.get("offset", 0) or 0))
+                except (TypeError, ValueError):
+                    offset = 0
+                try:
+                    length = int(params.get("length", 15_000) or 15_000)
+                except (TypeError, ValueError):
+                    length = 15_000
+                length = max(1, min(length, 15_000))
+                chunk = full_result[offset:offset + length]
+                session = {**session, "result_summary": chunk}
+                if len(full_result) > len(chunk) + offset or offset > 0:
+                    session["result_total_chars"] = len(full_result)
+                    session["result_offset"] = offset
+                    if offset + length < len(full_result):
+                        session["result_next_offset"] = offset + length
 
             response = {"success": True, **session}
             if completion:
@@ -683,9 +700,12 @@ def build_handlers(
         except (TypeError, ValueError):
             offset = 0
         try:
-            length = int(params.get("length", 50_000) or 50_000)
+            # 15k default keeps a page under the MCP result-size cap (the old
+            # 50k default could itself trigger the spill it was paging around).
+            length = int(params.get("length", 15_000) or 15_000)
         except (TypeError, ValueError):
-            length = 50_000
+            length = 15_000
+        length = max(1, min(length, 15_000))
         try:
             # read_artifact now marks read_at automatically (idempotent).
             slice_data = read_artifact(task_id, offset=offset, length=length)

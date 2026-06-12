@@ -53,7 +53,12 @@ from app.mcp_tools_defs import (
 # _post_process + description — large lists spilled to unreadable files in
 # dispatcher chats); the previous snapshot was
 # 484f131153e9264e29d2b243b677c253f4bb03a1e2fa54c7cb07e49e70093c49.
-SNAPSHOT_SHA256 = "dc0154e2e784ed273f3b451398d57e7fb65f416b101a5e0dd6fabc8ed7c3d25c"
+# 2026-06-11 (2): re-pinned for the dispatcher-rules overhaul: minimizers on
+# workspace.get/card.get/card.history/wiki.get, status filters on
+# workspace.list/card.list, get_result+read_artifact pagination params,
+# delegate description rewrite, memory.delete bulk ids; previous snapshot was
+# dc0154e2e784ed273f3b451398d57e7fb65f416b101a5e0dd6fabc8ed7c3d25c.
+SNAPSHOT_SHA256 = "5f75da0110705316e73e97d457dc2c4575ae7dace85ebde0b81866f78e508ead"
 
 SNAPSHOT_NAMES = [
     "voxyflow.card.create_unassigned",
@@ -208,8 +213,18 @@ class TestToolDefsSplitEquivalence:
             by_name["voxyflow.workspace.list"]["_post_process"]
             is postprocess._minimize_workspace_list
         )
+        assert (
+            by_name["voxyflow.workspace.get"]["_post_process"]
+            is postprocess._minimize_workspace_get
+        )
+        assert by_name["voxyflow.card.get"]["_post_process"] is postprocess._minimize_card_get
+        assert (
+            by_name["voxyflow.card.history"]["_post_process"]
+            is postprocess._minimize_card_history
+        )
+        assert by_name["voxyflow.wiki.get"]["_post_process"] is postprocess._minimize_wiki_get
         # No other tool carries a _post_process
-        assert sum(1 for t in _TOOL_DEFINITIONS if "_post_process" in t) == 4
+        assert sum(1 for t in _TOOL_DEFINITIONS if "_post_process" in t) == 8
 
     def test_aggregator_is_exact_concatenation(self):
         expected = [

@@ -6,6 +6,8 @@ Pure data — every entry follows the schema documented in ``app.mcp_tool_defs``
 
 from __future__ import annotations
 
+from .postprocess import _minimize_wiki_get
+
 
 WIKI_DOCS_AI_TOOLS: list[dict] = [
     # ---- Wiki --------------------------------------------------------------
@@ -38,7 +40,10 @@ WIKI_DOCS_AI_TOOLS: list[dict] = [
     },
     {
         "name": "voxyflow.wiki.get",
-        "description": "Get a wiki page.",
+        "description": (
+            "Get a wiki page (content capped at 15k chars; "
+            "content_truncated/content_total_chars flag longer pages)."
+        ),
         "inputSchema": {
             "type": "object",
             "required": ["workspace_id", "page_id"],
@@ -48,6 +53,7 @@ WIKI_DOCS_AI_TOOLS: list[dict] = [
             },
         },
         "_http": ("GET", "/api/workspaces/{workspace_id}/wiki/{page_id}", None),
+        "_post_process": _minimize_wiki_get,
     },
     {
         "name": "voxyflow.wiki.update",
