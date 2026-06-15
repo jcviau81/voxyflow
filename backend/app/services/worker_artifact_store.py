@@ -43,6 +43,13 @@ DEFAULT_READ_LENGTH = 50_000
 # WARNING log.  We do NOT auto-delete.
 ORPHAN_WARNING_DAYS = 30
 
+# Minimum seconds between orphan scans — the scan globs every .meta.json and
+# is invoked on each artifact write / list_unread, so throttle it.
+ORPHAN_CHECK_INTERVAL_S = 3600.0
+
+# Monotonic-ish timestamp of the last orphan scan (epoch seconds).
+_last_orphan_check: float = 0.0
+
 
 def _data_dir() -> Path:
     voxyflow_data = os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
@@ -87,11 +94,22 @@ def _read_meta(task_id: str) -> Optional[dict]:
         return None
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write text to a sibling .tmp file and os.replace() into place.
+
+    A crash / full disk mid-write must never leave a truncated file — same
+    atomic pattern as job_runner._save_jobs for jobs.json.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _write_meta(task_id: str, data: dict) -> None:
     """Persist lifecycle metadata to the sidecar JSON file."""
     path = meta_path(task_id)
     try:
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
     except Exception as e:
         logger.warning(f"[WorkerArtifact] Failed to write meta {task_id}: {e}")
 
@@ -132,7 +150,18 @@ def mark_read(task_id: str) -> None:
 
 
 def _check_orphan_warning() -> None:
-    """Scan for un-acked artifacts older than ORPHAN_WARNING_DAYS and log warnings."""
+    """Scan for un-acked artifacts older than ORPHAN_WARNING_DAYS and log warnings.
+
+    Throttled to once per ORPHAN_CHECK_INTERVAL_S — the scan is invoked on
+    every artifact write and list_unread call, and globbing/re-warning all
+    sidecars each time grows linearly forever and spams the logs.
+    """
+    global _last_orphan_check
+    import time as _time
+    now_s = _time.time()
+    if now_s - _last_orphan_check < ORPHAN_CHECK_INTERVAL_S:
+        return
+    _last_orphan_check = now_s
     try:
         from datetime import timedelta
         cutoff = datetime.now(timezone.utc) - timedelta(days=ORPHAN_WARNING_DAYS)
@@ -217,7 +246,7 @@ def write_artifact(
     full_text = frontmatter + body
     path = artifact_path(task_id)
     try:
-        path.write_text(full_text, encoding="utf-8")
+        _atomic_write_text(path, full_text)
         size_bytes = len(full_text.encode("utf-8", errors="replace"))
         logger.info(
             f"[WorkerArtifact] Wrote {path.name} ({len(body)} chars"
@@ -445,8 +474,10 @@ def list_unread(limit: int = 100) -> list[dict]:
 def delete_artifact(task_id: str) -> bool:
     """Delete an artifact file (and its completion sidecar, if any).
 
-    NOTE: This intentionally does NOT delete the meta sidecar —
-    use ack_artifact() for the consumer-driven lifecycle path instead.
+    NOTE: This intentionally does NOT delete the meta sidecar (kept as a
+    historical trace) — but it DOES stamp ``acked_at`` so the deleted
+    artifact no longer appears in list_unread or trips the orphan warning.
+    Use ack_artifact() for the consumer-driven lifecycle path instead.
     This function is for internal cleanup (e.g. workspace deletion).
 
     Returns True if the main .md file was removed.
@@ -466,6 +497,13 @@ def delete_artifact(task_id: str) -> bool:
             sidecar.unlink()
     except Exception as e:
         logger.debug(f"[WorkerArtifact] Failed to delete completion {task_id}: {e}")
+
+    # Close out the lifecycle so list_unread doesn't report a ghost entry
+    # whose read_artifact would return None.
+    meta = _read_meta(task_id)
+    if meta is not None and meta.get("acked_at") is None:
+        meta["acked_at"] = datetime.now(timezone.utc).isoformat()
+        _write_meta(task_id, meta)
     return removed
 
 
@@ -504,10 +542,7 @@ def write_completion(task_id: str, payload: dict[str, Any]) -> Optional[str]:
 
     path = completion_path(task_id)
     try:
-        path.write_text(
-            json.dumps(clean, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        _atomic_write_text(path, json.dumps(clean, ensure_ascii=False, indent=2))
         logger.info(
             f"[WorkerArtifact] Wrote {path.name} "
             f"(findings={len(clean.get('findings') or [])}, "

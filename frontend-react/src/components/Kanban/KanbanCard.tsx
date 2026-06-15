@@ -1,6 +1,7 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { Pin, Copy, Pencil, FolderInput, Archive, Timer, Play, CheckSquare, Link2, Folder } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { matchesCard } from '@/lib/cardFilter';
 import type { Card } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -141,8 +142,6 @@ export function KanbanCard({
   onCardClick,
   isWorkerActive = false,
 }: KanbanCardProps) {
-  const [isDragging, setIsDragging] = useState(false);
-
   const showToast = useToastStore((s) => s.showToast);
   const { executeCard: executeCardWS } = useChatService();
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -160,13 +159,10 @@ export function KanbanCard({
 
   // ── Visibility filter ────────────────────────────────────────────────────
 
-  const isVisible = useMemo(() => {
-    if (query && !card.title.toLowerCase().includes(query.toLowerCase())) return false;
-    if (priorityFilter !== null && card.priority !== priorityFilter) return false;
-    if (agentFilter && (card.agentType || 'general') !== agentFilter) return false;
-    if (tagFilter && !card.tags.some((t) => t.toLowerCase() === tagFilter.toLowerCase())) return false;
-    return true;
-  }, [card, query, priorityFilter, agentFilter, tagFilter]);
+  const isVisible = useMemo(
+    () => matchesCard(card, { query, priorityFilter, agentFilter, tagFilter }),
+    [card, query, priorityFilter, agentFilter, tagFilter],
+  );
 
   // ── Dependency / blocked state ────────────────────────────────────────────
 
@@ -206,19 +202,6 @@ export function KanbanCard({
       onCardClick?.(card.id);
     },
     [selectMode, isSelected, onSelectChange, card.id, selectCard, onCardClick]
-  );
-
-  const handleDragStart = useCallback(
-    (e: React.DragEvent) => {
-      if (selectMode) {
-        e.preventDefault();
-        return;
-      }
-      e.dataTransfer.setData('text/plain', card.id);
-      e.dataTransfer.effectAllowed = 'move';
-      setIsDragging(true);
-    },
-    [selectMode, card.id]
   );
 
   const handleExecute = async () => {
@@ -276,11 +259,13 @@ export function KanbanCard({
   };
 
   const handleArchive = async () => {
+    deleteCardStore(card.id);
     try {
-      deleteCardStore(card.id);
       await archiveCard.mutateAsync({ cardId: card.id, workspaceId: card.workspaceId ?? undefined });
       showToast(`"${card.title}" archived`, 'success');
     } catch {
+      // Roll back the optimistic removal.
+      useCardStore.getState().upsertCard(card);
       showToast('Archive failed', 'error');
     }
   };
@@ -343,17 +328,13 @@ export function KanbanCard({
         'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 hover:border-border/80',
         card.color && CARD_COLOR_CLASSES[card.color],
         !card.color && 'hover:bg-muted/30',
-        isDragging && 'opacity-40 scale-95',
         isSelected && 'border-primary/60 ring-1 ring-primary/40 bg-primary/5',
         isBlocked && 'border-orange-500/40 bg-orange-500/5',
       )}
-      draggable={!selectMode}
       data-testid="kanban-card"
       data-card-id={card.id}
       data-card-status={card.status}
       onClick={handleCardClick}
-      onDragStart={handleDragStart}
-      onDragEnd={() => setIsDragging(false)}
     >
       {/* Active-worker ping — shown only when a worker is actually running on this card. */}
       {isWorkerActive && (

@@ -649,7 +649,24 @@ def build_handlers(
                 return {"success": False, "error": f"Worker task not found: {task_id}"}
 
             if full_result is not None:
-                session = {**session, "result_summary": full_result}
+                # Worker results are routinely 50-500k chars — page them so a
+                # single get_result can never blow the tool-result size cap.
+                try:
+                    offset = max(0, int(params.get("offset", 0) or 0))
+                except (TypeError, ValueError):
+                    offset = 0
+                try:
+                    length = int(params.get("length", 15_000) or 15_000)
+                except (TypeError, ValueError):
+                    length = 15_000
+                length = max(1, min(length, 15_000))
+                chunk = full_result[offset:offset + length]
+                session = {**session, "result_summary": chunk}
+                if len(full_result) > len(chunk) + offset or offset > 0:
+                    session["result_total_chars"] = len(full_result)
+                    session["result_offset"] = offset
+                    if offset + length < len(full_result):
+                        session["result_next_offset"] = offset + length
 
             response = {"success": True, **session}
             if completion:
@@ -683,9 +700,12 @@ def build_handlers(
         except (TypeError, ValueError):
             offset = 0
         try:
-            length = int(params.get("length", 50_000) or 50_000)
+            # 15k default keeps a page under the MCP result-size cap (the old
+            # 50k default could itself trigger the spill it was paging around).
+            length = int(params.get("length", 15_000) or 15_000)
         except (TypeError, ValueError):
-            length = 50_000
+            length = 15_000
+        length = max(1, min(length, 15_000))
         try:
             # read_artifact now marks read_at automatically (idempotent).
             slice_data = read_artifact(task_id, offset=offset, length=length)
@@ -730,15 +750,37 @@ def build_handlers(
         Returns artifacts sorted by created_at desc. Each entry includes
         task_id, created_at, read_at, size_bytes, and summary_preview
         (first 200 chars of the completion summary, if available).
+
+        Auto-scoped to the current workspace (same boundary as workers.list);
+        pass scope='all' for a system-wide view.
         """
-        from app.services.worker_artifact_store import list_unread
+        from app.services.worker_artifact_store import list_unread, read_artifact_meta
         try:
             limit = int(params.get("limit", 50) or 50)
         except (TypeError, ValueError):
             limit = 50
         try:
-            items = list_unread(limit=limit)
-            return {"success": True, "unread": items, "count": len(items)}
+            current_pid, scoped = _current_workspace_scope()
+            scope = (params.get("scope") or "").lower()
+            if scope == "all" or not scoped:
+                items = list_unread(limit=limit)
+                scope_label = "all"
+            else:
+                # Workspace chat: only surface artifacts whose meta sidecar
+                # belongs to the current workspace — summary previews from
+                # other workspaces must not leak into this context.
+                items = []
+                for entry in list_unread(limit=1000):
+                    try:
+                        meta = read_artifact_meta(entry.get("task_id") or "")
+                    except Exception:
+                        meta = None
+                    if meta is not None and (meta.get("workspace_id") or "").strip() == current_pid:
+                        items.append(entry)
+                        if len(items) >= limit:
+                            break
+                scope_label = "workspace"
+            return {"success": True, "scope": scope_label, "unread": items, "count": len(items)}
         except Exception as e:
             logger.error(f"[mcp.workers.list_unread] failed: {e}")
             return {"success": False, "error": str(e)}
@@ -855,7 +897,7 @@ def build_handlers(
             result: dict = {"entities": entities, "count": len(entities)}
 
             if include_rels and entities:
-                rels = await kg.query_relationships(workspace_id, entity_name=name, limit=limit)
+                rels = await kg.query_relationships(workspace_id, entity_name=name, as_of=as_of, limit=limit)
                 result["relationships"] = rels
 
             logger.info(f"[mcp.kg.query] workspace={workspace_id} name={name!r} found={len(entities)}")
@@ -916,6 +958,292 @@ def build_handlers(
             logger.error(f"[mcp.kg.stats] failed: {e}")
             return {"error": str(e)}
 
+    # ---- Skills (learned procedures, agentskills.io SKILL.md format) --------
+    # Scope is enforced by VOXYFLOW_WORKSPACE_ID env var, same pattern as
+    # memory_save — the LLM never passes workspace_id.
+
+    async def skill_list(params: dict) -> dict:
+        from app.services.skill_service import get_skill_service
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        try:
+            skills = get_skill_service().list_skills(workspace_id)
+            return {
+                "success": True,
+                "count": len(skills),
+                "skills": [
+                    {"name": s.name, "description": s.description, "scope": s.scope}
+                    for s in skills
+                ],
+            }
+        except Exception as e:
+            logger.error(f"[mcp.skill.list] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def skill_get(params: dict) -> dict:
+        from app.services.skill_service import get_skill_service
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        name = (params.get("name") or "").strip()
+        if not name:
+            return {"success": False, "error": "name is required"}
+        try:
+            skill = get_skill_service().get_skill(name, workspace_id)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"[mcp.skill.get] failed: {e}")
+            return {"success": False, "error": str(e)}
+        if skill is None:
+            return {
+                "success": False,
+                "error": f"No skill named {name!r} — call voxyflow.skill.list for the catalog.",
+            }
+        return {"success": True, **skill}
+
+    async def skill_save(params: dict) -> dict:
+        from app.services.skill_service import get_skill_service
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        name = (params.get("name") or "").strip()
+        description = (params.get("description") or "").strip()
+        instructions = (params.get("instructions") or "").strip()
+        scope = (params.get("scope") or "workspace").strip().lower()
+        if not name:
+            return {"success": False, "error": "name is required"}
+        if not description:
+            return {"success": False, "error": "description is required"}
+        if not instructions:
+            return {"success": False, "error": "instructions is required"}
+        try:
+            meta = get_skill_service().save_skill(
+                name, description, instructions,
+                scope=scope, workspace_id=workspace_id,
+            )
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"[mcp.skill.save] failed: {e}")
+            return {"success": False, "error": str(e)}
+        logger.info(f"[mcp.skill.save] workspace_id={workspace_id!r} name={meta.name!r} scope={meta.scope}")
+        return {
+            "success": True,
+            "name": meta.name,
+            "scope": meta.scope,
+            "message": f"Skill '{meta.name}' saved ({meta.scope}).",
+        }
+
+    async def skill_delete(params: dict) -> dict:
+        from app.services.skill_service import get_skill_service
+        workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        name = (params.get("name") or "").strip()
+        if not name:
+            return {"success": False, "error": "name is required"}
+        try:
+            deleted = get_skill_service().delete_skill(name, workspace_id)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"[mcp.skill.delete] failed: {e}")
+            return {"success": False, "error": str(e)}
+        if not deleted:
+            return {"success": False, "error": f"No skill named {name!r} in the current scope."}
+        return {"success": True, "message": f"Skill '{name}' deleted."}
+
+    # ---- Programmatic tool calling (voxyflow.script, worker-only) -----------
+
+    _SCRIPT_OUTPUT_MAX = 50_000  # chars — cap on captured prints / result blobs
+
+    async def script_run(params: dict) -> dict:
+        """Run a Python snippet that chains MCP tool calls in one turn.
+
+        The snippet becomes the body of ``async def __script__()`` so
+        ``await call_tool(name, args)`` works at top level. ``call_tool``
+        resolves tools through mcp_server's catalog and enforces the SAME
+        role check as the MCP ``call_tool()`` entry point — a script can
+        never reach a tool its role couldn't call directly.
+
+        Imported lazily through the module object (not ``from``-imports) so
+        there's no import cycle with app.mcp_server and tests can monkeypatch
+        ``mcp_server._call_api`` / ``mcp_server.VOXYFLOW_MCP_ROLE``.
+        """
+        import asyncio
+        import json as _json
+        import re as _re
+        import traceback
+
+        code = params.get("code") or ""
+        if not isinstance(code, str) or not code.strip():
+            return {"success": False, "error": "code is required"}
+        try:
+            timeout_s = int(params.get("timeout_seconds") or 120)
+        except (TypeError, ValueError):
+            timeout_s = 120
+        timeout_s = max(1, min(timeout_s, 600))
+
+        import app.mcp_server as mcp_server  # lazy — avoids module-level cycle
+
+        async def call_tool(name: str, args: dict | None = None) -> dict:
+            import app.tools.registry as registry
+            args = dict(args or {})
+            if name == "voxyflow.script":
+                return {"success": False, "error": "voxyflow.script cannot call itself (no nesting)."}
+            tool_def = mcp_server._find_tool(name)
+            if tool_def is None:
+                return {"success": False, "error": f"Unknown tool: {name}"}
+            # Same role enforcement as mcp_server.call_tool(): dispatcher roles
+            # get the registry set; worker role (None) is bounded by TOOLS_WORKER
+            # so a script cannot reach internal/unregistered surface either.
+            role = mcp_server.VOXYFLOW_MCP_ROLE
+            allowed = mcp_server._allowed_tool_names_for_role(role)
+            if allowed is None:
+                allowed = registry.TOOLS_WORKER
+            if name not in allowed:
+                logger.warning("[mcp.script] Blocked %s from calling tool: %s", role, name)
+                return {
+                    "success": False,
+                    "error": f"Tool '{name}' is not available to {role}.",
+                }
+            return await mcp_server._call_api(tool_def, args)
+
+        output_chunks: list[str] = []
+
+        def _print(*args, sep=" ", end="\n", **_kwargs):
+            output_chunks.append(sep.join(str(a) for a in args) + end)
+
+        # Wrap the user code as an async function body. The trailing
+        # `return locals().get('result')` surfaces a `result` variable when
+        # the script didn't return explicitly.
+        body = "\n".join("    " + line for line in code.splitlines())
+        src = (
+            "async def __script__():\n"
+            f"{body}\n"
+            "    return locals().get('result')\n"
+        )
+        script_globals: dict = {
+            "call_tool": call_tool,
+            "json": _json,
+            "re": _re,
+            "asyncio": asyncio,
+            "print": _print,
+        }
+        try:
+            exec(compile(src, "<voxyflow.script>", "exec"), script_globals)
+        except SyntaxError as e:
+            return {"success": False, "error": f"SyntaxError: {e}"}
+
+        def _captured() -> str:
+            out = "".join(output_chunks)
+            if len(out) > _SCRIPT_OUTPUT_MAX:
+                out = out[:_SCRIPT_OUTPUT_MAX] + "\n… [output truncated]"
+            return out
+
+        try:
+            ret = await asyncio.wait_for(script_globals["__script__"](), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return {
+                "success": False,
+                "error": f"Script timed out after {timeout_s}s",
+                "output": _captured(),
+            }
+        except Exception:
+            tb = traceback.format_exc()
+            return {
+                "success": False,
+                "error": "Script raised an exception",
+                "traceback": tb[-_SCRIPT_OUTPUT_MAX:],
+                "output": _captured(),
+            }
+
+        response: dict = {"success": True, "output": _captured()}
+        if ret is not None:
+            try:
+                blob = _json.dumps(ret, default=str)
+            except Exception:
+                blob = repr(ret)
+            if len(blob) > _SCRIPT_OUTPUT_MAX:
+                response["result"] = blob[:_SCRIPT_OUTPUT_MAX] + "… [result truncated]"
+                response["result_truncated"] = True
+            else:
+                response["result"] = ret
+        return response
+
+    # ---- Natural-language scheduled tasks (voxyflow.jobs.schedule_nl) -------
+
+    async def jobs_schedule_nl(params: dict) -> dict:
+        """Create a recurring nl_task job from a natural-language prompt.
+
+        Workspace scoping comes from VOXYFLOW_WORKSPACE_ID (never a schema
+        param) — a workspace chat schedules a workspace-scoped task, the
+        general chat a general one. The job itself is created via the REST
+        API so APScheduler registration happens in the backend process even
+        when this handler runs in the MCP stdio subprocess.
+        """
+        prompt = (params.get("prompt") or "").strip()
+        if not prompt:
+            return {"success": False, "error": "prompt is required"}
+
+        from app.services.scheduler_service import normalize_schedule
+        try:
+            schedule = normalize_schedule(params.get("schedule"))
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"Invalid schedule: {e}",
+                "hint": (
+                    "Pass a cron string ('0 17 * * fri'), a shorthand "
+                    "('every_30min', 'every_1h', 'every_day'), or an object "
+                    "{every: 'day'|'week'|..., at: 'HH:MM', weekday: 'fri'}."
+                ),
+            }
+
+        deliver = str(params.get("deliver") or "both").strip().lower()
+        if deliver not in ("chat", "push", "both"):
+            deliver = "both"
+
+        name = (params.get("name") or "").strip()
+        if not name:
+            words = prompt.split()
+            name = " ".join(words[:8])[:60] or "Scheduled task"
+
+        payload: dict = {"prompt": prompt, "deliver": deliver}
+        env_workspace_id = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
+        if env_workspace_id and env_workspace_id != "system-main":
+            payload["workspace_id"] = env_workspace_id
+
+        body = {
+            "name": name,
+            "type": "nl_task",
+            "schedule": schedule,
+            "enabled": True,
+            "payload": payload,
+        }
+        try:
+            client = _get_http_client()
+            resp = await client.post("/api/jobs", json=body)
+            if resp.status_code >= 400:
+                return {
+                    "success": False,
+                    "error": f"HTTP {resp.status_code} creating job",
+                    "detail": resp.text[:500],
+                }
+            job = resp.json()
+        except Exception as e:
+            logger.error(f"[mcp.jobs.schedule_nl] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+        logger.info(
+            f"[mcp.jobs.schedule_nl] created job {job.get('id')!r} "
+            f"schedule={schedule!r} workspace={payload.get('workspace_id') or 'general'} "
+            f"deliver={deliver}"
+        )
+        return {
+            "success": True,
+            "job_id": job.get("id"),
+            "name": name,
+            "schedule": schedule,
+            "deliver": deliver,
+            "workspace_id": payload.get("workspace_id"),
+            "message": f"Scheduled '{name}' ({schedule}, deliver={deliver}).",
+        }
+
     _heartbeat_path = Path(
         os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
     ) / "sandbox" / "heartbeat.md"
@@ -967,7 +1295,10 @@ def build_handlers(
             try:
                 safe_id = chat_id.replace(":", "/").replace("..", "")
                 data_dir = os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow"))
-                summary_path = Path(data_dir) / "sessions" / f"{safe_id}.summary.json"
+                sessions_dir = (Path(data_dir) / "sessions").resolve()
+                summary_path = (Path(data_dir) / "sessions" / f"{safe_id}.summary.json").resolve()
+                if not summary_path.is_relative_to(sessions_dir):
+                    return {"success": True, "chat_id": chat_id, "total_messages": 0, "timeline": "", "summary": "No messages found."}
                 if summary_path.exists():
                     summary_data = json.loads(summary_path.read_text())
                     summary_text = summary_data.get("summary_text", "")
@@ -1087,6 +1418,12 @@ def build_handlers(
         "workers_read_artifact": workers_read_artifact,
         "workers_ack_artifact": workers_ack_artifact,
         "workers_list_unread": workers_list_unread,
+        "skill_list": skill_list,
+        "skill_get": skill_get,
+        "skill_save": skill_save,
+        "skill_delete": skill_delete,
+        "jobs_schedule_nl": jobs_schedule_nl,
+        "script_run": script_run,
         "kg_add": kg_add,
         "kg_query": kg_query,
         "kg_timeline": kg_timeline,
@@ -1154,16 +1491,38 @@ async def voxyflow_delegate_handler(params: dict) -> dict:
                 client = _get_http_client()
                 resp = await client.post("/api/worker-tasks/delegate-queue", json=body)
                 resp.raise_for_status()
+                # The endpoint can reply HTTP 200 with {"success": False, ...}
+                # (e.g. "ClaudeService not ready") — propagate that as a failure
+                # rather than falsely reporting the delegate was queued.
+                try:
+                    queue_result = resp.json()
+                except Exception:
+                    queue_result = {}
+                if isinstance(queue_result, dict) and queue_result.get("success") is False:
+                    err_msg = queue_result.get("error") or "delegate queue rejected"
+                    logger.warning(f"[voxyflow.delegate MCP/stdio] Queue rejected delegate: {err_msg}")
+                    return {"success": False, "error": f"Failed to queue delegate: {err_msg}"}
                 logger.info(
                     f"[voxyflow.delegate MCP/stdio] POSTed delegate to backend for chat {chat_id}: "
                     f"action={params.get('action')}"
                 )
             except Exception as http_err:
                 logger.warning(f"[voxyflow.delegate MCP/stdio] HTTP queue failed: {http_err}")
+                return {"success": False, "error": f"Failed to queue delegate: {http_err}"}
         else:
+            # No chat_id → nothing can pick the delegate up. Surface the loss
+            # instead of pretending a worker was dispatched.
             logger.warning("[voxyflow.delegate MCP] No chat_id available — delegate lost. Set VOXYFLOW_CHAT_ID.")
+            return {
+                "success": False,
+                "error": (
+                    "No VOXYFLOW_CHAT_ID available — the delegate was NOT queued "
+                    "and no worker will be spawned."
+                ),
+            }
     except Exception as e:
         logger.warning(f"[voxyflow.delegate MCP] Could not queue delegate: {e}")
+        return {"success": False, "error": f"Failed to queue delegate: {e}"}
 
     return {
         "success": True,

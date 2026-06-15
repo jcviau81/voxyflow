@@ -106,11 +106,31 @@ export const useMessageStore = create<MessageState>()((set, get) => ({
 
   replaceSessionMessages(newMessages, sessionId, workspaceId, cardId) {
     set((s) => {
+      const inScope = (m: Message): boolean => {
+        if (sessionId) return m.sessionId === sessionId;
+        if (cardId) return m.cardId === cardId;
+        if (workspaceId) return m.workspaceId === workspaceId;
+        return false;
+      };
+      const incomingIds = new Set(newMessages.map((m) => m.id));
+      // Empty incoming = explicit clear (Clear Chat / New Session): wipe the
+      // whole scope, streaming bubbles included. Without this, the
+      // newer-than-incoming preservation below would keep everything
+      // (newestIncoming would be 0).
+      const explicitClear = newMessages.length === 0;
+      const newestIncoming = newMessages.reduce((mx, m) => Math.max(mx, m.timestamp || 0), 0);
       const kept = s.messages.filter((m) => {
-        if (sessionId && m.sessionId === sessionId) return false;
-        if (!sessionId && cardId && m.cardId === cardId) return false;
-        if (!sessionId && !cardId && workspaceId && m.workspaceId === workspaceId) return false;
-        return true;
+        if (!inScope(m)) return true; // other contexts untouched
+        if (explicitClear) return false;
+        if (incomingIds.has(m.id)) return false; // server history supersedes it
+        // Preserve local messages the server history doesn't cover YET: a
+        // message still streaming, or one newer than anything the backend
+        // returned (just sent / just finished but not persisted when this
+        // reload fired). Without this, switching views mid-stream wipes the
+        // last message because the fetched history predates its persistence.
+        if (m.streaming) return true;
+        if ((m.timestamp || 0) > newestIncoming) return true;
+        return false;
       });
       return { messages: [...kept, ...newMessages] };
     });

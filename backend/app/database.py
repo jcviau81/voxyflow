@@ -18,7 +18,6 @@ from sqlalchemy import (
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
-from sqlalchemy.pool import StaticPool
 
 from app.config import get_settings
 
@@ -29,9 +28,12 @@ from app.config import get_settings
 engine = create_async_engine(
     get_settings().database_url,
     echo=get_settings().debug,
-    # SQLite: use StaticPool (single shared connection) to avoid pool exhaustion
-    # under heavy concurrent access. SQLite handles its own locking.
-    poolclass=StaticPool,
+    # Default pool (AsyncAdaptedQueuePool): one connection per checked-out
+    # session, so concurrent transactions stay isolated. WAL + busy_timeout
+    # (set per-connection below) handle cross-connection locking. Do NOT use
+    # StaticPool here — it shares a single connection across all sessions,
+    # which interleaves transactions and lets one session commit/roll back
+    # another's half-finished writes.
     connect_args={
         "check_same_thread": False,
         "timeout": 30,  # wait up to 30s for lock instead of failing immediately
@@ -43,11 +45,14 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 # Enable WAL journal mode for every new SQLite connection — allows concurrent
 # readers while a write is in progress and eliminates most "database is locked" errors.
+# Also enable foreign-key enforcement (SQLite defaults it OFF per connection),
+# so the ON DELETE CASCADE / SET NULL clauses in the schema actually fire.
 @event.listens_for(engine.sync_engine, "connect")
 def _set_sqlite_pragma(dbapi_conn, connection_record):
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
 
@@ -144,6 +149,10 @@ async def init_db():
             await conn.execute(text("ALTER TABLE workspaces ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT 0"))
         if "inherit_main_context" not in ws_columns:
             await conn.execute(text("ALTER TABLE workspaces ADD COLUMN inherit_main_context BOOLEAN NOT NULL DEFAULT 1"))
+        if "emoji" not in ws_columns:
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN emoji TEXT"))
+        if "color" not in ws_columns:
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN color TEXT"))
 
         # Ensure the system "Home" workspace exists (formerly "Main", briefly "Global")
         SYSTEM_MAIN_ID = "system-main"
@@ -363,6 +372,8 @@ class Workspace(Base):
     description = Column(Text, default="")
     status = Column(String, default="active")  # active | archived
     context = Column(Text, default="")  # relevant docs, requirements summary
+    emoji = Column(String, nullable=True)  # workspace icon emoji
+    color = Column(String, nullable=True)  # workspace accent color
     is_system = Column(Boolean, default=False)  # True for the built-in "Home" workspace
     deletable = Column(Boolean, default=True)   # False for system workspaces
     github_repo = Column(String, nullable=True)      # "owner/repo"

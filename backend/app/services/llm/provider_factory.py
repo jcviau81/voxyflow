@@ -147,7 +147,7 @@ def get_provider(
         return _cache(OllamaProvider(base_url=resolved_url or "http://localhost:11434", api_key=api_key))
 
     if ptype == ProviderType.ANTHROPIC:
-        return _cache(AnthropicProvider(api_key=api_key))
+        return _cache(AnthropicProvider(api_key=api_key, api_base=resolved_url))
 
     if ptype == ProviderType.CLI:
         from app.services.llm.providers.cli import CliProvider
@@ -184,7 +184,12 @@ def infer_provider_type(url: str, model: str = "") -> str:
     lower_model = model.lower()
 
     parsed = urlparse(url) if url else None
-    port = parsed.port if parsed else None
+    try:
+        port = parsed.port if parsed else None
+    except ValueError:
+        # Free-text saved URL with a malformed port (e.g. "http://host:abc") —
+        # degrade to the no-port heuristics instead of 500ing /api/models/*.
+        port = None
 
     if port == 11434 or "ollama" in lower_url:
         return ProviderType.OLLAMA

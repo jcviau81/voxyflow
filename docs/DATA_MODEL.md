@@ -42,7 +42,7 @@ class CardTask(Base):
     workspace_id      = Column(String, ForeignKey("workspaces.id"), nullable=True)  # legacy: null = Home (now migrated to "system-main")
     title           = Column(String, nullable=False)
     description     = Column(Text, default="")
-    status          = Column(String, default="card")    # card|todo|in-progress|done|archived
+    status          = Column(String, default="backlog") # backlog|todo|in-progress|done|archived
     priority        = Column(Integer, default=0)        # 0=none, 1=low, 2=medium, 3=high, 4=critical
     color           = Column(String, nullable=True)     # yellow|blue|green|pink|purple|orange
     position        = Column(Integer, default=0)        # Sort order within column
@@ -65,7 +65,7 @@ class CardTask(Base):
 class CardCreate(BaseModel):
     title: str
     description: str = ""
-    status: str = "card"            # card|todo|in-progress|done
+    status: str = "backlog"         # backlog|todo|in-progress|done
     priority: int = 0               # 0-4
     color: str | None = None
     agent_type: str | None = None
@@ -77,7 +77,7 @@ class CardCreate(BaseModel):
 class CardUpdate(BaseModel):        # All fields optional
     title: str | None
     description: str | None
-    status: str | None              # card|todo|in-progress|done|archived
+    status: str | None              # backlog|todo|in-progress|done|archived
     priority: int | None            # 0-4
     color: str | None
     agent_type: str | None
@@ -118,7 +118,7 @@ class CardResponse(BaseModel):
 
 | Status | Where | Meaning |
 |--------|-------|---------|
-| `card` | Backlog | Backlog card (freeboard view) |
+| `backlog` | Backlog | Backlog card (Backlog view — internal view id: `freeboard`) |
 | `todo` | Kanban | Ready for work |
 | `in-progress` | Kanban | Currently active |
 | `done` | Kanban | Completed |

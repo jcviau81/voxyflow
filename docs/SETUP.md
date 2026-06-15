@@ -11,6 +11,32 @@
 
 ---
 
+## Quick Install
+
+```bash
+git clone https://github.com/your-org/voxyflow.git
+cd voxyflow
+./install.sh
+```
+
+The installer is idempotent and does everything in one pass:
+
+- Checks prerequisites (git, Python ≥ 3.10, Node ≥ 20 + npm) and lists anything missing
+- Creates `backend/venv` and installs backend dependencies
+- Copies `backend/.env.example` → `backend/.env` if it doesn't exist (never overwrites)
+- Installs the `voxy` CLI into the venv and symlinks it to `~/.local/bin/voxy`
+- Builds the React frontend (`npm install` + `npm run build`)
+- Installs and starts systemd user services (`voxyflow-backend`, `voxyflow-frontend`), enabling linger so they start at boot
+- Polls `http://localhost:8000/health` and prints a success summary
+
+**Flags:** `--no-frontend` (skip the frontend build), `--no-services` (skip systemd setup — also skipped automatically when `systemctl --user` is unavailable), `-h/--help`.
+
+**Updating:** re-running the script is the manual update path (`git pull && ./install.sh`). For the automated path, use `voxy update`.
+
+The sections below cover the same steps manually, plus optional integrations.
+
+---
+
 ## Path Conventions
 
 All paths in this documentation use **default install locations**. Both can be overridden via environment variables:
@@ -36,8 +62,8 @@ uvicorn app.main:app ...
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
-| Node.js | 18+ | Frontend build & dev server |
-| Python | 3.12+ | Backend (`asyncio`, type hints, `match` statements) |
+| Node.js | 20+ | Frontend build & dev server |
+| Python | 3.10+ (3.12 recommended) | Backend (`asyncio`, type hints, `match` statements) |
 | Git | any | |
 
 **LLM backend (at least one):**
@@ -71,7 +97,7 @@ cd voxyflow
 
 ```bash
 cd backend
-python3.12 -m venv venv
+python3 -m venv venv
 source venv/bin/activate  # Linux/macOS
 # or: venv\Scripts\activate  # Windows
 ```
@@ -507,6 +533,8 @@ VOXYFLOW_WS_URL=wss://voxyflow.example.com/ws
 **HTTPS requirements:** Web Speech API, microphone access, and service worker all require HTTPS in production.
 
 ### systemd service (backend)
+
+> `./install.sh` installs these units automatically from the templates in `scripts/systemd/`. The example below is for manual setup.
 
 ```ini
 # ~/.config/systemd/user/voxyflow-backend.service

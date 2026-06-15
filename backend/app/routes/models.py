@@ -395,9 +395,41 @@ async def test_model_layer(body: dict):
     provider_url = body.get("provider_url", "").strip()
     api_key = body.get("api_key", "").strip()
     model = body.get("model", "").strip()
+    endpoint_id = body.get("endpoint_id", "").strip()
 
     if not model:
         return {"success": False, "error": "model is required"}
+
+    # Resolve named endpoint server-side (mirrors GET /list) — the frontend only
+    # ever sees redacted keys, so it sends endpoint_id instead of api_key.
+    models_cfg: dict | None = None
+    if endpoint_id:
+        models_cfg = await _load_models_cfg()
+        for ep in models_cfg.get("endpoints", []):
+            if isinstance(ep, dict) and ep.get("id") == endpoint_id:
+                provider_type = ep.get("provider_type", "") or provider_type
+                provider_url = ep.get("url", "") or provider_url
+                api_key = ep.get("api_key", "")
+                break
+
+    # The frontend may round-trip the '***' redaction sentinel — resolve the
+    # real key from saved settings (matched by URL). Never use '***' as a key.
+    if api_key == "***":
+        if models_cfg is None:
+            models_cfg = await _load_models_cfg()
+        api_key = ""
+        for layer_key in ("fast", "deep", "haiku"):
+            layer = models_cfg.get(layer_key, {})
+            if (isinstance(layer, dict) and layer.get("api_key")
+                    and layer.get("provider_url", "") == provider_url):
+                api_key = layer["api_key"]
+                break
+        if not api_key:
+            for ep in models_cfg.get("endpoints", []):
+                if (isinstance(ep, dict) and ep.get("api_key")
+                        and ep.get("url", "") == provider_url):
+                    api_key = ep["api_key"]
+                    break
 
     # Normalise provider_type the same way ClaudeService.reload_models does.
     if not provider_type:
@@ -865,7 +897,7 @@ async def _run_judge_evaluation(
         from app.services.llm.providers.base import CompletionRequest
 
         fast_cfg = models_cfg.get("fast", {})
-        fast_provider_type = fast_cfg.get("provider_type", "cli")
+        fast_provider_type = (fast_cfg.get("provider_type") or "").strip()
         fast_provider_url = fast_cfg.get("provider_url", "")
         fast_model = fast_cfg.get("model", "claude-sonnet-4")
         fast_api_key = ""
@@ -879,6 +911,15 @@ async def _run_judge_evaluation(
                     fast_provider_url = ep.get("url", fast_provider_url)
                     fast_api_key = ep.get("api_key", "")
                     break
+
+        # Normalise empty provider_type the same way /test and reload_models do —
+        # the stored default is "" (not "cli"), which would otherwise hit
+        # get_provider("") and silently degrade to the latency fallback.
+        if not fast_provider_type:
+            if get_settings().claude_use_cli:
+                fast_provider_type = "cli"
+            else:
+                fast_provider_type = infer_provider_type(fast_provider_url, fast_model)
 
         if fast_provider_type == "cli":
             from app.services.llm.cli_backend import ClaudeCliBackend

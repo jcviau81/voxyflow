@@ -26,11 +26,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DIR", os.path.expanduser("~/.voxyflow")))
-VOXYFLOW_DATA_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", str(Path.home() / ".voxyflow")))
+# Canonical path resolution lives in app.config — single resolution site.
+# (Re-exported below: several modules import these names from here.)
+from app.config import VOXYFLOW_DATA_DIR, VOXYFLOW_DIR
+
 # settings.json lives in the data dir (outside repo) to avoid accidental commits
 SETTINGS_FILE = str(VOXYFLOW_DATA_DIR / "settings.json")
 PERSONALITY_DIR = VOXYFLOW_DIR / "personality"
+# Legacy personality location — before 2026-06 VOXYFLOW_DIR defaulted to
+# ~/.voxyflow, so existing installs may hold user-authored IDENTITY.md/USER.md
+# there. init_personality_files() migrates them once, best-effort.
+_LEGACY_PERSONALITY_DIR = Path.home() / ".voxyflow" / "personality"
+
+# Serializes the load->mutate->save critical section across settings writers so
+# concurrent writes can't lose updates. Imported by other modules — keep the name.
+_settings_write_lock = asyncio.Lock()
 
 
 __all__ = [
@@ -300,7 +310,9 @@ class AppSettings(BaseModel):
     onboarding_complete: bool = False
     user_name: str = ""
     assistant_name: str = "Voxy"
-    workspace_path: str = str(Path.home() / ".voxyflow" / "workspace")  # absolute path to workspace root
+    # NOTE: a `workspace_path` field used to live here — it was write-only
+    # (nothing ever read it; storage roots come from app.config). Pydantic
+    # silently drops the stale key still present in older saved settings.
 
 
 def _redact_sensitive(data: dict) -> dict:
@@ -317,10 +329,16 @@ def _redact_sensitive(data: dict) -> dict:
     for ep in models.get("endpoints", []):
         if isinstance(ep, dict) and ep.get("api_key"):
             ep["api_key"] = "***"
-    # Redact MCP server api_key fields
+    # Redact MCP server api_key fields + stdio env values (env is the standard
+    # place for secrets like GITHUB_TOKEN — never expose via GET or on disk)
     for srv in redacted.get("mcp_servers", []) or []:
-        if isinstance(srv, dict) and srv.get("api_key"):
+        if not isinstance(srv, dict):
+            continue
+        if srv.get("api_key"):
             srv["api_key"] = "***"
+        env = srv.get("env")
+        if isinstance(env, dict):
+            srv["env"] = {k: ("***" if v else v) for k, v in env.items()}
     return redacted
 
 
@@ -339,16 +357,23 @@ def _merge_sensitive_on_save(incoming: dict, existing: dict) -> dict:
     for ep_in in eps_in:
         if isinstance(ep_in, dict) and ep_in.get("api_key") == "***":
             existing_ep = eps_ex.get(ep_in.get("id"))
-            if existing_ep:
-                ep_in["api_key"] = existing_ep.get("api_key", "")
-    # Merge MCP server api_keys (same '***' sentinel)
+            # New entry (no saved key to merge) → strip the sentinel, never persist '***'
+            ep_in["api_key"] = existing_ep.get("api_key", "") if existing_ep else ""
+    # Merge MCP server api_keys + stdio env values (same '***' sentinel)
     mcp_in = incoming.get("mcp_servers", []) or []
     mcp_ex = {s.get("id"): s for s in (existing.get("mcp_servers", []) or []) if isinstance(s, dict)}
     for srv_in in mcp_in:
-        if isinstance(srv_in, dict) and srv_in.get("api_key") == "***":
-            existing_srv = mcp_ex.get(srv_in.get("id"))
-            if existing_srv:
-                srv_in["api_key"] = existing_srv.get("api_key", "")
+        if not isinstance(srv_in, dict):
+            continue
+        existing_srv = mcp_ex.get(srv_in.get("id"))
+        if srv_in.get("api_key") == "***":
+            srv_in["api_key"] = existing_srv.get("api_key", "") if existing_srv else ""
+        env_in = srv_in.get("env")
+        if isinstance(env_in, dict):
+            env_ex = (existing_srv or {}).get("env") or {}
+            for k, v in env_in.items():
+                if v == "***":
+                    env_in[k] = env_ex.get(k, "")
     return incoming
 
 
@@ -415,17 +440,18 @@ async def save_settings(settings: AppSettings):
                 _wc.get("name"), _wc.get("endpoint_id"), _wc.get("provider_type"), _wc.get("model"),
             )
 
-    # If the frontend sent '***' for api_key fields, preserve the existing values
-    existing = await _load_settings_from_db()
-    if existing:
-        data = _merge_sensitive_on_save(data, existing)
+    async with _settings_write_lock:
+        # If the frontend sent '***' for api_key fields, preserve the existing values
+        existing = await _load_settings_from_db()
+        if existing:
+            data = _merge_sensitive_on_save(data, existing)
 
-    # Write to DB (source of truth — has real secrets)
-    await _save_settings_to_db(data)
+        # Write to DB (source of truth — has real secrets)
+        await _save_settings_to_db(data)
 
-    # Backup to settings.json with secrets REDACTED. The DB is authoritative;
-    # the file is a visibility aid only. Never write plaintext keys to disk.
-    await asyncio.to_thread(_write_settings_file_redacted, data)
+        # Backup to settings.json with secrets REDACTED. The DB is authoritative;
+        # the file is a visibility aid only. Never write plaintext keys to disk.
+        await asyncio.to_thread(_write_settings_file_redacted, data)
 
     # Clear provider cache so new settings take effect
     try:
@@ -650,11 +676,39 @@ async def reset_personality_file(filename: str):
     return {"status": "reset", "filename": filename, "size": len(content)}
 
 
+def _migrate_legacy_personality_files() -> None:
+    """One-time, best-effort copy of user content from the legacy location.
+
+    Pre-2026-06, VOXYFLOW_DIR defaulted to ~/.voxyflow, so user-authored
+    IDENTITY.md/USER.md may live in ~/.voxyflow/personality. If the current
+    PERSONALITY_DIR lacks them but the legacy dir has them, copy them over
+    before template seeding so existing installs keep their content.
+    """
+    try:
+        legacy = _LEGACY_PERSONALITY_DIR.resolve()
+        current = PERSONALITY_DIR.resolve()
+        if legacy == current or not legacy.is_dir():
+            return
+        for filename in EDITABLE_FILES:
+            src = legacy / filename
+            dst = current / filename
+            if (not dst.exists() or dst.stat().st_size == 0) and src.exists() and src.stat().st_size > 0:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+                logger.info("Migrated legacy personality file %s -> %s", src, dst)
+    except Exception as e:  # best-effort — never block startup on migration
+        logger.warning("Legacy personality migration failed: %s", e)
+
+
 async def init_personality_files() -> None:
     """Generate USER.md and IDENTITY.md from templates on first run if missing or empty."""
     data = await _load_settings_from_db() or {}
     bot_name = (data.get("personality", {}) or {}).get("bot_name") or data.get("assistant_name") or "Voxy"
     user_name = data.get("user_name") or ""
+
+    # Migrate user content from the legacy ~/.voxyflow/personality first so
+    # template seeding below doesn't shadow existing user files.
+    await asyncio.to_thread(_migrate_legacy_personality_files)
 
     for filename, template in DEFAULT_TEMPLATES.items():
         if filename not in EDITABLE_FILES:
@@ -887,74 +941,73 @@ async def list_endpoints():
     return {"endpoints": redacted}
 
 
-@router.post("/endpoints")
+@router.post("/endpoints", dependencies=[Depends(verify_auth)])
 async def add_endpoint(endpoint: ProviderEndpoint):
     """Add or update a named LLM endpoint. If id already exists, it is replaced."""
     import uuid as _uuid
-    data = await _load_settings_from_db()
-    if data is None:
-        data = AppSettings().dict()
 
     if not endpoint.id:
         endpoint.id = str(_uuid.uuid4())
 
-    models = data.setdefault("models", {})
-    endpoints: list = models.setdefault("endpoints", [])
+    async with _settings_write_lock:
+        data = await _load_settings_from_db()
+        if data is None:
+            data = AppSettings().dict()
 
-    ep_dict = endpoint.dict()
+        models = data.setdefault("models", {})
+        endpoints: list = models.setdefault("endpoints", [])
 
-    # If api_key is the redacted sentinel "***", preserve the existing real key
-    # (mirrors _merge_sensitive_on_save logic for the main PUT /api/settings route).
-    if ep_dict.get("api_key") == "***":
-        for existing_ep in endpoints:
-            if isinstance(existing_ep, dict) and existing_ep.get("id") == endpoint.id:
-                ep_dict["api_key"] = existing_ep.get("api_key", "")
+        ep_dict = endpoint.dict()
+
+        # If api_key is the redacted sentinel "***", preserve the existing real key
+        # (mirrors _merge_sensitive_on_save logic for the main PUT /api/settings route).
+        if ep_dict.get("api_key") == "***":
+            for existing_ep in endpoints:
+                if isinstance(existing_ep, dict) and existing_ep.get("id") == endpoint.id:
+                    ep_dict["api_key"] = existing_ep.get("api_key", "")
+                    break
+            else:
+                # No existing endpoint to merge from — clear the sentinel
+                ep_dict["api_key"] = ""
+
+        # Replace if id already exists, else append
+        replaced = False
+        for i, ep in enumerate(endpoints):
+            if isinstance(ep, dict) and ep.get("id") == endpoint.id:
+                endpoints[i] = ep_dict
+                replaced = True
                 break
-        else:
-            # No existing endpoint to merge from — clear the sentinel
-            ep_dict["api_key"] = ""
+        if not replaced:
+            endpoints.append(ep_dict)
 
-    # Replace if id already exists, else append
-    replaced = False
-    for i, ep in enumerate(endpoints):
-        if isinstance(ep, dict) and ep.get("id") == endpoint.id:
-            endpoints[i] = ep_dict
-            replaced = True
-            break
-    if not replaced:
-        endpoints.append(ep_dict)
-
-    await _save_settings_to_db(data)
-    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+        await _save_settings_to_db(data)
+        await asyncio.to_thread(_write_settings_file_redacted, data)
 
     logger.info("Endpoint %s (%s) %s", endpoint.name, endpoint.id, "updated" if replaced else "added")
     return {"success": True, "id": endpoint.id, "action": "updated" if replaced else "added"}
 
 
-@router.delete("/endpoints/{endpoint_id}")
+@router.delete("/endpoints/{endpoint_id}", dependencies=[Depends(verify_auth)])
 async def remove_endpoint(endpoint_id: str):
     """Remove a saved LLM endpoint by id."""
-    data = await _load_settings_from_db()
-    if data is None:
-        return {"success": False, "error": "No settings found"}
+    async with _settings_write_lock:
+        data = await _load_settings_from_db()
+        if data is None:
+            return {"success": False, "error": "No settings found"}
 
-    models = data.get("models")
-    if not isinstance(models, dict):
-        return {"success": False, "error": f"Endpoint {endpoint_id!r} not found"}
+        models = data.get("models")
+        if not isinstance(models, dict):
+            return {"success": False, "error": f"Endpoint {endpoint_id!r} not found"}
 
-    endpoints: list = models.get("endpoints", [])
-    filtered = [ep for ep in endpoints if not (isinstance(ep, dict) and ep.get("id") == endpoint_id)]
-    if len(filtered) == len(endpoints):
-        return {"success": False, "error": f"Endpoint {endpoint_id!r} not found"}
+        endpoints: list = models.get("endpoints", [])
+        filtered = [ep for ep in endpoints if not (isinstance(ep, dict) and ep.get("id") == endpoint_id)]
+        if len(filtered) == len(endpoints):
+            return {"success": False, "error": f"Endpoint {endpoint_id!r} not found"}
 
-    models["endpoints"] = filtered
+        models["endpoints"] = filtered
 
-    await _save_settings_to_db(data)
-    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+        await _save_settings_to_db(data)
+        await asyncio.to_thread(_write_settings_file_redacted, data)
 
     logger.info("Endpoint %s removed", endpoint_id)
     return {"success": True, "id": endpoint_id}

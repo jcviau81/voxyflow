@@ -281,6 +281,62 @@ def test_legacy_artifact_no_meta_sidecar(isolated_artifact_dir):
 
 
 # ---------------------------------------------------------------------------
+# Test: delete_artifact closes the lifecycle (no ghosts in list_unread)
+# ---------------------------------------------------------------------------
+
+def test_delete_artifact_stamps_acked_and_hides_from_unread(isolated_artifact_dir):
+    """Internally-deleted artifacts must not linger in list_unread as ghosts."""
+    from app.services.worker_artifact_store import (
+        delete_artifact, list_unread, meta_path, artifact_path
+    )
+    task_id = "test-delete-001"
+    _make_artifact(task_id, "to be internally deleted")
+
+    assert delete_artifact(task_id) is True
+    assert not artifact_path(task_id).exists()
+
+    # Meta sidecar is kept as a historical trace, but acked_at is stamped
+    meta = json.loads(meta_path(task_id).read_text())
+    assert meta["acked_at"] is not None
+
+    unread_ids = {u["task_id"] for u in list_unread()}
+    assert task_id not in unread_ids, "deleted artifact must not appear in list_unread"
+
+
+# ---------------------------------------------------------------------------
+# Test: atomic writes leave no .tmp leftovers
+# ---------------------------------------------------------------------------
+
+def test_atomic_writes_leave_no_tmp_files(isolated_artifact_dir):
+    from app.services.worker_artifact_store import write_artifact, write_completion, _data_dir
+    task_id = "test-atomic-001"
+    _make_artifact(task_id, "atomic body")
+    write_completion(task_id, {"summary": "done", "status": "success"})
+
+    leftovers = list(_data_dir().glob("*.tmp"))
+    assert leftovers == [], f".tmp files should be replaced into place, found: {leftovers}"
+
+
+# ---------------------------------------------------------------------------
+# Test: orphan scan is throttled
+# ---------------------------------------------------------------------------
+
+def test_orphan_check_throttled(isolated_artifact_dir):
+    """The orphan scan must run at most once per ORPHAN_CHECK_INTERVAL_S."""
+    import app.services.worker_artifact_store as store
+
+    store._last_orphan_check = 0.0
+    _make_artifact("test-throttle-001", "a")  # triggers a scan
+    first_stamp = store._last_orphan_check
+    assert first_stamp > 0.0
+
+    _make_artifact("test-throttle-002", "b")  # within the interval — no rescan
+    assert store._last_orphan_check == first_stamp, (
+        "orphan scan should not rerun within ORPHAN_CHECK_INTERVAL_S"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test: cleanup_old does NOT delete artifacts
 # ---------------------------------------------------------------------------
 
@@ -307,3 +363,37 @@ def test_cleanup_old_does_not_delete_artifacts(isolated_artifact_dir):
     assert artifact_path(task_id).exists(), (
         "artifact must NOT be deleted by cleanup_old (consumer-driven retention)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test: workers.list_unread MCP handler is workspace-scoped
+# ---------------------------------------------------------------------------
+
+def test_list_unread_handler_scoped_to_workspace(isolated_artifact_dir, monkeypatch):
+    """The MCP workers.list_unread handler must not leak artifact summaries
+    across workspaces: a workspace chat only sees its own workspace's
+    artifacts unless scope='all' is passed (same boundary as workers.list)."""
+    import asyncio
+    from app.mcp_server import _get_system_handler
+
+    _make_artifact("test-scope-a", "output A", workspace_id="WS-A")
+    _make_artifact("test-scope-b", "output B", workspace_id="WS-B")
+
+    handler = _get_system_handler("workers_list_unread")
+    assert handler is not None
+
+    # Workspace chat → only WS-A artifacts visible.
+    monkeypatch.setenv("VOXYFLOW_WORKSPACE_ID", "WS-A")
+    res = asyncio.run(handler({}))
+    assert res["success"] and res["scope"] == "workspace"
+    assert [e["task_id"] for e in res["unread"]] == ["test-scope-a"]
+
+    # Explicit scope='all' bypasses the filter.
+    res_all = asyncio.run(handler({"scope": "all"}))
+    assert res_all["scope"] == "all"
+    assert sorted(e["task_id"] for e in res_all["unread"]) == ["test-scope-a", "test-scope-b"]
+
+    # General chat (system-main) sees everything.
+    monkeypatch.setenv("VOXYFLOW_WORKSPACE_ID", "system-main")
+    res_gen = asyncio.run(handler({}))
+    assert res_gen["scope"] == "all" and res_gen["count"] == 2

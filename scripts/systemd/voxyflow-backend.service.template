@@ -1,0 +1,18 @@
+[Unit]
+Description=Voxyflow Backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO_DIR@/backend
+Environment=PYTHONPATH=@REPO_DIR@/backend
+Environment=PATH=@NODE_BIN@:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=@REPO_DIR@/backend/.env
+ExecStart=@REPO_DIR@/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+StandardOutput=append:/tmp/voxyflow-backend.log
+StandardError=append:/tmp/voxyflow-backend.log
+
+[Install]
+WantedBy=default.target

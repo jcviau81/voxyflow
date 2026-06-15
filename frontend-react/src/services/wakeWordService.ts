@@ -1,15 +1,37 @@
 import { eventBus } from '../utils/eventBus';
-import * as ort from 'onnxruntime-web';
-// Explicit ?url imports so Vite emits the ORT runtime files as hashed build
-// assets — the old `wasmPaths = '/'` relied on files that only existed in the
-// legacy webpack public/ dir and 404 in the Vite build.
-// ORT 1.25 loads a single variant at runtime (the default non-jsep build is
-// enough for pure CPU inference, which is all wake word needs).
-import ortWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
-import ortMjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
+// onnxruntime-web is ~400 kB of JS (plus multi-MB WASM) — it is loaded
+// dynamically the first time wake-word detection actually starts, so it never
+// blocks the main bundle for users who keep wake word disabled.
+// Type-only import is erased at build time.
+import type * as OrtNamespace from 'onnxruntime-web';
 
-ort.env.wasm.wasmPaths = { wasm: ortWasmUrl, mjs: ortMjsUrl };
-ort.env.wasm.numThreads = 1;
+type Ort = typeof OrtNamespace;
+
+let ortModulePromise: Promise<Ort> | null = null;
+
+/**
+ * Lazily import onnxruntime-web and configure its WASM paths once.
+ *
+ * The explicit ?url imports make Vite emit the ORT runtime files as hashed
+ * build assets — the old `wasmPaths = '/'` relied on files that only existed
+ * in the legacy webpack public/ dir and 404 in the Vite build.
+ * ORT 1.25 loads a single variant at runtime (the default non-jsep build is
+ * enough for pure CPU inference, which is all wake word needs).
+ */
+function getOrt(): Promise<Ort> {
+  if (!ortModulePromise) {
+    ortModulePromise = Promise.all([
+      import('onnxruntime-web'),
+      import('onnxruntime-web/ort-wasm-simd-threaded.wasm?url'),
+      import('onnxruntime-web/ort-wasm-simd-threaded.mjs?url'),
+    ]).then(([ort, wasmUrl, mjsUrl]) => {
+      ort.env.wasm.wasmPaths = { wasm: wasmUrl.default, mjs: mjsUrl.default };
+      ort.env.wasm.numThreads = 1;
+      return ort;
+    });
+  }
+  return ortModulePromise;
+}
 
 const MEL_FEATURES = 32;
 
@@ -35,9 +57,10 @@ class WakeWordService {
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
 
-  private melSession: ort.InferenceSession | null = null;
-  private embSession: ort.InferenceSession | null = null;
-  private wwSession: ort.InferenceSession | null = null;
+  private ort: Ort | null = null;
+  private melSession: OrtNamespace.InferenceSession | null = null;
+  private embSession: OrtNamespace.InferenceSession | null = null;
+  private wwSession: OrtNamespace.InferenceSession | null = null;
   private wwSessionModelId: string | null = null;
   // Input/output names are read from the loaded session so custom-trained
   // models with different graph names still work.
@@ -69,7 +92,9 @@ class WakeWordService {
   };
 
   async loadModels(): Promise<void> {
-    const opts: ort.InferenceSession.SessionOptions = { executionProviders: ['wasm'] };
+    const ort = await getOrt();
+    this.ort = ort;
+    const opts: OrtNamespace.InferenceSession.SessionOptions = { executionProviders: ['wasm'] };
     if (!this.melSession) {
       this.melSession = await ort.InferenceSession.create('/models/melspectrogram.onnx', opts);
     }
@@ -175,7 +200,8 @@ class WakeWordService {
   }
 
   private async processChunk(audio: Float32Array): Promise<void> {
-    if (!this.melSession || !this.embSession || !this.wwSession) return;
+    if (!this.ort || !this.melSession || !this.embSession || !this.wwSession) return;
+    const ort = this.ort;
 
     try {
       const melIn = new ort.Tensor('float32', audio, [1, audio.length]);

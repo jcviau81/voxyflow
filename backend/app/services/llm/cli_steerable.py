@@ -43,6 +43,11 @@ def _is_voxyflow_app_cwd(cwd: str) -> bool:
     return _iv(cwd)
 
 
+async def _reap_subprocess(proc, *, label: str) -> None:
+    from app.services.llm.cli_backend import _reap_subprocess as _rs
+    await _rs(proc, label=label)
+
+
 class SteerableMixin:
     """Steerable worker CLI calls (stream-json input + output).
 
@@ -91,8 +96,14 @@ class SteerableMixin:
         _eff = claude_effort(effort)
         if _eff:
             args.extend(["--effort", _eff])
-        # Always disable built-in CLI tools
-        args.extend(["--tools", ""])
+        # Steerable workers are full workers — keep Claude's native tools
+        # (Bash, Read, Edit, …) and hard-block only built-in WebSearch (workers
+        # must use voxyflow.web.search / SearXNG instead).
+        # IMPORTANT: do NOT use `--tools ""` — since claude CLI ~v2.1 an empty
+        # --tools list sets the available-tool set to ZERO, which also hides
+        # the MCP tools (see _build_args in cli_backend.py).
+        args.extend(["--tools", "default"])
+        args.extend(["--disallowedTools", "WebSearch"])
 
         if use_tools:
             args.extend([
@@ -196,6 +207,11 @@ class SteerableMixin:
         # --- Concurrent tasks ---
         cancel_task = None
         steer_task = None
+        # Drain stderr concurrently — if the CLI writes more than the OS pipe
+        # buffer (~64KB) to stderr while we consume stdout, it would block on
+        # the stderr write and the stdout loop would hang forever.
+        stderr_task = asyncio.create_task(proc.stderr.read())
+        completed = False
 
         result_text = ""
         usage = {}
@@ -320,6 +336,7 @@ class SteerableMixin:
                     except Exception:
                         pass
 
+            completed = True
         finally:
             gate.release(is_worker=_is_worker)
             get_cli_session_registry().deregister(_reg_id)
@@ -335,14 +352,25 @@ class SteerableMixin:
                     await cancel_task
                 except asyncio.CancelledError:
                     pass
+            if not completed:
+                # Abnormal exit (task cancelled / error mid-stream) — don't
+                # orphan the subprocess; reap it and drop the stderr drain.
+                await _reap_subprocess(proc, label="CLI-steer")
+                if not stderr_task.done():
+                    stderr_task.cancel()
+                    try:
+                        await stderr_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
 
         await proc.wait()
+        stderr_bytes = await stderr_task
 
         if cancel_event and cancel_event.is_set():
             return "[Task cancelled by supervisor]", {}
 
         if proc.returncode != 0:
-            stderr_text = (await proc.stderr.read()).decode("utf-8", errors="replace")
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
             logger.error(f"[CLI-steer] Process exited with code {proc.returncode}: {stderr_text[:500]}")
             return f"[CLI error: process exited with code {proc.returncode}]", {}
 

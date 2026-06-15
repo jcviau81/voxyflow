@@ -6,13 +6,19 @@
  *
  * Decision locked (JC, 2026-05-27):
  * - Badge render is systematic — no settings toggle.
- * - Status updates via polling on the existing /api/workers/:task_id endpoint.
  * - Artifact link shown when worker.complete has been called.
+ *
+ * Status source (2026-06-07): derived from useWorkerStore, which useWorkerSync
+ * keeps live via the WS task:* events. No per-badge polling — a single REST
+ * hydrate runs only when the task isn't in the live store (e.g. reload of an
+ * old conversation). Terminal state is retained locally so a badge keeps
+ * showing "done" after the store TTL-purges the task.
  */
 
-import { memo, useState, useEffect, useCallback } from 'react';
+import { memo, useState, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, Clock, ExternalLink } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useWorkerStore, type WorkerInfo } from '../../stores/useWorkerStore';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,54 +79,70 @@ function complexityColor(complexity?: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Worker status polling hook
+// Worker status hook — store-derived, no polling
 // ---------------------------------------------------------------------------
 
-const POLL_INTERVAL_MS = 3000;
-const POLL_STOP_STATUSES = new Set<WorkerStatus>(['done', 'failed', 'timed_out', 'cancelled']);
+/** Map the worker store's status vocabulary to the badge's. */
+function mapStoreStatus(s: WorkerInfo['status']): WorkerStatus {
+  switch (s) {
+    case 'pending':   return 'queued';
+    case 'running':   return 'running';
+    case 'done':      return 'done';
+    case 'failed':    return 'failed';
+    case 'cancelled': return 'cancelled';
+    case 'crashed':   return 'failed';
+    default:          return 'unknown';
+  }
+}
 
 function useWorkerStatus(taskId: string | undefined): WorkerState {
+  // Live entry from the WS-fed store (undefined until task:started, or after
+  // the store TTL-purges a completed task).
+  const stored = useWorkerStore((s) => (taskId ? s.workers[taskId] : undefined));
   const [state, setState] = useState<WorkerState>({ status: 'unknown' });
+  // One-shot hydrate guard, keyed by taskId.
+  const hydratedRef = useRef<string | null>(null);
 
-  const poll = useCallback(async () => {
-    if (!taskId) return;
-    try {
-      const res = await fetch(`/api/worker-tasks/${encodeURIComponent(taskId)}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      // Map 'pending' → 'queued' so the badge shows the right label before the
-      // worker picks up the task.
-      const rawStatus: string = data.status ?? 'unknown';
-      const status: WorkerStatus = rawStatus === 'pending' ? 'queued' : rawStatus as WorkerStatus;
-      // Artifact URL: derived from the task_id path (voxyflow worker artifact convention)
-      const artifactUrl = data.completed_at
-        ? `/api/worker-tasks/${encodeURIComponent(taskId)}/artifact`
-        : undefined;
-      // Use result_summary as the displayed worker result
-      const summary: string | undefined = data.result_summary ?? undefined;
-      setState({ status, artifactUrl, summary });
-    } catch {
-      // ignore transient errors
-    }
-  }, [taskId]);
-
+  // Mirror the live store entry into local state. Local state is retained when
+  // the store purges the task, so the badge keeps its terminal label.
   useEffect(() => {
-    if (!taskId) return;
+    if (!taskId || !stored) return;
+    hydratedRef.current = taskId; // store had it — skip the REST hydrate
+    setState({
+      status: mapStoreStatus(stored.status),
+      summary: stored.resultSummary,
+      artifactUrl: stored.completedAt
+        ? `/api/worker-tasks/${encodeURIComponent(taskId)}/artifact`
+        : undefined,
+    });
+  }, [taskId, stored]);
 
-    poll();
-    const id = setInterval(() => {
-      setState(prev => {
-        if (POLL_STOP_STATUSES.has(prev.status)) {
-          clearInterval(id);
-          return prev;
-        }
-        return prev;
-      });
-      poll();
-    }, POLL_INTERVAL_MS);
-
-    return () => clearInterval(id);
-  }, [taskId, poll]);
+  // One-shot REST hydrate when the task isn't in the live store (e.g. reload of
+  // an old conversation whose worker finished long ago). No interval.
+  useEffect(() => {
+    if (!taskId || stored || hydratedRef.current === taskId) return;
+    hydratedRef.current = taskId;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/worker-tasks/${encodeURIComponent(taskId)}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const rawStatus: string = data.status ?? 'unknown';
+        const status: WorkerStatus = rawStatus === 'pending' ? 'queued' : (rawStatus as WorkerStatus);
+        setState({
+          status,
+          summary: data.result_summary ?? undefined,
+          artifactUrl: data.completed_at
+            ? `/api/worker-tasks/${encodeURIComponent(taskId)}/artifact`
+            : undefined,
+        });
+      } catch {
+        // ignore transient errors
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [taskId, stored]);
 
   return state;
 }

@@ -19,6 +19,8 @@ class WorkspaceCreate(BaseModel):
     title: str
     description: Optional[str] = ""
     context: Optional[str] = ""
+    emoji: Optional[str] = None
+    color: Optional[str] = None
     github_repo: Optional[str] = None
     github_url: Optional[str] = None
     github_branch: Optional[str] = None
@@ -31,6 +33,8 @@ class WorkspaceUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(active|archived)$")
     context: Optional[str] = None
+    emoji: Optional[str] = None
+    color: Optional[str] = None
     github_repo: Optional[str] = None
     github_url: Optional[str] = None
     github_branch: Optional[str] = None

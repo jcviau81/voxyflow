@@ -167,7 +167,7 @@ export function ChatSearch({ workspaceId, onJump }: ChatSearchProps) {
           ref={inputRef}
           type="text"
           className="chat-search-input w-full px-3 py-2 text-sm border border-border rounded-md bg-muted/50 placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          placeholder="Search messages\u2026"
+          placeholder="Search messages…"
           aria-label="Search query"
           autoComplete="off"
           value={query}
@@ -178,7 +178,7 @@ export function ChatSearch({ workspaceId, onJump }: ChatSearchProps) {
       {/* Status */}
       {searching && (
         <div className="chat-search-status px-4 py-1 text-xs text-muted-foreground">
-          Searching\u2026
+          Searching…
         </div>
       )}
 

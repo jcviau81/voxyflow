@@ -18,7 +18,7 @@
 
 | Status Value | Display Name | Where Used |
 |-------------|-------------|------------|
-| `card` | Backlog | Backlog card (freeboard/backlog view) |
+| `backlog` | Backlog | Backlog card (Backlog view — internal view id: `freeboard`) |
 | `todo` | Todo | Kanban — ready for work |
 | `in-progress` | In Progress | Kanban — currently active |
 | `done` | Done | Kanban — completed |
@@ -63,7 +63,7 @@
 | **Sprints** | Time-boxed card groupings | 🏃 Sprints tab in workspace |
 | **Docs** | Uploaded files for AI context (RAG) | 📚 Docs tab in workspace |
 | **Knowledge** | Unified view of Wiki + Docs + RAG sources | 🧠 Knowledge tab in workspace |
-| **Backlog** | Workspace backlog (cards with status `card`) | Backlog tab in workspace |
+| **Backlog** | Workspace backlog (cards with status `backlog`; internal view id: `freeboard`) | Backlog tab in workspace |
 
 ---
 

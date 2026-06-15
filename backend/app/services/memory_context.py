@@ -125,7 +125,6 @@ class MemoryContextMixin:
 
         scope = (
             meta.get("chat_id")
-            or meta.get("card_id")
             or (f"card:{meta['card_id']}" if meta.get("card_id") else None)
             or meta.get("workspace_id")
             or meta.get("workspace")
@@ -240,23 +239,55 @@ class MemoryContextMixin:
                 layers=layers,
             )
 
-        # Fallback: file-based memory
-        return self._build_file_context(
-            workspace_name=workspace_name,
-            include_long_term=include_long_term,
-            include_daily=include_daily,
-        )
+        # Query-less path: L0 (pinned KG identity) needs no query — honor it
+        # when requested before falling back to file-based memory.
+        sections: list[str] = []
+        if 0 in layers:
+            l0 = self._build_l0_identity(workspace_id or "system-main", min(100, budget))
+            if l0:
+                sections.append(l0)
 
-    def _build_l0_identity(self, workspace_id: str) -> Optional[str]:
-        """L0: Pinned KG entities — workspace identity. Sync-safe (reads from cache)."""
+        # Fallback: file-based memory. Workspace isolation: workspace chats
+        # must never see the global MEMORY.md / daily logs — only their own
+        # workspace notes file.
+        is_workspace_chat = bool(workspace_id) and workspace_id != "system-main"
+        file_ctx = self._build_file_context(
+            workspace_name=workspace_name,
+            include_long_term=include_long_term and not is_workspace_chat,
+            include_daily=include_daily and not is_workspace_chat,
+        )
+        if file_ctx:
+            sections.append(file_ctx)
+        return "\n\n---\n\n".join(sections) if sections else None
+
+    def _build_l0_identity(self, workspace_id: str, budget: int = 100) -> Optional[str]:
+        """L0: Pinned KG entities — workspace identity. Sync-safe (reads from cache).
+
+        ``budget`` caps the rendered output (estimated tokens; defaults to the
+        documented ~100-token L0 allotment). Pinned entities
+        are appended in order until the running estimate would exceed it; the
+        rest are dropped so a workspace with many pinned facts can't blow past
+        the documented ~100-token L0 allotment.
+        """
         try:
             from app.services.knowledge_graph_service import get_knowledge_graph_service
             kg = get_knowledge_graph_service()
             pinned = kg.get_pinned_context(workspace_id or "system-main")
             if not pinned:
                 return None
-            lines = [f"- {e['name']} ({e['entity_type']}): {e['value']}" for e in pinned]
-            return "**Workspace identity:**\n" + "\n".join(lines)
+            header = "**Workspace identity:**"
+            lines: list[str] = []
+            token_count = self._estimate_tokens(header)
+            for e in pinned:
+                line = f"- {e['name']} ({e['entity_type']}): {e['value']}"
+                line_tokens = self._estimate_tokens(line)
+                if lines and token_count + line_tokens > budget:
+                    break
+                lines.append(line)
+                token_count += line_tokens
+            if not lines:
+                return None
+            return header + "\n" + "\n".join(lines)
         except Exception:
             logger.debug("_build_l0_identity failed", exc_info=True)
             return None
@@ -572,11 +603,14 @@ class MemoryContextMixin:
         l1_texts: set[str] = set()
         proc_ids: set[str] = set()
         proc_texts: set[str] = set()
+        # Workspace chats must never fall back to the global MEMORY.md /
+        # daily logs — those are general-chat-only context.
+        is_workspace_chat = bool(workspace_id) and workspace_id != "system-main"
 
         try:
-            # L0: Workspace identity from KG pinned cache
+            # L0: Workspace identity from KG pinned cache (capped ~100 tokens)
             if 0 in layers:
-                l0 = self._build_l0_identity(workspace_id)
+                l0 = self._build_l0_identity(workspace_id, min(100, remaining))
                 if l0:
                     sections.append(l0)
                     remaining -= self._estimate_tokens(l0)
@@ -615,15 +649,15 @@ class MemoryContextMixin:
             logger.error(f"_build_chromadb_context failed: {e}")
             return self._build_file_context(
                 workspace_name=workspace_name,
-                include_long_term=include_long_term,
-                include_daily=True,
+                include_long_term=include_long_term and not is_workspace_chat,
+                include_daily=not is_workspace_chat,
             )
 
         if not sections:
             return self._build_file_context(
                 workspace_name=workspace_name,
-                include_long_term=include_long_term,
-                include_daily=True,
+                include_long_term=include_long_term and not is_workspace_chat,
+                include_daily=not is_workspace_chat,
             )
 
         return "\n\n---\n\n".join(sections)

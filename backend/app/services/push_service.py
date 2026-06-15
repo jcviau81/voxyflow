@@ -45,11 +45,12 @@ _VAPID_FILE_FALLBACK = Path(
 
 async def _save_public_key_to_settings(public_b64url: str) -> None:
     """Persist the VAPID public key into the app_settings JSON blob under push.*."""
-    from app.routes.settings import _save_settings_to_db  # local import: avoid cycle
-    data = await _load_settings_from_db() or {}
-    push = data.setdefault("push", {})
-    push["vapid_public_key"] = public_b64url
-    await _save_settings_to_db(data)
+    from app.routes.settings import _save_settings_to_db, _settings_write_lock  # local import: avoid cycle
+    async with _settings_write_lock:
+        data = await _load_settings_from_db() or {}
+        push = data.setdefault("push", {})
+        push["vapid_public_key"] = public_b64url
+        await _save_settings_to_db(data)
 
 
 def _generate_keypair_sync() -> tuple[str, str]:

@@ -79,7 +79,20 @@ class SessionEventBus:
     def close(self) -> None:
         """Mark bus as closed and unblock any waiting listener."""
         self._closed = True
-        self.queue.put_nowait(self._POISON)
+        try:
+            self.queue.put_nowait(self._POISON)
+        except asyncio.QueueFull:
+            # Queue at capacity (dead/slow listener) — pending events are moot
+            # once the bus is closing; drop the oldest to make room for poison
+            # so close() never raises into the caller's shutdown path.
+            try:
+                self.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                self.queue.put_nowait(self._POISON)
+            except asyncio.QueueFull:
+                pass
         logger.debug(f"[EventBus] Closed bus for session {self.session_id}")
 
     @property

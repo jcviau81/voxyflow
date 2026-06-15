@@ -1,0 +1,15 @@
+[Unit]
+Description=Voxyflow Frontend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO_DIR@/frontend-react/dist
+ExecStart=/usr/bin/python3 -m http.server 3000
+Restart=always
+RestartSec=5
+StandardOutput=append:/tmp/voxyflow-frontend.log
+StandardError=append:/tmp/voxyflow-frontend.log
+
+[Install]
+WantedBy=default.target

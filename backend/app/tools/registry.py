@@ -63,21 +63,30 @@ TOOLS_DISPATCHER = {
     "voxyflow.card.checklist.add", "voxyflow.card.checklist.add_bulk",
     "voxyflow.card.checklist.list", "voxyflow.card.checklist.update",
     "voxyflow.card.checklist.delete",
-    "voxyflow.card.enrich",
     "voxyflow.card.relation.add", "voxyflow.card.relation.list", "voxyflow.card.relation.delete",
     "voxyflow.card.time.log", "voxyflow.card.time.list", "voxyflow.card.time.delete",
 
     # ---- Memory write (instant; scope enforced via env var) ----
     "memory.save", "memory.delete",
 
+    # ---- Skills (learned procedures — instant local file ops, scope
+    # enforced via env var; lets the user say "save this as a skill") ----
+    "voxyflow.skill.list", "voxyflow.skill.get",
+    "voxyflow.skill.save", "voxyflow.skill.delete",
+
     # ---- Knowledge graph (instant local DB ops; temporal model is
     # reversible — kg.invalidate sets valid_to, doesn't hard-delete) ----
     "kg.add", "kg.query", "kg.timeline", "kg.invalidate", "kg.stats",
 
-    # ---- Destructive whole-entity deletes / exports ----
-    # Single-user local deployment: the user is always present and the undo
-    # journal (voxyflow.undo.*) reverses these, so inline delete is fine.
-    "voxyflow.workspace.delete", "voxyflow.workspace.export",
+    # ---- Destructive whole-entity deletes ----
+    # Single-user local deployment: the user is always present, so inline
+    # delete is fine. NOTE: the undo journal only reverses card create/
+    # archive/duplicate + memory.save — workspace/card/doc/wiki HARD deletes
+    # have no inverse; the dispatcher ruleset gates pattern-deletes on one
+    # short confirmation instead.
+    # (workspace.export removed from the dispatcher: its blob is too big for
+    # chat and the dispatcher has no file tools — it had no inline consumer.)
+    "voxyflow.workspace.delete",
     "voxyflow.card.delete",
     "voxyflow.doc.delete",
     "voxyflow.wiki.delete",
@@ -90,6 +99,9 @@ TOOLS_DISPATCHER = {
 
     # ---- Jobs (cron-like; all REST CRUD, instant) ----
     "voxyflow.jobs.create", "voxyflow.jobs.update", "voxyflow.jobs.delete",
+    # schedule_nl = create a recurring natural-language task (instant local
+    # jobs.json write; execution happens later via the scheduler).
+    "voxyflow.jobs.schedule_nl",
 
     # ---- Per-workspace autonomy — thin REST wrappers, instant/non-blocking ----
     "voxyflow.autonomy.enable", "voxyflow.autonomy.disable", "voxyflow.autonomy.run_now",
@@ -132,6 +144,9 @@ _WORKER_EXTRAS = {
     # Heavy AI features
     "voxyflow.ai.standup", "voxyflow.ai.brief", "voxyflow.ai.health",
     "voxyflow.ai.prioritize", "voxyflow.ai.review_code",
+    # Synchronous LLM call — blocks inline chat, worker-only per CLAUDE.md
+    # §"Tool Access Architecture" (the dispatcher proposes via delegate).
+    "voxyflow.card.enrich",
 
     # OS / dev-environment access
     "system.exec",
@@ -142,6 +157,11 @@ _WORKER_EXTRAS = {
 
     # Worker dynamic tool loading
     "tools.load",
+
+    # Programmatic tool calling — runs arbitrary Python in the MCP subprocess
+    # to chain many tool calls in one turn. Arbitrary code execution, so it is
+    # worker-only forever (same boundary as system.exec).
+    "voxyflow.script",
 }
 
 # Sanity guard — fail loudly at import time if a tool is listed in both sets.

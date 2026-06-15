@@ -156,3 +156,46 @@ async def test_successful_callback_acks_events(monkeypatch):
     assert send_and_fanout.await_count == 2
     assert send_and_fanout.await_args_list[-1].args[2] == "chat:response"
     assert send_and_fanout.await_args_list[-1].args[3]["done"] is True
+
+
+# ---------------------------------------------------------------------------
+# Synthetic dispatcher prompts ([worker-callback] / [SYSTEM: Direct action])
+# must be tagged + filtered so persisted history stays clean.
+# ---------------------------------------------------------------------------
+
+def test_is_synthetic_prompt_matches_orchestrator_prefixes():
+    from app.services.claude_service import _is_synthetic_prompt
+
+    assert _is_synthetic_prompt(
+        "[worker-callback] Workers finished — see Worker activity block."
+    )
+    assert _is_synthetic_prompt(
+        "[SYSTEM: Direct action 'card.list' completed. Present the information.]"
+    )
+    # Real user turns are never synthetic — even bracketed ones.
+    assert not _is_synthetic_prompt("Hello, list my cards")
+    assert not _is_synthetic_prompt("[SYSTEM design] review my doc")
+    assert not _is_synthetic_prompt("")
+
+
+def test_get_history_filters_synthetic_user_turns(monkeypatch):
+    """Reloaded history must drop orchestrator-injected pseudo-user turns."""
+    import app.services.claude_service as cs
+
+    stored = [
+        {"role": "user", "content": "real question", "timestamp": "t1"},
+        {"role": "assistant", "content": "spawning a worker", "timestamp": "t2"},
+        {"role": "user", "content": "[worker-callback] Workers finished — see Worker activity block.", "timestamp": "t3"},
+        {"role": "assistant", "content": "worker summary", "timestamp": "t4"},
+    ]
+    monkeypatch.setattr(
+        cs.session_store, "get_history_for_claude", lambda chat_id, limit=20: list(stored)
+    )
+
+    svc = cs.ClaudeService.__new__(cs.ClaudeService)
+    svc._histories = {}
+    history = svc.get_history("chat-synth")
+
+    contents = [m["content"] for m in history]
+    assert "[worker-callback] Workers finished — see Worker activity block." not in contents
+    assert contents == ["real question", "spawning a worker", "worker summary"]

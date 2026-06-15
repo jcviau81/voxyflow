@@ -5,6 +5,7 @@ GET /api/workers/sessions/{task_id} → single task status
 GET /api/workers/snapshot           → consolidated snapshot (in-memory only, no SQLite)
 """
 
+import asyncio
 import time
 from typing import Optional
 
@@ -85,7 +86,8 @@ async def worker_snapshot(
     job_types: dict[str, str] = {}
     try:
         from app.routes.jobs import _load_jobs
-        for j in _load_jobs():
+        jobs = await asyncio.to_thread(_load_jobs)
+        for j in jobs:
             jid = j.get("id", "")
             if jid:
                 job_names[jid] = j.get("name", "")

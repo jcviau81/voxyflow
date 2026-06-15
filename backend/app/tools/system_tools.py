@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import shlex
+import signal
 import time
 from datetime import datetime
 from pathlib import Path
@@ -353,12 +354,19 @@ async def system_exec(params: dict) -> dict:
 
     start = time.monotonic()
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *shlex.split(command),
+        # Run through a real shell — the tool contract advertises shell
+        # semantics (pipes, redirects, &&) and the blocklist above is written
+        # against shell constructs. The old create_subprocess_exec path passed
+        # '>' '|' '&&' as literal argv and silently misbehaved.
+        # start_new_session puts the shell in its own process group so a
+        # timeout can kill the whole pipeline, not just the shell.
+        proc = await asyncio.create_subprocess_shell(
+            command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env={**os.environ},
+            start_new_session=True,
         )
         stdout_bytes, stderr_bytes = await asyncio.wait_for(
             proc.communicate(), timeout=timeout
@@ -382,7 +390,11 @@ async def system_exec(params: dict) -> dict:
 
     except asyncio.TimeoutError:
         duration_ms = int((time.monotonic() - start) * 1000)
-        proc.kill()
+        try:
+            # Kill the whole process group (shell + pipeline children).
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()
         return {
             "success": False,
             "error": f"Command timed out after {timeout}s",
@@ -565,7 +577,7 @@ async def file_read(params: dict) -> dict:
     logger.info(f"[file.read] Reading: {resolved} (offset={offset}, limit={limit})")
 
     try:
-        text = resolved.read_text(encoding="utf-8", errors="replace")
+        text = await asyncio.to_thread(resolved.read_text, encoding="utf-8", errors="replace")
         lines = text.split("\n")
         total_lines = len(lines)
 
@@ -625,10 +637,12 @@ async def file_write(params: dict) -> dict:
         resolved.parent.mkdir(parents=True, exist_ok=True)
 
         if mode == "append":
-            with open(resolved, "a", encoding="utf-8") as f:
-                f.write(content)
+            def _append():
+                with open(resolved, "a", encoding="utf-8") as f:
+                    f.write(content)
+            await asyncio.to_thread(_append)
         else:
-            resolved.write_text(content, encoding="utf-8")
+            await asyncio.to_thread(resolved.write_text, content, encoding="utf-8")
 
         return {
             "success": True,
@@ -675,7 +689,7 @@ async def file_patch(params: dict) -> dict:
     logger.info(f"[file.patch] Patching: {resolved} (old={len(old_str)} chars, new={len(new_str)} chars)")
 
     try:
-        content = resolved.read_text(encoding="utf-8")
+        content = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
 
         if old_str not in content:
             return {"success": False, "error": f"String not found in {path_str}", "path": str(resolved)}
@@ -683,7 +697,7 @@ async def file_patch(params: dict) -> dict:
         count = content.count(old_str)
         new_content = content.replace(old_str, new_str, 1)  # replace first occurrence only
 
-        resolved.write_text(new_content, encoding="utf-8")
+        await asyncio.to_thread(resolved.write_text, new_content, encoding="utf-8")
 
         return {
             "success": True,

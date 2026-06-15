@@ -186,3 +186,78 @@ async def test_stop_syncs_session_store_for_active_tasks():
 
     store._sessions.pop(task_id, None)
     store._cleanup_file(task_id)
+
+
+# ---------------------------------------------------------------------------
+# Cancellation must signal the worker's cancel_event — the CLI backends
+# terminate their subprocess via a _watch_cancel coroutine polling that event;
+# a bare task.cancel() aborts only the asyncio task and orphans the subprocess.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_signals_worker_cancel_event():
+    pool = _make_pool()
+    task_id = f"task-{uuid4().hex[:8]}"
+
+    cancel_event = asyncio.Event()
+    pool._task_cancel_events[task_id] = cancel_event
+    finished_naturally = asyncio.Event()
+
+    async def _stream_loop():
+        # Simulates the CLI stream loop: it only ends once _watch_cancel
+        # (driven by cancel_event) terminates the subprocess.
+        await cancel_event.wait()
+        finished_naturally.set()
+
+    pool._active_tasks[task_id] = asyncio.create_task(_stream_loop())
+
+    with patch.object(DeepWorkerPool, "_ledger_update", new=AsyncMock()), \
+         patch.object(pool, "_send_task_event", new=AsyncMock()):
+        assert await pool.cancel_task(task_id) is True
+
+    assert cancel_event.is_set(), "cancel_task never signalled the worker's cancel_event"
+    assert finished_naturally.is_set(), (
+        "worker should have ended via cancel_event (subprocess terminated), "
+        "not via a bare asyncio cancel that orphans the subprocess"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stop_signals_worker_cancel_events():
+    pool = _make_pool()
+    task_id = f"task-{uuid4().hex[:8]}"
+
+    cancel_event = asyncio.Event()
+    pool._task_cancel_events[task_id] = cancel_event
+
+    async def _hang():
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            return
+
+    pool._active_tasks[task_id] = asyncio.create_task(_hang())
+
+    with patch.object(DeepWorkerPool, "_ledger_update", new=AsyncMock()), \
+         patch.object(DeepWorkerPool, "_cancel_session_tasks", new=AsyncMock(return_value=0)):
+        await pool.stop()
+
+    assert cancel_event.is_set(), "stop() never signalled the worker's cancel_event"
+    assert pool._task_cancel_events == {}
+
+
+@pytest.mark.asyncio
+async def test_stop_survives_full_event_bus_queue():
+    """SessionEventBus.close() must not raise QueueFull — stop() calls it
+    first and would otherwise abort before cancelling any tasks."""
+    pool = _make_pool()
+    bus = pool._bus
+    # Fill the queue to capacity (dead-listener scenario the cap exists for).
+    for _ in range(bus._QUEUE_MAXSIZE):
+        bus.queue.put_nowait(object())
+
+    with patch.object(DeepWorkerPool, "_cancel_session_tasks", new=AsyncMock(return_value=0)):
+        await pool.stop()  # must not raise
+
+    assert pool._stopped is True

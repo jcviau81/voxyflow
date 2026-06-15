@@ -32,6 +32,11 @@ _GENERAL_CONTEXT_TOOLS = {
     "voxyflow.autonomy.disable", "voxyflow.autonomy.run_now",
     "voxyflow.doc.list",
     "memory.search", "knowledge.search", "memory.save",
+    "voxyflow.skill.list", "voxyflow.skill.get",
+    "voxyflow.skill.save", "voxyflow.skill.delete",
+    # Without this, an OpenAI-compat dispatcher in general chat is never told
+    # the delegate tool exists and silently loses the worker path.
+    "voxyflow.delegate",
 }
 
 _WORKSPACE_EXCLUDED_TOOLS: set[str] = set()  # No longer excluding unassigned tools — they're aliases

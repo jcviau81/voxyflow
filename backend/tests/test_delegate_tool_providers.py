@@ -199,3 +199,49 @@ class TestMcpSystemHandlers:
             active_scopes=set(),
         )
         assert "voxyflow_delegate" in handlers
+
+
+# ---------------------------------------------------------------------------
+# 7. capability registry — vendor-namespaced ids (OpenRouter/Groq) and
+#    provider_factory.infer_provider_type — malformed-port URLs.
+# ---------------------------------------------------------------------------
+
+
+class TestCapabilityLookupNamespacedIds:
+    def test_openrouter_namespaced_claude_supports_tools(self):
+        from app.services.llm import capability_registry as caps_db
+
+        assert caps_db.supports_tools("anthropic/claude-sonnet-4.6") is True
+        assert caps_db.supports_vision("anthropic/claude-sonnet-4.6") is True
+
+    def test_openrouter_namespaced_llama_matches_groq_entry(self):
+        from app.services.llm import capability_registry as caps_db
+
+        entry = caps_db.lookup("meta-llama/llama-3.3-70b-instruct")
+        assert entry.supports_tools is True
+        assert entry.context_window == 131_072
+
+    def test_namespaced_with_ollama_tag_suffix(self):
+        from app.services.llm import capability_registry as caps_db
+
+        assert caps_db.supports_tools("library/qwen3:8b") is True
+
+    def test_unknown_model_still_gets_conservative_default(self):
+        from app.services.llm import capability_registry as caps_db
+
+        entry = caps_db.lookup("somevendor/totally-unknown-model")
+        assert entry.supports_tools is False
+        assert entry.context_window == 4_096
+
+
+class TestInferProviderTypeMalformedUrl:
+    def test_non_numeric_port_does_not_raise(self):
+        from app.services.llm.provider_factory import infer_provider_type
+
+        # urllib's .port raises ValueError for these — must degrade, not 500.
+        assert isinstance(infer_provider_type("http://host:abc"), str)
+
+    def test_out_of_range_port_does_not_raise(self):
+        from app.services.llm.provider_factory import infer_provider_type
+
+        assert isinstance(infer_provider_type("http://host:99999"), str)

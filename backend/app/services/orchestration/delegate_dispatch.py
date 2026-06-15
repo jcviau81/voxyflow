@@ -10,7 +10,7 @@ Split from ChatOrchestrator (April 2026 code-review pass) to keep the
 top-level orchestrator file navigable. The mixin depends on instance
 state set up by ChatOrchestrator.__init__ (``self._claude``,
 ``self._worker_pools``, ``self._pending_confirms*``, ``self.start_worker_pool``,
-``self._handle_message_inner``) — it is not usable standalone.
+``self.handle_message``) — it is not usable standalone.
 
 NOTE (2026-05-27): The legacy ``<delegate>`` XML markup parser has been removed.
 All dispatchers must use the native ``voxyflow.delegate`` MCP tool_use path.
@@ -39,8 +39,13 @@ class DelegateDispatchMixin:
 
     All methods assume ``self`` is a ``ChatOrchestrator`` instance with the
     usual attributes (self._claude, self._worker_pools, self._pending_confirms,
-    self._pending_confirms_lock, and self._handle_message_inner).
+    self._pending_confirms_lock, and self.handle_message).
     """
+
+    # Pending destructive-action confirmations expire after this many seconds.
+    # An abandoned confirm prompt (closed tab, lost WS message) must not stay
+    # executable indefinitely, nor accumulate without bound.
+    _CONFIRM_TTL_SECONDS = 600
 
     async def _emit_native_delegates_safe(self, **kwargs) -> None:
         """Wrapper for native delegate emission."""
@@ -108,10 +113,13 @@ class DelegateDispatchMixin:
         def _key(action: str, desc: str) -> tuple[str, str]:
             return (action.lower(), desc.lower()[:200].strip())
 
-        already = {
-            _key(t["action"], t.get("description", ""))
-            for t in active_tasks
-        }
+        # key → the active task that owns it, so a duplicate_summary collision
+        # can point the dispatcher at the worker already doing the job (read its
+        # artifact / wait) instead of vaguely telling it to "change the intent".
+        already_tasks: dict[tuple[str, str], dict] = {}
+        for t in active_tasks:
+            already_tasks.setdefault(_key(t["action"], t.get("description", "")), t)
+        already = set(already_tasks)
         # card_id → first active task on that card (for the skip notice)
         active_by_card: dict[str, dict] = {}
         for t in active_tasks:
@@ -134,7 +142,10 @@ class DelegateDispatchMixin:
                 collision = "card_busy"
 
             if collision:
-                blocking = active_by_card.get(card_id) if card_id else None
+                if collision == "duplicate_summary":
+                    blocking = already_tasks.get(k)
+                else:
+                    blocking = active_by_card.get(card_id) if card_id else None
                 logger.warning(
                     f"[Orchestrator] Dedup ({collision}): skipping delegate "
                     f"'{action}' card_id={card_id} — "
@@ -192,10 +203,17 @@ class DelegateDispatchMixin:
                     f"Attends qu'il finisse, puis lis-le avec workers.read_artifact."
                 )
             elif reason == "duplicate_summary":
-                lines.append(
-                    f"- Refusé: '{s.get('action')}' — un worker actif a déjà la même description. "
-                    f"Attends ou modifie l'intent."
-                )
+                if blocker:
+                    lines.append(
+                        f"- Refusé: '{s.get('action')}' — le worker `{blocker}` fait déjà "
+                        f"exactement ça (depuis {running}s). Attends qu'il finisse, puis lis "
+                        f"son résultat avec workers.read_artifact. Ne relance pas la même tâche."
+                    )
+                else:
+                    lines.append(
+                        f"- Refusé: '{s.get('action')}' — un worker actif a déjà la même tâche. "
+                        f"Attends qu'il finisse et lis son résultat plutôt que de relancer."
+                    )
             else:
                 lines.append(f"- Refusé: '{s.get('action')}' — raison={reason}.")
 
@@ -396,6 +414,7 @@ class DelegateDispatchMixin:
                     "workspace_id": workspace_id,
                     "session_id": session_id,
                     "chat_id": chat_id,
+                    "created_at": time.time(),
                 }
             try:
                 await websocket.send_json({
@@ -501,8 +520,12 @@ class DelegateDispatchMixin:
                 callback_message_id = f"direct-cb-{uuid4().hex[:8]}"
                 logger.info(f"[DirectExecutor] Re-triggering dispatcher after {action}")
 
-                # Call inner directly — we're already under the chat lock
-                await self._handle_message_inner(
+                # Go through the locked entry point: this runs in a detached
+                # background task (the per-chat lock from the originating turn
+                # was already released), so calling _handle_message_inner
+                # directly would let a concurrent user message interleave with
+                # this re-triggered turn on the same chat_id.
+                await self.handle_message(
                     websocket=websocket,
                     content=callback_msg,
                     message_id=callback_message_id,
@@ -632,9 +655,38 @@ class DelegateDispatchMixin:
         websocket: "WebSocket",
     ) -> None:
         """Handle a user's confirmation response for a destructive direct action."""
+        expired_own: dict | None = None
         with self._pending_confirms_lock:
+            # Sweep expired entries — a stale action:confirm must not execute
+            # a destructive action long after the user forgot the context.
+            now = time.time()
+            for tid in [
+                t for t, p in self._pending_confirms.items()
+                if now - p.get("created_at", now) > self._CONFIRM_TTL_SECONDS
+            ]:
+                dropped = self._pending_confirms.pop(tid, None)
+                if tid == task_id:
+                    expired_own = dropped
             pending = self._pending_confirms.pop(task_id, None)
         if not pending:
+            if expired_own:
+                logger.warning(f"[DirectExecutor] Confirmation expired for taskId={task_id} — not executing")
+                try:
+                    await websocket.send_json({
+                        "type": "action:completed",
+                        "payload": {
+                            "taskId": task_id,
+                            "action": expired_own["data"].get("action", "unknown"),
+                            "success": False,
+                            "result": {"error": "Confirmation expired — please ask again."},
+                            "duration_ms": 0,
+                            "sessionId": expired_own.get("session_id"),
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    })
+                except Exception as e:
+                    logger.debug("WS send/broadcast failed (WS likely closed): %s", e)
+                return
             logger.warning(f"[DirectExecutor] No pending confirmation for taskId={task_id}")
             return
 

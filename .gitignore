@@ -55,6 +55,8 @@ workspace/
 # Playwright
 frontend-react/test-results/
 frontend-react/playwright-report/
+frontend-react/test-results-live/
+frontend-react/playwright-report-live/
 certs/
 
 # User settings (may contain API keys)
@@ -65,6 +67,10 @@ settings.json
 personality/USER.md
 personality/IDENTITY.md
 personality/MEMORY.md
+personality/memory/
+
+# Runtime skill storage (VOXYFLOW_DIR/skills — created by skill_service)
+/skills/
 
 # Dispatcher test scripts and results (dev tooling, not part of the app)
 scripts/test-dispatcher.sh

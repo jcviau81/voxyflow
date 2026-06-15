@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Palette, Cpu, Mic, GitBranch, FolderOpen, Database, Info, Clock, User, Bell, Search } from 'lucide-react';
+import { Palette, Cpu, Mic, GitBranch, HardDrive, Database, Info, Clock, User, Bell, Search } from 'lucide-react';
 import { PageHeader } from '../layout/PageHeader';
 import { cn } from '../../lib/utils';
 import { AppearancePanel } from './AppearancePanel';
@@ -53,7 +53,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'voice',      label: 'Voice & STT', icon: Mic },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'github',     label: 'GitHub',     icon: GitBranch },
-  { id: 'workspace',  label: 'Workspace',  icon: FolderOpen },
+  { id: 'workspace',  label: 'Storage',    icon: HardDrive },
   { id: 'websearch',  label: 'Web Search', icon: Search },
   { id: 'data',       label: 'Data',       icon: Database },
   { id: 'jobs',       label: 'Jobs',       icon: Clock },

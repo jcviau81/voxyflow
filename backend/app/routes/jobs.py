@@ -24,10 +24,12 @@ from pydantic import BaseModel, Field
 
 from app.services.auth_service import verify_auth
 from app.services.job_runner import (
-    JOBS_FILE,
-    VOXYFLOW_DIR,
     _execute_job,
     _find_job,
+)
+from app.services.jobs_store import (
+    JOBS_FILE,
+    VOXYFLOW_DIR,
     _load_jobs,
     _save_jobs,
 )
@@ -44,6 +46,7 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 JobType = Literal[
     "reminder", "rag_index",
     "execute_board", "execute_card", "agent_task",
+    "nl_task", "memory_curation",
     "recurrence", "session_cleanup", "chromadb_backup",
 ]
 

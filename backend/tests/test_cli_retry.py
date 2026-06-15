@@ -207,6 +207,23 @@ class TestCliRateGateCooldown:
         # 15 minutes ± a few seconds of slop.
         assert 14 * 60 < remaining <= 15 * 60 + 5
 
+    async def test_cancelled_acquire_releases_slot(self):
+        """Cancelling a task suspended in the post-semaphore spacing wait must
+        return the slot — otherwise each cancelled chat permanently shrinks
+        the session pool."""
+        gate = CliRateGate(session_concurrent=2, worker_concurrent=2, min_spacing_ms=500)
+        await gate.acquire(is_worker=False)  # sets _last_call → next acquire sleeps
+        task = asyncio.create_task(gate.acquire(is_worker=False))
+        await asyncio.sleep(0.05)  # task is now inside the spacing sleep
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        # Slot returned: only the first call is in flight, semaphore not leaked.
+        assert gate.active == 1
+        assert gate._session_sem._value == 1
+        gate.release(is_worker=False)
+        assert gate.active == 0
+
 
 # --- Retry wrapper in ClaudeCliBackend ---------------------------------------
 
@@ -484,3 +501,129 @@ class TestExtractAndRecordRateLimit:
         # Should not raise.
         backend._extract_and_record_rate_limit("")
         backend._extract_and_record_rate_limit("not json at all {")
+
+
+# --- _build_args_steerable tool exposure --------------------------------------
+
+class TestSteerableArgsToolExposure:
+    """Since claude CLI ~v2.1, `--tools \"\"` zeroes the available-tool set and
+    hides the loaded MCP tools (see ea26829) — steerable workers must use
+    `--tools default` and disallow only built-in WebSearch."""
+
+    def _backend(self):
+        from app.services.llm import cli_backend as cb
+        backend = cb.ClaudeCliBackend.__new__(cb.ClaudeCliBackend)
+        backend.cli_path = "claude"
+        backend._build_mcp_config = lambda **kwargs: '{"mcpServers":{}}'
+        return backend
+
+    def test_no_empty_tools_flag(self):
+        args = self._backend()._build_args_steerable("sonnet", "sysprompt")
+        idx = args.index("--tools")
+        assert args[idx + 1] == "default"
+        assert "" not in args
+
+    def test_only_websearch_disallowed(self):
+        args = self._backend()._build_args_steerable("sonnet", "sysprompt")
+        idx = args.index("--disallowedTools")
+        assert args[idx + 1] == "WebSearch"
+        # Steerable workers are full workers — native tools stay available.
+        assert "Bash" not in args
+        assert "Edit" not in args
+
+
+# --- stream() cleanup on early stdin failure ----------------------------------
+
+class TestStreamCleanupOnStdinFailure:
+    async def test_broken_stdin_releases_gate_and_reaps_proc(self, monkeypatch):
+        """If the CLI dies right after spawn (stdin drain raises), stream()
+        must release the gate slot, deregister the session, and reap the
+        subprocess instead of leaking a semaphore slot forever."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.services.llm import cli_backend as cb
+
+        backend = cb.ClaudeCliBackend.__new__(cb.ClaudeCliBackend)
+        backend.cli_path = "claude"
+        backend._last_usage = {}
+
+        events = {"acquired": 0, "released": 0}
+
+        class FakeGate:
+            active = 0
+            max_concurrent = 1
+            active_workers = 0
+            worker_concurrent = 1
+
+            async def acquire(self, is_worker=False):
+                events["acquired"] += 1
+
+            def release(self, is_worker=False):
+                events["released"] += 1
+
+        class FakeStdout:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        class FakeStderr:
+            async def read(self):
+                return b""
+
+        class FakeProc:
+            def __init__(self):
+                self.pid = 4242
+                self.returncode = None
+                self.stdout = FakeStdout()
+                self.stderr = FakeStderr()
+                self.stdin = MagicMock()
+                self.stdin.write = MagicMock()
+                self.stdin.drain = AsyncMock(side_effect=BrokenPipeError)
+                self.terminated = False
+
+            def terminate(self):
+                self.terminated = True
+                self.returncode = -15
+
+            def kill(self):
+                self.returncode = -9
+
+            async def wait(self):
+                if self.returncode is None:
+                    self.returncode = 0
+                return self.returncode
+
+        proc = FakeProc()
+
+        async def fake_spawn(*args, **kwargs):
+            return proc
+
+        deregistered: list[str] = []
+
+        class FakeRegistry:
+            def register(self, session):
+                pass
+
+            def deregister(self, reg_id):
+                deregistered.append(reg_id)
+
+            def touch(self, reg_id):
+                pass
+
+        monkeypatch.setattr("asyncio.create_subprocess_exec", fake_spawn)
+        monkeypatch.setattr(cb, "get_rate_gate", lambda: FakeGate())
+        monkeypatch.setattr(cb, "get_cli_session_registry", lambda: FakeRegistry())
+        monkeypatch.setattr(cb, "bind_contextvars", lambda **kw: None)
+
+        with pytest.raises(BrokenPipeError):
+            async for _ in backend.stream(
+                "sonnet", "sys", [{"role": "user", "content": "hi"}]
+            ):
+                pass
+
+        assert events["acquired"] == 1
+        assert events["released"] == 1, "gate slot must be released exactly once"
+        assert deregistered, "registry entry must be deregistered"
+        assert proc.returncode is not None, "subprocess must be reaped"

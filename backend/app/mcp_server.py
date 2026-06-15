@@ -120,6 +120,20 @@ def _auto_injectable_params() -> set[str]:
     return injectable
 
 
+def _injectable_for_tool(tool_name: str, injectable: set[str]) -> set[str]:
+    """Params actually auto-injected for *tool_name*.
+
+    Workspace-ENTITY tools (voxyflow.workspace.*) keep workspace_id visible in
+    their schema: there workspace_id identifies the TARGET workspace
+    (get/update/delete/archive another workspace), not the scope of a child
+    resource — stripping it would make other workspaces unreachable and let
+    the env override silently redirect deletes onto the current workspace.
+    """
+    if tool_name.startswith("voxyflow.workspace."):
+        return injectable - {"workspace_id"}
+    return injectable
+
+
 # ---------------------------------------------------------------------------
 # Workspace scoping for ledger / session tools
 # ---------------------------------------------------------------------------
@@ -164,8 +178,10 @@ async def _lookup_task_workspace(task_id: str) -> str | None:
             if row is not None:
                 return (row.workspace_id or "").strip()
     except Exception as db_err:
+        # Don't return early — fall through to the artifact-frontmatter lookup
+        # below so a transient DB failure doesn't make finished tasks (whose
+        # metadata is readable on disk) report as "not found".
         logger.warning(f"[mcp._lookup_task_workspace] DB lookup failed for {task_id}: {db_err}")
-        return None
 
     # Last resort: artifact frontmatter on disk (no TTL). Lets the dispatcher
     # still scope-check + read tasks whose live/DB rows have been GC'd.
@@ -339,6 +355,53 @@ for _g in _TOOL_GROUPS.values():
     _GROUPED_TOOL_NAMES.update(_g["actions"].values())
 
 
+# ---------------------------------------------------------------------------
+# Bulk-capable tools — map tool name → the path param that may be a LIST.
+#
+# Only operations where the SAME action + params apply to every id belong here
+# (the id is the only thing that varies): deletes, archive/restore, move-to-
+# status. NOT create/update/enrich — those carry per-item content, so a list
+# makes no sense. When a caller passes the plural (e.g. card_ids) instead of
+# the singular, the dispatch loops the existing single-id call N times locally,
+# so the model makes ONE tool call instead of N (which used to make the chat
+# sit silent for a minute while it deleted things one by one).
+# ---------------------------------------------------------------------------
+_BULK_TOOLS: dict[str, str] = {
+    "voxyflow.card.move": "card_id",
+    "voxyflow.card.archive": "card_id",
+    "voxyflow.card.delete": "card_id",
+    "voxyflow.card.restore": "card_id",
+    "voxyflow.workspace.delete": "workspace_id",
+    "voxyflow.workspace.archive": "workspace_id",
+    "voxyflow.workspace.restore": "workspace_id",
+    "voxyflow.doc.delete": "document_id",
+    "voxyflow.wiki.delete": "page_id",
+    "voxyflow.card.relation.delete": "relation_id",
+    "voxyflow.card.time.delete": "entry_id",
+    "voxyflow.card.checklist.delete": "item_id",
+    "memory.delete": "id",
+}
+
+
+def _bulk_plural(param: str) -> str:
+    """card_id → card_ids, page_id → page_ids, etc."""
+    return param + "s"
+
+
+def _bulk_array_prop(bulk_param: str) -> dict:
+    """Schema for the plural ids array (shared by consolidated + flat paths)."""
+    plural = _bulk_plural(bulk_param)
+    return {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": (
+            f"PREFERRED for acting on multiple items: pass ALL {bulk_param}s here "
+            f"in ONE call. Never call this action in a loop / repeatedly with a "
+            f"single {bulk_param} — collect the ids and pass {plural} once."
+        ),
+    }
+
+
 def _build_consolidated_tools() -> list[dict]:
     """Build consolidated MCP tool list from _TOOL_GROUPS + ungrouped tools.
 
@@ -361,8 +424,17 @@ def _build_consolidated_tools() -> list[dict]:
             tool_def = _find_tool(tool_name)
             if not tool_def:
                 continue
+            # Bulk-capable action → expose a plural ids array alongside the
+            # singular so the model can apply this action to many in one call.
+            bulk_param = _BULK_TOOLS.get(tool_name)
+            if bulk_param:
+                plural = _bulk_plural(bulk_param)
+                if plural not in all_props:
+                    all_props[plural] = _bulk_array_prop(bulk_param)
+                    used_by[plural] = []
+                used_by[plural].append(action_name)
             for prop_name, prop_schema in tool_def["inputSchema"].get("properties", {}).items():
-                if prop_name in injectable:
+                if prop_name in _injectable_for_tool(tool_name, injectable):
                     continue
                 if prop_name not in all_props:
                     all_props[prop_name] = dict(prop_schema)
@@ -459,6 +531,7 @@ def _build_url_and_payload(
     path_template: str,
     payload_transformer: Any,
     params: dict,
+    tool_name: str = "",
 ) -> tuple[str, dict, dict]:
     """
     Returns (url, json_body, query_params) after substituting path params.
@@ -471,6 +544,13 @@ def _build_url_and_payload(
 
     env_pid = os.environ.get("VOXYFLOW_WORKSPACE_ID", "").strip()
     pid_hard_scope = bool(env_pid) and env_pid != "system-main"
+    # Workspace-ENTITY tools (voxyflow.workspace.*) are exempt from the hard
+    # scope below: there workspace_id IS the target entity (get/update/delete/
+    # archive ANOTHER workspace), not the parent scope of a child resource.
+    # Forcing the env value would silently redirect e.g. "delete workspaces A
+    # and B" onto the CURRENT workspace — irreversible data loss. Explicit ids
+    # are honored; an omitted id still falls back to the env (current) one.
+    workspace_entity_tool = tool_name.startswith("voxyflow.workspace.")
 
     for var in path_vars:
         llm_value = remaining_params.pop(var, None)
@@ -480,7 +560,7 @@ def _build_url_and_payload(
         # always wins over whatever the LLM passes. The schema strips it, but
         # some models re-emit it anyway — this enforces the invariant so a
         # stray/guessed UUID can't leak cards into the wrong workspace.
-        if var == "workspace_id" and pid_hard_scope:
+        if var == "workspace_id" and pid_hard_scope and not workspace_entity_tool:
             if llm_value and llm_value != env_pid:
                 logger.warning(
                     f"[MCP] Ignoring LLM-supplied workspace_id={llm_value!r}; "
@@ -511,6 +591,33 @@ def _build_url_and_payload(
 async def _call_api(tool_def: dict, params: dict) -> dict:
     """Execute a tool — either via REST API (_http) or direct handler (_handler)."""
 
+    # Bulk fan-out: a bulk-capable tool given the plural ids list runs the
+    # single-id op once per id, locally, and returns an aggregate. One model
+    # tool call → N fast local REST calls (no per-item model round-trips).
+    bulk_param = _BULK_TOOLS.get(tool_def.get("name", ""))
+    if bulk_param:
+        plural = _bulk_plural(bulk_param)
+        ids = params.get(plural)
+        if isinstance(ids, list) and ids:
+            rest = {k: v for k, v in params.items() if k != plural}
+            ok_items: list[dict] = []
+            errors: list[dict] = []
+            for _id in ids:
+                try:
+                    r = await _call_api(tool_def, {**rest, bulk_param: _id})
+                    succeeded = r.get("success", True) if isinstance(r, dict) else True
+                    (ok_items if succeeded else errors).append({"id": _id, "result": r})
+                except Exception as e:
+                    errors.append({"id": _id, "error": str(e)[:200]})
+            return {
+                "success": len(errors) == 0,
+                "bulk": True,
+                "requested": len(ids),
+                "succeeded": len(ok_items),
+                "failed": len(errors),
+                "errors": errors,
+            }
+
     # System tools use direct async handlers
     if "_handler" in tool_def:
         handler_name = tool_def["_handler"]
@@ -528,8 +635,23 @@ async def _call_api(tool_def: dict, params: dict) -> dict:
     # Voxyflow REST API tools
     method, path_template, payload_transformer = tool_def["_http"]
 
+    # Env-scoped ids (workspace_id/card_id) are stripped from schemas in scoped
+    # chats, but only PATH template vars were injected back. Tools that take
+    # them as BODY/QUERY params (e.g. voxyflow.focus.log) would silently lose
+    # attribution — inject the env value when the tool's schema declares the
+    # param and the model didn't (couldn't) pass it.
+    injectable = _auto_injectable_params()
+    if injectable:
+        schema_props = (tool_def.get("inputSchema") or {}).get("properties", {})
+        for var in injectable & set(schema_props):
+            if not params.get(var):
+                env_value = os.environ.get(f"VOXYFLOW_{var.upper()}", "").strip()
+                if env_value:
+                    params = {**params, var: env_value}
+
     url, json_body, query_params = _build_url_and_payload(
-        method, path_template, payload_transformer, params
+        method, path_template, payload_transformer, params,
+        tool_name=tool_def.get("name", ""),
     )
 
     logger.debug(f"MCP → {method} {url} body={json_body} query={query_params}")
@@ -700,9 +822,22 @@ def _public_tool_defs() -> list[dict]:
     injectable = _auto_injectable_params()
     result = []
     for t in _visible_tools_flat():
+        name = t.get("name", "")
         cleaned = {k: v for k, v in t.items() if not k.startswith("_")}
         if injectable:
-            cleaned["inputSchema"] = _strip_auto_injected(cleaned["inputSchema"], injectable)
+            cleaned["inputSchema"] = _strip_auto_injected(
+                cleaned["inputSchema"], _injectable_for_tool(name, injectable)
+            )
+        # Bulk-capable tools advertise the plural ids array on the flat path
+        # too — same contract as the consolidated builder, so native-SDK/SSE
+        # dispatchers can also do one call for N ids (_call_api honors it).
+        bulk_param = _BULK_TOOLS.get(name)
+        if bulk_param:
+            schema = dict(cleaned["inputSchema"])
+            props = dict(schema.get("properties") or {})
+            props[_bulk_plural(bulk_param)] = _bulk_array_prop(bulk_param)
+            schema["properties"] = props
+            cleaned["inputSchema"] = schema
         result.append(cleaned)
     return result
 
@@ -730,7 +865,9 @@ if MCP_AVAILABLE:
             schema = defn["inputSchema"]
             # Strip injectable params from ungrouped tools (consolidated already stripped)
             if injectable and "_dispatch" not in defn:
-                schema = _strip_auto_injected(schema, injectable)
+                schema = _strip_auto_injected(
+                    schema, _injectable_for_tool(defn["name"], injectable)
+                )
             tools.append(
                 Tool(
                     name=defn["name"],
@@ -798,13 +935,41 @@ if MCP_AVAILABLE:
             logger.error(f"MCP tool call failed: {name} → {e}")
             result = {"success": False, "error": str(e)}
 
-        return [TextContent(type="text", text=json.dumps(result, default=str, indent=2))]
+        return [TextContent(type="text", text=_serialize_result(original_name, result))]
 
 else:
     server = None
     logger.warning(
         "mcp package not installed — MCP server disabled. "
         "Install with: pip install mcp>=1.0.0"
+    )
+
+
+# Hard ceiling on a single tool result. Past it, the Claude CLI spills the
+# result to a temp file the dispatcher has no tools to read — a dead end.
+# Owning the truncation lets the notice teach the model how to recover.
+MAX_TOOL_RESULT_CHARS = 20_000
+
+
+def _serialize_result(tool_name: str, result) -> str:
+    """JSON-serialize a tool result, truncating oversized payloads in-band.
+
+    Compact separators (no indent) — indentation inflated payloads ~15-30%
+    for zero model benefit.
+    """
+    payload = json.dumps(result, default=str, separators=(",", ":"))
+    if len(payload) <= MAX_TOOL_RESULT_CHARS:
+        return payload
+    logger.warning(
+        "[MCP] %s result truncated: %d chars > %d cap",
+        tool_name, len(payload), MAX_TOOL_RESULT_CHARS,
+    )
+    return (
+        payload[:MAX_TOOL_RESULT_CHARS]
+        + f'\n…[TRUNCATED: full result was {len(payload)} chars. '
+        "Do NOT delegate a worker and do NOT try to read any file for the rest. "
+        "Re-issue a narrower call instead: fetch a single item (.get), "
+        "use filters/offset/length params, or a smaller limit.]"
     )
 
 

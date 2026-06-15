@@ -34,7 +34,7 @@ from app.services.llm.cli_retry import (
     MAX_RETRIES, compute_backoff, is_transient_error, parse_rate_limit_event,
 )
 from app.services.llm.cli_steerable import SteerableMixin
-from app.services.llm.model_utils import _flatten_system
+from app.services.llm.model_utils import _flatten_system, invoke_tool_callback
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,32 @@ def _format_messages(messages: list[dict]) -> str:
         parts.append(f"{label}: {content}")
 
     return "\n\n".join(parts)
+
+
+async def _reap_subprocess(proc: asyncio.subprocess.Process, *, label: str) -> None:
+    """Terminate and reap a still-running CLI subprocess (bounded wait).
+
+    Called from ``finally`` blocks when a call path exits abnormally (consumer
+    abort, task cancellation, stdin failure) so no orphaned ``claude``
+    subprocess keeps running with nobody reading its output.
+    """
+    if proc.returncode is not None:
+        return
+    logger.warning(
+        f"[{label}] abnormal exit with subprocess still alive — "
+        f"terminating pid={proc.pid}"
+    )
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        return
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=5.0)
+    except BaseException:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
 
 
 def _find_claude_cli(explicit_path: str = "claude") -> str:
@@ -335,10 +361,23 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         else:
             args.extend(["--output-format", "json"])
 
-        # Chat layers: disable built-in tools for clean streaming
+        # Chat layers: expose MCP tools but block Claude Code's built-in
+        # execution/file/web/subagent tools (keeps the dispatcher↔worker boundary).
         # Workers: keep native tools (Bash, Read, Edit, etc.) + add MCP for Voxyflow ops
         if not native_tools:
-            args.extend(["--tools", ""])
+            # IMPORTANT: do NOT use `--tools ""` here. Since claude CLI ~v2.1,
+            # an empty --tools list sets the available-tool set to ZERO, which
+            # also hides the MCP tools — so the dispatcher had no callable tools
+            # and emitted tool-call XML as plain text (e.g. "<function_calls>
+            # <invoke name=...>") instead of actually creating cards / delegating.
+            # Verified: `--tools default` makes the model invoke real MCP tool_use
+            # blocks again; the disallow list keeps the dangerous built-ins off.
+            args.extend(["--tools", "default"])
+            args.extend([
+                "--disallowedTools",
+                "Bash", "BashOutput", "KillShell", "Read", "Edit", "Write",
+                "NotebookEdit", "Glob", "Grep", "WebFetch", "WebSearch", "Task",
+            ])
         else:
             # Hard-block built-in WebSearch for workers — they must use voxyflow.web.search
             # (SearXNG) instead. This is a CLI-level block, not just a prompt instruction.
@@ -534,6 +573,9 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                         await cancel_task
                     except asyncio.CancelledError:
                         pass
+                # communicate() aborted (e.g. task cancelled) with the CLI
+                # still running — terminate it so no orphan survives.
+                await _reap_subprocess(proc, label="CLI")
         finally:
             gate.release(is_worker=_is_worker)
 
@@ -705,6 +747,11 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         _last_touch = time.monotonic()
         _registry = get_cli_session_registry()
         cancel_task = None
+        # Drain stderr concurrently — if the CLI writes more than the OS pipe
+        # buffer (~64KB) to stderr while we consume stdout, it would block on
+        # the stderr write and the stdout loop would hang forever.
+        stderr_task = asyncio.create_task(proc.stderr.read())
+        completed = False
 
         try:
             proc.stdin.write(prompt.encode("utf-8"))
@@ -802,6 +849,7 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                     if info and info.is_rejected:
                         get_rate_gate().note_rate_limit(info.resets_at)
 
+            completed = True
         finally:
             gate.release(is_worker=_is_worker)
             _registry.deregister(_reg_id)
@@ -811,14 +859,25 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                     await cancel_task
                 except asyncio.CancelledError:
                     pass
+            if not completed:
+                # Abnormal exit (task cancelled / error mid-stream) — don't
+                # orphan the subprocess; reap it and drop the stderr drain.
+                await _reap_subprocess(proc, label="CLI-events")
+                if not stderr_task.done():
+                    stderr_task.cancel()
+                    try:
+                        await stderr_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
 
         await proc.wait()
+        stderr_bytes = await stderr_task
 
         if cancel_event and cancel_event.is_set():
             return "[Task cancelled by supervisor]", {}
 
         if proc.returncode != 0:
-            stderr_text = (await proc.stderr.read()).decode("utf-8", errors="replace")
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
             logger.error(f"[CLI-events] Process exited with code {proc.returncode}: {stderr_text[:500]}")
             return f"[CLI error: process exited with code {proc.returncode}]", {}
 
@@ -845,11 +904,17 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         card_id: str = "",
         session_type: str = "chat",
         cwd: str = "",
+        tool_callback: Optional[Callable[[str, dict, dict], None]] = None,
     ) -> AsyncIterator[str]:
         """Streaming CLI call via --output-format stream-json.
 
         Yields text tokens as they arrive. Usage stats available via
         self.last_usage after iteration completes.
+
+        When MCP tools are active the CLI emits full assistant/user messages
+        for the tool loop; ``tool_callback`` (if provided) is invoked with
+        ``(tool_name, arguments, result)`` for each completed MCP tool call,
+        mirroring the non-streaming ``_call_with_tool_events`` path.
         """
         system_prompt = _flatten_system(system)
         prompt = _format_messages(messages)
@@ -893,17 +958,15 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
         ))
         bind_contextvars(cli_session_id=_reg_id, cli_pid=proc.pid)
 
-        # Write prompt to stdin and close it
-        proc.stdin.write(prompt.encode("utf-8"))
-        await proc.stdin.drain()
-        proc.stdin.close()
-        await proc.stdin.wait_closed()
-
         # Track what we've already yielded to avoid duplicating from result event
         yielded_length = 0
         # Per-API-call usage from the last `assistant` event (see _call_with_tool_events
         # for rationale).
         last_assistant_usage: dict = {}
+        # Track pending tool_use blocks: id → {name, arguments} so tool_result
+        # events (type="user") can be paired with their originating call and
+        # forwarded to tool_callback (mirrors _call_with_tool_events).
+        pending_tools: dict[str, dict] = {}
 
         # Decouple subprocess draining from consumer speed: a background task
         # pulls every stdout line into a queue and releases the gate as soon as
@@ -928,8 +991,21 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 _release_gate_once()
 
         drain_task = asyncio.create_task(_drain_stdout())
+        # Drain stderr concurrently — if the CLI writes more than the OS pipe
+        # buffer (~64KB) to stderr (--verbose is on in streaming mode), it
+        # would block on the stderr write and the stdout loop would hang.
+        stderr_task = asyncio.create_task(proc.stderr.read())
+        completed = False
 
         try:
+            # Write prompt to stdin and close it — INSIDE the try so the gate
+            # slot, registry entry and subprocess are cleaned up if the CLI
+            # dies right after spawn (drain() raises BrokenPipeError).
+            proc.stdin.write(prompt.encode("utf-8"))
+            await proc.stdin.drain()
+            proc.stdin.close()
+            await proc.stdin.wait_closed()
+
             while True:
                 raw_line = await line_queue.get()
                 if raw_line is None:
@@ -966,13 +1042,48 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                     round_usage = msg.get("usage")
                     if isinstance(round_usage, dict) and round_usage:
                         last_assistant_usage = dict(round_usage)
-                    if yielded_length == 0:
-                        for block in msg.get("content", []):
-                            if block.get("type") == "text":
-                                text = block.get("text", "")
-                                if text:
-                                    yielded_length += len(text)
-                                    yield text
+                    for block in msg.get("content", []):
+                        btype = block.get("type")
+                        if btype == "tool_use":
+                            tid = block.get("id", "")
+                            pending_tools[tid] = {
+                                "name": block.get("name", ""),
+                                "arguments": block.get("input", {}),
+                            }
+                        elif btype == "text" and yielded_length == 0:
+                            text = block.get("text", "")
+                            if text:
+                                yielded_length += len(text)
+                                yield text
+
+                elif event_type == "user":
+                    # Tool results come as type="user" with content[].type="tool_result".
+                    # Pair each with its originating tool_use and fire tool_callback.
+                    msg = event.get("message", {})
+                    for block in msg.get("content", []):
+                        if block.get("type") == "tool_result":
+                            tid = block.get("tool_use_id", "")
+                            tool_info = pending_tools.pop(tid, None)
+                            if not (tool_info and tool_callback):
+                                continue
+                            # Strip MCP prefix (mcp__voxyflow__) for cleaner names
+                            raw_name = tool_info["name"]
+                            name = (
+                                raw_name.replace("mcp__voxyflow__", "").replace("_", ".", 1)
+                                if raw_name.startswith("mcp__voxyflow__")
+                                else raw_name
+                            )
+                            tool_args = tool_info["arguments"]
+                            # Extract text from content blocks
+                            result_content = block.get("content", "")
+                            if isinstance(result_content, list):
+                                result_content = " ".join(
+                                    b.get("text", "") for b in result_content
+                                    if isinstance(b, dict)
+                                )
+                            await invoke_tool_callback(
+                                tool_callback, name, tool_args, {"content": result_content}
+                            )
 
                 elif event_type == "result":
                     # Final result — extract usage for token logging
@@ -986,6 +1097,8 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                     info = parse_rate_limit_event(event)
                     if info and info.is_rejected:
                         get_rate_gate().note_rate_limit(info.resets_at)
+
+            completed = True
         finally:
             # Safety net: if the generator is closed early (consumer abort),
             # cancel the drain task and release the gate if it hasn't already.
@@ -996,13 +1109,30 @@ class ClaudeCliBackend(PersistentChatMixin, SteerableMixin):
                 except (asyncio.CancelledError, Exception):
                     pass
             _release_gate_once()
+            if not completed:
+                # Abnormal exit (consumer abort / cancellation / stdin
+                # failure) — terminate the subprocess so it doesn't keep
+                # running with nobody reading stdout, and drop the stderr
+                # drain.
+                await _reap_subprocess(proc, label="CLI-stream")
+                if not stderr_task.done():
+                    stderr_task.cancel()
+                    try:
+                        await stderr_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+            get_cli_session_registry().deregister(_reg_id)
 
         await proc.wait()
-        get_cli_session_registry().deregister(_reg_id)
+        stderr_bytes = await stderr_task
 
         if proc.returncode != 0:
-            stderr_text = (await proc.stderr.read()).decode("utf-8", errors="replace")
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
             logger.error(
                 f"[CLI-stream] Process exited with code {proc.returncode}: "
                 f"{stderr_text[:500]}"
             )
+            if yielded_length == 0:
+                # The CLI failed before emitting anything — surface the
+                # failure instead of ending as an empty assistant reply.
+                yield f"[CLI error: process exited with code {proc.returncode}]"

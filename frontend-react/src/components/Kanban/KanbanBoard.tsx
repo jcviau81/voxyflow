@@ -23,7 +23,9 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
+import { matchesCard } from '@/lib/cardFilter';
 import type { Card, CardStatus } from '../../types';
 import { useCardStore } from '../../stores/useCardStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -53,6 +55,10 @@ const COLUMN_DOT_COLORS: Record<string, string> = {
   'in-progress': 'bg-orange-500',
   done: 'bg-emerald-500',
 };
+
+// Columns above this card count switch to windowed rendering (@tanstack/react-virtual).
+// Small columns keep plain rendering so dnd-kit interactions stay 1:1 with the DOM.
+const VIRTUALIZE_THRESHOLD = 40;
 
 // ── Column sort ───────────────────────────────────────────────────────────────────────────────────
 
@@ -95,7 +101,7 @@ interface SortableCardProps {
   isWorkerActive: boolean;
 }
 
-function SortableCard({
+const SortableCard = React.memo(function SortableCard({
   card,
   selectMode,
   isSelected,
@@ -123,7 +129,7 @@ function SortableCard({
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <div className={cn(isExecuting && 'ring-2 ring-yellow-400/60 rounded-lg animate-pulse')}>
+      <div className={cn(isExecuting && 'ring-2 ring-yellow-400/60 rounded-lg animate-pulse motion-reduce:animate-none')}>
         <KanbanCard
           card={card}
           selectMode={selectMode}
@@ -140,7 +146,7 @@ function SortableCard({
       </div>
     </div>
   );
-}
+});
 
 // ── KanbanColumn ───────────────────────────────────────────────────────────────
 
@@ -189,6 +195,20 @@ function KanbanColumn({
   const cardIds = useMemo(() => sortedCards.map((c) => c.id), [sortedCards]);
   const { setNodeRef } = useDroppable({ id: status });
 
+  // ── Windowed rendering for very long columns ────────────────────────────
+  // SortableContext keeps the FULL id list (dnd-kit needs it for index math);
+  // only the DOM is windowed. Small columns render plainly.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualize = sortedCards.length > VIRTUALIZE_THRESHOLD;
+  const virtualizer = useVirtualizer({
+    count: sortedCards.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 120,
+    overscan: 8,
+    enabled: virtualize,
+    getItemKey: (index) => sortedCards[index]?.id ?? index,
+  });
+
   const allSelected = sortedCards.length > 0 && sortedCards.every((c) => selectedIds.has(c.id));
   const someSelected = sortedCards.some((c) => selectedIds.has(c.id));
 
@@ -226,7 +246,9 @@ function KanbanColumn({
   return (
     <div
       ref={setNodeRef}
-      className="group/col flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40"
+      // content-visibility lets the browser skip rendering offscreen columns
+      // (mobile stacks columns vertically); intrinsic-size avoids scroll jumps.
+      className="group/col flex flex-col min-w-40 flex-1 rounded-xl bg-muted/40 border border-border/40 [content-visibility:auto] [contain-intrinsic-size:auto_480px]"
       data-status={status}
       data-testid={`kanban-column-${status}`}
     >
@@ -286,29 +308,72 @@ function KanbanColumn({
       {/* Droppable card list */}
       <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
         <div
-          className="flex flex-col gap-2 p-2 min-h-[80px] overflow-y-auto max-h-[calc(100vh-320px)]"
+          ref={scrollRef}
+          className={cn(
+            'p-2 min-h-[80px] overflow-y-auto max-h-[calc(100vh-320px)]',
+            !virtualize && 'flex flex-col gap-2',
+          )}
           onClick={handleCardListClick}
         >
           {sortedCards.length === 0 && (
             <div className="py-8 text-center text-xs text-muted-foreground">No cards</div>
           )}
-          {sortedCards.map((card) => (
-            <SortableCard
-              key={card.id}
-              card={card}
-              selectMode={selectMode}
-              isSelected={selectedIds.has(card.id)}
-              onSelectChange={onSelectChange}
-              query={query}
-              priorityFilter={priorityFilter}
-              agentFilter={agentFilter}
-              tagFilter={tagFilter}
-              onTagClick={onTagClick}
-              onCardClick={onCardClick}
-              isExecuting={executingCardId === card.id}
-              isWorkerActive={isCardActive(card.id)}
-            />
-          ))}
+          {virtualize ? (
+            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+              {virtualizer.getVirtualItems().map((vi) => {
+                const card = sortedCards[vi.index];
+                if (!card) return null;
+                return (
+                  <div
+                    key={card.id}
+                    ref={virtualizer.measureElement}
+                    data-index={vi.index}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${vi.start}px)`,
+                      paddingBottom: 8, // matches the gap-2 of the plain path
+                    }}
+                  >
+                    <SortableCard
+                      card={card}
+                      selectMode={selectMode}
+                      isSelected={selectedIds.has(card.id)}
+                      onSelectChange={onSelectChange}
+                      query={query}
+                      priorityFilter={priorityFilter}
+                      agentFilter={agentFilter}
+                      tagFilter={tagFilter}
+                      onTagClick={onTagClick}
+                      onCardClick={onCardClick}
+                      isExecuting={executingCardId === card.id}
+                      isWorkerActive={isCardActive(card.id)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            sortedCards.map((card) => (
+              <SortableCard
+                key={card.id}
+                card={card}
+                selectMode={selectMode}
+                isSelected={selectedIds.has(card.id)}
+                onSelectChange={onSelectChange}
+                query={query}
+                priorityFilter={priorityFilter}
+                agentFilter={agentFilter}
+                tagFilter={tagFilter}
+                onTagClick={onTagClick}
+                onCardClick={onCardClick}
+                isExecuting={executingCardId === card.id}
+                isWorkerActive={isCardActive(card.id)}
+              />
+            ))
+          )}
         </div>
       </SortableContext>
     </div>
@@ -503,7 +568,7 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
   const archiveCardMut = useArchiveCard();
   const { send: wsSend, subscribe } = useWS();
 
-  // Worker execution status — poll every 3s to show per-card activity badges
+  // Worker execution status — live from the WS-fed worker store (no polling)
   const { isCardActive } = useWorkerStatus(workspaceId ?? '');
 
   // Sync fetched cards into Zustand store
@@ -626,11 +691,7 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
       const cards = cardsByColumn[status] ?? [];
       total += cards.length;
       cards.forEach((card) => {
-        if (query && !card.title.toLowerCase().includes(query.toLowerCase())) return;
-        if (priorityFilter !== null && card.priority !== priorityFilter) return;
-        if (agentFilter && (card.agentType || 'general') !== agentFilter) return;
-        if (tagFilter && !card.tags.some((t) => t.toLowerCase() === tagFilter.toLowerCase())) return;
-        visible++;
+        if (matchesCard(card, { query, priorityFilter, agentFilter, tagFilter })) visible++;
       });
     }
     return { visible, total };
@@ -731,9 +792,13 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
         }
       }
 
-      // Handle reorder within same column
+      // Handle reorder within the target column.
+      // Read FRESH state from the store — a status-change mutation may have just
+      // run above, so the memoized cardsByColumn snapshot can be stale.
       const overCard = over?.data.current?.card as Card | undefined;
-      const columnCards = cardsByColumn[targetStatus] ?? [];
+      const columnCards = Object.values(useCardStore.getState().cardsById)
+        .filter((c) => c.workspaceId === workspaceId && !c.archivedAt && c.status === targetStatus)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       const oldIndex = columnCards.findIndex((c) => c.id === activeCardData.id);
       const overIndex = overCard
         ? columnCards.findIndex((c) => c.id === overCard.id)
@@ -753,7 +818,7 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
         }
       }
     },
-    [workspaceId, patchCard, reorderCards, cardsByColumn, resolveTargetStatus, showToast],
+    [workspaceId, patchCard, reorderCards, resolveTargetStatus, showToast],
   );
 
   // ── Action handlers ──────────────────────────────────────────────────────
@@ -875,46 +940,100 @@ export function KanbanBoard({ workspaceId: workspaceIdProp, onCardClick }: Kanba
   // ── Bulk actions ─────────────────────────────────────────────────────────
 
   const handleBulkMove = useCallback(
-    (status: CardStatus) => {
-      selectedIds.forEach((id) => {
-        updateCardStore(id, { status });
-        patchCard.mutate({ cardId: id, updates: { status }, workspaceId: workspaceId ?? undefined });
-      });
-      // If moving to Done, insert selected cards at the top of the Done column
-      if (status === 'done') {
-        const selectedArr = Array.from(selectedIds);
+    async (status: CardStatus) => {
+      const ids = Array.from(selectedIds);
+      let failed = 0;
+      const movedIdSet = new Set<string>();
+      await Promise.all(
+        ids.map(async (id) => {
+          const prior = useCardStore.getState().cardsById[id];
+          updateCardStore(id, { status });
+          try {
+            await patchCard.mutateAsync({ cardId: id, updates: { status }, workspaceId: workspaceId ?? undefined });
+            movedIdSet.add(id);
+          } catch {
+            // Roll back the optimistic status change.
+            if (prior) useCardStore.getState().upsertCard(prior);
+            failed++;
+          }
+        }),
+      );
+      // If moving to Done, insert successfully moved cards at the top of the Done
+      // column — failed cards were rolled back to their original column and must
+      // not be included in the Done reorder.
+      if (status === 'done' && movedIdSet.size > 0) {
         const currentDoneCards = Object.values(useCardStore.getState().cardsById)
           .filter((c) => c.workspaceId === workspaceId && !c.archivedAt && c.status === 'done')
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        const previousOrder = currentDoneCards.map((c) => c.id);
         const doneIds = [
-          ...selectedArr,
-          ...currentDoneCards.filter((c) => !selectedIds.has(c.id)).map((c) => c.id),
+          ...ids.filter((id) => movedIdSet.has(id)),
+          ...currentDoneCards.filter((c) => !movedIdSet.has(c.id)).map((c) => c.id),
         ];
         useCardStore.getState().reorderCards(doneIds);
-        reorderCards.mutate(doneIds);
+        try {
+          await reorderCards.mutateAsync(doneIds);
+        } catch {
+          // Roll back the optimistic reorder.
+          useCardStore.getState().reorderCards(previousOrder);
+        }
       }
-      showToast(`Moved ${selectedIds.size} cards to ${status}`, 'success');
+      if (failed > 0) {
+        showToast(`Failed to move ${failed} card${failed === 1 ? '' : 's'}`, 'error');
+      } else {
+        showToast(`Moved ${ids.length} cards to ${status}`, 'success');
+      }
       clearSelection();
     },
     [selectedIds, patchCard, reorderCards, updateCardStore, showToast, clearSelection, workspaceId],
   );
 
-  const handleBulkArchive = useCallback(() => {
-    selectedIds.forEach((id) => {
-      deleteCardStore(id);
-      archiveCardMut.mutate({ cardId: id, workspaceId: workspaceId ?? undefined });
-    });
-    showToast(`Archived ${selectedIds.size} cards`, 'success');
+  const handleBulkArchive = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    let failed = 0;
+    await Promise.all(
+      ids.map(async (id) => {
+        const prior = useCardStore.getState().cardsById[id];
+        deleteCardStore(id);
+        try {
+          await archiveCardMut.mutateAsync({ cardId: id, workspaceId: workspaceId ?? undefined });
+        } catch {
+          // Roll back the optimistic removal.
+          if (prior) useCardStore.getState().upsertCard(prior);
+          failed++;
+        }
+      }),
+    );
+    if (failed > 0) {
+      showToast(`Failed to archive ${failed} card${failed === 1 ? '' : 's'}`, 'error');
+    } else {
+      showToast(`Archived ${ids.length} cards`, 'success');
+    }
     clearSelection();
   }, [selectedIds, archiveCardMut, deleteCardStore, showToast, clearSelection, workspaceId]);
 
-  const handleBulkDelete = useCallback(() => {
+  const handleBulkDelete = useCallback(async () => {
     if (!confirm(`Delete ${selectedIds.size} cards permanently? This cannot be undone.`)) return;
-    selectedIds.forEach((id) => {
-      deleteCardStore(id);
-      deleteCardMut.mutate({ cardId: id, workspaceId: workspaceId ?? undefined });
-    });
-    showToast(`Deleted ${selectedIds.size} cards`, 'success');
+    const ids = Array.from(selectedIds);
+    let failed = 0;
+    await Promise.all(
+      ids.map(async (id) => {
+        const prior = useCardStore.getState().cardsById[id];
+        deleteCardStore(id);
+        try {
+          await deleteCardMut.mutateAsync({ cardId: id, workspaceId: workspaceId ?? undefined });
+        } catch {
+          // Roll back the optimistic removal.
+          if (prior) useCardStore.getState().upsertCard(prior);
+          failed++;
+        }
+      }),
+    );
+    if (failed > 0) {
+      showToast(`Failed to delete ${failed} card${failed === 1 ? '' : 's'}`, 'error');
+    } else {
+      showToast(`Deleted ${ids.length} cards`, 'success');
+    }
     clearSelection();
   }, [selectedIds, deleteCardMut, deleteCardStore, workspaceId, showToast, clearSelection]);
 

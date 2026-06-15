@@ -54,6 +54,54 @@ def test_llm_workspace_id_accepted_in_general_chat(monkeypatch):
     assert url == f"/api/workspaces/{PROJECT_B}/cards"
 
 
+def test_workspace_entity_tools_honor_explicit_workspace_id(monkeypatch):
+    """voxyflow.workspace.* operate ON workspaces — an explicit id targets that
+    workspace, even in a workspace-scoped chat. Without this exemption, a bulk
+    'delete workspaces A and B' fan-out got redirected onto the CURRENT
+    workspace and destroyed it."""
+    monkeypatch.setenv("VOXYFLOW_WORKSPACE_ID", PROJECT_A)
+
+    url, _, _ = _build_url_and_payload(
+        method="DELETE",
+        path_template="/api/workspaces/{workspace_id}",
+        payload_transformer=None,
+        params={"workspace_id": PROJECT_B},
+        tool_name="voxyflow.workspace.delete",
+    )
+
+    assert url == f"/api/workspaces/{PROJECT_B}"
+
+
+def test_workspace_entity_tools_fall_back_to_env_when_omitted(monkeypatch):
+    monkeypatch.setenv("VOXYFLOW_WORKSPACE_ID", PROJECT_A)
+
+    url, _, _ = _build_url_and_payload(
+        method="POST",
+        path_template="/api/workspaces/{workspace_id}/archive",
+        payload_transformer=None,
+        params={},
+        tool_name="voxyflow.workspace.archive",
+    )
+
+    assert url == f"/api/workspaces/{PROJECT_A}/archive"
+
+
+def test_child_resource_tools_still_hard_scoped(monkeypatch):
+    """The exemption is for workspace-ENTITY tools only — child resources
+    (cards, wiki, …) keep the env hard-override."""
+    monkeypatch.setenv("VOXYFLOW_WORKSPACE_ID", PROJECT_A)
+
+    url, _, _ = _build_url_and_payload(
+        method="POST",
+        path_template="/api/workspaces/{workspace_id}/cards",
+        payload_transformer=None,
+        params={"workspace_id": PROJECT_B, "title": "foo"},
+        tool_name="voxyflow.card.create",
+    )
+
+    assert url == f"/api/workspaces/{PROJECT_A}/cards"
+
+
 def test_card_id_not_hard_scoped(monkeypatch):
     monkeypatch.setenv("VOXYFLOW_WORKSPACE_ID", PROJECT_A)
     monkeypatch.setenv("VOXYFLOW_CARD_ID", "current-card")

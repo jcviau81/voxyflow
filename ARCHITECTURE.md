@@ -80,8 +80,9 @@ Voxyflow is a **voice-first workspace management assistant** powered by configur
 - WebSocket provider for real-time sync
 - EventBus pattern for decoupled communication
 
-### Agent Personas (6 Specialists)
+### Agent Personas (7 Types: 1 Default + 6 Specialists)
 Cards and conversations can be routed to specialized agents:
+0. **General** ⚡ — Default fallback for general tasks, conversation, coordination
 1. **Researcher** 🔍 — Deep analysis, fact-checking, long-form research
 2. **Coder** 💻 — Code generation, debugging, optimization
 3. **Designer** 🎨 — UI/UX thinking, visual design guidance
@@ -89,7 +90,7 @@ Cards and conversations can be routed to specialized agents:
 5. **Writer** ✍️ — Content, marketing, storytelling
 6. **QA** 🧪 — Testing strategies, edge cases, validation
 
-Auto-routing detects the best agent from card title/description via two-pass keyword scoring (no LLM call).
+Auto-routing detects the best specialist from card title/description via two-pass keyword scoring (no LLM call), falling back to `general` when no specialist matches.
 
 ### ReactiveCardStore (Single Source of Truth)
 All card data on the frontend flows through `useCardStore` (`frontend-react/src/stores/useCardStore.ts`), a centralized Map-based singleton. Components subscribe to global or per-card changes and re-render automatically. This replaces ad-hoc fetching patterns and eliminates stale data.
