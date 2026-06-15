@@ -120,7 +120,12 @@ export function AppShell() {
       <div className="app-layout flex flex-1 overflow-hidden">
 
         {/* ── Sidebar ── */}
-        <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} />
+        <Sidebar
+          isOpen={sidebarOpen}
+          onToggle={toggleSidebar}
+          onPanelToggle={handlePanelToggle}
+          onOpenCommandPalette={() => setPaletteOpen(true)}
+        />
 
         {/* Mobile overlay — tap outside to close sidebar */}
         {sidebarOpen && (

@@ -13,6 +13,8 @@
  * Props:
  *   isOpen   — controlled by AppShell (Ctrl+B shortcut handled here, emits onToggle)
  *   onToggle — called to flip the open/close state in the parent
+ *   onPanelToggle        — opens a right-side drawer (notifications) in AppShell
+ *   onOpenCommandPalette — opens the Ctrl+K command palette in AppShell (Help button)
  */
 
 import { useEffect, useMemo } from 'react';
@@ -44,7 +46,12 @@ import type { Workspace } from '../../types';
 interface SidebarProps {
   isOpen: boolean;
   onToggle: () => void;
+  onPanelToggle?: (panel: 'notifications') => void;
+  onOpenCommandPalette?: () => void;
 }
+
+// External documentation target (opened in a new tab by the Docs button)
+const DOCS_URL = 'https://github.com/jcviau81/voxyflow#readme';
 
 
 
@@ -142,7 +149,7 @@ function WorkspaceItem({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function Sidebar({ isOpen, onToggle }: SidebarProps) {
+export function Sidebar({ isOpen, onToggle, onPanelToggle, onOpenCommandPalette }: SidebarProps) {
   // Stores
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeTab = useTabStore((s) => s.activeTab);
@@ -283,6 +290,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
             data-action="notifications"
             title="Notifications"
+            onClick={() => onPanelToggle?.('notifications')}
           >
             <Bell size={16} />
           </button>
@@ -324,6 +332,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
           data-action="docs"
           title="Documentation"
+          onClick={() => window.open(DOCS_URL, '_blank', 'noopener,noreferrer')}
         >
           <BookOpen size={16} />
         </button>
@@ -332,7 +341,8 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         <button
           className="sidebar-icon flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
           data-action="help"
-          title="Help"
+          title="Help (Ctrl+K)"
+          onClick={() => onOpenCommandPalette?.()}
         >
           <HelpCircle size={16} />
         </button>
