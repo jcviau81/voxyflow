@@ -9,6 +9,7 @@ param captures them.
 """
 
 from app.routes import cards
+from tests._route_introspection import flatten_routes
 
 
 # Captured from the pre-refactor monolith — do not reorder.
@@ -62,7 +63,7 @@ EXPECTED_ROUTE_TABLE = [
 def _route_table(router):
     return [
         (sorted(r.methods)[0] if r.methods else "", r.path, r.name)
-        for r in router.routes
+        for r in flatten_routes(router)
     ]
 
 
@@ -73,7 +74,7 @@ def test_route_table_snapshot_exact_order():
 
 def test_static_card_routes_registered_before_card_id():
     """/cards/unassigned and /cards/bulk-reorder must precede /cards/{card_id}."""
-    paths = [r.path for r in cards.router.routes]
+    paths = [r.path for r in flatten_routes(cards.router)]
     first_dynamic = paths.index("/api/cards/{card_id}")
     assert paths.index("/api/cards/unassigned") < first_dynamic
     assert paths.index("/api/cards/bulk-reorder") < first_dynamic
@@ -104,6 +105,6 @@ def test_router_mounted_in_app():
     """main.py still picks up the cards router (same paths reachable in the app)."""
     from app.main import app
 
-    app_paths = {getattr(r, "path", None) for r in app.routes}
+    app_paths = {r.path for r in flatten_routes(app)}
     for _method, path, _name in EXPECTED_ROUTE_TABLE:
         assert path in app_paths, f"route missing from app: {path}"

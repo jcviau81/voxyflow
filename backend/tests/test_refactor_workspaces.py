@@ -16,6 +16,7 @@ The former monolithic ``app/routes/workspaces.py`` was split into the
 from fastapi import APIRouter
 
 from app.routes import workspaces
+from tests._route_introspection import flatten_routes
 
 # Captured from the pre-refactor app/routes/workspaces.py at commit 1ebc093
 # (order is load-bearing — do not sort).
@@ -56,9 +57,8 @@ EXPECTED_ROUTE_TABLE = [
 
 def _route_table(router: APIRouter) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
-    for r in router.routes:
-        methods = sorted(m for m in (getattr(r, "methods", None) or []) if m != "HEAD")
-        for m in methods:
+    for r in flatten_routes(router):
+        for m in sorted(m for m in r.methods if m != "HEAD"):
             rows.append((m, r.path))
     return rows
 
@@ -79,7 +79,7 @@ def test_static_paths_registered_before_dynamic_get():
 
 
 def test_all_routes_tagged_workspaces():
-    tags = {tuple(r.tags) for r in workspaces.router.routes}
+    tags = {tuple(r.tags) for r in flatten_routes(workspaces.router)}
     assert tags == {("workspaces",)}
 
 
@@ -87,14 +87,13 @@ def test_main_app_route_table_matches():
     """The table as mounted on the real app is identical (no prefix drift)."""
     from app.main import app
 
+    expected_paths = {p for _, p in EXPECTED_ROUTE_TABLE}
     app_rows = []
-    for r in app.routes:
-        path = getattr(r, "path", "")
-        if path in {p for _, p in EXPECTED_ROUTE_TABLE}:
-            methods = sorted(m for m in (getattr(r, "methods", None) or []) if m != "HEAD")
-            for m in methods:
-                if (m, path) in EXPECTED_ROUTE_TABLE:
-                    app_rows.append((m, path))
+    for r in flatten_routes(app):
+        if r.path in expected_paths:
+            for m in sorted(m for m in r.methods if m != "HEAD"):
+                if (m, r.path) in EXPECTED_ROUTE_TABLE:
+                    app_rows.append((m, r.path))
     # Every expected route is mounted exactly once, in the same order.
     assert app_rows == EXPECTED_ROUTE_TABLE
 
