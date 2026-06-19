@@ -12,6 +12,8 @@ from app.database import WorkerTask
 from app.services.orchestration.worker_pool import DeepWorkerPool, PREVIEW_CHARS, _preview
 from app.services.worker_session_store import get_worker_session_store
 
+pytestmark = pytest.mark.db
+
 
 @pytest.mark.asyncio
 async def test_result_summary_stores_full_content_in_db():

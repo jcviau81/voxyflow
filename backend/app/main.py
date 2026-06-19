@@ -34,7 +34,7 @@ from app.routes.settings import get_default_worker_model
 from app.services.logging_config import bind_contextvars, bound_contextvars, clear_contextvars, configure_logging
 
 _log_level = logging.DEBUG if get_settings().debug else logging.INFO
-_log_dir = os.path.expanduser("~/.voxyflow/logs")
+_log_dir = os.path.expanduser(os.environ.get("VOXYFLOW_LOG_DIR", "~/.voxyflow/logs"))
 
 # systemd already redirects stderr into the journal / backend.log, so we skip
 # the stream handler here and write straight to a rotating file.
