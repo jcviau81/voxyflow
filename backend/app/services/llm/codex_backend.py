@@ -766,7 +766,7 @@ class CodexCliBackend:
 
         usage = ctx.usage
         # Snapshot for the external last_usage property (last-completed call).
-        self._last_usage = usage
+        self._last_usage = dict(usage)
         response = "\n\n".join(part for part in response_parts if part).strip()
         logger.info(
             "[CodexCLI] Complete: %s chars, in=%s out=%s",

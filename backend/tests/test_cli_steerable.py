@@ -136,6 +136,17 @@ def _normal_proc_lines() -> list[bytes]:
     return _make_jsonl_lines(THREAD_STARTED_EVENT, AGENT_MSG_EVENT, TURN_COMPLETED_EVENT)
 
 
+def _normal_proc_lines_for(thread_id: str, text: str, input_tokens: int) -> list[bytes]:
+    return _make_jsonl_lines(
+        {"type": "thread.started", "thread_id": thread_id},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": text}},
+        {
+            "type": "turn.completed",
+            "usage": {"input_tokens": input_tokens, "output_tokens": 1},
+        },
+    )
+
+
 def _steer_proc_lines() -> list[bytes]:
     """Proc that only emits thread.started then gets terminated by the steer watcher."""
     return _make_jsonl_lines(THREAD_STARTED_EVENT)
@@ -407,3 +418,60 @@ async def test_steer_post_completion_is_noop():
         f"Expected 1 spawn (no resume), got {len(spawn_calls)}"
     )
     assert response == "Working..."
+
+
+@pytest.mark.asyncio
+async def test_concurrent_codex_calls_keep_per_call_state_isolated():
+    """One shared backend can serve two workspaces without mixing call state."""
+    procs = [
+        _FakeProc(
+            stdout_lines=_normal_proc_lines_for("thread-A", "response A", 11),
+            pid=1001,
+        ),
+        _FakeProc(
+            stdout_lines=_normal_proc_lines_for("thread-B", "response B", 22),
+            pid=1002,
+        ),
+    ]
+    spawn_count = 0
+
+    async def _fake_spawn(*args, **kwargs):
+        nonlocal spawn_count
+        proc = procs[spawn_count]
+        spawn_count += 1
+        return proc
+
+    backend = CodexCliBackend(cli_path="/fake/codex")
+
+    async def _call(workspace_id: str):
+        return await backend.call(
+            model="gpt-5.4-mini",
+            system="sys",
+            messages=[{"role": "user", "content": workspace_id}],
+            chat_id=f"workspace:{workspace_id}",
+            workspace_id=workspace_id,
+            session_type="chat",
+        )
+
+    with (
+        patch("asyncio.create_subprocess_exec", side_effect=_fake_spawn),
+        patch(
+            "app.services.llm.codex_backend.get_cli_session_registry",
+            return_value=_registry_mock(),
+        ),
+        patch("app.services.llm.codex_backend.new_cli_session_id", side_effect=["reg-A", "reg-B"]),
+        patch("app.services.llm.codex_backend.bind_contextvars"),
+    ):
+        result_a, result_b = await asyncio.gather(
+            _call("workspace-A"),
+            _call("workspace-B"),
+        )
+
+    assert sorted([result_a, result_b], key=lambda item: item[0]) == [
+        ("response A", {"input_tokens": 11, "output_tokens": 1}),
+        ("response B", {"input_tokens": 22, "output_tokens": 1}),
+    ]
+    assert {
+        backend.get_thread_id("workspace:workspace-A"),
+        backend.get_thread_id("workspace:workspace-B"),
+    } == {"thread-A", "thread-B"}
