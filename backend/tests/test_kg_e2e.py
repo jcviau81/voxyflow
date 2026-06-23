@@ -23,6 +23,8 @@ import uuid
 import pytest
 import httpx
 
+pytestmark = pytest.mark.db
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 BASE = "http://localhost:8000"
