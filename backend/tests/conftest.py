@@ -7,6 +7,7 @@ production database is never touched.
 """
 
 import os
+import sys
 import pytest
 
 os.environ.setdefault("VOXYFLOW_LOG_DIR", "/tmp/voxyflow-test-logs")
@@ -51,6 +52,10 @@ def _init_test_database_once():
 
     db_module.engine = test_engine
     db_module.async_session = test_session
+    kg_module = sys.modules.get("app.services.knowledge_graph_service")
+    if kg_module is not None:
+        kg_module.async_session = test_session
+        kg_module._kg_service = None
     _DB_PATCH_STATE.update({
         "initialized": True,
         "original_engine": original_engine,

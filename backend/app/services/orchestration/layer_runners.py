@@ -181,6 +181,7 @@ class LayerRunnersMixin:
         is_callback: bool = False,
         role: str = "dispatcher",
         autonomy_directive_path: str = "",
+        turn_generation: int | None = None,
     ) -> bool:
         """Run the fast layer, streaming tokens to the WebSocket.
 
@@ -196,6 +197,7 @@ class LayerRunnersMixin:
 
         try:
             first_token_sent = False
+            stream_started = False
             # For callbacks: buffer tokens to check for [SILENT] before sending
             buffered_tokens: list[str] = [] if is_callback else []
 
@@ -231,6 +233,29 @@ class LayerRunnersMixin:
                     # Buffer — don't send yet, check for [SILENT] at end
                     buffered_tokens.append(token)
                 else:
+                    if hasattr(self, "is_turn_current") and not self.is_turn_current(
+                        chat_id, turn_generation, message_id,
+                    ):
+                        logger.info(
+                            "[Orchestrator] Fast response stale during stream — "
+                            "cancelling send"
+                        )
+                        if stream_started:
+                            await ws_broadcast.send_and_fanout_chat(
+                                websocket, chat_id, "chat:response",
+                                {
+                                    "messageId": message_id,
+                                    "content": "",
+                                    "model": fast_model_label,
+                                    "streaming": True,
+                                    "done": True,
+                                    "cancelled": True,
+                                    "sessionId": session_id,
+                                    "chatId": chat_id,
+                                },
+                            )
+                        await send_model_status("fast", "idle")
+                        return True
                     await ws_broadcast.send_and_fanout_chat(
                         websocket, chat_id, "chat:response",
                         {
@@ -243,6 +268,7 @@ class LayerRunnersMixin:
                             "chatId": chat_id,
                         },
                     )
+                    stream_started = True
 
             # [SILENT] / transient backend-error suppression for callback responses.
             # Worker results are already persisted; a saturated dispatcher model should
@@ -256,9 +282,27 @@ class LayerRunnersMixin:
                 await send_model_status("fast", "idle")
                 return True
 
+            if is_callback and hasattr(self, "is_turn_current"):
+                if not self.is_turn_current(chat_id, turn_generation, message_id):
+                    logger.info(
+                        "[Orchestrator] Callback response stale before flush — "
+                        "suppressing chat output; ambient events stay queued"
+                    )
+                    await send_model_status("fast", "idle")
+                    return True
+
             # For callbacks: flush buffered tokens now that we know it's not suppressed
             if is_callback and buffered_tokens:
                 for tok in buffered_tokens:
+                    if hasattr(self, "is_turn_current") and not self.is_turn_current(
+                        chat_id, turn_generation, message_id,
+                    ):
+                        logger.info(
+                            "[Orchestrator] Callback became stale during flush — "
+                            "stopping partial send; ambient events stay queued"
+                        )
+                        await send_model_status("fast", "idle")
+                        return True
                     await ws_broadcast.send_and_fanout_chat(
                         websocket, chat_id, "chat:response",
                         {
@@ -290,6 +334,14 @@ class LayerRunnersMixin:
                 )
 
             # Send stream-done signal
+            if is_callback and hasattr(self, "is_turn_current"):
+                if not self.is_turn_current(chat_id, turn_generation, message_id):
+                    logger.info(
+                        "[Orchestrator] Callback response stale before done — "
+                        "suppressing completion; ambient events stay queued"
+                    )
+                    await send_model_status("fast", "idle")
+                    return True
             latency = int((time.time() - start) * 1000)
             logger.info(f"[Layer1-Fast] stream complete in {latency}ms")
             done_payload = {
@@ -351,6 +403,7 @@ class LayerRunnersMixin:
         send_model_status,
         active_workers_context: str = "",
         is_callback: bool = False,
+        turn_generation: int | None = None,
     ) -> bool:
         """Run the Deep layer as the primary chat responder (streaming).
 
@@ -369,6 +422,7 @@ class LayerRunnersMixin:
 
         try:
             first_token_sent = False
+            stream_started = False
             buffered_tokens: list[str] = [] if is_callback else []
             live_state_block, worker_events_block, session_handoff_block, peeked_event_count = await _compute_ambient_blocks(
                 self._worker_pools, session_id, chat_id,
@@ -399,6 +453,29 @@ class LayerRunnersMixin:
                 if is_callback:
                     buffered_tokens.append(token)
                 else:
+                    if hasattr(self, "is_turn_current") and not self.is_turn_current(
+                        chat_id, turn_generation, message_id,
+                    ):
+                        logger.info(
+                            "[Orchestrator] Deep response stale during stream — "
+                            "cancelling send"
+                        )
+                        if stream_started:
+                            await ws_broadcast.send_and_fanout_chat(
+                                websocket, chat_id, "chat:response",
+                                {
+                                    "messageId": message_id,
+                                    "content": "",
+                                    "model": deep_model_label,
+                                    "streaming": True,
+                                    "done": True,
+                                    "cancelled": True,
+                                    "sessionId": session_id,
+                                    "chatId": chat_id,
+                                },
+                            )
+                        await send_model_status("deep", "idle")
+                        return True
                     await ws_broadcast.send_and_fanout_chat(
                         websocket, chat_id, "chat:response",
                         {
@@ -411,6 +488,7 @@ class LayerRunnersMixin:
                             "chatId": chat_id,
                         },
                     )
+                    stream_started = True
 
             if is_callback and deep_full_response.strip() == "[SILENT]":
                 logger.info("[Orchestrator] Deep callback response is [SILENT] — suppressing; ambient events stay queued")
@@ -421,8 +499,26 @@ class LayerRunnersMixin:
                 await send_model_status("deep", "idle")
                 return True
 
+            if is_callback and hasattr(self, "is_turn_current"):
+                if not self.is_turn_current(chat_id, turn_generation, message_id):
+                    logger.info(
+                        "[Orchestrator] Deep callback response stale before flush — "
+                        "suppressing chat output; ambient events stay queued"
+                    )
+                    await send_model_status("deep", "idle")
+                    return True
+
             if is_callback and buffered_tokens:
                 for tok in buffered_tokens:
+                    if hasattr(self, "is_turn_current") and not self.is_turn_current(
+                        chat_id, turn_generation, message_id,
+                    ):
+                        logger.info(
+                            "[Orchestrator] Deep callback became stale during flush — "
+                            "stopping partial send; ambient events stay queued"
+                        )
+                        await send_model_status("deep", "idle")
+                        return True
                     await ws_broadcast.send_and_fanout_chat(
                         websocket, chat_id, "chat:response",
                         {
@@ -454,6 +550,14 @@ class LayerRunnersMixin:
                 )
 
             # Send stream-done signal
+            if is_callback and hasattr(self, "is_turn_current"):
+                if not self.is_turn_current(chat_id, turn_generation, message_id):
+                    logger.info(
+                        "[Orchestrator] Deep callback response stale before done — "
+                        "suppressing completion; ambient events stay queued"
+                    )
+                    await send_model_status("deep", "idle")
+                    return True
             latency = int((time.time() - start) * 1000)
             logger.info(f"[Layer-Deep-Chat] stream complete in {latency}ms")
             done_payload = {
@@ -498,4 +602,3 @@ class LayerRunnersMixin:
                 await send_model_status("deep", "idle")
             except Exception:
                 logger.debug("[Layer-Deep-Chat] Could not send final idle status (WS likely closed)")
-

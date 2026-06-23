@@ -146,11 +146,11 @@ def _build_outputs() -> dict[str, str]:
             _WS, _CARD, {"system_prompt": "PERSONA-PROMPT"}
         )
 
-        # Legacy generic builder (tone/warmth/language modifiers)
-        out["system_prompt"] = svc.build_system_prompt(
+        # Agent prompt compatibility wrapper (tone/warmth/language modifiers)
+        out["system_prompt"] = svc.build_agent_prompt(
+            "AGENT-PERSONA",
             "BASE-TASK",
-            include_memory_context="MEMORY-CONTEXT",
-            agent_persona="AGENT-PERSONA",
+            memory_context="MEMORY-CONTEXT",
         )
 
         # Dispatcher prompts — every native_tools mode

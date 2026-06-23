@@ -650,6 +650,62 @@ async def test_callback_mid_turn_not_cancelled_by_new_completion(monkeypatch):
     assert "chat-1" not in pool._callback_debouncers
 
 
+@pytest.mark.asyncio
+async def test_two_close_callbacks_do_not_block_user_turn(monkeypatch):
+    """Two workers finishing close together should coalesce into one callback.
+    If the user speaks while that callback is in-flight, the user turn must
+    cancel the callback and acquire the chat lock promptly.
+    """
+    from app.services.chat_orchestration import ChatOrchestrator
+
+    monkeypatch.setenv("DISPATCHER_WORKER_CALLBACK", "1")
+    orch = ChatOrchestrator(MagicMock())
+    callback_started = asyncio.Event()
+    callback_cancelled = asyncio.Event()
+    user_finished = asyncio.Event()
+    callback_invocations = 0
+
+    async def fake_inner(**kwargs):
+        nonlocal callback_invocations
+        if kwargs["is_callback"]:
+            callback_invocations += 1
+            callback_started.set()
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                callback_cancelled.set()
+                raise
+        user_finished.set()
+        return []
+
+    monkeypatch.setattr(orch, "_handle_message_inner", fake_inner)
+    pool = _make_pool_for_callbacks(orchestrator=orch, ws=_fake_live_ws(), debounce=0.02)
+
+    pool._schedule_dispatcher_callback("chat-1", _make_event(task_id="T1"))
+    await asyncio.sleep(0.01)
+    pool._schedule_dispatcher_callback("chat-1", _make_event(task_id="T2"))
+
+    await asyncio.wait_for(callback_started.wait(), timeout=1)
+    assert callback_invocations == 1
+
+    result = await asyncio.wait_for(
+        orch.handle_message(
+            websocket=MagicMock(),
+            content="ohhh lock ici tu repond pas",
+            message_id="user-after-callback",
+            chat_id="chat-1",
+            workspace_id="proj-1",
+            is_callback=False,
+            session_id="sess-1",
+        ),
+        timeout=1,
+    )
+
+    assert result == []
+    assert user_finished.is_set()
+    assert callback_cancelled.is_set()
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher-facing task ids — must be usable verbatim with task.peek /
 # task.cancel / workers.read_artifact (all exact-match lookups).

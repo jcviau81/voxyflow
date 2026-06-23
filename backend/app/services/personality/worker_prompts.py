@@ -21,6 +21,9 @@ class WorkerPromptsMixin:
         from app.tools.registry import TOOLS_WORKER
         tool_list = self._build_tool_section(TOOLS_WORKER, chat_level)
         context = self._build_worker_context_section(chat_level, workspace, card)
+        identity = self.load_identity()
+        soul = self.load_soul()
+        user = self.load_user()
         worker_rules = self.load_worker()
 
         web_search_rule = (
@@ -41,15 +44,27 @@ class WorkerPromptsMixin:
 
         process_safety_rule = self._build_reserved_ports_rule(role="worker")
 
-        return (
-            f"{worker_rules}\n\n"
-            f"## Active Role: Worker (Task Executor)\n\n"
-            f"## Available Tools\n{tool_list}\n\n"
-            f"{web_search_rule}\n\n"
-            f"{script_rule}\n\n"
-            f"{process_safety_rule}\n\n"
-            f"## Context\n{context}"
-        )
+        sections = []
+        if identity:
+            sections.append(identity)
+        if soul:
+            sections.append(soul)
+        if user:
+            sections.append(user)
+        settings_overrides = self._build_settings_overrides_section()
+        if settings_overrides:
+            sections.append(settings_overrides)
+        if worker_rules:
+            sections.append(worker_rules)
+        sections.extend([
+            "## Active Role: Worker (Task Executor)",
+            f"## Available Tools\n{tool_list}",
+            web_search_rule,
+            script_rule,
+            process_safety_rule,
+            f"## Context\n{context}",
+        ])
+        return "\n\n".join(sections)
 
     def _build_worker_context_section(self, chat_level: str, workspace: Optional[dict], card: Optional[dict]) -> str:
         """Build context section for worker prompts with full IDs and details."""
@@ -91,4 +106,30 @@ class WorkerPromptsMixin:
         )
 
     def build_agent_prompt(self, agent_persona: str, task_context: str, memory_context: Optional[str] = None) -> str:
-        return self.build_system_prompt(base_prompt=task_context, include_memory_context=memory_context, agent_persona=agent_persona)
+        sections: list[str] = []
+
+        identity = self.load_identity()
+        soul = self.load_soul()
+        agents = self.load_agents()
+        user = self.load_user()
+        if identity:
+            sections.append(identity)
+        if soul:
+            sections.append(soul)
+        if agents:
+            sections.append(agents)
+        if user:
+            sections.append(user)
+        settings_overrides = self._build_settings_overrides_section()
+        if settings_overrides:
+            sections.append(settings_overrides)
+        if memory_context:
+            sections.append(
+                "## Retrieved fragments (may be noisy — raw semantic hits, not curated truth; "
+                "scores below ~0.20 are background noise)\n"
+                f"{memory_context}"
+            )
+        if agent_persona:
+            sections.append(f"## Specialized Role\n{agent_persona}")
+        sections.append(f"## Your Current Task\n{task_context}")
+        return "\n\n".join(sections)
